@@ -1,11 +1,10 @@
-use std::path::Path;
 use std::sync::LazyLock;
 
 use regex::Regex;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
-use thiserror::Error;
 use unicode_normalization::UnicodeNormalization;
 use uuid::Uuid;
 
@@ -21,6 +20,27 @@ pub enum SegmentState {
     Confirmed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ProjectLifecycle {
+    Active,
+    Archived,
+    Trash,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectConfiguration {
+    #[serde(default)]
+    pub template_id: Option<String>,
+    #[serde(default)]
+    pub qa_profile_id: Option<String>,
+    #[serde(default)]
+    pub pipeline_id: Option<String>,
+    #[serde(default)]
+    pub engine_allowlist: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
@@ -29,8 +49,21 @@ pub struct Project {
     pub source_locale: String,
     pub target_locale: String,
     pub domain: String,
+    pub lifecycle: ProjectLifecycle,
+    pub revision: u64,
+    pub configuration: ProjectConfiguration,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
+    #[serde(default)]
+    pub archived_at_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum DocumentStatus {
+    Active,
+    Failed,
+    Superseded,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -39,10 +72,160 @@ pub struct Document {
     pub id: String,
     pub project_id: String,
     pub name: String,
+    pub relative_path: String,
     pub format: String,
+    pub filter_id: String,
     pub source_sha256: String,
+    pub current_version: u32,
+    pub status: DocumentStatus,
+    pub revision: u64,
     pub segment_count: u32,
+    pub degradation: Vec<DegradationFinding>,
     pub imported_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentVersion {
+    pub id: String,
+    pub document_id: String,
+    pub version: u32,
+    pub source_sha256: String,
+    pub original_source_path: String,
+    pub managed_source_path: String,
+    pub reason: String,
+    pub created_at_ms: i64,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum TagSide {
+    Source,
+    Target,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum TagKind {
+    Start,
+    End,
+    Standalone,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InlineTag {
+    pub id: String,
+    pub side: TagSide,
+    pub position: u32,
+    pub kind: TagKind,
+    #[serde(default)]
+    pub pair_id: Option<String>,
+    pub payload: String,
+    pub display_text: String,
+    pub protected: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentNote {
+    pub id: String,
+    pub text: String,
+    #[serde(default)]
+    pub author: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum DegradationSeverity {
+    Warning,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DegradationFinding {
+    pub code: String,
+    pub severity: DegradationSeverity,
+    pub message: String,
+    #[serde(default)]
+    pub structural_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Operation {
+    pub id: String,
+    pub project_id: String,
+    pub sequence: u64,
+    pub entity_type: String,
+    pub entity_id: String,
+    pub kind: String,
+    #[serde(default)]
+    pub base_revision: Option<u64>,
+    #[serde(default)]
+    pub result_revision: Option<u64>,
+    pub actor: String,
+    #[serde(default)]
+    pub correlation_id: Option<String>,
+    #[serde(default)]
+    pub before: Option<Value>,
+    #[serde(default)]
+    pub after: Option<Value>,
+    pub created_at_ms: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum HealthSeverity {
+    Info,
+    Warning,
+    Error,
+    Fatal,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct HealthFinding {
+    pub code: String,
+    pub severity: HealthSeverity,
+    pub message: String,
+    #[serde(default)]
+    pub entity_type: Option<String>,
+    #[serde(default)]
+    pub entity_id: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DataHealthReport {
+    pub schema_version: u32,
+    pub healthy: bool,
+    pub findings: Vec<HealthFinding>,
+    pub checked_at_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupFile {
+    pub relative_path: String,
+    pub size: u64,
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupManifest {
+    pub format_version: u32,
+    pub engine_version: String,
+    pub schema_version: u32,
+    pub created_at_ms: i64,
+    pub files: Vec<BackupFile>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -131,124 +314,6 @@ pub struct QaIssue {
     pub evidence: NumberEvidence,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImportedUnit {
-    pub ordinal: u32,
-    pub structural_path: String,
-    pub source_text: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FilterEvent {
-    StartDocument,
-    StartUnit {
-        ordinal: u32,
-        structural_path: String,
-    },
-    Text(String),
-    EndUnit,
-    EndDocument,
-}
-
-pub trait DocumentFilter {
-    fn extract_events(&self, source: &Path) -> Result<Vec<FilterEvent>, FilterError>;
-}
-
-pub fn collect_imported_units(
-    events: Vec<FilterEvent>,
-) -> Result<Vec<ImportedUnit>, PipelineError> {
-    let mut events = events.into_iter();
-    if !matches!(events.next(), Some(FilterEvent::StartDocument)) {
-        return Err(PipelineError::InvalidSequence(
-            "event stream must begin with StartDocument".to_string(),
-        ));
-    }
-
-    let mut units = Vec::new();
-    let mut current: Option<ImportedUnit> = None;
-    let mut ended = false;
-    for event in events {
-        if ended {
-            return Err(PipelineError::InvalidSequence(
-                "event found after EndDocument".to_string(),
-            ));
-        }
-        match event {
-            FilterEvent::StartDocument => {
-                return Err(PipelineError::InvalidSequence(
-                    "nested StartDocument event".to_string(),
-                ));
-            }
-            FilterEvent::StartUnit {
-                ordinal,
-                structural_path,
-            } => {
-                if current.is_some() {
-                    return Err(PipelineError::InvalidSequence(
-                        "nested StartUnit event".to_string(),
-                    ));
-                }
-                current = Some(ImportedUnit {
-                    ordinal,
-                    structural_path,
-                    source_text: String::new(),
-                });
-            }
-            FilterEvent::Text(text) => current
-                .as_mut()
-                .ok_or_else(|| {
-                    PipelineError::InvalidSequence("Text event outside a unit".to_string())
-                })?
-                .source_text
-                .push_str(&text),
-            FilterEvent::EndUnit => {
-                let unit = current.take().ok_or_else(|| {
-                    PipelineError::InvalidSequence("EndUnit without StartUnit".to_string())
-                })?;
-                if normalize_text(&unit.source_text).is_empty() {
-                    return Err(PipelineError::EmptyUnit(unit.structural_path));
-                }
-                units.push(unit);
-            }
-            FilterEvent::EndDocument => {
-                if current.is_some() {
-                    return Err(PipelineError::InvalidSequence(
-                        "EndDocument while a unit is open".to_string(),
-                    ));
-                }
-                ended = true;
-            }
-        }
-    }
-
-    if !ended {
-        return Err(PipelineError::InvalidSequence(
-            "event stream must end with EndDocument".to_string(),
-        ));
-    }
-    Ok(units)
-}
-
-#[derive(Debug, Error)]
-pub enum FilterError {
-    #[error("unsupported document: {0}")]
-    Unsupported(String),
-    #[error("invalid document: {0}")]
-    Invalid(String),
-    #[error("document I/O failed: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("document processing failed: {0}")]
-    Processing(String),
-}
-
-#[derive(Debug, Error)]
-pub enum PipelineError {
-    #[error("invalid filter event sequence: {0}")]
-    InvalidSequence(String),
-    #[error("filter emitted an empty unit at {0}")]
-    EmptyUnit(String),
 }
 
 pub fn new_id() -> String {
@@ -367,30 +432,5 @@ mod tests {
         let (source_b, context_b) = segment_hashes("Same", Some("Other"), None);
         assert_eq!(source_a, source_b);
         assert_ne!(context_a, context_b);
-    }
-
-    #[test]
-    fn collects_filter_events_into_units() {
-        let units = collect_imported_units(vec![
-            FilterEvent::StartDocument,
-            FilterEvent::StartUnit {
-                ordinal: 0,
-                structural_path: "word/document.xml#p:0".to_string(),
-            },
-            FilterEvent::Text("Hello ".to_string()),
-            FilterEvent::Text("world".to_string()),
-            FilterEvent::EndUnit,
-            FilterEvent::EndDocument,
-        ])
-        .expect("valid event stream");
-        assert_eq!(units.len(), 1);
-        assert_eq!(units[0].source_text, "Hello world");
-    }
-
-    #[test]
-    fn rejects_incomplete_filter_streams() {
-        let error = collect_imported_units(vec![FilterEvent::StartDocument])
-            .expect_err("missing EndDocument must fail");
-        assert!(matches!(error, PipelineError::InvalidSequence(_)));
     }
 }

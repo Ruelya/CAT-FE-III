@@ -25,6 +25,16 @@ pub enum StorageError {
         actual_revision: u64,
     },
 
+    #[error(
+        "{entity} revision conflict for {id}: expected {expected_revision}, actual {actual_revision}"
+    )]
+    EntityConflict {
+        entity: &'static str,
+        id: String,
+        expected_revision: u64,
+        actual_revision: u64,
+    },
+
     #[error("invalid state: {0}")]
     InvalidState(String),
 

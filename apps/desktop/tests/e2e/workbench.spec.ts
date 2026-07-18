@@ -28,14 +28,16 @@ async function launchHarness(label: string): Promise<ElectronHarness> {
   );
   const exportPath = join(dataDirectory, "translated.docx");
   const fixture = join(workspaceRoot, "fixtures", "docx", "m0-source.docx");
-  const engine = join(
-    workspaceRoot,
-    "target",
-    "debug",
-    process.platform === "win32"
-      ? "translunar-engine.exe"
-      : "translunar-engine",
-  );
+  const engine =
+    process.env.TRANSLUNAR_ENGINE_PATH ??
+    join(
+      workspaceRoot,
+      "target",
+      "debug",
+      process.platform === "win32"
+        ? "translunar-engine.exe"
+        : "translunar-engine",
+    );
   const consoleErrors: string[] = [];
   const application = await electron.launch({
     args: ["--no-sandbox", "."],

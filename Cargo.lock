@@ -945,6 +945,7 @@ dependencies = [
  "regex",
  "schemars",
  "serde",
+ "serde_json",
  "sha2",
  "thiserror",
  "unicode-normalization",
@@ -965,9 +966,23 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "translunar-domain",
+ "translunar-filter-core",
  "translunar-filter-docx",
+ "translunar-pipeline",
  "translunar-protocol",
  "translunar-storage",
+]
+
+[[package]]
+name = "translunar-filter-core"
+version = "0.1.0"
+dependencies = [
+ "schemars",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "translunar-domain",
 ]
 
 [[package]]
@@ -979,7 +994,18 @@ dependencies = [
  "tempfile",
  "thiserror",
  "translunar-domain",
+ "translunar-filter-core",
  "zip",
+]
+
+[[package]]
+name = "translunar-pipeline"
+version = "0.1.0"
+dependencies = [
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
@@ -990,6 +1016,8 @@ dependencies = [
  "serde",
  "serde_json",
  "translunar-domain",
+ "translunar-filter-core",
+ "translunar-pipeline",
 ]
 
 [[package]]
@@ -998,10 +1026,15 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "rusqlite",
+ "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror",
  "translunar-domain",
+ "translunar-filter-core",
+ "translunar-filter-docx",
+ "translunar-pipeline",
 ]
 
 [[package]]

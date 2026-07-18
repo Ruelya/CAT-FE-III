@@ -12,9 +12,11 @@ use quick_xml::events::{BytesText, Event};
 use quick_xml::{Reader, Writer};
 use tempfile::NamedTempFile;
 use thiserror::Error;
-use translunar_domain::{
-    DocumentFilter, FilterError, FilterEvent, ImportedUnit, Segment, collect_imported_units,
-    normalize_text,
+use translunar_domain::{Segment, normalize_text};
+use translunar_filter_core::{
+    DocumentFilter, DocumentMetadata, ExportReport, ExportRequest, FilterCapabilities,
+    FilterDescriptor, FilterError, FilterEvent, FilterEventStream, ImportRequest, ImportedUnit,
+    ProbeResult, ValidationReport, collect_imported_document,
 };
 use zip::ZipArchive;
 use zip::write::ZipWriter;
@@ -38,7 +40,7 @@ pub enum DocxError {
     InvalidPackage(String),
 
     #[error("invalid filter event stream: {0}")]
-    Pipeline(#[from] translunar_domain::PipelineError),
+    Pipeline(#[from] FilterError),
 
     #[error("failed to publish DOCX export: {0}")]
     Publish(PathBuf, #[source] std::io::Error),
@@ -54,7 +56,8 @@ pub struct DocxFilter;
 
 impl DocxFilter {
     pub fn extract_units(&self, source: &Path) -> Result<Vec<ImportedUnit>, DocxError> {
-        collect_imported_units(self.extract_events_inner(source)?).map_err(Into::into)
+        let events = self.extract_events_inner(source)?.into_iter().map(Ok);
+        Ok(collect_imported_document(events)?.units)
     }
 
     pub fn validate(&self, source: &Path) -> Result<(), DocxError> {
@@ -129,13 +132,69 @@ impl DocxFilter {
 }
 
 impl DocumentFilter for DocxFilter {
-    fn extract_events(&self, source: &Path) -> Result<Vec<FilterEvent>, FilterError> {
-        self.extract_events_inner(source)
-            .map_err(|error| match error {
-                DocxError::Io(error) => FilterError::Io(error),
-                DocxError::InvalidPackage(message) => FilterError::Invalid(message),
-                other => FilterError::Processing(other.to_string()),
-            })
+    fn descriptor(&self) -> FilterDescriptor {
+        FilterDescriptor {
+            id: "builtin.docx".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            display_name: "Microsoft Word DOCX".to_string(),
+            extensions: vec!["docx".to_string()],
+            capabilities: FilterCapabilities {
+                import: true,
+                export: true,
+                validate: true,
+                inline_tags: false,
+                notes: false,
+                degradation_report: true,
+            },
+        }
+    }
+
+    fn probe(&self, source: &Path) -> Result<ProbeResult, FilterError> {
+        let extension_matches = source
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("docx"));
+        if !extension_matches {
+            return Ok(ProbeResult::no_match("file extension is not .docx"));
+        }
+        match DocxFilter::validate(self, source) {
+            Ok(()) => Ok(ProbeResult::matches(100, "valid DOCX OOXML package")),
+            Err(DocxError::Io(error)) => Err(FilterError::Io(error)),
+            Err(error) => Ok(ProbeResult::no_match(error.to_string())),
+        }
+    }
+
+    fn import(&self, request: ImportRequest) -> Result<FilterEventStream, FilterError> {
+        let events = self
+            .extract_events_inner(&request.source)
+            .map_err(map_docx_error)?;
+        Ok(Box::new(events.into_iter().map(Ok)))
+    }
+
+    fn export(&self, request: ExportRequest<'_>) -> Result<ExportReport, FilterError> {
+        let summary = DocxFilter::export(self, request.source, request.output, request.segments)
+            .map_err(map_docx_error)?;
+        Ok(ExportReport {
+            output_path: request.output.display().to_string(),
+            translated_segments: summary.translated_segments,
+            degradation: Vec::new(),
+        })
+    }
+
+    fn validate(&self, source: &Path) -> Result<ValidationReport, FilterError> {
+        DocxFilter::validate(self, source).map_err(map_docx_error)?;
+        Ok(ValidationReport {
+            valid: true,
+            findings: Vec::new(),
+        })
+    }
+}
+
+fn map_docx_error(error: DocxError) -> FilterError {
+    match error {
+        DocxError::Io(error) => FilterError::Io(error),
+        DocxError::InvalidPackage(message) => FilterError::Invalid(message),
+        other => FilterError::Processing(other.to_string()),
     }
 }
 
@@ -251,7 +310,13 @@ fn extract_document_events(document_xml: &[u8]) -> Result<Vec<FilterEvent>, Docx
     }
 
     let mut events = Vec::with_capacity(paragraphs.len() * 3 + 2);
-    events.push(FilterEvent::StartDocument);
+    events.push(FilterEvent::StartDocument {
+        metadata: DocumentMetadata {
+            format: "docx".to_string(),
+            source_locale: None,
+            properties: Default::default(),
+        },
+    });
     for (ordinal, (body_paragraph, source_text)) in paragraphs.into_iter().enumerate() {
         let ordinal = u32::try_from(ordinal).map_err(|_| {
             DocxError::InvalidPackage("translatable unit count overflow".to_string())

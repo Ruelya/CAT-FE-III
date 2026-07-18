@@ -23,7 +23,10 @@ async function main() {
     throw new Error(`DOCX fixture not found: ${fixture}`);
 
   const dataDirectory = mkdtempSync(join(tmpdir(), "translunar-engine-smoke-"));
-  const outputPath = join(dataDirectory, "translated.docx");
+  const outputPath = join(dataDirectory, "translated-generic.docx");
+  const legacyOutputPath = join(dataDirectory, "translated-legacy.docx");
+  const backupParent = mkdtempSync(join(tmpdir(), "translunar-engine-backup-"));
+  const backupPath = join(backupParent, "workspace-backup");
   let processHandle;
 
   try {
@@ -38,10 +41,24 @@ async function main() {
       targetLocale: "zh-CN",
       domain: "legal",
     });
-    const document = await processHandle.call("document.importDocx", {
+    const imported = await processHandle.call("document.import", {
+      projectId: project.id,
+      sourcePath: fixture,
+      relativePath: "chapter-a/m0-source.docx",
+    });
+    const document = imported.document;
+    const legacyDocument = await processHandle.call("document.importDocx", {
       projectId: project.id,
       sourcePath: fixture,
     });
+    const filters = await processHandle.call("filter.list", {});
+    assert(filters.filters.length === 1, "DOCX filter should be registered");
+    const documents = await processHandle.call("document.list", {
+      projectId: project.id,
+      offset: 0,
+      limit: 50,
+    });
+    assert(documents.total === 2, "two logical documents should be listed");
     const page = await processHandle.call("segment.list", {
       documentId: document.id,
       offset: 0,
@@ -53,6 +70,29 @@ async function main() {
       segmentId: first.id,
       targetText: "保留期为 60 天。",
       expectedRevision: first.revision,
+    });
+    const lifecycleUpdate = await processHandle.call("project.update", {
+      projectId: project.id,
+      name: "Smoke project updated",
+      sourceLocale: project.sourceLocale,
+      targetLocale: project.targetLocale,
+      domain: project.domain,
+      configuration: {},
+      expectedRevision: project.revision,
+      actor: "engine-smoke",
+      correlationId: "smoke-project-update",
+    });
+    const archived = await processHandle.call("project.setLifecycle", {
+      projectId: project.id,
+      lifecycle: "archived",
+      expectedRevision: lifecycleUpdate.revision,
+      actor: "engine-smoke",
+    });
+    await processHandle.call("project.setLifecycle", {
+      projectId: project.id,
+      lifecycle: "active",
+      expectedRevision: archived.revision,
+      actor: "engine-smoke",
     });
     await processHandle.stop();
 
@@ -69,6 +109,15 @@ async function main() {
     assert(
       recovered.items[0].targetText === "保留期为 60 天。",
       "draft should recover after restart",
+    );
+    const recoveredLegacy = await processHandle.call("segment.list", {
+      documentId: legacyDocument.id,
+      offset: 0,
+      limit: 200,
+    });
+    assert(
+      recoveredLegacy.items.length === 3,
+      "legacy document should recover after restart",
     );
     try {
       await processHandle.call("segment.updateTarget", {
@@ -107,7 +156,52 @@ async function main() {
       issues.issues.length === 1 && issues.issues[0].status === "resolved",
       "QA issue should resolve",
     );
-    const exported = await processHandle.call("document.exportDocx", {
+    const definition = await processHandle.call("pipeline.create", {
+      projectId: project.id,
+      name: "Smoke QA pipeline",
+      steps: [{ key: "qa", stepId: "core.qa.document", config: null }],
+    });
+    const run = await processHandle.call("pipeline.run", {
+      definitionId: definition.id,
+      projectId: project.id,
+      documentId: document.id,
+      input: {},
+    });
+    let finalRun = run;
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      if (["succeeded", "failed", "canceled"].includes(finalRun.run.status)) {
+        break;
+      }
+      await delay(10);
+      finalRun = await processHandle.call("pipeline.run.get", {
+        runId: run.run.id,
+      });
+    }
+    assert(finalRun.run.status === "succeeded", "QA pipeline should succeed");
+    const history = await processHandle.call("history.list", {
+      projectId: project.id,
+      offset: 0,
+      limit: 500,
+      descending: false,
+    });
+    assert(
+      history.total >= 6,
+      "project and segment operations should be recorded",
+    );
+    const health = await processHandle.call("data.checkHealth", {});
+    assert(health.healthy, "valid workspace should pass health check");
+    const backup = await processHandle.call("data.createBackup", {
+      destinationPath: backupPath,
+    });
+    assert(
+      backup.manifest.schemaVersion === 3,
+      "backup should contain latest schema",
+    );
+    assert(
+      existsSync(join(backupPath, "translunar.sqlite3")),
+      "backup database should exist",
+    );
+    const exported = await processHandle.call("document.export", {
       documentId: document.id,
       outputPath,
     });
@@ -115,12 +209,31 @@ async function main() {
       exported.translatedSegments === 1,
       "export should contain one translated segment",
     );
+    const legacyExported = await processHandle.call("document.exportDocx", {
+      documentId: legacyDocument.id,
+      outputPath: legacyOutputPath,
+    });
+    assert(
+      legacyExported.translatedSegments === 0,
+      "legacy export should preserve an untranslated document",
+    );
     assert(statSync(outputPath).size > 0, "export should be non-empty");
-    console.log(`Engine smoke passed: ${outputPath}`);
+    assert(
+      statSync(legacyOutputPath).size > 0,
+      "legacy export should be non-empty",
+    );
+    console.log(`Engine smoke passed: ${outputPath}; backup: ${backupPath}`);
   } finally {
     await processHandle?.stop();
     await rm(dataDirectory, { recursive: true, force: true });
+    await rm(backupParent, { recursive: true, force: true });
   }
+}
+
+function delay(milliseconds) {
+  return new Promise((resolvePromise) =>
+    setTimeout(resolvePromise, milliseconds),
+  );
 }
 
 class EngineProcess {
