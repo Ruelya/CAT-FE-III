@@ -6,7 +6,8 @@
 
 ## Overview
 
-This directory contains guidelines for backend development. Fill in each file with your project's specific conventions.
+This directory describes the Rust workspace conventions currently used by the
+headless engine and its persistence/format layers.
 
 ---
 
@@ -15,24 +16,19 @@ This directory contains guidelines for backend development. Fill in each file wi
 | Guide                                           | Description                                                         | Status  |
 | ----------------------------------------------- | ------------------------------------------------------------------- | ------- |
 | [M0 Engine Boundary](./engine-boundary.md)      | Headless engine, JSON-RPC, storage, DOCX, and transaction contracts | Active  |
-| [Directory Structure](./directory-structure.md) | Module organization and file layout                                 | To fill |
-| [Database Guidelines](./database-guidelines.md) | ORM patterns, queries, migrations                                   | To fill |
-| [Error Handling](./error-handling.md)           | Error types, handling strategies                                    | To fill |
-| [Quality Guidelines](./quality-guidelines.md)   | Code standards, forbidden patterns                                  | To fill |
-| [Logging Guidelines](./logging-guidelines.md)   | Structured logging, log levels                                      | To fill |
+| [Directory Structure](./directory-structure.md) | Module organization and file layout                                 | Active  |
+| [Database Guidelines](./database-guidelines.md) | Direct SQLite queries and migrations                                | Active  |
+| [Error Handling](./error-handling.md)           | Typed errors and JSON-RPC mapping                                   | Active  |
+| [Quality Guidelines](./quality-guidelines.md)   | Code standards, testing, and review gates                           | Active  |
+| [Logging Guidelines](./logging-guidelines.md)   | Structured stderr diagnostics                                       | Active  |
 
 ---
 
-## How to Fill These Guidelines
+## Maintenance
 
-For each guideline file:
-
-1. Document your project's **actual conventions** (not ideals)
-2. Include **code examples** from your codebase
-3. List **forbidden patterns** and why
-4. Add **common mistakes** your team has made
-
-The goal is to help AI assistants and new team members understand how YOUR project works.
+The files below are source-backed rules. Update the relevant file when a
+verified implementation convention changes; do not add aspirational rules that
+the workspace does not yet enforce.
 
 ## Pre-Development Checklist
 

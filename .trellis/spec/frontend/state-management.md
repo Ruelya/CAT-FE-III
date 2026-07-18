@@ -1,51 +1,57 @@
-# State Management
+# Frontend State Management
 
-> How state is managed in this project.
+## Ownership Rule
 
----
+Rust/SQLite is authoritative for projects, documents, segments, revisions,
+counts, TM entries, and QA issues. React state is a presentation cache and
+ephemeral interaction state. A successful RPC response replaces the affected
+object; it is never merged with a guessed revision or count.
 
-## Overview
+`App.tsx` owns the restored workspace and active surface. `Workbench.tsx`
+owns drafts, active row, filters/search, save status, panel modes, preview
+height, and navigation busy state. `AssistantPanel.tsx` owns its local
+conversation reducer, model/reasoning selection, composer, and applied-message
+feedback. `WorkbenchPages.tsx` owns page-local query/loading state.
 
-<!--
-Document your project's state management conventions here.
+## State Mechanisms
 
-Questions to answer:
-- What state management solution do you use?
-- How is local vs global state decided?
-- How do you handle server state?
-- What are the patterns for derived state?
--->
+- Use `useState` for independent presentation values and controlled inputs.
+- Use `useReducer` when a state transition table has multiple action kinds;
+  `assistantReducer` in `assistant-state.ts` is the current example.
+- Use `useMemo` only for a derived value that is expensive or must have stable
+  identity for a child; do not use it as a general state store.
+- Use refs for timers, composition sets, resize pointers, and focus handoff,
+  not as an alternate source of truth.
+- Persist only disposable UI preferences/session identity in `localStorage`.
+  `SESSION_KEY` and `WORKBENCH_PREFERENCES_KEY` are validated on read; invalid
+  values fall back to documented defaults and missing sessions return to setup.
 
-(To be filled by the team)
+## Server/Engine Flow
 
----
+The normal mutation flow is:
 
-## State Categories
+```text
+input -> draft state -> debounced persistSegment -> engine response
+      -> replace segment -> refresh counts/QA projections when needed
+```
 
-<!-- Local state, global state, server state, URL state -->
+Navigation from Workbench to QA, export, TM, or setup must await
+`persistAllSegments` first. The parent then reloads the project snapshot and
+page projection through `DesktopApi`; a page must not receive stale draft
+objects from the previous surface.
 
-(To be filled by the team)
+## Derived State
 
----
+Search/filter visibility, current issue position, match lists, and preview text
+are derived from the latest engine-backed arrays. Never derive QA totals,
+translation state, or revision numbers from only the visible/filtered rows.
 
-## When to Use Global State
+## Avoid
 
-<!-- Criteria for promoting state to global -->
-
-(To be filled by the team)
-
----
-
-## Server State
-
-<!-- How server data is cached and synchronized -->
-
-(To be filled by the team)
-
----
-
-## Common Mistakes
-
-<!-- State management mistakes your team has made -->
-
-(To be filled by the team)
+- No Redux/store dependency unless the app has a demonstrated cross-surface
+  state problem that local ownership cannot solve.
+- No optimistic count/revision mutation for an engine write.
+- No persistence of source/target text or API secrets in localStorage.
+- No state update after an unmounted async request without an owner guard.
+- No duplicate reducer logic in rendering branches; action transitions belong
+  in one reducer or explicit callback.

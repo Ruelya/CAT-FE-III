@@ -1,59 +1,68 @@
 # Component Guidelines
 
-> How components are built in this project.
+## Component Shape
 
----
+Use named function components with an explicit props interface. Keep a
+component responsible for rendering and event orchestration for one surface;
+move reusable pure transformations to a typed utility and test them there.
+Current examples are `Workbench`, `SuggestionsPanel`, `DocumentPreview`, and
+`AssistantPanel` in `src/renderer/Workbench.tsx` and
+`src/renderer/AssistantPanel.tsx`.
 
-## Overview
+```tsx
+interface AssistantPanelProps {
+  activeSegment: Segment | undefined;
+  onUseTarget(target: string): void;
+}
 
-<!--
-Document your project's component conventions here.
+export function AssistantPanel({
+  activeSegment,
+  onUseTarget,
+}: AssistantPanelProps) {
+  // local presentation/reducer state and callbacks
+}
+```
 
-Questions to answer:
-- What component patterns do you use?
-- How are props defined?
-- How do you handle composition?
-- What accessibility standards apply?
--->
+Callbacks are named by intent (`onUseTarget`, `onNavigate`,
+`onModeChange`). A child reports an action; the owner decides how to persist or
+navigate. Avoid passing an entire engine client or an untyped payload through
+the component tree.
 
-(To be filled by the team)
+## Controlled Interaction
 
----
+Inputs are controlled by React state. Textarea saves use the existing
+debounce/flush path in `Workbench.tsx`; target confirmation uses the shared
+IME guard in `workbench-utils.ts`. Do not update counts or revisions locally:
+replace local segment state with the engine response.
 
-## Component Structure
+Use the existing Lucide icon package for tool buttons. Icon-only buttons must
+have a visible tooltip/title and an accessible `aria-label`; text commands may
+use icon plus text where the command is not universally recognizable.
 
-<!-- Standard structure of a component file -->
+## Accessibility And Layout
 
-(To be filled by the team)
+- Use semantic headings, regions, tabs, menu roles, and labels already used by
+  the workbench components.
+- Preserve keyboard focus when Suggestions/Preview changes between
+  `docked`, `collapsed`, and `maximized`. Collapsed content remains mounted,
+  becomes `inert`/`aria-hidden`, and focus moves to the expand control.
+- Keep CJK text in the existing `.cjk` styling and avoid fixed widths that
+  cause glyph clipping at 1250x744.
+- A component must not rely on exact pixel strings; geometry tests use numeric
+  tolerances because Windows DPI can return fractional CSS values.
 
----
+## Composition
 
-## Props Conventions
+Prefer small, unframed layout sections over nested decorative cards. Reuse
+`FilterButton`, panel mode controls, and the shared preview separator instead
+of copying nearly identical controls. Keep transient toasts and busy states
+visible and keyboard reachable.
 
-<!-- How props should be defined and typed -->
+## Avoid
 
-(To be filled by the team)
-
----
-
-## Styling Patterns
-
-<!-- How styles are applied (CSS modules, styled-components, Tailwind, etc.) -->
-
-(To be filled by the team)
-
----
-
-## Accessibility
-
-<!-- A11y requirements and patterns -->
-
-(To be filled by the team)
-
----
-
-## Common Mistakes
-
-<!-- Component-related mistakes your team has made -->
-
-(To be filled by the team)
+- No direct `window.translunar.invoke` calls scattered through presentational
+  leaf components; route engine work through the owning page/workbench action.
+- No `dangerouslySetInnerHTML` for source or target text.
+- No CSS `display: none` to animate a collapsible panel.
+- No hidden click targets without labels, and no disabled control that silently
+  drops a pending-save error.

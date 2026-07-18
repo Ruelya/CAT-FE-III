@@ -1,51 +1,71 @@
-# Quality Guidelines
+# Backend Quality Guidelines
 
-> Code quality standards for backend development.
+## Required Design Properties
 
----
+- Rust owns domain rules, persistence, formats, QA, TM, and pipelines.
+- `crates/protocol` is the wire source of truth; generated TypeScript and JSON
+  Schema are committed and checked for drift.
+- Every mutable domain operation states its transaction, revision, and
+  rollback behavior.
+- Import preserves an immutable managed source. Export changes only owned
+  structures and validates before publication.
+- Collections crossing a boundary have deterministic ordering and explicit
+  pagination/limits where they can grow.
 
-## Overview
-
-<!--
-Document your project's quality standards here.
-
-Questions to answer:
-- What patterns are forbidden?
-- What linting rules do you enforce?
-- What are your testing requirements?
-- What code review standards apply?
--->
-
-(To be filled by the team)
-
----
+Use pure helpers for normalization, hashing, token comparison, and projections.
+Keep I/O in storage/filter/service boundaries. Follow the existing
+`Store -> EngineService -> RpcDispatcher` path rather than bypassing a layer.
 
 ## Forbidden Patterns
 
-<!-- Patterns that should never be used and why -->
+- SQL, ZIP/XML parsing, or domain transitions in Electron.
+- Handwritten TypeScript mirrors of Rust protocol structs.
+- Runtime `unwrap`/`expect`, ignored `Result`, or a panic for user data.
+- Floating writes without an expected revision or transaction.
+- Editing a released migration or mutating an export destination before
+  validation succeeds.
+- Tests that only assert a mock returns the value configured on that mock.
 
-(To be filled by the team)
+## Tests By Layer
 
----
+- Domain: pure normalization, hashes, tags/numbers, state invariants, and edge
+  cases including CJK and empty values.
+- Storage: fresh/upgrade migration, restart recovery, conflict, rollback,
+  ordering, uniqueness, and cascade behavior against real temporary SQLite.
+- Format: representative fixtures, malformed input, complete extraction,
+  round-trip, and preservation of unowned package parts.
+- Protocol/engine: serde casing, method catalog, handshake, typed error data,
+  capability reporting, and full service flows.
+- Process: `scripts/engine-smoke.mjs` drives the actual stdio binary and checks
+  restart, persistence, QA/TM, and exported output.
 
-## Required Patterns
+Tests may use `expect` for setup clarity. Production code should return a
+typed failure. A regression test must fail if the behavior being protected is
+removed; avoid tautological assertions.
 
-<!-- Patterns that must always be used -->
+## Quality Gate
 
-(To be filled by the team)
+Run with the repository-supported Rust toolchain:
 
----
+```text
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+pnpm contracts:check
+pnpm test:e2e:engine
+```
 
-## Testing Requirements
+When a change crosses into Electron, also run `pnpm typecheck`, `pnpm test`,
+and the desktop E2E suite. On this Windows workstation, if native linking is
+unavailable, run the same Rust commands in the clean VPS checkout and record
+the exact revision; do not replace compilation with static inspection.
 
-<!-- What level of testing is expected -->
+## Review Checklist
 
-(To be filled by the team)
-
----
-
-## Code Review Checklist
-
-<!-- What reviewers should check -->
-
-(To be filled by the team)
+- Contract, migration, generated output, and all consumers changed together.
+- Error code/data remain stable and no sensitive content is exposed.
+- Side effects are atomic and retry behavior is explicit.
+- IDs/locales/timestamps/counts survive a storage and JSON round trip.
+- Tests cover good, base, malformed, stale, and restart cases.
+- `cargo fmt`, strict clippy, unit/integration tests, contract drift, and the
+  relevant process smoke all pass.

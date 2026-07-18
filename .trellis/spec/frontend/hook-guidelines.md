@@ -1,51 +1,54 @@
 # Hook Guidelines
 
-> How hooks are used in this project.
+## Current Pattern
 
----
+The app currently uses React built-ins directly. `App.tsx`, `Workbench.tsx`,
+`WorkbenchPages.tsx`, and `AssistantPanel.tsx` use `useState`, `useEffect`,
+`useMemo`, `useReducer`, and refs; there is no project-wide custom hook layer.
+Keep a feature-local effect or reducer inline when it is used once and its
+ownership is clear.
 
-## Overview
+## Creating A Custom Hook
 
-<!--
-Document your project's hook conventions here.
+Create a `useX` hook only when the same stateful behavior is shared by at least
+two components or when extracting it makes lifecycle cleanup materially easier.
+Give it an explicit return type and keep engine calls behind the owner boundary.
+For timers, pointer listeners, and subscriptions, clean up in the effect
+return function and handle unmount/restart explicitly.
 
-Questions to answer:
-- What custom hooks do you have?
-- How do you handle data fetching?
-- What are the naming conventions?
-- How do you share stateful logic?
--->
+```tsx
+function useDebouncedSave(
+  save: (segmentId: string) => Promise<void>,
+): { schedule(segmentId: string): void; flush(): Promise<void> } {
+  // typed timer ownership; clear timers during cleanup
+}
+```
 
-(To be filled by the team)
+The example is a shape, not a reason to extract `Workbench`'s current save
+logic prematurely. Preserve the existing `persistSegment`/
+`persistAllSegments` ownership until a second consumer exists.
 
----
+## Effects And Dependencies
 
-## Custom Hook Patterns
+- Include every changing value used by an effect in its dependency list.
+- Use refs for mutable DOM/focus/timer handles, not for durable engine data.
+- Use `void` for intentionally fire-and-forget async work and handle its error
+  at the owner (`void persistSegment(...)` in `Workbench.tsx`).
+- Never make an effect itself an unhandled async function; define an inner
+  async function and catch/report failures.
+- Cancel pointer/document listeners and pending timers on cleanup.
 
-<!-- How to create and structure custom hooks -->
+## Focus And IME
 
-(To be filled by the team)
+Focus refs are appropriate for panel transition handoff and issue navigation.
+Composition state is tracked per segment in a ref so Ctrl/Cmd+Enter cannot
+confirm while an IME candidate is active. Keep `event.nativeEvent.isComposing`
+and keyCode 229 checks at the keyboard boundary.
 
----
+## Avoid
 
-## Data Fetching
-
-<!-- How data fetching is handled (React Query, SWR, etc.) -->
-
-(To be filled by the team)
-
----
-
-## Naming Conventions
-
-<!-- Hook naming rules (use*, etc.) -->
-
-(To be filled by the team)
-
----
-
-## Common Mistakes
-
-<!-- Hook-related mistakes your team has made -->
-
-(To be filled by the team)
+- No hook that silently mutates global/localStorage state for every render.
+- No effect that derives authoritative counts from visible rows.
+- No custom hook that returns `any` or an untyped `unknown` payload to callers.
+- No stale closure workaround that suppresses the exhaustive-deps rule without
+  documenting the lifecycle invariant.
