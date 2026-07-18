@@ -1,4 +1,4 @@
-# M0 Architecture
+# Desktop MVP Architecture
 
 ## Process Boundary
 
@@ -24,7 +24,7 @@ bytes are never transported through JSON.
 ## Protocol Contract
 
 Requests and responses are newline-framed JSON-RPC 2.0. The first request is
-`engine.initialize` with protocol version 1. M0 exposes project creation and
+`engine.initialize` with protocol version 1. The current contract exposes project creation and
 lookup, DOCX import/export, segment listing/edit/confirmation, exact TM lookup,
 and QA run/list operations.
 
@@ -75,7 +75,19 @@ visible segment only after the engine responds.
 Suggestions display exact TM results for the active source segment and
 document QA evidence. Suggestions and document preview each have docked,
 collapsed, and maximized states. These modes are presentation-only state and do
-not enter SQLite.
+not enter SQLite. Preview height, follow-active state, and panel preferences use
+a separate disposable renderer preference key.
+
+The QA review, export review, and translation-memory surfaces are projections
+over the same engine-owned workspace. Workbench navigation flushes pending
+debounced edits and reloads the workspace from RPC before mounting a review
+surface.
+
+The Assistant is deliberately outside the engine contract for this MVP. Its
+conversations, deterministic replies, model/reasoning profiles, and synthetic
+usage metadata are renderer-only offline fixtures. `Use in target` returns to
+the existing segment update path; it does not gain filesystem, persistence, or
+network access.
 
 ## Recovery And Failure
 

@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { ArrowRight, FileText, FolderOpen, Languages } from "lucide-react";
 
-import { BrandMark } from "./App";
+import { BrandMark } from "./BrandMark";
 import { fileName, formatError } from "./workbench-utils";
 
 interface SetupViewProps {

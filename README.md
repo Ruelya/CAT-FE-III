@@ -1,10 +1,12 @@
 # Translunar CAT
 
 Translunar is a local-first computer-assisted translation desktop application.
-The current M0 vertical slice creates a project, imports a DOCX, persists an
-editable bilingual grid, confirms translations into a project translation
-memory, reports deterministic number mismatches, and exports a translated
-DOCX.
+The current MVP creates a project, imports a DOCX, persists an editable
+bilingual grid, confirms translations into exact project memory, reports
+deterministic number mismatches, and exports a translated DOCX. The desktop
+surface also includes docked/collapsed/maximized Suggestions and document
+preview panels, QA/export/TM review views, and an explicitly offline Assistant
+preview with local conversations and synthetic request metadata.
 
 The product targets Windows 10+ and macOS 12+. Linux is used for automated
 validation and cross-compilation, but is not a supported desktop target.
@@ -41,6 +43,21 @@ Start the development application with:
 pnpm dev:desktop
 ```
 
+On the current K: workstation, the checked-in launcher selects the available
+Cursor-bundled Node 22 before starting pnpm:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\dev-desktop.ps1
+```
+
+When `target/debug/translunar-engine.exe` already exists, this path does not
+rebuild Rust. To run the production renderer bundle in Electron:
+
+```powershell
+pnpm build:desktop
+pnpm --dir apps/desktop exec electron .
+```
+
 Electron main starts and owns `target/debug/translunar-engine.exe`. To run the
 headless engine directly for protocol development:
 
@@ -67,9 +84,11 @@ pnpm test:e2e:engine
 pnpm test:e2e:desktop
 ```
 
-The desktop E2E test creates isolated data, drives Electron through the whole
-M0 workflow, restarts the engine, validates the export, checks panel states,
-and captures 1250x744 and 1680x942 screenshots.
+The desktop E2E suite creates isolated data and covers the complete DOCX flow,
+engine restart recovery, IME guards, Assistant conversations/metrics/target
+insertion, save-before-navigation, QA/TM/export views, preview resizing, and
+symmetric panel motion. It captures default, collapsed, and maximized evidence
+at 1250x744, 1680x942, and 1920x1080.
 
 ## VPS Builds
 
@@ -113,8 +132,10 @@ copies remain immutable and exports are published only after validation.
 
 ## Scope
 
-M0 deliberately excludes fuzzy search, termbases, AI connectors/chat,
-collaboration, installers, automatic updates, and formats beyond DOCX. See
+The MVP deliberately excludes network AI connectors and API-key storage,
+persistent termbases, fuzzy/CJK memory retrieval, collaboration, installers,
+automatic updates, and formats beyond DOCX. The Assistant is a deterministic
+offline interaction preview and never claims a model request. See
 [Architecture](docs/architecture.md), [Design Notes](docs/design-notes.md), and
 [Product Requirements](docs/PRD.md) for the fixed boundaries and longer-term
 direction.

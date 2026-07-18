@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  clampPreviewHeight,
   fileName,
   isConfirmShortcut,
   nextVisibleSegmentId,
+  togglePanelCollapsed,
+  togglePanelMaximized,
 } from "./workbench-utils";
 
 describe("workbench interaction guards", () => {
@@ -30,5 +33,21 @@ describe("workbench interaction guards", () => {
   it("extracts Windows and POSIX file names", () => {
     expect(fileName("C:\\docs\\source.docx")).toBe("source.docx");
     expect(fileName("/tmp/source.docx")).toBe("source.docx");
+  });
+
+  it("keeps panel transitions within the three accepted modes", () => {
+    expect(togglePanelCollapsed("docked")).toBe("collapsed");
+    expect(togglePanelCollapsed("maximized")).toBe("collapsed");
+    expect(togglePanelCollapsed("collapsed")).toBe("docked");
+    expect(togglePanelMaximized("docked")).toBe("maximized");
+    expect(togglePanelMaximized("collapsed")).toBe("maximized");
+    expect(togglePanelMaximized("maximized")).toBe("docked");
+  });
+
+  it("clamps preview resizing to the supported height", () => {
+    expect(clampPreviewHeight(80)).toBe(120);
+    expect(clampPreviewHeight(237.6)).toBe(238);
+    expect(clampPreviewHeight(480)).toBe(320);
+    expect(clampPreviewHeight(Number.NaN)).toBe(200);
   });
 });

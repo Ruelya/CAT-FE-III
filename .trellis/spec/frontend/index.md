@@ -49,8 +49,8 @@ The goal is to help AI assistants and new team members understand how YOUR proje
 
 - Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, and
   `pnpm test:e2e:desktop`.
-- Inspect the 1250x744 and 1680x942 screenshots for overlap and panel boundary
-  regressions.
+- Inspect the 1250x744, 1680x942, and 1920x1080 screenshots for overlap,
+  rendering quality, and panel boundary regressions.
 - Verify there are no renderer console errors and no exact-pixel assertions
   where Windows DPI can produce fractional CSS pixels.
 

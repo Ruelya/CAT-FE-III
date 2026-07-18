@@ -3,8 +3,10 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type CompositionEvent,
   type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import type {
   Document,
@@ -16,9 +18,9 @@ import type {
 } from "@translunar/contracts";
 import {
   AlertTriangle,
+  BookOpen,
   Check,
   CheckCircle2,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Database,
@@ -34,16 +36,28 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  Sparkles,
 } from "lucide-react";
 
-import { BrandMark } from "./App";
+import { AssistantPanel } from "./AssistantPanel";
+import { BrandMark } from "./BrandMark";
+import type { AppSurface } from "./surface-types";
 import {
+  clampPreviewHeight,
   fileName,
   formatError,
   isConfirmShortcut,
   nextVisibleSegmentId,
+  PREVIEW_DEFAULT_HEIGHT,
+  PREVIEW_MAX_HEIGHT,
+  PREVIEW_MIN_HEIGHT,
   replaceSegment,
+  togglePanelCollapsed,
+  togglePanelMaximized,
+  type PanelMode,
 } from "./workbench-utils";
+
+const WORKBENCH_PREFERENCES_KEY = "translunar.workbench-preferences.v1";
 
 interface InitialWorkspace {
   snapshot: ProjectSnapshot;
@@ -55,18 +69,29 @@ interface InitialWorkspace {
 interface WorkbenchProps {
   initialWorkspace: InitialWorkspace;
   onStartAnotherProject(): void;
+  onNavigate(surface: AppSurface): Promise<void>;
+  focusSegmentId: string | null;
 }
 
 type SegmentFilter = "all" | "untranslated" | "draft" | "confirmed" | "issues";
-type SuggestionTab = "matches" | "qa";
-type PanelMode = "docked" | "collapsed" | "maximized";
+type SuggestionTab = "matches" | "terms" | "assistant" | "qa";
 type SaveState = "saved" | "saving" | "error";
+
+interface WorkbenchPreferences {
+  suggestionsMode: PanelMode;
+  previewMode: PanelMode;
+  previewHeight: number;
+  followActivePreview: boolean;
+}
 
 export function Workbench({
   initialWorkspace,
   onStartAnotherProject,
+  onNavigate,
+  focusSegmentId,
 }: WorkbenchProps) {
   const { snapshot, document } = initialWorkspace;
+  const initialPreferences = useMemo(readWorkbenchPreferences, []);
   const [segments, setSegments] = useState(initialWorkspace.segments);
   const segmentsRef = useRef(segments);
   const [drafts, setDrafts] = useState<Record<string, string>>(() =>
@@ -82,13 +107,24 @@ export function Workbench({
   const [search, setSearch] = useState("");
   const [activeId, setActiveId] = useState(segments[0]?.id ?? "");
   const [suggestionTab, setSuggestionTab] = useState<SuggestionTab>("matches");
-  const [suggestionsMode, setSuggestionsMode] = useState<PanelMode>("docked");
-  const [previewMode, setPreviewMode] = useState<PanelMode>("docked");
+  const [suggestionsMode, setSuggestionsMode] = useState<PanelMode>(
+    initialPreferences.suggestionsMode,
+  );
+  const [previewMode, setPreviewMode] = useState<PanelMode>(
+    initialPreferences.previewMode,
+  );
+  const [previewHeight, setPreviewHeight] = useState(
+    initialPreferences.previewHeight,
+  );
+  const [followActivePreview, setFollowActivePreview] = useState(
+    initialPreferences.followActivePreview,
+  );
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [actionBusy, setActionBusy] = useState<
-    "qa" | "export" | "confirm" | null
+    "qa" | "export" | "confirm" | "navigate" | null
   >(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const timersRef = useRef(new Map<string, number>());
   const inFlightRef = useRef(new Map<string, Promise<Segment>>());
   const composingRef = useRef(new Set<string>());
@@ -142,6 +178,22 @@ export function Workbench({
   }, [drafts]);
 
   useEffect(() => {
+    try {
+      localStorage.setItem(
+        WORKBENCH_PREFERENCES_KEY,
+        JSON.stringify({
+          suggestionsMode,
+          previewMode,
+          previewHeight,
+          followActivePreview,
+        }),
+      );
+    } catch {
+      // UI preferences are disposable and must never block translation work.
+    }
+  }, [followActivePreview, previewHeight, previewMode, suggestionsMode]);
+
+  useEffect(() => {
     return () => {
       for (const timer of timersRef.current.values())
         window.clearTimeout(timer);
@@ -169,6 +221,24 @@ export function Workbench({
       cancelled = true;
     };
   }, [activeSegment, snapshot.project.id]);
+
+  useEffect(() => {
+    if (!focusSegmentId) return;
+    const segment = segmentsRef.current.find(
+      (item) => item.id === focusSegmentId,
+    );
+    if (!segment) return;
+    setFilter("all");
+    setActiveId(segment.id);
+    window.requestAnimationFrame(() => {
+      documentQuery<HTMLElement>(
+        `[data-segment-row="${segment.id}"]`,
+      )?.scrollIntoView({ block: "center" });
+      documentQuery<HTMLTextAreaElement>(
+        `[data-editor-for="${segment.id}"]`,
+      )?.focus();
+    });
+  }, [focusSegmentId]);
 
   const updateDraft = (segmentId: string, targetText: string) => {
     const next = { ...draftsRef.current, [segmentId]: targetText };
@@ -249,6 +319,11 @@ export function Workbench({
       void persistSegment(segmentId);
     }, delay);
     timersRef.current.set(segmentId, timer);
+  };
+
+  const persistAllSegments = async () => {
+    const segmentIds = segmentsRef.current.map((segment) => segment.id);
+    for (const segmentId of segmentIds) await persistSegment(segmentId);
   };
 
   const refreshOpenIssues = async () => {
@@ -337,8 +412,7 @@ export function Workbench({
     setActionBusy("qa");
     setToast(null);
     try {
-      for (const segment of segmentsRef.current)
-        await persistSegment(segment.id);
+      await persistAllSegments();
       await window.translunar.invoke("qa.runDocument", {
         documentId: document.id,
       });
@@ -356,8 +430,7 @@ export function Workbench({
     setActionBusy("export");
     setToast(null);
     try {
-      for (const segment of segmentsRef.current)
-        await persistSegment(segment.id);
+      await persistAllSegments();
       const suggestedName = document.name.replace(
         /\.docx$/iu,
         "-translated.docx",
@@ -372,6 +445,33 @@ export function Workbench({
       setToast(
         `Exported ${result.translatedSegments} translated segments to ${fileName(result.outputPath)}.`,
       );
+    } catch (error) {
+      setToast(formatError(error));
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
+  const navigateToSurface = async (surface: AppSurface) => {
+    setActionBusy("navigate");
+    setToast(null);
+    try {
+      await persistAllSegments();
+      setMenuOpen(false);
+      await onNavigate(surface);
+    } catch (error) {
+      setToast(formatError(error));
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
+  const startAnotherProject = async () => {
+    setActionBusy("navigate");
+    setToast(null);
+    try {
+      await persistAllSegments();
+      onStartAnotherProject();
     } catch (error) {
       setToast(formatError(error));
     } finally {
@@ -397,6 +497,7 @@ export function Workbench({
 
   const insertMatch = (targetText: string) => {
     if (!activeSegment) return;
+    if (composingRef.current.has(activeSegment.id)) return;
     updateDraft(activeSegment.id, targetText);
     scheduleSave(activeSegment.id, 80);
     documentQuery<HTMLTextAreaElement>(
@@ -409,11 +510,14 @@ export function Workbench({
     `suggestions-${suggestionsMode}`,
     `preview-${previewMode}`,
   ].join(" ");
+  const applicationStyle = {
+    "--preview-height": `${previewHeight}px`,
+  } as CSSProperties;
   const issuePosition =
     Math.max(0, openIssueIds.indexOf(activeId)) + (openIssueIds.length ? 1 : 0);
 
   return (
-    <div className={applicationClasses}>
+    <div className={applicationClasses} style={applicationStyle}>
       <header className="app-bar">
         <div className="project-identity">
           <BrandMark />
@@ -422,16 +526,11 @@ export function Workbench({
             <span>{snapshot.project.domain || "Translation project"}</span>
           </div>
         </div>
-        <button
-          className="document-switcher"
-          type="button"
-          title="Active document"
-        >
+        <div className="document-switcher" aria-label="Active document">
           <FileText size={15} />
           <span>{document.name}</span>
           <small>{counts.total} segments</small>
-          <ChevronDown size={13} />
-        </button>
+        </div>
         <label className="project-search">
           <Search size={15} />
           <input
@@ -460,15 +559,55 @@ export function Workbench({
             <Download size={15} />
             Export
           </button>
-          <button
-            className="icon-button dark"
-            type="button"
-            title="Start another project"
-            aria-label="Start another project"
-            onClick={onStartAnotherProject}
-          >
-            <MoreHorizontal size={17} />
-          </button>
+          <div className="surface-menu-wrap">
+            <button
+              className="icon-button dark"
+              type="button"
+              title="More actions"
+              aria-label="More actions"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((open) => !open)}
+            >
+              <MoreHorizontal size={17} />
+            </button>
+            {menuOpen ? (
+              <nav className="surface-menu" aria-label="Application views">
+                <span>Views</span>
+                <button type="button" aria-current="page" disabled>
+                  Workbench
+                </button>
+                <button
+                  type="button"
+                  disabled={actionBusy !== null}
+                  onClick={() => void navigateToSurface("qa-review")}
+                >
+                  QA review
+                </button>
+                <button
+                  type="button"
+                  disabled={actionBusy !== null}
+                  onClick={() => void navigateToSurface("export-review")}
+                >
+                  Export review
+                </button>
+                <button
+                  type="button"
+                  disabled={actionBusy !== null}
+                  onClick={() => void navigateToSurface("translation-memory")}
+                >
+                  Translation memory
+                </button>
+                <hr />
+                <button
+                  type="button"
+                  disabled={actionBusy !== null}
+                  onClick={() => void startAnotherProject()}
+                >
+                  New project
+                </button>
+              </nav>
+            ) : null}
+          </div>
         </div>
       </header>
       <div className="translunar-band" aria-hidden="true">
@@ -522,6 +661,10 @@ export function Workbench({
                 active={filter}
                 onChange={setFilter}
               />
+            </div>
+            <div className="match-scope" aria-label="Exact TM matching">
+              <Database size={13} />
+              <span>Exact TM</span>
             </div>
             <div className="issue-nav" aria-label="Issue navigation">
               <span>Issue</span>
@@ -647,6 +790,10 @@ export function Workbench({
               segments={segments}
               mode={previewMode}
               onModeChange={setPreviewMode}
+              height={previewHeight}
+              onHeightChange={setPreviewHeight}
+              followActive={followActivePreview}
+              onFollowActiveChange={setFollowActivePreview}
             />
           </div>
         </section>
@@ -784,6 +931,10 @@ interface PreviewProps {
   segments: Segment[];
   mode: PanelMode;
   onModeChange(mode: PanelMode): void;
+  height: number;
+  onHeightChange(height: number): void;
+  followActive: boolean;
+  onFollowActiveChange(follow: boolean): void;
 }
 
 function DocumentPreview({
@@ -792,20 +943,110 @@ function DocumentPreview({
   segments,
   mode,
   onModeChange,
+  height,
+  onHeightChange,
+  followActive,
+  onFollowActiveChange,
 }: PreviewProps) {
-  const activeIndex = activeSegment
-    ? segments.findIndex((segment) => segment.id === activeSegment.id)
+  const resizeRef = useRef<{
+    pointerId: number;
+    startY: number;
+    startHeight: number;
+  } | null>(null);
+  const [previewAnchorId, setPreviewAnchorId] = useState(
+    activeSegment?.id ?? "",
+  );
+
+  useEffect(() => {
+    if (followActive && activeSegment) setPreviewAnchorId(activeSegment.id);
+  }, [activeSegment, followActive]);
+
+  const previewAnchor =
+    segments.find((segment) => segment.id === previewAnchorId) ?? activeSegment;
+  const activeIndex = previewAnchor
+    ? segments.findIndex((segment) => segment.id === previewAnchor.id)
     : 0;
   const start = Math.max(0, activeIndex - 2);
   const previewSegments = segments.slice(start, start + 5);
+
+  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (mode !== "docked") return;
+    event.preventDefault();
+    resizeRef.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      startHeight: height,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const resize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = resizeRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    onHeightChange(
+      clampPreviewHeight(drag.startHeight + drag.startY - event.clientY),
+    );
+  };
+
+  const stopResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (resizeRef.current?.pointerId !== event.pointerId) return;
+    resizeRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const resizeWithKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (mode !== "docked") return;
+    const nextHeight =
+      event.key === "ArrowUp"
+        ? height + 8
+        : event.key === "ArrowDown"
+          ? height - 8
+          : event.key === "Home"
+            ? PREVIEW_MIN_HEIGHT
+            : event.key === "End"
+              ? PREVIEW_MAX_HEIGHT
+              : null;
+    if (nextHeight === null) return;
+    event.preventDefault();
+    onHeightChange(clampPreviewHeight(nextHeight));
+  };
+
   return (
     <section className="document-preview" aria-label="Document preview">
+      <div
+        className="preview-resizer"
+        role="separator"
+        aria-label="Resize document preview"
+        aria-orientation="horizontal"
+        aria-valuemin={PREVIEW_MIN_HEIGHT}
+        aria-valuemax={PREVIEW_MAX_HEIGHT}
+        aria-valuenow={height}
+        tabIndex={mode === "docked" ? 0 : -1}
+        onPointerDown={startResize}
+        onPointerMove={resize}
+        onPointerUp={stopResize}
+        onPointerCancel={stopResize}
+        onKeyDown={resizeWithKeyboard}
+      />
       <header>
         <strong>Document preview</strong>
         <span>{document.name}</span>
         <small>
           {activeSegment ? `Segment ${activeSegment.ordinal + 1}` : ""}
         </small>
+        <label className="preview-follow">
+          <input
+            type="checkbox"
+            aria-label="Follow active segment"
+            checked={followActive}
+            onChange={(event) =>
+              onFollowActiveChange(event.currentTarget.checked)
+            }
+          />
+          <span>Follow active</span>
+        </label>
         <div className="preview-actions">
           <button
             type="button"
@@ -814,9 +1055,7 @@ function DocumentPreview({
             aria-label={
               mode === "collapsed" ? "Open preview" : "Collapse preview"
             }
-            onClick={() =>
-              onModeChange(mode === "collapsed" ? "docked" : "collapsed")
-            }
+            onClick={() => onModeChange(togglePanelCollapsed(mode))}
           >
             {mode === "collapsed" ? (
               <PanelBottomOpen size={14} />
@@ -833,9 +1072,7 @@ function DocumentPreview({
             aria-label={
               mode === "maximized" ? "Restore preview" : "Maximize preview"
             }
-            onClick={() =>
-              onModeChange(mode === "maximized" ? "docked" : "maximized")
-            }
+            onClick={() => onModeChange(togglePanelMaximized(mode))}
           >
             {mode === "maximized" ? (
               <Minimize2 size={14} />
@@ -895,16 +1132,43 @@ function SuggestionsPanel({
   onInsert,
 }: SuggestionsProps) {
   const openIssues = issues.filter((issue) => issue.status === "open");
+  const collapseButtonRef = useRef<HTMLButtonElement>(null);
+  const expandButtonRef = useRef<HTMLButtonElement>(null);
+  const focusAfterModeRef = useRef<"content" | "rail" | null>(null);
+
+  useEffect(() => {
+    const focusTarget = focusAfterModeRef.current;
+    if (!focusTarget) return;
+    focusAfterModeRef.current = null;
+    const frame = window.requestAnimationFrame(() => {
+      if (focusTarget === "rail") expandButtonRef.current?.focus();
+      else collapseButtonRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [mode]);
+
   return (
     <aside className="suggestions-panel" aria-label="Suggestions">
-      <div className="suggestions-content" aria-hidden={mode === "collapsed"}>
+      <div
+        className={
+          tab === "assistant"
+            ? "suggestions-content assistant-tab"
+            : "suggestions-content"
+        }
+        aria-hidden={mode === "collapsed"}
+        inert={mode === "collapsed" ? true : undefined}
+      >
         <header className="suggestions-header">
           <strong>Suggestions</strong>
           <div className="suggestions-dots" aria-hidden="true" />
           <button
             type="button"
             className="icon-button"
-            onClick={() => onModeChange("collapsed")}
+            ref={collapseButtonRef}
+            onClick={() => {
+              focusAfterModeRef.current = "rail";
+              onModeChange(togglePanelCollapsed(mode));
+            }}
             title="Collapse Suggestions"
             aria-label="Collapse Suggestions"
           >
@@ -913,9 +1177,7 @@ function SuggestionsPanel({
           <button
             type="button"
             className="icon-button"
-            onClick={() =>
-              onModeChange(mode === "maximized" ? "docked" : "maximized")
-            }
+            onClick={() => onModeChange(togglePanelMaximized(mode))}
             title={
               mode === "maximized"
                 ? "Restore Suggestions"
@@ -946,18 +1208,42 @@ function SuggestionsPanel({
           <button
             type="button"
             role="tab"
+            aria-selected={tab === "terms"}
+            onClick={() => onTabChange("terms")}
+          >
+            Terms
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "assistant"}
+            onClick={() => onTabChange("assistant")}
+          >
+            <Sparkles size={11} /> Assistant
+          </button>
+          <button
+            type="button"
+            role="tab"
             aria-selected={tab === "qa"}
             onClick={() => onTabChange("qa")}
           >
             QA <span>{openIssues.length}</span>
           </button>
         </div>
-        <div className="suggestion-context">
-          <span>Active</span>
-          <strong>{activeSegment ? activeSegment.ordinal + 1 : "—"}</strong>
-          <p>{activeSegment?.sourceText ?? ""}</p>
-        </div>
-        <div className="suggestion-scroll">
+        {tab !== "assistant" ? (
+          <div className="suggestion-context">
+            <span>Active</span>
+            <strong>{activeSegment ? activeSegment.ordinal + 1 : "—"}</strong>
+            <p>{activeSegment?.sourceText ?? ""}</p>
+          </div>
+        ) : null}
+        <div
+          className={
+            tab === "assistant"
+              ? "suggestion-scroll assistant-open"
+              : "suggestion-scroll"
+          }
+        >
           {tab === "matches" ? (
             matches.length ? (
               matches.map((match) => (
@@ -994,6 +1280,16 @@ function SuggestionsPanel({
                 label="No exact TM match"
               />
             )
+          ) : tab === "terms" ? (
+            <EmptySuggestion
+              icon={<BookOpen size={20} />}
+              label="No termbase attached"
+            />
+          ) : tab === "assistant" ? (
+            <AssistantPanel
+              activeSegment={activeSegment}
+              onUseTarget={onInsert}
+            />
           ) : openIssues.length ? (
             openIssues.map((issue) => (
               <article
@@ -1028,11 +1324,19 @@ function SuggestionsPanel({
           )}
         </div>
       </div>
-      <div className="suggestions-rail" aria-hidden={mode !== "collapsed"}>
+      <div
+        className="suggestions-rail"
+        aria-hidden={mode !== "collapsed"}
+        inert={mode !== "collapsed" ? true : undefined}
+      >
         <button
           type="button"
           className="suggestions-expand"
-          onClick={() => onModeChange("docked")}
+          ref={expandButtonRef}
+          onClick={() => {
+            focusAfterModeRef.current = "content";
+            onModeChange(togglePanelCollapsed(mode));
+          }}
           title="Open Suggestions"
           aria-label="Open Suggestions"
         >
@@ -1058,6 +1362,50 @@ function EmptySuggestion({
       <span>{label}</span>
     </div>
   );
+}
+
+function readWorkbenchPreferences(): WorkbenchPreferences {
+  const defaults: WorkbenchPreferences = {
+    suggestionsMode: "docked",
+    previewMode: "docked",
+    previewHeight: PREVIEW_DEFAULT_HEIGHT,
+    followActivePreview: true,
+  };
+  try {
+    const stored = localStorage.getItem(WORKBENCH_PREFERENCES_KEY);
+    if (!stored) return defaults;
+    const value: unknown = JSON.parse(stored);
+    if (typeof value !== "object" || value === null) return defaults;
+    const suggestionsMode =
+      "suggestionsMode" in value && isPanelMode(value.suggestionsMode)
+        ? value.suggestionsMode
+        : defaults.suggestionsMode;
+    const previewMode =
+      "previewMode" in value && isPanelMode(value.previewMode)
+        ? value.previewMode
+        : defaults.previewMode;
+    const previewHeight =
+      "previewHeight" in value && typeof value.previewHeight === "number"
+        ? clampPreviewHeight(value.previewHeight)
+        : defaults.previewHeight;
+    const followActivePreview =
+      "followActivePreview" in value &&
+      typeof value.followActivePreview === "boolean"
+        ? value.followActivePreview
+        : defaults.followActivePreview;
+    return {
+      suggestionsMode,
+      previewMode,
+      previewHeight,
+      followActivePreview,
+    };
+  } catch {
+    return defaults;
+  }
+}
+
+function isPanelMode(value: unknown): value is PanelMode {
+  return value === "docked" || value === "collapsed" || value === "maximized";
 }
 
 function documentQuery<ElementType extends Element>(

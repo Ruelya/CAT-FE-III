@@ -59,6 +59,22 @@ pnpm dev:desktop # Vite/tsc watches + Electron
   composition; focus advances only after save and confirmation succeed.
 - Suggestions and Preview each have exactly three presentation modes:
   `docked`, `collapsed`, and `maximized`, with symmetric transitions.
+- Leaving the workbench for QA, export, TM, or setup must call the shared
+  persist-all path before unmount. The parent then reloads project, segment,
+  and QA projections through RPC; a review page never receives a stale copy of
+  debounced renderer state.
+- Collapsed panel content stays mounted for the exit animation but becomes
+  `inert` and `aria-hidden`. Focus hands off to the visible expand control;
+  expanding returns focus to the collapse control. Do not use `display: none`
+  for the animated shell.
+- Preview height is presentation state clamped to 120-320 CSS pixels. Pointer
+  resize and the separator keyboard contract (`ArrowUp`, `ArrowDown`, `Home`,
+  `End`) update one shared value. Invalid disposable preferences fall back to
+  docked panels, 200 pixels, and follow-active enabled.
+- The offline Assistant is renderer-only. It may own deterministic local
+  conversations and synthetic usage fixtures, but it never adds a preload
+  method or implies a network model request. Target insertion must reuse the
+  normal segment update path.
 
 ## 4. Validation & Error Matrix
 
@@ -73,6 +89,9 @@ pnpm dev:desktop # Vite/tsc watches + Electron
 | Engine restart/reload finds a stored session      | Reload project, segments, and QA through RPC                    |
 | Local session references missing data             | Remove the session key and return to setup                      |
 | Renderer file assets use absolute `/assets` paths | Build is invalid for Electron `loadFile()`                      |
+| Navigation encounters a pending-save failure      | Stay in Workbench and show the typed save error                 |
+| Stored panel preference is missing or invalid     | Use docked/docked, 200px, and follow-active defaults            |
+| A panel enters `collapsed`                         | Hide it from AT/tab order, animate it out, then focus expand     |
 
 ## 5. Good / Base / Bad Cases
 
@@ -82,8 +101,15 @@ pnpm dev:desktop # Vite/tsc watches + Electron
   setup unchanged.
 - Good: at 1250x744 the editor ends before Suggestions, status text stays
   inside its column, and panel collapse/maximize transitions retain controls.
+- Good: edit a target and immediately open QA review; the debounce is flushed,
+  the review projection reloads, and returning to the segment shows the saved
+  target.
 - Bad: derive QA counts from visible rows or duplicate the number rule in
   TypeScript.
+- Bad: call `setSurface("qa-review")` while target timers or update promises
+  are pending.
+- Bad: animate a panel by removing its subtree; the reverse transition, focus,
+  and accessible state become discontinuous.
 - Bad: exact CSS string checks such as `width === "48px"`; Windows DPI can
   return `47.9911px`. Assert a numeric tolerance or geometry boundary.
 
@@ -96,15 +122,24 @@ pnpm dev:desktop # Vite/tsc watches + Electron
   verify import, editable Chinese target, saved draft restart recovery, IME
   guard, confirm-and-advance, TM, 30/60 QA evidence, QA resolution, export, and
   all panel modes.
-- Run E2E on Windows and under Xvfb. Capture 1250x744 and 1680x942 screenshots,
-  assert no renderer console/page errors, and check editor/Suggestions and
-  status/source geometric boundaries.
+- Run E2E on Windows and under Xvfb. Capture 1250x744, 1680x942, and 1920x1080
+  default/collapsed/maximized screenshots, assert no renderer console/page
+  errors, and check editor/Suggestions and status/source boundaries.
+- Assert at least one intermediate width in each Suggestions transition; final
+  geometry alone cannot detect an abrupt hide followed by a delayed resize.
+- Cover Assistant model/reasoning defaults, conversation create/select/archive,
+  all seven tooltip metrics, target insertion, and absence of horizontal
+  transcript overflow at the compact breakpoint.
+- Cover save-before-navigation and real QA/TM/export projections with the Rust
+  engine process, not renderer mocks.
 - Production build must be part of E2E so `base: "./"`, preload output, and
   Electron main output are exercised.
 
 ## 7. Wrong vs Correct
 
-### Wrong
+### Electron startup and asset loading
+
+#### Wrong
 
 ```typescript
 // Deadlocks Playwright Electron launch while its loader owns whenReady().
@@ -117,7 +152,7 @@ createWindow();
 export default defineConfig({ root: rendererRoot });
 ```
 
-### Correct
+#### Correct
 
 ```typescript
 void bootstrap().catch((error: unknown) => {
@@ -136,4 +171,37 @@ export default defineConfig({
   base: "./",
   root: rendererRoot,
 });
+```
+
+### Navigation and panel state
+
+#### Wrong
+
+```typescript
+// Unmounts before the debounced edit reaches the engine.
+onClick={() => setSurface("qa-review")}
+```
+
+```css
+/* Removes the reverse animation and leaves focus without a visible owner. */
+.suggestions-collapsed .suggestions-content {
+  display: none;
+}
+```
+
+#### Correct
+
+```typescript
+async function navigateToSurface(surface: AppSurface): Promise<void> {
+  await persistAllSegments();
+  await onNavigate(surface); // Parent reloads authoritative RPC projections.
+}
+```
+
+```css
+.suggestions-collapsed .suggestions-content {
+  opacity: 0;
+  transform: translateX(12px);
+  pointer-events: none;
+}
 ```

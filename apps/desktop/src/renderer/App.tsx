@@ -6,8 +6,11 @@ import type {
   Segment,
 } from "@translunar/contracts";
 
+import { BrandMark } from "./BrandMark";
 import { SetupView } from "./SetupView";
+import type { AppSurface } from "./surface-types";
 import { Workbench } from "./Workbench";
+import { WorkspacePage } from "./WorkbenchPages";
 
 const SESSION_KEY = "translunar.active-workspace.v1";
 
@@ -26,6 +29,8 @@ interface StoredSession {
 export function App() {
   const [workspace, setWorkspace] = useState<WorkspaceData | null>(null);
   const [restoring, setRestoring] = useState(true);
+  const [surface, setSurface] = useState<AppSurface>("workbench");
+  const [focusSegmentId, setFocusSegmentId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -57,11 +62,42 @@ export function App() {
       JSON.stringify({ projectId, documentId }),
     );
     setWorkspace(data);
+    setSurface("workbench");
   };
 
   const startAnotherProject = () => {
     localStorage.removeItem(SESSION_KEY);
     setWorkspace(null);
+    setSurface("workbench");
+    setFocusSegmentId(null);
+  };
+
+  const refreshWorkspace = async () => {
+    if (!workspace) return;
+    const data = await loadWorkspace(
+      workspace.snapshot.project.id,
+      workspace.document.id,
+    );
+    setWorkspace(data);
+  };
+
+  const navigateFromWorkbench = async (nextSurface: AppSurface) => {
+    if (!workspace) return;
+    if (nextSurface === "workbench") {
+      setSurface("workbench");
+      return;
+    }
+    const data = await loadWorkspace(
+      workspace.snapshot.project.id,
+      workspace.document.id,
+    );
+    setWorkspace(data);
+    setSurface(nextSurface);
+  };
+
+  const openSegment = (segmentId: string) => {
+    setFocusSegmentId(segmentId);
+    setSurface("workbench");
   };
 
   if (restoring) {
@@ -75,20 +111,28 @@ export function App() {
 
   if (!workspace) return <SetupView onCreated={openWorkspace} />;
 
+  if (surface !== "workbench") {
+    return (
+      <WorkspacePage
+        surface={surface}
+        snapshot={workspace.snapshot}
+        document={workspace.document}
+        segments={workspace.segments}
+        issues={workspace.issues}
+        onNavigate={setSurface}
+        onRefresh={refreshWorkspace}
+        onOpenSegment={openSegment}
+      />
+    );
+  }
+
   return (
     <Workbench
       initialWorkspace={workspace}
       onStartAnotherProject={startAnotherProject}
+      onNavigate={navigateFromWorkbench}
+      focusSegmentId={focusSegmentId}
     />
-  );
-}
-
-export function BrandMark() {
-  return (
-    <span className="brand-mark" aria-hidden="true">
-      <span className="brand-mark-orbit" />
-      <span className="brand-mark-core" />
-    </span>
   );
 }
 

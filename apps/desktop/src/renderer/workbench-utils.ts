@@ -1,5 +1,11 @@
 import type { Segment } from "@translunar/contracts";
 
+export type PanelMode = "docked" | "collapsed" | "maximized";
+
+export const PREVIEW_MIN_HEIGHT = 120;
+export const PREVIEW_MAX_HEIGHT = 320;
+export const PREVIEW_DEFAULT_HEIGHT = 200;
+
 export interface ConfirmKeyInput {
   key: string;
   ctrlKey: boolean;
@@ -36,6 +42,22 @@ export function nextVisibleSegmentId(
 ): string | null {
   const index = visibleIds.indexOf(activeId);
   return index >= 0 ? (visibleIds[index + 1] ?? null) : null;
+}
+
+export function togglePanelCollapsed(mode: PanelMode): PanelMode {
+  return mode === "collapsed" ? "docked" : "collapsed";
+}
+
+export function togglePanelMaximized(mode: PanelMode): PanelMode {
+  return mode === "maximized" ? "docked" : "maximized";
+}
+
+export function clampPreviewHeight(value: number): number {
+  if (!Number.isFinite(value)) return PREVIEW_DEFAULT_HEIGHT;
+  return Math.min(
+    PREVIEW_MAX_HEIGHT,
+    Math.max(PREVIEW_MIN_HEIGHT, Math.round(value)),
+  );
 }
 
 export function fileName(path: string): string {
