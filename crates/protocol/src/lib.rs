@@ -1,6 +1,10 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use translunar_asset_core::{
+    AssetMountMode, ConcordanceHit, ConcordanceSide, TermEntry, TermMatch, TermStatus, Termbase,
+    TermbaseMount, TmLibrary, TmLibraryMount, TmMatch,
+};
 use translunar_domain::{
     BackupManifest, DataHealthReport, DegradationFinding, Document, Operation, Project,
     ProjectConfiguration, ProjectLifecycle, QaIssue, Segment, SegmentCounts, TmEntry,
@@ -28,6 +32,22 @@ pub mod methods {
     pub const SEGMENT_UPDATE_TARGET: &str = "segment.updateTarget";
     pub const SEGMENT_CONFIRM: &str = "segment.confirm";
     pub const TM_LOOKUP_EXACT: &str = "tm.lookupExact";
+    pub const TM_LIBRARY_LIST: &str = "tm.library.list";
+    pub const TM_LIBRARY_CREATE: &str = "tm.library.create";
+    pub const TM_LIBRARY_MOUNT: &str = "tm.library.mount";
+    pub const TM_LIBRARY_UNMOUNT: &str = "tm.library.unmount";
+    pub const TM_SEARCH: &str = "tm.search";
+    pub const TM_CONCORDANCE: &str = "tm.concordance";
+    pub const TM_IMPORT: &str = "tm.import";
+    pub const TM_EXPORT: &str = "tm.export";
+    pub const TERMBASE_LIST: &str = "termbase.list";
+    pub const TERMBASE_CREATE: &str = "termbase.create";
+    pub const TERMBASE_MOUNT: &str = "termbase.mount";
+    pub const TERMBASE_UNMOUNT: &str = "termbase.unmount";
+    pub const TERM_SEARCH: &str = "term.search";
+    pub const TERM_UPSERT: &str = "term.upsert";
+    pub const TERMBASE_IMPORT: &str = "termbase.import";
+    pub const TERMBASE_EXPORT: &str = "termbase.export";
     pub const QA_RUN_DOCUMENT: &str = "qa.runDocument";
     pub const QA_LIST: &str = "qa.list";
     pub const DOCUMENT_EXPORT_DOCX: &str = "document.exportDocx";
@@ -258,6 +278,328 @@ pub struct ConfirmSegmentParams {
 pub struct ExactLookupParams {
     pub project_id: String,
     pub source_text: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum AssetExchangeFormat {
+    Tmx,
+    Csv,
+    Tsv,
+    Tbx,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmLibraryListParams {
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub offset: u32,
+    #[serde(default = "default_page_size")]
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmLibraryCreateParams {
+    pub name: String,
+    pub source_locale: String,
+    pub target_locale: String,
+    #[serde(default)]
+    pub domain: Option<String>,
+    #[serde(default = "default_true")]
+    pub writable: bool,
+    #[serde(default)]
+    pub owner_project_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmLibraryMountParams {
+    pub project_id: String,
+    pub library_id: String,
+    pub mode: AssetMountMode,
+    #[serde(default)]
+    pub priority: u32,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub expected_revision: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmLibraryUnmountParams {
+    pub project_id: String,
+    pub library_id: String,
+    pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmLibraryPage {
+    pub items: Vec<TmLibrary>,
+    pub mounts: Vec<TmLibraryMount>,
+    pub total: u32,
+    pub offset: u32,
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmSearchParams {
+    pub project_id: String,
+    pub source_locale: String,
+    pub target_locale: String,
+    pub query: String,
+    #[serde(default = "default_tm_threshold")]
+    pub threshold: u8,
+    #[serde(default)]
+    pub offset: u32,
+    #[serde(default = "default_page_size")]
+    pub limit: u32,
+    #[serde(default)]
+    pub library_ids: Vec<String>,
+    #[serde(default)]
+    pub domain: Option<String>,
+    #[serde(default)]
+    pub since_ms: Option<i64>,
+    #[serde(default)]
+    pub origin_project_id: Option<String>,
+    #[serde(default)]
+    pub origin_document_id: Option<String>,
+    #[serde(default)]
+    pub context_before_hash: Option<String>,
+    #[serde(default)]
+    pub context_after_hash: Option<String>,
+}
+
+fn default_tm_threshold() -> u8 {
+    70
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmSearchResult {
+    pub matches: Vec<TmMatch>,
+    pub total: u32,
+    pub offset: u32,
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ConcordanceParams {
+    pub project_id: String,
+    pub query: String,
+    #[serde(default = "default_concordance_side")]
+    pub side: ConcordanceSide,
+    #[serde(default)]
+    pub offset: u32,
+    #[serde(default = "default_page_size")]
+    pub limit: u32,
+}
+
+fn default_concordance_side() -> ConcordanceSide {
+    ConcordanceSide::Both
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ConcordanceResult {
+    pub hits: Vec<ConcordanceHit>,
+    pub total: u32,
+    pub offset: u32,
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetDiagnostic {
+    pub row: u32,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmImportParams {
+    pub library_id: String,
+    pub source_path: String,
+    pub format: AssetExchangeFormat,
+    pub source_locale: String,
+    pub target_locale: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmImportResult {
+    pub library_id: String,
+    pub inserted: u32,
+    pub skipped: u32,
+    pub diagnostics: Vec<AssetDiagnostic>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmExportParams {
+    pub library_id: String,
+    pub output_path: String,
+    pub format: AssetExchangeFormat,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmExportResult {
+    pub library_id: String,
+    pub output_path: String,
+    pub unit_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TermbaseListParams {
+    pub project_id: String,
+    #[serde(default)]
+    pub offset: u32,
+    #[serde(default = "default_page_size")]
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TermbaseCreateParams {
+    pub name: String,
+    pub source_locale: String,
+    #[serde(default)]
+    pub domain: Option<String>,
+    #[serde(default = "default_true")]
+    pub writable: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TermbaseMountParams {
+    pub project_id: String,
+    pub termbase_id: String,
+    #[serde(default)]
+    pub priority: u32,
+    #[serde(default = "default_true")]
+    pub writable: bool,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub expected_revision: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TermbaseUnmountParams {
+    pub project_id: String,
+    pub termbase_id: String,
+    pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TermbasePage {
+    pub items: Vec<Termbase>,
+    pub mounts: Vec<TermbaseMount>,
+    pub total: u32,
+    pub offset: u32,
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TermSearchParams {
+    pub project_id: String,
+    pub text: String,
+    #[serde(default)]
+    pub offset: u32,
+    #[serde(default = "default_page_size")]
+    pub limit: u32,
+    #[serde(default)]
+    pub termbase_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TermSearchResult {
+    pub matches: Vec<TermMatch>,
+    pub total: u32,
+    pub offset: u32,
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TermTranslationInput {
+    pub locale: String,
+    pub term: String,
+    #[serde(default = "default_true")]
+    pub preferred: bool,
+    #[serde(default)]
+    pub forbidden: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TermUpsertParams {
+    pub termbase_id: String,
+    pub source_locale: String,
+    pub source_term: String,
+    #[serde(default)]
+    pub part_of_speech: Option<String>,
+    #[serde(default)]
+    pub definition: Option<String>,
+    #[serde(default)]
+    pub example: Option<String>,
+    #[serde(default)]
+    pub domain: Option<String>,
+    #[serde(default = "default_term_status")]
+    pub status: TermStatus,
+    pub translations: Vec<TermTranslationInput>,
+}
+
+fn default_term_status() -> TermStatus {
+    TermStatus::Active
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TermbaseImportParams {
+    pub termbase_id: String,
+    pub source_path: String,
+    pub format: AssetExchangeFormat,
+    pub source_locale: String,
+    pub target_locale: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TermbaseImportResult {
+    pub termbase_id: String,
+    pub inserted: u32,
+    pub skipped: u32,
+    pub diagnostics: Vec<AssetDiagnostic>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TermbaseExportParams {
+    pub termbase_id: String,
+    pub output_path: String,
+    pub format: AssetExchangeFormat,
+    pub target_locale: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TermbaseExportResult {
+    pub termbase_id: String,
+    pub output_path: String,
+    pub entry_count: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -551,6 +893,38 @@ pub struct RpcMethodCatalog {
     pub segment_confirm: MethodContract<ConfirmSegmentParams, ConfirmSegmentResult>,
     #[serde(rename = "tm.lookupExact")]
     pub tm_lookup_exact: MethodContract<ExactLookupParams, ExactLookupResult>,
+    #[serde(rename = "tm.library.list")]
+    pub tm_library_list: MethodContract<TmLibraryListParams, TmLibraryPage>,
+    #[serde(rename = "tm.library.create")]
+    pub tm_library_create: MethodContract<TmLibraryCreateParams, TmLibrary>,
+    #[serde(rename = "tm.library.mount")]
+    pub tm_library_mount: MethodContract<TmLibraryMountParams, TmLibraryMount>,
+    #[serde(rename = "tm.library.unmount")]
+    pub tm_library_unmount: MethodContract<TmLibraryUnmountParams, EmptyResult>,
+    #[serde(rename = "tm.search")]
+    pub tm_search: MethodContract<TmSearchParams, TmSearchResult>,
+    #[serde(rename = "tm.concordance")]
+    pub tm_concordance: MethodContract<ConcordanceParams, ConcordanceResult>,
+    #[serde(rename = "tm.import")]
+    pub tm_import: MethodContract<TmImportParams, TmImportResult>,
+    #[serde(rename = "tm.export")]
+    pub tm_export: MethodContract<TmExportParams, TmExportResult>,
+    #[serde(rename = "termbase.list")]
+    pub termbase_list: MethodContract<TermbaseListParams, TermbasePage>,
+    #[serde(rename = "termbase.create")]
+    pub termbase_create: MethodContract<TermbaseCreateParams, Termbase>,
+    #[serde(rename = "termbase.mount")]
+    pub termbase_mount: MethodContract<TermbaseMountParams, TermbaseMount>,
+    #[serde(rename = "termbase.unmount")]
+    pub termbase_unmount: MethodContract<TermbaseUnmountParams, EmptyResult>,
+    #[serde(rename = "term.search")]
+    pub term_search: MethodContract<TermSearchParams, TermSearchResult>,
+    #[serde(rename = "term.upsert")]
+    pub term_upsert: MethodContract<TermUpsertParams, TermEntry>,
+    #[serde(rename = "termbase.import")]
+    pub termbase_import: MethodContract<TermbaseImportParams, TermbaseImportResult>,
+    #[serde(rename = "termbase.export")]
+    pub termbase_export: MethodContract<TermbaseExportParams, TermbaseExportResult>,
     #[serde(rename = "qa.runDocument")]
     pub qa_run_document: MethodContract<DocumentIdParams, QaListResult>,
     #[serde(rename = "qa.list")]
@@ -593,6 +967,10 @@ pub struct RpcMethodCatalog {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EmptyParams {}
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EmptyResult {}
+
 #[derive(Debug, JsonSchema)]
 #[allow(dead_code)]
 pub struct ProtocolCatalog {
@@ -612,6 +990,34 @@ pub struct ProtocolCatalog {
     pub update_target_params: UpdateTargetParams,
     pub confirm_segment_params: ConfirmSegmentParams,
     pub exact_lookup_params: ExactLookupParams,
+    pub asset_exchange_format: AssetExchangeFormat,
+    pub tm_library_list_params: TmLibraryListParams,
+    pub tm_library_create_params: TmLibraryCreateParams,
+    pub tm_library_mount_params: TmLibraryMountParams,
+    pub tm_library_unmount_params: TmLibraryUnmountParams,
+    pub tm_library_page: TmLibraryPage,
+    pub tm_search_params: TmSearchParams,
+    pub tm_search_result: TmSearchResult,
+    pub concordance_params: ConcordanceParams,
+    pub concordance_result: ConcordanceResult,
+    pub asset_diagnostic: AssetDiagnostic,
+    pub tm_import_params: TmImportParams,
+    pub tm_import_result: TmImportResult,
+    pub tm_export_params: TmExportParams,
+    pub tm_export_result: TmExportResult,
+    pub termbase_list_params: TermbaseListParams,
+    pub termbase_create_params: TermbaseCreateParams,
+    pub termbase_mount_params: TermbaseMountParams,
+    pub termbase_unmount_params: TermbaseUnmountParams,
+    pub termbase_page: TermbasePage,
+    pub term_search_params: TermSearchParams,
+    pub term_search_result: TermSearchResult,
+    pub term_translation_input: TermTranslationInput,
+    pub term_upsert_params: TermUpsertParams,
+    pub termbase_import_params: TermbaseImportParams,
+    pub termbase_import_result: TermbaseImportResult,
+    pub termbase_export_params: TermbaseExportParams,
+    pub termbase_export_result: TermbaseExportResult,
     pub list_qa_params: ListQaParams,
     pub export_docx_params: ExportDocxParams,
     pub export_document_params: ExportDocumentParams,

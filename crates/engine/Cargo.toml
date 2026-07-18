@@ -16,6 +16,7 @@ thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 translunar-domain = { path = "../domain" }
+translunar-asset-core = { path = "../asset-core" }
 translunar-filter-core = { path = "../filter-core" }
 translunar-filter-docx = { path = "../filter-docx" }
 translunar-pipeline = { path = "../pipeline" }

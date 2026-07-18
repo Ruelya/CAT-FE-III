@@ -208,3 +208,13 @@ async function navigateToSurface(surface: AppSurface): Promise<void> {
   pointer-events: none;
 }
 ```
+
+### Asset RPC Additions
+
+TM/termbase library, search, concordance, and exchange operations are additive
+entries in the generated `ENGINE_METHODS` catalog. The existing generic
+`DesktopApi.invoke` is sufficient; do not add a renderer-specific preload
+bridge or duplicate the Rust matching/format rules. Asset pages must render
+the returned `items`/`matches` pages and surface typed `not_found`, `conflict`,
+and row-diagnostic `invalid_request` errors without reading SQLite or local
+exchange files from React.

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -27,6 +27,10 @@ async function main() {
   const legacyOutputPath = join(dataDirectory, "translated-legacy.docx");
   const backupParent = mkdtempSync(join(tmpdir(), "translunar-engine-backup-"));
   const backupPath = join(backupParent, "workspace-backup");
+  const tmSeedPath = join(dataDirectory, "seed.csv");
+  const badTmPath = join(dataDirectory, "bad-seed.csv");
+  const tmExportPath = join(dataDirectory, "tm-export.tmx");
+  const termExportPath = join(dataDirectory, "terms.tbx");
   let processHandle;
 
   try {
@@ -47,6 +51,207 @@ async function main() {
       relativePath: "chapter-a/m0-source.docx",
     });
     const document = imported.document;
+    const libraries = await processHandle.call("tm.library.list", {
+      projectId: project.id,
+      offset: 0,
+      limit: 50,
+    });
+    assert(
+      libraries.items.length === 1,
+      "project should have a default TM library",
+    );
+    const defaultLibrary = libraries.items[0];
+    assert(defaultLibrary.writable, "default TM library should be writable");
+    const extraLibrary = await processHandle.call("tm.library.create", {
+      name: "Smoke reference",
+      sourceLocale: project.sourceLocale,
+      targetLocale: project.targetLocale,
+      domain: project.domain,
+      writable: true,
+    });
+    await processHandle.call("tm.library.mount", {
+      projectId: project.id,
+      libraryId: extraLibrary.id,
+      mode: "write",
+      priority: 1,
+      enabled: true,
+    });
+    writeFileSync(
+      tmSeedPath,
+      [
+        "source,target,sourceLocale,targetLocale,domain,author,createdAtMs",
+        "A CJK sentence,一个中文句子,en-US,zh-CN,general,smoke,42",
+      ].join("\n"),
+      "utf8",
+    );
+    const importedTm = await processHandle.call("tm.import", {
+      libraryId: extraLibrary.id,
+      sourcePath: tmSeedPath,
+      format: "csv",
+      sourceLocale: project.sourceLocale,
+      targetLocale: project.targetLocale,
+    });
+    assert(importedTm.inserted === 1, "TM CSV import should insert one unit");
+    writeFileSync(badTmPath, "source,target\nvalid,ok\nbroken,\n", "utf8");
+    try {
+      await processHandle.call("tm.import", {
+        libraryId: extraLibrary.id,
+        sourcePath: badTmPath,
+        format: "csv",
+        sourceLocale: project.sourceLocale,
+        targetLocale: project.targetLocale,
+      });
+      throw new Error("malformed TM import unexpectedly succeeded");
+    } catch (error) {
+      assert(
+        error?.code === "invalid_request",
+        "malformed TM import should be typed",
+      );
+      assert(
+        error?.data?.row === 3,
+        "malformed TM import should report its row",
+      );
+    }
+    const rolledBackImport = await processHandle.call("tm.concordance", {
+      projectId: project.id,
+      query: "valid",
+      side: "source",
+      offset: 0,
+      limit: 50,
+    });
+    assert(
+      rolledBackImport.total === 0,
+      "malformed TM import must not partially commit",
+    );
+    const tmMatches = await processHandle.call("tm.search", {
+      projectId: project.id,
+      sourceLocale: project.sourceLocale,
+      targetLocale: project.targetLocale,
+      query: "A CJK sentence",
+      threshold: 100,
+      offset: 0,
+      limit: 50,
+      libraryIds: [extraLibrary.id],
+    });
+    assert(
+      tmMatches.matches.length === 1,
+      "TM search should find imported unit",
+    );
+    const concordance = await processHandle.call("tm.concordance", {
+      projectId: project.id,
+      query: "中文",
+      side: "target",
+      offset: 0,
+      limit: 50,
+    });
+    assert(
+      concordance.hits.length === 1,
+      "concordance should search target text",
+    );
+    const sourceConcordance = await processHandle.call("tm.concordance", {
+      projectId: project.id,
+      query: "CJK",
+      side: "source",
+      offset: 0,
+      limit: 50,
+    });
+    assert(
+      sourceConcordance.hits.length === 1,
+      "concordance should search source text",
+    );
+    const exportedTm = await processHandle.call("tm.export", {
+      libraryId: extraLibrary.id,
+      outputPath: tmExportPath,
+      format: "tmx",
+    });
+    assert(
+      exportedTm.unitCount === 1 && statSync(tmExportPath).size > 0,
+      "TMX export should publish atomically",
+    );
+    const importedTmxLibrary = await processHandle.call("tm.library.create", {
+      name: "Smoke TMX import",
+      sourceLocale: project.sourceLocale,
+      targetLocale: project.targetLocale,
+      writable: true,
+    });
+    const importedTmx = await processHandle.call("tm.import", {
+      libraryId: importedTmxLibrary.id,
+      sourcePath: tmExportPath,
+      format: "tmx",
+      sourceLocale: project.sourceLocale,
+      targetLocale: project.targetLocale,
+    });
+    assert(importedTmx.inserted === 1, "TMX import should insert one unit");
+    const termbases = await processHandle.call("termbase.list", {
+      projectId: project.id,
+      offset: 0,
+      limit: 50,
+    });
+    assert(
+      termbases.items.length === 1,
+      "project should have a default termbase",
+    );
+    const defaultTermbase = termbases.items[0];
+    const termEntry = await processHandle.call("term.upsert", {
+      termbaseId: defaultTermbase.id,
+      sourceLocale: project.sourceLocale,
+      sourceTerm: "paragraph",
+      partOfSpeech: "noun",
+      definition: "A block of text",
+      status: "active",
+      translations: [
+        {
+          locale: project.targetLocale,
+          term: "段落",
+          preferred: true,
+          forbidden: false,
+        },
+        {
+          locale: project.targetLocale,
+          term: "禁用词",
+          preferred: false,
+          forbidden: true,
+        },
+      ],
+    });
+    assert(
+      termEntry.translations.length === 2,
+      "term upsert should retain multiple translations",
+    );
+    const recognized = await processHandle.call("term.search", {
+      projectId: project.id,
+      text: "This paragraph remains untranslated.",
+      offset: 0,
+      limit: 50,
+    });
+    assert(
+      recognized.matches.length === 1,
+      "term search should recognize a Latin term",
+    );
+    const exportedTerms = await processHandle.call("termbase.export", {
+      termbaseId: defaultTermbase.id,
+      outputPath: termExportPath,
+      format: "tbx",
+      targetLocale: project.targetLocale,
+    });
+    assert(
+      exportedTerms.entryCount === 1 && statSync(termExportPath).size > 0,
+      "TBX export should publish atomically",
+    );
+    const importedTermbase = await processHandle.call("termbase.create", {
+      name: "Smoke imported terms",
+      sourceLocale: project.sourceLocale,
+      domain: project.domain,
+      writable: true,
+    });
+    const importedTerms = await processHandle.call("termbase.import", {
+      termbaseId: importedTermbase.id,
+      sourcePath: termExportPath,
+      format: "tbx",
+      sourceLocale: project.sourceLocale,
+      targetLocale: project.targetLocale,
+    });
+    assert(importedTerms.inserted === 1, "TBX import should insert one entry");
     const legacyDocument = await processHandle.call("document.importDocx", {
       projectId: project.id,
       sourcePath: fixture,
@@ -139,6 +344,49 @@ async function main() {
       sourceText: first.sourceText,
     });
     assert(exact.matches.length === 1, "confirmation should sink one TM entry");
+    const assetExact = await processHandle.call("tm.search", {
+      projectId: project.id,
+      sourceLocale: project.sourceLocale,
+      targetLocale: project.targetLocale,
+      query: first.sourceText,
+      threshold: 100,
+      offset: 0,
+      limit: 50,
+      libraryIds: [defaultLibrary.id],
+    });
+    const contextualUnit = assetExact.matches[0].unit;
+    const contextMatch = await processHandle.call("tm.search", {
+      projectId: project.id,
+      sourceLocale: project.sourceLocale,
+      targetLocale: project.targetLocale,
+      query: first.sourceText,
+      threshold: 100,
+      offset: 0,
+      limit: 50,
+      libraryIds: [defaultLibrary.id],
+      contextBeforeHash: contextualUnit.contextBeforeHash,
+      contextAfterHash: contextualUnit.contextAfterHash,
+    });
+    assert(
+      contextMatch.matches[0].score === 101,
+      "context match should score 101",
+    );
+    const second = recovered.items[2];
+    const forbiddenDraft = await processHandle.call("segment.updateTarget", {
+      segmentId: second.id,
+      targetText: "这里包含禁用词。",
+      expectedRevision: second.revision,
+    });
+    const forbiddenConfirmation = await processHandle.call("segment.confirm", {
+      segmentId: second.id,
+      expectedRevision: forbiddenDraft.revision,
+    });
+    assert(
+      forbiddenConfirmation.qaIssues.some((issue) =>
+        issue.ruleId.startsWith("term-forbidden:"),
+      ),
+      "forbidden term should produce a typed QA issue",
+    );
     const corrected = await processHandle.call("segment.updateTarget", {
       segmentId: first.id,
       targetText: "保留期为 30 天。",
@@ -148,12 +396,22 @@ async function main() {
       segmentId: first.id,
       expectedRevision: corrected.revision,
     });
+    const cleanSecond = await processHandle.call("segment.updateTarget", {
+      segmentId: second.id,
+      targetText: "这里包含段落。",
+      expectedRevision: forbiddenConfirmation.segment.revision,
+    });
+    await processHandle.call("segment.confirm", {
+      segmentId: second.id,
+      expectedRevision: cleanSecond.revision,
+    });
     const issues = await processHandle.call("qa.list", {
       documentId: document.id,
       includeResolved: true,
     });
     assert(
-      issues.issues.length === 1 && issues.issues[0].status === "resolved",
+      issues.issues.length === 2 &&
+        issues.issues.every((issue) => issue.status === "resolved"),
       "QA issue should resolve",
     );
     const definition = await processHandle.call("pipeline.create", {
@@ -194,7 +452,7 @@ async function main() {
       destinationPath: backupPath,
     });
     assert(
-      backup.manifest.schemaVersion === 3,
+      backup.manifest.schemaVersion === 4,
       "backup should contain latest schema",
     );
     assert(
@@ -206,8 +464,8 @@ async function main() {
       outputPath,
     });
     assert(
-      exported.translatedSegments === 1,
-      "export should contain one translated segment",
+      exported.translatedSegments === 2,
+      "export should contain two translated segments",
     );
     const legacyExported = await processHandle.call("document.exportDocx", {
       documentId: legacyDocument.id,

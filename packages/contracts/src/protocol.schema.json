@@ -3,8 +3,20 @@
   "title": "ProtocolCatalog",
   "type": "object",
   "properties": {
+    "asset_diagnostic": {
+      "$ref": "#/$defs/AssetDiagnostic"
+    },
+    "asset_exchange_format": {
+      "$ref": "#/$defs/AssetExchangeFormat"
+    },
     "backup_result": {
       "$ref": "#/$defs/BackupResult"
+    },
+    "concordance_params": {
+      "$ref": "#/$defs/ConcordanceParams"
+    },
+    "concordance_result": {
+      "$ref": "#/$defs/ConcordanceResult"
     },
     "confirm_segment_params": {
       "$ref": "#/$defs/ConfirmSegmentParams"
@@ -144,6 +156,78 @@
     "set_project_lifecycle_params": {
       "$ref": "#/$defs/SetProjectLifecycleParams"
     },
+    "term_search_params": {
+      "$ref": "#/$defs/TermSearchParams"
+    },
+    "term_search_result": {
+      "$ref": "#/$defs/TermSearchResult"
+    },
+    "term_translation_input": {
+      "$ref": "#/$defs/TermTranslationInput"
+    },
+    "term_upsert_params": {
+      "$ref": "#/$defs/TermUpsertParams"
+    },
+    "termbase_create_params": {
+      "$ref": "#/$defs/TermbaseCreateParams"
+    },
+    "termbase_export_params": {
+      "$ref": "#/$defs/TermbaseExportParams"
+    },
+    "termbase_export_result": {
+      "$ref": "#/$defs/TermbaseExportResult"
+    },
+    "termbase_import_params": {
+      "$ref": "#/$defs/TermbaseImportParams"
+    },
+    "termbase_import_result": {
+      "$ref": "#/$defs/TermbaseImportResult"
+    },
+    "termbase_list_params": {
+      "$ref": "#/$defs/TermbaseListParams"
+    },
+    "termbase_mount_params": {
+      "$ref": "#/$defs/TermbaseMountParams"
+    },
+    "termbase_page": {
+      "$ref": "#/$defs/TermbasePage"
+    },
+    "termbase_unmount_params": {
+      "$ref": "#/$defs/TermbaseUnmountParams"
+    },
+    "tm_export_params": {
+      "$ref": "#/$defs/TmExportParams"
+    },
+    "tm_export_result": {
+      "$ref": "#/$defs/TmExportResult"
+    },
+    "tm_import_params": {
+      "$ref": "#/$defs/TmImportParams"
+    },
+    "tm_import_result": {
+      "$ref": "#/$defs/TmImportResult"
+    },
+    "tm_library_create_params": {
+      "$ref": "#/$defs/TmLibraryCreateParams"
+    },
+    "tm_library_list_params": {
+      "$ref": "#/$defs/TmLibraryListParams"
+    },
+    "tm_library_mount_params": {
+      "$ref": "#/$defs/TmLibraryMountParams"
+    },
+    "tm_library_page": {
+      "$ref": "#/$defs/TmLibraryPage"
+    },
+    "tm_library_unmount_params": {
+      "$ref": "#/$defs/TmLibraryUnmountParams"
+    },
+    "tm_search_params": {
+      "$ref": "#/$defs/TmSearchParams"
+    },
+    "tm_search_result": {
+      "$ref": "#/$defs/TmSearchResult"
+    },
     "update_project_params": {
       "$ref": "#/$defs/UpdateProjectParams"
     },
@@ -171,6 +255,34 @@
     "update_target_params",
     "confirm_segment_params",
     "exact_lookup_params",
+    "asset_exchange_format",
+    "tm_library_list_params",
+    "tm_library_create_params",
+    "tm_library_mount_params",
+    "tm_library_unmount_params",
+    "tm_library_page",
+    "tm_search_params",
+    "tm_search_result",
+    "concordance_params",
+    "concordance_result",
+    "asset_diagnostic",
+    "tm_import_params",
+    "tm_import_result",
+    "tm_export_params",
+    "tm_export_result",
+    "termbase_list_params",
+    "termbase_create_params",
+    "termbase_mount_params",
+    "termbase_unmount_params",
+    "termbase_page",
+    "term_search_params",
+    "term_search_result",
+    "term_translation_input",
+    "term_upsert_params",
+    "termbase_import_params",
+    "termbase_import_result",
+    "termbase_export_params",
+    "termbase_export_result",
     "list_qa_params",
     "export_docx_params",
     "export_document_params",
@@ -216,6 +328,39 @@
         "segments",
         "qaFindings",
         "json"
+      ]
+    },
+    "AssetDiagnostic": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "row": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "row",
+        "message"
+      ]
+    },
+    "AssetExchangeFormat": {
+      "type": "string",
+      "enum": [
+        "tmx",
+        "csv",
+        "tsv",
+        "tbx"
+      ]
+    },
+    "AssetMountMode": {
+      "type": "string",
+      "enum": [
+        "write",
+        "reference"
       ]
     },
     "BackupFile": {
@@ -302,6 +447,96 @@
       "required": [
         "name",
         "version"
+      ]
+    },
+    "ConcordanceHit": {
+      "type": "object",
+      "properties": {
+        "libraryId": {
+          "type": "string"
+        },
+        "matchedSide": {
+          "$ref": "#/$defs/ConcordanceSide"
+        },
+        "unit": {
+          "$ref": "#/$defs/TmUnit"
+        }
+      },
+      "required": [
+        "libraryId",
+        "unit",
+        "matchedSide"
+      ]
+    },
+    "ConcordanceParams": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 200,
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        },
+        "side": {
+          "$ref": "#/$defs/ConcordanceSide",
+          "default": "both"
+        }
+      },
+      "required": [
+        "projectId",
+        "query"
+      ]
+    },
+    "ConcordanceResult": {
+      "type": "object",
+      "properties": {
+        "hits": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ConcordanceHit"
+          }
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "hits",
+        "total",
+        "offset",
+        "limit"
+      ]
+    },
+    "ConcordanceSide": {
+      "type": "string",
+      "enum": [
+        "source",
+        "target",
+        "both"
       ]
     },
     "ConfirmSegmentParams": {
@@ -619,6 +854,9 @@
     "EmptyParams": {
       "type": "object",
       "additionalProperties": false
+    },
+    "EmptyResult": {
+      "type": "object"
     },
     "ErrorCode": {
       "type": "string",
@@ -1104,10 +1342,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/DocumentIdParams"
+          "$ref": "#/$defs/TmLibraryListParams"
         },
         "result": {
-          "$ref": "#/$defs/QaListResult"
+          "$ref": "#/$defs/TmLibraryPage"
         }
       },
       "required": [
@@ -1119,10 +1357,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ListQaParams"
+          "$ref": "#/$defs/TmLibraryCreateParams"
         },
         "result": {
-          "$ref": "#/$defs/QaListResult"
+          "$ref": "#/$defs/TmLibrary"
         }
       },
       "required": [
@@ -1134,10 +1372,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ExportDocxParams"
+          "$ref": "#/$defs/TmLibraryMountParams"
         },
         "result": {
-          "$ref": "#/$defs/ExportDocxResult"
+          "$ref": "#/$defs/TmLibraryMount"
         }
       },
       "required": [
@@ -1149,10 +1387,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ExportDocumentParams"
+          "$ref": "#/$defs/TmLibraryUnmountParams"
         },
         "result": {
-          "$ref": "#/$defs/ExportDocumentResult"
+          "$ref": "#/$defs/EmptyResult"
         }
       },
       "required": [
@@ -1164,10 +1402,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/EmptyParams"
+          "$ref": "#/$defs/TmSearchParams"
         },
         "result": {
-          "$ref": "#/$defs/FilterListResult"
+          "$ref": "#/$defs/TmSearchResult"
         }
       },
       "required": [
@@ -1194,10 +1432,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/HistoryListParams"
+          "$ref": "#/$defs/ConcordanceParams"
         },
         "result": {
-          "$ref": "#/$defs/OperationPage"
+          "$ref": "#/$defs/ConcordanceResult"
         }
       },
       "required": [
@@ -1209,10 +1447,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/EmptyParams"
+          "$ref": "#/$defs/TmImportParams"
         },
         "result": {
-          "$ref": "#/$defs/DataHealthReport"
+          "$ref": "#/$defs/TmImportResult"
         }
       },
       "required": [
@@ -1224,10 +1462,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CreateBackupParams"
+          "$ref": "#/$defs/TmExportParams"
         },
         "result": {
-          "$ref": "#/$defs/BackupResult"
+          "$ref": "#/$defs/TmExportResult"
         }
       },
       "required": [
@@ -1239,10 +1477,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/EmptyParams"
+          "$ref": "#/$defs/TermbaseListParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineCapabilityResult"
+          "$ref": "#/$defs/TermbasePage"
         }
       },
       "required": [
@@ -1254,10 +1492,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CreatePipelineParams"
+          "$ref": "#/$defs/TermbaseCreateParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineDefinition"
+          "$ref": "#/$defs/Termbase"
         }
       },
       "required": [
@@ -1269,10 +1507,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PipelineListParams"
+          "$ref": "#/$defs/TermbaseMountParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineDefinitionPage"
+          "$ref": "#/$defs/TermbaseMount"
         }
       },
       "required": [
@@ -1284,10 +1522,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PipelineIdParams"
+          "$ref": "#/$defs/TermbaseUnmountParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineDefinition"
+          "$ref": "#/$defs/EmptyResult"
         }
       },
       "required": [
@@ -1299,10 +1537,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ValidatePipelineParams"
+          "$ref": "#/$defs/TermSearchParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineValidationResult"
+          "$ref": "#/$defs/TermSearchResult"
         }
       },
       "required": [
@@ -1314,10 +1552,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/RunPipelineParams"
+          "$ref": "#/$defs/TermUpsertParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineRunSnapshot"
+          "$ref": "#/$defs/TermEntry"
         }
       },
       "required": [
@@ -1329,10 +1567,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PipelineRunListParams"
+          "$ref": "#/$defs/TermbaseImportParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineRunPage"
+          "$ref": "#/$defs/TermbaseImportResult"
         }
       },
       "required": [
@@ -1359,10 +1597,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PipelineRunIdParams"
+          "$ref": "#/$defs/TermbaseExportParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineRunSnapshot"
+          "$ref": "#/$defs/TermbaseExportResult"
         }
       },
       "required": [
@@ -1374,10 +1612,130 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PipelineRunRevisionParams"
+          "$ref": "#/$defs/DocumentIdParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineRunSnapshot"
+          "$ref": "#/$defs/QaListResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract32": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/ListQaParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaListResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract33": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/ExportDocxParams"
+        },
+        "result": {
+          "$ref": "#/$defs/ExportDocxResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract34": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/ExportDocumentParams"
+        },
+        "result": {
+          "$ref": "#/$defs/ExportDocumentResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract35": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/EmptyParams"
+        },
+        "result": {
+          "$ref": "#/$defs/FilterListResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract36": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/HistoryListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/OperationPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract37": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/EmptyParams"
+        },
+        "result": {
+          "$ref": "#/$defs/DataHealthReport"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract38": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CreateBackupParams"
+        },
+        "result": {
+          "$ref": "#/$defs/BackupResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract39": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/EmptyParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineCapabilityResult"
         }
       },
       "required": [
@@ -1393,6 +1751,126 @@
         },
         "result": {
           "$ref": "#/$defs/ProjectPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract40": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CreatePipelineParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineDefinition"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract41": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/PipelineListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineDefinitionPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract42": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/PipelineIdParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineDefinition"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract43": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/ValidatePipelineParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineValidationResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract44": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/RunPipelineParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineRunSnapshot"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract45": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/PipelineRunListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineRunPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract46": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/PipelineRunIdParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineRunSnapshot"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract47": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/PipelineRunRevisionParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineRunSnapshot"
         }
       },
       "required": [
@@ -2098,6 +2576,25 @@
         "errors"
       ]
     },
+    "PlaceholderSubstitution": {
+      "type": "object",
+      "properties": {
+        "candidateValue": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "queryValue": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "queryValue",
+        "candidateValue"
+      ]
+    },
     "Project": {
       "type": "object",
       "properties": {
@@ -2389,16 +2886,16 @@
       "type": "object",
       "properties": {
         "data.checkHealth": {
-          "$ref": "#/$defs/MethodContract21"
+          "$ref": "#/$defs/MethodContract37"
         },
         "data.createBackup": {
-          "$ref": "#/$defs/MethodContract22"
+          "$ref": "#/$defs/MethodContract38"
         },
         "document.export": {
-          "$ref": "#/$defs/MethodContract18"
+          "$ref": "#/$defs/MethodContract34"
         },
         "document.exportDocx": {
-          "$ref": "#/$defs/MethodContract17"
+          "$ref": "#/$defs/MethodContract33"
         },
         "document.get": {
           "$ref": "#/$defs/MethodContract8"
@@ -2416,40 +2913,40 @@
           "$ref": "#/$defs/MethodContract"
         },
         "filter.list": {
-          "$ref": "#/$defs/MethodContract19"
+          "$ref": "#/$defs/MethodContract35"
         },
         "history.list": {
-          "$ref": "#/$defs/MethodContract20"
+          "$ref": "#/$defs/MethodContract36"
         },
         "pipeline.create": {
-          "$ref": "#/$defs/MethodContract24"
+          "$ref": "#/$defs/MethodContract40"
         },
         "pipeline.get": {
-          "$ref": "#/$defs/MethodContract26"
+          "$ref": "#/$defs/MethodContract42"
         },
         "pipeline.list": {
-          "$ref": "#/$defs/MethodContract25"
+          "$ref": "#/$defs/MethodContract41"
         },
         "pipeline.run": {
-          "$ref": "#/$defs/MethodContract28"
+          "$ref": "#/$defs/MethodContract44"
         },
         "pipeline.run.cancel": {
-          "$ref": "#/$defs/MethodContract31"
+          "$ref": "#/$defs/MethodContract47"
         },
         "pipeline.run.get": {
-          "$ref": "#/$defs/MethodContract30"
+          "$ref": "#/$defs/MethodContract46"
         },
         "pipeline.run.list": {
-          "$ref": "#/$defs/MethodContract29"
+          "$ref": "#/$defs/MethodContract45"
         },
         "pipeline.run.resume": {
-          "$ref": "#/$defs/MethodContract31"
+          "$ref": "#/$defs/MethodContract47"
         },
         "pipeline.step.list": {
-          "$ref": "#/$defs/MethodContract23"
+          "$ref": "#/$defs/MethodContract39"
         },
         "pipeline.validate": {
-          "$ref": "#/$defs/MethodContract27"
+          "$ref": "#/$defs/MethodContract43"
         },
         "project.create": {
           "$ref": "#/$defs/MethodContract2"
@@ -2467,10 +2964,10 @@
           "$ref": "#/$defs/MethodContract5"
         },
         "qa.list": {
-          "$ref": "#/$defs/MethodContract16"
+          "$ref": "#/$defs/MethodContract32"
         },
         "qa.runDocument": {
-          "$ref": "#/$defs/MethodContract15"
+          "$ref": "#/$defs/MethodContract31"
         },
         "segment.confirm": {
           "$ref": "#/$defs/MethodContract13"
@@ -2481,8 +2978,56 @@
         "segment.updateTarget": {
           "$ref": "#/$defs/MethodContract12"
         },
+        "term.search": {
+          "$ref": "#/$defs/MethodContract27"
+        },
+        "term.upsert": {
+          "$ref": "#/$defs/MethodContract28"
+        },
+        "termbase.create": {
+          "$ref": "#/$defs/MethodContract24"
+        },
+        "termbase.export": {
+          "$ref": "#/$defs/MethodContract30"
+        },
+        "termbase.import": {
+          "$ref": "#/$defs/MethodContract29"
+        },
+        "termbase.list": {
+          "$ref": "#/$defs/MethodContract23"
+        },
+        "termbase.mount": {
+          "$ref": "#/$defs/MethodContract25"
+        },
+        "termbase.unmount": {
+          "$ref": "#/$defs/MethodContract26"
+        },
+        "tm.concordance": {
+          "$ref": "#/$defs/MethodContract20"
+        },
+        "tm.export": {
+          "$ref": "#/$defs/MethodContract22"
+        },
+        "tm.import": {
+          "$ref": "#/$defs/MethodContract21"
+        },
+        "tm.library.create": {
+          "$ref": "#/$defs/MethodContract16"
+        },
+        "tm.library.list": {
+          "$ref": "#/$defs/MethodContract15"
+        },
+        "tm.library.mount": {
+          "$ref": "#/$defs/MethodContract17"
+        },
+        "tm.library.unmount": {
+          "$ref": "#/$defs/MethodContract18"
+        },
         "tm.lookupExact": {
           "$ref": "#/$defs/MethodContract14"
+        },
+        "tm.search": {
+          "$ref": "#/$defs/MethodContract19"
         }
       },
       "additionalProperties": false,
@@ -2501,6 +3046,22 @@
         "segment.updateTarget",
         "segment.confirm",
         "tm.lookupExact",
+        "tm.library.list",
+        "tm.library.create",
+        "tm.library.mount",
+        "tm.library.unmount",
+        "tm.search",
+        "tm.concordance",
+        "tm.import",
+        "tm.export",
+        "termbase.list",
+        "termbase.create",
+        "termbase.mount",
+        "termbase.unmount",
+        "term.search",
+        "term.upsert",
+        "termbase.import",
+        "termbase.export",
         "qa.runDocument",
         "qa.list",
         "document.exportDocx",
@@ -2775,6 +3336,652 @@
         "cancellable"
       ]
     },
+    "TermEntry": {
+      "type": "object",
+      "properties": {
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "definition": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "domain": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "example": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "partOfSpeech": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "sourceLocale": {
+          "type": "string"
+        },
+        "sourceTerm": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/TermStatus"
+        },
+        "termbaseId": {
+          "type": "string"
+        },
+        "translations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TermTranslation"
+          }
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "id",
+        "termbaseId",
+        "sourceLocale",
+        "sourceTerm",
+        "status",
+        "revision",
+        "translations",
+        "createdAtMs",
+        "updatedAtMs"
+      ]
+    },
+    "TermMatch": {
+      "type": "object",
+      "properties": {
+        "end": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "entryId": {
+          "type": "string"
+        },
+        "sourceTerm": {
+          "type": "string"
+        },
+        "start": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "termbaseId": {
+          "type": "string"
+        },
+        "translations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TermTranslation"
+          }
+        }
+      },
+      "required": [
+        "termbaseId",
+        "entryId",
+        "sourceTerm",
+        "translations",
+        "start",
+        "end"
+      ]
+    },
+    "TermSearchParams": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 200,
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "termbaseIds": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId",
+        "text"
+      ]
+    },
+    "TermSearchResult": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "matches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TermMatch"
+          }
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "matches",
+        "total",
+        "offset",
+        "limit"
+      ]
+    },
+    "TermStatus": {
+      "type": "string",
+      "enum": [
+        "candidate",
+        "active",
+        "deprecated"
+      ]
+    },
+    "TermTranslation": {
+      "type": "object",
+      "properties": {
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "entryId": {
+          "type": "string"
+        },
+        "forbidden": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "locale": {
+          "type": "string"
+        },
+        "preferred": {
+          "type": "boolean"
+        },
+        "term": {
+          "type": "string"
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "id",
+        "entryId",
+        "locale",
+        "term",
+        "preferred",
+        "forbidden",
+        "createdAtMs",
+        "updatedAtMs"
+      ]
+    },
+    "TermTranslationInput": {
+      "type": "object",
+      "properties": {
+        "forbidden": {
+          "type": "boolean",
+          "default": false
+        },
+        "locale": {
+          "type": "string"
+        },
+        "preferred": {
+          "type": "boolean",
+          "default": true
+        },
+        "term": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "locale",
+        "term"
+      ]
+    },
+    "TermUpsertParams": {
+      "type": "object",
+      "properties": {
+        "definition": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "domain": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "example": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "partOfSpeech": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "sourceLocale": {
+          "type": "string"
+        },
+        "sourceTerm": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/TermStatus",
+          "default": "active"
+        },
+        "termbaseId": {
+          "type": "string"
+        },
+        "translations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TermTranslationInput"
+          }
+        }
+      },
+      "required": [
+        "termbaseId",
+        "sourceLocale",
+        "sourceTerm",
+        "translations"
+      ]
+    },
+    "Termbase": {
+      "type": "object",
+      "properties": {
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "domain": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "sourceLocale": {
+          "type": "string"
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "writable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "sourceLocale",
+        "writable",
+        "revision",
+        "createdAtMs",
+        "updatedAtMs"
+      ]
+    },
+    "TermbaseCreateParams": {
+      "type": "object",
+      "properties": {
+        "domain": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "name": {
+          "type": "string"
+        },
+        "sourceLocale": {
+          "type": "string"
+        },
+        "writable": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "required": [
+        "name",
+        "sourceLocale"
+      ]
+    },
+    "TermbaseExportParams": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "$ref": "#/$defs/AssetExchangeFormat"
+        },
+        "outputPath": {
+          "type": "string"
+        },
+        "targetLocale": {
+          "type": "string"
+        },
+        "termbaseId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "termbaseId",
+        "outputPath",
+        "format",
+        "targetLocale"
+      ]
+    },
+    "TermbaseExportResult": {
+      "type": "object",
+      "properties": {
+        "entryCount": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "outputPath": {
+          "type": "string"
+        },
+        "termbaseId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "termbaseId",
+        "outputPath",
+        "entryCount"
+      ]
+    },
+    "TermbaseImportParams": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "$ref": "#/$defs/AssetExchangeFormat"
+        },
+        "sourceLocale": {
+          "type": "string"
+        },
+        "sourcePath": {
+          "type": "string"
+        },
+        "targetLocale": {
+          "type": "string"
+        },
+        "termbaseId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "termbaseId",
+        "sourcePath",
+        "format",
+        "sourceLocale",
+        "targetLocale"
+      ]
+    },
+    "TermbaseImportResult": {
+      "type": "object",
+      "properties": {
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AssetDiagnostic"
+          }
+        },
+        "inserted": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "termbaseId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "termbaseId",
+        "inserted",
+        "skipped",
+        "diagnostics"
+      ]
+    },
+    "TermbaseListParams": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 200,
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        },
+        "projectId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId"
+      ]
+    },
+    "TermbaseMount": {
+      "type": "object",
+      "properties": {
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "priority": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "termbaseId": {
+          "type": "string"
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "writable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "projectId",
+        "termbaseId",
+        "priority",
+        "writable",
+        "enabled",
+        "revision",
+        "createdAtMs",
+        "updatedAtMs"
+      ]
+    },
+    "TermbaseMountParams": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "expectedRevision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "default": null,
+          "minimum": 0
+        },
+        "priority": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "termbaseId": {
+          "type": "string"
+        },
+        "writable": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "required": [
+        "projectId",
+        "termbaseId"
+      ]
+    },
+    "TermbasePage": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Termbase"
+          }
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "mounts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TermbaseMount"
+          }
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "items",
+        "mounts",
+        "total",
+        "offset",
+        "limit"
+      ]
+    },
+    "TermbaseUnmountParams": {
+      "type": "object",
+      "properties": {
+        "expectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "termbaseId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId",
+        "termbaseId",
+        "expectedRevision"
+      ]
+    },
     "TmEntry": {
       "type": "object",
       "properties": {
@@ -2817,6 +4024,625 @@
         "originDocumentId",
         "originSegmentId",
         "confirmedAtMs"
+      ]
+    },
+    "TmExportParams": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "$ref": "#/$defs/AssetExchangeFormat"
+        },
+        "libraryId": {
+          "type": "string"
+        },
+        "outputPath": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "libraryId",
+        "outputPath",
+        "format"
+      ]
+    },
+    "TmExportResult": {
+      "type": "object",
+      "properties": {
+        "libraryId": {
+          "type": "string"
+        },
+        "outputPath": {
+          "type": "string"
+        },
+        "unitCount": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "libraryId",
+        "outputPath",
+        "unitCount"
+      ]
+    },
+    "TmImportParams": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "$ref": "#/$defs/AssetExchangeFormat"
+        },
+        "libraryId": {
+          "type": "string"
+        },
+        "sourceLocale": {
+          "type": "string"
+        },
+        "sourcePath": {
+          "type": "string"
+        },
+        "targetLocale": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "libraryId",
+        "sourcePath",
+        "format",
+        "sourceLocale",
+        "targetLocale"
+      ]
+    },
+    "TmImportResult": {
+      "type": "object",
+      "properties": {
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AssetDiagnostic"
+          }
+        },
+        "inserted": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "libraryId": {
+          "type": "string"
+        },
+        "skipped": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "libraryId",
+        "inserted",
+        "skipped",
+        "diagnostics"
+      ]
+    },
+    "TmLibrary": {
+      "type": "object",
+      "properties": {
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "domain": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "sourceLocale": {
+          "type": "string"
+        },
+        "targetLocale": {
+          "type": "string"
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "writable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "sourceLocale",
+        "targetLocale",
+        "writable",
+        "revision",
+        "createdAtMs",
+        "updatedAtMs"
+      ]
+    },
+    "TmLibraryCreateParams": {
+      "type": "object",
+      "properties": {
+        "domain": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "name": {
+          "type": "string"
+        },
+        "ownerProjectId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "sourceLocale": {
+          "type": "string"
+        },
+        "targetLocale": {
+          "type": "string"
+        },
+        "writable": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "required": [
+        "name",
+        "sourceLocale",
+        "targetLocale"
+      ]
+    },
+    "TmLibraryListParams": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 200,
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        },
+        "projectId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      }
+    },
+    "TmLibraryMount": {
+      "type": "object",
+      "properties": {
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "libraryId": {
+          "type": "string"
+        },
+        "mode": {
+          "$ref": "#/$defs/AssetMountMode"
+        },
+        "priority": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "projectId",
+        "libraryId",
+        "mode",
+        "priority",
+        "enabled",
+        "revision",
+        "createdAtMs",
+        "updatedAtMs"
+      ]
+    },
+    "TmLibraryMountParams": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "expectedRevision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "default": null,
+          "minimum": 0
+        },
+        "libraryId": {
+          "type": "string"
+        },
+        "mode": {
+          "$ref": "#/$defs/AssetMountMode"
+        },
+        "priority": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        },
+        "projectId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId",
+        "libraryId",
+        "mode"
+      ]
+    },
+    "TmLibraryPage": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TmLibrary"
+          }
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "mounts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TmLibraryMount"
+          }
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "items",
+        "mounts",
+        "total",
+        "offset",
+        "limit"
+      ]
+    },
+    "TmLibraryUnmountParams": {
+      "type": "object",
+      "properties": {
+        "expectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "libraryId": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId",
+        "libraryId",
+        "expectedRevision"
+      ]
+    },
+    "TmMatch": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/TmMatchKind"
+        },
+        "library": {
+          "$ref": "#/$defs/TmLibrary"
+        },
+        "mountPriority": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "score": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "substitutions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PlaceholderSubstitution"
+          }
+        },
+        "unit": {
+          "$ref": "#/$defs/TmUnit"
+        }
+      },
+      "required": [
+        "library",
+        "unit",
+        "kind",
+        "score",
+        "mountPriority",
+        "substitutions"
+      ]
+    },
+    "TmMatchKind": {
+      "type": "string",
+      "enum": [
+        "context",
+        "exact",
+        "fuzzy"
+      ]
+    },
+    "TmSearchParams": {
+      "type": "object",
+      "properties": {
+        "contextAfterHash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "contextBeforeHash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "domain": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "libraryIds": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 200,
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        },
+        "originDocumentId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "originProjectId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        },
+        "sinceMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "default": null
+        },
+        "sourceLocale": {
+          "type": "string"
+        },
+        "targetLocale": {
+          "type": "string"
+        },
+        "threshold": {
+          "type": "integer",
+          "format": "uint8",
+          "default": 70,
+          "maximum": 255,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "projectId",
+        "sourceLocale",
+        "targetLocale",
+        "query"
+      ]
+    },
+    "TmSearchResult": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "matches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TmMatch"
+          }
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "matches",
+        "total",
+        "offset",
+        "limit"
+      ]
+    },
+    "TmUnit": {
+      "type": "object",
+      "properties": {
+        "author": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "contextAfterHash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "contextBeforeHash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "domain": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "libraryId": {
+          "type": "string"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "originDocumentId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "originProjectId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "originSegmentId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sourceHash": {
+          "type": "string"
+        },
+        "sourceLocale": {
+          "type": "string"
+        },
+        "sourceText": {
+          "type": "string"
+        },
+        "targetHash": {
+          "type": "string"
+        },
+        "targetLocale": {
+          "type": "string"
+        },
+        "targetText": {
+          "type": "string"
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "id",
+        "libraryId",
+        "sourceLocale",
+        "targetLocale",
+        "sourceText",
+        "targetText",
+        "sourceHash",
+        "targetHash",
+        "metadata",
+        "createdAtMs",
+        "updatedAtMs"
       ]
     },
     "UpdateProjectParams": {

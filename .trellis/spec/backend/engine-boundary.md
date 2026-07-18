@@ -226,3 +226,114 @@ managed_source_path = path.to_string_lossy().into_owned();
 managed_source_path = "sources/<document-id>.docx".to_string();
 let source = paths.root.join(&managed_source_path);
 ```
+
+## TM And Termbase Asset Boundary
+
+### 1. Scope / Trigger
+
+This contract applies to translation-memory libraries, termbases, open-format
+exchange, concordance, and automatic confirmation sinking. It is a
+cross-layer extension of protocol v1; legacy `tm.lookupExact` and
+`segment.confirm` responses remain compatible.
+
+### 2. Signatures
+
+The additive RPC methods are:
+
+```text
+tm.library.list/create/mount/unmount
+tm.search
+tm.concordance
+tm.import/tm.export
+termbase.list/create/mount/unmount
+term.search/term.upsert
+termbase.import/termbase.export
+```
+
+`tm.search` accepts `projectId`, source/target locale, query, threshold
+`0..101`, bounded offset/limit, library/domain/time/origin filters, and
+optional context hashes. `term.search` accepts project, text, termbase IDs,
+and bounded paging. Exchange requests identify `libraryId`/`termbaseId`, a
+managed input/output path, locale mapping, and `format` (`tmx`, `csv`, `tsv`,
+or `tbx`).
+
+### 3. Contracts
+
+- SQLite migration 4 owns `tm_libraries`, mounts, `tm_units`, `termbases`,
+  entries, and translations. A fresh or migrated project has a default
+  writable TM library and termbase mount.
+- TM matches are normalized in Rust and sorted by score, mount priority,
+  recency, and ID. Context matches are score `101`; exact matches are `100`.
+  Results include source/target metadata and number/date/placeholder
+  substitutions.
+- CSV/TSV uses RFC-4180 quoting and preserves non-reserved metadata columns;
+  TMX/TBX exchange is parsed and revalidated before atomic publication.
+- A confirmation writes legacy TM provenance and one idempotent unit per
+  enabled writable `write` mount in the same immediate transaction. Forbidden
+  term QA uses `term-forbidden:<translationId>` rule IDs and resolves on a
+  corrected target.
+- Renderer code calls these methods only through generated
+  `ENGINE_METHODS`/`DesktopApi`; matching, parsing, and SQLite stay in Rust.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Unknown library/termbase/project or mount | `not_found` with entity and ID |
+| Read-only library/termbase write or invalid format pairing | `invalid_state`/`invalid_request` |
+| Stale mount revision | `conflict` with entity, ID, expected, and actual revision |
+| Malformed TMX/TBX/CSV/TSV | `invalid_request` with row diagnostics when available; no rows committed |
+| Existing export destination | `invalid_state`; destination is unchanged |
+| Oversized exchange input or page limit outside `1..500` | `invalid_request` |
+
+Asset error messages and logs never include source/target document text.
+
+### 5. Good / Base / Bad Cases
+
+- Good: mount two reference libraries and one writable library; exact and 101%
+  context searches are deterministic, and confirmation retries do not add a
+  duplicate unit.
+- Base: export a multi-target term entry to TBX/CSV, import it into another
+  writable termbase, and preserve preferred/forbidden flags.
+- Bad: import a valid row followed by a malformed row, or sink into a
+  read-only mount; the transaction rolls back and existing rows remain intact.
+
+### 6. Tests Required
+
+- Asset-core tests assert Unicode normalization, CJK fuzzy ranking, date and
+  placeholder substitutions, Latin word boundaries, CSV/TSV, TMX, and TBX
+  round trips.
+- Storage tests assert migration backfill, default mounts, deterministic
+  pages, read-only rejection, context `101`, idempotent multi-mount sinking,
+  target-side term recognition, and forbidden QA resolution.
+- Engine smoke asserts RPC library/termbase lifecycle, malformed-row rollback,
+  TMX/CSV/TBX exchange, concordance, restart persistence, and legacy exact
+  lookup.
+- VPS quality gates are `cargo fmt --check`, strict clippy, all workspace
+  tests, and the stdio smoke. Desktop gates include generated contract drift,
+  typecheck, lint, unit tests, build, and Electron E2E.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```typescript
+// Renderer parses TMX or invents a fuzzy score for a suggestion card.
+const score = levenshtein(query, candidate);
+```
+
+#### Correct
+
+```typescript
+const result = await window.translunar.invoke("tm.search", {
+  projectId,
+  sourceLocale,
+  targetLocale,
+  query,
+  threshold: 70,
+  offset: 0,
+  limit: 50,
+  libraryIds: [],
+});
+// Render the authoritative Rust result; do not recompute score or persistence.
+```

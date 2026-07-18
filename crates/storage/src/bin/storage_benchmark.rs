@@ -5,9 +5,10 @@ use std::time::Instant;
 
 use rusqlite::{Connection, TransactionBehavior, params};
 use serde::Serialize;
+use translunar_asset_core::{exact_key, normalize_match_key};
 use translunar_domain::sha256_hex;
 
-use translunar_storage::Store;
+use translunar_storage::{Store, TmSearchRequest};
 
 const SEGMENT_COUNT: u32 = 100_000;
 
@@ -22,6 +23,9 @@ struct BenchmarkReport {
     middle_page_ms: u128,
     last_page_ms: u128,
     history_page_ms: u128,
+    tm_unit_count: u32,
+    tm_exact_search_ms: u128,
+    tm_fuzzy_search_ms: u128,
     peak_rss_kib: Option<u64>,
     retained_directory: Option<String>,
 }
@@ -44,11 +48,17 @@ fn main() -> Result<(), Box<dyn Error>> {
 struct FixtureIds {
     project_id: String,
     document_id: String,
+    library_id: String,
 }
 
 fn build_fixture(root: &Path) -> Result<FixtureIds, Box<dyn Error>> {
     let mut store = Store::open(root)?;
     let project = store.create_project("100k benchmark", "en-US", "zh-CN", "benchmark")?;
+    let library_id = store
+        .list_tm_libraries(Some(&project.id), 0, 1)?
+        .0
+        .remove(0)
+        .id;
     let document_id = "benchmark-document";
     let source = root.join("sources").join("benchmark.source");
     fs::write(&source, b"deterministic benchmark source")?;
@@ -109,6 +119,17 @@ fn build_fixture(root: &Path) -> Result<FixtureIds, Box<dyn Error>> {
              ) VALUES (?1, ?2, ?3, 'segment', ?4, 'segment.update_target',
                        0, 1, 'benchmark', NULL, NULL, NULL, ?5)",
         )?;
+        let mut tm_units = transaction.prepare(
+            "INSERT INTO tm_units (
+                id, library_id, source_locale, target_locale, source_text,
+                target_text, source_hash, source_key, target_hash, domain,
+                origin_project_id, origin_document_id, origin_segment_id,
+                context_before_hash, context_after_hash, author, metadata_json,
+                created_at_ms, updated_at_ms
+             ) VALUES (?1, ?2, 'en-US', 'zh-CN', ?3, ?4, ?5, ?6, ?7,
+                       'benchmark', NULL, NULL, NULL, NULL, NULL, 'benchmark',
+                       '{}', ?8, ?8)",
+        )?;
         for ordinal in 0..SEGMENT_COUNT {
             let segment_id = format!("benchmark-segment-{ordinal:06}");
             let source_text = format!("Benchmark source segment {ordinal:06}");
@@ -129,12 +150,26 @@ fn build_fixture(root: &Path) -> Result<FixtureIds, Box<dyn Error>> {
                 segment_id,
                 i64::from(ordinal) + 1,
             ])?;
+            let key = alpha_key(ordinal);
+            let tm_source = format!("Benchmark TM source {key}");
+            let tm_target = format!("基准翻译 {key}");
+            tm_units.execute(params![
+                format!("benchmark-tm-unit-{ordinal:06}"),
+                library_id,
+                tm_source,
+                tm_target,
+                sha256_hex(normalize_match_key(&tm_source).as_bytes()),
+                exact_key(&tm_source),
+                sha256_hex(normalize_match_key(&tm_target).as_bytes()),
+                i64::from(ordinal) + 1,
+            ])?;
         }
     }
     transaction.commit()?;
     Ok(FixtureIds {
         project_id: project.id,
         document_id: document_id.to_string(),
+        library_id,
     })
 }
 
@@ -174,6 +209,54 @@ fn measure(root: &Path, ids: &FixtureIds, keep: bool) -> Result<(), Box<dyn Erro
         return Err("history page/count mismatch".into());
     }
 
+    let (_, tm_unit_count) = store.list_tm_units(&ids.library_id, 0, 1)?;
+    if tm_unit_count != SEGMENT_COUNT {
+        return Err(format!("expected {SEGMENT_COUNT} TM units, got {tm_unit_count}").into());
+    }
+    let exact_query = format!("Benchmark TM source {}", alpha_key(SEGMENT_COUNT - 1));
+    let started = Instant::now();
+    let exact = store.search_tm(&TmSearchRequest {
+        project_id: ids.project_id.clone(),
+        source_locale: "en-US".to_string(),
+        target_locale: "zh-CN".to_string(),
+        query: exact_query.clone(),
+        threshold: 100,
+        offset: 0,
+        limit: 50,
+        library_ids: vec![ids.library_id.clone()],
+        domain: Some("benchmark".to_string()),
+        since_ms: None,
+        origin_project_id: None,
+        origin_document_id: None,
+        context_before_hash: None,
+        context_after_hash: None,
+    })?;
+    let tm_exact_search_ms = started.elapsed().as_millis();
+    if exact.0.first().map(|item| item.unit.source_text.as_str()) != Some(exact_query.as_str()) {
+        return Err("exact TM search did not return the requested unit first".into());
+    }
+    let started = Instant::now();
+    let fuzzy = store.search_tm(&TmSearchRequest {
+        project_id: ids.project_id.clone(),
+        source_locale: "en-US".to_string(),
+        target_locale: "zh-CN".to_string(),
+        query: format!("{exact_query} revised"),
+        threshold: 60,
+        offset: 0,
+        limit: 50,
+        library_ids: vec![ids.library_id.clone()],
+        domain: Some("benchmark".to_string()),
+        since_ms: None,
+        origin_project_id: None,
+        origin_document_id: None,
+        context_before_hash: None,
+        context_after_hash: None,
+    })?;
+    let tm_fuzzy_search_ms = started.elapsed().as_millis();
+    if fuzzy.0.is_empty() {
+        return Err("fuzzy TM search returned no bounded results".into());
+    }
+
     let report = BenchmarkReport {
         segment_count: aggregate.counts.total,
         history_count: history.1,
@@ -183,11 +266,23 @@ fn measure(root: &Path, ids: &FixtureIds, keep: bool) -> Result<(), Box<dyn Erro
         middle_page_ms,
         last_page_ms,
         history_page_ms,
+        tm_unit_count,
+        tm_exact_search_ms,
+        tm_fuzzy_search_ms,
         peak_rss_kib: peak_rss_kib(),
         retained_directory: keep.then(|| root.to_string_lossy().into_owned()),
     };
     println!("{}", serde_json::to_string_pretty(&report)?);
     Ok(())
+}
+
+fn alpha_key(mut value: u32) -> String {
+    let mut characters = ['a'; 5];
+    for character in characters.iter_mut().rev() {
+        *character = char::from_u32(u32::from(b'a') + value % 26).unwrap_or('a');
+        value /= 26;
+    }
+    characters.into_iter().collect()
 }
 
 fn peak_rss_kib() -> Option<u64> {

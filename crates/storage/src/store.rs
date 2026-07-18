@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::fs::File;
 use std::io::Read;
@@ -10,6 +11,11 @@ use rusqlite::{Connection, OptionalExtension, Row, Transaction, TransactionBehav
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use translunar_asset_core::{
+    AssetMountMode, ConcordanceHit, ConcordanceSide, MatchScore, TermEntry, TermMatch, TermStatus,
+    TermTranslation, Termbase, TermbaseMount, TmLibrary, TmLibraryMount, TmMatch, TmMatchKind,
+    TmUnit, exact_key, match_score, normalize_match_key, term_spans,
+};
 use translunar_domain::{
     BackupFile, BackupManifest, DataHealthReport, DegradationFinding, Document, DocumentStatus,
     HealthFinding, HealthSeverity, NumberEvidence, Operation, Project, ProjectConfiguration,
@@ -128,6 +134,81 @@ pub struct NewPipelineDefinition {
     pub steps: Vec<PipelineStepDefinition>,
 }
 
+#[derive(Debug, Clone)]
+pub struct NewTmLibrary {
+    pub name: String,
+    pub source_locale: String,
+    pub target_locale: String,
+    pub domain: Option<String>,
+    pub writable: bool,
+    pub owner_project_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TmSearchRequest {
+    pub project_id: String,
+    pub source_locale: String,
+    pub target_locale: String,
+    pub query: String,
+    pub threshold: u8,
+    pub offset: u32,
+    pub limit: u32,
+    pub library_ids: Vec<String>,
+    pub domain: Option<String>,
+    pub since_ms: Option<i64>,
+    pub origin_project_id: Option<String>,
+    pub origin_document_id: Option<String>,
+    pub context_before_hash: Option<String>,
+    pub context_after_hash: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConcordanceRequest {
+    pub project_id: String,
+    pub query: String,
+    pub side: ConcordanceSide,
+    pub offset: u32,
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewTermbase {
+    pub name: String,
+    pub source_locale: String,
+    pub domain: Option<String>,
+    pub writable: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewTermEntry {
+    pub termbase_id: String,
+    pub source_locale: String,
+    pub source_term: String,
+    pub part_of_speech: Option<String>,
+    pub definition: Option<String>,
+    pub example: Option<String>,
+    pub domain: Option<String>,
+    pub status: TermStatus,
+    pub translations: Vec<NewTermTranslation>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewTermTranslation {
+    pub locale: String,
+    pub term: String,
+    pub preferred: bool,
+    pub forbidden: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct TermSearchRequest {
+    pub project_id: String,
+    pub text: String,
+    pub offset: u32,
+    pub limit: u32,
+    pub termbase_ids: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct PipelineRunSnapshot {
     pub run: PipelineRun,
@@ -168,9 +249,11 @@ impl Store {
         }
         migrate(&mut connection)?;
         normalize_managed_source_paths(&mut connection, &paths)?;
+        backfill_asset_keys(&mut connection)?;
         if recover_orphaned_runs {
             interrupt_orphaned_pipeline_runs(&mut connection)?;
         }
+        ensure_default_termbases(&mut connection)?;
         Ok(Self { connection, paths })
     }
 
@@ -243,6 +326,49 @@ impl Store {
                 memory.target_locale,
                 memory.writable,
             ],
+        )?;
+        transaction.execute(
+            "INSERT INTO tm_libraries (
+                id, name, source_locale, target_locale, domain, owner_project_id,
+                writable, revision, created_at_ms, updated_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, 0, ?7, ?7)",
+            params![
+                memory.id,
+                memory.name,
+                memory.source_locale,
+                memory.target_locale,
+                project.domain,
+                project.id,
+                project.created_at_ms,
+            ],
+        )?;
+        transaction.execute(
+            "INSERT INTO tm_library_mounts (
+                project_id, library_id, mode, priority, enabled, revision,
+                created_at_ms, updated_at_ms
+             ) VALUES (?1, ?2, 'write', 0, 1, 0, ?3, ?3)",
+            params![project.id, memory.id, project.created_at_ms],
+        )?;
+        let termbase_id = new_id();
+        transaction.execute(
+            "INSERT INTO termbases (
+                id, name, source_locale, domain, writable, revision,
+                created_at_ms, updated_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, 1, 0, ?5, ?5)",
+            params![
+                termbase_id,
+                format!("{} Termbase", project.name),
+                project.source_locale,
+                project.domain,
+                project.created_at_ms,
+            ],
+        )?;
+        transaction.execute(
+            "INSERT INTO termbase_mounts (
+                project_id, termbase_id, priority, writable, enabled, revision,
+                created_at_ms, updated_at_ms
+             ) VALUES (?1, ?2, 0, 1, 1, 0, ?3, ?3)",
+            params![project.id, termbase_id, project.created_at_ms],
         )?;
         transaction.commit()?;
         Ok(project)
@@ -650,6 +776,835 @@ impl Store {
 
     pub fn create_backup(&self, destination: &Path) -> Result<BackupManifest> {
         create_data_backup(&self.connection, &self.paths, destination)
+    }
+
+    pub fn create_tm_library(&mut self, input: NewTmLibrary) -> Result<TmLibrary> {
+        require_nonempty("TM library name", &input.name)?;
+        require_nonempty("TM source locale", &input.source_locale)?;
+        require_nonempty("TM target locale", &input.target_locale)?;
+        let now = now_ms();
+        let library = TmLibrary {
+            id: new_id(),
+            name: input.name.trim().to_string(),
+            source_locale: input.source_locale.trim().to_string(),
+            target_locale: input.target_locale.trim().to_string(),
+            domain: trim_optional(input.domain),
+            writable: input.writable,
+            revision: 0,
+            created_at_ms: now,
+            updated_at_ms: now,
+        };
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(project_id) = input.owner_project_id.as_deref() {
+            ensure_exists(&transaction, "projects", "project", project_id)?;
+        }
+        transaction.execute(
+            "INSERT INTO tm_libraries (
+                id, name, source_locale, target_locale, domain, owner_project_id,
+                writable, revision, created_at_ms, updated_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?8)",
+            params![
+                library.id,
+                library.name,
+                library.source_locale,
+                library.target_locale,
+                library.domain,
+                input.owner_project_id,
+                library.writable,
+                now,
+            ],
+        )?;
+        transaction.commit()?;
+        Ok(library)
+    }
+
+    pub fn get_tm_library(&self, library_id: &str) -> Result<TmLibrary> {
+        find_tm_library(&self.connection, library_id)
+    }
+
+    pub fn list_tm_libraries(
+        &self,
+        project_id: Option<&str>,
+        offset: u32,
+        limit: u32,
+    ) -> Result<(Vec<TmLibrary>, u32)> {
+        if let Some(project_id) = project_id {
+            ensure_exists(&self.connection, "projects", "project", project_id)?;
+        }
+        let total = self.connection.query_row(
+            "SELECT COUNT(*) FROM tm_libraries l
+             WHERE ?1 IS NULL OR EXISTS (
+                SELECT 1 FROM tm_library_mounts m
+                WHERE m.library_id = l.id AND m.project_id = ?1
+             )",
+            [project_id],
+            |row| row.get::<_, i64>(0),
+        )?;
+        let mut statement = self.connection.prepare(
+            "SELECT l.id, l.name, l.source_locale, l.target_locale, l.domain,
+                    l.writable, l.revision, l.created_at_ms, l.updated_at_ms
+             FROM tm_libraries l
+             LEFT JOIN tm_library_mounts m
+               ON m.library_id = l.id AND m.project_id = ?1
+             WHERE ?1 IS NULL OR m.project_id IS NOT NULL
+             ORDER BY CASE WHEN ?1 IS NULL THEN 0 ELSE m.priority END,
+                      l.updated_at_ms DESC, l.id
+             LIMIT ?2 OFFSET ?3",
+        )?;
+        let items = statement
+            .query_map(
+                params![project_id, i64::from(limit), i64::from(offset)],
+                row_to_tm_library,
+            )?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok((items, to_u32(total)?))
+    }
+
+    pub fn list_tm_library_mounts(&self, project_id: &str) -> Result<Vec<TmLibraryMount>> {
+        ensure_exists(&self.connection, "projects", "project", project_id)?;
+        let mut statement = self.connection.prepare(
+            "SELECT project_id, library_id, mode, priority, enabled, revision,
+                    created_at_ms, updated_at_ms
+             FROM tm_library_mounts WHERE project_id = ?1
+             ORDER BY priority, library_id",
+        )?;
+        statement
+            .query_map([project_id], row_to_tm_library_mount)?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn mount_tm_library(
+        &mut self,
+        project_id: &str,
+        library_id: &str,
+        mode: AssetMountMode,
+        priority: u32,
+        enabled: bool,
+        expected_revision: Option<u64>,
+    ) -> Result<TmLibraryMount> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        ensure_exists(&transaction, "projects", "project", project_id)?;
+        let library = find_tm_library(&transaction, library_id)?;
+        if mode == AssetMountMode::Write && !library.writable {
+            return Err(StorageError::InvalidState(
+                "read-only TM library cannot be mounted for writes".to_string(),
+            ));
+        }
+        let existing = find_tm_library_mount_optional(&transaction, project_id, library_id)?;
+        let now = now_ms();
+        match existing {
+            Some(current) => {
+                let expected_revision = expected_revision.ok_or_else(|| {
+                    StorageError::InvalidState(
+                        "expected revision is required to update a TM mount".to_string(),
+                    )
+                })?;
+                ensure_entity_revision(
+                    "tm_library_mount",
+                    library_id,
+                    current.revision,
+                    expected_revision,
+                )?;
+                transaction.execute(
+                    "UPDATE tm_library_mounts
+                     SET mode = ?1, priority = ?2, enabled = ?3,
+                         revision = revision + 1, updated_at_ms = ?4
+                     WHERE project_id = ?5 AND library_id = ?6 AND revision = ?7",
+                    params![
+                        asset_mount_mode_text(mode),
+                        i64::from(priority),
+                        enabled,
+                        now,
+                        project_id,
+                        library_id,
+                        to_i64(expected_revision)?,
+                    ],
+                )?;
+            }
+            None => {
+                if expected_revision.is_some_and(|revision| revision != 0) {
+                    return Err(StorageError::InvalidState(
+                        "new TM mount cannot have a nonzero revision".to_string(),
+                    ));
+                }
+                transaction.execute(
+                    "INSERT INTO tm_library_mounts (
+                        project_id, library_id, mode, priority, enabled, revision,
+                        created_at_ms, updated_at_ms
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?6)",
+                    params![
+                        project_id,
+                        library_id,
+                        asset_mount_mode_text(mode),
+                        i64::from(priority),
+                        enabled,
+                        now,
+                    ],
+                )?;
+            }
+        }
+        let mount = find_tm_library_mount(&transaction, project_id, library_id)?;
+        transaction.commit()?;
+        Ok(mount)
+    }
+
+    pub fn unmount_tm_library(
+        &mut self,
+        project_id: &str,
+        library_id: &str,
+        expected_revision: u64,
+    ) -> Result<()> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mount = find_tm_library_mount(&transaction, project_id, library_id)?;
+        ensure_entity_revision(
+            "tm_library_mount",
+            library_id,
+            mount.revision,
+            expected_revision,
+        )?;
+        transaction.execute(
+            "DELETE FROM tm_library_mounts
+             WHERE project_id = ?1 AND library_id = ?2 AND revision = ?3",
+            params![project_id, library_id, to_i64(expected_revision)?],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn import_tm_units(
+        &mut self,
+        library_id: &str,
+        units: &[translunar_asset_core::TmExchangeUnit],
+    ) -> Result<(u32, u32)> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let library = find_tm_library(&transaction, library_id)?;
+        if !library.writable {
+            return Err(StorageError::InvalidState(
+                "TM library is read-only".to_string(),
+            ));
+        }
+        let mut inserted = 0_u32;
+        let mut skipped = 0_u32;
+        for unit in units {
+            require_nonempty("TM source text", &unit.source_text)?;
+            require_nonempty("TM target text", &unit.target_text)?;
+            if unit.source_locale != library.source_locale
+                || unit.target_locale != library.target_locale
+            {
+                return Err(StorageError::InvalidState(format!(
+                    "TM unit language pair {} -> {} does not match library {} -> {}",
+                    unit.source_locale,
+                    unit.target_locale,
+                    library.source_locale,
+                    library.target_locale
+                )));
+            }
+            let source_key = exact_key(&unit.source_text);
+            let target_hash =
+                translunar_domain::sha256_hex(normalize_match_key(&unit.target_text).as_bytes());
+            let duplicate = transaction
+                .query_row(
+                    "SELECT 1 FROM tm_units
+                     WHERE library_id = ?1 AND source_key = ?2 AND target_hash = ?3
+                     LIMIT 1",
+                    params![library_id, source_key, target_hash],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_some();
+            if duplicate {
+                skipped = skipped.checked_add(1).ok_or_else(|| {
+                    StorageError::InvalidData("TM skipped count overflow".to_string())
+                })?;
+                continue;
+            }
+            let now = unit.created_at_ms.unwrap_or_else(now_ms);
+            transaction.execute(
+                "INSERT INTO tm_units (
+                    id, library_id, source_locale, target_locale, source_text,
+                    target_text, source_hash, source_key, target_hash, domain,
+                    origin_project_id, origin_document_id, origin_segment_id,
+                    context_before_hash, context_after_hash, author, metadata_json,
+                    created_at_ms, updated_at_ms
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+                           NULL, NULL, NULL, NULL, NULL, ?11, ?12, ?13, ?13)",
+                params![
+                    new_id(),
+                    library_id,
+                    unit.source_locale,
+                    unit.target_locale,
+                    unit.source_text,
+                    unit.target_text,
+                    translunar_domain::sha256_hex(
+                        normalize_match_key(&unit.source_text).as_bytes()
+                    ),
+                    source_key,
+                    target_hash,
+                    unit.domain,
+                    unit.author,
+                    serde_json::to_string(&unit.metadata)?,
+                    now,
+                ],
+            )?;
+            inserted = inserted.checked_add(1).ok_or_else(|| {
+                StorageError::InvalidData("TM inserted count overflow".to_string())
+            })?;
+        }
+        transaction.commit()?;
+        Ok((inserted, skipped))
+    }
+
+    pub fn list_tm_units(
+        &self,
+        library_id: &str,
+        offset: u32,
+        limit: u32,
+    ) -> Result<(Vec<TmUnit>, u32)> {
+        find_tm_library(&self.connection, library_id)?;
+        let total = self.connection.query_row(
+            "SELECT COUNT(*) FROM tm_units WHERE library_id = ?1",
+            [library_id],
+            |row| row.get::<_, i64>(0),
+        )?;
+        let mut statement = self.connection.prepare(
+            "SELECT id, library_id, source_locale, target_locale, source_text,
+                    target_text, source_hash, target_hash, domain, origin_project_id,
+                    origin_document_id, origin_segment_id, context_before_hash,
+                    context_after_hash, author, metadata_json, created_at_ms,
+                    updated_at_ms
+             FROM tm_units WHERE library_id = ?1
+             ORDER BY created_at_ms, id LIMIT ?2 OFFSET ?3",
+        )?;
+        let items = statement
+            .query_map(
+                params![library_id, i64::from(limit), i64::from(offset)],
+                row_to_tm_unit,
+            )?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok((items, to_u32(total)?))
+    }
+
+    pub fn export_tm_units(&self, library_id: &str) -> Result<Vec<TmUnit>> {
+        find_tm_library(&self.connection, library_id)?;
+        let mut statement = self.connection.prepare(
+            "SELECT id, library_id, source_locale, target_locale, source_text,
+                    target_text, source_hash, target_hash, domain, origin_project_id,
+                    origin_document_id, origin_segment_id, context_before_hash,
+                    context_after_hash, author, metadata_json, created_at_ms,
+                    updated_at_ms
+             FROM tm_units WHERE library_id = ?1
+             ORDER BY created_at_ms, id",
+        )?;
+        statement
+            .query_map([library_id], row_to_tm_unit)?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn search_tm(&self, request: &TmSearchRequest) -> Result<(Vec<TmMatch>, u32)> {
+        require_nonempty("TM search query", &request.query)?;
+        let mounts = self.list_tm_library_mounts(&request.project_id)?;
+        let mut matches = Vec::new();
+        for mount in mounts.into_iter().filter(|mount| mount.enabled) {
+            if !request.library_ids.is_empty()
+                && !request.library_ids.iter().any(|id| id == &mount.library_id)
+            {
+                continue;
+            }
+            let library = find_tm_library(&self.connection, &mount.library_id)?;
+            if library.source_locale != request.source_locale
+                || library.target_locale != request.target_locale
+            {
+                continue;
+            }
+            let mut statement = self.connection.prepare(
+                "SELECT id, library_id, source_locale, target_locale, source_text,
+                        target_text, source_hash, target_hash, domain, origin_project_id,
+                        origin_document_id, origin_segment_id, context_before_hash,
+                        context_after_hash, author, metadata_json, created_at_ms,
+                        updated_at_ms
+                 FROM tm_units
+                 WHERE library_id = ?1 AND source_locale = ?2 AND target_locale = ?3
+                   AND (?4 IS NULL OR domain = ?4)
+                    AND (?5 IS NULL OR created_at_ms >= ?5)
+                    AND (?6 IS NULL OR origin_project_id = ?6)
+                    AND (?7 IS NULL OR origin_document_id = ?7)
+                 ORDER BY created_at_ms DESC, id LIMIT 5000",
+            )?;
+            let candidates = statement
+                .query_map(
+                    params![
+                        mount.library_id,
+                        request.source_locale,
+                        request.target_locale,
+                        request.domain,
+                        request.since_ms,
+                        request.origin_project_id,
+                        request.origin_document_id,
+                    ],
+                    row_to_tm_unit,
+                )?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            for unit in candidates {
+                let MatchScore {
+                    score,
+                    substitutions,
+                } = match_score(&request.query, &unit.source_text);
+                let context_match = score == 100
+                    && (request.context_before_hash.is_some()
+                        || request.context_after_hash.is_some())
+                    && request.context_before_hash == unit.context_before_hash
+                    && request.context_after_hash == unit.context_after_hash;
+                let (kind, effective_score) = if context_match {
+                    (TmMatchKind::Context, 101)
+                } else if score == 100 {
+                    (TmMatchKind::Exact, 100)
+                } else {
+                    (TmMatchKind::Fuzzy, score)
+                };
+                if effective_score < request.threshold {
+                    continue;
+                }
+                matches.push(TmMatch {
+                    library: library.clone(),
+                    unit,
+                    kind,
+                    score: effective_score,
+                    mount_priority: mount.priority,
+                    substitutions,
+                });
+            }
+        }
+        matches.sort_by(|left, right| {
+            right
+                .score
+                .cmp(&left.score)
+                .then_with(|| left.mount_priority.cmp(&right.mount_priority))
+                .then_with(|| right.unit.created_at_ms.cmp(&left.unit.created_at_ms))
+                .then_with(|| left.unit.id.cmp(&right.unit.id))
+        });
+        let total = to_u32(matches.len())?;
+        let items = page_slice(matches, request.offset, request.limit)?;
+        Ok((items, total))
+    }
+
+    pub fn concordance(&self, request: &ConcordanceRequest) -> Result<(Vec<ConcordanceHit>, u32)> {
+        require_nonempty("concordance query", &request.query)?;
+        let query = normalize_match_key(&request.query);
+        let mounts = self.list_tm_library_mounts(&request.project_id)?;
+        let mut hits = Vec::new();
+        for mount in mounts.into_iter().filter(|mount| mount.enabled) {
+            let (units, _) = self.list_tm_units(&mount.library_id, 0, 5000)?;
+            for unit in units {
+                let source = normalize_match_key(&unit.source_text).contains(&query);
+                let target = normalize_match_key(&unit.target_text).contains(&query);
+                let matched_side = match request.side {
+                    ConcordanceSide::Source if source => Some(ConcordanceSide::Source),
+                    ConcordanceSide::Target if target => Some(ConcordanceSide::Target),
+                    ConcordanceSide::Both if source && target => Some(ConcordanceSide::Both),
+                    ConcordanceSide::Both if source => Some(ConcordanceSide::Source),
+                    ConcordanceSide::Both if target => Some(ConcordanceSide::Target),
+                    _ => None,
+                };
+                if let Some(matched_side) = matched_side {
+                    hits.push((
+                        mount.priority,
+                        unit.created_at_ms,
+                        ConcordanceHit {
+                            library_id: mount.library_id.clone(),
+                            unit,
+                            matched_side,
+                        },
+                    ));
+                }
+            }
+        }
+        hits.sort_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then_with(|| right.1.cmp(&left.1))
+                .then_with(|| left.2.unit.id.cmp(&right.2.unit.id))
+        });
+        let total = to_u32(hits.len())?;
+        let values = hits.into_iter().map(|(_, _, hit)| hit).collect::<Vec<_>>();
+        Ok((page_slice(values, request.offset, request.limit)?, total))
+    }
+
+    pub fn create_termbase(&mut self, input: NewTermbase) -> Result<Termbase> {
+        require_nonempty("termbase name", &input.name)?;
+        require_nonempty("termbase source locale", &input.source_locale)?;
+        let now = now_ms();
+        let termbase = Termbase {
+            id: new_id(),
+            name: input.name.trim().to_string(),
+            source_locale: input.source_locale.trim().to_string(),
+            domain: trim_optional(input.domain),
+            writable: input.writable,
+            revision: 0,
+            created_at_ms: now,
+            updated_at_ms: now,
+        };
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute(
+            "INSERT INTO termbases (
+                id, name, source_locale, domain, writable, revision,
+                created_at_ms, updated_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?6)",
+            params![
+                termbase.id,
+                termbase.name,
+                termbase.source_locale,
+                termbase.domain,
+                termbase.writable,
+                now,
+            ],
+        )?;
+        transaction.commit()?;
+        Ok(termbase)
+    }
+
+    pub fn get_termbase(&self, termbase_id: &str) -> Result<Termbase> {
+        find_termbase(&self.connection, termbase_id)
+    }
+
+    pub fn list_termbases(
+        &self,
+        project_id: Option<&str>,
+        offset: u32,
+        limit: u32,
+    ) -> Result<(Vec<Termbase>, u32)> {
+        if let Some(project_id) = project_id {
+            ensure_exists(&self.connection, "projects", "project", project_id)?;
+        }
+        let total = self.connection.query_row(
+            "SELECT COUNT(*) FROM termbases t
+             WHERE ?1 IS NULL OR EXISTS (
+                SELECT 1 FROM termbase_mounts m
+                WHERE m.termbase_id = t.id AND m.project_id = ?1
+             )",
+            [project_id],
+            |row| row.get::<_, i64>(0),
+        )?;
+        let mut statement = self.connection.prepare(
+            "SELECT t.id, t.name, t.source_locale, t.domain, t.writable,
+                    t.revision, t.created_at_ms, t.updated_at_ms
+             FROM termbases t
+             LEFT JOIN termbase_mounts m
+               ON m.termbase_id = t.id AND m.project_id = ?1
+             WHERE ?1 IS NULL OR m.project_id IS NOT NULL
+             ORDER BY CASE WHEN ?1 IS NULL THEN 0 ELSE m.priority END,
+                      t.updated_at_ms DESC, t.id
+             LIMIT ?2 OFFSET ?3",
+        )?;
+        let items = statement
+            .query_map(
+                params![project_id, i64::from(limit), i64::from(offset)],
+                row_to_termbase,
+            )?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok((items, to_u32(total)?))
+    }
+
+    pub fn list_termbase_mounts(&self, project_id: &str) -> Result<Vec<TermbaseMount>> {
+        ensure_exists(&self.connection, "projects", "project", project_id)?;
+        let mut statement = self.connection.prepare(
+            "SELECT project_id, termbase_id, priority, writable, enabled,
+                    revision, created_at_ms, updated_at_ms
+             FROM termbase_mounts WHERE project_id = ?1
+             ORDER BY priority, termbase_id",
+        )?;
+        statement
+            .query_map([project_id], row_to_termbase_mount)?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn mount_termbase(
+        &mut self,
+        project_id: &str,
+        termbase_id: &str,
+        priority: u32,
+        writable: bool,
+        enabled: bool,
+        expected_revision: Option<u64>,
+    ) -> Result<TermbaseMount> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        ensure_exists(&transaction, "projects", "project", project_id)?;
+        let termbase = find_termbase(&transaction, termbase_id)?;
+        if writable && !termbase.writable {
+            return Err(StorageError::InvalidState(
+                "read-only termbase cannot be mounted for writes".to_string(),
+            ));
+        }
+        let existing = find_termbase_mount_optional(&transaction, project_id, termbase_id)?;
+        let now = now_ms();
+        match existing {
+            Some(current) => {
+                let expected_revision = expected_revision.ok_or_else(|| {
+                    StorageError::InvalidState(
+                        "expected revision is required to update a termbase mount".to_string(),
+                    )
+                })?;
+                ensure_entity_revision(
+                    "termbase_mount",
+                    termbase_id,
+                    current.revision,
+                    expected_revision,
+                )?;
+                transaction.execute(
+                    "UPDATE termbase_mounts SET priority = ?1, writable = ?2,
+                            enabled = ?3, revision = revision + 1, updated_at_ms = ?4
+                     WHERE project_id = ?5 AND termbase_id = ?6 AND revision = ?7",
+                    params![
+                        i64::from(priority),
+                        writable,
+                        enabled,
+                        now,
+                        project_id,
+                        termbase_id,
+                        to_i64(expected_revision)?,
+                    ],
+                )?;
+            }
+            None => {
+                transaction.execute(
+                    "INSERT INTO termbase_mounts (
+                        project_id, termbase_id, priority, writable, enabled,
+                        revision, created_at_ms, updated_at_ms
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?6)",
+                    params![
+                        project_id,
+                        termbase_id,
+                        i64::from(priority),
+                        writable,
+                        enabled,
+                        now,
+                    ],
+                )?;
+            }
+        }
+        let mount = find_termbase_mount(&transaction, project_id, termbase_id)?;
+        transaction.commit()?;
+        Ok(mount)
+    }
+
+    pub fn unmount_termbase(
+        &mut self,
+        project_id: &str,
+        termbase_id: &str,
+        expected_revision: u64,
+    ) -> Result<()> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mount = find_termbase_mount(&transaction, project_id, termbase_id)?;
+        ensure_entity_revision(
+            "termbase_mount",
+            termbase_id,
+            mount.revision,
+            expected_revision,
+        )?;
+        transaction.execute(
+            "DELETE FROM termbase_mounts
+             WHERE project_id = ?1 AND termbase_id = ?2 AND revision = ?3",
+            params![project_id, termbase_id, to_i64(expected_revision)?],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn upsert_term_entry(&mut self, input: NewTermEntry) -> Result<TermEntry> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let (result, _) = upsert_term_entry_in_transaction(&transaction, input)?;
+        transaction.commit()?;
+        Ok(result)
+    }
+
+    pub fn import_term_entries(
+        &mut self,
+        termbase_id: &str,
+        entries: &[translunar_asset_core::TermExchangeEntry],
+    ) -> Result<(u32, u32)> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut inserted = 0_u32;
+        let mut skipped = 0_u32;
+        for entry in entries {
+            let status = match entry.status.to_ascii_lowercase().as_str() {
+                "candidate" => TermStatus::Candidate,
+                "active" => TermStatus::Active,
+                "deprecated" => TermStatus::Deprecated,
+                value => {
+                    return Err(StorageError::InvalidData(format!(
+                        "unknown term status {value}"
+                    )));
+                }
+            };
+            let (source_locale, translations) = (
+                entry.source_locale.clone(),
+                entry
+                    .target_translations
+                    .iter()
+                    .map(|translation| NewTermTranslation {
+                        locale: translation.locale.clone(),
+                        term: translation.term.clone(),
+                        preferred: translation.preferred,
+                        forbidden: translation.forbidden,
+                    })
+                    .collect(),
+            );
+            let input = NewTermEntry {
+                termbase_id: termbase_id.to_string(),
+                source_locale,
+                source_term: entry.source_term.clone(),
+                part_of_speech: entry.part_of_speech.clone(),
+                definition: entry.definition.clone(),
+                example: entry.example.clone(),
+                domain: entry.domain.clone(),
+                status,
+                translations,
+            };
+            let (_, existed) = upsert_term_entry_in_transaction(&transaction, input)?;
+            if existed {
+                skipped = skipped.checked_add(1).ok_or_else(|| {
+                    StorageError::InvalidData("term skipped count overflow".to_string())
+                })?;
+            } else {
+                inserted = inserted.checked_add(1).ok_or_else(|| {
+                    StorageError::InvalidData("term inserted count overflow".to_string())
+                })?;
+            }
+        }
+        transaction.commit()?;
+        Ok((inserted, skipped))
+    }
+
+    pub fn list_term_entries(
+        &self,
+        termbase_id: &str,
+        offset: u32,
+        limit: u32,
+    ) -> Result<(Vec<TermEntry>, u32)> {
+        find_termbase(&self.connection, termbase_id)?;
+        let total = self.connection.query_row(
+            "SELECT COUNT(*) FROM term_entries WHERE termbase_id = ?1",
+            [termbase_id],
+            |row| row.get::<_, i64>(0),
+        )?;
+        let mut statement = self.connection.prepare(
+            "SELECT id FROM term_entries WHERE termbase_id = ?1
+             ORDER BY source_key, id LIMIT ?2 OFFSET ?3",
+        )?;
+        let ids = statement
+            .query_map(
+                params![termbase_id, i64::from(limit), i64::from(offset)],
+                |row| row.get::<_, String>(0),
+            )?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let entries = ids
+            .iter()
+            .map(|id| find_term_entry(&self.connection, id))
+            .collect::<Result<Vec<_>>>()?;
+        Ok((entries, to_u32(total)?))
+    }
+
+    pub fn export_term_entries(&self, termbase_id: &str) -> Result<Vec<TermEntry>> {
+        find_termbase(&self.connection, termbase_id)?;
+        let mut statement = self.connection.prepare(
+            "SELECT id FROM term_entries WHERE termbase_id = ?1
+             ORDER BY source_key, id",
+        )?;
+        let ids = statement
+            .query_map([termbase_id], |row| row.get::<_, String>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        ids.iter()
+            .map(|id| find_term_entry(&self.connection, id))
+            .collect::<Result<Vec<_>>>()
+    }
+
+    pub fn search_terms(&self, request: &TermSearchRequest) -> Result<(Vec<TermMatch>, u32)> {
+        require_nonempty("term search text", &request.text)?;
+        let mounts = self.list_termbase_mounts(&request.project_id)?;
+        let mut matches = Vec::new();
+        for mount in mounts.into_iter().filter(|mount| mount.enabled) {
+            if !request.termbase_ids.is_empty()
+                && !request
+                    .termbase_ids
+                    .iter()
+                    .any(|id| id == &mount.termbase_id)
+            {
+                continue;
+            }
+            let mut statement = self.connection.prepare(
+                "SELECT e.id FROM term_entries e
+                 WHERE e.termbase_id = ?1 AND e.status = 'active'
+                 ORDER BY e.source_key, e.id LIMIT 5000",
+            )?;
+            let ids = statement
+                .query_map([mount.termbase_id.clone()], |row| row.get::<_, String>(0))?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            for id in ids {
+                let entry = find_term_entry(&self.connection, &id)?;
+                for (start, end) in term_spans(&request.text, &entry.source_term) {
+                    matches.push((
+                        mount.priority,
+                        entry.id.clone(),
+                        TermMatch {
+                            termbase_id: entry.termbase_id.clone(),
+                            entry_id: entry.id.clone(),
+                            source_term: entry.source_term.clone(),
+                            translations: entry.translations.clone(),
+                            start,
+                            end,
+                        },
+                    ));
+                }
+                for translation in &entry.translations {
+                    for (start, end) in term_spans(&request.text, &translation.term) {
+                        matches.push((
+                            mount.priority,
+                            entry.id.clone(),
+                            TermMatch {
+                                termbase_id: entry.termbase_id.clone(),
+                                entry_id: entry.id.clone(),
+                                source_term: entry.source_term.clone(),
+                                translations: entry.translations.clone(),
+                                start,
+                                end,
+                            },
+                        ));
+                    }
+                }
+            }
+        }
+        matches.sort_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then_with(|| left.1.cmp(&right.1))
+                .then_with(|| left.2.start.cmp(&right.2.start))
+        });
+        let total = to_u32(matches.len())?;
+        let values = matches
+            .into_iter()
+            .map(|(_, _, value)| value)
+            .collect::<Vec<_>>();
+        Ok((page_slice(values, request.offset, request.limit)?, total))
     }
 
     pub fn create_pipeline_definition(
@@ -1472,7 +2427,14 @@ impl Store {
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )?;
         let tm_entry = upsert_tm_entry(&transaction, &segment, &project_id, &memory_id, now)?;
-        let qa_issues = reconcile_number_qa(&transaction, &segment, now)?;
+        sink_segment_to_asset_libraries(&transaction, &segment, &project_id, now)?;
+        let mut qa_issues = reconcile_number_qa(&transaction, &segment, now)?;
+        qa_issues.extend(reconcile_forbidden_term_qa(
+            &transaction,
+            &segment,
+            &project_id,
+            now,
+        )?);
         let counts = counts_for_document(&transaction, &segment.document_id)?;
         append_operation(
             &transaction,
@@ -1528,6 +2490,8 @@ impl Store {
         let now = now_ms();
         for segment in &segments {
             reconcile_number_qa(&transaction, segment, now)?;
+            let project_id = project_id_for_segment(&transaction, &segment.id)?;
+            reconcile_forbidden_term_qa(&transaction, segment, &project_id, now)?;
         }
         let issues = query_qa_issues(&transaction, document_id, true)?;
         transaction.commit()?;
@@ -1553,6 +2517,21 @@ fn require_nonempty(label: &str, value: &str) -> Result<()> {
     } else {
         Ok(())
     }
+}
+
+fn trim_optional(value: Option<String>) -> Option<String> {
+    value.and_then(|value| {
+        let value = value.trim();
+        (!value.is_empty()).then(|| value.to_string())
+    })
+}
+
+fn page_slice<T>(values: Vec<T>, offset: u32, limit: u32) -> Result<Vec<T>> {
+    let offset = usize::try_from(offset)
+        .map_err(|_| StorageError::InvalidData("page offset does not fit usize".to_string()))?;
+    let limit = usize::try_from(limit)
+        .map_err(|_| StorageError::InvalidData("page limit does not fit usize".to_string()))?;
+    Ok(values.into_iter().skip(offset).take(limit).collect())
 }
 
 fn ensure_unique_units(units: &[ImportedUnit]) -> Result<()> {
@@ -1657,6 +2636,208 @@ fn find_project(connection: &Connection, project_id: &str) -> Result<Project> {
         )
         .optional()?
         .ok_or_else(|| not_found("project", project_id))
+}
+
+fn find_tm_library(connection: &Connection, library_id: &str) -> Result<TmLibrary> {
+    connection
+        .query_row(
+            "SELECT id, name, source_locale, target_locale, domain, writable,
+                    revision, created_at_ms, updated_at_ms
+             FROM tm_libraries WHERE id = ?1",
+            [library_id],
+            row_to_tm_library,
+        )
+        .optional()?
+        .ok_or_else(|| not_found("tm_library", library_id))
+}
+
+fn find_tm_library_mount_optional(
+    connection: &Connection,
+    project_id: &str,
+    library_id: &str,
+) -> Result<Option<TmLibraryMount>> {
+    connection
+        .query_row(
+            "SELECT project_id, library_id, mode, priority, enabled, revision,
+                    created_at_ms, updated_at_ms
+             FROM tm_library_mounts WHERE project_id = ?1 AND library_id = ?2",
+            params![project_id, library_id],
+            row_to_tm_library_mount,
+        )
+        .optional()
+        .map_err(Into::into)
+}
+
+fn find_tm_library_mount(
+    connection: &Connection,
+    project_id: &str,
+    library_id: &str,
+) -> Result<TmLibraryMount> {
+    find_tm_library_mount_optional(connection, project_id, library_id)?
+        .ok_or_else(|| not_found("tm_library_mount", library_id))
+}
+
+fn find_termbase(connection: &Connection, termbase_id: &str) -> Result<Termbase> {
+    connection
+        .query_row(
+            "SELECT id, name, source_locale, domain, writable, revision,
+                    created_at_ms, updated_at_ms
+             FROM termbases WHERE id = ?1",
+            [termbase_id],
+            row_to_termbase,
+        )
+        .optional()?
+        .ok_or_else(|| not_found("termbase", termbase_id))
+}
+
+fn find_termbase_mount_optional(
+    connection: &Connection,
+    project_id: &str,
+    termbase_id: &str,
+) -> Result<Option<TermbaseMount>> {
+    connection
+        .query_row(
+            "SELECT project_id, termbase_id, priority, writable, enabled, revision,
+                    created_at_ms, updated_at_ms
+             FROM termbase_mounts WHERE project_id = ?1 AND termbase_id = ?2",
+            params![project_id, termbase_id],
+            row_to_termbase_mount,
+        )
+        .optional()
+        .map_err(Into::into)
+}
+
+fn find_termbase_mount(
+    connection: &Connection,
+    project_id: &str,
+    termbase_id: &str,
+) -> Result<TermbaseMount> {
+    find_termbase_mount_optional(connection, project_id, termbase_id)?
+        .ok_or_else(|| not_found("termbase_mount", termbase_id))
+}
+
+fn find_term_entry(connection: &Connection, entry_id: &str) -> Result<TermEntry> {
+    let mut entry = connection
+        .query_row(
+            "SELECT id, termbase_id, source_locale, source_term, part_of_speech,
+                    definition, example, domain, status, revision, created_at_ms,
+                    updated_at_ms
+             FROM term_entries WHERE id = ?1",
+            [entry_id],
+            row_to_term_entry,
+        )
+        .optional()?
+        .ok_or_else(|| not_found("term_entry", entry_id))?;
+    let mut statement = connection.prepare(
+        "SELECT id, entry_id, locale, term, preferred, forbidden,
+                created_at_ms, updated_at_ms
+         FROM term_translations WHERE entry_id = ?1
+         ORDER BY locale, preferred DESC, forbidden DESC, term_key, id",
+    )?;
+    entry.translations = statement
+        .query_map([entry_id], row_to_term_translation)?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    Ok(entry)
+}
+
+fn upsert_term_entry_in_transaction(
+    transaction: &Transaction<'_>,
+    input: NewTermEntry,
+) -> Result<(TermEntry, bool)> {
+    require_nonempty("source term", &input.source_term)?;
+    if input.translations.is_empty() {
+        return Err(StorageError::InvalidState(
+            "term entry requires at least one translation".to_string(),
+        ));
+    }
+    let termbase = find_termbase(transaction, &input.termbase_id)?;
+    if !termbase.writable {
+        return Err(StorageError::InvalidState(
+            "termbase is read-only".to_string(),
+        ));
+    }
+    if input.source_locale != termbase.source_locale {
+        return Err(StorageError::InvalidState(
+            "term source locale does not match termbase".to_string(),
+        ));
+    }
+    let source_key = normalize_match_key(&input.source_term);
+    let now = now_ms();
+    let existing_id = transaction
+        .query_row(
+            "SELECT id FROM term_entries WHERE termbase_id = ?1 AND source_key = ?2",
+            params![input.termbase_id, source_key],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let is_existing = existing_id.is_some();
+    let entry_id = existing_id.unwrap_or_else(new_id);
+    if is_existing {
+        transaction.execute(
+            "UPDATE term_entries SET source_term = ?1, part_of_speech = ?2,
+                    definition = ?3, example = ?4, domain = ?5, status = ?6,
+                    revision = revision + 1, updated_at_ms = ?7
+             WHERE id = ?8",
+            params![
+                input.source_term,
+                input.part_of_speech,
+                input.definition,
+                input.example,
+                input.domain,
+                term_status_text(input.status),
+                now,
+                entry_id,
+            ],
+        )?;
+        transaction.execute(
+            "DELETE FROM term_translations WHERE entry_id = ?1",
+            [&entry_id],
+        )?;
+    } else {
+        transaction.execute(
+            "INSERT INTO term_entries (
+                id, termbase_id, source_locale, source_term, source_key,
+                part_of_speech, definition, example, domain, status, revision,
+                created_at_ms, updated_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, ?11, ?11)",
+            params![
+                entry_id,
+                input.termbase_id,
+                input.source_locale,
+                input.source_term,
+                source_key,
+                input.part_of_speech,
+                input.definition,
+                input.example,
+                input.domain,
+                term_status_text(input.status),
+                now,
+            ],
+        )?;
+    }
+    for translation in input.translations {
+        require_nonempty("target locale", &translation.locale)?;
+        require_nonempty("target term", &translation.term)?;
+        let term_key = normalize_match_key(&translation.term);
+        transaction.execute(
+            "INSERT INTO term_translations (
+                id, entry_id, locale, term, term_key, preferred, forbidden,
+                created_at_ms, updated_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
+            params![
+                new_id(),
+                entry_id,
+                translation.locale,
+                translation.term,
+                term_key,
+                translation.preferred,
+                translation.forbidden,
+                now,
+            ],
+        )?;
+    }
+    let result = find_term_entry(transaction, &entry_id)?;
+    Ok((result, is_existing))
 }
 
 fn project_id_for_segment(connection: &Connection, segment_id: &str) -> Result<String> {
@@ -1811,6 +2992,204 @@ fn upsert_tm_entry(
             row_to_tm_entry,
         )
         .map_err(Into::into)
+}
+
+fn sink_segment_to_asset_libraries(
+    transaction: &Transaction<'_>,
+    segment: &Segment,
+    project_id: &str,
+    now: i64,
+) -> Result<()> {
+    let previous = if segment.ordinal == 0 {
+        None
+    } else {
+        transaction
+            .query_row(
+                "SELECT source_text FROM segments
+                 WHERE document_id = ?1 AND ordinal = ?2",
+                params![segment.document_id, i64::from(segment.ordinal - 1)],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+    };
+    let next = transaction
+        .query_row(
+            "SELECT source_text FROM segments
+             WHERE document_id = ?1 AND ordinal = ?2",
+            params![segment.document_id, i64::from(segment.ordinal) + 1],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let context_before_hash = previous
+        .as_deref()
+        .map(|value| translunar_domain::sha256_hex(normalize_match_key(value).as_bytes()));
+    let context_after_hash = next
+        .as_deref()
+        .map(|value| translunar_domain::sha256_hex(normalize_match_key(value).as_bytes()));
+    let mounts = {
+        let mut statement = transaction.prepare(
+            "SELECT m.library_id, l.source_locale, l.target_locale, l.domain
+             FROM tm_library_mounts m JOIN tm_libraries l ON l.id = m.library_id
+             WHERE m.project_id = ?1 AND m.enabled = 1 AND m.mode = 'write'
+                   AND l.writable = 1
+             ORDER BY m.priority, m.library_id",
+        )?;
+        statement
+            .query_map([project_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    let source_key = exact_key(&segment.source_text);
+    let source_hash =
+        translunar_domain::sha256_hex(normalize_match_key(&segment.source_text).as_bytes());
+    let target_hash =
+        translunar_domain::sha256_hex(normalize_match_key(&segment.target_text).as_bytes());
+    let mut metadata = BTreeMap::new();
+    metadata.insert("segmentState".to_string(), format!("{:?}", segment.state));
+    for (library_id, source_locale, target_locale, domain) in mounts {
+        let existing_id = transaction
+            .query_row(
+                "SELECT id FROM tm_units
+                 WHERE library_id = ?1 AND origin_project_id = ?2
+                   AND origin_document_id = ?3 AND origin_segment_id = ?4",
+                params![library_id, project_id, segment.document_id, segment.id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let metadata_json = serde_json::to_string(&metadata)?;
+        if let Some(existing_id) = existing_id {
+            transaction.execute(
+                "UPDATE tm_units SET source_locale = ?1, target_locale = ?2,
+                        source_text = ?3, target_text = ?4, source_hash = ?5,
+                        source_key = ?6, target_hash = ?7, domain = ?8,
+                        context_before_hash = ?9, context_after_hash = ?10,
+                        metadata_json = ?11, updated_at_ms = ?12
+                 WHERE id = ?13",
+                params![
+                    source_locale,
+                    target_locale,
+                    segment.source_text,
+                    segment.target_text,
+                    source_hash,
+                    source_key,
+                    target_hash,
+                    domain,
+                    context_before_hash,
+                    context_after_hash,
+                    metadata_json,
+                    now,
+                    existing_id,
+                ],
+            )?;
+        } else {
+            transaction.execute(
+                "INSERT INTO tm_units (
+                    id, library_id, source_locale, target_locale, source_text,
+                    target_text, source_hash, source_key, target_hash, domain,
+                    origin_project_id, origin_document_id, origin_segment_id,
+                    context_before_hash, context_after_hash, author, metadata_json,
+                    created_at_ms, updated_at_ms
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+                           ?11, ?12, ?13, ?14, ?15, NULL, ?16, ?17, ?17)",
+                params![
+                    new_id(),
+                    library_id,
+                    source_locale,
+                    target_locale,
+                    segment.source_text,
+                    segment.target_text,
+                    source_hash,
+                    source_key,
+                    target_hash,
+                    domain,
+                    project_id,
+                    segment.document_id,
+                    segment.id,
+                    context_before_hash,
+                    context_after_hash,
+                    metadata_json,
+                    now,
+                ],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn reconcile_forbidden_term_qa(
+    transaction: &Transaction<'_>,
+    segment: &Segment,
+    project_id: &str,
+    now: i64,
+) -> Result<Vec<QaIssue>> {
+    transaction.execute(
+        "UPDATE qa_issues SET status = 'resolved', updated_at_ms = ?1
+         WHERE segment_id = ?2 AND rule_id LIKE 'term-forbidden:%' AND status = 'open'",
+        params![now, segment.id],
+    )?;
+    let forbidden = {
+        let mut statement = transaction.prepare(
+            "SELECT tt.id, tt.term FROM termbase_mounts m
+             JOIN projects p ON p.id = m.project_id
+             JOIN term_entries e ON e.termbase_id = m.termbase_id
+             JOIN term_translations tt ON tt.entry_id = e.id
+             WHERE m.project_id = ?1 AND m.enabled = 1
+                   AND e.status = 'active' AND tt.forbidden = 1
+                   AND tt.locale = p.target_locale
+             ORDER BY m.priority, tt.id",
+        )?;
+        statement
+            .query_map([project_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    for (translation_id, term) in forbidden {
+        if term_spans(&segment.target_text, &term).is_empty() {
+            continue;
+        }
+        let rule_id = format!("term-forbidden:{translation_id}");
+        let evidence = NumberEvidence {
+            source_numbers: Vec::new(),
+            target_numbers: vec![term.clone()],
+        };
+        let fingerprint = translunar_domain::sha256_hex(
+            format!("{rule_id}\0{}", normalize_match_key(&segment.target_text)).as_bytes(),
+        );
+        transaction.execute(
+            "INSERT INTO qa_issues (
+                id, segment_id, rule_id, severity, status, message, fingerprint,
+                evidence_json, created_at_ms, updated_at_ms
+             ) VALUES (?1, ?2, ?3, 'error', 'open', ?4, ?5, ?6, ?7, ?7)
+             ON CONFLICT(segment_id, rule_id, fingerprint) DO UPDATE SET
+                status = 'open', message = excluded.message,
+                evidence_json = excluded.evidence_json, updated_at_ms = excluded.updated_at_ms",
+            params![
+                new_id(),
+                segment.id,
+                rule_id,
+                format!("Forbidden term used in target: {term}"),
+                fingerprint,
+                serde_json::to_string(&evidence)?,
+                now,
+            ],
+        )?;
+    }
+    let mut statement = transaction.prepare(
+        "SELECT id, segment_id, rule_id, severity, status, message,
+                fingerprint, evidence_json, created_at_ms, updated_at_ms
+         FROM qa_issues WHERE segment_id = ?1 AND rule_id LIKE 'term-forbidden:%'
+         ORDER BY rule_id, id",
+    )?;
+    Ok(statement
+        .query_map([segment.id.as_str()], row_to_qa_issue)?
+        .collect::<std::result::Result<Vec<_>, _>>()?)
 }
 
 fn reconcile_number_qa(
@@ -2118,6 +3497,97 @@ fn normalize_managed_source_paths(connection: &mut Connection, paths: &DataPaths
             }
         };
         transaction.execute(sql, params![path, id])?;
+    }
+    transaction.commit()?;
+    Ok(())
+}
+
+fn backfill_asset_keys(connection: &mut Connection) -> Result<()> {
+    let rows = {
+        let mut statement = connection.prepare(
+            "SELECT id, source_text, target_text, source_key, target_hash FROM tm_units",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    let updates =
+        rows.into_iter()
+            .filter_map(|(id, source, target, source_key, target_hash)| {
+                let normalized_source = exact_key(&source);
+                let normalized_target_hash =
+                    translunar_domain::sha256_hex(normalize_match_key(&target).as_bytes());
+                (source_key != normalized_source || target_hash != normalized_target_hash)
+                    .then_some((id, normalized_source, normalized_target_hash))
+            })
+            .collect::<Vec<_>>();
+    if updates.is_empty() {
+        return Ok(());
+    }
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    for (id, source_key, target_hash) in updates {
+        transaction.execute(
+            "UPDATE tm_units SET source_key = ?1, target_hash = ?2 WHERE id = ?3",
+            params![source_key, target_hash, id],
+        )?;
+    }
+    transaction.commit()?;
+    Ok(())
+}
+
+fn ensure_default_termbases(connection: &mut Connection) -> Result<()> {
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let projects = {
+        let mut statement = transaction.prepare(
+            "SELECT p.id, p.name, p.source_locale, p.domain, p.created_at_ms
+             FROM projects p
+             WHERE NOT EXISTS (
+                SELECT 1 FROM termbase_mounts m WHERE m.project_id = p.id
+             )
+             ORDER BY p.created_at_ms, p.id",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    for (project_id, project_name, source_locale, domain, created_at_ms) in projects {
+        let termbase_id = new_id();
+        transaction.execute(
+            "INSERT INTO termbases (
+                id, name, source_locale, domain, writable, revision,
+                created_at_ms, updated_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, 1, 0, ?5, ?5)",
+            params![
+                termbase_id,
+                format!("{project_name} Termbase"),
+                source_locale,
+                domain,
+                created_at_ms,
+            ],
+        )?;
+        transaction.execute(
+            "INSERT INTO termbase_mounts (
+                project_id, termbase_id, priority, writable, enabled, revision,
+                created_at_ms, updated_at_ms
+             ) VALUES (?1, ?2, 0, 1, 1, 0, ?3, ?3)",
+            params![project_id, termbase_id, created_at_ms],
+        )?;
     }
     transaction.commit()?;
     Ok(())
@@ -2450,6 +3920,113 @@ fn row_to_tm_entry(row: &Row<'_>) -> rusqlite::Result<TmEntry> {
     })
 }
 
+fn row_to_tm_library(row: &Row<'_>) -> rusqlite::Result<TmLibrary> {
+    Ok(TmLibrary {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        source_locale: row.get(2)?,
+        target_locale: row.get(3)?,
+        domain: row.get(4)?,
+        writable: row.get(5)?,
+        revision: read_u64(row, 6)?,
+        created_at_ms: row.get(7)?,
+        updated_at_ms: row.get(8)?,
+    })
+}
+
+fn row_to_tm_library_mount(row: &Row<'_>) -> rusqlite::Result<TmLibraryMount> {
+    Ok(TmLibraryMount {
+        project_id: row.get(0)?,
+        library_id: row.get(1)?,
+        mode: parse_asset_mount_mode(row.get::<_, String>(2)?, 2)?,
+        priority: read_u32(row, 3)?,
+        enabled: row.get(4)?,
+        revision: read_u64(row, 5)?,
+        created_at_ms: row.get(6)?,
+        updated_at_ms: row.get(7)?,
+    })
+}
+
+fn row_to_tm_unit(row: &Row<'_>) -> rusqlite::Result<TmUnit> {
+    Ok(TmUnit {
+        id: row.get(0)?,
+        library_id: row.get(1)?,
+        source_locale: row.get(2)?,
+        target_locale: row.get(3)?,
+        source_text: row.get(4)?,
+        target_text: row.get(5)?,
+        source_hash: row.get(6)?,
+        target_hash: row.get(7)?,
+        domain: row.get(8)?,
+        origin_project_id: row.get(9)?,
+        origin_document_id: row.get(10)?,
+        origin_segment_id: row.get(11)?,
+        context_before_hash: row.get(12)?,
+        context_after_hash: row.get(13)?,
+        author: row.get(14)?,
+        metadata: read_json(row, 15)?,
+        created_at_ms: row.get(16)?,
+        updated_at_ms: row.get(17)?,
+    })
+}
+
+fn row_to_termbase(row: &Row<'_>) -> rusqlite::Result<Termbase> {
+    Ok(Termbase {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        source_locale: row.get(2)?,
+        domain: row.get(3)?,
+        writable: row.get(4)?,
+        revision: read_u64(row, 5)?,
+        created_at_ms: row.get(6)?,
+        updated_at_ms: row.get(7)?,
+    })
+}
+
+fn row_to_termbase_mount(row: &Row<'_>) -> rusqlite::Result<TermbaseMount> {
+    Ok(TermbaseMount {
+        project_id: row.get(0)?,
+        termbase_id: row.get(1)?,
+        priority: read_u32(row, 2)?,
+        writable: row.get(3)?,
+        enabled: row.get(4)?,
+        revision: read_u64(row, 5)?,
+        created_at_ms: row.get(6)?,
+        updated_at_ms: row.get(7)?,
+    })
+}
+
+fn row_to_term_entry(row: &Row<'_>) -> rusqlite::Result<TermEntry> {
+    Ok(TermEntry {
+        id: row.get(0)?,
+        termbase_id: row.get(1)?,
+        source_locale: row.get(2)?,
+        source_term: row.get(3)?,
+        part_of_speech: row.get(4)?,
+        definition: row.get(5)?,
+        example: row.get(6)?,
+        domain: row.get(7)?,
+        status: parse_term_status(row.get::<_, String>(8)?, 8)?,
+        revision: read_u64(row, 9)?,
+        translations: Vec::new(),
+        created_at_ms: row.get(10)?,
+        updated_at_ms: row.get(11)?,
+    })
+}
+
+fn row_to_term_translation(row: &Row<'_>) -> rusqlite::Result<TermTranslation> {
+    Ok(TermTranslation {
+        id: row.get(0)?,
+        entry_id: row.get(1)?,
+        locale: row.get(2)?,
+        term: row.get(3)?,
+        preferred: row.get(4)?,
+        forbidden: row.get(5)?,
+        created_at_ms: row.get(6)?,
+        updated_at_ms: row.get(7)?,
+    })
+}
+
 fn row_to_qa_issue(row: &Row<'_>) -> rusqlite::Result<QaIssue> {
     let evidence_json = row.get::<_, String>(7)?;
     let evidence = serde_json::from_str::<NumberEvidence>(&evidence_json)
@@ -2485,6 +4062,44 @@ fn project_lifecycle_text(lifecycle: ProjectLifecycle) -> &'static str {
         ProjectLifecycle::Active => "active",
         ProjectLifecycle::Archived => "archived",
         ProjectLifecycle::Trash => "trash",
+    }
+}
+
+fn asset_mount_mode_text(mode: AssetMountMode) -> &'static str {
+    match mode {
+        AssetMountMode::Write => "write",
+        AssetMountMode::Reference => "reference",
+    }
+}
+
+fn parse_asset_mount_mode(value: String, column: usize) -> rusqlite::Result<AssetMountMode> {
+    match value.as_str() {
+        "write" => Ok(AssetMountMode::Write),
+        "reference" => Ok(AssetMountMode::Reference),
+        _ => Err(conversion_error(
+            column,
+            StorageError::InvalidData(format!("unknown asset mount mode {value}")),
+        )),
+    }
+}
+
+fn term_status_text(status: TermStatus) -> &'static str {
+    match status {
+        TermStatus::Candidate => "candidate",
+        TermStatus::Active => "active",
+        TermStatus::Deprecated => "deprecated",
+    }
+}
+
+fn parse_term_status(value: String, column: usize) -> rusqlite::Result<TermStatus> {
+    match value.as_str() {
+        "candidate" => Ok(TermStatus::Candidate),
+        "active" => Ok(TermStatus::Active),
+        "deprecated" => Ok(TermStatus::Deprecated),
+        _ => Err(conversion_error(
+            column,
+            StorageError::InvalidData(format!("unknown term status {value}")),
+        )),
     }
 }
 
@@ -3072,6 +4687,19 @@ mod tests {
             .expect("legacy TM entry");
         assert_eq!(tm_entries.len(), 1);
         assert_eq!(tm_entries[0].target_text, "保留期为 30 天。");
+        let (asset_libraries, _) = store
+            .list_tm_libraries(Some("p1"), 0, 20)
+            .expect("migrated asset library");
+        assert_eq!(asset_libraries[0].id, "tm1");
+        let migrated_units = store.export_tm_units("tm1").expect("migrated asset units");
+        assert_eq!(migrated_units.len(), 1);
+        assert_eq!(migrated_units[0].origin_segment_id.as_deref(), Some("s1"));
+        assert_eq!(migrated_units[0].target_text, "保留期为 30 天。");
+        assert!(!migrated_units[0].target_hash.is_empty());
+        let (migrated_termbases, _) = store
+            .list_termbases(Some("p1"), 0, 20)
+            .expect("migrated default termbase");
+        assert_eq!(migrated_termbases.len(), 1);
         let qa_issues = store.list_qa("d1", true).expect("legacy QA issue");
         assert_eq!(qa_issues.len(), 1);
         assert_eq!(qa_issues[0].id, "qa1");
@@ -3235,5 +4863,386 @@ mod tests {
                 .starts_with(".translunar-backup-")
         });
         assert!(!staging, "failed backup must remove its staging directory");
+    }
+
+    #[test]
+    fn project_bootstraps_default_asset_mounts() {
+        let fixture = Fixture::new();
+        let (libraries, library_total) = fixture
+            .store
+            .list_tm_libraries(Some(&fixture.project.id), 0, 20)
+            .expect("list TM libraries");
+        let library_mounts = fixture
+            .store
+            .list_tm_library_mounts(&fixture.project.id)
+            .expect("list TM mounts");
+        assert_eq!(library_total, 1);
+        assert_eq!(libraries.len(), 1);
+        assert_eq!(library_mounts.len(), 1);
+        assert_eq!(library_mounts[0].library_id, libraries[0].id);
+        assert_eq!(library_mounts[0].mode, AssetMountMode::Write);
+
+        let (termbases, termbase_total) = fixture
+            .store
+            .list_termbases(Some(&fixture.project.id), 0, 20)
+            .expect("list termbases");
+        let termbase_mounts = fixture
+            .store
+            .list_termbase_mounts(&fixture.project.id)
+            .expect("list termbase mounts");
+        assert_eq!(termbase_total, 1);
+        assert_eq!(termbases.len(), 1);
+        assert_eq!(termbase_mounts.len(), 1);
+        assert!(termbase_mounts[0].writable);
+        assert_eq!(termbase_mounts[0].termbase_id, termbases[0].id);
+    }
+
+    #[test]
+    fn multi_library_search_and_confirmation_sinking_are_deterministic() {
+        let mut fixture = Fixture::new();
+        let writable = fixture
+            .store
+            .create_tm_library(NewTmLibrary {
+                name: "Reference and write".to_string(),
+                source_locale: "en-US".to_string(),
+                target_locale: "zh-CN".to_string(),
+                domain: Some("legal".to_string()),
+                writable: true,
+                owner_project_id: None,
+            })
+            .expect("create writable library");
+        fixture
+            .store
+            .mount_tm_library(
+                &fixture.project.id,
+                &writable.id,
+                AssetMountMode::Write,
+                1,
+                true,
+                None,
+            )
+            .expect("mount writable library");
+        let imported = translunar_asset_core::TmExchangeUnit {
+            source_locale: "en-US".to_string(),
+            target_locale: "zh-CN".to_string(),
+            source_text: "保留期为 30 天".to_string(),
+            target_text: "Retention is 30 days".to_string(),
+            domain: Some("legal".to_string()),
+            author: Some("import".to_string()),
+            created_at_ms: Some(1),
+            metadata: BTreeMap::new(),
+        };
+        assert_eq!(
+            fixture
+                .store
+                .import_tm_units(&writable.id, std::slice::from_ref(&imported))
+                .expect("import unit"),
+            (1, 0)
+        );
+        assert_eq!(
+            fixture
+                .store
+                .import_tm_units(&writable.id, std::slice::from_ref(&imported))
+                .expect("deduplicate unit"),
+            (0, 1)
+        );
+        let (fuzzy, _) = fixture
+            .store
+            .search_tm(&TmSearchRequest {
+                project_id: fixture.project.id.clone(),
+                source_locale: "en-US".to_string(),
+                target_locale: "zh-CN".to_string(),
+                query: "保留期为 60 天".to_string(),
+                threshold: 60,
+                offset: 0,
+                limit: 20,
+                library_ids: vec![writable.id.clone()],
+                domain: Some("legal".to_string()),
+                since_ms: None,
+                origin_project_id: None,
+                origin_document_id: None,
+                context_before_hash: None,
+                context_after_hash: None,
+            })
+            .expect("search fuzzy TM");
+        assert_eq!(fuzzy.len(), 1);
+        assert_eq!(fuzzy[0].kind, TmMatchKind::Exact);
+        assert_eq!(fuzzy[0].substitutions[0].kind, "number");
+
+        let read_only = fixture
+            .store
+            .create_tm_library(NewTmLibrary {
+                name: "Read only".to_string(),
+                source_locale: "en-US".to_string(),
+                target_locale: "zh-CN".to_string(),
+                domain: None,
+                writable: false,
+                owner_project_id: None,
+            })
+            .expect("create read-only library");
+        assert!(
+            fixture
+                .store
+                .mount_tm_library(
+                    &fixture.project.id,
+                    &read_only.id,
+                    AssetMountMode::Write,
+                    2,
+                    true,
+                    None,
+                )
+                .is_err()
+        );
+        assert!(
+            fixture
+                .store
+                .import_tm_units(&read_only.id, std::slice::from_ref(&imported))
+                .is_err()
+        );
+        fixture
+            .store
+            .mount_tm_library(
+                &fixture.project.id,
+                &read_only.id,
+                AssetMountMode::Reference,
+                2,
+                true,
+                None,
+            )
+            .expect("mount read-only reference");
+        let reference = fixture
+            .store
+            .create_tm_library(NewTmLibrary {
+                name: "Writable reference".to_string(),
+                source_locale: "en-US".to_string(),
+                target_locale: "zh-CN".to_string(),
+                domain: Some("legal".to_string()),
+                writable: true,
+                owner_project_id: None,
+            })
+            .expect("create reference library");
+        fixture
+            .store
+            .import_tm_units(&reference.id, std::slice::from_ref(&imported))
+            .expect("seed reference library");
+        fixture
+            .store
+            .mount_tm_library(
+                &fixture.project.id,
+                &reference.id,
+                AssetMountMode::Reference,
+                3,
+                true,
+                None,
+            )
+            .expect("mount writable library as reference");
+        let reference_count_before = fixture
+            .store
+            .export_tm_units(&reference.id)
+            .expect("reference units before confirm")
+            .len();
+
+        let segment = fixture.segments.remove(0);
+        let draft = fixture
+            .store
+            .update_target(&segment.id, "保留期为 30 天。", segment.revision)
+            .expect("save target");
+        let confirmation = fixture
+            .store
+            .confirm_segment(&segment.id, draft.revision)
+            .expect("confirm segment");
+        assert_eq!(
+            fixture
+                .store
+                .export_tm_units(&reference.id)
+                .expect("reference units after confirm")
+                .len(),
+            reference_count_before,
+            "confirmation must not sink into a reference mount"
+        );
+        assert!(
+            fixture
+                .store
+                .export_tm_units(&read_only.id)
+                .expect("read-only reference units")
+                .is_empty()
+        );
+        let (default_libraries, _) = fixture
+            .store
+            .list_tm_libraries(Some(&fixture.project.id), 0, 20)
+            .expect("list mounted libraries");
+        let default_library = default_libraries
+            .iter()
+            .find(|library| library.id != writable.id)
+            .expect("default library");
+        let default_units = fixture
+            .store
+            .export_tm_units(&default_library.id)
+            .expect("default units");
+        let sunk = default_units
+            .iter()
+            .find(|unit| unit.origin_segment_id.as_deref() == Some(segment.id.as_str()))
+            .expect("sunk unit");
+        let (context_matches, _) = fixture
+            .store
+            .search_tm(&TmSearchRequest {
+                project_id: fixture.project.id.clone(),
+                source_locale: "en-US".to_string(),
+                target_locale: "zh-CN".to_string(),
+                query: segment.source_text.clone(),
+                threshold: 100,
+                offset: 0,
+                limit: 20,
+                library_ids: vec![default_library.id.clone()],
+                domain: Some("legal".to_string()),
+                since_ms: None,
+                origin_project_id: Some(fixture.project.id.clone()),
+                origin_document_id: Some(fixture.document.id.clone()),
+                context_before_hash: sunk.context_before_hash.clone(),
+                context_after_hash: sunk.context_after_hash.clone(),
+            })
+            .expect("context search");
+        assert_eq!(context_matches[0].score, 101);
+        assert_eq!(context_matches[0].kind, TmMatchKind::Context);
+
+        let writable_count = fixture
+            .store
+            .export_tm_units(&writable.id)
+            .expect("writable units")
+            .len();
+        fixture
+            .store
+            .confirm_segment(&segment.id, confirmation.segment.revision)
+            .expect("idempotent reconfirm");
+        assert_eq!(
+            fixture
+                .store
+                .export_tm_units(&writable.id)
+                .expect("reloaded writable units")
+                .len(),
+            writable_count
+        );
+    }
+
+    #[test]
+    fn term_recognition_and_forbidden_qa_round_trip() {
+        let mut fixture = Fixture::new();
+        let termbase = fixture
+            .store
+            .list_termbases(Some(&fixture.project.id), 0, 20)
+            .expect("list termbases")
+            .0
+            .remove(0);
+        let entry = fixture
+            .store
+            .upsert_term_entry(NewTermEntry {
+                termbase_id: termbase.id.clone(),
+                source_locale: "en-US".to_string(),
+                source_term: "paragraph".to_string(),
+                part_of_speech: Some("noun".to_string()),
+                definition: Some("A block of text".to_string()),
+                example: None,
+                domain: Some("legal".to_string()),
+                status: TermStatus::Active,
+                translations: vec![
+                    NewTermTranslation {
+                        locale: "zh-CN".to_string(),
+                        term: "段落".to_string(),
+                        preferred: true,
+                        forbidden: false,
+                    },
+                    NewTermTranslation {
+                        locale: "zh-CN".to_string(),
+                        term: "禁用词".to_string(),
+                        preferred: false,
+                        forbidden: true,
+                    },
+                ],
+            })
+            .expect("upsert term");
+        assert_eq!(entry.translations.len(), 2);
+        let (matches, _) = fixture
+            .store
+            .search_terms(&TermSearchRequest {
+                project_id: fixture.project.id.clone(),
+                text: "This paragraph remains untranslated.".to_string(),
+                offset: 0,
+                limit: 20,
+                termbase_ids: vec![termbase.id.clone()],
+            })
+            .expect("recognize term");
+        assert_eq!(matches.len(), 1);
+        let (target_matches, _) = fixture
+            .store
+            .search_terms(&TermSearchRequest {
+                project_id: fixture.project.id.clone(),
+                text: "这是一个段落。".to_string(),
+                offset: 0,
+                limit: 20,
+                termbase_ids: vec![termbase.id.clone()],
+            })
+            .expect("recognize target term");
+        assert_eq!(target_matches.len(), 1);
+        let (false_matches, _) = fixture
+            .store
+            .search_terms(&TermSearchRequest {
+                project_id: fixture.project.id.clone(),
+                text: "This is a subparagraphish token.".to_string(),
+                offset: 0,
+                limit: 20,
+                termbase_ids: vec![termbase.id.clone()],
+            })
+            .expect("enforce word boundary");
+        assert!(false_matches.is_empty());
+
+        let segment = fixture.segments.remove(1);
+        let draft = fixture
+            .store
+            .update_target(&segment.id, "这里包含禁用词。", segment.revision)
+            .expect("save forbidden target");
+        fixture
+            .store
+            .confirm_segment(&segment.id, draft.revision)
+            .expect("confirm forbidden target");
+        let issues = fixture
+            .store
+            .list_qa(&fixture.document.id, false)
+            .expect("list forbidden QA");
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.rule_id.starts_with("term-forbidden:"))
+        );
+        let current = fixture
+            .store
+            .all_segments(&fixture.document.id)
+            .expect("reload segment")
+            .into_iter()
+            .find(|candidate| candidate.id == segment.id)
+            .expect("current segment");
+        let clean = fixture
+            .store
+            .update_target(&segment.id, "这里包含段落。", current.revision)
+            .expect("save clean target");
+        fixture
+            .store
+            .confirm_segment(&segment.id, clean.revision)
+            .expect("confirm clean target");
+        let all_issues = fixture
+            .store
+            .list_qa(&fixture.document.id, true)
+            .expect("list resolved QA");
+        assert!(all_issues.iter().any(|issue| {
+            issue.rule_id.starts_with("term-forbidden:") && issue.status == QaIssueStatus::Resolved
+        }));
+        assert_eq!(
+            fixture
+                .store
+                .export_term_entries(&termbase.id)
+                .expect("export terms")[0]
+                .translations
+                .len(),
+            2
+        );
     }
 }

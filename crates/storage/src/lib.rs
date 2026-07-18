@@ -6,6 +6,8 @@ mod store;
 
 pub use error::{Result, StorageError};
 pub use store::{
-    Confirmation, DataPaths, ManagedDocument, NewDocument, NewPipelineDefinition,
-    PipelineRunSnapshot, ProjectAggregate, ProjectUpdate, Store,
+    ConcordanceRequest, Confirmation, DataPaths, ManagedDocument, NewDocument,
+    NewPipelineDefinition, NewTermEntry, NewTermTranslation, NewTermbase, NewTmLibrary,
+    PipelineRunSnapshot, ProjectAggregate, ProjectUpdate, Store, TermSearchRequest,
+    TmSearchRequest,
 };

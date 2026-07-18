@@ -2,7 +2,7 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use crate::{Result, StorageError};
 
-pub(crate) const LATEST_SCHEMA_VERSION: u32 = 3;
+pub(crate) const LATEST_SCHEMA_VERSION: u32 = 4;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -260,6 +260,162 @@ CREATE INDEX pipeline_step_runs_run_idx
     ON pipeline_step_runs(run_id, step_index);
 "#;
 
+const MIGRATION_4: &str = r#"
+CREATE TABLE tm_libraries (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    source_locale TEXT NOT NULL,
+    target_locale TEXT NOT NULL,
+    domain TEXT,
+    owner_project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+    writable INTEGER NOT NULL CHECK (writable IN (0, 1)),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX tm_libraries_pair_idx
+    ON tm_libraries(source_locale, target_locale, domain, updated_at_ms DESC, id);
+
+CREATE TABLE tm_library_mounts (
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    library_id TEXT NOT NULL REFERENCES tm_libraries(id) ON DELETE CASCADE,
+    mode TEXT NOT NULL CHECK (mode IN ('write', 'reference')),
+    priority INTEGER NOT NULL CHECK (priority >= 0),
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    PRIMARY KEY(project_id, library_id)
+) STRICT;
+
+CREATE INDEX tm_library_mounts_project_idx
+    ON tm_library_mounts(project_id, enabled, priority, library_id);
+
+CREATE TABLE tm_units (
+    id TEXT PRIMARY KEY,
+    library_id TEXT NOT NULL REFERENCES tm_libraries(id) ON DELETE CASCADE,
+    source_locale TEXT NOT NULL,
+    target_locale TEXT NOT NULL,
+    source_text TEXT NOT NULL,
+    target_text TEXT NOT NULL,
+    source_hash TEXT NOT NULL,
+    source_key TEXT NOT NULL,
+    target_hash TEXT NOT NULL,
+    domain TEXT,
+    origin_project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+    origin_document_id TEXT REFERENCES documents(id) ON DELETE SET NULL,
+    origin_segment_id TEXT REFERENCES segments(id) ON DELETE SET NULL,
+    context_before_hash TEXT,
+    context_after_hash TEXT,
+    author TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    UNIQUE(library_id, origin_project_id, origin_document_id, origin_segment_id)
+) STRICT;
+
+CREATE INDEX tm_units_source_idx
+    ON tm_units(library_id, source_locale, target_locale, source_key);
+CREATE INDEX tm_units_metadata_idx
+    ON tm_units(library_id, domain, created_at_ms DESC, id);
+CREATE INDEX tm_units_origin_idx
+    ON tm_units(origin_project_id, origin_document_id, origin_segment_id);
+
+CREATE TABLE termbases (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    source_locale TEXT NOT NULL,
+    domain TEXT,
+    writable INTEGER NOT NULL CHECK (writable IN (0, 1)),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX termbases_locale_idx
+    ON termbases(source_locale, domain, updated_at_ms DESC, id);
+
+CREATE TABLE termbase_mounts (
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    termbase_id TEXT NOT NULL REFERENCES termbases(id) ON DELETE CASCADE,
+    priority INTEGER NOT NULL CHECK (priority >= 0),
+    writable INTEGER NOT NULL CHECK (writable IN (0, 1)),
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    PRIMARY KEY(project_id, termbase_id)
+) STRICT;
+
+CREATE INDEX termbase_mounts_project_idx
+    ON termbase_mounts(project_id, enabled, priority, termbase_id);
+
+CREATE TABLE term_entries (
+    id TEXT PRIMARY KEY,
+    termbase_id TEXT NOT NULL REFERENCES termbases(id) ON DELETE CASCADE,
+    source_locale TEXT NOT NULL,
+    source_term TEXT NOT NULL,
+    source_key TEXT NOT NULL,
+    part_of_speech TEXT,
+    definition TEXT,
+    example TEXT,
+    domain TEXT,
+    status TEXT NOT NULL CHECK (status IN ('candidate', 'active', 'deprecated')),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    UNIQUE(termbase_id, source_key)
+) STRICT;
+
+CREATE INDEX term_entries_lookup_idx
+    ON term_entries(termbase_id, source_locale, source_key, status);
+
+CREATE TABLE term_translations (
+    id TEXT PRIMARY KEY,
+    entry_id TEXT NOT NULL REFERENCES term_entries(id) ON DELETE CASCADE,
+    locale TEXT NOT NULL,
+    term TEXT NOT NULL,
+    term_key TEXT NOT NULL,
+    preferred INTEGER NOT NULL CHECK (preferred IN (0, 1)),
+    forbidden INTEGER NOT NULL CHECK (forbidden IN (0, 1)),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    UNIQUE(entry_id, locale, term_key)
+) STRICT;
+
+CREATE INDEX term_translations_lookup_idx
+    ON term_translations(entry_id, locale, preferred DESC, forbidden DESC, term_key);
+
+INSERT INTO tm_libraries (
+    id, name, source_locale, target_locale, domain, owner_project_id,
+    writable, revision, created_at_ms, updated_at_ms
+)
+SELECT id, name, source_locale, target_locale, NULL, project_id,
+       writable, 0, 0, 0
+FROM translation_memories;
+
+INSERT INTO tm_library_mounts (
+    project_id, library_id, mode, priority, enabled, revision,
+    created_at_ms, updated_at_ms
+)
+SELECT project_id, id, 'write', 0, 1, 0, 0, 0
+FROM translation_memories;
+
+INSERT INTO tm_units (
+    id, library_id, source_locale, target_locale, source_text, target_text,
+    source_hash, source_key, target_hash, domain, origin_project_id,
+    origin_document_id, origin_segment_id, context_before_hash,
+    context_after_hash, author, metadata_json, created_at_ms, updated_at_ms
+)
+SELECT e.id, e.memory_id, tm.source_locale, tm.target_locale, e.source_text,
+       e.target_text, e.source_hash, e.source_text, '', NULL,
+       e.origin_project_id, e.origin_document_id, e.origin_segment_id,
+       NULL, NULL, NULL, '{}', e.confirmed_at_ms, e.confirmed_at_ms
+FROM tm_entries e
+JOIN translation_memories tm ON tm.id = e.memory_id;
+"#;
+
 pub(crate) fn configure_connection(connection: &Connection) -> Result<()> {
     connection.execute_batch(
         "PRAGMA foreign_keys = ON;\n\
@@ -284,6 +440,7 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<()> {
         (1_u32, MIGRATION_1),
         (2_u32, MIGRATION_2),
         (3_u32, MIGRATION_3),
+        (4_u32, MIGRATION_4),
     ] {
         if version <= current {
             continue;

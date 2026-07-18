@@ -14,6 +14,9 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 use thiserror::Error;
+use translunar_asset_core::{
+    AssetError, TermExchangeEntry, TermExchangeTranslation, TermStatus, TmExchangeUnit,
+};
 use translunar_domain::{DataHealthReport, Document, Project, Segment};
 use translunar_filter_core::{
     ExportRequest, FilterError, FilterRegistry, ImportRequest, collect_imported_document,
@@ -25,20 +28,30 @@ use translunar_pipeline::{
 };
 use translunar_protocol::methods;
 use translunar_protocol::{
-    BackupResult, ConfirmSegmentParams, ConfirmSegmentResult, CreateBackupParams,
-    CreatePipelineParams, CreateProjectParams, DocumentIdParams, DocumentListParams, DocumentPage,
-    EmptyParams, ErrorCode, ExactLookupParams, ExactLookupResult, ExportDocumentParams,
-    ExportDocumentResult, ExportDocxParams, ExportDocxResult, FilterListResult, HistoryListParams,
-    ImportDocumentParams, ImportDocumentResult, ImportDocxParams, InitializeParams,
-    InitializeResult, ListQaParams, OperationPage, PROTOCOL_VERSION, PipelineCapabilityResult,
-    PipelineDefinitionPage, PipelineIdParams, PipelineListParams, PipelineRunIdParams,
-    PipelineRunListParams, PipelineRunPage, PipelineRunRevisionParams,
-    PipelineRunSnapshot as ProtocolPipelineRunSnapshot, PipelineValidationResult, ProjectIdParams,
-    ProjectListParams, ProjectPage, ProjectSnapshot, QaListResult, RpcError, RpcRequest,
-    RpcResponse, RunPipelineParams, SegmentListParams, SegmentPage, SetProjectLifecycleParams,
-    UpdateProjectParams, UpdateTargetParams, ValidatePipelineParams,
+    AssetExchangeFormat, BackupResult, ConcordanceParams, ConcordanceResult, ConfirmSegmentParams,
+    ConfirmSegmentResult, CreateBackupParams, CreatePipelineParams, CreateProjectParams,
+    DocumentIdParams, DocumentListParams, DocumentPage, EmptyParams, EmptyResult, ErrorCode,
+    ExactLookupParams, ExactLookupResult, ExportDocumentParams, ExportDocumentResult,
+    ExportDocxParams, ExportDocxResult, FilterListResult, HistoryListParams, ImportDocumentParams,
+    ImportDocumentResult, ImportDocxParams, InitializeParams, InitializeResult, ListQaParams,
+    OperationPage, PROTOCOL_VERSION, PipelineCapabilityResult, PipelineDefinitionPage,
+    PipelineIdParams, PipelineListParams, PipelineRunIdParams, PipelineRunListParams,
+    PipelineRunPage, PipelineRunRevisionParams, PipelineRunSnapshot as ProtocolPipelineRunSnapshot,
+    PipelineValidationResult, ProjectIdParams, ProjectListParams, ProjectPage, ProjectSnapshot,
+    QaListResult, RpcError, RpcRequest, RpcResponse, RunPipelineParams, SegmentListParams,
+    SegmentPage, SetProjectLifecycleParams, TermSearchParams, TermSearchResult, TermUpsertParams,
+    TermbaseCreateParams, TermbaseExportParams, TermbaseExportResult, TermbaseImportParams,
+    TermbaseImportResult, TermbaseListParams, TermbaseMountParams, TermbasePage,
+    TermbaseUnmountParams, TmExportParams, TmExportResult, TmImportParams, TmImportResult,
+    TmLibraryCreateParams, TmLibraryListParams, TmLibraryMountParams, TmLibraryPage,
+    TmLibraryUnmountParams, TmSearchParams, TmSearchResult, UpdateProjectParams,
+    UpdateTargetParams, ValidatePipelineParams,
 };
-use translunar_storage::{NewDocument, NewPipelineDefinition, ProjectUpdate, StorageError, Store};
+use translunar_storage::{
+    ConcordanceRequest as StorageConcordanceRequest, NewDocument, NewPipelineDefinition,
+    NewTermEntry, NewTermTranslation, NewTmLibrary, ProjectUpdate, StorageError, Store,
+    TermSearchRequest as StorageTermSearchRequest, TmSearchRequest as StorageTmSearchRequest,
+};
 
 #[derive(Debug, Error)]
 pub enum EngineError {
@@ -50,6 +63,9 @@ pub enum EngineError {
 
     #[error("document export failed: {0}")]
     Export(#[source] FilterError),
+
+    #[error("asset exchange failed: {0}")]
+    Asset(#[from] AssetError),
 
     #[error("engine I/O failed: {0}")]
     Io(#[from] std::io::Error),
@@ -693,6 +709,429 @@ impl EngineService {
         })
     }
 
+    pub fn list_tm_libraries(&self, params: TmLibraryListParams) -> Result<TmLibraryPage> {
+        let limit = bounded_page_size(params.limit)?;
+        let (items, total) =
+            self.store
+                .list_tm_libraries(params.project_id.as_deref(), params.offset, limit)?;
+        let mounts = params
+            .project_id
+            .as_deref()
+            .map(|project_id| self.store.list_tm_library_mounts(project_id))
+            .transpose()?
+            .unwrap_or_default();
+        Ok(TmLibraryPage {
+            items,
+            mounts,
+            total,
+            offset: params.offset,
+            limit,
+        })
+    }
+
+    pub fn create_tm_library(
+        &mut self,
+        params: TmLibraryCreateParams,
+    ) -> Result<translunar_asset_core::TmLibrary> {
+        Ok(self.store.create_tm_library(NewTmLibrary {
+            name: params.name,
+            source_locale: params.source_locale,
+            target_locale: params.target_locale,
+            domain: params.domain,
+            writable: params.writable,
+            owner_project_id: params.owner_project_id,
+        })?)
+    }
+
+    pub fn mount_tm_library(
+        &mut self,
+        params: TmLibraryMountParams,
+    ) -> Result<translunar_asset_core::TmLibraryMount> {
+        Ok(self.store.mount_tm_library(
+            &params.project_id,
+            &params.library_id,
+            params.mode,
+            params.priority,
+            params.enabled,
+            params.expected_revision,
+        )?)
+    }
+
+    pub fn unmount_tm_library(&mut self, params: TmLibraryUnmountParams) -> Result<EmptyResult> {
+        self.store.unmount_tm_library(
+            &params.project_id,
+            &params.library_id,
+            params.expected_revision,
+        )?;
+        Ok(EmptyResult {})
+    }
+
+    pub fn search_tm(&self, params: TmSearchParams) -> Result<TmSearchResult> {
+        let limit = bounded_page_size(params.limit)?;
+        if params.threshold > 101 {
+            return Err(EngineError::InvalidRequest(
+                "threshold must be between 0 and 101".to_string(),
+            ));
+        }
+        let (matches, total) = self.store.search_tm(&StorageTmSearchRequest {
+            project_id: params.project_id,
+            source_locale: params.source_locale,
+            target_locale: params.target_locale,
+            query: params.query,
+            threshold: params.threshold,
+            offset: params.offset,
+            limit,
+            library_ids: params.library_ids,
+            domain: params.domain,
+            since_ms: params.since_ms,
+            origin_project_id: params.origin_project_id,
+            origin_document_id: params.origin_document_id,
+            context_before_hash: params.context_before_hash,
+            context_after_hash: params.context_after_hash,
+        })?;
+        Ok(TmSearchResult {
+            matches,
+            total,
+            offset: params.offset,
+            limit,
+        })
+    }
+
+    pub fn concordance(&self, params: ConcordanceParams) -> Result<ConcordanceResult> {
+        let limit = bounded_page_size(params.limit)?;
+        let (hits, total) = self.store.concordance(&StorageConcordanceRequest {
+            project_id: params.project_id,
+            query: params.query,
+            side: params.side,
+            offset: params.offset,
+            limit,
+        })?;
+        Ok(ConcordanceResult {
+            hits,
+            total,
+            offset: params.offset,
+            limit,
+        })
+    }
+
+    pub fn import_tm(&mut self, params: TmImportParams) -> Result<TmImportResult> {
+        let library = self.store.get_tm_library(&params.library_id)?;
+        let bytes = read_asset_input(&params.source_path)?;
+        let units = match params.format {
+            AssetExchangeFormat::Tmx => translunar_asset_core::parse_tmx(
+                BufReader::new(bytes.as_slice()),
+                &params.source_locale,
+                &params.target_locale,
+            )?,
+            AssetExchangeFormat::Csv => translunar_asset_core::parse_tm_csv(
+                BufReader::new(bytes.as_slice()),
+                &params.source_locale,
+                &params.target_locale,
+            )?,
+            AssetExchangeFormat::Tsv => translunar_asset_core::parse_tm_tsv(
+                BufReader::new(bytes.as_slice()),
+                &params.source_locale,
+                &params.target_locale,
+            )?,
+            AssetExchangeFormat::Tbx => {
+                return Err(EngineError::InvalidRequest(
+                    "TBX is a termbase format, not a translation-memory format".to_string(),
+                ));
+            }
+        };
+        if units.len() > 1_000_000 {
+            return Err(EngineError::InvalidRequest(
+                "asset import exceeds the 1,000,000-unit limit".to_string(),
+            ));
+        }
+        let (inserted, skipped) = self.store.import_tm_units(&library.id, &units)?;
+        Ok(TmImportResult {
+            library_id: library.id,
+            inserted,
+            skipped,
+            diagnostics: Vec::new(),
+        })
+    }
+
+    pub fn export_tm(&self, params: TmExportParams) -> Result<TmExportResult> {
+        let library = self.store.get_tm_library(&params.library_id)?;
+        let units = self.store.export_tm_units(&library.id)?;
+        let exchange = units.iter().map(tm_unit_to_exchange).collect::<Vec<_>>();
+        let source_locale = library.source_locale.clone();
+        let target_locale = library.target_locale.clone();
+        let format = params.format;
+        let output_path = PathBuf::from(&params.output_path);
+        publish_asset_file(
+            &output_path,
+            |file| {
+                match format {
+                    AssetExchangeFormat::Tmx => translunar_asset_core::write_tmx(file, &exchange),
+                    AssetExchangeFormat::Csv => {
+                        translunar_asset_core::write_tm_csv(file, &exchange)
+                    }
+                    AssetExchangeFormat::Tsv => {
+                        translunar_asset_core::write_tm_tsv(file, &exchange)
+                    }
+                    AssetExchangeFormat::Tbx => Err(AssetError::Invalid {
+                        row: 0,
+                        message: "TBX is a termbase format, not a translation-memory format"
+                            .to_string(),
+                    }),
+                }
+                .map_err(EngineError::from)
+            },
+            |path| {
+                let bytes = std::fs::read(path)?;
+                match format {
+                    AssetExchangeFormat::Tmx => {
+                        translunar_asset_core::parse_tmx(
+                            BufReader::new(bytes.as_slice()),
+                            &source_locale,
+                            &target_locale,
+                        )?;
+                    }
+                    AssetExchangeFormat::Csv => {
+                        translunar_asset_core::parse_tm_csv(
+                            BufReader::new(bytes.as_slice()),
+                            &source_locale,
+                            &target_locale,
+                        )?;
+                    }
+                    AssetExchangeFormat::Tsv => {
+                        translunar_asset_core::parse_tm_tsv(
+                            BufReader::new(bytes.as_slice()),
+                            &source_locale,
+                            &target_locale,
+                        )?;
+                    }
+                    AssetExchangeFormat::Tbx => {
+                        return Err(EngineError::InvalidRequest(
+                            "invalid TM export format".to_string(),
+                        ));
+                    }
+                }
+                Ok(())
+            },
+        )?;
+        Ok(TmExportResult {
+            library_id: library.id,
+            output_path: output_path.to_string_lossy().into_owned(),
+            unit_count: u32::try_from(exchange.len()).map_err(|_| {
+                EngineError::InvalidState("TM export unit count overflow".to_string())
+            })?,
+        })
+    }
+
+    pub fn list_termbases(&self, params: TermbaseListParams) -> Result<TermbasePage> {
+        let limit = bounded_page_size(params.limit)?;
+        let (items, total) =
+            self.store
+                .list_termbases(Some(&params.project_id), params.offset, limit)?;
+        let mounts = self.store.list_termbase_mounts(&params.project_id)?;
+        Ok(TermbasePage {
+            items,
+            mounts,
+            total,
+            offset: params.offset,
+            limit,
+        })
+    }
+
+    pub fn create_termbase(
+        &mut self,
+        params: TermbaseCreateParams,
+    ) -> Result<translunar_asset_core::Termbase> {
+        Ok(self
+            .store
+            .create_termbase(translunar_storage::NewTermbase {
+                name: params.name,
+                source_locale: params.source_locale,
+                domain: params.domain,
+                writable: params.writable,
+            })?)
+    }
+
+    pub fn mount_termbase(
+        &mut self,
+        params: TermbaseMountParams,
+    ) -> Result<translunar_asset_core::TermbaseMount> {
+        Ok(self.store.mount_termbase(
+            &params.project_id,
+            &params.termbase_id,
+            params.priority,
+            params.writable,
+            params.enabled,
+            params.expected_revision,
+        )?)
+    }
+
+    pub fn unmount_termbase(&mut self, params: TermbaseUnmountParams) -> Result<EmptyResult> {
+        self.store.unmount_termbase(
+            &params.project_id,
+            &params.termbase_id,
+            params.expected_revision,
+        )?;
+        Ok(EmptyResult {})
+    }
+
+    pub fn search_terms(&self, params: TermSearchParams) -> Result<TermSearchResult> {
+        let limit = bounded_page_size(params.limit)?;
+        let (matches, total) = self.store.search_terms(&StorageTermSearchRequest {
+            project_id: params.project_id,
+            text: params.text,
+            offset: params.offset,
+            limit,
+            termbase_ids: params.termbase_ids,
+        })?;
+        Ok(TermSearchResult {
+            matches,
+            total,
+            offset: params.offset,
+            limit,
+        })
+    }
+
+    pub fn upsert_term(
+        &mut self,
+        params: TermUpsertParams,
+    ) -> Result<translunar_asset_core::TermEntry> {
+        let translations = params
+            .translations
+            .into_iter()
+            .map(|translation| NewTermTranslation {
+                locale: translation.locale,
+                term: translation.term,
+                preferred: translation.preferred,
+                forbidden: translation.forbidden,
+            })
+            .collect();
+        Ok(self.store.upsert_term_entry(NewTermEntry {
+            termbase_id: params.termbase_id,
+            source_locale: params.source_locale,
+            source_term: params.source_term,
+            part_of_speech: params.part_of_speech,
+            definition: params.definition,
+            example: params.example,
+            domain: params.domain,
+            status: params.status,
+            translations,
+        })?)
+    }
+
+    pub fn import_termbase(
+        &mut self,
+        params: TermbaseImportParams,
+    ) -> Result<TermbaseImportResult> {
+        let termbase = self.store.get_termbase(&params.termbase_id)?;
+        let bytes = read_asset_input(&params.source_path)?;
+        let entries = match params.format {
+            AssetExchangeFormat::Tbx => translunar_asset_core::parse_tbx(
+                BufReader::new(bytes.as_slice()),
+                &params.source_locale,
+                &params.target_locale,
+            )?,
+            AssetExchangeFormat::Csv => translunar_asset_core::parse_term_csv(
+                BufReader::new(bytes.as_slice()),
+                &params.source_locale,
+                &params.target_locale,
+            )?,
+            AssetExchangeFormat::Tsv => translunar_asset_core::parse_term_tsv(
+                BufReader::new(bytes.as_slice()),
+                &params.source_locale,
+                &params.target_locale,
+            )?,
+            AssetExchangeFormat::Tmx => {
+                return Err(EngineError::InvalidRequest(
+                    "TMX is a translation-memory format, not a termbase format".to_string(),
+                ));
+            }
+        };
+        if entries.len() > 1_000_000 {
+            return Err(EngineError::InvalidRequest(
+                "termbase import exceeds the 1,000,000-entry limit".to_string(),
+            ));
+        }
+        let (inserted, skipped) = self.store.import_term_entries(&termbase.id, &entries)?;
+        Ok(TermbaseImportResult {
+            termbase_id: termbase.id,
+            inserted,
+            skipped,
+            diagnostics: Vec::new(),
+        })
+    }
+
+    pub fn export_termbase(&self, params: TermbaseExportParams) -> Result<TermbaseExportResult> {
+        let termbase = self.store.get_termbase(&params.termbase_id)?;
+        let entries = self.store.export_term_entries(&termbase.id)?;
+        let exchange = entries
+            .iter()
+            .filter_map(|entry| term_entry_to_exchange(entry, &params.target_locale))
+            .collect::<Vec<_>>();
+        let source_locale = termbase.source_locale.clone();
+        let target_locale = params.target_locale.clone();
+        let format = params.format;
+        let output_path = PathBuf::from(&params.output_path);
+        publish_asset_file(
+            &output_path,
+            |file| {
+                match format {
+                    AssetExchangeFormat::Tbx => translunar_asset_core::write_tbx(file, &exchange),
+                    AssetExchangeFormat::Csv => {
+                        translunar_asset_core::write_term_csv(file, &exchange)
+                    }
+                    AssetExchangeFormat::Tsv => {
+                        translunar_asset_core::write_term_tsv(file, &exchange)
+                    }
+                    AssetExchangeFormat::Tmx => Err(AssetError::Invalid {
+                        row: 0,
+                        message: "TMX is a translation-memory format, not a termbase format"
+                            .to_string(),
+                    }),
+                }
+                .map_err(EngineError::from)
+            },
+            |path| {
+                let bytes = std::fs::read(path)?;
+                match format {
+                    AssetExchangeFormat::Tbx => {
+                        translunar_asset_core::parse_tbx(
+                            BufReader::new(bytes.as_slice()),
+                            &source_locale,
+                            &target_locale,
+                        )?;
+                    }
+                    AssetExchangeFormat::Csv => {
+                        translunar_asset_core::parse_term_csv(
+                            BufReader::new(bytes.as_slice()),
+                            &source_locale,
+                            &target_locale,
+                        )?;
+                    }
+                    AssetExchangeFormat::Tsv => {
+                        translunar_asset_core::parse_term_tsv(
+                            BufReader::new(bytes.as_slice()),
+                            &source_locale,
+                            &target_locale,
+                        )?;
+                    }
+                    AssetExchangeFormat::Tmx => {
+                        return Err(EngineError::InvalidRequest(
+                            "invalid termbase export format".to_string(),
+                        ));
+                    }
+                }
+                Ok(())
+            },
+        )?;
+        Ok(TermbaseExportResult {
+            termbase_id: termbase.id,
+            output_path: output_path.to_string_lossy().into_owned(),
+            entry_count: u32::try_from(exchange.len()).map_err(|_| {
+                EngineError::InvalidState("termbase export entry count overflow".to_string())
+            })?,
+        })
+    }
+
     pub fn run_document_qa(&mut self, document_id: &str) -> Result<QaListResult> {
         Ok(QaListResult {
             issues: self.store.run_document_qa(document_id)?,
@@ -950,6 +1389,109 @@ fn to_protocol_pipeline_snapshot(
     }
 }
 
+fn read_asset_input(path: &str) -> Result<Vec<u8>> {
+    if path.trim().is_empty() {
+        return Err(EngineError::InvalidRequest(
+            "sourcePath must not be empty".to_string(),
+        ));
+    }
+    let path = Path::new(path);
+    let metadata = path.metadata().map_err(EngineError::Io)?;
+    if !metadata.is_file() {
+        return Err(EngineError::InvalidRequest(
+            "asset source path must name a file".to_string(),
+        ));
+    }
+    if metadata.len() > 256 * 1024 * 1024 {
+        return Err(EngineError::InvalidRequest(
+            "asset source exceeds the 256 MiB limit".to_string(),
+        ));
+    }
+    std::fs::read(path).map_err(EngineError::Io)
+}
+
+fn tm_unit_to_exchange(unit: &translunar_asset_core::TmUnit) -> TmExchangeUnit {
+    TmExchangeUnit {
+        source_locale: unit.source_locale.clone(),
+        target_locale: unit.target_locale.clone(),
+        source_text: unit.source_text.clone(),
+        target_text: unit.target_text.clone(),
+        domain: unit.domain.clone(),
+        author: unit.author.clone(),
+        created_at_ms: Some(unit.created_at_ms),
+        metadata: unit.metadata.clone(),
+    }
+}
+
+fn term_entry_to_exchange(
+    entry: &translunar_asset_core::TermEntry,
+    target_locale: &str,
+) -> Option<TermExchangeEntry> {
+    let target_translations = entry
+        .translations
+        .iter()
+        .filter(|translation| {
+            target_locale.trim().is_empty() || translation.locale == target_locale
+        })
+        .map(|translation| TermExchangeTranslation {
+            locale: translation.locale.clone(),
+            term: translation.term.clone(),
+            preferred: translation.preferred,
+            forbidden: translation.forbidden,
+        })
+        .collect::<Vec<_>>();
+    if target_translations.is_empty() {
+        return None;
+    }
+    Some(TermExchangeEntry {
+        source_locale: entry.source_locale.clone(),
+        source_term: entry.source_term.clone(),
+        target_translations,
+        part_of_speech: entry.part_of_speech.clone(),
+        definition: entry.definition.clone(),
+        example: entry.example.clone(),
+        domain: entry.domain.clone(),
+        status: match entry.status {
+            TermStatus::Candidate => "candidate",
+            TermStatus::Active => "active",
+            TermStatus::Deprecated => "deprecated",
+        }
+        .to_string(),
+        metadata: Default::default(),
+    })
+}
+
+fn publish_asset_file(
+    output_path: &Path,
+    write: impl FnOnce(&mut File) -> Result<()>,
+    validate: impl FnOnce(&Path) -> Result<()>,
+) -> Result<()> {
+    if output_path.as_os_str().is_empty() {
+        return Err(EngineError::InvalidRequest(
+            "outputPath must not be empty".to_string(),
+        ));
+    }
+    if output_path.exists() {
+        return Err(EngineError::InvalidState(
+            "asset export destination already exists".to_string(),
+        ));
+    }
+    let parent = output_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(parent)?;
+    let mut temporary = NamedTempFile::new_in(parent)?;
+    write(temporary.as_file_mut())?;
+    temporary.as_file_mut().flush()?;
+    temporary.as_file().sync_all()?;
+    validate(temporary.path())?;
+    temporary
+        .persist_noclobber(output_path)
+        .map_err(|error| EngineError::Io(error.error))?;
+    Ok(())
+}
+
 pub struct RpcDispatcher {
     service: EngineService,
     initialized: bool,
@@ -1031,6 +1573,62 @@ impl RpcDispatcher {
             methods::TM_LOOKUP_EXACT => {
                 serialize_result(self.service.lookup_exact(parse_params(request.params)?)?)
             }
+            methods::TM_LIBRARY_LIST => serialize_result(
+                self.service
+                    .list_tm_libraries(parse_params(request.params)?)?,
+            ),
+            methods::TM_LIBRARY_CREATE => serialize_result(
+                self.service
+                    .create_tm_library(parse_params(request.params)?)?,
+            ),
+            methods::TM_LIBRARY_MOUNT => serialize_result(
+                self.service
+                    .mount_tm_library(parse_params(request.params)?)?,
+            ),
+            methods::TM_LIBRARY_UNMOUNT => serialize_result(
+                self.service
+                    .unmount_tm_library(parse_params(request.params)?)?,
+            ),
+            methods::TM_SEARCH => {
+                serialize_result(self.service.search_tm(parse_params(request.params)?)?)
+            }
+            methods::TM_CONCORDANCE => {
+                serialize_result(self.service.concordance(parse_params(request.params)?)?)
+            }
+            methods::TM_IMPORT => {
+                serialize_result(self.service.import_tm(parse_params(request.params)?)?)
+            }
+            methods::TM_EXPORT => {
+                serialize_result(self.service.export_tm(parse_params(request.params)?)?)
+            }
+            methods::TERMBASE_LIST => {
+                serialize_result(self.service.list_termbases(parse_params(request.params)?)?)
+            }
+            methods::TERMBASE_CREATE => serialize_result(
+                self.service
+                    .create_termbase(parse_params(request.params)?)?,
+            ),
+            methods::TERMBASE_MOUNT => {
+                serialize_result(self.service.mount_termbase(parse_params(request.params)?)?)
+            }
+            methods::TERMBASE_UNMOUNT => serialize_result(
+                self.service
+                    .unmount_termbase(parse_params(request.params)?)?,
+            ),
+            methods::TERM_SEARCH => {
+                serialize_result(self.service.search_terms(parse_params(request.params)?)?)
+            }
+            methods::TERM_UPSERT => {
+                serialize_result(self.service.upsert_term(parse_params(request.params)?)?)
+            }
+            methods::TERMBASE_IMPORT => serialize_result(
+                self.service
+                    .import_termbase(parse_params(request.params)?)?,
+            ),
+            methods::TERMBASE_EXPORT => serialize_result(
+                self.service
+                    .export_termbase(parse_params(request.params)?)?,
+            ),
             methods::QA_RUN_DOCUMENT => {
                 let params: DocumentIdParams = parse_params(request.params)?;
                 serialize_result(self.service.run_document_qa(&params.document_id)?)
@@ -1124,7 +1722,14 @@ impl RpcDispatcher {
                 "pipeline.resumable".to_string(),
                 "project.lifecycle".to_string(),
                 "translation-memory.exact".to_string(),
+                "translation-memory.library".to_string(),
+                "translation-memory.fuzzy-cjk".to_string(),
+                "translation-memory.concordance".to_string(),
+                "translation-memory.exchange".to_string(),
+                "termbase".to_string(),
+                "termbase.exchange".to_string(),
                 "qa.number-mismatch".to_string(),
+                "qa.term-forbidden".to_string(),
             ],
         })
     }
@@ -1207,6 +1812,28 @@ fn rpc_error(error: EngineError) -> RpcError {
             code: ErrorCode::ExportError,
             message: error.to_string(),
             data: None,
+        },
+        EngineError::Asset(AssetError::Invalid { row, message }) => RpcError {
+            code: ErrorCode::InvalidRequest,
+            message: "asset exchange data is invalid".to_string(),
+            data: Some(json!({ "row": row, "detail": message })),
+        },
+        EngineError::Asset(AssetError::Csv(error)) => RpcError {
+            code: ErrorCode::InvalidRequest,
+            message: "asset CSV data is invalid".to_string(),
+            data: error
+                .position()
+                .map(|position| json!({ "row": position.line() })),
+        },
+        EngineError::Asset(AssetError::Xml(_error)) => RpcError {
+            code: ErrorCode::InvalidRequest,
+            message: "asset XML data is invalid".to_string(),
+            data: None,
+        },
+        EngineError::Asset(AssetError::Io(error)) => RpcError {
+            code: ErrorCode::StorageError,
+            message: "asset exchange I/O failed".to_string(),
+            data: Some(json!({ "kind": error.kind().to_string() })),
         },
         EngineError::InvalidRequest(message) => RpcError {
             code: ErrorCode::InvalidRequest,
@@ -1835,7 +2462,7 @@ mod tests {
             .check_health(EmptyParams::default())
             .expect("check health");
         assert!(health.healthy, "unexpected findings: {:?}", health.findings);
-        assert_eq!(health.schema_version, 3);
+        assert_eq!(health.schema_version, 4);
 
         let destination = context.root.path().join("workspace-backup");
         let backup = service
@@ -1843,7 +2470,7 @@ mod tests {
                 destination_path: destination.to_string_lossy().into_owned(),
             })
             .expect("create backup");
-        assert_eq!(backup.manifest.schema_version, 3);
+        assert_eq!(backup.manifest.schema_version, 4);
         assert!(destination.join("translunar.sqlite3").is_file());
         assert!(
             destination

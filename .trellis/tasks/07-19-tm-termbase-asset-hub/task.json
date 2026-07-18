@@ -3,7 +3,7 @@
   "name": "tm-termbase-asset-hub",
   "title": "TM and termbase asset hub",
   "description": "Implement multi-library TM, CJK fuzzy/context matching, TMX/CSV import-export, termbase models, TBX/CSV exchange, concordance, and automatic asset sinking.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

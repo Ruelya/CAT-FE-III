@@ -1,5 +1,7 @@
 /* eslint-disable -- Generated from the Rust protocol schema. Do not edit. */
 
+export type AssetExchangeFormat = "tmx" | "csv" | "tsv" | "tbx";
+export type ConcordanceSide = "source" | "target" | "both";
 export type QaSeverity = "error" | "warning" | "info";
 export type QaIssueStatus = "open" | "resolved";
 export type SegmentState = "untranslated" | "draft" | "confirmed";
@@ -12,6 +14,9 @@ export type PipelineStepStatus =
   "pending" | "running" | "canceled" | "interrupted" | "succeeded" | "failed" | "skipped";
 export type ArtifactKind = "none" | "project" | "document" | "segments" | "qaFindings" | "json";
 export type ProjectLifecycle = "active" | "archived" | "trash";
+export type TermStatus = "candidate" | "active" | "deprecated";
+export type AssetMountMode = "write" | "reference";
+export type TmMatchKind = "context" | "exact" | "fuzzy";
 export type ErrorCode =
   | "invalid_request"
   | "not_found"
@@ -23,7 +28,11 @@ export type ErrorCode =
   | "internal_error";
 
 export interface ProtocolCatalog {
+  asset_diagnostic: AssetDiagnostic;
+  asset_exchange_format: AssetExchangeFormat;
   backup_result: BackupResult;
+  concordance_params: ConcordanceParams;
+  concordance_result: ConcordanceResult;
   confirm_segment_params: ConfirmSegmentParams;
   confirm_segment_result: ConfirmSegmentResult;
   create_backup_params: CreateBackupParams;
@@ -70,9 +79,38 @@ export interface ProtocolCatalog {
   segment_list_params: SegmentListParams;
   segment_page: SegmentPage;
   set_project_lifecycle_params: SetProjectLifecycleParams;
+  term_search_params: TermSearchParams;
+  term_search_result: TermSearchResult;
+  term_translation_input: TermTranslationInput;
+  term_upsert_params: TermUpsertParams;
+  termbase_create_params: TermbaseCreateParams;
+  termbase_export_params: TermbaseExportParams;
+  termbase_export_result: TermbaseExportResult;
+  termbase_import_params: TermbaseImportParams;
+  termbase_import_result: TermbaseImportResult;
+  termbase_list_params: TermbaseListParams;
+  termbase_mount_params: TermbaseMountParams;
+  termbase_page: TermbasePage;
+  termbase_unmount_params: TermbaseUnmountParams;
+  tm_export_params: TmExportParams;
+  tm_export_result: TmExportResult;
+  tm_import_params: TmImportParams;
+  tm_import_result: TmImportResult;
+  tm_library_create_params: TmLibraryCreateParams;
+  tm_library_list_params: TmLibraryListParams;
+  tm_library_mount_params: TmLibraryMountParams;
+  tm_library_page: TmLibraryPage;
+  tm_library_unmount_params: TmLibraryUnmountParams;
+  tm_search_params: TmSearchParams;
+  tm_search_result: TmSearchResult;
   update_project_params: UpdateProjectParams;
   update_target_params: UpdateTargetParams;
   validate_pipeline_params: ValidatePipelineParams;
+  [k: string]: unknown;
+}
+export interface AssetDiagnostic {
+  message: string;
+  row: number;
   [k: string]: unknown;
 }
 export interface BackupResult {
@@ -92,6 +130,50 @@ export interface BackupFile {
   relativePath: string;
   sha256: string;
   size: number;
+  [k: string]: unknown;
+}
+export interface ConcordanceParams {
+  limit?: number;
+  offset?: number;
+  projectId: string;
+  query: string;
+  side?: "source" | "target" | "both";
+  [k: string]: unknown;
+}
+export interface ConcordanceResult {
+  hits: ConcordanceHit[];
+  limit: number;
+  offset: number;
+  total: number;
+  [k: string]: unknown;
+}
+export interface ConcordanceHit {
+  libraryId: string;
+  matchedSide: ConcordanceSide;
+  unit: TmUnit;
+  [k: string]: unknown;
+}
+export interface TmUnit {
+  author?: string | null;
+  contextAfterHash?: string | null;
+  contextBeforeHash?: string | null;
+  createdAtMs: number;
+  domain?: string | null;
+  id: string;
+  libraryId: string;
+  metadata: {
+    [k: string]: string;
+  };
+  originDocumentId?: string | null;
+  originProjectId?: string | null;
+  originSegmentId?: string | null;
+  sourceHash: string;
+  sourceLocale: string;
+  sourceText: string;
+  targetHash: string;
+  targetLocale: string;
+  targetText: string;
+  updatedAtMs: number;
   [k: string]: unknown;
 }
 export interface ConfirmSegmentParams {
@@ -340,55 +422,71 @@ export interface ListQaParams {
   [k: string]: unknown;
 }
 export interface RpcMethodCatalog {
-  "data.checkHealth": MethodContract21;
-  "data.createBackup": MethodContract22;
-  "document.export": MethodContract18;
-  "document.exportDocx": MethodContract17;
+  "data.checkHealth": MethodContract37;
+  "data.createBackup": MethodContract38;
+  "document.export": MethodContract34;
+  "document.exportDocx": MethodContract33;
   "document.get": MethodContract8;
   "document.import": MethodContract9;
   "document.importDocx": MethodContract10;
   "document.list": MethodContract7;
   "engine.initialize": MethodContract;
-  "filter.list": MethodContract19;
-  "history.list": MethodContract20;
-  "pipeline.create": MethodContract24;
-  "pipeline.get": MethodContract26;
-  "pipeline.list": MethodContract25;
-  "pipeline.run": MethodContract28;
-  "pipeline.run.cancel": MethodContract31;
-  "pipeline.run.get": MethodContract30;
-  "pipeline.run.list": MethodContract29;
-  "pipeline.run.resume": MethodContract31;
-  "pipeline.step.list": MethodContract23;
-  "pipeline.validate": MethodContract27;
+  "filter.list": MethodContract35;
+  "history.list": MethodContract36;
+  "pipeline.create": MethodContract40;
+  "pipeline.get": MethodContract42;
+  "pipeline.list": MethodContract41;
+  "pipeline.run": MethodContract44;
+  "pipeline.run.cancel": MethodContract47;
+  "pipeline.run.get": MethodContract46;
+  "pipeline.run.list": MethodContract45;
+  "pipeline.run.resume": MethodContract47;
+  "pipeline.step.list": MethodContract39;
+  "pipeline.validate": MethodContract43;
   "project.create": MethodContract2;
   "project.get": MethodContract3;
   "project.list": MethodContract4;
   "project.setLifecycle": MethodContract6;
   "project.update": MethodContract5;
-  "qa.list": MethodContract16;
-  "qa.runDocument": MethodContract15;
+  "qa.list": MethodContract32;
+  "qa.runDocument": MethodContract31;
   "segment.confirm": MethodContract13;
   "segment.list": MethodContract11;
   "segment.updateTarget": MethodContract12;
+  "term.search": MethodContract27;
+  "term.upsert": MethodContract28;
+  "termbase.create": MethodContract24;
+  "termbase.export": MethodContract30;
+  "termbase.import": MethodContract29;
+  "termbase.list": MethodContract23;
+  "termbase.mount": MethodContract25;
+  "termbase.unmount": MethodContract26;
+  "tm.concordance": MethodContract20;
+  "tm.export": MethodContract22;
+  "tm.import": MethodContract21;
+  "tm.library.create": MethodContract16;
+  "tm.library.list": MethodContract15;
+  "tm.library.mount": MethodContract17;
+  "tm.library.unmount": MethodContract18;
   "tm.lookupExact": MethodContract14;
+  "tm.search": MethodContract19;
 }
-export interface MethodContract21 {
+export interface MethodContract37 {
   params: EmptyParams;
   result: DataHealthReport;
   [k: string]: unknown;
 }
-export interface MethodContract22 {
+export interface MethodContract38 {
   params: CreateBackupParams;
   result: BackupResult;
   [k: string]: unknown;
 }
-export interface MethodContract18 {
+export interface MethodContract34 {
   params: ExportDocumentParams;
   result: ExportDocumentResult;
   [k: string]: unknown;
 }
-export interface MethodContract17 {
+export interface MethodContract33 {
   params: ExportDocxParams;
   result: ExportDocxResult;
   [k: string]: unknown;
@@ -418,12 +516,12 @@ export interface MethodContract {
   result: InitializeResult;
   [k: string]: unknown;
 }
-export interface MethodContract19 {
+export interface MethodContract35 {
   params: EmptyParams;
   result: FilterListResult;
   [k: string]: unknown;
 }
-export interface MethodContract20 {
+export interface MethodContract36 {
   params: HistoryListParams;
   result: OperationPage;
   [k: string]: unknown;
@@ -455,7 +553,7 @@ export interface Operation {
   sequence: number;
   [k: string]: unknown;
 }
-export interface MethodContract24 {
+export interface MethodContract40 {
   params: CreatePipelineParams;
   result: PipelineDefinition;
   [k: string]: unknown;
@@ -471,7 +569,7 @@ export interface PipelineDefinition {
   version: number;
   [k: string]: unknown;
 }
-export interface MethodContract26 {
+export interface MethodContract42 {
   params: PipelineIdParams;
   result: PipelineDefinition;
   [k: string]: unknown;
@@ -480,7 +578,7 @@ export interface PipelineIdParams {
   pipelineId: string;
   [k: string]: unknown;
 }
-export interface MethodContract25 {
+export interface MethodContract41 {
   params: PipelineListParams;
   result: PipelineDefinitionPage;
   [k: string]: unknown;
@@ -498,7 +596,7 @@ export interface PipelineDefinitionPage {
   total: number;
   [k: string]: unknown;
 }
-export interface MethodContract28 {
+export interface MethodContract44 {
   params: RunPipelineParams;
   result: PipelineRunSnapshot;
   [k: string]: unknown;
@@ -572,7 +670,7 @@ export interface PipelineStepRun {
   };
   [k: string]: unknown;
 }
-export interface MethodContract31 {
+export interface MethodContract47 {
   params: PipelineRunRevisionParams;
   result: PipelineRunSnapshot;
   [k: string]: unknown;
@@ -582,7 +680,7 @@ export interface PipelineRunRevisionParams {
   runId: string;
   [k: string]: unknown;
 }
-export interface MethodContract30 {
+export interface MethodContract46 {
   params: PipelineRunIdParams;
   result: PipelineRunSnapshot;
   [k: string]: unknown;
@@ -591,7 +689,7 @@ export interface PipelineRunIdParams {
   runId: string;
   [k: string]: unknown;
 }
-export interface MethodContract29 {
+export interface MethodContract45 {
   params: PipelineRunListParams;
   result: PipelineRunPage;
   [k: string]: unknown;
@@ -609,7 +707,7 @@ export interface PipelineRunPage {
   total: number;
   [k: string]: unknown;
 }
-export interface MethodContract23 {
+export interface MethodContract39 {
   params: EmptyParams;
   result: PipelineCapabilityResult;
   [k: string]: unknown;
@@ -630,7 +728,7 @@ export interface StepDescriptor {
   version: string;
   [k: string]: unknown;
 }
-export interface MethodContract27 {
+export interface MethodContract43 {
   params: ValidatePipelineParams;
   result: PipelineValidationResult;
   [k: string]: unknown;
@@ -741,7 +839,7 @@ export interface ProjectConfiguration1 {
   templateId?: string | null;
   [k: string]: unknown;
 }
-export interface MethodContract16 {
+export interface MethodContract32 {
   params: ListQaParams;
   result: QaListResult;
   [k: string]: unknown;
@@ -750,7 +848,7 @@ export interface QaListResult {
   issues: QaIssue[];
   [k: string]: unknown;
 }
-export interface MethodContract15 {
+export interface MethodContract31 {
   params: DocumentIdParams;
   result: QaListResult;
   [k: string]: unknown;
@@ -789,9 +887,375 @@ export interface UpdateTargetParams {
   targetText: string;
   [k: string]: unknown;
 }
+export interface MethodContract27 {
+  params: TermSearchParams;
+  result: TermSearchResult;
+  [k: string]: unknown;
+}
+export interface TermSearchParams {
+  limit?: number;
+  offset?: number;
+  projectId: string;
+  termbaseIds?: string[];
+  text: string;
+  [k: string]: unknown;
+}
+export interface TermSearchResult {
+  limit: number;
+  matches: TermMatch[];
+  offset: number;
+  total: number;
+  [k: string]: unknown;
+}
+export interface TermMatch {
+  end: number;
+  entryId: string;
+  sourceTerm: string;
+  start: number;
+  termbaseId: string;
+  translations: TermTranslation[];
+  [k: string]: unknown;
+}
+export interface TermTranslation {
+  createdAtMs: number;
+  entryId: string;
+  forbidden: boolean;
+  id: string;
+  locale: string;
+  preferred: boolean;
+  term: string;
+  updatedAtMs: number;
+  [k: string]: unknown;
+}
+export interface MethodContract28 {
+  params: TermUpsertParams;
+  result: TermEntry;
+  [k: string]: unknown;
+}
+export interface TermUpsertParams {
+  definition?: string | null;
+  domain?: string | null;
+  example?: string | null;
+  partOfSpeech?: string | null;
+  sourceLocale: string;
+  sourceTerm: string;
+  status?: "candidate" | "active" | "deprecated";
+  termbaseId: string;
+  translations: TermTranslationInput[];
+  [k: string]: unknown;
+}
+export interface TermTranslationInput {
+  forbidden?: boolean;
+  locale: string;
+  preferred?: boolean;
+  term: string;
+  [k: string]: unknown;
+}
+export interface TermEntry {
+  createdAtMs: number;
+  definition?: string | null;
+  domain?: string | null;
+  example?: string | null;
+  id: string;
+  partOfSpeech?: string | null;
+  revision: number;
+  sourceLocale: string;
+  sourceTerm: string;
+  status: TermStatus;
+  termbaseId: string;
+  translations: TermTranslation[];
+  updatedAtMs: number;
+  [k: string]: unknown;
+}
+export interface MethodContract24 {
+  params: TermbaseCreateParams;
+  result: Termbase;
+  [k: string]: unknown;
+}
+export interface TermbaseCreateParams {
+  domain?: string | null;
+  name: string;
+  sourceLocale: string;
+  writable?: boolean;
+  [k: string]: unknown;
+}
+export interface Termbase {
+  createdAtMs: number;
+  domain?: string | null;
+  id: string;
+  name: string;
+  revision: number;
+  sourceLocale: string;
+  updatedAtMs: number;
+  writable: boolean;
+  [k: string]: unknown;
+}
+export interface MethodContract30 {
+  params: TermbaseExportParams;
+  result: TermbaseExportResult;
+  [k: string]: unknown;
+}
+export interface TermbaseExportParams {
+  format: AssetExchangeFormat;
+  outputPath: string;
+  targetLocale: string;
+  termbaseId: string;
+  [k: string]: unknown;
+}
+export interface TermbaseExportResult {
+  entryCount: number;
+  outputPath: string;
+  termbaseId: string;
+  [k: string]: unknown;
+}
+export interface MethodContract29 {
+  params: TermbaseImportParams;
+  result: TermbaseImportResult;
+  [k: string]: unknown;
+}
+export interface TermbaseImportParams {
+  format: AssetExchangeFormat;
+  sourceLocale: string;
+  sourcePath: string;
+  targetLocale: string;
+  termbaseId: string;
+  [k: string]: unknown;
+}
+export interface TermbaseImportResult {
+  diagnostics: AssetDiagnostic[];
+  inserted: number;
+  skipped: number;
+  termbaseId: string;
+  [k: string]: unknown;
+}
+export interface MethodContract23 {
+  params: TermbaseListParams;
+  result: TermbasePage;
+  [k: string]: unknown;
+}
+export interface TermbaseListParams {
+  limit?: number;
+  offset?: number;
+  projectId: string;
+  [k: string]: unknown;
+}
+export interface TermbasePage {
+  items: Termbase[];
+  limit: number;
+  mounts: TermbaseMount[];
+  offset: number;
+  total: number;
+  [k: string]: unknown;
+}
+export interface TermbaseMount {
+  createdAtMs: number;
+  enabled: boolean;
+  priority: number;
+  projectId: string;
+  revision: number;
+  termbaseId: string;
+  updatedAtMs: number;
+  writable: boolean;
+  [k: string]: unknown;
+}
+export interface MethodContract25 {
+  params: TermbaseMountParams;
+  result: TermbaseMount;
+  [k: string]: unknown;
+}
+export interface TermbaseMountParams {
+  enabled?: boolean;
+  expectedRevision?: number | null;
+  priority?: number;
+  projectId: string;
+  termbaseId: string;
+  writable?: boolean;
+  [k: string]: unknown;
+}
+export interface MethodContract26 {
+  params: TermbaseUnmountParams;
+  result: EmptyResult;
+  [k: string]: unknown;
+}
+export interface TermbaseUnmountParams {
+  expectedRevision: number;
+  projectId: string;
+  termbaseId: string;
+  [k: string]: unknown;
+}
+export interface EmptyResult {
+  [k: string]: unknown;
+}
+export interface MethodContract20 {
+  params: ConcordanceParams;
+  result: ConcordanceResult;
+  [k: string]: unknown;
+}
+export interface MethodContract22 {
+  params: TmExportParams;
+  result: TmExportResult;
+  [k: string]: unknown;
+}
+export interface TmExportParams {
+  format: AssetExchangeFormat;
+  libraryId: string;
+  outputPath: string;
+  [k: string]: unknown;
+}
+export interface TmExportResult {
+  libraryId: string;
+  outputPath: string;
+  unitCount: number;
+  [k: string]: unknown;
+}
+export interface MethodContract21 {
+  params: TmImportParams;
+  result: TmImportResult;
+  [k: string]: unknown;
+}
+export interface TmImportParams {
+  format: AssetExchangeFormat;
+  libraryId: string;
+  sourceLocale: string;
+  sourcePath: string;
+  targetLocale: string;
+  [k: string]: unknown;
+}
+export interface TmImportResult {
+  diagnostics: AssetDiagnostic[];
+  inserted: number;
+  libraryId: string;
+  skipped: number;
+  [k: string]: unknown;
+}
+export interface MethodContract16 {
+  params: TmLibraryCreateParams;
+  result: TmLibrary;
+  [k: string]: unknown;
+}
+export interface TmLibraryCreateParams {
+  domain?: string | null;
+  name: string;
+  ownerProjectId?: string | null;
+  sourceLocale: string;
+  targetLocale: string;
+  writable?: boolean;
+  [k: string]: unknown;
+}
+export interface TmLibrary {
+  createdAtMs: number;
+  domain?: string | null;
+  id: string;
+  name: string;
+  revision: number;
+  sourceLocale: string;
+  targetLocale: string;
+  updatedAtMs: number;
+  writable: boolean;
+  [k: string]: unknown;
+}
+export interface MethodContract15 {
+  params: TmLibraryListParams;
+  result: TmLibraryPage;
+  [k: string]: unknown;
+}
+export interface TmLibraryListParams {
+  limit?: number;
+  offset?: number;
+  projectId?: string | null;
+  [k: string]: unknown;
+}
+export interface TmLibraryPage {
+  items: TmLibrary[];
+  limit: number;
+  mounts: TmLibraryMount[];
+  offset: number;
+  total: number;
+  [k: string]: unknown;
+}
+export interface TmLibraryMount {
+  createdAtMs: number;
+  enabled: boolean;
+  libraryId: string;
+  mode: AssetMountMode;
+  priority: number;
+  projectId: string;
+  revision: number;
+  updatedAtMs: number;
+  [k: string]: unknown;
+}
+export interface MethodContract17 {
+  params: TmLibraryMountParams;
+  result: TmLibraryMount;
+  [k: string]: unknown;
+}
+export interface TmLibraryMountParams {
+  enabled?: boolean;
+  expectedRevision?: number | null;
+  libraryId: string;
+  mode: AssetMountMode;
+  priority?: number;
+  projectId: string;
+  [k: string]: unknown;
+}
+export interface MethodContract18 {
+  params: TmLibraryUnmountParams;
+  result: EmptyResult;
+  [k: string]: unknown;
+}
+export interface TmLibraryUnmountParams {
+  expectedRevision: number;
+  libraryId: string;
+  projectId: string;
+  [k: string]: unknown;
+}
 export interface MethodContract14 {
   params: ExactLookupParams;
   result: ExactLookupResult;
+  [k: string]: unknown;
+}
+export interface MethodContract19 {
+  params: TmSearchParams;
+  result: TmSearchResult;
+  [k: string]: unknown;
+}
+export interface TmSearchParams {
+  contextAfterHash?: string | null;
+  contextBeforeHash?: string | null;
+  domain?: string | null;
+  libraryIds?: string[];
+  limit?: number;
+  offset?: number;
+  originDocumentId?: string | null;
+  originProjectId?: string | null;
+  projectId: string;
+  query: string;
+  sinceMs?: number | null;
+  sourceLocale: string;
+  targetLocale: string;
+  threshold?: number;
+  [k: string]: unknown;
+}
+export interface TmSearchResult {
+  limit: number;
+  matches: TmMatch[];
+  offset: number;
+  total: number;
+  [k: string]: unknown;
+}
+export interface TmMatch {
+  kind: TmMatchKind;
+  library: TmLibrary;
+  mountPriority: number;
+  score: number;
+  substitutions: PlaceholderSubstitution[];
+  unit: TmUnit;
+  [k: string]: unknown;
+}
+export interface PlaceholderSubstitution {
+  candidateValue: string;
+  kind: string;
+  queryValue: string;
   [k: string]: unknown;
 }
 export interface RpcError {
