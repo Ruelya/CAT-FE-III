@@ -73,3 +73,36 @@ Delivered the OpenDesign-faithful local DOCX CAT MVP with symmetric panels, offl
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Text HTML XLIFF and SRX filters
+
+**Date**: 2026-07-19
+**Task**: Text HTML XLIFF and SRX filters
+**Branch**: `master`
+
+### Summary
+
+Implemented SRX 2.0 segmentation and range-preserving TXT, Markdown, HTML/XHTML, and XLIFF 1.2/2.x filters; added generic import options, document-scoped tag IDs, durable segment notes migration, atomic no-clobber publication, contract generation, and full Rust/desktop verification evidence.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6ca6419` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
