@@ -1,0 +1,41 @@
+{
+  "name": "@translunar/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/electron/main/index.js",
+  "scripts": {
+    "prebuild": "pnpm --filter @translunar/contracts build",
+    "build": "vite build && tsc -p tsconfig.electron.json",
+    "predev": "pnpm --filter @translunar/contracts build",
+    "dev": "concurrently -k -n renderer,types,electron -c cyan,yellow,green \"vite --host 127.0.0.1\" \"tsc -p tsconfig.electron.json --watch --preserveWatchOutput\" \"wait-on tcp:127.0.0.1:5173 file:dist/electron/main/index.js && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "pretypecheck": "pnpm --filter @translunar/contracts build",
+    "typecheck": "tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.renderer.json && tsc -p tsconfig.e2e.json",
+    "test": "vitest run",
+    "test:e2e": "pnpm build && playwright test"
+  },
+  "dependencies": {
+    "@translunar/contracts": "workspace:*",
+    "lucide-react": "1.25.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.1",
+    "@types/node": "26.1.1",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.3",
+    "concurrently": "10.0.3",
+    "cross-env": "10.1.0",
+    "electron": "39.8.10",
+    "jsdom": "29.1.1",
+    "typescript": "6.0.3",
+    "vite": "8.1.5",
+    "vitest": "4.1.10",
+    "wait-on": "9.0.10"
+  }
+}

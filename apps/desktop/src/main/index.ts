@@ -1,0 +1,190 @@
+import { access } from "node:fs/promises";
+import { join, resolve } from "node:path";
+
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  type IpcMainInvokeEvent,
+} from "electron";
+import {
+  ENGINE_METHODS,
+  type EngineMethod,
+  type EngineParams,
+} from "@translunar/contracts";
+
+import { EngineClient } from "./engine-client.js";
+
+const IPC_CHANNELS = {
+  invoke: "translunar:engine:invoke",
+  selectSource: "translunar:dialog:source-docx",
+  selectExport: "translunar:dialog:export-docx",
+  restartEngine: "translunar:engine:restart",
+} as const;
+
+let mainWindow: BrowserWindow | null = null;
+let engine: EngineClient | null = null;
+const allowedMethods = new Set<string>(ENGINE_METHODS);
+
+let engineStoppedForQuit = false;
+
+void bootstrap().catch((error: unknown) => {
+  console.error("Failed to start Translunar Desktop.", error);
+  app.exit(1);
+});
+
+async function bootstrap(): Promise<void> {
+  await app.whenReady();
+  const executable = await resolveEngineExecutable();
+  const dataDirectory =
+    process.env.TRANSLUNAR_DATA_DIR ?? join(app.getPath("userData"), "engine");
+  engine = new EngineClient(executable, dataDirectory);
+  await engine.start();
+  registerIpc();
+  createWindow();
+
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") app.quit();
+  });
+
+  app.on("before-quit", (event) => {
+    if (!engine || engineStoppedForQuit) return;
+    event.preventDefault();
+    engineStoppedForQuit = true;
+    void engine.stop().finally(() => app.quit());
+  });
+}
+
+function createWindow(): void {
+  const preload = join(
+    app.getAppPath(),
+    "dist",
+    "electron",
+    "preload",
+    "index.cjs",
+  );
+  mainWindow = new BrowserWindow({
+    width: 1400,
+    height: 860,
+    minWidth: 1180,
+    minHeight: 700,
+    show: false,
+    backgroundColor: "#f1e7d6",
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  mainWindow.once("ready-to-show", () => mainWindow?.show());
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    const current = mainWindow?.webContents.getURL();
+    if (current && new URL(url).origin !== new URL(current).origin)
+      event.preventDefault();
+  });
+
+  const developmentUrl = process.env.VITE_DEV_SERVER_URL;
+  if (developmentUrl) {
+    void mainWindow.loadURL(developmentUrl);
+  } else {
+    void mainWindow.loadFile(
+      join(app.getAppPath(), "dist", "renderer", "index.html"),
+    );
+  }
+}
+
+function registerIpc(): void {
+  ipcMain.handle(
+    IPC_CHANNELS.invoke,
+    async (event: IpcMainInvokeEvent, method: unknown, params: unknown) => {
+      assertTrustedSender(event);
+      if (!isEngineMethod(method))
+        throw new Error("Unsupported engine method.");
+      const activeEngine = requireEngine();
+      return activeEngine.call(method, params as EngineParams<typeof method>);
+    },
+  );
+  ipcMain.handle(IPC_CHANNELS.selectSource, async (event) => {
+    assertTrustedSender(event);
+    if (process.env.TRANSLUNAR_TEST_SOURCE_DOCX) {
+      return process.env.TRANSLUNAR_TEST_SOURCE_DOCX;
+    }
+    const owner = requireWindow();
+    const result = await dialog.showOpenDialog(owner, {
+      title: "Import source DOCX",
+      properties: ["openFile"],
+      filters: [{ name: "Word documents", extensions: ["docx"] }],
+    });
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
+  ipcMain.handle(
+    IPC_CHANNELS.selectExport,
+    async (event, suggestedName: unknown) => {
+      assertTrustedSender(event);
+      if (process.env.TRANSLUNAR_TEST_EXPORT_DOCX) {
+        return process.env.TRANSLUNAR_TEST_EXPORT_DOCX;
+      }
+      const safeName =
+        typeof suggestedName === "string" && suggestedName.trim()
+          ? suggestedName.replaceAll(/[\\/:*?"<>|]/gu, "-")
+          : "translation.docx";
+      const result = await dialog.showSaveDialog(requireWindow(), {
+        title: "Export translated DOCX",
+        defaultPath: join(app.getPath("documents"), safeName),
+        filters: [{ name: "Word documents", extensions: ["docx"] }],
+      });
+      return result.canceled ? null : (result.filePath ?? null);
+    },
+  );
+  ipcMain.handle(IPC_CHANNELS.restartEngine, async (event) => {
+    assertTrustedSender(event);
+    await requireEngine().restart();
+  });
+}
+
+function assertTrustedSender(event: IpcMainInvokeEvent): void {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    throw new Error("Rejected IPC from an unknown renderer.");
+  }
+}
+
+function requireWindow(): BrowserWindow {
+  if (!mainWindow) throw new Error("Application window is unavailable.");
+  return mainWindow;
+}
+
+function requireEngine(): EngineClient {
+  if (!engine) throw new Error("Translation engine is unavailable.");
+  return engine;
+}
+
+function isEngineMethod(value: unknown): value is EngineMethod {
+  return typeof value === "string" && allowedMethods.has(value);
+}
+
+async function resolveEngineExecutable(): Promise<string> {
+  if (process.env.TRANSLUNAR_ENGINE_PATH) {
+    await access(process.env.TRANSLUNAR_ENGINE_PATH);
+    return process.env.TRANSLUNAR_ENGINE_PATH;
+  }
+  const binary =
+    process.platform === "win32"
+      ? "translunar-engine.exe"
+      : "translunar-engine";
+  const path = app.isPackaged
+    ? join(process.resourcesPath, "bin", binary)
+    : resolve(app.getAppPath(), "..", "..", "target", "debug", binary);
+  await access(path);
+  return path;
+}

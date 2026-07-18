@@ -1,0 +1,21 @@
+[package]
+name = "translunar-engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+translunar-domain = { path = "../domain" }
+translunar-filter-docx = { path = "../filter-docx" }
+translunar-protocol = { path = "../protocol" }
+translunar-storage = { path = "../storage" }
