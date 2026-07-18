@@ -99,7 +99,7 @@
       compatibility regressions.
 - [x] Update backend specs for the finalized schema, filter, pipeline, history,
       health, and backup contracts.
-- [ ] Commit the implementation, archive this child, update parent progress,
+- [x] Commit the implementation, archive this child, update parent progress,
       then activate `07-19-tm-termbase-asset-hub`.
 
 ## Validation Commands
