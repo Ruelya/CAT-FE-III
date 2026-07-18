@@ -75,3 +75,21 @@ leave no partial segment, TM, QA, or file publication state.
 - No read-modify-write sequence outside one transaction.
 - No schema mutation during ordinary query execution.
 - No derived cache that cannot be discarded and rebuilt from SQLite.
+
+## Portable Paths, Recovery, And Capacity
+
+Managed source/version paths are workspace-relative slash-separated values in
+SQLite. `Store::get_document` and health checks resolve them against
+`DataPaths::root`; schema-v1 absolute paths are converted in an immediate
+transaction during open when they are inside that root. This keeps an explicit
+backup restorable in a different directory without rewriting user content.
+
+Before a pending migration, use SQLite's online backup API and fsync the
+snapshot plus manifest. Migration and orphan-run recovery each use one
+`TransactionBehavior::Immediate` transaction. A worker connection must open
+with `open_worker` so it does not mark another live worker interrupted.
+
+Large collections are verified with bounded SQL pages, not `all_segments`.
+The `storage-benchmark` binary streams a deterministic 100,000-segment fixture,
+measures aggregate/first-middle-last/history pages and peak RSS, and deletes the
+generated directory unless `--keep` is supplied.

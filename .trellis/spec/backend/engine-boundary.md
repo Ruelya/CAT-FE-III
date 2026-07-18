@@ -133,3 +133,96 @@ const saved = await window.translunar.invoke("segment.updateTarget", {
 // Replace local display state with the engine response.
 applySegment(saved);
 ```
+
+## 8. Core v2 Durable Extension
+
+### 1. Scope / Trigger
+
+Use this contract when adding a format filter, project lifecycle write,
+pipeline step, operation history entry, health diagnostic, or workspace backup.
+The Rust storage boundary remains authoritative; a renderer may only invoke the
+generated method catalog.
+
+### 2. Signatures
+
+The additive protocol methods are:
+
+```text
+project.list/update/setLifecycle
+document.list/get/import/export
+filter.list
+history.list
+data.checkHealth/createBackup
+pipeline.step.list/create/list/get/validate
+pipeline.run/run.list/run.get/run.cancel/run.resume
+```
+
+Managed source paths are stored relative to the workspace (for example
+`sources/<document-id>.docx`) and resolved against the active data directory
+when a document is read or exported. Legacy absolute paths are normalized during
+open when they are inside the workspace.
+
+### 3. Contracts
+
+- Pages accept bounded limits and return deterministic ordering plus `total`.
+- Project and pipeline mutations require `expectedRevision`; successful
+  mutations append one operation or state transition in the same immediate
+  transaction.
+- Pipeline states are `queued -> running -> succeeded|failed`, with
+  `canceling -> canceled` and `interrupted -> queued|failed`.
+- Startup marks orphaned running work interrupted in one transaction. Resume
+  preserves committed step output/checkpoint data; non-resumable steps become a
+  typed `step_not_resumable` failure.
+- `data.checkHealth` is read-only and returns IDs/paths/hashes only. Explicit
+  backup stages a SQLite snapshot, sources, exports, hashes, and manifest, then
+  atomically publishes a new destination without overwriting an existing one.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Unknown filter or pipeline step | `not_found` with entity/id data |
+| Stale project or pipeline revision | `conflict` with entity, expected, actual |
+| Invalid pipeline state transition | `invalid_state` |
+| Missing managed source, broken version link, or FK violation | typed health finding; no document text |
+| Existing backup destination or staging copy failure | `storage_error`/`invalid_state`; staging is removed |
+
+### 5. Good / Base / Bad Cases
+
+- Good: import two files with the same basename under distinct relative paths,
+  restart, page them, and export both through generic and legacy methods.
+- Base: cancel a delayed checkpoint and observe durable `canceled` status while
+  polling; resume an interrupted resumable step from its previous checkpoint.
+- Bad: reopen a workspace whose source path still points at the old absolute
+  directory, or let a failed stale mutation append an operation.
+
+### 6. Tests Required
+
+- Real schema-v1 upgrade with TM/QA equality, automatic pre-migration backup,
+  rollback, newer-schema rejection, and DOCX export validation.
+- Storage health findings for missing source, broken current-version link, and
+  foreign-key violation; backup no-overwrite and failed-staging cleanup.
+- Engine cancellation, restart interruption, resumable recovery,
+  non-resumable failure, typed filter/project conflicts, and multi-document
+  restart/export.
+- Stdio smoke must cover filter listing, lifecycle/history, pipeline polling,
+  health, backup, and the legacy flow.
+- Run the disposable 100,000-segment benchmark and retain its measured evidence.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+// A backup stores an absolute path from the source machine and the restore
+// silently relies on that machine's sources directory.
+managed_source_path = path.to_string_lossy().into_owned();
+```
+
+#### Correct
+
+```rust
+// Store a workspace-relative path; resolve only at the storage boundary.
+managed_source_path = "sources/<document-id>.docx".to_string();
+let source = paths.root.join(&managed_source_path);
+```

@@ -69,3 +69,13 @@ the exact revision; do not replace compilation with static inspection.
 - Tests cover good, base, malformed, stale, and restart cases.
 - `cargo fmt`, strict clippy, unit/integration tests, contract drift, and the
   relevant process smoke all pass.
+
+## Evidence And Cross-Platform Builds
+
+When the Windows linker is unavailable locally, run Rust fmt/clippy/tests,
+schema generation, the real stdio smoke, and (when needed) the Windows GNU
+cross-build on `ssh moehub`. Compare the VPS-generated schema and locally
+generated TypeScript to the committed files; do not claim a local
+`contracts:check` pass from static inspection. Use `TRANSLUNAR_ENGINE_PATH` in
+the Electron E2E harness to test a synchronized binary without replacing an
+engine process currently in use.

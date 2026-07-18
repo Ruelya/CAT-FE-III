@@ -134,6 +134,9 @@ pnpm dev:desktop # Vite/tsc watches + Electron
   engine process, not renderer mocks.
 - Production build must be part of E2E so `base: "./"`, preload output, and
   Electron main output are exercised.
+- The E2E harness may set `TRANSLUNAR_ENGINE_PATH` to a synchronized test
+  binary; the default path remains the workspace debug engine. This override
+  must not add a renderer API or bypass the real stdio process.
 
 ## 7. Wrong vs Correct
 

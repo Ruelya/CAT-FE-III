@@ -3,7 +3,7 @@
   "name": "core-domain-storage-pipeline",
   "title": "Core domain, storage, and pipeline v2",
   "description": "Expand the authoritative Rust model, migrations, protocol, project lifecycle, history, pipeline contracts, and crash-safe persistence required by the full PRD.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,
