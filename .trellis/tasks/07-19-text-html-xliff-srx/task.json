@@ -3,7 +3,7 @@
   "name": "text-html-xliff-srx",
   "title": "Text, HTML, XLIFF, and SRX filters",
   "description": "Implement internal filter plugins for TXT, Markdown, HTML/XHTML, XLIFF 1.2/2.1, and SRX segmentation with protected inline structures.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

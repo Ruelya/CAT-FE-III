@@ -1010,6 +1010,9 @@ dependencies = [
  "translunar-domain",
  "translunar-filter-core",
  "translunar-filter-docx",
+ "translunar-filter-html",
+ "translunar-filter-text",
+ "translunar-filter-xliff",
  "translunar-pipeline",
  "translunar-protocol",
  "translunar-storage",
@@ -1041,6 +1044,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "translunar-filter-html"
+version = "0.1.0"
+dependencies = [
+ "quick-xml",
+ "tempfile",
+ "thiserror",
+ "translunar-domain",
+ "translunar-filter-core",
+ "translunar-segmentation-srx",
+]
+
+[[package]]
+name = "translunar-filter-text"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "thiserror",
+ "translunar-domain",
+ "translunar-filter-core",
+ "translunar-segmentation-srx",
+]
+
+[[package]]
+name = "translunar-filter-xliff"
+version = "0.1.0"
+dependencies = [
+ "quick-xml",
+ "tempfile",
+ "thiserror",
+ "translunar-domain",
+ "translunar-filter-core",
+]
+
+[[package]]
 name = "translunar-pipeline"
 version = "0.1.0"
 dependencies = [
@@ -1061,6 +1098,15 @@ dependencies = [
  "translunar-domain",
  "translunar-filter-core",
  "translunar-pipeline",
+]
+
+[[package]]
+name = "translunar-segmentation-srx"
+version = "0.1.0"
+dependencies = [
+ "quick-xml",
+ "regex",
+ "thiserror",
 ]
 
 [[package]]

@@ -2,7 +2,7 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use crate::{Result, StorageError};
 
-pub(crate) const LATEST_SCHEMA_VERSION: u32 = 4;
+pub(crate) const LATEST_SCHEMA_VERSION: u32 = 5;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -416,6 +416,19 @@ FROM tm_entries e
 JOIN translation_memories tm ON tm.id = e.memory_id;
 "#;
 
+const MIGRATION_5: &str = r#"
+CREATE TABLE segment_notes (
+    segment_id TEXT NOT NULL REFERENCES segments(id) ON DELETE CASCADE,
+    id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    author TEXT,
+    PRIMARY KEY(segment_id, id)
+) STRICT;
+
+CREATE INDEX segment_notes_segment_idx
+    ON segment_notes(segment_id, id);
+"#;
+
 pub(crate) fn configure_connection(connection: &Connection) -> Result<()> {
     connection.execute_batch(
         "PRAGMA foreign_keys = ON;\n\
@@ -441,6 +454,7 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<()> {
         (2_u32, MIGRATION_2),
         (3_u32, MIGRATION_3),
         (4_u32, MIGRATION_4),
+        (5_u32, MIGRATION_5),
     ] {
         if version <= current {
             continue;

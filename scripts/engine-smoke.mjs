@@ -1,4 +1,10 @@
-import { existsSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -31,6 +37,15 @@ async function main() {
   const badTmPath = join(dataDirectory, "bad-seed.csv");
   const tmExportPath = join(dataDirectory, "tm-export.tmx");
   const termExportPath = join(dataDirectory, "terms.tbx");
+  const txtPath = join(dataDirectory, "sample.txt");
+  const markdownPath = join(dataDirectory, "sample.md");
+  const htmlPath = join(dataDirectory, "sample.html");
+  const xliffPath = join(dataDirectory, "sample.xlf");
+  const malformedXliffPath = join(dataDirectory, "malformed.xlf");
+  const textOutputPath = join(dataDirectory, "translated.txt");
+  const markdownOutputPath = join(dataDirectory, "translated.md");
+  const htmlOutputPath = join(dataDirectory, "translated.html");
+  const xliffOutputPath = join(dataDirectory, "translated.xlf");
   let processHandle;
 
   try {
@@ -51,6 +66,104 @@ async function main() {
       relativePath: "chapter-a/m0-source.docx",
     });
     const document = imported.document;
+    writeFileSync(
+      txtPath,
+      "\ufeffFirst sentence. Second sentence.\r\n\r\nThird paragraph.\r\n",
+      "utf8",
+    );
+    writeFileSync(
+      markdownPath,
+      "# Heading\n\nVisible **bold** [link](https://example.test) `code`.\n",
+      "utf8",
+    );
+    writeFileSync(
+      htmlPath,
+      '<!-- keep --><p title="Greeting">Hello <strong>world</strong>.</p><script>skip()</script>',
+      "utf8",
+    );
+    writeFileSync(
+      xliffPath,
+      '<xliff version="2.1" srcLang="en" trgLang="zh" xmlns="urn:oasis:names:tc:xliff:document:2.1"><file id="f"><unit id="u"><segment id="s"><source>Hello <ph id="p"/> world</source></segment></unit></file></xliff>',
+      "utf8",
+    );
+    const formatCases = [
+      {
+        sourcePath: txtPath,
+        filterId: "builtin.txt",
+        targetText: "第一句。",
+        outputPath: textOutputPath,
+        options: { segmentationMode: "sentence" },
+        expectedSegments: 3,
+      },
+      {
+        sourcePath: markdownPath,
+        filterId: "builtin.markdown",
+        targetText: "标题",
+        outputPath: markdownOutputPath,
+        expectedSegments: 5,
+      },
+      {
+        sourcePath: htmlPath,
+        filterId: "builtin.html",
+        targetText: "你好",
+        outputPath: htmlOutputPath,
+        expectedSegments: 4,
+      },
+      {
+        sourcePath: xliffPath,
+        filterId: "builtin.xliff",
+        targetText: "你好世界",
+        outputPath: xliffOutputPath,
+        expectedSegments: 1,
+      },
+    ];
+    const formatDocuments = [];
+    for (const formatCase of formatCases) {
+      const formatImport = await processHandle.call("document.import", {
+        projectId: project.id,
+        sourcePath: formatCase.sourcePath,
+        options: formatCase.options ?? {},
+      });
+      assert(
+        formatImport.filterId === formatCase.filterId,
+        `${formatCase.filterId} should be selected`,
+      );
+      const formatSegments = await processHandle.call("segment.list", {
+        documentId: formatImport.document.id,
+        offset: 0,
+        limit: 200,
+      });
+      assert(
+        formatSegments.items.length === formatCase.expectedSegments,
+        `${formatCase.filterId} should produce segments`,
+      );
+      await processHandle.call("segment.updateTarget", {
+        segmentId: formatSegments.items[0].id,
+        targetText: formatCase.targetText,
+        expectedRevision: formatSegments.items[0].revision,
+      });
+      formatDocuments.push({
+        documentId: formatImport.document.id,
+        outputPath: formatCase.outputPath,
+      });
+    }
+    writeFileSync(
+      malformedXliffPath,
+      '<xliff version="2.1"><file>',
+      "utf8",
+    );
+    try {
+      await processHandle.call("document.import", {
+        projectId: project.id,
+        sourcePath: malformedXliffPath,
+      });
+      throw new Error("malformed XLIFF unexpectedly imported");
+    } catch (error) {
+      assert(
+        error?.code === "unsupported_document",
+        "malformed XLIFF should return a typed import error",
+      );
+    }
     const libraries = await processHandle.call("tm.library.list", {
       projectId: project.id,
       offset: 0,
@@ -257,13 +370,23 @@ async function main() {
       sourcePath: fixture,
     });
     const filters = await processHandle.call("filter.list", {});
-    assert(filters.filters.length === 1, "DOCX filter should be registered");
+    assert(filters.filters.length === 5, "all built-in filters should register");
+    assert(
+      [
+        "builtin.docx",
+        "builtin.html",
+        "builtin.markdown",
+        "builtin.txt",
+        "builtin.xliff",
+      ].every((id) => filters.filters.some((filter) => filter.id === id)),
+      "filter catalog should contain every P0 text filter",
+    );
     const documents = await processHandle.call("document.list", {
       projectId: project.id,
       offset: 0,
       limit: 50,
     });
-    assert(documents.total === 2, "two logical documents should be listed");
+    assert(documents.total === 6, "six logical documents should be listed");
     const page = await processHandle.call("segment.list", {
       documentId: document.id,
       offset: 0,
@@ -324,6 +447,17 @@ async function main() {
       recoveredLegacy.items.length === 3,
       "legacy document should recover after restart",
     );
+    for (const formatDocument of formatDocuments) {
+      const recoveredFormat = await processHandle.call("segment.list", {
+        documentId: formatDocument.documentId,
+        offset: 0,
+        limit: 200,
+      });
+      assert(
+        recoveredFormat.items[0].targetText.length > 0,
+        "format draft should recover after restart",
+      );
+    }
     try {
       await processHandle.call("segment.updateTarget", {
         segmentId: first.id,
@@ -452,7 +586,7 @@ async function main() {
       destinationPath: backupPath,
     });
     assert(
-      backup.manifest.schemaVersion === 4,
+      backup.manifest.schemaVersion === 5,
       "backup should contain latest schema",
     );
     assert(
@@ -479,6 +613,44 @@ async function main() {
     assert(
       statSync(legacyOutputPath).size > 0,
       "legacy export should be non-empty",
+    );
+    for (const formatDocument of formatDocuments) {
+      await processHandle.call("document.export", {
+        documentId: formatDocument.documentId,
+        outputPath: formatDocument.outputPath,
+      });
+      assert(
+        statSync(formatDocument.outputPath).size > 0,
+        "format export should be non-empty",
+      );
+    }
+    const textOutput = readFileSync(textOutputPath, "utf8");
+    assert(
+      textOutput.includes("第一句。") &&
+        textOutput.includes("Second sentence.") &&
+        textOutput.includes("Third paragraph."),
+      "TXT export should preserve BOM/newlines and untranslated content",
+    );
+    const markdownOutput = readFileSync(markdownOutputPath, "utf8");
+    assert(
+      markdownOutput.includes("# 标题") &&
+        markdownOutput.includes("https://example.test") &&
+        markdownOutput.includes("`code`"),
+      "Markdown export should preserve syntax, code, and URL",
+    );
+    const htmlOutput = readFileSync(htmlOutputPath, "utf8");
+    assert(
+      htmlOutput.includes("<!-- keep -->") &&
+        htmlOutput.includes("<strong>world</strong>") &&
+        htmlOutput.includes("<script>skip()</script>"),
+      "HTML export should preserve unowned nodes",
+    );
+    const xliffOutput = readFileSync(xliffOutputPath, "utf8");
+    assert(
+      xliffOutput.includes("<target>") &&
+        xliffOutput.includes('<ph id="p"/>') &&
+        xliffOutput.includes('id="s"'),
+      "XLIFF export should insert a target and preserve IDs/inline code",
     );
     console.log(`Engine smoke passed: ${outputPath}; backup: ${backupPath}`);
   } finally {

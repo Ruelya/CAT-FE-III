@@ -1,0 +1,16 @@
+[package]
+name = "translunar-filter-html"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+quick-xml.workspace = true
+thiserror.workspace = true
+translunar-domain = { path = "../domain" }
+translunar-filter-core = { path = "../filter-core" }
+translunar-segmentation-srx = { path = "../segmentation-srx" }
+
+[dev-dependencies]
+tempfile.workspace = true

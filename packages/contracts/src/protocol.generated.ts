@@ -384,6 +384,9 @@ export interface HistoryListParams {
 }
 export interface ImportDocumentParams {
   filterId?: string | null;
+  options?: {
+    [k: string]: string;
+  };
   projectId: string;
   relativePath?: string | null;
   sourcePath: string;

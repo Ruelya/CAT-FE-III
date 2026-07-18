@@ -17,11 +17,11 @@ use translunar_asset_core::{
     TmUnit, exact_key, match_score, normalize_match_key, term_spans,
 };
 use translunar_domain::{
-    BackupFile, BackupManifest, DataHealthReport, DegradationFinding, Document, DocumentStatus,
-    HealthFinding, HealthSeverity, NumberEvidence, Operation, Project, ProjectConfiguration,
-    ProjectLifecycle, QaIssue, QaIssueStatus, QaSeverity, Segment, SegmentCounts, SegmentState,
-    TagKind, TagSide, TmEntry, TranslationMemory, new_id, normalize_text, number_issue_fingerprint,
-    number_mismatch, segment_hashes, state_for_target,
+    BackupFile, BackupManifest, DataHealthReport, DegradationFinding, Document, DocumentNote,
+    DocumentStatus, HealthFinding, HealthSeverity, NumberEvidence, Operation, Project,
+    ProjectConfiguration, ProjectLifecycle, QaIssue, QaIssueStatus, QaSeverity, Segment,
+    SegmentCounts, SegmentState, TagKind, TagSide, TmEntry, TranslationMemory, new_id,
+    normalize_text, number_issue_fingerprint, number_mismatch, segment_hashes, state_for_target,
 };
 use translunar_filter_core::ImportedUnit;
 use translunar_pipeline::{
@@ -2260,6 +2260,13 @@ impl Store {
                     ],
                 )?;
             }
+            for note in &unit.notes {
+                transaction.execute(
+                    "INSERT INTO segment_notes (segment_id, id, text, author)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![segment_id, note.id, note.text, note.author],
+                )?;
+            }
         }
         transaction.commit()?;
         Ok(document)
@@ -2312,6 +2319,24 @@ impl Store {
             )?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok((items, to_u32(total)?))
+    }
+
+    pub fn list_segment_notes(&self, segment_id: &str) -> Result<Vec<DocumentNote>> {
+        ensure_exists(&self.connection, "segments", "segment", segment_id)?;
+        let mut statement = self.connection.prepare(
+            "SELECT id, text, author FROM segment_notes
+             WHERE segment_id = ?1 ORDER BY id",
+        )?;
+        let notes = statement
+            .query_map([segment_id], |row| {
+                Ok(DocumentNote {
+                    id: row.get(0)?,
+                    text: row.get(1)?,
+                    author: row.get(2)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(notes)
     }
 
     pub fn all_segments(&self, document_id: &str) -> Result<Vec<Segment>> {
@@ -2565,6 +2590,7 @@ fn ensure_exists(
     let sql = match table {
         "projects" => "SELECT 1 FROM projects WHERE id = ?1",
         "documents" => "SELECT 1 FROM documents WHERE id = ?1",
+        "segments" => "SELECT 1 FROM segments WHERE id = ?1",
         _ => {
             return Err(StorageError::InvalidData(format!(
                 "unsupported existence table {table}"

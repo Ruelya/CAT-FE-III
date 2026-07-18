@@ -4,6 +4,7 @@
 //! engine only consumes this stable event stream and normalized import model.
 
 use std::collections::BTreeMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -127,6 +128,24 @@ pub type FilterEventStream = Box<dyn Iterator<Item = Result<FilterEvent, FilterE
 #[derive(Debug, Clone)]
 pub struct ImportRequest {
     pub source: PathBuf,
+    /// Engine-assigned document namespace for globally unique tag/note IDs.
+    pub document_id: Option<String>,
+    /// Optional project locale used by segmentation and locale-aware filters.
+    pub source_locale: Option<String>,
+    /// Filter-specific options. Unknown options are ignored by filters that do
+    /// not support them; parsing and bounds remain filter-owned.
+    pub options: BTreeMap<String, String>,
+}
+
+impl ImportRequest {
+    pub fn new(source: PathBuf) -> Self {
+        Self {
+            source,
+            document_id: None,
+            source_locale: None,
+            options: BTreeMap::new(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -175,6 +194,26 @@ pub trait DocumentFilter: Send + Sync {
     fn import(&self, request: ImportRequest) -> Result<FilterEventStream, FilterError>;
     fn export(&self, request: ExportRequest<'_>) -> Result<ExportReport, FilterError>;
     fn validate(&self, source: &Path) -> Result<ValidationReport, FilterError>;
+}
+
+/// Atomically publish already-validated bytes without replacing an existing
+/// destination. Format filters remain responsible for reparsing the staged
+/// representation before calling this helper.
+pub fn publish_bytes_noclobber(output: &Path, bytes: &[u8]) -> Result<(), FilterError> {
+    if output.exists() {
+        return Err(FilterError::Processing(
+            "export destination already exists".to_string(),
+        ));
+    }
+    let parent = output.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(parent)?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    temporary.write_all(bytes)?;
+    temporary.as_file().sync_all()?;
+    temporary
+        .persist_noclobber(output)
+        .map_err(|error| FilterError::Io(error.error))?;
+    Ok(())
 }
 
 #[derive(Default)]

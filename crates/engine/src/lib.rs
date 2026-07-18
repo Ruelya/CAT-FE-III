@@ -22,6 +22,9 @@ use translunar_filter_core::{
     ExportRequest, FilterError, FilterRegistry, ImportRequest, collect_imported_document,
 };
 use translunar_filter_docx::DocxFilter;
+use translunar_filter_html::HtmlFilter;
+use translunar_filter_text::{MarkdownFilter, TxtFilter};
+use translunar_filter_xliff::XliffFilter;
 use translunar_pipeline::{
     ArtifactKind, PipelineDefinition, PipelineError, PipelineFailure, PipelineStep,
     PipelineStepDefinition, StepDescriptor, StepExecutionContext, StepOutcome, StepRegistry,
@@ -87,6 +90,22 @@ fn bounded_page_size(limit: u32) -> Result<u32> {
             "limit must be between 1 and 500".to_string(),
         ))
     }
+}
+
+fn validate_filter_options(options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+    if options.len() > 32 {
+        return Err(EngineError::InvalidRequest(
+            "filter options must contain at most 32 entries".to_string(),
+        ));
+    }
+    for (key, value) in options {
+        if key.trim().is_empty() || key.len() > 64 || value.len() > 4096 {
+            return Err(EngineError::InvalidRequest(
+                "filter option keys must be 1..64 bytes and values at most 4096 bytes".to_string(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn normalize_relative_path(value: Option<&str>, source: &Path) -> Result<String> {
@@ -489,6 +508,18 @@ impl EngineService {
         filters
             .register(Arc::new(DocxFilter))
             .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+        filters
+            .register(Arc::new(TxtFilter))
+            .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+        filters
+            .register(Arc::new(MarkdownFilter))
+            .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+        filters
+            .register(Arc::new(HtmlFilter))
+            .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+        filters
+            .register(Arc::new(XliffFilter))
+            .map_err(|error| EngineError::InvalidState(error.to_string()))?;
         Ok(Self {
             store: Store::open(&data_dir)?,
             filters,
@@ -583,6 +614,7 @@ impl EngineService {
                 source_path: params.source_path,
                 relative_path: None,
                 filter_id: Some("builtin.docx".to_string()),
+                options: Default::default(),
             })?
             .document)
     }
@@ -591,7 +623,8 @@ impl EngineService {
         &mut self,
         params: ImportDocumentParams,
     ) -> Result<ImportDocumentResult> {
-        self.store.get_project(&params.project_id)?;
+        let project = self.store.get_project(&params.project_id)?;
+        validate_filter_options(&params.options)?;
         let source_path = PathBuf::from(&params.source_path);
         if !source_path.is_file() {
             return Err(EngineError::InvalidRequest(format!(
@@ -620,12 +653,18 @@ impl EngineService {
             .and_then(|value| value.to_str())
             .unwrap_or("source");
         let managed_source_path = self.store.paths().managed_source(&document_id, extension);
-        let mut temporary = NamedTempFile::new_in(&self.store.paths().temporary)?;
+        let mut temporary = tempfile::Builder::new()
+            .prefix("import-")
+            .suffix(&format!(".{extension}"))
+            .tempfile_in(&self.store.paths().temporary)?;
         let source_sha256 = copy_and_hash(&source_path, temporary.as_file_mut())?;
         temporary.as_file().sync_all()?;
         let stream = filter
             .import(ImportRequest {
                 source: temporary.path().to_path_buf(),
+                document_id: Some(document_id.clone()),
+                source_locale: Some(project.project.source_locale.clone()),
+                options: params.options.clone(),
             })
             .map_err(EngineError::Import)?;
         let imported = collect_imported_document(stream).map_err(EngineError::Import)?;
@@ -2344,6 +2383,7 @@ mod tests {
                 source_path: first.to_string_lossy().into_owned(),
                 relative_path: Some("chapter-a/shared.docx".to_string()),
                 filter_id: None,
+                options: Default::default(),
             })
             .expect("generic import first");
         let second_document = service
@@ -2383,9 +2423,21 @@ mod tests {
         assert_eq!(page.items[1].name, "shared.docx");
         assert_eq!(first_document.filter_id, "builtin.docx");
         assert_eq!(second_document.relative_path, "shared.docx");
+        let filter_ids: Vec<_> = service
+            .list_filters(EmptyParams::default())
+            .filters
+            .into_iter()
+            .map(|filter| filter.id)
+            .collect();
         assert_eq!(
-            service.list_filters(EmptyParams::default()).filters.len(),
-            1
+            filter_ids,
+            [
+                "builtin.docx",
+                "builtin.html",
+                "builtin.markdown",
+                "builtin.txt",
+                "builtin.xliff",
+            ]
         );
 
         drop(service);
@@ -2432,6 +2484,168 @@ mod tests {
     }
 
     #[test]
+    fn text_html_and_xliff_filters_round_trip_through_generic_engine() {
+        let context = TestContext::new();
+        let txt = context.root.path().join("sample.txt");
+        let markdown = context.root.path().join("sample.md");
+        let html = context.root.path().join("sample.html");
+        let xliff = context.root.path().join("sample.xlf");
+        std::fs::write(
+            &txt,
+            "\u{feff}First paragraph.\r\n\r\nSecond paragraph.\r\n",
+        )
+        .expect("write TXT");
+        std::fs::write(
+            &markdown,
+            "# Heading\n\nVisible **bold** [link](https://example.test) `code`.\n",
+        )
+        .expect("write Markdown");
+        std::fs::write(
+            &html,
+            "<!-- keep --><p title=\"Greeting\">Hello <strong>world</strong>.</p><script>skip()</script>",
+        )
+        .expect("write HTML");
+        std::fs::write(
+            &xliff,
+            r#"<xliff version="2.1" srcLang="en" trgLang="zh" xmlns="urn:oasis:names:tc:xliff:document:2.1"><file id="f"><unit id="u"><notes><note id="n">Keep tone</note></notes><segment id="s" state="initial"><source>Hello <ph id="p"/> world</source></segment></unit></file></xliff>"#,
+        )
+        .expect("write XLIFF");
+
+        let mut service = EngineService::open(context.root.path()).expect("open engine");
+        let project = TestContext::project(&mut service);
+        let oversized_options = (0..33)
+            .map(|index| (format!("option-{index}"), "value".to_string()))
+            .collect();
+        assert!(matches!(
+            service.import_document(ImportDocumentParams {
+                project_id: project.id.clone(),
+                source_path: txt.to_string_lossy().into_owned(),
+                relative_path: None,
+                filter_id: None,
+                options: oversized_options,
+            }),
+            Err(EngineError::InvalidRequest(_))
+        ));
+        let cases = [
+            (&txt, "builtin.txt", "第一段。", "translated.txt"),
+            (&markdown, "builtin.markdown", "标题", "translated.md"),
+            (&html, "builtin.html", "你好", "translated.html"),
+            (&xliff, "builtin.xliff", "你好世界", "translated.xlf"),
+        ];
+        let mut exports = Vec::new();
+        for (source, filter_id, target, output_name) in cases {
+            let imported = service
+                .import_document(ImportDocumentParams {
+                    project_id: project.id.clone(),
+                    source_path: source.to_string_lossy().into_owned(),
+                    relative_path: None,
+                    filter_id: None,
+                    options: Default::default(),
+                })
+                .expect("generic format import");
+            assert_eq!(imported.filter_id, filter_id);
+            let segments = service
+                .list_segments(SegmentListParams {
+                    document_id: imported.document.id.clone(),
+                    offset: 0,
+                    limit: 200,
+                })
+                .expect("list imported segments");
+            assert!(!segments.items.is_empty());
+            if filter_id == "builtin.xliff" {
+                let notes = service
+                    .store
+                    .list_segment_notes(&segments.items[0].id)
+                    .expect("list imported XLIFF notes");
+                assert_eq!(notes.len(), 2);
+                assert!(notes.iter().any(|note| note.text == "Keep tone"));
+                assert!(notes.iter().any(|note| note.text == "initial"));
+            }
+            service
+                .update_target(UpdateTargetParams {
+                    segment_id: segments.items[0].id.clone(),
+                    target_text: target.to_string(),
+                    expected_revision: segments.items[0].revision,
+                })
+                .expect("edit imported segment");
+            exports.push((imported.document.id, context.root.path().join(output_name)));
+        }
+        service
+            .import_document(ImportDocumentParams {
+                project_id: project.id.clone(),
+                source_path: html.to_string_lossy().into_owned(),
+                relative_path: Some("duplicate/sample.html".to_string()),
+                filter_id: None,
+                options: Default::default(),
+            })
+            .expect("import second tagged HTML without global tag ID collision");
+
+        let sources_before_failure = std::fs::read_dir(&service.store.paths().sources)
+            .expect("read managed sources")
+            .count();
+        let malformed = context.root.path().join("malformed.xlf");
+        std::fs::write(&malformed, "<xliff version=\"2.1\"><file>").expect("write malformed XLIFF");
+        assert!(
+            service
+                .import_document(ImportDocumentParams {
+                    project_id: project.id.clone(),
+                    source_path: malformed.to_string_lossy().into_owned(),
+                    relative_path: None,
+                    filter_id: None,
+                    options: Default::default(),
+                })
+                .is_err()
+        );
+        assert_eq!(
+            std::fs::read_dir(&service.store.paths().sources)
+                .expect("read managed sources after failure")
+                .count(),
+            sources_before_failure
+        );
+
+        drop(service);
+        let service = EngineService::open(context.root.path()).expect("restart engine");
+        for (document_id, output) in &exports {
+            service
+                .export_document(ExportDocumentParams {
+                    document_id: document_id.clone(),
+                    output_path: output.to_string_lossy().into_owned(),
+                })
+                .expect("export after restart");
+        }
+        let recovered_xliff = service
+            .list_segments(SegmentListParams {
+                document_id: exports[3].0.clone(),
+                offset: 0,
+                limit: 10,
+            })
+            .expect("reload XLIFF segment");
+        assert_eq!(
+            service
+                .store
+                .list_segment_notes(&recovered_xliff.items[0].id)
+                .expect("reload XLIFF notes")
+                .len(),
+            2
+        );
+        let txt_output = std::fs::read_to_string(&exports[0].1).expect("read TXT export");
+        assert!(txt_output.contains("第一段。"));
+        assert!(txt_output.contains("Second paragraph."));
+        let markdown_output = std::fs::read_to_string(&exports[1].1).expect("read Markdown export");
+        assert!(markdown_output.contains("# 标题"));
+        assert!(markdown_output.contains("https://example.test"));
+        assert!(markdown_output.contains("`code`"));
+        let html_output = std::fs::read_to_string(&exports[2].1).expect("read HTML export");
+        assert!(html_output.contains("<!-- keep -->"));
+        assert!(html_output.contains("<strong>world</strong>"));
+        assert!(html_output.contains("<script>skip()</script>"));
+        let xliff_output = std::fs::read_to_string(&exports[3].1).expect("read XLIFF export");
+        assert!(xliff_output.contains("<target>"));
+        assert!(xliff_output.contains("<ph id=\"p\"/>"));
+        assert!(xliff_output.contains("id=\"s\""));
+    }
+
+    #[test]
     fn health_and_backup_round_trip_authoritative_workspace() {
         let context = TestContext::new();
         let mut service = EngineService::open(context.root.path()).expect("open engine");
@@ -2462,7 +2676,7 @@ mod tests {
             .check_health(EmptyParams::default())
             .expect("check health");
         assert!(health.healthy, "unexpected findings: {:?}", health.findings);
-        assert_eq!(health.schema_version, 4);
+        assert_eq!(health.schema_version, 5);
 
         let destination = context.root.path().join("workspace-backup");
         let backup = service
@@ -2470,7 +2684,7 @@ mod tests {
                 destination_path: destination.to_string_lossy().into_owned(),
             })
             .expect("create backup");
-        assert_eq!(backup.manifest.schema_version, 4);
+        assert_eq!(backup.manifest.schema_version, 5);
         assert!(destination.join("translunar.sqlite3").is_file());
         assert!(
             destination
@@ -2625,6 +2839,7 @@ mod tests {
                 source_path: context.source.to_string_lossy().into_owned(),
                 relative_path: None,
                 filter_id: Some("missing.filter".to_string()),
+                options: Default::default(),
             })
             .expect("serialize generic import"),
         });

@@ -46,6 +46,11 @@ Indexes use `<table>_<purpose>_idx`, for example
 `tm_entries_exact_idx`. Natural uniqueness is declared in schema, such as
 `UNIQUE(document_id, ordinal)` and `UNIQUE(memory_id, origin_segment_id)`.
 
+`inline_tags.id` is a global primary key, so format filters namespace it with
+the Engine-assigned document ID. Migration 5 stores imported format/XLIFF notes
+in `segment_notes` with `PRIMARY KEY(segment_id, id)`; segment, tags, and notes
+are inserted in the same document-import transaction.
+
 ## Migrations
 
 Schema versioning uses `PRAGMA user_version`. Released migrations are

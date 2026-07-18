@@ -1136,6 +1136,13 @@
           ],
           "default": null
         },
+        "options": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
         "projectId": {
           "type": "string"
         },

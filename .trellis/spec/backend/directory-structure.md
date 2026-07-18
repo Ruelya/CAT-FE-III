@@ -15,6 +15,10 @@ crates/
 |-- protocol/src/bin/          # generated-contract tooling
 |-- storage/src/               # SQLite connection, migrations, repositories
 |-- filter-docx/src/           # DOCX extraction, validation, and reconstruction
+|-- segmentation-srx/src/      # SRX parser, built-in profiles, byte ranges
+|-- filter-text/src/           # TXT/Markdown extraction and range replacement
+|-- filter-html/src/           # HTML/XHTML tokenizer, attributes, inline tags
+|-- filter-xliff/src/          # XLIFF 1.2/2.x conservative interchange
 `-- engine/src/                # application service, dispatcher, stdio executable
 packages/contracts/src/        # generated TypeScript projection of protocol
 scripts/                       # cross-process smoke and contract drift checks
@@ -26,6 +30,7 @@ The dependency direction is inward:
 domain <- protocol
 domain <- storage
 domain <- filter-docx
+filter-core <- segmentation-srx + filter-text + filter-html + filter-xliff
 domain + protocol + storage + filters <- engine
 protocol schema -> packages/contracts -> Electron
 ```
@@ -64,6 +69,8 @@ strings use a namespaced lower-camel form such as `segment.updateTarget`.
   segment/TM/QA transition.
 - `extract_docx` and `export_docx` in `crates/filter-docx/src/lib.rs` own OOXML
   details without knowing about projects or RPC.
+- `publish_bytes_noclobber` in `crates/filter-core` owns shared atomic byte
+  publication; each format crate still owns parsing and revalidation.
 
 ## Avoid
 

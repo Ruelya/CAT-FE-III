@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -226,6 +228,8 @@ pub struct ImportDocumentParams {
     pub relative_path: Option<String>,
     #[serde(default)]
     pub filter_id: Option<String>,
+    #[serde(default)]
+    pub options: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -1070,6 +1074,28 @@ mod tests {
         let json = serde_json::to_value(params).expect("serialize");
         assert_eq!(json["protocolVersion"], 1);
         assert!(json.get("protocol_version").is_none());
+    }
+
+    #[test]
+    fn document_import_options_are_additive_and_default_empty() {
+        let params: ImportDocumentParams = serde_json::from_value(serde_json::json!({
+            "projectId": "project",
+            "sourcePath": "source.txt"
+        }))
+        .expect("deserialize legacy request");
+        assert!(params.options.is_empty());
+
+        let mut options = BTreeMap::new();
+        options.insert("segmentationMode".to_string(), "sentence".to_string());
+        let json = serde_json::to_value(ImportDocumentParams {
+            project_id: "project".to_string(),
+            source_path: "source.txt".to_string(),
+            relative_path: None,
+            filter_id: None,
+            options,
+        })
+        .expect("serialize options");
+        assert_eq!(json["options"]["segmentationMode"], "sentence");
     }
 
     #[test]
