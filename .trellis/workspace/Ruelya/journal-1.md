@@ -40,3 +40,36 @@ Implemented and verified the local-first Electron/Rust CAT workflow, generated c
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: Complete desktop CAT MVP
+
+**Date**: 2026-07-19
+**Task**: Complete desktop CAT MVP
+**Branch**: `master`
+
+### Summary
+
+Delivered the OpenDesign-faithful local DOCX CAT MVP with symmetric panels, offline Assistant conversations and metrics, real QA/export/TM projections, 1080p rendering fixes, complete Electron coverage, VPS Rust verification, and updated launch documentation.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `438d271` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
