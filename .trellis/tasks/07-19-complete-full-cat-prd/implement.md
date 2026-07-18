@@ -17,9 +17,9 @@
 - [x] Record the current capability gap and map full PRD modules to child tasks.
 - [x] Create the parent plus 17 implementation/release children and link the
       existing Bootstrap task.
-- [ ] Complete `00-bootstrap-guidelines`: fill every backend/frontend spec with
+- [x] Complete `00-bootstrap-guidelines`: fill every backend/frontend spec with
       current examples, update indexes, check documentation, commit and archive.
-- [ ] Run the parent PRD convergence pass and activate the parent task.
+- [x] Run the parent PRD convergence pass and activate the parent task.
 
 ## 1. Foundation
 
