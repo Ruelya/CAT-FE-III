@@ -10,6 +10,8 @@ import {
 } from "react";
 import type {
   Document,
+  PdfPageDetail,
+  PdfPageSummary,
   ProjectSnapshot,
   QaIssue,
   Segment,
@@ -33,7 +35,9 @@ import {
   PanelBottomOpen,
   PanelRightClose,
   PanelRightOpen,
+  Pencil,
   RefreshCw,
+  Save,
   Search,
   ShieldCheck,
   Sparkles,
@@ -129,6 +133,14 @@ export function Workbench({
   const inFlightRef = useRef(new Map<string, Promise<Segment>>());
   const composingRef = useRef(new Set<string>());
   const pendingSavesRef = useRef(0);
+
+  const applyCorrectedSource = (corrected: Segment) => {
+    setSegments((current) => {
+      const next = replaceSegment(current, corrected);
+      segmentsRef.current = next;
+      return next;
+    });
+  };
 
   const openIssueBySegment = useMemo(
     () =>
@@ -431,14 +443,14 @@ export function Workbench({
     setToast(null);
     try {
       await persistAllSegments();
-      const suggestedName = document.name.replace(
-        /\.docx$/iu,
-        "-translated.docx",
-      );
+      const suggestedName =
+        document.filterId === "builtin.pdf"
+          ? document.name.replace(/\.pdf$/iu, "-translated.docx")
+          : document.name.replace(/(\.[^.]+)$/u, "-translated$1");
       const outputPath =
         await window.translunar.selectExportPath(suggestedName);
       if (!outputPath) return;
-      const result = await window.translunar.invoke("document.exportDocx", {
+      const result = await window.translunar.invoke("document.export", {
         documentId: document.id,
         outputPath,
       });
@@ -794,6 +806,7 @@ export function Workbench({
               onHeightChange={setPreviewHeight}
               followActive={followActivePreview}
               onFollowActiveChange={setFollowActivePreview}
+              onSourceCorrected={applyCorrectedSource}
             />
           </div>
         </section>
@@ -935,6 +948,7 @@ interface PreviewProps {
   onHeightChange(height: number): void;
   followActive: boolean;
   onFollowActiveChange(follow: boolean): void;
+  onSourceCorrected(segment: Segment): void;
 }
 
 function DocumentPreview({
@@ -947,6 +961,7 @@ function DocumentPreview({
   onHeightChange,
   followActive,
   onFollowActiveChange,
+  onSourceCorrected,
 }: PreviewProps) {
   const resizeRef = useRef<{
     pointerId: number;
@@ -956,10 +971,133 @@ function DocumentPreview({
   const [previewAnchorId, setPreviewAnchorId] = useState(
     activeSegment?.id ?? "",
   );
+  const [pdfPages, setPdfPages] = useState<PdfPageSummary[]>([]);
+  const [pdfPage, setPdfPage] = useState<PdfPageDetail | null>(null);
+  const [pdfPageNumber, setPdfPageNumber] = useState(1);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [correctionOpen, setCorrectionOpen] = useState(false);
+  const [correctionText, setCorrectionText] = useState("");
+  const [correctionReason, setCorrectionReason] = useState("");
+  const [correctionBusy, setCorrectionBusy] = useState(false);
 
   useEffect(() => {
     if (followActive && activeSegment) setPreviewAnchorId(activeSegment.id);
   }, [activeSegment, followActive]);
+
+  useEffect(() => {
+    if (document.filterId !== "builtin.pdf") return;
+    let cancelled = false;
+    setPdfLoading(true);
+    setPdfError(null);
+    void window.translunar
+      .invoke("pdf.page.list", { documentId: document.id })
+      .then((result) => {
+        if (cancelled) return;
+        setPdfPages(result.pages);
+        const activePage = result.pages.find((page) =>
+          activeSegment ? page.segmentIds.includes(activeSegment.id) : false,
+        );
+        setPdfPageNumber(activePage?.page ?? result.pages[0]?.page ?? 1);
+      })
+      .catch((reason: unknown) => {
+        if (!cancelled) setPdfError(formatError(reason));
+      })
+      .finally(() => {
+        if (!cancelled) setPdfLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSegment, document.filterId, document.id]);
+
+  useEffect(() => {
+    if (
+      document.filterId !== "builtin.pdf" ||
+      mode === "collapsed" ||
+      pdfPages.length === 0
+    ) {
+      return;
+    }
+    let cancelled = false;
+    setPdfLoading(true);
+    setPdfError(null);
+    void window.translunar
+      .invoke("pdf.page.get", {
+        documentId: document.id,
+        page: pdfPageNumber,
+        dpi: 144,
+      })
+      .then((result) => {
+        if (!cancelled) setPdfPage(result);
+      })
+      .catch((reason: unknown) => {
+        if (!cancelled) setPdfError(formatError(reason));
+      })
+      .finally(() => {
+        if (!cancelled) setPdfLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [document.filterId, document.id, mode, pdfPageNumber, pdfPages.length]);
+
+  useEffect(() => {
+    if (!followActive || !activeSegment || pdfPages.length === 0) return;
+    const page = pdfPages.find((candidate) =>
+      candidate.segmentIds.includes(activeSegment.id),
+    );
+    if (page) setPdfPageNumber(page.page);
+  }, [activeSegment, followActive, pdfPages]);
+
+  const activePdfBlock =
+    pdfPage?.blocks.find((block) => block.segmentId === activeSegment?.id) ??
+    null;
+
+  useEffect(() => {
+    setCorrectionOpen(false);
+    setCorrectionText(activePdfBlock?.sourceText ?? "");
+    setCorrectionReason("");
+  }, [activePdfBlock?.segmentId, activePdfBlock?.revision]);
+
+  const submitOcrCorrection = async () => {
+    if (!activePdfBlock || !correctionReason.trim() || !correctionText.trim())
+      return;
+    setCorrectionBusy(true);
+    setPdfError(null);
+    try {
+      const corrected = await window.translunar.invoke("pdf.correctOcr", {
+        segmentId: activePdfBlock.segmentId,
+        sourceText: correctionText,
+        reason: correctionReason,
+        expectedRevision: activePdfBlock.revision,
+      });
+      onSourceCorrected(corrected);
+      setPdfPage((current) =>
+        current
+          ? {
+              ...current,
+              blocks: current.blocks.map((block) =>
+                block.segmentId === corrected.id
+                  ? {
+                      ...block,
+                      sourceText: corrected.sourceText,
+                      revision: corrected.revision,
+                      state: corrected.state,
+                    }
+                  : block,
+              ),
+            }
+          : current,
+      );
+      setCorrectionOpen(false);
+      setCorrectionReason("");
+    } catch (reason) {
+      setPdfError(formatError(reason));
+    } finally {
+      setCorrectionBusy(false);
+    }
+  };
 
   const previewAnchor =
     segments.find((segment) => segment.id === previewAnchorId) ?? activeSegment;
@@ -1082,28 +1220,160 @@ function DocumentPreview({
           </button>
         </div>
       </header>
-      <div className="preview-content">
-        <div className="page-thumb">
-          <FileText size={18} />
-          <span>1</span>
-        </div>
-        <div className="preview-lines">
-          {previewSegments.map((segment) => (
+      {document.filterId === "builtin.pdf" ? (
+        <div className="preview-content pdf-preview-content">
+          <div className="pdf-preview-toolbar">
+            <span className="pdf-page-label">
+              Page {pdfPageNumber} of {pdfPages.length || "..."}
+            </span>
             <div
-              key={segment.id}
-              className={
-                segment.id === activeSegment?.id
-                  ? "preview-line active"
-                  : "preview-line"
-              }
+              className="pdf-page-picker"
+              role="listbox"
+              aria-label="PDF page"
             >
-              <span>{segment.ordinal + 1}</span>
-              <p>{segment.sourceText}</p>
+              {pdfPages.map((page) => (
+                <button
+                  key={page.page}
+                  type="button"
+                  className={page.page === pdfPageNumber ? "active" : ""}
+                  aria-selected={page.page === pdfPageNumber}
+                  onClick={() => setPdfPageNumber(page.page)}
+                >
+                  {page.page}
+                </button>
+              ))}
             </div>
-          ))}
+          </div>
+          {pdfError ? (
+            <p className="form-error pdf-preview-error" role="alert">
+              {pdfError}
+            </p>
+          ) : null}
+          <div className="pdf-preview-grid">
+            <div className="pdf-page-image">
+              {pdfPage ? (
+                <img
+                  src={"data:image/png;base64," + pdfPage.imagePngBase64}
+                  alt={"Original PDF page " + pdfPage.page}
+                />
+              ) : (
+                <span>
+                  {pdfLoading ? "Rendering page..." : "No page loaded"}
+                </span>
+              )}
+            </div>
+            <div className="pdf-block-list" aria-label="Extracted PDF blocks">
+              {pdfPage?.blocks.map((block) => (
+                <article
+                  key={block.segmentId}
+                  className={
+                    block.segmentId === activeSegment?.id
+                      ? "pdf-block active"
+                      : "pdf-block"
+                  }
+                >
+                  <div className="pdf-block-meta">
+                    <span>{block.kind}</span>
+                    <span
+                      className={
+                        block.sourceKind === "ocr" ? "ocr-confidence" : ""
+                      }
+                    >
+                      {block.sourceKind === "ocr"
+                        ? "OCR " + block.confidence / 10 + "%"
+                        : "Text layer"}
+                    </span>
+                  </div>
+                  <p>{block.sourceText}</p>
+                  {block.sourceKind === "ocr" &&
+                  block.segmentId === activeSegment?.id &&
+                  block.state !== "confirmed" ? (
+                    correctionOpen ? (
+                      <div className="ocr-correction">
+                        <textarea
+                          aria-label="Correct OCR source"
+                          value={correctionText}
+                          onChange={(event) =>
+                            setCorrectionText(event.currentTarget.value)
+                          }
+                        />
+                        <input
+                          aria-label="OCR correction reason"
+                          placeholder="Reason for correction"
+                          value={correctionReason}
+                          onChange={(event) =>
+                            setCorrectionReason(event.currentTarget.value)
+                          }
+                        />
+                        <div className="ocr-correction-actions">
+                          <button
+                            className="button primary"
+                            type="button"
+                            disabled={
+                              correctionBusy ||
+                              !correctionReason.trim() ||
+                              !correctionText.trim()
+                            }
+                            onClick={() => void submitOcrCorrection()}
+                          >
+                            <Save size={13} />
+                            {correctionBusy ? "Saving" : "Save correction"}
+                          </button>
+                          <button
+                            className="button ghost"
+                            type="button"
+                            onClick={() => setCorrectionOpen(false)}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        className="ocr-edit-button"
+                        type="button"
+                        onClick={() => {
+                          setCorrectionText(block.sourceText);
+                          setCorrectionOpen(true);
+                        }}
+                      >
+                        <Pencil size={12} />
+                        Correct OCR
+                      </button>
+                    )
+                  ) : null}
+                </article>
+              ))}
+              {!pdfLoading && !pdfPage?.blocks.length ? (
+                <p className="empty-grid">No extracted blocks on this page.</p>
+              ) : null}
+            </div>
+          </div>
         </div>
-        <div className="preview-dot-field" aria-hidden="true" />
-      </div>
+      ) : (
+        <div className="preview-content">
+          <div className="page-thumb">
+            <FileText size={18} />
+            <span>1</span>
+          </div>
+          <div className="preview-lines">
+            {previewSegments.map((segment) => (
+              <div
+                key={segment.id}
+                className={
+                  segment.id === activeSegment?.id
+                    ? "preview-line active"
+                    : "preview-line"
+                }
+              >
+                <span>{segment.ordinal + 1}</span>
+                <p>{segment.sourceText}</p>
+              </div>
+            ))}
+          </div>
+          <div className="preview-dot-field" aria-hidden="true" />
+        </div>
+      )}
     </section>
   );
 }

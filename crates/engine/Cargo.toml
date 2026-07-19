@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+base64.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -20,6 +21,7 @@ translunar-asset-core = { path = "../asset-core" }
 translunar-filter-core = { path = "../filter-core" }
 translunar-filter-docx = { path = "../filter-docx" }
 translunar-filter-html = { path = "../filter-html" }
+translunar-filter-pdf = { path = "../filter-pdf" }
 translunar-filter-pptx = { path = "../filter-pptx" }
 translunar-filter-text = { path = "../filter-text" }
 translunar-filter-xlsx = { path = "../filter-xlsx" }

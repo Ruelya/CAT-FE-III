@@ -218,3 +218,70 @@ bridge or duplicate the Rust matching/format rules. Asset pages must render
 the returned `items`/`matches` pages and surface typed `not_found`, `conflict`,
 and row-diagnostic `invalid_request` errors without reading SQLite or local
 exchange files from React.
+
+## PDF Review Surface
+
+### 1. Scope / Trigger
+
+Use this contract for source selection, PDF original-page review, OCR source
+correction, and PDF-to-DOCX export in the desktop workbench.
+
+### 2. Signatures
+
+DesktopApi.selectSourceDocument opens the P0 source picker. Renderer code uses
+generated pdf.page.list, pdf.page.get, pdf.correctOcr, generic document.import,
+and generic document.export method contracts.
+
+### 3. Contracts
+
+- Main owns the file dialog and accepts DOCX/XLSX/PPTX/PDF/TXT/Markdown/
+  HTML/XHTML/XLIFF extensions. Setup creates the project, then imports through
+  document.import; legacy DOCX RPCs remain compatible.
+- DocumentPreview loads page summaries first and lazily requests one PNG when
+  visible. segmentIds map the active segment to its page; React does not parse
+  the PDF structural path.
+- Original page bytes are rendered as an in-memory data URL. Renderer code
+  never receives or opens the managed source path.
+- OCR correction is available only for active OCR, non-confirmed blocks. The
+  controlled form requires source text and reason, sends expected revision, and
+  replaces grid and preview state with the returned Segment.
+- Preview and Suggestions retain docked/collapsed/maximized state and focus/
+  animation rules. PDF export suggests name-translated.docx and calls generic
+  document.export.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Source dialog canceled | Keep Setup state; do not create/import |
+| Page summary/image loading fails | Keep editor usable and show typed preview error |
+| Correction reason/source empty | Disable save; make no RPC |
+| Stale OCR revision | Show conflict; keep authoritative current state |
+| Confirmed/non-OCR block | Do not render correction command |
+| Preview collapsed | Stop page fetches, keep animated content mounted/inert |
+| Export canceled or fails | Keep workbench and surface error/toast |
+
+### 5. Good / Base / Bad Cases
+
+- Good: select scanned PDF, activate invoice block, compare original page,
+  correct OCR with a reason, translate target, maximize preview, and export.
+- Base: open text-layer PDF and navigate pages without correction controls.
+- Bad: decode paths in React, preload every page, expose filesystem APIs,
+  optimistically increment source revision, or unmount preview to collapse.
+
+### 6. Tests Required
+
+- Typecheck verifies all calls through generated contracts and the generic
+  DesktopApi method map.
+- Electron PDF E2E runs with real Engine/Poppler/Tesseract, isolated engine
+  data and Chromium user-data-dir, and asserts PNG display, confidence,
+  correction, target save, panel modes, DOCX output, and no console errors.
+- Capture and inspect docked/maximized 1920x1080 screenshots; existing
+  1250x744/1680x942/1920x1080 geometry tests remain green.
+
+### 7. Wrong Vs Correct
+
+Wrong: parse a PDF in React, derive a source revision, and mutate local state.
+
+Correct: invoke pdf.page.get and pdf.correctOcr through generated contracts,
+then replace display state with Engine responses.

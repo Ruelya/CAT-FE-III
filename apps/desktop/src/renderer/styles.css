@@ -1144,6 +1144,190 @@ button:active:not(:disabled) {
   );
 }
 
+.pdf-preview-content {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+}
+
+.pdf-preview-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  padding: 3px 10px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in oklab, var(--surface), var(--bg) 24%);
+}
+
+.pdf-page-label {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.pdf-page-picker {
+  display: flex;
+  gap: 3px;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.pdf-page-picker button {
+  display: grid;
+  width: 24px;
+  height: 22px;
+  flex: 0 0 24px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.pdf-page-picker button:hover,
+.pdf-page-picker button.active {
+  border-color: var(--line-strong);
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.pdf-preview-error {
+  margin: 0;
+  padding: 6px 10px;
+  border-bottom: 1px solid color-mix(in oklab, var(--error), transparent 70%);
+}
+
+.pdf-preview-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.9fr) minmax(260px, 1.1fr);
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.pdf-page-image {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px;
+  overflow: hidden;
+  border-right: 1px solid var(--line);
+  place-items: center;
+  color: var(--muted);
+  background:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px), var(--paper-shade);
+  background-size: 16px 16px;
+  font-size: 10px;
+}
+
+.pdf-page-image img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 100%;
+  border: 1px solid var(--line-strong);
+  background: #fff;
+  box-shadow: 0 3px 12px rgba(34, 27, 24, 0.12);
+  object-fit: contain;
+}
+
+.pdf-block-list {
+  min-width: 0;
+  min-height: 0;
+  padding: 8px;
+  overflow: auto;
+  background: color-mix(in oklab, var(--surface), var(--bg) 15%);
+}
+
+.pdf-block {
+  padding: 7px 8px;
+  border-left: 2px solid transparent;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.pdf-block.active {
+  border-left-color: var(--accent);
+  background: color-mix(in oklab, var(--surface), var(--accent) 6%);
+}
+
+.pdf-block-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  text-transform: uppercase;
+}
+
+.pdf-block-meta .ocr-confidence {
+  color: var(--machine);
+}
+
+.pdf-block > p {
+  margin: 5px 0 0;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.ocr-edit-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.ocr-correction {
+  display: grid;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.ocr-correction textarea,
+.ocr-correction input {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--surface);
+  font-size: 10px;
+}
+
+.ocr-correction textarea {
+  min-height: 58px;
+  padding: 6px;
+  resize: vertical;
+}
+
+.ocr-correction input {
+  height: 28px;
+  padding: 0 6px;
+}
+
+.ocr-correction-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.ocr-correction-actions .button {
+  min-height: 28px;
+  padding: 0 8px;
+  font-size: 9px;
+}
+
+.preview-maximized .pdf-preview-grid {
+  grid-template-columns: minmax(360px, 1fr) minmax(360px, 1fr);
+}
+
 /* Suggestions */
 .suggestions-panel {
   position: relative;

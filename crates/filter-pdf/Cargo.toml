@@ -1,0 +1,18 @@
+[package]
+name = "translunar-filter-pdf"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+csv.workspace = true
+quick-xml.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+translunar-domain = { path = "../domain" }
+translunar-filter-core = { path = "../filter-core" }
+translunar-filter-docx = { path = "../filter-docx" }
+translunar-segmentation-srx = { path = "../segmentation-srx" }
+zip.workspace = true
+

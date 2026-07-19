@@ -117,14 +117,35 @@ function registerIpc(): void {
   );
   ipcMain.handle(IPC_CHANNELS.selectSource, async (event) => {
     assertTrustedSender(event);
-    if (process.env.TRANSLUNAR_TEST_SOURCE_DOCX) {
-      return process.env.TRANSLUNAR_TEST_SOURCE_DOCX;
+    const testSource =
+      process.env.TRANSLUNAR_TEST_SOURCE ??
+      process.env.TRANSLUNAR_TEST_SOURCE_DOCX;
+    if (testSource) {
+      return testSource;
     }
     const owner = requireWindow();
     const result = await dialog.showOpenDialog(owner, {
-      title: "Import source DOCX",
+      title: "Import source document",
       properties: ["openFile"],
-      filters: [{ name: "Word documents", extensions: ["docx"] }],
+      filters: [
+        {
+          name: "Supported documents",
+          extensions: [
+            "docx",
+            "xlsx",
+            "pptx",
+            "pdf",
+            "txt",
+            "md",
+            "markdown",
+            "html",
+            "htm",
+            "xhtml",
+            "xlf",
+            "xliff",
+          ],
+        },
+      ],
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });

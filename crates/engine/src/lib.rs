@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
@@ -8,6 +9,7 @@ use std::sync::{
 use std::thread;
 use std::time::Duration;
 
+use base64::Engine as _;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -23,6 +25,7 @@ use translunar_filter_core::{
 };
 use translunar_filter_docx::DocxFilter;
 use translunar_filter_html::HtmlFilter;
+use translunar_filter_pdf::{PdfError, PdfFilter, PdfPath};
 use translunar_filter_pptx::PptxFilter;
 use translunar_filter_text::{MarkdownFilter, TxtFilter};
 use translunar_filter_xliff::XliffFilter;
@@ -34,23 +37,24 @@ use translunar_pipeline::{
 use translunar_protocol::methods;
 use translunar_protocol::{
     AssetExchangeFormat, BackupResult, ConcordanceParams, ConcordanceResult, ConfirmSegmentParams,
-    ConfirmSegmentResult, CreateBackupParams, CreatePipelineParams, CreateProjectParams,
-    DocumentIdParams, DocumentListParams, DocumentPage, EmptyParams, EmptyResult, ErrorCode,
-    ExactLookupParams, ExactLookupResult, ExportDocumentParams, ExportDocumentResult,
-    ExportDocxParams, ExportDocxResult, FilterListResult, HistoryListParams, ImportDocumentParams,
-    ImportDocumentResult, ImportDocxParams, InitializeParams, InitializeResult, ListQaParams,
-    OperationPage, PROTOCOL_VERSION, PipelineCapabilityResult, PipelineDefinitionPage,
-    PipelineIdParams, PipelineListParams, PipelineRunIdParams, PipelineRunListParams,
-    PipelineRunPage, PipelineRunRevisionParams, PipelineRunSnapshot as ProtocolPipelineRunSnapshot,
-    PipelineValidationResult, ProjectIdParams, ProjectListParams, ProjectPage, ProjectSnapshot,
-    QaListResult, RpcError, RpcRequest, RpcResponse, RunPipelineParams, SegmentListParams,
-    SegmentPage, SetProjectLifecycleParams, TermSearchParams, TermSearchResult, TermUpsertParams,
-    TermbaseCreateParams, TermbaseExportParams, TermbaseExportResult, TermbaseImportParams,
-    TermbaseImportResult, TermbaseListParams, TermbaseMountParams, TermbasePage,
-    TermbaseUnmountParams, TmExportParams, TmExportResult, TmImportParams, TmImportResult,
-    TmLibraryCreateParams, TmLibraryListParams, TmLibraryMountParams, TmLibraryPage,
-    TmLibraryUnmountParams, TmSearchParams, TmSearchResult, UpdateProjectParams,
-    UpdateTargetParams, ValidatePipelineParams,
+    ConfirmSegmentResult, CorrectOcrParams, CreateBackupParams, CreatePipelineParams,
+    CreateProjectParams, DocumentIdParams, DocumentListParams, DocumentPage, EmptyParams,
+    EmptyResult, ErrorCode, ExactLookupParams, ExactLookupResult, ExportDocumentParams,
+    ExportDocumentResult, ExportDocxParams, ExportDocxResult, FilterListResult, HistoryListParams,
+    ImportDocumentParams, ImportDocumentResult, ImportDocxParams, InitializeParams,
+    InitializeResult, ListQaParams, OperationPage, PROTOCOL_VERSION, PdfBoundingBox, PdfPageBlock,
+    PdfPageDetail, PdfPageGetParams, PdfPageListParams, PdfPageListResult, PdfPageSummary,
+    PipelineCapabilityResult, PipelineDefinitionPage, PipelineIdParams, PipelineListParams,
+    PipelineRunIdParams, PipelineRunListParams, PipelineRunPage, PipelineRunRevisionParams,
+    PipelineRunSnapshot as ProtocolPipelineRunSnapshot, PipelineValidationResult, ProjectIdParams,
+    ProjectListParams, ProjectPage, ProjectSnapshot, QaListResult, RpcError, RpcRequest,
+    RpcResponse, RunPipelineParams, SegmentListParams, SegmentPage, SetProjectLifecycleParams,
+    TermSearchParams, TermSearchResult, TermUpsertParams, TermbaseCreateParams,
+    TermbaseExportParams, TermbaseExportResult, TermbaseImportParams, TermbaseImportResult,
+    TermbaseListParams, TermbaseMountParams, TermbasePage, TermbaseUnmountParams, TmExportParams,
+    TmExportResult, TmImportParams, TmImportResult, TmLibraryCreateParams, TmLibraryListParams,
+    TmLibraryMountParams, TmLibraryPage, TmLibraryUnmountParams, TmSearchParams, TmSearchResult,
+    UpdateProjectParams, UpdateTargetParams, ValidatePipelineParams,
 };
 use translunar_storage::{
     ConcordanceRequest as StorageConcordanceRequest, NewDocument, NewPipelineDefinition,
@@ -108,6 +112,10 @@ fn validate_filter_options(options: &std::collections::BTreeMap<String, String>)
         }
     }
     Ok(())
+}
+
+fn map_pdf_service_error(error: PdfError) -> EngineError {
+    EngineError::Import(FilterError::Processing(error.to_string()))
 }
 
 fn normalize_relative_path(value: Option<&str>, source: &Path) -> Result<String> {
@@ -517,6 +525,9 @@ impl EngineService {
             .register(Arc::new(PptxFilter))
             .map_err(|error| EngineError::InvalidState(error.to_string()))?;
         filters
+            .register(Arc::new(PdfFilter))
+            .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+        filters
             .register(Arc::new(TxtFilter))
             .map_err(|error| EngineError::InvalidState(error.to_string()))?;
         filters
@@ -676,7 +687,7 @@ impl EngineService {
             })
             .map_err(EngineError::Import)?;
         let imported = collect_imported_document(stream).map_err(EngineError::Import)?;
-        if imported.units.is_empty() {
+        if imported.units.is_empty() && descriptor.id != "builtin.pdf" {
             return Err(EngineError::Import(FilterError::Invalid(
                 "document contains no translatable units".to_string(),
             )));
@@ -721,6 +732,149 @@ impl EngineService {
             offset: params.offset,
             limit,
         })
+    }
+
+    pub fn list_pdf_pages(&self, params: PdfPageListParams) -> Result<PdfPageListResult> {
+        let document = self.store.get_document(&params.document_id)?;
+        if document.document.filter_id != "builtin.pdf" {
+            return Err(EngineError::InvalidRequest(
+                "pdf.page.list requires a PDF document".to_string(),
+            ));
+        }
+        let segments = self.store.all_segments(&params.document_id)?;
+        let mut counts = BTreeMap::<u32, (u32, u32, Vec<String>)>::new();
+        for segment in &segments {
+            let path = PdfPath::decode(&segment.structural_path)
+                .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+            let count = counts.entry(path.page).or_default();
+            count.0 = count
+                .0
+                .checked_add(1)
+                .ok_or_else(|| EngineError::InvalidState("PDF block count overflow".to_string()))?;
+            if path.source_kind == "ocr" {
+                count.1 = count.1.checked_add(1).ok_or_else(|| {
+                    EngineError::InvalidState("PDF OCR block count overflow".to_string())
+                })?;
+            }
+            count.2.push(segment.id.clone());
+        }
+        let layouts = PdfFilter
+            .page_layouts(&ImportRequest::new(document.managed_source_path.clone()))
+            .map_err(map_pdf_service_error)?;
+        Ok(PdfPageListResult {
+            pages: layouts
+                .into_iter()
+                .map(|layout| {
+                    let (block_count, ocr_block_count, segment_ids) = counts
+                        .get(&layout.summary.page)
+                        .cloned()
+                        .unwrap_or_default();
+                    PdfPageSummary {
+                        page: layout.summary.page,
+                        width: layout.summary.width,
+                        height: layout.summary.height,
+                        block_count,
+                        ocr_block_count,
+                        segment_ids,
+                    }
+                })
+                .collect(),
+        })
+    }
+
+    pub fn get_pdf_page(&self, params: PdfPageGetParams) -> Result<PdfPageDetail> {
+        if !(72..=200).contains(&params.dpi) {
+            return Err(EngineError::InvalidRequest(
+                "PDF page DPI must be between 72 and 200".to_string(),
+            ));
+        }
+        let document = self.store.get_document(&params.document_id)?;
+        if document.document.filter_id != "builtin.pdf" {
+            return Err(EngineError::InvalidRequest(
+                "pdf.page.get requires a PDF document".to_string(),
+            ));
+        }
+        let layouts = PdfFilter
+            .page_layouts(&ImportRequest::new(document.managed_source_path.clone()))
+            .map_err(map_pdf_service_error)?;
+        let layout = layouts
+            .into_iter()
+            .find(|layout| layout.summary.page == params.page)
+            .ok_or_else(|| {
+                EngineError::Storage(StorageError::NotFound {
+                    entity: "pdf_page",
+                    id: params.page.to_string(),
+                })
+            })?;
+        let temporary = tempfile::Builder::new()
+            .prefix("pdf-preview-")
+            .suffix(".png")
+            .tempfile_in(&self.store.paths().temporary)?;
+        let path = temporary.path().to_path_buf();
+        drop(temporary);
+        PdfFilter
+            .render_page(
+                &document.managed_source_path,
+                params.page,
+                params.dpi,
+                &path,
+            )
+            .map_err(map_pdf_service_error)?;
+        let image = std::fs::read(&path);
+        let _ = std::fs::remove_file(&path);
+        let image = image?;
+        if image.len() > 32 * 1024 * 1024 {
+            return Err(EngineError::InvalidState(
+                "rendered PDF page exceeds the 32 MiB limit".to_string(),
+            ));
+        }
+        let mut blocks = self
+            .store
+            .all_segments(&params.document_id)?
+            .into_iter()
+            .filter_map(|segment| {
+                let path = PdfPath::decode(&segment.structural_path).ok()?;
+                (path.page == params.page).then_some((path, segment))
+            })
+            .collect::<Vec<_>>();
+        blocks.sort_by_key(|(path, _)| path.order);
+        Ok(PdfPageDetail {
+            page: params.page,
+            width: layout.summary.width,
+            height: layout.summary.height,
+            dpi: params.dpi,
+            image_png_base64: base64::engine::general_purpose::STANDARD.encode(image),
+            blocks: blocks
+                .into_iter()
+                .map(|(path, segment)| PdfPageBlock {
+                    segment_id: segment.id,
+                    revision: segment.revision,
+                    source_text: segment.source_text,
+                    target_text: segment.target_text,
+                    state: segment.state,
+                    bbox: PdfBoundingBox {
+                        x: path.x as f64 / 1000.0,
+                        y: path.y as f64 / 1000.0,
+                        width: path.width as f64 / 1000.0,
+                        height: path.height as f64 / 1000.0,
+                    },
+                    kind: path.kind,
+                    source_kind: path.source_kind,
+                    confidence: path.confidence,
+                })
+                .collect(),
+        })
+    }
+
+    pub fn correct_ocr(&mut self, params: CorrectOcrParams) -> Result<Segment> {
+        self.store
+            .correct_ocr_source(
+                &params.segment_id,
+                &params.source_text,
+                &params.reason,
+                params.expected_revision,
+            )
+            .map_err(Into::into)
     }
 
     pub fn update_target(&mut self, params: UpdateTargetParams) -> Result<Segment> {
@@ -1617,6 +1771,15 @@ impl RpcDispatcher {
                 self.service
                     .confirm_segment(parse_params(request.params)?)?,
             ),
+            methods::PDF_PAGE_LIST => {
+                serialize_result(self.service.list_pdf_pages(parse_params(request.params)?)?)
+            }
+            methods::PDF_PAGE_GET => {
+                serialize_result(self.service.get_pdf_page(parse_params(request.params)?)?)
+            }
+            methods::PDF_CORRECT_OCR => {
+                serialize_result(self.service.correct_ocr(parse_params(request.params)?)?)
+            }
             methods::TM_LOOKUP_EXACT => {
                 serialize_result(self.service.lookup_exact(parse_params(request.params)?)?)
             }
@@ -2445,6 +2608,7 @@ mod tests {
                 "builtin.docx",
                 "builtin.html",
                 "builtin.markdown",
+                "builtin.pdf",
                 "builtin.pptx",
                 "builtin.txt",
                 "builtin.xliff",

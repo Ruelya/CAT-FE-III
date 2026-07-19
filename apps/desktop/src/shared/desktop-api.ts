@@ -9,7 +9,7 @@ export interface DesktopApi {
     method: Method,
     params: EngineParams<Method>,
   ): Promise<EngineResult<Method>>;
-  selectSourceDocx(): Promise<string | null>;
+  selectSourceDocument(): Promise<string | null>;
   selectExportPath(suggestedName: string): Promise<string | null>;
   restartEngine(): Promise<void>;
 }

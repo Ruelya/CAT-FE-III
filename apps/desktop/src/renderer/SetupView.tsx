@@ -19,14 +19,16 @@ export function SetupView({ onCreated }: SetupViewProps) {
   const [error, setError] = useState<string | null>(null);
 
   const chooseSource = async () => {
-    const selected = await window.translunar.selectSourceDocx();
+    const selected = await window.translunar.selectSourceDocument();
     if (selected) setSourcePath(selected);
   };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!sourcePath) {
-      setError("Choose a source DOCX before creating the project.");
+      setError(
+        "Choose a supported source document before creating the project.",
+      );
       return;
     }
     setBusy(true);
@@ -43,11 +45,12 @@ export function SetupView({ onCreated }: SetupViewProps) {
         projectId = project.id;
         setCreatedProjectId(project.id);
       }
-      const document = await window.translunar.invoke("document.importDocx", {
+      const imported = await window.translunar.invoke("document.import", {
         projectId,
         sourcePath,
+        options: {},
       });
-      await onCreated(projectId, document.id);
+      await onCreated(projectId, imported.document.id);
     } catch (reason) {
       setError(formatError(reason));
     } finally {
@@ -130,7 +133,7 @@ export function SetupView({ onCreated }: SetupViewProps) {
               <div className="source-picker-copy">
                 <span>Source document</span>
                 <strong>
-                  {sourcePath ? fileName(sourcePath) : "No DOCX selected"}
+                  {sourcePath ? fileName(sourcePath) : "No document selected"}
                 </strong>
               </div>
               <button
@@ -158,7 +161,7 @@ export function SetupView({ onCreated }: SetupViewProps) {
         </section>
         <aside className="setup-aside">
           <div className="setup-aside-rule" />
-          <span>DOCX</span>
+          <span>DOCX · PDF · OFFICE</span>
           <span>EN → ZH-CN</span>
           <span>LOCAL</span>
         </aside>

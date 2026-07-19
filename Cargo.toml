@@ -11,6 +11,7 @@ members = [
   "crates/filter-office-core",
   "crates/filter-xlsx",
   "crates/filter-pptx",
+  "crates/filter-pdf",
   "crates/pipeline",
   "crates/protocol",
   "crates/storage",
@@ -26,6 +27,7 @@ license = "MPL-2.0"
 
 [workspace.dependencies]
 anyhow = "1.0.100"
+base64 = "0.22.1"
 csv = "1.4.0"
 chrono = { version = "0.4.42", default-features = false, features = ["clock", "serde"] }
 clap = { version = "4.5.54", features = ["derive"] }

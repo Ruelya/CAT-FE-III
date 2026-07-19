@@ -573,3 +573,94 @@ let new_index = shared_strings.len() + appended.len();
 rewrite_cell_value(sheet_xml, "B12", new_index)?;
 rebuild_package_with_raw_copy(source, changed_parts)?;
 ```
+
+## PDF/OCR Filter And Page Review Boundary
+
+### 1. Scope / Trigger
+
+Use this contract when changing PDF import, Poppler/Tesseract orchestration,
+page preview, OCR source correction, or reconstructed DOCX export. Native PDF
+and OCR parsing stays in translunar-filter-pdf; Electron never invokes tools
+or parses structural paths.
+
+### 2. Signatures
+
+The generic filter methods register builtin.pdf. Page review and OCR
+correction add these protocol-v1 methods:
+
+    pdf.page.list   PdfPageListParams -> PdfPageListResult
+    pdf.page.get    PdfPageGetParams  -> PdfPageDetail
+    pdf.correctOcr  CorrectOcrParams  -> Segment
+
+Import options are pageRange, segmentationMode, srxPath, ocrMode,
+ocrLanguages, ocrDpi, toolTimeoutMs, pdfTextCommand, pdfInfoCommand,
+pdfRenderCommand, and ocrCommand. Executables resolve from the explicit
+option, then the matching TRANSLUNAR_*_PATH environment variable, then PATH.
+
+### 3. Contracts
+
+- pdftotext -bbox-layout owns text-layer extraction, pdfinfo owns page and
+  encryption metadata, pdftoppm owns bounded PNG rendering, and Tesseract TSV
+  owns OCR words/confidence. Every tool uses Command arguments, never a shell.
+- Time, output bytes, page count, source size, page range, DPI, and language
+  options are bounded. Timeout and output overflow kill and reap the child.
+- ocrMode=auto OCRs only selected pages without meaningful text; always OCRs
+  every selected page; never retains empty scanned pages as an explicit
+  degradation rather than silently claiming translated content.
+- Structural paths encode page, deterministic block order, kind, milli-point
+  bbox, source kind, and confidence.
+- Page list/get project persisted segments and revisions. page.get renders one
+  managed-source page at 72..200 DPI and returns at most 32 MiB of PNG as
+  base64; previews are never persisted.
+- pdf.correctOcr requires a changed non-empty source, reason, expected
+  revision, OCR-origin path, and non-confirmed state. One immediate transaction
+  updates source/revision/hash, recalculates neighboring context hashes, and
+  appends a reasoned pdf.correct_ocr operation.
+- PDF export creates a no-clobber DOCX with page breaks, heading/body styles,
+  reconstructed table rows/cells, source fallback for untranslated segments,
+  and PDF page size. The staged package passes DocxFilter validation before
+  publication.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Bad header, encrypted PDF, invalid bbox/TSV, or page count outside bounds | typed unsupported_document; no document/source row |
+| Required tool missing, nonzero, timed out, or oversized | actionable import/page error naming the tool class; no page loss |
+| Invalid mode/range/language/DPI/timeout | invalid_request or typed import error before persistence |
+| pdf.page.* on non-PDF or page outside range | invalid_request or not_found |
+| Stale, non-OCR, unchanged, empty, or confirmed correction | conflict or invalid_state; no hash/history mutation |
+| Existing DOCX destination or invalid staged package | export_error; destination unchanged |
+
+Errors may include tool IDs, page numbers, counts, and exit class. They never
+include source text, OCR bodies, arbitrary stderr, or user secrets.
+
+### 5. Good / Base / Bad Cases
+
+- Good: import mixed PDF, keep text page 1, OCR page 2, restart, review PNG,
+  correct one OCR block, translate it, and export a re-importable DOCX.
+- Base: import scanned PDF with ocrMode=never; persist a zero-segment PDF with
+  explicit degradation and page preview.
+- Bad: parse PDF in Electron, silently skip a scanned page when OCR is missing,
+  mutate a confirmed source, or overwrite an export.
+
+### 6. Tests Required
+
+- Filter tests use real text/scanned/mixed fixtures and assert column order,
+  tables, geometry, auto/always/never, page range, language/DPI, missing tools,
+  malformed options, no-clobber, and DOCX re-import.
+- Storage tests assert source/context hashes, neighbor recalculation, conflict,
+  reasoned history, and confirmed/non-OCR rejection.
+- Stdio smoke covers registration, restart, page PNG, OCR correction, stale
+  conflict, DOCX export, no-clobber, and DOCX re-import.
+- Electron E2E under Node 22 plus Poppler/Tesseract covers import, page/block
+  comparison, correction, target edit, panel modes, export, and console errors.
+- Render fixture and reconstructed pages to PNG and inspect nonblank,
+  non-overlapping output at supported desktop sizes.
+
+### 7. Wrong Vs Correct
+
+Wrong: the renderer runs OCR, changes sourceText, and increments revision.
+
+Correct: the renderer calls pdf.correctOcr with segmentId, sourceText, reason,
+and expectedRevision, then replaces display state with the returned Segment.

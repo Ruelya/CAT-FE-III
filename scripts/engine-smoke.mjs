@@ -23,6 +23,9 @@ async function main() {
         : "translunar-engine",
     );
   const fixture = join(root, "fixtures", "docx", "m0-source.docx");
+  const pdfTextPath = join(root, "fixtures", "pdf", "text-layout.pdf");
+  const pdfScannedPath = join(root, "fixtures", "pdf", "scanned.pdf");
+  const pdfMixedPath = join(root, "fixtures", "pdf", "mixed.pdf");
   if (!existsSync(binary))
     throw new Error(`Engine binary not found: ${binary}`);
   if (!existsSync(fixture))
@@ -52,6 +55,9 @@ async function main() {
   const xliffOutputPath = join(dataDirectory, "translated.xlf");
   const xlsxOutputPath = join(dataDirectory, "translated.xlsx");
   const pptxOutputPath = join(dataDirectory, "translated.pptx");
+  const pdfTextOutputPath = join(dataDirectory, "text-layout-translated.docx");
+  const pdfScannedOutputPath = join(dataDirectory, "scanned-translated.docx");
+  const pdfMixedOutputPath = join(dataDirectory, "mixed-translated.docx");
   let processHandle;
 
   try {
@@ -164,6 +170,30 @@ async function main() {
         outputPath: pptxOutputPath,
         expectedSegments: 2,
       },
+      {
+        sourcePath: pdfTextPath,
+        filterId: "builtin.pdf",
+        targetText: "保留与付款条款",
+        outputPath: pdfTextOutputPath,
+        options: { ocrMode: "never" },
+        minimumSegments: 10,
+      },
+      {
+        sourcePath: pdfScannedPath,
+        filterId: "builtin.pdf",
+        targetText: "扫描服务通知",
+        outputPath: pdfScannedOutputPath,
+        options: { ocrMode: "auto", ocrLanguages: "eng", ocrDpi: "200" },
+        minimumSegments: 3,
+      },
+      {
+        sourcePath: pdfMixedPath,
+        filterId: "builtin.pdf",
+        targetText: "混合 PDF 文本页",
+        outputPath: pdfMixedOutputPath,
+        options: { ocrMode: "auto", ocrLanguages: "eng", ocrDpi: "200" },
+        minimumSegments: 5,
+      },
     ];
     const formatDocuments = [];
     for (const formatCase of formatCases) {
@@ -181,10 +211,20 @@ async function main() {
         offset: 0,
         limit: 200,
       });
-      assert(
-        formatSegments.items.length === formatCase.expectedSegments,
-        `${formatCase.filterId} should produce segments`,
-      );
+      if (formatCase.expectedSegments !== undefined) {
+        assert(
+          formatSegments.items.length === formatCase.expectedSegments,
+          "format filter should produce the expected segments",
+        );
+      } else {
+        assert(
+          formatSegments.items.length >= formatCase.minimumSegments,
+          "PDF block count mismatch: " +
+            formatCase.sourcePath +
+            " produced " +
+            formatSegments.items.length,
+        );
+      }
       await processHandle.call("segment.updateTarget", {
         segmentId: formatSegments.items[0].id,
         targetText: formatCase.targetText,
@@ -193,6 +233,8 @@ async function main() {
       formatDocuments.push({
         documentId: formatImport.document.id,
         outputPath: formatCase.outputPath,
+        sourcePath: formatCase.sourcePath,
+        filterId: formatCase.filterId,
       });
     }
     writeFileSync(malformedXliffPath, '<xliff version="2.1"><file>', "utf8");
@@ -431,7 +473,7 @@ async function main() {
     });
     const filters = await processHandle.call("filter.list", {});
     assert(
-      filters.filters.length === 7,
+      filters.filters.length === 8,
       "all built-in filters should register",
     );
     assert(
@@ -439,6 +481,7 @@ async function main() {
         "builtin.docx",
         "builtin.html",
         "builtin.markdown",
+        "builtin.pdf",
         "builtin.pptx",
         "builtin.txt",
         "builtin.xliff",
@@ -451,7 +494,7 @@ async function main() {
       offset: 0,
       limit: 50,
     });
-    assert(documents.total === 8, "eight logical documents should be listed");
+    assert(documents.total === 11, "eleven logical documents should be listed");
     const page = await processHandle.call("segment.list", {
       documentId: document.id,
       offset: 0,
@@ -521,6 +564,58 @@ async function main() {
       assert(
         recoveredFormat.items[0].targetText.length > 0,
         "format draft should recover after restart",
+      );
+    }
+    const scannedPdfDocument = formatDocuments.find(
+      (item) => item.sourcePath === pdfScannedPath,
+    );
+    assert(scannedPdfDocument, "scanned PDF document should be retained");
+    const pdfPages = await processHandle.call("pdf.page.list", {
+      documentId: scannedPdfDocument.documentId,
+    });
+    assert(
+      pdfPages.pages.length === 1 &&
+        pdfPages.pages[0].ocrBlockCount >= 3 &&
+        pdfPages.pages[0].width > 500,
+      "PDF page list should project stored OCR blocks and page geometry",
+    );
+    const pdfPage = await processHandle.call("pdf.page.get", {
+      documentId: scannedPdfDocument.documentId,
+      page: 1,
+      dpi: 144,
+    });
+    assert(
+      pdfPage.imagePngBase64.startsWith("iVBOR") &&
+        pdfPage.blocks.every((block) => block.sourceKind === "ocr"),
+      "PDF page get should return a real PNG and OCR block projection",
+    );
+    const correctedBlock = pdfPage.blocks.find((block) =>
+      block.sourceText.includes("INV-2048"),
+    );
+    assert(correctedBlock, "OCR invoice block should be available");
+    const correctedOcr = await processHandle.call("pdf.correctOcr", {
+      segmentId: correctedBlock.segmentId,
+      sourceText: correctedBlock.sourceText.replace("unchanged.", "unchanged!"),
+      reason: "Verified against original scan",
+      expectedRevision: correctedBlock.revision,
+    });
+    assert(
+      correctedOcr.sourceText.endsWith("unchanged!") &&
+        correctedOcr.revision === correctedBlock.revision + 1,
+      "OCR correction should update source and revision atomically",
+    );
+    try {
+      await processHandle.call("pdf.correctOcr", {
+        segmentId: correctedBlock.segmentId,
+        sourceText: correctedBlock.sourceText,
+        reason: "Stale retry",
+        expectedRevision: correctedBlock.revision,
+      });
+      throw new Error("stale OCR correction unexpectedly succeeded");
+    } catch (error) {
+      assert(
+        error?.code === "conflict",
+        "stale OCR correction should conflict",
       );
     }
     try {
@@ -645,6 +740,13 @@ async function main() {
       history.total >= 6,
       "project and segment operations should be recorded",
     );
+    const ocrHistory = history.items.find(
+      (operation) => operation.kind === "pdf.correct_ocr",
+    );
+    assert(
+      ocrHistory?.after?.reason === "Verified against original scan",
+      "OCR correction history should retain the required reason",
+    );
     const health = await processHandle.call("data.checkHealth", {});
     assert(health.healthy, "valid workspace should pass health check");
     const backup = await processHandle.call("data.createBackup", {
@@ -689,6 +791,32 @@ async function main() {
         "format export should be non-empty",
       );
     }
+    try {
+      await processHandle.call("document.export", {
+        documentId: scannedPdfDocument.documentId,
+        outputPath: pdfScannedOutputPath,
+      });
+      throw new Error("PDF export unexpectedly replaced an existing file");
+    } catch (error) {
+      assert(error?.code === "export_error", "PDF export should not clobber");
+    }
+    const reconstructedPdf = await processHandle.call("document.import", {
+      projectId: project.id,
+      sourcePath: pdfTextOutputPath,
+    });
+    assert(
+      reconstructedPdf.filterId === "builtin.docx",
+      "reconstructed PDF output should re-import as DOCX",
+    );
+    const reconstructedSegments = await processHandle.call("segment.list", {
+      documentId: reconstructedPdf.document.id,
+      offset: 0,
+      limit: 200,
+    });
+    assert(
+      reconstructedSegments.items.length >= 10,
+      "reconstructed DOCX should retain PDF block order",
+    );
     const textOutput = readFileSync(textOutputPath, "utf8");
     assert(
       textOutput.includes("第一句。") &&

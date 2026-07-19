@@ -2408,6 +2408,122 @@ impl Store {
         Ok(updated)
     }
 
+    pub fn correct_ocr_source(
+        &mut self,
+        segment_id: &str,
+        source_text: &str,
+        reason: &str,
+        expected_revision: u64,
+    ) -> Result<Segment> {
+        require_nonempty("OCR source text", source_text)?;
+        require_nonempty("OCR correction reason", reason)?;
+        if source_text.len() > 1_000_000 || reason.len() > 4_096 {
+            return Err(StorageError::InvalidState(
+                "OCR correction text or reason exceeds the configured limit".to_string(),
+            ));
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current = find_segment(&transaction, segment_id)?;
+        ensure_revision(&current, expected_revision)?;
+        if current.state == SegmentState::Confirmed {
+            return Err(StorageError::InvalidState(
+                "a confirmed segment source cannot be corrected".to_string(),
+            ));
+        }
+        if !current.structural_path.contains(";s=ocr;") {
+            return Err(StorageError::InvalidState(
+                "only OCR-origin segment sources can be corrected".to_string(),
+            ));
+        }
+        if current.source_text == source_text {
+            return Err(StorageError::InvalidState(
+                "OCR correction must change the source text".to_string(),
+            ));
+        }
+        let mut statement = transaction.prepare(
+            "SELECT id, document_id, ordinal, structural_path, source_text, target_text,
+                    state, revision, source_hash, context_hash, updated_at_ms
+             FROM segments WHERE document_id = ?1 ORDER BY ordinal",
+        )?;
+        let mut segments = statement
+            .query_map([&current.document_id], row_to_segment)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(statement);
+        let index = segments
+            .iter()
+            .position(|segment| segment.id == segment_id)
+            .ok_or_else(|| not_found("segment", segment_id))?;
+        segments[index].source_text = source_text.to_string();
+        let next_revision = current
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| StorageError::InvalidData("segment revision overflow".to_string()))?;
+        let updated_at_ms = now_ms();
+        for affected in index.saturating_sub(1)..=(index + 1).min(segments.len() - 1) {
+            let previous = affected
+                .checked_sub(1)
+                .and_then(|position| segments.get(position))
+                .map(|segment| segment.source_text.as_str());
+            let next = segments
+                .get(affected + 1)
+                .map(|segment| segment.source_text.as_str());
+            let (source_hash, context_hash) =
+                segment_hashes(&segments[affected].source_text, previous, next);
+            if affected == index {
+                let changed = transaction.execute(
+                    "UPDATE segments
+                     SET source_text = ?1, source_hash = ?2, context_hash = ?3,
+                         revision = ?4, updated_at_ms = ?5
+                     WHERE id = ?6 AND revision = ?7",
+                    params![
+                        source_text,
+                        source_hash,
+                        context_hash,
+                        to_i64(next_revision)?,
+                        updated_at_ms,
+                        segment_id,
+                        to_i64(expected_revision)?,
+                    ],
+                )?;
+                if changed != 1 {
+                    let actual = find_segment(&transaction, segment_id)?.revision;
+                    return Err(StorageError::Conflict {
+                        segment_id: segment_id.to_string(),
+                        expected_revision,
+                        actual_revision: actual,
+                    });
+                }
+            } else {
+                transaction.execute(
+                    "UPDATE segments SET context_hash = ?1 WHERE id = ?2",
+                    params![context_hash, segments[affected].id],
+                )?;
+            }
+        }
+        let updated = find_segment(&transaction, segment_id)?;
+        let project_id = project_id_for_segment(&transaction, segment_id)?;
+        append_operation(
+            &transaction,
+            &project_id,
+            "segment",
+            segment_id,
+            "pdf.correct_ocr",
+            Some(current.revision),
+            Some(updated.revision),
+            LEGACY_DESKTOP_ACTOR,
+            None,
+            Some(serde_json::to_value(&current)?),
+            Some(serde_json::json!({
+                "segment": updated,
+                "reason": reason,
+            })),
+        )?;
+        transaction.commit()?;
+        Ok(updated)
+    }
+
     pub fn confirm_segment(
         &mut self,
         segment_id: &str,
@@ -4799,6 +4915,76 @@ mod tests {
                 found,
                 supported
             } if found == LATEST_SCHEMA_VERSION + 1 && supported == LATEST_SCHEMA_VERSION
+        ));
+    }
+
+    #[test]
+    fn corrects_ocr_source_atomically_and_recalculates_neighbor_context() {
+        let temp = tempfile::tempdir().expect("temporary directory");
+        let mut store = Store::open(temp.path()).expect("open store");
+        let project = store
+            .create_project("PDF", "en", "zh", "legal")
+            .expect("create project");
+        let document_id = new_id();
+        let input = NewDocument {
+            id: document_id.clone(),
+            project_id: project.id.clone(),
+            name: "scan.pdf".to_string(),
+            relative_path: "scan.pdf".to_string(),
+            format: "pdf".to_string(),
+            filter_id: "builtin.pdf".to_string(),
+            source_sha256: "pdf-digest".to_string(),
+            degradation: Vec::new(),
+            original_source_path: temp.path().join("scan.pdf"),
+            managed_source_path: store.paths().managed_source(&document_id, "pdf"),
+        };
+        let units = vec![
+            ImportedUnit::plain(
+                0,
+                "pdf:p=1;b=0;k=paragraph;x=1;y=1;w=10;h=10;s=ocr;c=900",
+                "First",
+            ),
+            ImportedUnit::plain(
+                1,
+                "pdf:p=1;b=1;k=paragraph;x=1;y=2;w=10;h=10;s=ocr;c=900",
+                "INV-2048 unchanged.",
+            ),
+            ImportedUnit::plain(
+                2,
+                "pdf:p=1;b=2;k=paragraph;x=1;y=3;w=10;h=10;s=ocr;c=900",
+                "Last",
+            ),
+        ];
+        let document = store.insert_document(&input, &units).expect("insert PDF");
+        let before = store.all_segments(&document.id).expect("segments");
+        let corrected = store
+            .correct_ocr_source(
+                &before[1].id,
+                "INV-2048 unchanged!",
+                "verified scan",
+                before[1].revision,
+            )
+            .expect("correct OCR");
+        assert_eq!(corrected.revision, before[1].revision + 1);
+        assert_ne!(corrected.source_hash, before[1].source_hash);
+        let after = store.all_segments(&document.id).expect("segments after");
+        assert_ne!(after[0].context_hash, before[0].context_hash);
+        assert_ne!(after[2].context_hash, before[2].context_hash);
+        let (history, _) = store
+            .list_operations(&project.id, 0, 50, false)
+            .expect("history");
+        assert!(history.iter().any(|operation| {
+            operation.kind == "pdf.correct_ocr"
+                && operation
+                    .after
+                    .as_ref()
+                    .and_then(|value| value.get("reason"))
+                    .and_then(Value::as_str)
+                    == Some("verified scan")
+        }));
+        assert!(matches!(
+            store.correct_ocr_source(&corrected.id, "stale", "stale", before[1].revision,),
+            Err(StorageError::Conflict { .. })
         ));
     }
 

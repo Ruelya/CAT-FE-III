@@ -425,71 +425,74 @@ export interface ListQaParams {
   [k: string]: unknown;
 }
 export interface RpcMethodCatalog {
-  "data.checkHealth": MethodContract37;
-  "data.createBackup": MethodContract38;
-  "document.export": MethodContract34;
-  "document.exportDocx": MethodContract33;
+  "data.checkHealth": MethodContract40;
+  "data.createBackup": MethodContract41;
+  "document.export": MethodContract37;
+  "document.exportDocx": MethodContract36;
   "document.get": MethodContract8;
   "document.import": MethodContract9;
   "document.importDocx": MethodContract10;
   "document.list": MethodContract7;
   "engine.initialize": MethodContract;
-  "filter.list": MethodContract35;
-  "history.list": MethodContract36;
-  "pipeline.create": MethodContract40;
-  "pipeline.get": MethodContract42;
-  "pipeline.list": MethodContract41;
-  "pipeline.run": MethodContract44;
-  "pipeline.run.cancel": MethodContract47;
-  "pipeline.run.get": MethodContract46;
-  "pipeline.run.list": MethodContract45;
-  "pipeline.run.resume": MethodContract47;
-  "pipeline.step.list": MethodContract39;
-  "pipeline.validate": MethodContract43;
+  "filter.list": MethodContract38;
+  "history.list": MethodContract39;
+  "pdf.correctOcr": MethodContract16;
+  "pdf.page.get": MethodContract15;
+  "pdf.page.list": MethodContract14;
+  "pipeline.create": MethodContract43;
+  "pipeline.get": MethodContract45;
+  "pipeline.list": MethodContract44;
+  "pipeline.run": MethodContract47;
+  "pipeline.run.cancel": MethodContract50;
+  "pipeline.run.get": MethodContract49;
+  "pipeline.run.list": MethodContract48;
+  "pipeline.run.resume": MethodContract50;
+  "pipeline.step.list": MethodContract42;
+  "pipeline.validate": MethodContract46;
   "project.create": MethodContract2;
   "project.get": MethodContract3;
   "project.list": MethodContract4;
   "project.setLifecycle": MethodContract6;
   "project.update": MethodContract5;
-  "qa.list": MethodContract32;
-  "qa.runDocument": MethodContract31;
+  "qa.list": MethodContract35;
+  "qa.runDocument": MethodContract34;
   "segment.confirm": MethodContract13;
   "segment.list": MethodContract11;
   "segment.updateTarget": MethodContract12;
-  "term.search": MethodContract27;
-  "term.upsert": MethodContract28;
-  "termbase.create": MethodContract24;
-  "termbase.export": MethodContract30;
-  "termbase.import": MethodContract29;
-  "termbase.list": MethodContract23;
-  "termbase.mount": MethodContract25;
-  "termbase.unmount": MethodContract26;
-  "tm.concordance": MethodContract20;
-  "tm.export": MethodContract22;
-  "tm.import": MethodContract21;
-  "tm.library.create": MethodContract16;
-  "tm.library.list": MethodContract15;
-  "tm.library.mount": MethodContract17;
-  "tm.library.unmount": MethodContract18;
-  "tm.lookupExact": MethodContract14;
-  "tm.search": MethodContract19;
+  "term.search": MethodContract30;
+  "term.upsert": MethodContract31;
+  "termbase.create": MethodContract27;
+  "termbase.export": MethodContract33;
+  "termbase.import": MethodContract32;
+  "termbase.list": MethodContract26;
+  "termbase.mount": MethodContract28;
+  "termbase.unmount": MethodContract29;
+  "tm.concordance": MethodContract23;
+  "tm.export": MethodContract25;
+  "tm.import": MethodContract24;
+  "tm.library.create": MethodContract19;
+  "tm.library.list": MethodContract18;
+  "tm.library.mount": MethodContract20;
+  "tm.library.unmount": MethodContract21;
+  "tm.lookupExact": MethodContract17;
+  "tm.search": MethodContract22;
 }
-export interface MethodContract37 {
+export interface MethodContract40 {
   params: EmptyParams;
   result: DataHealthReport;
   [k: string]: unknown;
 }
-export interface MethodContract38 {
+export interface MethodContract41 {
   params: CreateBackupParams;
   result: BackupResult;
   [k: string]: unknown;
 }
-export interface MethodContract34 {
+export interface MethodContract37 {
   params: ExportDocumentParams;
   result: ExportDocumentResult;
   [k: string]: unknown;
 }
-export interface MethodContract33 {
+export interface MethodContract36 {
   params: ExportDocxParams;
   result: ExportDocxResult;
   [k: string]: unknown;
@@ -519,12 +522,12 @@ export interface MethodContract {
   result: InitializeResult;
   [k: string]: unknown;
 }
-export interface MethodContract35 {
+export interface MethodContract38 {
   params: EmptyParams;
   result: FilterListResult;
   [k: string]: unknown;
 }
-export interface MethodContract36 {
+export interface MethodContract39 {
   params: HistoryListParams;
   result: OperationPage;
   [k: string]: unknown;
@@ -556,7 +559,80 @@ export interface Operation {
   sequence: number;
   [k: string]: unknown;
 }
-export interface MethodContract40 {
+export interface MethodContract16 {
+  params: CorrectOcrParams;
+  result: Segment;
+  [k: string]: unknown;
+}
+export interface CorrectOcrParams {
+  expectedRevision: number;
+  reason: string;
+  segmentId: string;
+  sourceText: string;
+  [k: string]: unknown;
+}
+export interface MethodContract15 {
+  params: PdfPageGetParams;
+  result: PdfPageDetail;
+  [k: string]: unknown;
+}
+export interface PdfPageGetParams {
+  documentId: string;
+  dpi?: number;
+  page: number;
+  [k: string]: unknown;
+}
+export interface PdfPageDetail {
+  blocks: PdfPageBlock[];
+  dpi: number;
+  height: number;
+  imagePngBase64: string;
+  page: number;
+  width: number;
+  [k: string]: unknown;
+}
+export interface PdfPageBlock {
+  bbox: PdfBoundingBox;
+  confidence: number;
+  kind: string;
+  revision: number;
+  segmentId: string;
+  sourceKind: string;
+  sourceText: string;
+  state: SegmentState;
+  targetText: string;
+  [k: string]: unknown;
+}
+export interface PdfBoundingBox {
+  height: number;
+  width: number;
+  x: number;
+  y: number;
+  [k: string]: unknown;
+}
+export interface MethodContract14 {
+  params: PdfPageListParams;
+  result: PdfPageListResult;
+  [k: string]: unknown;
+}
+export interface PdfPageListParams {
+  documentId: string;
+  [k: string]: unknown;
+}
+export interface PdfPageListResult {
+  pages: PdfPageSummary[];
+  [k: string]: unknown;
+}
+export interface PdfPageSummary {
+  blockCount: number;
+  height: number;
+  ocrBlockCount: number;
+  page: number;
+  segmentIds: string[];
+  width: number;
+  [k: string]: unknown;
+}
+export interface MethodContract43 {
   params: CreatePipelineParams;
   result: PipelineDefinition;
   [k: string]: unknown;
@@ -572,7 +648,7 @@ export interface PipelineDefinition {
   version: number;
   [k: string]: unknown;
 }
-export interface MethodContract42 {
+export interface MethodContract45 {
   params: PipelineIdParams;
   result: PipelineDefinition;
   [k: string]: unknown;
@@ -581,7 +657,7 @@ export interface PipelineIdParams {
   pipelineId: string;
   [k: string]: unknown;
 }
-export interface MethodContract41 {
+export interface MethodContract44 {
   params: PipelineListParams;
   result: PipelineDefinitionPage;
   [k: string]: unknown;
@@ -599,7 +675,7 @@ export interface PipelineDefinitionPage {
   total: number;
   [k: string]: unknown;
 }
-export interface MethodContract44 {
+export interface MethodContract47 {
   params: RunPipelineParams;
   result: PipelineRunSnapshot;
   [k: string]: unknown;
@@ -673,7 +749,7 @@ export interface PipelineStepRun {
   };
   [k: string]: unknown;
 }
-export interface MethodContract47 {
+export interface MethodContract50 {
   params: PipelineRunRevisionParams;
   result: PipelineRunSnapshot;
   [k: string]: unknown;
@@ -683,7 +759,7 @@ export interface PipelineRunRevisionParams {
   runId: string;
   [k: string]: unknown;
 }
-export interface MethodContract46 {
+export interface MethodContract49 {
   params: PipelineRunIdParams;
   result: PipelineRunSnapshot;
   [k: string]: unknown;
@@ -692,7 +768,7 @@ export interface PipelineRunIdParams {
   runId: string;
   [k: string]: unknown;
 }
-export interface MethodContract45 {
+export interface MethodContract48 {
   params: PipelineRunListParams;
   result: PipelineRunPage;
   [k: string]: unknown;
@@ -710,7 +786,7 @@ export interface PipelineRunPage {
   total: number;
   [k: string]: unknown;
 }
-export interface MethodContract39 {
+export interface MethodContract42 {
   params: EmptyParams;
   result: PipelineCapabilityResult;
   [k: string]: unknown;
@@ -731,7 +807,7 @@ export interface StepDescriptor {
   version: string;
   [k: string]: unknown;
 }
-export interface MethodContract43 {
+export interface MethodContract46 {
   params: ValidatePipelineParams;
   result: PipelineValidationResult;
   [k: string]: unknown;
@@ -842,7 +918,7 @@ export interface ProjectConfiguration1 {
   templateId?: string | null;
   [k: string]: unknown;
 }
-export interface MethodContract32 {
+export interface MethodContract35 {
   params: ListQaParams;
   result: QaListResult;
   [k: string]: unknown;
@@ -851,7 +927,7 @@ export interface QaListResult {
   issues: QaIssue[];
   [k: string]: unknown;
 }
-export interface MethodContract31 {
+export interface MethodContract34 {
   params: DocumentIdParams;
   result: QaListResult;
   [k: string]: unknown;
@@ -890,7 +966,7 @@ export interface UpdateTargetParams {
   targetText: string;
   [k: string]: unknown;
 }
-export interface MethodContract27 {
+export interface MethodContract30 {
   params: TermSearchParams;
   result: TermSearchResult;
   [k: string]: unknown;
@@ -930,7 +1006,7 @@ export interface TermTranslation {
   updatedAtMs: number;
   [k: string]: unknown;
 }
-export interface MethodContract28 {
+export interface MethodContract31 {
   params: TermUpsertParams;
   result: TermEntry;
   [k: string]: unknown;
@@ -970,7 +1046,7 @@ export interface TermEntry {
   updatedAtMs: number;
   [k: string]: unknown;
 }
-export interface MethodContract24 {
+export interface MethodContract27 {
   params: TermbaseCreateParams;
   result: Termbase;
   [k: string]: unknown;
@@ -993,7 +1069,7 @@ export interface Termbase {
   writable: boolean;
   [k: string]: unknown;
 }
-export interface MethodContract30 {
+export interface MethodContract33 {
   params: TermbaseExportParams;
   result: TermbaseExportResult;
   [k: string]: unknown;
@@ -1011,7 +1087,7 @@ export interface TermbaseExportResult {
   termbaseId: string;
   [k: string]: unknown;
 }
-export interface MethodContract29 {
+export interface MethodContract32 {
   params: TermbaseImportParams;
   result: TermbaseImportResult;
   [k: string]: unknown;
@@ -1031,7 +1107,7 @@ export interface TermbaseImportResult {
   termbaseId: string;
   [k: string]: unknown;
 }
-export interface MethodContract23 {
+export interface MethodContract26 {
   params: TermbaseListParams;
   result: TermbasePage;
   [k: string]: unknown;
@@ -1061,7 +1137,7 @@ export interface TermbaseMount {
   writable: boolean;
   [k: string]: unknown;
 }
-export interface MethodContract25 {
+export interface MethodContract28 {
   params: TermbaseMountParams;
   result: TermbaseMount;
   [k: string]: unknown;
@@ -1075,7 +1151,7 @@ export interface TermbaseMountParams {
   writable?: boolean;
   [k: string]: unknown;
 }
-export interface MethodContract26 {
+export interface MethodContract29 {
   params: TermbaseUnmountParams;
   result: EmptyResult;
   [k: string]: unknown;
@@ -1089,12 +1165,12 @@ export interface TermbaseUnmountParams {
 export interface EmptyResult {
   [k: string]: unknown;
 }
-export interface MethodContract20 {
+export interface MethodContract23 {
   params: ConcordanceParams;
   result: ConcordanceResult;
   [k: string]: unknown;
 }
-export interface MethodContract22 {
+export interface MethodContract25 {
   params: TmExportParams;
   result: TmExportResult;
   [k: string]: unknown;
@@ -1111,7 +1187,7 @@ export interface TmExportResult {
   unitCount: number;
   [k: string]: unknown;
 }
-export interface MethodContract21 {
+export interface MethodContract24 {
   params: TmImportParams;
   result: TmImportResult;
   [k: string]: unknown;
@@ -1131,7 +1207,7 @@ export interface TmImportResult {
   skipped: number;
   [k: string]: unknown;
 }
-export interface MethodContract16 {
+export interface MethodContract19 {
   params: TmLibraryCreateParams;
   result: TmLibrary;
   [k: string]: unknown;
@@ -1157,7 +1233,7 @@ export interface TmLibrary {
   writable: boolean;
   [k: string]: unknown;
 }
-export interface MethodContract15 {
+export interface MethodContract18 {
   params: TmLibraryListParams;
   result: TmLibraryPage;
   [k: string]: unknown;
@@ -1187,7 +1263,7 @@ export interface TmLibraryMount {
   updatedAtMs: number;
   [k: string]: unknown;
 }
-export interface MethodContract17 {
+export interface MethodContract20 {
   params: TmLibraryMountParams;
   result: TmLibraryMount;
   [k: string]: unknown;
@@ -1201,7 +1277,7 @@ export interface TmLibraryMountParams {
   projectId: string;
   [k: string]: unknown;
 }
-export interface MethodContract18 {
+export interface MethodContract21 {
   params: TmLibraryUnmountParams;
   result: EmptyResult;
   [k: string]: unknown;
@@ -1212,12 +1288,12 @@ export interface TmLibraryUnmountParams {
   projectId: string;
   [k: string]: unknown;
 }
-export interface MethodContract14 {
+export interface MethodContract17 {
   params: ExactLookupParams;
   result: ExactLookupResult;
   [k: string]: unknown;
 }
-export interface MethodContract19 {
+export interface MethodContract22 {
   params: TmSearchParams;
   result: TmSearchResult;
   [k: string]: unknown;

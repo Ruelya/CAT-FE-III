@@ -9,7 +9,7 @@ use translunar_asset_core::{
 };
 use translunar_domain::{
     BackupManifest, DataHealthReport, DegradationFinding, Document, Operation, Project,
-    ProjectConfiguration, ProjectLifecycle, QaIssue, Segment, SegmentCounts, TmEntry,
+    ProjectConfiguration, ProjectLifecycle, QaIssue, Segment, SegmentCounts, SegmentState, TmEntry,
 };
 use translunar_filter_core::FilterDescriptor;
 use translunar_pipeline::{
@@ -33,6 +33,9 @@ pub mod methods {
     pub const SEGMENT_LIST: &str = "segment.list";
     pub const SEGMENT_UPDATE_TARGET: &str = "segment.updateTarget";
     pub const SEGMENT_CONFIRM: &str = "segment.confirm";
+    pub const PDF_PAGE_LIST: &str = "pdf.page.list";
+    pub const PDF_PAGE_GET: &str = "pdf.page.get";
+    pub const PDF_CORRECT_OCR: &str = "pdf.correctOcr";
     pub const TM_LOOKUP_EXACT: &str = "tm.lookupExact";
     pub const TM_LIBRARY_LIST: &str = "tm.library.list";
     pub const TM_LIBRARY_CREATE: &str = "tm.library.create";
@@ -256,6 +259,85 @@ pub struct SegmentListParams {
     pub offset: u32,
     #[serde(default = "default_page_size")]
     pub limit: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfPageListParams {
+    pub document_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfPageGetParams {
+    pub document_id: String,
+    pub page: u32,
+    #[serde(default = "default_pdf_dpi")]
+    pub dpi: u32,
+}
+
+fn default_pdf_dpi() -> u32 {
+    144
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CorrectOcrParams {
+    pub segment_id: String,
+    pub source_text: String,
+    pub reason: String,
+    pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfPageSummary {
+    pub page: u32,
+    pub width: f64,
+    pub height: f64,
+    pub block_count: u32,
+    pub ocr_block_count: u32,
+    pub segment_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfPageListResult {
+    pub pages: Vec<PdfPageSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfBoundingBox {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfPageBlock {
+    pub segment_id: String,
+    pub revision: u64,
+    pub source_text: String,
+    pub target_text: String,
+    pub state: SegmentState,
+    pub bbox: PdfBoundingBox,
+    pub kind: String,
+    pub source_kind: String,
+    pub confidence: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfPageDetail {
+    pub page: u32,
+    pub width: f64,
+    pub height: f64,
+    pub dpi: u32,
+    pub image_png_base64: String,
+    pub blocks: Vec<PdfPageBlock>,
 }
 
 fn default_page_size() -> u32 {
@@ -895,6 +977,12 @@ pub struct RpcMethodCatalog {
     pub segment_update_target: MethodContract<UpdateTargetParams, Segment>,
     #[serde(rename = "segment.confirm")]
     pub segment_confirm: MethodContract<ConfirmSegmentParams, ConfirmSegmentResult>,
+    #[serde(rename = "pdf.page.list")]
+    pub pdf_page_list: MethodContract<PdfPageListParams, PdfPageListResult>,
+    #[serde(rename = "pdf.page.get")]
+    pub pdf_page_get: MethodContract<PdfPageGetParams, PdfPageDetail>,
+    #[serde(rename = "pdf.correctOcr")]
+    pub pdf_correct_ocr: MethodContract<CorrectOcrParams, Segment>,
     #[serde(rename = "tm.lookupExact")]
     pub tm_lookup_exact: MethodContract<ExactLookupParams, ExactLookupResult>,
     #[serde(rename = "tm.library.list")]

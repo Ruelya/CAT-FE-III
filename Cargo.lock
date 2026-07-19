@@ -89,6 +89,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
+name = "base64"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+
+[[package]]
 name = "bitflags"
 version = "2.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -998,6 +1004,7 @@ name = "translunar-engine"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64",
  "clap",
  "serde",
  "serde_json",
@@ -1011,8 +1018,11 @@ dependencies = [
  "translunar-filter-core",
  "translunar-filter-docx",
  "translunar-filter-html",
+ "translunar-filter-pdf",
+ "translunar-filter-pptx",
  "translunar-filter-text",
  "translunar-filter-xliff",
+ "translunar-filter-xlsx",
  "translunar-pipeline",
  "translunar-protocol",
  "translunar-storage",
@@ -1040,6 +1050,7 @@ dependencies = [
  "thiserror",
  "translunar-domain",
  "translunar-filter-core",
+ "translunar-filter-office-core",
  "zip",
 ]
 
@@ -1065,10 +1076,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "translunar-filter-pdf"
+version = "0.1.0"
+dependencies = [
+ "csv",
+ "quick-xml",
+ "tempfile",
+ "thiserror",
+ "translunar-domain",
+ "translunar-filter-core",
+ "translunar-filter-docx",
+ "translunar-segmentation-srx",
+ "zip",
+]
+
+[[package]]
 name = "translunar-filter-pptx"
 version = "0.1.0"
 dependencies = [
  "quick-xml",
+ "tempfile",
  "thiserror",
  "translunar-domain",
  "translunar-filter-core",
@@ -1103,6 +1130,7 @@ name = "translunar-filter-xlsx"
 version = "0.1.0"
 dependencies = [
  "quick-xml",
+ "tempfile",
  "thiserror",
  "translunar-domain",
  "translunar-filter-core",

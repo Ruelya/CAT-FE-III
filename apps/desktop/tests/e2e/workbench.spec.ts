@@ -40,7 +40,11 @@ async function launchHarness(label: string): Promise<ElectronHarness> {
     );
   const consoleErrors: string[] = [];
   const application = await electron.launch({
-    args: ["--no-sandbox", "."],
+    args: [
+      "--no-sandbox",
+      "--user-data-dir=" + join(dataDirectory, "electron-user-data"),
+      ".",
+    ],
     cwd: desktopRoot,
     env: {
       ...process.env,

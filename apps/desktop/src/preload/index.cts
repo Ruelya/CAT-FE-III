@@ -12,7 +12,7 @@ const IPC_CHANNELS = {
 const api: DesktopApi = {
   invoke: (method, params) =>
     electron.ipcRenderer.invoke(IPC_CHANNELS.invoke, method, params),
-  selectSourceDocx: () =>
+  selectSourceDocument: () =>
     electron.ipcRenderer.invoke(IPC_CHANNELS.selectSource),
   selectExportPath: (suggestedName) =>
     electron.ipcRenderer.invoke(IPC_CHANNELS.selectExport, suggestedName),
