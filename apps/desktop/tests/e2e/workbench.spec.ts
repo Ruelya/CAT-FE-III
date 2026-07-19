@@ -1,4 +1,4 @@
-import { mkdtempSync, statSync } from "node:fs";
+import { mkdtempSync, statSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -20,14 +20,18 @@ interface ElectronHarness {
   consoleErrors: string[];
 }
 
-async function launchHarness(label: string): Promise<ElectronHarness> {
+async function launchHarness(
+  label: string,
+  sourceOverride?: string,
+): Promise<ElectronHarness> {
   const desktopRoot = process.cwd();
   const workspaceRoot = resolve(desktopRoot, "..", "..");
   const dataDirectory = mkdtempSync(
     join(tmpdir(), `translunar-desktop-${label}-`),
   );
   const exportPath = join(dataDirectory, "translated.docx");
-  const fixture = join(workspaceRoot, "fixtures", "docx", "m0-source.docx");
+  const fixture =
+    sourceOverride ?? join(workspaceRoot, "fixtures", "docx", "m0-source.docx");
   const engine =
     process.env.TRANSLUNAR_ENGINE_PATH ??
     join(
@@ -52,7 +56,7 @@ async function launchHarness(label: string): Promise<ElectronHarness> {
       TRANSLUNAR_DATA_DIR: dataDirectory,
       TRANSLUNAR_ENGINE_PATH: engine,
       TRANSLUNAR_TEST_EXPORT_DOCX: exportPath,
-      TRANSLUNAR_TEST_SOURCE_DOCX: fixture,
+      TRANSLUNAR_TEST_SOURCE: fixture,
     },
   });
   const page = await application.firstWindow();
@@ -296,6 +300,382 @@ test("manages the offline Assistant and real workspace projections", async () =>
     expect(consoleErrors).toEqual([]);
   } finally {
     await closeHarness(harness);
+  }
+});
+
+test("uses the authoritative professional editor commands", async () => {
+  const harness = await launchHarness("professional-editor");
+  const { page, consoleErrors } = harness;
+
+  try {
+    await importFixture(page);
+    const firstRow = page.locator(".segment-row").first();
+    const firstTarget = firstRow.locator("textarea");
+    await expect(firstRow.locator(".tag-capsule.source-tag")).toHaveCount(4);
+    await expect(firstRow.locator(".tag-issue")).toHaveCount(0);
+
+    await firstTarget.fill("保留期为 30 天。");
+    await expect(page.locator(".save-indicator")).toContainText("Saved");
+    await firstTarget.evaluate((element) => {
+      if (!(element instanceof HTMLTextAreaElement)) {
+        throw new Error("Target editor is not a textarea.");
+      }
+      element.focus();
+      element.setSelectionRange(0, 0);
+    });
+    await firstRow
+      .getByRole("button", { name: "Insert protected tag pair" })
+      .click();
+    await expect(
+      firstRow.locator(".target-tag-strip .tag-capsule"),
+    ).toHaveCount(2);
+    const insertedPairEnd = firstRow
+      .locator(".target-tag-strip .tag-capsule")
+      .nth(1);
+    await expect(insertedPairEnd.locator("small")).toHaveText("0");
+    await insertedPairEnd.click();
+    await expect(insertedPairEnd).toHaveClass(/selected/u);
+    await firstTarget.evaluate((element) => {
+      if (!(element instanceof HTMLTextAreaElement)) {
+        throw new Error("Target editor is not a textarea.");
+      }
+      element.focus();
+      element.setSelectionRange(element.value.length, element.value.length);
+    });
+    await firstTarget.press("Control+K");
+    await page.getByLabel("Filter commands").fill("move selected tag");
+    await page
+      .getByRole("option", { name: /Move selected tag to caret/u })
+      .click();
+    await expect(insertedPairEnd.locator("small")).not.toHaveText("0");
+    await firstRow.getByRole("button", { name: "Copy protected tags" }).click();
+    await expect(
+      firstRow.locator(".target-tag-strip .tag-capsule"),
+    ).toHaveCount(4);
+    await page.getByRole("button", { name: "Confirm", exact: true }).click();
+    await expect(firstRow).toContainText("Confirmed");
+
+    await firstTarget.fill("保留期为");
+    await expect(
+      firstRow.getByRole("button", { name: "Accept TM autocomplete" }),
+    ).toContainText("30 天。");
+    await firstTarget.press("Tab");
+    await expect(firstTarget).toHaveValue("保留期为 30 天。");
+
+    await firstTarget.focus();
+    await firstTarget.press("Control+A");
+    await firstTarget.dispatchEvent("keydown", {
+      key: "f",
+      code: "KeyF",
+      ctrlKey: true,
+      shiftKey: true,
+      bubbles: true,
+    });
+    await expect(
+      page.getByRole("dialog", { name: "Concordance" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    await expect(page.locator(".concordance-results article")).toHaveCount(1);
+    await expect(page.locator(".concordance-results")).toContainText(
+      "保留期为 30 天。",
+    );
+    await page.getByRole("button", { name: "Close concordance" }).click();
+
+    await firstTarget.focus();
+    await firstTarget.dispatchEvent("keydown", {
+      key: "k",
+      code: "KeyK",
+      ctrlKey: true,
+      bubbles: true,
+    });
+    await expect(
+      page.getByRole("dialog", { name: "Command palette" }),
+    ).toBeVisible();
+    await page.getByLabel("Filter commands").fill("cycle theme");
+    await page.getByRole("option", { name: /Cycle theme/u }).click();
+    await expect(page.locator(".workbench-app")).toHaveClass(/theme-dark/u);
+
+    await firstTarget.focus();
+    await firstTarget.dispatchEvent("keydown", {
+      key: ",",
+      code: "Comma",
+      ctrlKey: true,
+      bubbles: true,
+    });
+    await expect(
+      page.getByRole("dialog", { name: "Editor preferences" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Trados", exact: true }).click();
+    await expect(page.getByLabel("Shortcut for Next segment")).toHaveValue(
+      "Ctrl+Alt+ArrowDown",
+    );
+    await page.getByRole("button", { name: "Save shortcuts" }).click();
+
+    await page.getByRole("button", { name: "Open find and replace" }).click();
+    await expect(
+      page.getByRole("dialog", { name: "Find and replace" }),
+    ).toBeVisible();
+    const replaceInputs = page.locator(".find-dialog input");
+    await replaceInputs.nth(0).fill("30");
+    await replaceInputs.nth(1).fill("45");
+    await page.getByRole("button", { name: "Preview", exact: true }).click();
+    await expect(page.locator(".replace-preview")).toContainText("1 segments");
+    await page.getByRole("button", { name: "Apply unchanged preview" }).click();
+    await expect(firstTarget).toHaveValue("保留期为 45 天。");
+
+    await page.getByRole("button", { name: "Undo editor operation" }).click();
+    await expect(firstTarget).toHaveValue("保留期为 30 天。");
+    await page.getByRole("button", { name: "Redo editor operation" }).click();
+    await expect(firstTarget).toHaveValue("保留期为 45 天。");
+
+    await firstRow.getByRole("button", { name: "Open comments" }).click();
+    await page.getByLabel("New comment").fill("Verify the retention number.");
+    await page.getByRole("button", { name: "Add comment" }).click();
+    await expect(page.getByText("Verify the retention number.")).toBeVisible();
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await page
+      .getByLabel("Edited comment text")
+      .fill("Verify the updated retention number.");
+    await page.getByRole("button", { name: "Save edit" }).click();
+    await expect(
+      page.getByText("Verify the updated retention number."),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Resolve" }).click();
+    await expect(page.getByRole("button", { name: "Reopen" })).toBeVisible();
+    await page.getByRole("button", { name: "Reopen" }).click();
+    await page.getByRole("button", { name: "Delete", exact: true }).click();
+    await expect(page.getByText("No comments on this segment.")).toBeVisible();
+    await page.getByRole("button", { name: "Close comments" }).click();
+
+    const thirdRow = page.locator(".segment-row").nth(2);
+    await thirdRow.click();
+    const thirdTarget = thirdRow.locator("textarea");
+    await thirdTarget.fill("鼠标和打印机里的软件");
+    await expect(page.locator(".save-indicator")).toContainText("Saved");
+    await thirdRow
+      .getByRole("button", { name: "Open Chinese conversion" })
+      .click();
+    await expect(
+      page.getByRole("dialog", { name: "Chinese conversion" }),
+    ).toBeVisible();
+    await page
+      .getByLabel("Chinese conversion profile")
+      .selectOption("simplifiedToTaiwan");
+    await page.getByRole("button", { name: "Apply conversion" }).click();
+    await expect(thirdTarget).toHaveValue("滑鼠和印表機裡的軟體");
+    await thirdRow.getByRole("button", { name: "Correct source" }).click();
+    await page
+      .getByLabel("Corrected source")
+      .fill("Corrected source for review.");
+    await page.getByLabel("Source correction reason").fill("Fix source typo");
+    await page.getByRole("button", { name: "Apply correction" }).click();
+    await expect(thirdRow.locator(".source-cell .tagged-text")).toHaveAttribute(
+      "aria-label",
+      "Corrected source for review.",
+    );
+
+    await thirdRow.getByRole("button", { name: "Open review panel" }).click();
+    await page
+      .getByLabel("Proposed source revision")
+      .fill("Corrected source after reviewer feedback.");
+    await page.getByRole("button", { name: "Create review proposal" }).click();
+    await expect(page.locator(".review-thread")).toContainText(
+      "Source revision",
+    );
+    await page.getByRole("button", { name: "Accept", exact: true }).click();
+    await expect(thirdRow.locator(".source-cell .tagged-text")).toHaveAttribute(
+      "aria-label",
+      "Corrected source after reviewer feedback.",
+    );
+    await page.getByRole("button", { name: "Close review panel" }).click();
+
+    await firstRow.click();
+    await firstRow.getByRole("button", { name: "Open review panel" }).click();
+    await page
+      .getByLabel("Proposed target revision")
+      .fill("保留期限为 45 天。");
+    await page.getByRole("button", { name: "Create review proposal" }).click();
+    await expect(page.getByText("pending", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Accept", exact: true }).click();
+    await expect(firstTarget).toHaveValue("保留期限为 45 天。");
+    await expect(page.getByText("accepted", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Close review panel" }).click();
+    await page.getByRole("button", { name: "Confirm", exact: true }).click();
+    await firstRow.click();
+    await firstRow.getByRole("button", { name: "Open review panel" }).click();
+    await page.getByRole("button", { name: "signed", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "signed", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Close review panel" }).click();
+    await expect(firstTarget).toBeDisabled();
+    expect(consoleErrors).toEqual([]);
+  } finally {
+    await closeHarness(harness);
+  }
+});
+
+test("keeps a 10,000 segment document inside the virtual row and 60-second performance budget", async ({
+  browserName,
+}, testInfo) => {
+  expect(browserName).toBe("chromium");
+  test.setTimeout(150_000);
+  const fixtureDirectory = mkdtempSync(join(tmpdir(), "translunar-10k-"));
+  const source = join(fixtureDirectory, "ten-thousand.txt");
+  writeFileSync(
+    source,
+    Array.from(
+      { length: 10_000 },
+      (_, index) => `Segment ${String(index).padStart(5, "0")} benchmark text.`,
+    ).join("\n\n"),
+  );
+  const harness = await launchHarness("virtual-10k", source);
+  const { page, consoleErrors } = harness;
+
+  try {
+    await page.getByRole("button", { name: "Choose file" }).click();
+    await expect(page.getByText("ten-thousand.txt")).toBeVisible();
+    await page.getByRole("button", { name: "Create and import" }).click();
+    await expect(
+      page.getByRole("region", { name: "Translation segments" }),
+    ).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator(".document-switcher")).toContainText(
+      "10000 segments",
+    );
+    await expect
+      .poll(() => page.locator(".segment-row").count())
+      .toBeLessThanOrEqual(100);
+    await expect
+      .poll(() => page.locator(".segment-row").count())
+      .toBeGreaterThan(0);
+
+    await page.locator(".segment-grid").evaluate((element) => {
+      element.scrollTop = 620_000;
+      element.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+    await expect
+      .poll(async () =>
+        Number(await page.locator(".id-cell").first().textContent()),
+      )
+      .toBeGreaterThan(1_000);
+    await expect
+      .poll(() => page.locator(".segment-row").count())
+      .toBeLessThanOrEqual(100);
+
+    const performanceEvidence = await page.evaluate(async () => {
+      const grid = document.querySelector<HTMLElement>(".segment-grid");
+      if (!grid) throw new Error("Segment grid was not mounted.");
+      const durationMs = 60_000;
+      const frameDeltas: number[] = [];
+      const heapSamples: number[] = [];
+      let maxMountedRows = 0;
+      let frame = 0;
+      const startedAt = performance.now();
+      let previousFrameAt = startedAt;
+      const memory = () =>
+        (
+          performance as Performance & {
+            memory?: { usedJSHeapSize: number };
+          }
+        ).memory?.usedJSHeapSize;
+
+      return await new Promise<{
+        durationMs: number;
+        frameCount: number;
+        frameP95Ms: number;
+        frameMaxMs: number;
+        maxMountedRows: number;
+        heapSampleCount: number;
+        baselineHeapBytes: number | null;
+        peakHeapBytes: number | null;
+        finalHeapBytes: number | null;
+        peakHeapGrowthBytes: number | null;
+        finalHeapGrowthBytes: number | null;
+      }>((resolvePerformance) => {
+        const sample = () => {
+          maxMountedRows = Math.max(
+            maxMountedRows,
+            document.querySelectorAll(".segment-row").length,
+          );
+          const usedHeap = memory();
+          if (usedHeap !== undefined) heapSamples.push(usedHeap);
+        };
+        sample();
+        const tick = (now: number) => {
+          frameDeltas.push(now - previousFrameAt);
+          previousFrameAt = now;
+          frame += 1;
+          if (frame % 30 === 0) {
+            const elapsedRatio = Math.min(1, (now - startedAt) / durationMs);
+            const wave = (Math.sin(elapsedRatio * Math.PI * 12) + 1) / 2;
+            grid.scrollTop = wave * (grid.scrollHeight - grid.clientHeight);
+            grid.dispatchEvent(new Event("scroll", { bubbles: true }));
+          }
+          if (frame % 60 === 0) sample();
+          if (now - startedAt < durationMs) {
+            requestAnimationFrame(tick);
+            return;
+          }
+          sample();
+          const sortedFrames = [...frameDeltas].sort(
+            (left, right) => left - right,
+          );
+          const p95Index = Math.max(
+            0,
+            Math.ceil(sortedFrames.length * 0.95) - 1,
+          );
+          const baselineHeap = heapSamples[0] ?? null;
+          const peakHeap = heapSamples.length ? Math.max(...heapSamples) : null;
+          const finalHeap = heapSamples.at(-1) ?? null;
+          resolvePerformance({
+            durationMs: now - startedAt,
+            frameCount: frameDeltas.length,
+            frameP95Ms: sortedFrames[p95Index] ?? 0,
+            frameMaxMs: sortedFrames.at(-1) ?? 0,
+            maxMountedRows,
+            heapSampleCount: heapSamples.length,
+            baselineHeapBytes: baselineHeap,
+            peakHeapBytes: peakHeap,
+            finalHeapBytes: finalHeap,
+            peakHeapGrowthBytes:
+              baselineHeap === null || peakHeap === null
+                ? null
+                : peakHeap - baselineHeap,
+            finalHeapGrowthBytes:
+              baselineHeap === null || finalHeap === null
+                ? null
+                : finalHeap - baselineHeap,
+          });
+        };
+        requestAnimationFrame(tick);
+      });
+    });
+    expect(performanceEvidence.durationMs).toBeGreaterThanOrEqual(60_000);
+    expect(performanceEvidence.frameP95Ms).toBeLessThan(33);
+    expect(performanceEvidence.maxMountedRows).toBeLessThanOrEqual(120);
+    expect(performanceEvidence.heapSampleCount).toBeGreaterThan(0);
+    expect(performanceEvidence.peakHeapGrowthBytes).not.toBeNull();
+    expect(performanceEvidence.peakHeapGrowthBytes ?? Infinity).toBeLessThan(
+      128 * 1024 * 1024,
+    );
+    expect(performanceEvidence.finalHeapGrowthBytes).not.toBeNull();
+    expect(performanceEvidence.finalHeapGrowthBytes ?? Infinity).toBeLessThan(
+      64 * 1024 * 1024,
+    );
+    await testInfo.attach("renderer-60-second-performance", {
+      body: JSON.stringify(performanceEvidence, null, 2),
+      contentType: "application/json",
+    });
+
+    await page.getByLabel("Search in document").fill("Segment 09999");
+    await expect(page.locator(".segment-row")).toHaveCount(1);
+    await expect(page.locator(".segment-row").first()).toContainText(
+      "Segment 09999 benchmark text.",
+    );
+    expect(consoleErrors).toEqual([]);
+  } finally {
+    await closeHarness(harness);
+    await rm(fixtureDirectory, { recursive: true, force: true });
   }
 });
 

@@ -7,6 +7,7 @@ const IPC_CHANNELS = {
   selectSource: "translunar:dialog:source-docx",
   selectExport: "translunar:dialog:export-docx",
   restartEngine: "translunar:engine:restart",
+  editorCommand: "translunar:editor:command",
 } as const;
 
 const api: DesktopApi = {
@@ -17,6 +18,13 @@ const api: DesktopApi = {
   selectExportPath: (suggestedName) =>
     electron.ipcRenderer.invoke(IPC_CHANNELS.selectExport, suggestedName),
   restartEngine: () => electron.ipcRenderer.invoke(IPC_CHANNELS.restartEngine),
+  onEditorCommand: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, commandId: string) =>
+      listener(commandId);
+    electron.ipcRenderer.on(IPC_CHANNELS.editorCommand, handler);
+    return () =>
+      electron.ipcRenderer.removeListener(IPC_CHANNELS.editorCommand, handler);
+  },
 };
 
 electron.contextBridge.exposeInMainWorld("translunar", api);

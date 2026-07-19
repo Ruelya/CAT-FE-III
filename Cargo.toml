@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
   "crates/domain",
+  "crates/editor-core",
   "crates/asset-core",
   "crates/filter-core",
   "crates/segmentation-srx",
@@ -31,6 +32,7 @@ base64 = "0.22.1"
 csv = "1.4.0"
 chrono = { version = "0.4.42", default-features = false, features = ["clock", "serde"] }
 clap = { version = "4.5.54", features = ["derive"] }
+ferrous-opencc = { version = "0.4.0", default-features = false, features = ["s2t-conversion", "t2s-conversion"] }
 quick-xml = "0.41.0"
 regex = "1.12.2"
 rusqlite = { version = "0.40.1", features = ["backup", "bundled"] }

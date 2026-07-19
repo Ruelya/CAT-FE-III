@@ -285,3 +285,105 @@ Wrong: parse a PDF in React, derive a source revision, and mutate local state.
 
 Correct: invoke pdf.page.get and pdf.correctOcr through generated contracts,
 then replace display state with Engine responses.
+
+## Professional Editor Command And Autocomplete Contract
+
+### 1. Scope / Trigger
+
+Use this contract when adding an editor command, command-palette action,
+autocomplete source, comment interaction, Chinese conversion control, or
+large-document renderer test.
+
+### 2. Signatures
+
+`editor-commands.ts` owns:
+
+```ts
+interface EditorCommandDefinition {
+  id: EditorCommandId;
+  label: string;
+  shortcut: string;
+  isEnabled(context: EditorCommandContext): boolean;
+  dispatch(handlers: EditorCommandHandlers): void;
+}
+```
+
+The Chinese conversion dialog invokes `segment.chinese.convert`; comment CRUD
+invokes generated `segment.comment.*` contracts. No new preload method is
+required because `DesktopApi.invoke` is generic over `ENGINE_METHODS`.
+
+### 3. Contracts
+
+- The central registry owns command IDs, labels, defaults, enabled predicates,
+  and dispatch. `Workbench` supplies presentation handlers and disabled-command
+  feedback; it must not restore a second command switch table.
+- Keyboard invocation additionally requires editor focus for `editorOnly`
+  commands. Palette invocation may use the retained active textarea selection.
+  Signed state, IME composition, suggestion count, selected tag, and merge
+  eligibility are evaluated through `EditorCommandContext`.
+- Autocomplete is enabled only by the durable preference. It consumes the
+  Engine-ranked TM list first, then preferred non-forbidden term translations.
+  React may select the first visible prefix completion but never recomputes TM
+  scores or term recognition. Tab accepts the tail only outside IME composition;
+  the normal debounced segment update path persists it.
+- Comment UI exposes create, edit, resolve/reopen, and delete for mutable
+  comments. Immutable import notes render without mutation controls.
+- Chinese conversion exposes all six generated profiles, persists through one
+  Engine mutation, and remains disabled for empty or signed targets.
+- The 10,000-row Electron test runs scripted scrolling for at least 60 seconds,
+  asserts rAF P95 below 33 ms, at most 120 mounted rows, and bounded heap growth.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Editor-only shortcut outside target textarea | Ignore without OS/browser leakage |
+| IME composition or keyCode 229 | Do not confirm, autocomplete, navigate, or dispatch mutation |
+| Signed segment | Disable content commands; show typed read-only feedback if externally invoked |
+| No prefix completion | Tab retains normal focus behavior |
+| Stale comment/conversion revision | Show typed conflict and retain authoritative visible state |
+| Immutable import note | No edit/resolve/delete controls |
+| Performance script exceeds row/frame/memory budget | Electron E2E fails with attached metrics |
+
+### 5. Good / Base / Bad Cases
+
+- Good: type a prefix of the top Engine TM match, see the provider/tail, press
+  Tab, save, restart, and recover the completed target.
+- Good: edit a comment, resolve and reopen it, then delete it using returned
+  revisions at every step.
+- Base: autocomplete is disabled in preferences or has no prefix match; no
+  ghost control is rendered and Tab is not prevented.
+- Bad: duplicate dispatch in a `Workbench` switch, calculate fuzzy ranking in
+  React, or accept autocomplete during composition.
+
+### 6. Tests Required
+
+- Vitest proves every registry entry has a predicate/dispatcher and checks
+  signed/composition/focus/suggestion enablement plus tag dispatch.
+- Electron E2E uses the real Engine for TM autocomplete, complete comment CRUD,
+  OpenCC conversion, tag pair insertion/move, review, signed read-only, and
+  console-error absence.
+- The 60-second performance attachment records duration, frame count/P95/max,
+  mounted-row maximum, and heap samples/growth.
+- Existing 1250x744, 1680x942, and 1920x1080 visual/panel tests remain green.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```ts
+switch (commandId) { /* second dispatch table in Workbench */ }
+const suggestion = locallyRankTm(draft, allTmRows);
+if (event.key === "Tab") applySuggestionDuringIme();
+```
+
+#### Correct
+
+```ts
+if (isEditorCommandEnabled(command, context, invocation)) {
+  dispatchEditorCommand(command.id, handlers);
+}
+const suggestion = engineRankedMatches.find((item) =>
+  item.targetText.startsWith(draft),
+);
+```

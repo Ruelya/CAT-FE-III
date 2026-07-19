@@ -2,7 +2,7 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use crate::{Result, StorageError};
 
-pub(crate) const LATEST_SCHEMA_VERSION: u32 = 5;
+pub(crate) const LATEST_SCHEMA_VERSION: u32 = 7;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -429,6 +429,121 @@ CREATE INDEX segment_notes_segment_idx
     ON segment_notes(segment_id, id);
 "#;
 
+const MIGRATION_6: &str = r#"
+CREATE TABLE segment_editor_meta (
+    segment_id TEXT PRIMARY KEY REFERENCES segments(id) ON DELETE CASCADE,
+    workflow_state TEXT NOT NULL DEFAULT 'translation'
+        CHECK (workflow_state IN ('translation', 'review', 'signed')),
+    lineage_id TEXT,
+    source_edit_revision INTEGER NOT NULL DEFAULT 0 CHECK (source_edit_revision >= 0),
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+INSERT INTO segment_editor_meta (segment_id, workflow_state, source_edit_revision, updated_at_ms)
+SELECT id, 'translation', 0, updated_at_ms FROM segments;
+
+CREATE TRIGGER segment_editor_meta_after_insert
+AFTER INSERT ON segments
+BEGIN
+    INSERT INTO segment_editor_meta (
+        segment_id, workflow_state, source_edit_revision, updated_at_ms
+    ) VALUES (NEW.id, 'translation', 0, NEW.updated_at_ms);
+END;
+
+CREATE TABLE segment_comments (
+    id TEXT PRIMARY KEY,
+    segment_id TEXT NOT NULL REFERENCES segments(id) ON DELETE CASCADE,
+    author TEXT NOT NULL,
+    text TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    resolved INTEGER NOT NULL DEFAULT 0 CHECK (resolved IN (0, 1)),
+    immutable INTEGER NOT NULL DEFAULT 0 CHECK (immutable IN (0, 1))
+) STRICT;
+
+CREATE INDEX segment_comments_segment_idx
+    ON segment_comments(segment_id, resolved, updated_at_ms DESC, id);
+
+CREATE TABLE editor_operations (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    sequence INTEGER NOT NULL CHECK (sequence >= 1),
+    kind TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    base_revision INTEGER,
+    result_revision INTEGER,
+    before_json TEXT NOT NULL,
+    after_json TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    reason TEXT,
+    undone INTEGER NOT NULL DEFAULT 0 CHECK (undone IN (0, 1)),
+    generation INTEGER NOT NULL DEFAULT 0 CHECK (generation >= 0),
+    created_at_ms INTEGER NOT NULL,
+    UNIQUE(project_id, sequence)
+) STRICT;
+
+CREATE INDEX editor_operations_cursor_idx
+    ON editor_operations(project_id, undone, generation, sequence DESC);
+
+CREATE TABLE editor_cursors (
+    project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+    cursor_sequence INTEGER NOT NULL DEFAULT 0 CHECK (cursor_sequence >= 0),
+    generation INTEGER NOT NULL DEFAULT 0 CHECK (generation >= 0),
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+INSERT INTO editor_cursors (project_id, cursor_sequence, generation, updated_at_ms)
+SELECT id, 0, 0, updated_at_ms FROM projects;
+
+CREATE TRIGGER editor_cursor_after_project_insert
+AFTER INSERT ON projects
+BEGIN
+    INSERT INTO editor_cursors (
+        project_id, cursor_sequence, generation, updated_at_ms
+    ) VALUES (NEW.id, 0, 0, NEW.updated_at_ms);
+END;
+
+CREATE TABLE user_dictionary (
+    locale TEXT NOT NULL,
+    word TEXT NOT NULL,
+    normalized_word TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    PRIMARY KEY(locale, normalized_word)
+) STRICT;
+
+CREATE TABLE editor_preferences (
+    id TEXT PRIMARY KEY CHECK (id = 'default'),
+    preferences_json TEXT NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE TABLE review_revisions (
+    id TEXT PRIMARY KEY,
+    segment_id TEXT NOT NULL REFERENCES segments(id) ON DELETE CASCADE,
+    base_revision INTEGER NOT NULL CHECK (base_revision >= 0),
+    before_target TEXT NOT NULL,
+    proposed_target TEXT NOT NULL,
+    author TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'accepted', 'rejected')),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX review_revisions_segment_idx
+    ON review_revisions(segment_id, status, created_at_ms DESC, id);
+"#;
+
+const MIGRATION_7: &str = r#"
+ALTER TABLE review_revisions ADD COLUMN before_source TEXT NOT NULL DEFAULT '';
+ALTER TABLE review_revisions ADD COLUMN proposed_source TEXT;
+ALTER TABLE review_revisions ADD COLUMN before_target_tags_json TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE review_revisions ADD COLUMN proposed_target_tags_json TEXT;
+"#;
+
 pub(crate) fn configure_connection(connection: &Connection) -> Result<()> {
     connection.execute_batch(
         "PRAGMA foreign_keys = ON;\n\
@@ -455,6 +570,8 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<()> {
         (3_u32, MIGRATION_3),
         (4_u32, MIGRATION_4),
         (5_u32, MIGRATION_5),
+        (6_u32, MIGRATION_6),
+        (7_u32, MIGRATION_7),
     ] {
         if version <= current {
             continue;

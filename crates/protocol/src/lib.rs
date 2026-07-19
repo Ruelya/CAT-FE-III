@@ -8,8 +8,10 @@ use translunar_asset_core::{
     TermbaseMount, TmLibrary, TmLibraryMount, TmMatch,
 };
 use translunar_domain::{
-    BackupManifest, DataHealthReport, DegradationFinding, Document, Operation, Project,
-    ProjectConfiguration, ProjectLifecycle, QaIssue, Segment, SegmentCounts, SegmentState, TmEntry,
+    BackupManifest, ChineseConversionProfile, DataHealthReport, DegradationFinding, Document,
+    EditorComment, EditorPreferences, EditorTagIssue, EditorWorkflowState, InlineTag, Operation,
+    Project, ProjectConfiguration, ProjectLifecycle, QaIssue, ReviewRevision, Segment,
+    SegmentCounts, SegmentEditorRow, SegmentState, SpellFinding, TmEntry,
 };
 use translunar_filter_core::FilterDescriptor;
 use translunar_pipeline::{
@@ -33,6 +35,35 @@ pub mod methods {
     pub const SEGMENT_LIST: &str = "segment.list";
     pub const SEGMENT_UPDATE_TARGET: &str = "segment.updateTarget";
     pub const SEGMENT_CONFIRM: &str = "segment.confirm";
+    pub const SEGMENT_EDITOR_LIST: &str = "segment.editor.list";
+    pub const SEGMENT_TAG_SET: &str = "segment.tag.set";
+    pub const SEGMENT_CHINESE_CONVERT: &str = "segment.chinese.convert";
+    pub const SEGMENT_PROPAGATE: &str = "segment.propagate";
+    pub const SEGMENT_FIND: &str = "segment.find";
+    pub const SEGMENT_REPLACE_PREVIEW: &str = "segment.replace.preview";
+    pub const SEGMENT_REPLACE_APPLY: &str = "segment.replace.apply";
+    pub const SEGMENT_SPLIT: &str = "segment.split";
+    pub const SEGMENT_MERGE: &str = "segment.merge";
+    pub const SEGMENT_CORRECT_SOURCE: &str = "segment.correctSource";
+    pub const SEGMENT_WORKFLOW_SET: &str = "segment.workflow.set";
+    pub const SEGMENT_COMMENT_LIST: &str = "segment.comment.list";
+    pub const SEGMENT_COMMENT_CREATE: &str = "segment.comment.create";
+    pub const SEGMENT_COMMENT_UPDATE: &str = "segment.comment.update";
+    pub const SEGMENT_COMMENT_RESOLVE: &str = "segment.comment.resolve";
+    pub const SEGMENT_COMMENT_DELETE: &str = "segment.comment.delete";
+    pub const SEGMENT_SPELL_CHECK: &str = "segment.spell.check";
+    pub const DICTIONARY_LIST: &str = "dictionary.list";
+    pub const DICTIONARY_ADD: &str = "dictionary.add";
+    pub const DICTIONARY_REMOVE: &str = "dictionary.remove";
+    pub const EDITOR_UNDO: &str = "editor.undo";
+    pub const EDITOR_REDO: &str = "editor.redo";
+    pub const EDITOR_HISTORY: &str = "editor.history";
+    pub const REVIEW_CREATE: &str = "review.create";
+    pub const REVIEW_LIST: &str = "review.list";
+    pub const REVIEW_ACCEPT: &str = "review.accept";
+    pub const REVIEW_REJECT: &str = "review.reject";
+    pub const EDITOR_PREFERENCES_GET: &str = "editor.preferences.get";
+    pub const EDITOR_PREFERENCES_UPDATE: &str = "editor.preferences.update";
     pub const PDF_PAGE_LIST: &str = "pdf.page.list";
     pub const PDF_PAGE_GET: &str = "pdf.page.get";
     pub const PDF_CORRECT_OCR: &str = "pdf.correctOcr";
@@ -259,6 +290,385 @@ pub struct SegmentListParams {
     pub offset: u32,
     #[serde(default = "default_page_size")]
     pub limit: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum EditorSearchField {
+    Source,
+    Target,
+    #[default]
+    Both,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum EditorSegmentFilter {
+    #[default]
+    All,
+    Untranslated,
+    Draft,
+    Confirmed,
+    Issues,
+    Tagged,
+    Commented,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum EditorSegmentSort {
+    #[default]
+    Ordinal,
+    UpdatedAt,
+    State,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorSegmentListParams {
+    pub document_id: String,
+    #[serde(default)]
+    pub query: String,
+    #[serde(default)]
+    pub field: EditorSearchField,
+    #[serde(default)]
+    pub filter: EditorSegmentFilter,
+    #[serde(default)]
+    pub sort: EditorSegmentSort,
+    #[serde(default)]
+    pub descending: bool,
+    #[serde(default)]
+    pub offset: u32,
+    #[serde(default = "default_editor_page_size")]
+    pub limit: u32,
+    #[serde(default)]
+    pub include_context: bool,
+}
+
+fn default_editor_page_size() -> u32 {
+    80
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorSegmentPage {
+    pub items: Vec<SegmentEditorRow>,
+    pub total: u32,
+    pub offset: u32,
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SetSegmentTagsParams {
+    pub segment_id: String,
+    pub target_tags: Vec<InlineTag>,
+    pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ConvertSegmentChineseParams {
+    pub segment_id: String,
+    pub profile: ChineseConversionProfile,
+    pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PropagateSegmentParams {
+    pub segment_id: String,
+    pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorMutationResult {
+    pub rows: Vec<SegmentEditorRow>,
+    pub counts: SegmentCounts,
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    #[serde(default)]
+    pub focus_segment_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FindSegmentsParams {
+    pub document_id: String,
+    pub query: String,
+    #[serde(default)]
+    pub field: EditorSearchField,
+    #[serde(default)]
+    pub regex: bool,
+    #[serde(default)]
+    pub case_sensitive: bool,
+    #[serde(default)]
+    pub whole_word: bool,
+    #[serde(default)]
+    pub offset: u32,
+    #[serde(default = "default_editor_page_size")]
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SegmentFindMatch {
+    pub segment_id: String,
+    pub field: EditorSearchField,
+    pub start: u32,
+    pub end: u32,
+    pub matched_text: String,
+    pub revision: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SegmentFindResult {
+    pub matches: Vec<SegmentFindMatch>,
+    pub total: u32,
+    pub offset: u32,
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplacePreviewParams {
+    pub document_id: String,
+    pub query: String,
+    pub replacement: String,
+    #[serde(default)]
+    pub field: EditorSearchField,
+    #[serde(default)]
+    pub regex: bool,
+    #[serde(default)]
+    pub case_sensitive: bool,
+    #[serde(default)]
+    pub whole_word: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplacePreviewItem {
+    pub segment_id: String,
+    pub revision: u64,
+    pub field: EditorSearchField,
+    pub before: String,
+    pub after: String,
+    pub replacements: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplacePreviewResult {
+    pub token: String,
+    pub document_id: String,
+    pub items: Vec<ReplacePreviewItem>,
+    pub changed_segments: u32,
+    pub replacement_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceApplyParams {
+    pub preview: ReplacePreviewResult,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SplitSegmentParams {
+    pub segment_id: String,
+    pub source_offset: u32,
+    #[serde(default)]
+    pub target_offset: Option<u32>,
+    pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeSegmentsParams {
+    pub first_segment_id: String,
+    pub second_segment_id: String,
+    pub first_expected_revision: u64,
+    pub second_expected_revision: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CorrectSourceParams {
+    pub segment_id: String,
+    pub source_text: String,
+    pub reason: String,
+    pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SegmentCommentListParams {
+    pub segment_id: String,
+    #[serde(default)]
+    pub include_resolved: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SegmentCommentListResult {
+    pub comments: Vec<EditorComment>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateSegmentCommentParams {
+    pub segment_id: String,
+    pub author: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSegmentCommentParams {
+    pub comment_id: String,
+    pub text: String,
+    pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveSegmentCommentParams {
+    pub comment_id: String,
+    pub resolved: bool,
+    pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteSegmentCommentParams {
+    pub comment_id: String,
+    pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SpellCheckParams {
+    pub locale: String,
+    pub text: String,
+    #[serde(default = "default_spell_limit")]
+    pub limit: u32,
+}
+
+fn default_spell_limit() -> u32 {
+    100
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SpellCheckResult {
+    pub available: bool,
+    pub provider: String,
+    pub findings: Vec<SpellFinding>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DictionaryListParams {
+    pub locale: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DictionaryWordParams {
+    pub locale: String,
+    pub word: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DictionaryListResult {
+    pub locale: String,
+    pub words: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorHistoryParams {
+    pub project_id: String,
+    #[serde(default)]
+    pub offset: u32,
+    #[serde(default = "default_editor_page_size")]
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorUndoRedoParams {
+    pub project_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorHistoryResult {
+    pub operations: Vec<Operation>,
+    pub total: u32,
+    pub can_undo: bool,
+    pub can_redo: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewCreateParams {
+    pub segment_id: String,
+    #[serde(default)]
+    pub proposed_target: Option<String>,
+    #[serde(default)]
+    pub proposed_source: Option<String>,
+    #[serde(default)]
+    pub proposed_target_tags: Option<Vec<InlineTag>>,
+    pub author: String,
+    #[serde(default)]
+    pub reason: String,
+    pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewListParams {
+    pub document_id: String,
+    #[serde(default)]
+    pub include_closed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewListResult {
+    pub revisions: Vec<ReviewRevision>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewDecisionParams {
+    pub review_id: String,
+    pub expected_segment_revision: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SetEditorWorkflowParams {
+    pub segment_id: String,
+    pub state: EditorWorkflowState,
+    pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateEditorPreferencesParams {
+    pub preferences: EditorPreferences,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorDiagnosticsResult {
+    pub tag_issues: Vec<EditorTagIssue>,
+    pub workflow_state: EditorWorkflowState,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -919,6 +1329,8 @@ pub struct ConfirmSegmentResult {
     pub counts: SegmentCounts,
     pub tm_entry: TmEntry,
     pub qa_issues: Vec<QaIssue>,
+    #[serde(default)]
+    pub propagated: Vec<Segment>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -977,6 +1389,64 @@ pub struct RpcMethodCatalog {
     pub segment_update_target: MethodContract<UpdateTargetParams, Segment>,
     #[serde(rename = "segment.confirm")]
     pub segment_confirm: MethodContract<ConfirmSegmentParams, ConfirmSegmentResult>,
+    #[serde(rename = "segment.editor.list")]
+    pub segment_editor_list: MethodContract<EditorSegmentListParams, EditorSegmentPage>,
+    #[serde(rename = "segment.tag.set")]
+    pub segment_tag_set: MethodContract<SetSegmentTagsParams, EditorMutationResult>,
+    #[serde(rename = "segment.chinese.convert")]
+    pub segment_chinese_convert: MethodContract<ConvertSegmentChineseParams, EditorMutationResult>,
+    #[serde(rename = "segment.propagate")]
+    pub segment_propagate: MethodContract<PropagateSegmentParams, EditorMutationResult>,
+    #[serde(rename = "segment.find")]
+    pub segment_find: MethodContract<FindSegmentsParams, SegmentFindResult>,
+    #[serde(rename = "segment.replace.preview")]
+    pub segment_replace_preview: MethodContract<ReplacePreviewParams, ReplacePreviewResult>,
+    #[serde(rename = "segment.replace.apply")]
+    pub segment_replace_apply: MethodContract<ReplaceApplyParams, EditorMutationResult>,
+    #[serde(rename = "segment.split")]
+    pub segment_split: MethodContract<SplitSegmentParams, EditorMutationResult>,
+    #[serde(rename = "segment.merge")]
+    pub segment_merge: MethodContract<MergeSegmentsParams, EditorMutationResult>,
+    #[serde(rename = "segment.correctSource")]
+    pub segment_correct_source: MethodContract<CorrectSourceParams, EditorMutationResult>,
+    #[serde(rename = "segment.workflow.set")]
+    pub segment_workflow_set: MethodContract<SetEditorWorkflowParams, EditorMutationResult>,
+    #[serde(rename = "segment.comment.list")]
+    pub segment_comment_list: MethodContract<SegmentCommentListParams, SegmentCommentListResult>,
+    #[serde(rename = "segment.comment.create")]
+    pub segment_comment_create: MethodContract<CreateSegmentCommentParams, EditorComment>,
+    #[serde(rename = "segment.comment.update")]
+    pub segment_comment_update: MethodContract<UpdateSegmentCommentParams, EditorComment>,
+    #[serde(rename = "segment.comment.resolve")]
+    pub segment_comment_resolve: MethodContract<ResolveSegmentCommentParams, EditorComment>,
+    #[serde(rename = "segment.comment.delete")]
+    pub segment_comment_delete: MethodContract<DeleteSegmentCommentParams, EmptyResult>,
+    #[serde(rename = "segment.spell.check")]
+    pub segment_spell_check: MethodContract<SpellCheckParams, SpellCheckResult>,
+    #[serde(rename = "dictionary.list")]
+    pub dictionary_list: MethodContract<DictionaryListParams, DictionaryListResult>,
+    #[serde(rename = "dictionary.add")]
+    pub dictionary_add: MethodContract<DictionaryWordParams, DictionaryListResult>,
+    #[serde(rename = "dictionary.remove")]
+    pub dictionary_remove: MethodContract<DictionaryWordParams, DictionaryListResult>,
+    #[serde(rename = "editor.undo")]
+    pub editor_undo: MethodContract<EditorUndoRedoParams, EditorMutationResult>,
+    #[serde(rename = "editor.redo")]
+    pub editor_redo: MethodContract<EditorUndoRedoParams, EditorMutationResult>,
+    #[serde(rename = "editor.history")]
+    pub editor_history: MethodContract<EditorHistoryParams, EditorHistoryResult>,
+    #[serde(rename = "review.create")]
+    pub review_create: MethodContract<ReviewCreateParams, ReviewRevision>,
+    #[serde(rename = "review.list")]
+    pub review_list: MethodContract<ReviewListParams, ReviewListResult>,
+    #[serde(rename = "review.accept")]
+    pub review_accept: MethodContract<ReviewDecisionParams, EditorMutationResult>,
+    #[serde(rename = "review.reject")]
+    pub review_reject: MethodContract<ReviewDecisionParams, ReviewRevision>,
+    #[serde(rename = "editor.preferences.get")]
+    pub editor_preferences_get: MethodContract<EmptyParams, EditorPreferences>,
+    #[serde(rename = "editor.preferences.update")]
+    pub editor_preferences_update: MethodContract<UpdateEditorPreferencesParams, EditorPreferences>,
     #[serde(rename = "pdf.page.list")]
     pub pdf_page_list: MethodContract<PdfPageListParams, PdfPageListResult>,
     #[serde(rename = "pdf.page.get")]

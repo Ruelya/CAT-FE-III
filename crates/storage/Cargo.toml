@@ -13,6 +13,7 @@ serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 translunar-domain = { path = "../domain" }
+translunar-editor-core = { path = "../editor-core" }
 translunar-asset-core = { path = "../asset-core" }
 translunar-filter-core = { path = "../filter-core" }
 translunar-pipeline = { path = "../pipeline" }

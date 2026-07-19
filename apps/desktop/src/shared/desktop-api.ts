@@ -12,4 +12,5 @@ export interface DesktopApi {
   selectSourceDocument(): Promise<string | null>;
   selectExportPath(suggestedName: string): Promise<string | null>;
   restartEngine(): Promise<void>;
+  onEditorCommand(listener: (commandId: string) => void): () => void;
 }

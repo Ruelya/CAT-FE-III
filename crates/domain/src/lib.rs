@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -242,6 +243,134 @@ pub struct Segment {
     pub source_hash: String,
     pub context_hash: String,
     pub updated_at_ms: i64,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum EditorWorkflowState {
+    #[default]
+    Translation,
+    Review,
+    Signed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ChineseConversionProfile {
+    SimplifiedToTraditional,
+    SimplifiedToTaiwan,
+    SimplifiedToHongKong,
+    TraditionalToSimplified,
+    TaiwanToSimplified,
+    HongKongToSimplified,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorTagIssue {
+    pub code: String,
+    pub message: String,
+    #[serde(default)]
+    pub tag_id: Option<String>,
+    #[serde(default)]
+    pub position: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorComment {
+    pub id: String,
+    pub segment_id: String,
+    pub author: String,
+    pub text: String,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub revision: u64,
+    pub resolved: bool,
+    pub immutable: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ReviewStatus {
+    Pending,
+    Accepted,
+    Rejected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewRevision {
+    pub id: String,
+    pub segment_id: String,
+    pub base_revision: u64,
+    #[serde(default)]
+    pub before_source: String,
+    pub before_target: String,
+    #[serde(default)]
+    pub proposed_source: Option<String>,
+    pub proposed_target: String,
+    #[serde(default)]
+    pub before_target_tags: Vec<InlineTag>,
+    #[serde(default)]
+    pub proposed_target_tags: Option<Vec<InlineTag>>,
+    pub author: String,
+    pub reason: String,
+    pub status: ReviewStatus,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SpellFinding {
+    pub word: String,
+    pub start: u32,
+    pub end: u32,
+    pub suggestions: Vec<String>,
+    pub provider: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorPreferences {
+    pub theme: String,
+    pub zoom: u16,
+    pub show_nonprinting: bool,
+    pub autocomplete: bool,
+    pub cjk_spacing: bool,
+    pub punctuation_assistance: bool,
+    pub shortcuts: BTreeMap<String, String>,
+}
+
+impl Default for EditorPreferences {
+    fn default() -> Self {
+        Self {
+            theme: "system".to_string(),
+            zoom: 100,
+            show_nonprinting: false,
+            autocomplete: true,
+            cjk_spacing: true,
+            punctuation_assistance: true,
+            shortcuts: BTreeMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SegmentEditorRow {
+    pub segment: Segment,
+    pub source_tags: Vec<InlineTag>,
+    pub target_tags: Vec<InlineTag>,
+    pub tag_issues: Vec<EditorTagIssue>,
+    pub spell_findings: Vec<SpellFinding>,
+    pub comments: Vec<EditorComment>,
+    pub workflow_state: EditorWorkflowState,
+    #[serde(default)]
+    pub context_before: Option<Segment>,
+    #[serde(default)]
+    pub context_after: Option<Segment>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

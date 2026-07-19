@@ -21,6 +21,7 @@ const IPC_CHANNELS = {
   selectSource: "translunar:dialog:source-docx",
   selectExport: "translunar:dialog:export-docx",
   restartEngine: "translunar:engine:restart",
+  editorCommand: "translunar:editor:command",
 } as const;
 
 let mainWindow: BrowserWindow | null = null;
@@ -88,6 +89,19 @@ function createWindow(): void {
     mainWindow = null;
   });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (input.isComposing) return;
+    const modifier = input.control || input.meta;
+    const command =
+      modifier && input.key.toLocaleLowerCase() === "k"
+        ? "editor.palette"
+        : modifier && input.key.toLocaleLowerCase() === "f"
+          ? "editor.findReplace"
+          : null;
+    if (!command) return;
+    event.preventDefault();
+    mainWindow?.webContents.send(IPC_CHANNELS.editorCommand, command);
+  });
   mainWindow.webContents.on("will-navigate", (event, url) => {
     const current = mainWindow?.webContents.getURL();
     if (current && new URL(url).origin !== new URL(current).origin)

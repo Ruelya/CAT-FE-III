@@ -8,7 +8,9 @@ use serde::Serialize;
 use translunar_asset_core::{exact_key, normalize_match_key};
 use translunar_domain::sha256_hex;
 
-use translunar_storage::{Store, TmSearchRequest};
+use translunar_storage::{
+    EditorFilter, EditorListRequest, EditorSearchField, EditorSort, Store, TmSearchRequest,
+};
 
 const SEGMENT_COUNT: u32 = 100_000;
 
@@ -23,6 +25,10 @@ struct BenchmarkReport {
     middle_page_ms: u128,
     last_page_ms: u128,
     history_page_ms: u128,
+    editor_first_page_ms: u128,
+    editor_middle_page_ms: u128,
+    editor_search_ms: u128,
+    editor_window_rows: usize,
     tm_unit_count: u32,
     tm_exact_search_ms: u128,
     tm_fuzzy_search_ms: u128,
@@ -209,6 +215,34 @@ fn measure(root: &Path, ids: &FixtureIds, keep: bool) -> Result<(), Box<dyn Erro
         return Err("history page/count mismatch".into());
     }
 
+    let editor_request = |offset, query: &str| EditorListRequest {
+        document_id: ids.document_id.clone(),
+        query: query.to_string(),
+        field: EditorSearchField::Both,
+        filter: EditorFilter::All,
+        sort: EditorSort::Ordinal,
+        descending: false,
+        offset,
+        limit: 100,
+        include_context: false,
+    };
+    let started = Instant::now();
+    let editor_first = store.list_editor_rows(&editor_request(0, ""))?;
+    let editor_first_page_ms = started.elapsed().as_millis();
+    let started = Instant::now();
+    let editor_middle = store.list_editor_rows(&editor_request(49_950, ""))?;
+    let editor_middle_page_ms = started.elapsed().as_millis();
+    let started = Instant::now();
+    let editor_search = store.list_editor_rows(&editor_request(0, "099999"))?;
+    let editor_search_ms = started.elapsed().as_millis();
+    if editor_first.0.len() != 100
+        || editor_middle.0.len() != 100
+        || editor_search.0.len() != 1
+        || editor_first.1 != SEGMENT_COUNT
+    {
+        return Err("editor page/search projection mismatch".into());
+    }
+
     let (_, tm_unit_count) = store.list_tm_units(&ids.library_id, 0, 1)?;
     if tm_unit_count != SEGMENT_COUNT {
         return Err(format!("expected {SEGMENT_COUNT} TM units, got {tm_unit_count}").into());
@@ -266,6 +300,10 @@ fn measure(root: &Path, ids: &FixtureIds, keep: bool) -> Result<(), Box<dyn Erro
         middle_page_ms,
         last_page_ms,
         history_page_ms,
+        editor_first_page_ms,
+        editor_middle_page_ms,
+        editor_search_ms,
+        editor_window_rows: editor_first.0.len(),
         tm_unit_count,
         tm_exact_search_ms,
         tm_fuzzy_search_ms,

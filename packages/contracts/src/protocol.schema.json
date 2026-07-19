@@ -434,6 +434,17 @@
         "manifest"
       ]
     },
+    "ChineseConversionProfile": {
+      "type": "string",
+      "enum": [
+        "simplifiedToTraditional",
+        "simplifiedToTaiwan",
+        "simplifiedToHongKong",
+        "traditionalToSimplified",
+        "taiwanToSimplified",
+        "hongKongToSimplified"
+      ]
+    },
     "ClientInfo": {
       "type": "object",
       "properties": {
@@ -562,6 +573,13 @@
         "counts": {
           "$ref": "#/$defs/SegmentCounts"
         },
+        "propagated": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Segment"
+          }
+        },
         "qaIssues": {
           "type": "array",
           "items": {
@@ -582,7 +600,53 @@
         "qaIssues"
       ]
     },
+    "ConvertSegmentChineseParams": {
+      "type": "object",
+      "properties": {
+        "expectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "profile": {
+          "$ref": "#/$defs/ChineseConversionProfile"
+        },
+        "segmentId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "segmentId",
+        "profile",
+        "expectedRevision"
+      ]
+    },
     "CorrectOcrParams": {
+      "type": "object",
+      "properties": {
+        "expectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "reason": {
+          "type": "string"
+        },
+        "segmentId": {
+          "type": "string"
+        },
+        "sourceText": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "segmentId",
+        "sourceText",
+        "reason",
+        "expectedRevision"
+      ]
+    },
+    "CorrectSourceParams": {
       "type": "object",
       "properties": {
         "expectedRevision": {
@@ -666,6 +730,25 @@
         "domain"
       ]
     },
+    "CreateSegmentCommentParams": {
+      "type": "object",
+      "properties": {
+        "author": {
+          "type": "string"
+        },
+        "segmentId": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "segmentId",
+        "author",
+        "text"
+      ]
+    },
     "DataHealthReport": {
       "type": "object",
       "properties": {
@@ -726,6 +809,67 @@
       "enum": [
         "warning",
         "error"
+      ]
+    },
+    "DeleteSegmentCommentParams": {
+      "type": "object",
+      "properties": {
+        "commentId": {
+          "type": "string"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "commentId",
+        "expectedRevision"
+      ]
+    },
+    "DictionaryListParams": {
+      "type": "object",
+      "properties": {
+        "locale": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "locale"
+      ]
+    },
+    "DictionaryListResult": {
+      "type": "object",
+      "properties": {
+        "locale": {
+          "type": "string"
+        },
+        "words": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "locale",
+        "words"
+      ]
+    },
+    "DictionaryWordParams": {
+      "type": "object",
+      "properties": {
+        "locale": {
+          "type": "string"
+        },
+        "word": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "locale",
+        "word"
       ]
     },
     "Document": {
@@ -874,6 +1018,334 @@
         "active",
         "failed",
         "superseded"
+      ]
+    },
+    "EditorComment": {
+      "type": "object",
+      "properties": {
+        "author": {
+          "type": "string"
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "id": {
+          "type": "string"
+        },
+        "immutable": {
+          "type": "boolean"
+        },
+        "resolved": {
+          "type": "boolean"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "segmentId": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "id",
+        "segmentId",
+        "author",
+        "text",
+        "createdAtMs",
+        "updatedAtMs",
+        "revision",
+        "resolved",
+        "immutable"
+      ]
+    },
+    "EditorHistoryParams": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 80,
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        },
+        "projectId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId"
+      ]
+    },
+    "EditorHistoryResult": {
+      "type": "object",
+      "properties": {
+        "canRedo": {
+          "type": "boolean"
+        },
+        "canUndo": {
+          "type": "boolean"
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Operation"
+          }
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "operations",
+        "total",
+        "canUndo",
+        "canRedo"
+      ]
+    },
+    "EditorMutationResult": {
+      "type": "object",
+      "properties": {
+        "counts": {
+          "$ref": "#/$defs/SegmentCounts"
+        },
+        "focusSegmentId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "operationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SegmentEditorRow"
+          }
+        }
+      },
+      "required": [
+        "rows",
+        "counts"
+      ]
+    },
+    "EditorPreferences": {
+      "type": "object",
+      "properties": {
+        "autocomplete": {
+          "type": "boolean"
+        },
+        "cjkSpacing": {
+          "type": "boolean"
+        },
+        "punctuationAssistance": {
+          "type": "boolean"
+        },
+        "shortcuts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "showNonprinting": {
+          "type": "boolean"
+        },
+        "theme": {
+          "type": "string"
+        },
+        "zoom": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "theme",
+        "zoom",
+        "showNonprinting",
+        "autocomplete",
+        "cjkSpacing",
+        "punctuationAssistance",
+        "shortcuts"
+      ]
+    },
+    "EditorSearchField": {
+      "type": "string",
+      "enum": [
+        "source",
+        "target",
+        "both"
+      ]
+    },
+    "EditorSegmentFilter": {
+      "type": "string",
+      "enum": [
+        "all",
+        "untranslated",
+        "draft",
+        "confirmed",
+        "issues",
+        "tagged",
+        "commented"
+      ]
+    },
+    "EditorSegmentListParams": {
+      "type": "object",
+      "properties": {
+        "descending": {
+          "type": "boolean",
+          "default": false
+        },
+        "documentId": {
+          "type": "string"
+        },
+        "field": {
+          "$ref": "#/$defs/EditorSearchField",
+          "default": "both"
+        },
+        "filter": {
+          "$ref": "#/$defs/EditorSegmentFilter",
+          "default": "all"
+        },
+        "includeContext": {
+          "type": "boolean",
+          "default": false
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 80,
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        },
+        "query": {
+          "type": "string",
+          "default": ""
+        },
+        "sort": {
+          "$ref": "#/$defs/EditorSegmentSort",
+          "default": "ordinal"
+        }
+      },
+      "required": [
+        "documentId"
+      ]
+    },
+    "EditorSegmentPage": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SegmentEditorRow"
+          }
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "items",
+        "total",
+        "offset",
+        "limit"
+      ]
+    },
+    "EditorSegmentSort": {
+      "type": "string",
+      "enum": [
+        "ordinal",
+        "updatedAt",
+        "state"
+      ]
+    },
+    "EditorTagIssue": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "position": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        },
+        "tagId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ]
+    },
+    "EditorUndoRedoParams": {
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId"
+      ]
+    },
+    "EditorWorkflowState": {
+      "type": "string",
+      "enum": [
+        "translation",
+        "review",
+        "signed"
       ]
     },
     "EmptyParams": {
@@ -1075,6 +1547,49 @@
         "filters"
       ]
     },
+    "FindSegmentsParams": {
+      "type": "object",
+      "properties": {
+        "caseSensitive": {
+          "type": "boolean",
+          "default": false
+        },
+        "documentId": {
+          "type": "string"
+        },
+        "field": {
+          "$ref": "#/$defs/EditorSearchField",
+          "default": "both"
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 80,
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        },
+        "query": {
+          "type": "string"
+        },
+        "regex": {
+          "type": "boolean",
+          "default": false
+        },
+        "wholeWord": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "documentId",
+        "query"
+      ]
+    },
     "HealthFinding": {
       "type": "object",
       "properties": {
@@ -1265,6 +1780,50 @@
         "capabilities"
       ]
     },
+    "InlineTag": {
+      "type": "object",
+      "properties": {
+        "displayText": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/TagKind"
+        },
+        "pairId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "payload": {
+          "type": "string"
+        },
+        "position": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "protected": {
+          "type": "boolean"
+        },
+        "side": {
+          "$ref": "#/$defs/TagSide"
+        }
+      },
+      "required": [
+        "id",
+        "side",
+        "position",
+        "kind",
+        "payload",
+        "displayText",
+        "protected"
+      ]
+    },
     "ListQaParams": {
       "type": "object",
       "properties": {
@@ -1278,6 +1837,33 @@
       },
       "required": [
         "documentId"
+      ]
+    },
+    "MergeSegmentsParams": {
+      "type": "object",
+      "properties": {
+        "firstExpectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "firstSegmentId": {
+          "type": "string"
+        },
+        "secondExpectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "secondSegmentId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "firstSegmentId",
+        "secondSegmentId",
+        "firstExpectedRevision",
+        "secondExpectedRevision"
       ]
     },
     "MethodContract": {
@@ -1359,10 +1945,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PdfPageListParams"
+          "$ref": "#/$defs/EditorSegmentListParams"
         },
         "result": {
-          "$ref": "#/$defs/PdfPageListResult"
+          "$ref": "#/$defs/EditorSegmentPage"
         }
       },
       "required": [
@@ -1374,10 +1960,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PdfPageGetParams"
+          "$ref": "#/$defs/SetSegmentTagsParams"
         },
         "result": {
-          "$ref": "#/$defs/PdfPageDetail"
+          "$ref": "#/$defs/EditorMutationResult"
         }
       },
       "required": [
@@ -1389,10 +1975,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CorrectOcrParams"
+          "$ref": "#/$defs/ConvertSegmentChineseParams"
         },
         "result": {
-          "$ref": "#/$defs/Segment"
+          "$ref": "#/$defs/EditorMutationResult"
         }
       },
       "required": [
@@ -1404,10 +1990,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ExactLookupParams"
+          "$ref": "#/$defs/PropagateSegmentParams"
         },
         "result": {
-          "$ref": "#/$defs/ExactLookupResult"
+          "$ref": "#/$defs/EditorMutationResult"
         }
       },
       "required": [
@@ -1419,10 +2005,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TmLibraryListParams"
+          "$ref": "#/$defs/FindSegmentsParams"
         },
         "result": {
-          "$ref": "#/$defs/TmLibraryPage"
+          "$ref": "#/$defs/SegmentFindResult"
         }
       },
       "required": [
@@ -1434,10 +2020,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TmLibraryCreateParams"
+          "$ref": "#/$defs/ReplacePreviewParams"
         },
         "result": {
-          "$ref": "#/$defs/TmLibrary"
+          "$ref": "#/$defs/ReplacePreviewResult"
         }
       },
       "required": [
@@ -1464,10 +2050,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TmLibraryMountParams"
+          "$ref": "#/$defs/ReplaceApplyParams"
         },
         "result": {
-          "$ref": "#/$defs/TmLibraryMount"
+          "$ref": "#/$defs/EditorMutationResult"
         }
       },
       "required": [
@@ -1479,10 +2065,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TmLibraryUnmountParams"
+          "$ref": "#/$defs/SplitSegmentParams"
         },
         "result": {
-          "$ref": "#/$defs/EmptyResult"
+          "$ref": "#/$defs/EditorMutationResult"
         }
       },
       "required": [
@@ -1494,10 +2080,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TmSearchParams"
+          "$ref": "#/$defs/MergeSegmentsParams"
         },
         "result": {
-          "$ref": "#/$defs/TmSearchResult"
+          "$ref": "#/$defs/EditorMutationResult"
         }
       },
       "required": [
@@ -1509,10 +2095,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ConcordanceParams"
+          "$ref": "#/$defs/CorrectSourceParams"
         },
         "result": {
-          "$ref": "#/$defs/ConcordanceResult"
+          "$ref": "#/$defs/EditorMutationResult"
         }
       },
       "required": [
@@ -1524,10 +2110,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TmImportParams"
+          "$ref": "#/$defs/SetEditorWorkflowParams"
         },
         "result": {
-          "$ref": "#/$defs/TmImportResult"
+          "$ref": "#/$defs/EditorMutationResult"
         }
       },
       "required": [
@@ -1539,10 +2125,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TmExportParams"
+          "$ref": "#/$defs/SegmentCommentListParams"
         },
         "result": {
-          "$ref": "#/$defs/TmExportResult"
+          "$ref": "#/$defs/SegmentCommentListResult"
         }
       },
       "required": [
@@ -1554,10 +2140,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TermbaseListParams"
+          "$ref": "#/$defs/CreateSegmentCommentParams"
         },
         "result": {
-          "$ref": "#/$defs/TermbasePage"
+          "$ref": "#/$defs/EditorComment"
         }
       },
       "required": [
@@ -1569,10 +2155,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TermbaseCreateParams"
+          "$ref": "#/$defs/UpdateSegmentCommentParams"
         },
         "result": {
-          "$ref": "#/$defs/Termbase"
+          "$ref": "#/$defs/EditorComment"
         }
       },
       "required": [
@@ -1584,10 +2170,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TermbaseMountParams"
+          "$ref": "#/$defs/ResolveSegmentCommentParams"
         },
         "result": {
-          "$ref": "#/$defs/TermbaseMount"
+          "$ref": "#/$defs/EditorComment"
         }
       },
       "required": [
@@ -1599,7 +2185,7 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TermbaseUnmountParams"
+          "$ref": "#/$defs/DeleteSegmentCommentParams"
         },
         "result": {
           "$ref": "#/$defs/EmptyResult"
@@ -1629,10 +2215,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TermSearchParams"
+          "$ref": "#/$defs/SpellCheckParams"
         },
         "result": {
-          "$ref": "#/$defs/TermSearchResult"
+          "$ref": "#/$defs/SpellCheckResult"
         }
       },
       "required": [
@@ -1644,10 +2230,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TermUpsertParams"
+          "$ref": "#/$defs/DictionaryListParams"
         },
         "result": {
-          "$ref": "#/$defs/TermEntry"
+          "$ref": "#/$defs/DictionaryListResult"
         }
       },
       "required": [
@@ -1659,10 +2245,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TermbaseImportParams"
+          "$ref": "#/$defs/DictionaryWordParams"
         },
         "result": {
-          "$ref": "#/$defs/TermbaseImportResult"
+          "$ref": "#/$defs/DictionaryListResult"
         }
       },
       "required": [
@@ -1674,10 +2260,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TermbaseExportParams"
+          "$ref": "#/$defs/EditorUndoRedoParams"
         },
         "result": {
-          "$ref": "#/$defs/TermbaseExportResult"
+          "$ref": "#/$defs/EditorMutationResult"
         }
       },
       "required": [
@@ -1689,10 +2275,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/DocumentIdParams"
+          "$ref": "#/$defs/EditorHistoryParams"
         },
         "result": {
-          "$ref": "#/$defs/QaListResult"
+          "$ref": "#/$defs/EditorHistoryResult"
         }
       },
       "required": [
@@ -1704,10 +2290,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ListQaParams"
+          "$ref": "#/$defs/ReviewCreateParams"
         },
         "result": {
-          "$ref": "#/$defs/QaListResult"
+          "$ref": "#/$defs/ReviewRevision"
         }
       },
       "required": [
@@ -1719,10 +2305,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ExportDocxParams"
+          "$ref": "#/$defs/ReviewListParams"
         },
         "result": {
-          "$ref": "#/$defs/ExportDocxResult"
+          "$ref": "#/$defs/ReviewListResult"
         }
       },
       "required": [
@@ -1734,10 +2320,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ExportDocumentParams"
+          "$ref": "#/$defs/ReviewDecisionParams"
         },
         "result": {
-          "$ref": "#/$defs/ExportDocumentResult"
+          "$ref": "#/$defs/EditorMutationResult"
         }
       },
       "required": [
@@ -1749,10 +2335,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/EmptyParams"
+          "$ref": "#/$defs/ReviewDecisionParams"
         },
         "result": {
-          "$ref": "#/$defs/FilterListResult"
+          "$ref": "#/$defs/ReviewRevision"
         }
       },
       "required": [
@@ -1764,10 +2350,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/HistoryListParams"
+          "$ref": "#/$defs/EmptyParams"
         },
         "result": {
-          "$ref": "#/$defs/OperationPage"
+          "$ref": "#/$defs/EditorPreferences"
         }
       },
       "required": [
@@ -1794,10 +2380,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/EmptyParams"
+          "$ref": "#/$defs/UpdateEditorPreferencesParams"
         },
         "result": {
-          "$ref": "#/$defs/DataHealthReport"
+          "$ref": "#/$defs/EditorPreferences"
         }
       },
       "required": [
@@ -1809,10 +2395,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CreateBackupParams"
+          "$ref": "#/$defs/PdfPageListParams"
         },
         "result": {
-          "$ref": "#/$defs/BackupResult"
+          "$ref": "#/$defs/PdfPageListResult"
         }
       },
       "required": [
@@ -1824,10 +2410,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/EmptyParams"
+          "$ref": "#/$defs/PdfPageGetParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineCapabilityResult"
+          "$ref": "#/$defs/PdfPageDetail"
         }
       },
       "required": [
@@ -1839,10 +2425,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CreatePipelineParams"
+          "$ref": "#/$defs/CorrectOcrParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineDefinition"
+          "$ref": "#/$defs/Segment"
         }
       },
       "required": [
@@ -1854,10 +2440,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PipelineListParams"
+          "$ref": "#/$defs/ExactLookupParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineDefinitionPage"
+          "$ref": "#/$defs/ExactLookupResult"
         }
       },
       "required": [
@@ -1869,10 +2455,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PipelineIdParams"
+          "$ref": "#/$defs/TmLibraryListParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineDefinition"
+          "$ref": "#/$defs/TmLibraryPage"
         }
       },
       "required": [
@@ -1884,10 +2470,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ValidatePipelineParams"
+          "$ref": "#/$defs/TmLibraryCreateParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineValidationResult"
+          "$ref": "#/$defs/TmLibrary"
         }
       },
       "required": [
@@ -1899,10 +2485,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/RunPipelineParams"
+          "$ref": "#/$defs/TmLibraryMountParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineRunSnapshot"
+          "$ref": "#/$defs/TmLibraryMount"
         }
       },
       "required": [
@@ -1914,10 +2500,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PipelineRunListParams"
+          "$ref": "#/$defs/TmLibraryUnmountParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineRunPage"
+          "$ref": "#/$defs/EmptyResult"
         }
       },
       "required": [
@@ -1929,10 +2515,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PipelineRunIdParams"
+          "$ref": "#/$defs/TmSearchParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineRunSnapshot"
+          "$ref": "#/$defs/TmSearchResult"
         }
       },
       "required": [
@@ -1959,10 +2545,145 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PipelineRunRevisionParams"
+          "$ref": "#/$defs/ConcordanceParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineRunSnapshot"
+          "$ref": "#/$defs/ConcordanceResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract51": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TmImportParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TmImportResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract52": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TmExportParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TmExportResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract53": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermbaseListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermbasePage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract54": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermbaseCreateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/Termbase"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract55": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermbaseMountParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermbaseMount"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract56": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermbaseUnmountParams"
+        },
+        "result": {
+          "$ref": "#/$defs/EmptyResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract57": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermSearchParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermSearchResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract58": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermUpsertParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermEntry"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract59": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermbaseImportParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermbaseImportResult"
         }
       },
       "required": [
@@ -1985,6 +2706,156 @@
         "result"
       ]
     },
+    "MethodContract60": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermbaseExportParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermbaseExportResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract61": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/DocumentIdParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaListResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract62": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/ListQaParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaListResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract63": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/ExportDocxParams"
+        },
+        "result": {
+          "$ref": "#/$defs/ExportDocxResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract64": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/ExportDocumentParams"
+        },
+        "result": {
+          "$ref": "#/$defs/ExportDocumentResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract65": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/EmptyParams"
+        },
+        "result": {
+          "$ref": "#/$defs/FilterListResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract66": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/HistoryListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/OperationPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract67": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/EmptyParams"
+        },
+        "result": {
+          "$ref": "#/$defs/DataHealthReport"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract68": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CreateBackupParams"
+        },
+        "result": {
+          "$ref": "#/$defs/BackupResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract69": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/EmptyParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineCapabilityResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
     "MethodContract7": {
       "type": "object",
       "properties": {
@@ -1993,6 +2864,126 @@
         },
         "result": {
           "$ref": "#/$defs/DocumentPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract70": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CreatePipelineParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineDefinition"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract71": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/PipelineListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineDefinitionPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract72": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/PipelineIdParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineDefinition"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract73": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/ValidatePipelineParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineValidationResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract74": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/RunPipelineParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineRunSnapshot"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract75": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/PipelineRunListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineRunPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract76": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/PipelineRunIdParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineRunSnapshot"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract77": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/PipelineRunRevisionParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineRunSnapshot"
         }
       },
       "required": [
@@ -3070,6 +4061,23 @@
         "counts"
       ]
     },
+    "PropagateSegmentParams": {
+      "type": "object",
+      "properties": {
+        "expectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "segmentId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "segmentId",
+        "expectedRevision"
+      ]
+    },
     "QaIssue": {
       "type": "object",
       "properties": {
@@ -3148,6 +4156,324 @@
         "info"
       ]
     },
+    "ReplaceApplyParams": {
+      "type": "object",
+      "properties": {
+        "preview": {
+          "$ref": "#/$defs/ReplacePreviewResult"
+        }
+      },
+      "required": [
+        "preview"
+      ]
+    },
+    "ReplacePreviewItem": {
+      "type": "object",
+      "properties": {
+        "after": {
+          "type": "string"
+        },
+        "before": {
+          "type": "string"
+        },
+        "field": {
+          "$ref": "#/$defs/EditorSearchField"
+        },
+        "replacements": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "segmentId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "segmentId",
+        "revision",
+        "field",
+        "before",
+        "after",
+        "replacements"
+      ]
+    },
+    "ReplacePreviewParams": {
+      "type": "object",
+      "properties": {
+        "caseSensitive": {
+          "type": "boolean",
+          "default": false
+        },
+        "documentId": {
+          "type": "string"
+        },
+        "field": {
+          "$ref": "#/$defs/EditorSearchField",
+          "default": "both"
+        },
+        "query": {
+          "type": "string"
+        },
+        "regex": {
+          "type": "boolean",
+          "default": false
+        },
+        "replacement": {
+          "type": "string"
+        },
+        "wholeWord": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "documentId",
+        "query",
+        "replacement"
+      ]
+    },
+    "ReplacePreviewResult": {
+      "type": "object",
+      "properties": {
+        "changedSegments": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "documentId": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ReplacePreviewItem"
+          }
+        },
+        "replacementCount": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "token": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "token",
+        "documentId",
+        "items",
+        "changedSegments",
+        "replacementCount"
+      ]
+    },
+    "ResolveSegmentCommentParams": {
+      "type": "object",
+      "properties": {
+        "commentId": {
+          "type": "string"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "resolved": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "commentId",
+        "resolved",
+        "expectedRevision"
+      ]
+    },
+    "ReviewCreateParams": {
+      "type": "object",
+      "properties": {
+        "author": {
+          "type": "string"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "proposedSource": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "proposedTarget": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "proposedTargetTags": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "default": null,
+          "items": {
+            "$ref": "#/$defs/InlineTag"
+          }
+        },
+        "reason": {
+          "type": "string",
+          "default": ""
+        },
+        "segmentId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "segmentId",
+        "author",
+        "expectedRevision"
+      ]
+    },
+    "ReviewDecisionParams": {
+      "type": "object",
+      "properties": {
+        "expectedSegmentRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "reviewId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reviewId",
+        "expectedSegmentRevision"
+      ]
+    },
+    "ReviewListParams": {
+      "type": "object",
+      "properties": {
+        "documentId": {
+          "type": "string"
+        },
+        "includeClosed": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "documentId"
+      ]
+    },
+    "ReviewListResult": {
+      "type": "object",
+      "properties": {
+        "revisions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ReviewRevision"
+          }
+        }
+      },
+      "required": [
+        "revisions"
+      ]
+    },
+    "ReviewRevision": {
+      "type": "object",
+      "properties": {
+        "author": {
+          "type": "string"
+        },
+        "baseRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "beforeSource": {
+          "type": "string",
+          "default": ""
+        },
+        "beforeTarget": {
+          "type": "string"
+        },
+        "beforeTargetTags": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/InlineTag"
+          }
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "id": {
+          "type": "string"
+        },
+        "proposedSource": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "proposedTarget": {
+          "type": "string"
+        },
+        "proposedTargetTags": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "default": null,
+          "items": {
+            "$ref": "#/$defs/InlineTag"
+          }
+        },
+        "reason": {
+          "type": "string"
+        },
+        "segmentId": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/ReviewStatus"
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "id",
+        "segmentId",
+        "baseRevision",
+        "beforeTarget",
+        "proposedTarget",
+        "author",
+        "reason",
+        "status",
+        "createdAtMs",
+        "updatedAtMs"
+      ]
+    },
+    "ReviewStatus": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "accepted",
+        "rejected"
+      ]
+    },
     "RpcError": {
       "type": "object",
       "properties": {
@@ -3168,16 +4494,25 @@
       "type": "object",
       "properties": {
         "data.checkHealth": {
-          "$ref": "#/$defs/MethodContract40"
+          "$ref": "#/$defs/MethodContract67"
         },
         "data.createBackup": {
-          "$ref": "#/$defs/MethodContract41"
+          "$ref": "#/$defs/MethodContract68"
+        },
+        "dictionary.add": {
+          "$ref": "#/$defs/MethodContract32"
+        },
+        "dictionary.list": {
+          "$ref": "#/$defs/MethodContract31"
+        },
+        "dictionary.remove": {
+          "$ref": "#/$defs/MethodContract32"
         },
         "document.export": {
-          "$ref": "#/$defs/MethodContract37"
+          "$ref": "#/$defs/MethodContract64"
         },
         "document.exportDocx": {
-          "$ref": "#/$defs/MethodContract36"
+          "$ref": "#/$defs/MethodContract63"
         },
         "document.get": {
           "$ref": "#/$defs/MethodContract8"
@@ -3191,53 +4526,68 @@
         "document.list": {
           "$ref": "#/$defs/MethodContract7"
         },
+        "editor.history": {
+          "$ref": "#/$defs/MethodContract34"
+        },
+        "editor.preferences.get": {
+          "$ref": "#/$defs/MethodContract39"
+        },
+        "editor.preferences.update": {
+          "$ref": "#/$defs/MethodContract40"
+        },
+        "editor.redo": {
+          "$ref": "#/$defs/MethodContract33"
+        },
+        "editor.undo": {
+          "$ref": "#/$defs/MethodContract33"
+        },
         "engine.initialize": {
           "$ref": "#/$defs/MethodContract"
         },
         "filter.list": {
-          "$ref": "#/$defs/MethodContract38"
+          "$ref": "#/$defs/MethodContract65"
         },
         "history.list": {
-          "$ref": "#/$defs/MethodContract39"
+          "$ref": "#/$defs/MethodContract66"
         },
         "pdf.correctOcr": {
-          "$ref": "#/$defs/MethodContract16"
-        },
-        "pdf.page.get": {
-          "$ref": "#/$defs/MethodContract15"
-        },
-        "pdf.page.list": {
-          "$ref": "#/$defs/MethodContract14"
-        },
-        "pipeline.create": {
           "$ref": "#/$defs/MethodContract43"
         },
-        "pipeline.get": {
-          "$ref": "#/$defs/MethodContract45"
-        },
-        "pipeline.list": {
-          "$ref": "#/$defs/MethodContract44"
-        },
-        "pipeline.run": {
-          "$ref": "#/$defs/MethodContract47"
-        },
-        "pipeline.run.cancel": {
-          "$ref": "#/$defs/MethodContract50"
-        },
-        "pipeline.run.get": {
-          "$ref": "#/$defs/MethodContract49"
-        },
-        "pipeline.run.list": {
-          "$ref": "#/$defs/MethodContract48"
-        },
-        "pipeline.run.resume": {
-          "$ref": "#/$defs/MethodContract50"
-        },
-        "pipeline.step.list": {
+        "pdf.page.get": {
           "$ref": "#/$defs/MethodContract42"
         },
+        "pdf.page.list": {
+          "$ref": "#/$defs/MethodContract41"
+        },
+        "pipeline.create": {
+          "$ref": "#/$defs/MethodContract70"
+        },
+        "pipeline.get": {
+          "$ref": "#/$defs/MethodContract72"
+        },
+        "pipeline.list": {
+          "$ref": "#/$defs/MethodContract71"
+        },
+        "pipeline.run": {
+          "$ref": "#/$defs/MethodContract74"
+        },
+        "pipeline.run.cancel": {
+          "$ref": "#/$defs/MethodContract77"
+        },
+        "pipeline.run.get": {
+          "$ref": "#/$defs/MethodContract76"
+        },
+        "pipeline.run.list": {
+          "$ref": "#/$defs/MethodContract75"
+        },
+        "pipeline.run.resume": {
+          "$ref": "#/$defs/MethodContract77"
+        },
+        "pipeline.step.list": {
+          "$ref": "#/$defs/MethodContract69"
+        },
         "pipeline.validate": {
-          "$ref": "#/$defs/MethodContract46"
+          "$ref": "#/$defs/MethodContract73"
         },
         "project.create": {
           "$ref": "#/$defs/MethodContract2"
@@ -3255,70 +4605,133 @@
           "$ref": "#/$defs/MethodContract5"
         },
         "qa.list": {
-          "$ref": "#/$defs/MethodContract35"
+          "$ref": "#/$defs/MethodContract62"
         },
         "qa.runDocument": {
-          "$ref": "#/$defs/MethodContract34"
+          "$ref": "#/$defs/MethodContract61"
+        },
+        "review.accept": {
+          "$ref": "#/$defs/MethodContract37"
+        },
+        "review.create": {
+          "$ref": "#/$defs/MethodContract35"
+        },
+        "review.list": {
+          "$ref": "#/$defs/MethodContract36"
+        },
+        "review.reject": {
+          "$ref": "#/$defs/MethodContract38"
+        },
+        "segment.chinese.convert": {
+          "$ref": "#/$defs/MethodContract16"
+        },
+        "segment.comment.create": {
+          "$ref": "#/$defs/MethodContract26"
+        },
+        "segment.comment.delete": {
+          "$ref": "#/$defs/MethodContract29"
+        },
+        "segment.comment.list": {
+          "$ref": "#/$defs/MethodContract25"
+        },
+        "segment.comment.resolve": {
+          "$ref": "#/$defs/MethodContract28"
+        },
+        "segment.comment.update": {
+          "$ref": "#/$defs/MethodContract27"
         },
         "segment.confirm": {
           "$ref": "#/$defs/MethodContract13"
         },
+        "segment.correctSource": {
+          "$ref": "#/$defs/MethodContract23"
+        },
+        "segment.editor.list": {
+          "$ref": "#/$defs/MethodContract14"
+        },
+        "segment.find": {
+          "$ref": "#/$defs/MethodContract18"
+        },
         "segment.list": {
           "$ref": "#/$defs/MethodContract11"
+        },
+        "segment.merge": {
+          "$ref": "#/$defs/MethodContract22"
+        },
+        "segment.propagate": {
+          "$ref": "#/$defs/MethodContract17"
+        },
+        "segment.replace.apply": {
+          "$ref": "#/$defs/MethodContract20"
+        },
+        "segment.replace.preview": {
+          "$ref": "#/$defs/MethodContract19"
+        },
+        "segment.spell.check": {
+          "$ref": "#/$defs/MethodContract30"
+        },
+        "segment.split": {
+          "$ref": "#/$defs/MethodContract21"
+        },
+        "segment.tag.set": {
+          "$ref": "#/$defs/MethodContract15"
         },
         "segment.updateTarget": {
           "$ref": "#/$defs/MethodContract12"
         },
-        "term.search": {
-          "$ref": "#/$defs/MethodContract30"
-        },
-        "term.upsert": {
-          "$ref": "#/$defs/MethodContract31"
-        },
-        "termbase.create": {
-          "$ref": "#/$defs/MethodContract27"
-        },
-        "termbase.export": {
-          "$ref": "#/$defs/MethodContract33"
-        },
-        "termbase.import": {
-          "$ref": "#/$defs/MethodContract32"
-        },
-        "termbase.list": {
-          "$ref": "#/$defs/MethodContract26"
-        },
-        "termbase.mount": {
-          "$ref": "#/$defs/MethodContract28"
-        },
-        "termbase.unmount": {
-          "$ref": "#/$defs/MethodContract29"
-        },
-        "tm.concordance": {
-          "$ref": "#/$defs/MethodContract23"
-        },
-        "tm.export": {
-          "$ref": "#/$defs/MethodContract25"
-        },
-        "tm.import": {
+        "segment.workflow.set": {
           "$ref": "#/$defs/MethodContract24"
         },
+        "term.search": {
+          "$ref": "#/$defs/MethodContract57"
+        },
+        "term.upsert": {
+          "$ref": "#/$defs/MethodContract58"
+        },
+        "termbase.create": {
+          "$ref": "#/$defs/MethodContract54"
+        },
+        "termbase.export": {
+          "$ref": "#/$defs/MethodContract60"
+        },
+        "termbase.import": {
+          "$ref": "#/$defs/MethodContract59"
+        },
+        "termbase.list": {
+          "$ref": "#/$defs/MethodContract53"
+        },
+        "termbase.mount": {
+          "$ref": "#/$defs/MethodContract55"
+        },
+        "termbase.unmount": {
+          "$ref": "#/$defs/MethodContract56"
+        },
+        "tm.concordance": {
+          "$ref": "#/$defs/MethodContract50"
+        },
+        "tm.export": {
+          "$ref": "#/$defs/MethodContract52"
+        },
+        "tm.import": {
+          "$ref": "#/$defs/MethodContract51"
+        },
         "tm.library.create": {
-          "$ref": "#/$defs/MethodContract19"
+          "$ref": "#/$defs/MethodContract46"
         },
         "tm.library.list": {
-          "$ref": "#/$defs/MethodContract18"
+          "$ref": "#/$defs/MethodContract45"
         },
         "tm.library.mount": {
-          "$ref": "#/$defs/MethodContract20"
+          "$ref": "#/$defs/MethodContract47"
         },
         "tm.library.unmount": {
-          "$ref": "#/$defs/MethodContract21"
+          "$ref": "#/$defs/MethodContract48"
         },
         "tm.lookupExact": {
-          "$ref": "#/$defs/MethodContract17"
+          "$ref": "#/$defs/MethodContract44"
         },
         "tm.search": {
-          "$ref": "#/$defs/MethodContract22"
+          "$ref": "#/$defs/MethodContract49"
         }
       },
       "additionalProperties": false,
@@ -3336,6 +4749,35 @@
         "segment.list",
         "segment.updateTarget",
         "segment.confirm",
+        "segment.editor.list",
+        "segment.tag.set",
+        "segment.chinese.convert",
+        "segment.propagate",
+        "segment.find",
+        "segment.replace.preview",
+        "segment.replace.apply",
+        "segment.split",
+        "segment.merge",
+        "segment.correctSource",
+        "segment.workflow.set",
+        "segment.comment.list",
+        "segment.comment.create",
+        "segment.comment.update",
+        "segment.comment.resolve",
+        "segment.comment.delete",
+        "segment.spell.check",
+        "dictionary.list",
+        "dictionary.add",
+        "dictionary.remove",
+        "editor.undo",
+        "editor.redo",
+        "editor.history",
+        "review.create",
+        "review.list",
+        "review.accept",
+        "review.reject",
+        "editor.preferences.get",
+        "editor.preferences.update",
         "pdf.page.list",
         "pdf.page.get",
         "pdf.correctOcr",
@@ -3457,6 +4899,35 @@
         "updatedAtMs"
       ]
     },
+    "SegmentCommentListParams": {
+      "type": "object",
+      "properties": {
+        "includeResolved": {
+          "type": "boolean",
+          "default": false
+        },
+        "segmentId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "segmentId"
+      ]
+    },
+    "SegmentCommentListResult": {
+      "type": "object",
+      "properties": {
+        "comments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EditorComment"
+          }
+        }
+      },
+      "required": [
+        "comments"
+      ]
+    },
     "SegmentCounts": {
       "type": "object",
       "properties": {
@@ -3492,6 +4963,147 @@
         "draft",
         "confirmed",
         "openIssues"
+      ]
+    },
+    "SegmentEditorRow": {
+      "type": "object",
+      "properties": {
+        "comments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EditorComment"
+          }
+        },
+        "contextAfter": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Segment"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "contextBefore": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Segment"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "segment": {
+          "$ref": "#/$defs/Segment"
+        },
+        "sourceTags": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/InlineTag"
+          }
+        },
+        "spellFindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SpellFinding"
+          }
+        },
+        "tagIssues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EditorTagIssue"
+          }
+        },
+        "targetTags": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/InlineTag"
+          }
+        },
+        "workflowState": {
+          "$ref": "#/$defs/EditorWorkflowState"
+        }
+      },
+      "required": [
+        "segment",
+        "sourceTags",
+        "targetTags",
+        "tagIssues",
+        "spellFindings",
+        "comments",
+        "workflowState"
+      ]
+    },
+    "SegmentFindMatch": {
+      "type": "object",
+      "properties": {
+        "end": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "field": {
+          "$ref": "#/$defs/EditorSearchField"
+        },
+        "matchedText": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "segmentId": {
+          "type": "string"
+        },
+        "start": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "segmentId",
+        "field",
+        "start",
+        "end",
+        "matchedText",
+        "revision"
+      ]
+    },
+    "SegmentFindResult": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "matches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SegmentFindMatch"
+          }
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "matches",
+        "total",
+        "offset",
+        "limit"
       ]
     },
     "SegmentListParams": {
@@ -3557,6 +5169,27 @@
         "confirmed"
       ]
     },
+    "SetEditorWorkflowParams": {
+      "type": "object",
+      "properties": {
+        "expectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "segmentId": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/EditorWorkflowState"
+        }
+      },
+      "required": [
+        "segmentId",
+        "state",
+        "expectedRevision"
+      ]
+    },
     "SetProjectLifecycleParams": {
       "type": "object",
       "properties": {
@@ -3586,6 +5219,139 @@
       "required": [
         "projectId",
         "lifecycle",
+        "expectedRevision"
+      ]
+    },
+    "SetSegmentTagsParams": {
+      "type": "object",
+      "properties": {
+        "expectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "segmentId": {
+          "type": "string"
+        },
+        "targetTags": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/InlineTag"
+          }
+        }
+      },
+      "required": [
+        "segmentId",
+        "targetTags",
+        "expectedRevision"
+      ]
+    },
+    "SpellCheckParams": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 100,
+          "minimum": 0
+        },
+        "locale": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "locale",
+        "text"
+      ]
+    },
+    "SpellCheckResult": {
+      "type": "object",
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SpellFinding"
+          }
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "available",
+        "provider",
+        "findings"
+      ]
+    },
+    "SpellFinding": {
+      "type": "object",
+      "properties": {
+        "end": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "provider": {
+          "type": "string"
+        },
+        "start": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "suggestions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "word": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "word",
+        "start",
+        "end",
+        "suggestions",
+        "provider"
+      ]
+    },
+    "SplitSegmentParams": {
+      "type": "object",
+      "properties": {
+        "expectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "segmentId": {
+          "type": "string"
+        },
+        "sourceOffset": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "targetOffset": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "segmentId",
+        "sourceOffset",
         "expectedRevision"
       ]
     },
@@ -3628,6 +5394,21 @@
         "configSchemaVersion",
         "resumable",
         "cancellable"
+      ]
+    },
+    "TagKind": {
+      "type": "string",
+      "enum": [
+        "start",
+        "end",
+        "standalone"
+      ]
+    },
+    "TagSide": {
+      "type": "string",
+      "enum": [
+        "source",
+        "target"
       ]
     },
     "TermEntry": {
@@ -4939,6 +6720,17 @@
         "updatedAtMs"
       ]
     },
+    "UpdateEditorPreferencesParams": {
+      "type": "object",
+      "properties": {
+        "preferences": {
+          "$ref": "#/$defs/EditorPreferences"
+        }
+      },
+      "required": [
+        "preferences"
+      ]
+    },
     "UpdateProjectParams": {
       "type": "object",
       "properties": {
@@ -4989,6 +6781,27 @@
         "sourceLocale",
         "targetLocale",
         "domain",
+        "expectedRevision"
+      ]
+    },
+    "UpdateSegmentCommentParams": {
+      "type": "object",
+      "properties": {
+        "commentId": {
+          "type": "string"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "commentId",
+        "text",
         "expectedRevision"
       ]
     },

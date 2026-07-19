@@ -4,6 +4,7 @@ import type {
   ProjectSnapshot,
   QaIssue,
   Segment,
+  SegmentEditorRow,
 } from "@translunar/contracts";
 
 import { BrandMark } from "./BrandMark";
@@ -18,6 +19,7 @@ interface WorkspaceData {
   snapshot: ProjectSnapshot;
   document: Document;
   segments: Segment[];
+  editorRows: SegmentEditorRow[];
   issues: QaIssue[];
 }
 
@@ -142,10 +144,16 @@ async function loadWorkspace(
 ): Promise<WorkspaceData> {
   const [snapshot, page, qa] = await Promise.all([
     window.translunar.invoke("project.get", { projectId }),
-    window.translunar.invoke("segment.list", {
+    window.translunar.invoke("segment.editor.list", {
       documentId,
+      query: "",
+      field: "both",
+      filter: "all",
+      sort: "ordinal",
+      descending: false,
       offset: 0,
-      limit: 1000,
+      limit: 80,
+      includeContext: true,
     }),
     window.translunar.invoke("qa.list", {
       documentId,
@@ -154,7 +162,13 @@ async function loadWorkspace(
   ]);
   const document = snapshot.documents.find((item) => item.id === documentId);
   if (!document) throw new Error("The active document no longer exists.");
-  return { snapshot, document, segments: page.items, issues: qa.issues };
+  return {
+    snapshot,
+    document,
+    segments: page.items.map((row) => row.segment),
+    editorRows: page.items,
+    issues: qa.issues,
+  };
 }
 
 function readSession(): StoredSession | null {

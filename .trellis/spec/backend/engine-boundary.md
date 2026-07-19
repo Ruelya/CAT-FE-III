@@ -664,3 +664,111 @@ Wrong: the renderer runs OCR, changes sourceText, and increments revision.
 
 Correct: the renderer calls pdf.correctOcr with segmentId, sourceText, reason,
 and expectedRevision, then replaces display state with the returned Segment.
+
+## Professional Editor And OpenCC Boundary
+
+### 1. Scope / Trigger
+
+Use this contract for protected target tags, editor history, comments, review,
+workflow state, spelling, Chinese conversion, and any new editor mutation. The
+Engine and SQLite remain authoritative; renderer code only supplies a command,
+an expected revision, and presentation intent.
+
+### 2. Signatures
+
+The additive protocol-v1 surface includes:
+
+```text
+segment.editor.list
+segment.tag.set
+segment.chinese.convert
+segment.propagate
+segment.find
+segment.replace.preview / segment.replace.apply
+segment.split / segment.merge / segment.correctSource / segment.workflow.set
+segment.comment.list/create/update/resolve/delete
+segment.spell.check / dictionary.list/add/remove
+editor.undo / editor.redo / editor.history
+review.create/list/accept/reject
+editor.preferences.get/update
+```
+
+`segment.chinese.convert` accepts `segmentId`, `expectedRevision`, and one of
+`simplifiedToTraditional`, `simplifiedToTaiwan`,
+`simplifiedToHongKong`, `traditionalToSimplified`,
+`taiwanToSimplified`, or `hongKongToSimplified`, and returns an
+`EditorMutationResult`.
+
+### 3. Contracts
+
+- Migration 6/7 editor tables and every editor mutation participate in one
+  immediate transaction and one durable undo/redo snapshot. Confirmation
+  snapshots include legacy TM, mounted TM units, and QA side effects.
+- `segment.tag.set` allows `tag_missing` findings so a translator can build a
+  valid target structure incrementally. Wrong-side, out-of-range, extra,
+  incomplete-pair, and crossed/order findings reject the write. Confirmation
+  rejects every remaining tag finding.
+- Equal-position tag order is the submitted/insertion order. Validation uses a
+  stable position sort and SQLite reload uses `ORDER BY position, rowid`; tag ID
+  lexical order must not put an end tag before its start tag.
+- Chinese conversion uses embedded OpenCC phrase dictionaries through the
+  pure-Rust `ferrous-opencc` dependency. It performs no download, subprocess,
+  or runtime dictionary lookup. The converted target, tag position clamp,
+  revision, operation reason, and undo snapshot commit atomically.
+- Signed segments reject content/tag/source/conversion writes. Review and
+  workflow operations remain available so a reviewer can deliberately return a
+  segment to an editable state.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Stale segment revision | `conflict` with expected/actual revision; no history row |
+| Partial but structurally valid target tags | Persist and return live `tag_missing` findings |
+| Extra, crossed, incomplete, wrong-side, or out-of-range tag | `invalid_state`; target tags unchanged |
+| Confirm with any tag finding | `invalid_state`; no TM/QA/state side effect |
+| Chinese conversion on empty, unchanged, or signed target | `invalid_state`; no revision/history change |
+| Unknown conversion profile | `invalid_request` during protocol deserialization |
+| OpenCC embedded configuration failure | `invalid_state` without source/target content |
+
+### 5. Good / Base / Bad Cases
+
+- Good: insert one complete tag pair at a collapsed caret, observe remaining
+  missing tags, add/move the rest, confirm, restart, and export valid structure.
+- Good: convert `鼠标和打印机里的软件` with `simplifiedToTaiwan`, receive
+  `滑鼠和印表機裡的軟體`, undo, restart, and redo the same phrase-aware result.
+- Base: a target already matching the selected Chinese profile returns an
+  explicit no-change error instead of inventing a revision.
+- Bad: sort equal-position tags by source ID, or reject every partial tag set;
+  both make pair insertion at a caret impossible.
+
+### 6. Tests Required
+
+- Editor-core unit tests assert equal-position pair order and OpenCC phrase
+  conversion in both directions.
+- Engine tests assert partial-pair persistence with live missing findings,
+  confirmation blocking, conversion undo/redo across restart, signed read-only,
+  redo branch invalidation, and TM/QA restoration.
+- Stdio smoke calls `segment.chinese.convert` and proves undo restores the
+  simplified target.
+- Electron E2E covers pair insertion/move, comment CRUD, source/target/tag
+  review, signed read-only, and Chinese conversion through the real Engine.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+// Lexical ID order can place `:end` before `:start` at the same caret.
+tags.sort_by_key(|tag| (tag.position, tag.id.clone()));
+// Rejects the first valid pair because other source tags are still missing.
+if !validate_target_tags(source, target, text).is_empty() { return Err(...); }
+```
+
+#### Correct
+
+```rust
+tags.sort_by_key(|tag| tag.position); // stable: submitted order wins ties
+let blocking = issues.iter().filter(|issue| issue.code != "tag_missing");
+// Persist incremental structure; confirmation performs the complete check.
+```

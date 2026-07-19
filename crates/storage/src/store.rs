@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::fs::File;
 use std::io::Read;
@@ -9,6 +9,7 @@ use chrono::Utc;
 use rusqlite::types::Type;
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, TransactionBehavior, params};
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use translunar_asset_core::{
@@ -17,11 +18,17 @@ use translunar_asset_core::{
     TmUnit, exact_key, match_score, normalize_match_key, term_spans,
 };
 use translunar_domain::{
-    BackupFile, BackupManifest, DataHealthReport, DegradationFinding, Document, DocumentNote,
-    DocumentStatus, HealthFinding, HealthSeverity, NumberEvidence, Operation, Project,
-    ProjectConfiguration, ProjectLifecycle, QaIssue, QaIssueStatus, QaSeverity, Segment,
-    SegmentCounts, SegmentState, TagKind, TagSide, TmEntry, TranslationMemory, new_id,
-    normalize_text, number_issue_fingerprint, number_mismatch, segment_hashes, state_for_target,
+    BackupFile, BackupManifest, ChineseConversionProfile, DataHealthReport, DegradationFinding,
+    Document, DocumentNote, DocumentStatus, EditorComment, EditorPreferences, EditorWorkflowState,
+    HealthFinding, HealthSeverity, InlineTag, NumberEvidence, Operation, Project,
+    ProjectConfiguration, ProjectLifecycle, QaIssue, QaIssueStatus, QaSeverity, ReviewRevision,
+    ReviewStatus, Segment, SegmentCounts, SegmentEditorRow, SegmentState, TagKind, TagSide,
+    TmEntry, TranslationMemory, new_id, normalize_text, number_issue_fingerprint, number_mismatch,
+    segment_hashes, state_for_target,
+};
+use translunar_editor_core::{
+    SearchOptions, convert_chinese, find_text_matches, normalize_dictionary_word, replace_text,
+    validate_target_tags,
 };
 use translunar_filter_core::ImportedUnit;
 use translunar_pipeline::{
@@ -35,6 +42,45 @@ use crate::{Result, StorageError};
 const NUMBER_RULE_ID: &str = "number-mismatch";
 const NUMBER_RULE_MESSAGE: &str = "Source and target numbers do not match.";
 const LEGACY_DESKTOP_ACTOR: &str = "desktop";
+const EDITOR_COMMAND_IDS: &[&str] = &[
+    "editor.save",
+    "editor.confirm",
+    "editor.next",
+    "editor.previous",
+    "editor.findReplace",
+    "editor.concordance",
+    "editor.copySource",
+    "editor.copyTags",
+    "editor.insertTag",
+    "editor.insertTagPair",
+    "editor.moveTag",
+    "editor.split",
+    "editor.merge",
+    "editor.correctSource",
+    "editor.chineseConversion",
+    "editor.comment",
+    "editor.review",
+    "editor.workflow",
+    "editor.suggestion.1",
+    "editor.suggestion.2",
+    "editor.suggestion.3",
+    "editor.suggestion.4",
+    "editor.suggestion.5",
+    "editor.suggestion.6",
+    "editor.suggestion.7",
+    "editor.suggestion.8",
+    "editor.suggestion.9",
+    "editor.undo",
+    "editor.redo",
+    "editor.palette",
+    "editor.preferences",
+    "editor.toggleSuggestions",
+    "editor.togglePreview",
+    "editor.toggleTheme",
+    "editor.zoomIn",
+    "editor.zoomOut",
+    "editor.toggleNonprinting",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DataPaths {
@@ -172,6 +218,17 @@ pub struct ConcordanceRequest {
 }
 
 #[derive(Debug, Clone)]
+pub struct ReviewProposal<'a> {
+    pub segment_id: &'a str,
+    pub proposed_target: Option<&'a str>,
+    pub proposed_source: Option<&'a str>,
+    pub proposed_target_tags: Option<&'a [InlineTag]>,
+    pub author: &'a str,
+    pub reason: &'a str,
+    pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone)]
 pub struct NewTermbase {
     pub name: String,
     pub source_locale: String,
@@ -221,6 +278,132 @@ pub struct Confirmation {
     pub counts: SegmentCounts,
     pub tm_entry: TmEntry,
     pub qa_issues: Vec<QaIssue>,
+    pub propagated: Vec<Segment>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditorSearchField {
+    Source,
+    Target,
+    Both,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditorFilter {
+    All,
+    Untranslated,
+    Draft,
+    Confirmed,
+    Issues,
+    Tagged,
+    Commented,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditorSort {
+    Ordinal,
+    UpdatedAt,
+    State,
+}
+
+#[derive(Debug, Clone)]
+pub struct EditorListRequest {
+    pub document_id: String,
+    pub query: String,
+    pub field: EditorSearchField,
+    pub filter: EditorFilter,
+    pub sort: EditorSort,
+    pub descending: bool,
+    pub offset: u32,
+    pub limit: u32,
+    pub include_context: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct EditorMutation {
+    pub rows: Vec<SegmentEditorRow>,
+    pub counts: SegmentCounts,
+    pub operation_id: Option<String>,
+    pub focus_segment_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReplaceItem {
+    pub segment_id: String,
+    pub revision: u64,
+    pub field: EditorSearchField,
+    pub before: String,
+    pub after: String,
+    pub replacements: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReplacePreview {
+    pub token: String,
+    pub document_id: String,
+    pub items: Vec<ReplaceItem>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReplaceRequest {
+    pub document_id: String,
+    pub query: String,
+    pub replacement: String,
+    pub field: EditorSearchField,
+    pub options: SearchOptions,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditorFindMatch {
+    pub segment_id: String,
+    pub field: EditorSearchField,
+    pub start: u32,
+    pub end: u32,
+    pub matched_text: String,
+    pub revision: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditorReviewDecision {
+    Accept,
+    Reject,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SegmentHistorySnapshot {
+    segment: Segment,
+    source_tags: Vec<InlineTag>,
+    target_tags: Vec<InlineTag>,
+    comments: Vec<EditorComment>,
+    notes: Vec<DocumentNote>,
+    workflow_state: EditorWorkflowState,
+    lineage_id: Option<String>,
+    source_edit_revision: u64,
+    reviews: Vec<ReviewRevision>,
+    #[serde(default)]
+    tm_entries: Vec<TmEntry>,
+    #[serde(default)]
+    tm_units: Vec<TmUnit>,
+    #[serde(default)]
+    qa_issues: Vec<QaIssue>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StructuralHistorySnapshot {
+    segments: Vec<SegmentHistorySnapshot>,
+}
+
+#[derive(Debug, Clone)]
+struct EditorOperationRecord {
+    id: String,
+    sequence: u64,
+    entity_id: String,
+    base_revision: Option<u64>,
+    result_revision: Option<u64>,
+    before: Option<Value>,
+    after: Option<Value>,
 }
 
 pub struct Store {
@@ -630,6 +813,144 @@ impl Store {
             )?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok((items, to_u32(total)?))
+    }
+
+    pub fn editor_history(
+        &self,
+        project_id: &str,
+        offset: u32,
+        limit: u32,
+    ) -> Result<(Vec<Operation>, u32, bool, bool)> {
+        let (operations, total) = self.list_operations(project_id, offset, limit, true)?;
+        let (cursor, generation) = editor_cursor(&self.connection, project_id)?;
+        let can_undo = self.connection.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM editor_operations
+                WHERE project_id = ?1 AND sequence <= ?2 AND undone = 0
+             )",
+            params![project_id, to_i64(cursor)?],
+            |row| row.get::<_, bool>(0),
+        )?;
+        let can_redo = self.connection.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM editor_operations
+                WHERE project_id = ?1 AND generation = ?2 AND undone = 1
+             )",
+            params![project_id, to_i64(generation)?],
+            |row| row.get::<_, bool>(0),
+        )?;
+        Ok((operations, total, can_undo, can_redo))
+    }
+
+    pub fn undo_editor(&mut self, project_id: &str) -> Result<EditorMutation> {
+        self.apply_editor_history_step(project_id, false)
+    }
+
+    pub fn redo_editor(&mut self, project_id: &str) -> Result<EditorMutation> {
+        self.apply_editor_history_step(project_id, true)
+    }
+
+    fn apply_editor_history_step(
+        &mut self,
+        project_id: &str,
+        forward: bool,
+    ) -> Result<EditorMutation> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        ensure_exists(&transaction, "projects", "project", project_id)?;
+        let (cursor, generation) = editor_cursor(&transaction, project_id)?;
+        let undone = if forward { 1 } else { 0 };
+        let order = if forward { "ASC" } else { "DESC" };
+        let sql = format!(
+            "SELECT id, sequence, entity_id, base_revision,
+                    result_revision, before_json, after_json
+             FROM editor_operations
+             WHERE project_id = ?1 AND undone = ?3
+               AND ((?3 = 0 AND sequence <= ?4) OR
+                    (?3 = 1 AND generation = ?2 AND sequence > ?4))
+             ORDER BY sequence {order} LIMIT 1"
+        );
+        let operation = transaction
+            .query_row(
+                &sql,
+                params![project_id, to_i64(generation)?, undone, to_i64(cursor)?],
+                row_to_editor_operation,
+            )
+            .optional()?
+            .ok_or_else(|| {
+                StorageError::InvalidState(if forward {
+                    "there is no editor operation to redo".to_string()
+                } else {
+                    "there is no editor operation to undo".to_string()
+                })
+            })?;
+        let (document_id, focus_segment_id, applied_snapshot) =
+            apply_editor_operation_snapshot(&transaction, &operation, forward)?;
+        let snapshot_column = if forward { "after_json" } else { "before_json" };
+        let snapshot_sql = format!(
+            "UPDATE editor_operations SET {snapshot_column} = ?1, undone = ?2,
+                    generation = ?3 WHERE id = ?4"
+        );
+        transaction.execute(
+            &snapshot_sql,
+            params![
+                serde_json::to_string(&applied_snapshot)?,
+                !forward,
+                to_i64(generation)?,
+                operation.id
+            ],
+        )?;
+        let marker_kind = if forward {
+            "editor.redo"
+        } else {
+            "editor.undo"
+        };
+        append_operation(
+            &transaction,
+            project_id,
+            "editor_operation",
+            &operation.id,
+            marker_kind,
+            operation.base_revision,
+            operation.result_revision,
+            LEGACY_DESKTOP_ACTOR,
+            Some(&operation.id),
+            operation.before.clone(),
+            operation.after.clone(),
+        )?;
+        let next_cursor = if forward {
+            operation.sequence
+        } else {
+            transaction
+                .query_row(
+                    "SELECT COALESCE(MAX(sequence), 0) FROM editor_operations
+                     WHERE project_id = ?1 AND undone = 0",
+                    params![project_id],
+                    |row| row.get::<_, i64>(0),
+                )?
+                .try_into()
+                .map_err(|_| StorageError::InvalidData("editor cursor overflow".to_string()))?
+        };
+        set_editor_cursor(&transaction, project_id, next_cursor, generation)?;
+        transaction.commit()?;
+        let (rows, _) = self.list_editor_rows(&EditorListRequest {
+            document_id: document_id.clone(),
+            query: String::new(),
+            field: EditorSearchField::Both,
+            filter: EditorFilter::All,
+            sort: EditorSort::Ordinal,
+            descending: false,
+            offset: 0,
+            limit: 1_000,
+            include_context: true,
+        })?;
+        Ok(EditorMutation {
+            rows,
+            counts: self.counts_for_document_id(&document_id)?,
+            operation_id: Some(operation.id),
+            focus_segment_id: Some(focus_segment_id),
+        })
     }
 
     pub fn check_health(&self) -> Result<DataHealthReport> {
@@ -2339,10 +2660,1984 @@ impl Store {
         Ok(notes)
     }
 
+    pub fn list_editor_rows(
+        &self,
+        request: &EditorListRequest,
+    ) -> Result<(Vec<SegmentEditorRow>, u32)> {
+        ensure_exists(
+            &self.connection,
+            "documents",
+            "document",
+            &request.document_id,
+        )?;
+        let search_condition = match request.field {
+            EditorSearchField::Source => "instr(lower(s.source_text), lower(?2)) > 0",
+            EditorSearchField::Target => "instr(lower(s.target_text), lower(?2)) > 0",
+            EditorSearchField::Both => {
+                "(instr(lower(s.source_text), lower(?2)) > 0 OR instr(lower(s.target_text), lower(?2)) > 0)"
+            }
+        };
+        let filter_condition = match request.filter {
+            EditorFilter::All => "1 = 1",
+            EditorFilter::Untranslated => "s.state = 'untranslated'",
+            EditorFilter::Draft => "s.state = 'draft'",
+            EditorFilter::Confirmed => "s.state = 'confirmed'",
+            EditorFilter::Issues => {
+                "EXISTS (SELECT 1 FROM qa_issues q WHERE q.segment_id = s.id AND q.status = 'open')"
+            }
+            EditorFilter::Tagged => {
+                "EXISTS (SELECT 1 FROM inline_tags t WHERE t.segment_id = s.id)"
+            }
+            EditorFilter::Commented => {
+                "(EXISTS (SELECT 1 FROM segment_comments c WHERE c.segment_id = s.id)
+                  OR EXISTS (SELECT 1 FROM segment_notes n WHERE n.segment_id = s.id))"
+            }
+        };
+        let direction = if request.descending { "DESC" } else { "ASC" };
+        let order = match request.sort {
+            EditorSort::Ordinal => format!("s.ordinal {direction}, s.id {direction}"),
+            EditorSort::UpdatedAt => {
+                format!("s.updated_at_ms {direction}, s.ordinal {direction}, s.id {direction}")
+            }
+            EditorSort::State => {
+                format!("s.state {direction}, s.ordinal {direction}, s.id {direction}")
+            }
+        };
+        let where_clause = format!(
+            "s.document_id = ?1 AND (?2 = '' OR {search_condition}) AND {filter_condition}"
+        );
+        let total = self.connection.query_row(
+            &format!("SELECT COUNT(*) FROM segments s WHERE {where_clause}"),
+            params![request.document_id, request.query],
+            |row| row.get::<_, i64>(0),
+        )?;
+        let sql = format!(
+            "SELECT s.id, s.document_id, s.ordinal, s.structural_path, s.source_text,
+                    s.target_text, s.state, s.revision, s.source_hash, s.context_hash,
+                    s.updated_at_ms
+             FROM segments s WHERE {where_clause}
+             ORDER BY {order} LIMIT ?3 OFFSET ?4"
+        );
+        let mut statement = self.connection.prepare(&sql)?;
+        let segments = statement
+            .query_map(
+                params![
+                    request.document_id,
+                    request.query,
+                    i64::from(request.limit),
+                    i64::from(request.offset),
+                ],
+                row_to_segment,
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(statement);
+        let mut rows = Vec::with_capacity(segments.len());
+        for segment in &segments {
+            let context_before = if request.include_context && segment.ordinal > 0 {
+                find_segment_by_ordinal(
+                    &self.connection,
+                    &segment.document_id,
+                    segment.ordinal - 1,
+                )?
+            } else {
+                None
+            };
+            let context_after = if request.include_context {
+                find_segment_by_ordinal(
+                    &self.connection,
+                    &segment.document_id,
+                    segment.ordinal.saturating_add(1),
+                )?
+            } else {
+                None
+            };
+            rows.push(editor_row(
+                &self.connection,
+                segment,
+                request.include_context,
+                context_before.as_ref(),
+                context_after.as_ref(),
+            )?);
+        }
+        Ok((rows, to_u32(total)?))
+    }
+
+    pub fn find_editor_matches(
+        &self,
+        document_id: &str,
+        query: &str,
+        field: EditorSearchField,
+        options: SearchOptions,
+        offset: u32,
+        limit: u32,
+    ) -> Result<(Vec<EditorFindMatch>, u32)> {
+        ensure_exists(&self.connection, "documents", "document", document_id)?;
+        let segments = query_all_segments(&self.connection, document_id)?;
+        let mut matches = Vec::new();
+        for segment in segments {
+            let fields = match field {
+                EditorSearchField::Source => {
+                    vec![(EditorSearchField::Source, segment.source_text.as_str())]
+                }
+                EditorSearchField::Target => {
+                    vec![(EditorSearchField::Target, segment.target_text.as_str())]
+                }
+                EditorSearchField::Both => vec![
+                    (EditorSearchField::Source, segment.source_text.as_str()),
+                    (EditorSearchField::Target, segment.target_text.as_str()),
+                ],
+            };
+            for (side, text) in fields {
+                for found in find_text_matches(text, query, options)
+                    .map_err(|error| StorageError::InvalidState(error.to_string()))?
+                {
+                    matches.push(EditorFindMatch {
+                        segment_id: segment.id.clone(),
+                        field: side,
+                        start: u32::try_from(text[..found.start].chars().count())
+                            .unwrap_or(u32::MAX),
+                        end: u32::try_from(text[..found.end].chars().count()).unwrap_or(u32::MAX),
+                        matched_text: found.text,
+                        revision: segment.revision,
+                    });
+                }
+            }
+        }
+        let total = to_u32(matches.len())?;
+        let start = usize::try_from(offset)
+            .unwrap_or(usize::MAX)
+            .min(matches.len());
+        let end = start
+            .saturating_add(usize::try_from(limit).unwrap_or(0))
+            .min(matches.len());
+        Ok((matches[start..end].to_vec(), total))
+    }
+
+    pub fn preview_replace(&self, request: &ReplaceRequest) -> Result<ReplacePreview> {
+        ensure_exists(
+            &self.connection,
+            "documents",
+            "document",
+            &request.document_id,
+        )?;
+        let segments = query_all_segments(&self.connection, &request.document_id)?;
+        let mut items = Vec::new();
+        for segment in segments {
+            let fields = match request.field {
+                EditorSearchField::Source => {
+                    vec![(EditorSearchField::Source, segment.source_text.clone())]
+                }
+                EditorSearchField::Target => {
+                    vec![(EditorSearchField::Target, segment.target_text.clone())]
+                }
+                EditorSearchField::Both => vec![
+                    (EditorSearchField::Source, segment.source_text.clone()),
+                    (EditorSearchField::Target, segment.target_text.clone()),
+                ],
+            };
+            for (side, before) in fields {
+                let (after, replacements) = replace_text(
+                    &before,
+                    &request.query,
+                    &request.replacement,
+                    request.options,
+                )
+                .map_err(|error| StorageError::InvalidState(error.to_string()))?;
+                if replacements > 0 {
+                    items.push(ReplaceItem {
+                        segment_id: segment.id.clone(),
+                        revision: segment.revision,
+                        field: side,
+                        before,
+                        after,
+                        replacements,
+                    });
+                }
+            }
+        }
+        let token = replace_preview_token(&request.document_id, &items);
+        Ok(ReplacePreview {
+            token,
+            document_id: request.document_id.clone(),
+            items,
+        })
+    }
+
+    pub fn apply_replace_preview(&mut self, preview: &ReplacePreview) -> Result<EditorMutation> {
+        if preview.items.is_empty()
+            || preview.token != replace_preview_token(&preview.document_id, &preview.items)
+        {
+            return Err(StorageError::InvalidState(
+                "replace preview token is invalid or empty".to_string(),
+            ));
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        ensure_exists(&transaction, "documents", "document", &preview.document_id)?;
+        let mut grouped = BTreeMap::<String, (Segment, String, String, u32)>::new();
+        for item in &preview.items {
+            let current = find_segment(&transaction, &item.segment_id)?;
+            if current.document_id != preview.document_id {
+                return Err(StorageError::InvalidState(
+                    "replace preview contains a segment from another document".to_string(),
+                ));
+            }
+            ensure_revision(&current, item.revision)?;
+            ensure_segment_not_signed(&transaction, &item.segment_id, "replace content")?;
+            let entry = grouped.entry(item.segment_id.clone()).or_insert_with(|| {
+                (
+                    current.clone(),
+                    current.source_text.clone(),
+                    current.target_text.clone(),
+                    0,
+                )
+            });
+            let value = match item.field {
+                EditorSearchField::Source => &mut entry.1,
+                EditorSearchField::Target => &mut entry.2,
+                EditorSearchField::Both => {
+                    return Err(StorageError::InvalidState(
+                        "replace preview items must target source or target".to_string(),
+                    ));
+                }
+            };
+            if *value != item.before {
+                return Err(StorageError::Conflict {
+                    segment_id: item.segment_id.clone(),
+                    expected_revision: item.revision,
+                    actual_revision: current.revision,
+                });
+            }
+            *value = item.after.clone();
+            entry.3 = entry.3.saturating_add(item.replacements);
+        }
+        let changed_ids = grouped.keys().cloned().collect::<Vec<_>>();
+        let history_before = capture_structural_history(&transaction, &changed_ids)?;
+        let source_changed = grouped
+            .values()
+            .any(|(before, source, _, _)| before.source_text != *source);
+        let pending = grouped.into_values().collect::<Vec<_>>();
+        for (before, source, _, _) in &pending {
+            if before.source_text == *source {
+                continue;
+            }
+            let workflow_state = transaction.query_row(
+                "SELECT workflow_state FROM segment_editor_meta WHERE segment_id = ?1",
+                [&before.id],
+                |row| row.get::<_, String>(0),
+            )?;
+            if before.state == SegmentState::Confirmed || workflow_state == "signed" {
+                return Err(StorageError::InvalidState(
+                    "source replacement cannot modify confirmed or signed segments".to_string(),
+                ));
+            }
+        }
+        let now = now_ms();
+        let mut changed = Vec::new();
+        let mut first_operation_id = None;
+        for (before, source, target, _) in &pending {
+            let next_revision = before.revision.checked_add(1).ok_or_else(|| {
+                StorageError::InvalidData("segment revision overflow".to_string())
+            })?;
+            let state = state_for_target(target);
+            transaction.execute(
+                "UPDATE segments SET source_text = ?1, target_text = ?2, state = ?3,
+                    revision = ?4, updated_at_ms = ?5 WHERE id = ?6 AND revision = ?7",
+                params![
+                    source,
+                    target,
+                    segment_state_text(state),
+                    to_i64(next_revision)?,
+                    now,
+                    before.id,
+                    to_i64(before.revision)?,
+                ],
+            )?;
+            clamp_inline_tag_positions(&transaction, &before.id, TagSide::Source, source)?;
+            clamp_inline_tag_positions(&transaction, &before.id, TagSide::Target, target)?;
+            if before.source_text != *source {
+                transaction.execute(
+                    "UPDATE segment_editor_meta
+                     SET source_edit_revision = source_edit_revision + 1, updated_at_ms = ?1
+                     WHERE segment_id = ?2",
+                    params![now, before.id],
+                )?;
+            }
+        }
+        if source_changed {
+            recompute_segment_hashes(&transaction, &preview.document_id)?;
+        }
+        let project_id = pending
+            .first()
+            .map(|(before, _, _, _)| project_id_for_segment(&transaction, &before.id))
+            .transpose()?
+            .ok_or_else(|| StorageError::InvalidState("replace set is empty".to_string()))?;
+        for (before, _, _, _) in &pending {
+            let updated = find_segment(&transaction, &before.id)?;
+            let operation = append_operation(
+                &transaction,
+                &project_id,
+                "segment",
+                &before.id,
+                "segment.replace.apply",
+                Some(before.revision),
+                Some(updated.revision),
+                LEGACY_DESKTOP_ACTOR,
+                None,
+                Some(serde_json::to_value(before)?),
+                Some(serde_json::to_value(&updated)?),
+            )?;
+            first_operation_id.get_or_insert(operation.id);
+            changed.push(updated);
+        }
+        let history_after = capture_structural_history(&transaction, &changed_ids)?;
+        append_editor_operation(
+            &transaction,
+            &project_id,
+            "segment.replace.apply",
+            &changed_ids[0],
+            pending.first().map(|(segment, _, _, _)| segment.revision),
+            changed.first().map(|segment| segment.revision),
+            LEGACY_DESKTOP_ACTOR,
+            None,
+            &history_before,
+            &history_after,
+        )?;
+        transaction.commit()?;
+        let document_id = preview.document_id.clone();
+        let (rows, _) = self.list_editor_rows(&EditorListRequest {
+            document_id: document_id.clone(),
+            query: String::new(),
+            field: EditorSearchField::Both,
+            filter: EditorFilter::All,
+            sort: EditorSort::Ordinal,
+            descending: false,
+            offset: 0,
+            limit: 1_000,
+            include_context: true,
+        })?;
+        Ok(EditorMutation {
+            rows,
+            counts: self.counts_for_document_id(&document_id)?,
+            operation_id: first_operation_id,
+            focus_segment_id: changed.first().map(|segment| segment.id.clone()),
+        })
+    }
+
+    pub fn set_target_tags(
+        &mut self,
+        segment_id: &str,
+        target_tags: &[InlineTag],
+        expected_revision: u64,
+    ) -> Result<EditorMutation> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current = find_segment(&transaction, segment_id)?;
+        ensure_revision(&current, expected_revision)?;
+        ensure_segment_not_signed(&transaction, segment_id, "target tags")?;
+        let history_before = capture_structural_history(&transaction, [segment_id])?;
+        let source_tags = list_inline_tags(&transaction, segment_id, TagSide::Source)?;
+        let previous_target_tags = list_inline_tags(&transaction, segment_id, TagSide::Target)?;
+        let issues = validate_target_tags(&source_tags, target_tags, &current.target_text);
+        let blocking_issues = issues
+            .iter()
+            .filter(|issue| issue.code != "tag_missing")
+            .collect::<Vec<_>>();
+        if !blocking_issues.is_empty() {
+            return Err(StorageError::InvalidState(
+                serde_json::to_string(&blocking_issues)
+                    .unwrap_or_else(|_| "invalid target tags".to_string()),
+            ));
+        }
+        transaction.execute(
+            "DELETE FROM inline_tags WHERE segment_id = ?1 AND side = 'target'",
+            [segment_id],
+        )?;
+        insert_target_tags(&transaction, segment_id, target_tags)?;
+        let next_revision = current
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| StorageError::InvalidData("segment revision overflow".to_string()))?;
+        transaction.execute(
+            "UPDATE segments SET revision = ?1, updated_at_ms = ?2 WHERE id = ?3 AND revision = ?4",
+            params![
+                to_i64(next_revision)?,
+                now_ms(),
+                segment_id,
+                to_i64(expected_revision)?
+            ],
+        )?;
+        let updated = find_segment(&transaction, segment_id)?;
+        let stored_target_tags = list_inline_tags(&transaction, segment_id, TagSide::Target)?;
+        let project_id = project_id_for_segment(&transaction, segment_id)?;
+        let operation = append_operation(
+            &transaction,
+            &project_id,
+            "segment",
+            segment_id,
+            "segment.tag.set",
+            Some(current.revision),
+            Some(updated.revision),
+            LEGACY_DESKTOP_ACTOR,
+            None,
+            Some(serde_json::json!({"segment": current, "tags": previous_target_tags})),
+            Some(serde_json::json!({"segment": updated, "tags": stored_target_tags})),
+        )?;
+        let history_after = capture_structural_history(&transaction, [segment_id])?;
+        append_editor_operation(
+            &transaction,
+            &project_id,
+            "segment.tag.set",
+            segment_id,
+            Some(current.revision),
+            Some(updated.revision),
+            LEGACY_DESKTOP_ACTOR,
+            None,
+            &history_before,
+            &history_after,
+        )?;
+        transaction.commit()?;
+        let (rows, _) = self.list_editor_rows(&EditorListRequest {
+            document_id: updated.document_id.clone(),
+            query: String::new(),
+            field: EditorSearchField::Both,
+            filter: EditorFilter::All,
+            sort: EditorSort::Ordinal,
+            descending: false,
+            offset: 0,
+            limit: 1_000,
+            include_context: false,
+        })?;
+        Ok(EditorMutation {
+            rows,
+            counts: self.counts_for_document_id(&updated.document_id)?,
+            operation_id: Some(operation.id),
+            focus_segment_id: Some(segment_id.to_string()),
+        })
+    }
+
+    pub fn convert_chinese_target(
+        &mut self,
+        segment_id: &str,
+        profile: ChineseConversionProfile,
+        expected_revision: u64,
+    ) -> Result<EditorMutation> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current = find_segment(&transaction, segment_id)?;
+        ensure_revision(&current, expected_revision)?;
+        ensure_segment_not_signed(&transaction, segment_id, "Chinese conversion")?;
+        if current.target_text.trim().is_empty() {
+            return Err(StorageError::InvalidState(
+                "Chinese conversion requires a non-empty target".to_string(),
+            ));
+        }
+        let converted = convert_chinese(&current.target_text, profile)
+            .map_err(|error| StorageError::InvalidState(error.to_string()))?;
+        if converted == current.target_text {
+            return Err(StorageError::InvalidState(
+                "the selected Chinese conversion does not change this target".to_string(),
+            ));
+        }
+        let history_before = capture_structural_history(&transaction, [segment_id])?;
+        let next_revision = current
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| StorageError::InvalidData("segment revision overflow".to_string()))?;
+        let state = state_for_target(&converted);
+        let changed = transaction.execute(
+            "UPDATE segments
+             SET target_text = ?1, state = ?2, revision = ?3, updated_at_ms = ?4
+             WHERE id = ?5 AND revision = ?6",
+            params![
+                converted,
+                segment_state_text(state),
+                to_i64(next_revision)?,
+                now_ms(),
+                segment_id,
+                to_i64(expected_revision)?,
+            ],
+        )?;
+        if changed != 1 {
+            let actual = find_segment(&transaction, segment_id)?.revision;
+            return Err(StorageError::Conflict {
+                segment_id: segment_id.to_string(),
+                expected_revision,
+                actual_revision: actual,
+            });
+        }
+        clamp_inline_tag_positions(&transaction, segment_id, TagSide::Target, &converted)?;
+        let updated = find_segment(&transaction, segment_id)?;
+        let project_id = project_id_for_segment(&transaction, segment_id)?;
+        let reason = chinese_conversion_profile_text(profile);
+        let operation = append_operation(
+            &transaction,
+            &project_id,
+            "segment",
+            segment_id,
+            "segment.chinese.convert",
+            Some(current.revision),
+            Some(updated.revision),
+            LEGACY_DESKTOP_ACTOR,
+            Some(reason),
+            Some(serde_json::to_value(&current)?),
+            Some(serde_json::to_value(&updated)?),
+        )?;
+        let history_after = capture_structural_history(&transaction, [segment_id])?;
+        append_editor_operation(
+            &transaction,
+            &project_id,
+            "segment.chinese.convert",
+            segment_id,
+            Some(current.revision),
+            Some(updated.revision),
+            LEGACY_DESKTOP_ACTOR,
+            Some(reason),
+            &history_before,
+            &history_after,
+        )?;
+        transaction.commit()?;
+        let (rows, _) = self.list_editor_rows(&EditorListRequest {
+            document_id: updated.document_id.clone(),
+            query: String::new(),
+            field: EditorSearchField::Both,
+            filter: EditorFilter::All,
+            sort: EditorSort::Ordinal,
+            descending: false,
+            offset: 0,
+            limit: 1_000,
+            include_context: false,
+        })?;
+        Ok(EditorMutation {
+            rows,
+            counts: self.counts_for_document_id(&updated.document_id)?,
+            operation_id: Some(operation.id),
+            focus_segment_id: Some(segment_id.to_string()),
+        })
+    }
+
+    pub fn propagate_segment(
+        &mut self,
+        segment_id: &str,
+        expected_revision: u64,
+    ) -> Result<EditorMutation> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let source = find_segment(&transaction, segment_id)?;
+        ensure_revision(&source, expected_revision)?;
+        if source.target_text.trim().is_empty() {
+            return Err(StorageError::InvalidState(
+                "an empty target cannot be propagated".to_string(),
+            ));
+        }
+        let project_id = project_id_for_segment(&transaction, segment_id)?;
+        let source_tags = list_inline_tags(&transaction, segment_id, TagSide::Target)?;
+        let mut statement = transaction.prepare(
+            "SELECT s.id, s.document_id, s.ordinal, s.structural_path, s.source_text,
+                    s.target_text, s.state, s.revision, s.source_hash, s.context_hash,
+                    s.updated_at_ms
+             FROM segments s JOIN documents d ON d.id = s.document_id
+             WHERE d.project_id = ?1 AND s.source_hash = ?2 AND s.id <> ?3
+               AND s.state <> 'confirmed'
+             ORDER BY d.id, s.ordinal, s.id",
+        )?;
+        let candidates = statement
+            .query_map(
+                params![project_id, source.source_hash, source.id],
+                row_to_segment,
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(statement);
+        let mut eligible = Vec::new();
+        for candidate in candidates {
+            if candidate.target_text != source.target_text
+                || list_inline_tags(&transaction, &candidate.id, TagSide::Target)? != source_tags
+            {
+                eligible.push(candidate);
+            }
+        }
+        let changed_ids = eligible
+            .iter()
+            .map(|candidate| candidate.id.clone())
+            .collect::<Vec<_>>();
+        let history_before = if changed_ids.is_empty() {
+            None
+        } else {
+            Some(capture_structural_history(&transaction, &changed_ids)?)
+        };
+        let mut changed = Vec::new();
+        let now = now_ms();
+        let mut first_operation_id = None;
+        for candidate in eligible {
+            let next_revision = candidate.revision.checked_add(1).ok_or_else(|| {
+                StorageError::InvalidData("segment revision overflow".to_string())
+            })?;
+            transaction.execute(
+                "UPDATE segments SET target_text = ?1, state = 'draft', revision = ?2,
+                    updated_at_ms = ?3 WHERE id = ?4 AND revision = ?5 AND state <> 'confirmed'",
+                params![
+                    source.target_text,
+                    to_i64(next_revision)?,
+                    now,
+                    candidate.id,
+                    to_i64(candidate.revision)?,
+                ],
+            )?;
+            transaction.execute(
+                "DELETE FROM inline_tags WHERE segment_id = ?1 AND side = 'target'",
+                [&candidate.id],
+            )?;
+            insert_target_tags(&transaction, &candidate.id, &source_tags)?;
+            let updated = find_segment(&transaction, &candidate.id)?;
+            let operation = append_operation(
+                &transaction,
+                &project_id,
+                "segment",
+                &candidate.id,
+                "segment.propagate",
+                Some(candidate.revision),
+                Some(updated.revision),
+                LEGACY_DESKTOP_ACTOR,
+                Some(segment_id),
+                Some(serde_json::to_value(&candidate)?),
+                Some(serde_json::to_value(&updated)?),
+            )?;
+            first_operation_id.get_or_insert(operation.id);
+            changed.push(updated);
+        }
+        if let Some(history_before) = history_before {
+            let history_after = capture_structural_history(&transaction, &changed_ids)?;
+            append_editor_operation(
+                &transaction,
+                &project_id,
+                "segment.propagate",
+                &changed_ids[0],
+                history_before
+                    .segments
+                    .first()
+                    .map(|snapshot| snapshot.segment.revision),
+                history_after
+                    .segments
+                    .first()
+                    .map(|snapshot| snapshot.segment.revision),
+                LEGACY_DESKTOP_ACTOR,
+                None,
+                &history_before,
+                &history_after,
+            )?;
+        }
+        transaction.commit()?;
+        let (rows, _) = self.list_editor_rows(&EditorListRequest {
+            document_id: source.document_id.clone(),
+            query: String::new(),
+            field: EditorSearchField::Both,
+            filter: EditorFilter::All,
+            sort: EditorSort::Ordinal,
+            descending: false,
+            offset: 0,
+            limit: 1_000,
+            include_context: true,
+        })?;
+        Ok(EditorMutation {
+            rows,
+            counts: self.counts_for_document_id(&source.document_id)?,
+            operation_id: first_operation_id,
+            focus_segment_id: changed.first().map(|segment| segment.id.clone()),
+        })
+    }
+
+    pub fn generic_source_correction(
+        &mut self,
+        segment_id: &str,
+        source_text: &str,
+        reason: &str,
+        expected_revision: u64,
+    ) -> Result<EditorMutation> {
+        require_nonempty("source text", source_text)?;
+        require_nonempty("source correction reason", reason)?;
+        if source_text.len() > 1_000_000 || reason.len() > 4_096 {
+            return Err(StorageError::InvalidState(
+                "source correction text or reason exceeds the configured limit".to_string(),
+            ));
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current = find_segment(&transaction, segment_id)?;
+        ensure_revision(&current, expected_revision)?;
+        let workflow_state = transaction.query_row(
+            "SELECT workflow_state FROM segment_editor_meta WHERE segment_id = ?1",
+            [segment_id],
+            |row| row.get::<_, String>(0),
+        )?;
+        if current.state == SegmentState::Confirmed {
+            return Err(StorageError::InvalidState(
+                "a confirmed segment source cannot be corrected".to_string(),
+            ));
+        }
+        if workflow_state == "signed" {
+            return Err(StorageError::InvalidState(
+                "a signed segment source cannot be corrected".to_string(),
+            ));
+        }
+        if current.source_text == source_text {
+            return Err(StorageError::InvalidState(
+                "source correction must change the source text".to_string(),
+            ));
+        }
+        let history_before = capture_structural_history(&transaction, [segment_id])?;
+        let mut segments = query_all_segments(&transaction, &current.document_id)?;
+        let index = segments
+            .iter()
+            .position(|segment| segment.id == segment_id)
+            .ok_or_else(|| not_found("segment", segment_id))?;
+        segments[index].source_text = source_text.to_string();
+        let next_revision = current
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| StorageError::InvalidData("segment revision overflow".to_string()))?;
+        let updated_at_ms = now_ms();
+        for affected in index.saturating_sub(1)..=(index + 1).min(segments.len() - 1) {
+            let previous = affected
+                .checked_sub(1)
+                .and_then(|position| segments.get(position))
+                .map(|segment| segment.source_text.as_str());
+            let next = segments
+                .get(affected + 1)
+                .map(|segment| segment.source_text.as_str());
+            let (source_hash, context_hash) =
+                segment_hashes(&segments[affected].source_text, previous, next);
+            if affected == index {
+                let changed = transaction.execute(
+                    "UPDATE segments SET source_text = ?1, source_hash = ?2, context_hash = ?3,
+                         revision = ?4, updated_at_ms = ?5
+                     WHERE id = ?6 AND revision = ?7",
+                    params![
+                        source_text,
+                        source_hash,
+                        context_hash,
+                        to_i64(next_revision)?,
+                        updated_at_ms,
+                        segment_id,
+                        to_i64(expected_revision)?
+                    ],
+                )?;
+                if changed != 1 {
+                    let actual = find_segment(&transaction, segment_id)?.revision;
+                    return Err(StorageError::Conflict {
+                        segment_id: segment_id.to_string(),
+                        expected_revision,
+                        actual_revision: actual,
+                    });
+                }
+            } else {
+                transaction.execute(
+                    "UPDATE segments SET context_hash = ?1 WHERE id = ?2",
+                    params![context_hash, segments[affected].id],
+                )?;
+            }
+        }
+        clamp_inline_tag_positions(&transaction, segment_id, TagSide::Source, source_text)?;
+        let updated = find_segment(&transaction, segment_id)?;
+        transaction.execute(
+            "UPDATE segment_editor_meta
+             SET source_edit_revision = source_edit_revision + 1, updated_at_ms = ?1
+             WHERE segment_id = ?2",
+            params![updated_at_ms, segment_id],
+        )?;
+        let project_id = project_id_for_segment(&transaction, segment_id)?;
+        let operation = append_operation(
+            &transaction,
+            &project_id,
+            "segment",
+            segment_id,
+            "segment.correct_source",
+            Some(current.revision),
+            Some(updated.revision),
+            LEGACY_DESKTOP_ACTOR,
+            Some(reason),
+            Some(serde_json::to_value(&current)?),
+            Some(serde_json::to_value(&updated)?),
+        )?;
+        let history_after = capture_structural_history(&transaction, [segment_id])?;
+        append_editor_operation(
+            &transaction,
+            &project_id,
+            "segment.correct_source",
+            segment_id,
+            Some(current.revision),
+            Some(updated.revision),
+            LEGACY_DESKTOP_ACTOR,
+            Some(reason),
+            &history_before,
+            &history_after,
+        )?;
+        transaction.commit()?;
+        let (rows, _) = self.list_editor_rows(&EditorListRequest {
+            document_id: updated.document_id.clone(),
+            query: String::new(),
+            field: EditorSearchField::Both,
+            filter: EditorFilter::All,
+            sort: EditorSort::Ordinal,
+            descending: false,
+            offset: 0,
+            limit: 1_000,
+            include_context: true,
+        })?;
+        Ok(EditorMutation {
+            rows,
+            counts: self.counts_for_document_id(&updated.document_id)?,
+            operation_id: Some(operation.id),
+            focus_segment_id: Some(segment_id.to_string()),
+        })
+    }
+
+    pub fn split_segment(
+        &mut self,
+        segment_id: &str,
+        source_offset: u32,
+        target_offset: Option<u32>,
+        expected_revision: u64,
+    ) -> Result<EditorMutation> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current = find_segment(&transaction, segment_id)?;
+        ensure_revision(&current, expected_revision)?;
+        ensure_segment_not_signed(&transaction, segment_id, "split")?;
+        let history_before = capture_structural_history(&transaction, [segment_id])?;
+        let source_chars = current.source_text.chars().count();
+        let source_offset = usize::try_from(source_offset)
+            .map_err(|_| StorageError::InvalidState("source offset is invalid".to_string()))?;
+        if source_offset == 0 || source_offset >= source_chars {
+            return Err(StorageError::InvalidState(
+                "source split offset must be inside the source text".to_string(),
+            ));
+        }
+        let target_chars = current.target_text.chars().count();
+        let target_offset = target_offset
+            .map(usize::try_from)
+            .transpose()
+            .map_err(|_| StorageError::InvalidState("target offset is invalid".to_string()))?
+            .unwrap_or_else(|| source_offset.min(target_chars));
+        if target_offset > target_chars {
+            return Err(StorageError::InvalidState(
+                "target split offset is outside the target text".to_string(),
+            ));
+        }
+        let (source_left, source_right) = split_at_chars(&current.source_text, source_offset);
+        let (target_left, target_right) = split_at_chars(&current.target_text, target_offset);
+        let source_tags = list_inline_tags(&transaction, segment_id, TagSide::Source)?;
+        let target_tags = list_inline_tags(&transaction, segment_id, TagSide::Target)?;
+        validate_split_tags(&source_tags, source_offset)?;
+        validate_split_tags(&target_tags, target_offset)?;
+        let (first_source_tags, second_source_tags) = partition_tags(&source_tags, source_offset);
+        let (first_target_tags, second_target_tags) = partition_tags(&target_tags, target_offset);
+        let second_id = new_id();
+        let first_path = format!("{}#split:{}:1", current.structural_path, current.id);
+        let second_path = format!("{}#split:{}:2", current.structural_path, current.id);
+        let version_id: String = transaction.query_row(
+            "SELECT id FROM document_versions WHERE document_id = ?1
+             ORDER BY version DESC LIMIT 1",
+            [&current.document_id],
+            |row| row.get(0),
+        )?;
+        transaction.execute(
+            "UPDATE segments SET ordinal = ordinal + 1
+             WHERE document_id = ?1 AND ordinal > ?2",
+            params![current.document_id, i64::from(current.ordinal)],
+        )?;
+        transaction.execute(
+            "DELETE FROM inline_tags WHERE segment_id = ?1",
+            [segment_id],
+        )?;
+        insert_inline_tags(
+            &transaction,
+            segment_id,
+            TagSide::Source,
+            &first_source_tags,
+        )?;
+        insert_inline_tags(
+            &transaction,
+            segment_id,
+            TagSide::Target,
+            &first_target_tags,
+        )?;
+        let next_revision = current
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| StorageError::InvalidData("segment revision overflow".to_string()))?;
+        let now = now_ms();
+        transaction.execute(
+            "UPDATE segments SET structural_path = ?1, source_text = ?2, target_text = ?3,
+                state = ?4, revision = ?5, updated_at_ms = ?6 WHERE id = ?7 AND revision = ?8",
+            params![
+                first_path,
+                source_left,
+                target_left,
+                segment_state_text(state_for_target(&target_left)),
+                to_i64(next_revision)?,
+                now,
+                segment_id,
+                to_i64(expected_revision)?,
+            ],
+        )?;
+        transaction.execute(
+            "INSERT INTO segments (
+                id, document_id, ordinal, structural_path, source_text, target_text,
+                state, revision, source_hash, context_hash, updated_at_ms,
+                document_version_id, source_version
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, '', '', ?8, ?9, ?10)",
+            params![
+                second_id,
+                current.document_id,
+                i64::from(current.ordinal) + 1,
+                second_path,
+                source_right,
+                target_right,
+                segment_state_text(state_for_target(&target_right)),
+                now,
+                version_id,
+                1_i64,
+            ],
+        )?;
+        insert_inline_tags(
+            &transaction,
+            &second_id,
+            TagSide::Source,
+            &second_source_tags,
+        )?;
+        insert_inline_tags(
+            &transaction,
+            &second_id,
+            TagSide::Target,
+            &second_target_tags,
+        )?;
+        let lineage_id = history_before.segments[0]
+            .lineage_id
+            .clone()
+            .unwrap_or_else(|| current.id.clone());
+        transaction.execute(
+            "UPDATE segment_editor_meta SET lineage_id = ?1, updated_at_ms = ?2
+             WHERE segment_id IN (?3, ?4)",
+            params![lineage_id, now, segment_id, second_id],
+        )?;
+        normalize_document_ordinals(&transaction, &current.document_id)?;
+        recompute_segment_hashes(&transaction, &current.document_id)?;
+        transaction.execute(
+            "UPDATE documents SET segment_count = segment_count + 1, updated_at_ms = ?1
+             WHERE id = ?2",
+            params![now, current.document_id],
+        )?;
+        let first = find_segment(&transaction, segment_id)?;
+        let second = find_segment(&transaction, &second_id)?;
+        let project_id = project_id_for_segment(&transaction, segment_id)?;
+        let operation = append_operation(
+            &transaction,
+            &project_id,
+            "segment",
+            segment_id,
+            "segment.split",
+            Some(current.revision),
+            Some(first.revision),
+            LEGACY_DESKTOP_ACTOR,
+            None,
+            Some(serde_json::json!({"segment": current, "secondId": second_id})),
+            Some(serde_json::json!({"first": first, "second": second})),
+        )?;
+        let history_after =
+            capture_structural_history(&transaction, [segment_id, second_id.as_str()])?;
+        append_editor_operation(
+            &transaction,
+            &project_id,
+            "segment.split",
+            segment_id,
+            Some(current.revision),
+            Some(first.revision),
+            LEGACY_DESKTOP_ACTOR,
+            None,
+            &history_before,
+            &history_after,
+        )?;
+        transaction.commit()?;
+        let (rows, _) = self.list_editor_rows(&EditorListRequest {
+            document_id: first.document_id.clone(),
+            query: String::new(),
+            field: EditorSearchField::Both,
+            filter: EditorFilter::All,
+            sort: EditorSort::Ordinal,
+            descending: false,
+            offset: 0,
+            limit: 1_000,
+            include_context: true,
+        })?;
+        Ok(EditorMutation {
+            rows,
+            counts: self.counts_for_document_id(&first.document_id)?,
+            operation_id: Some(operation.id),
+            focus_segment_id: Some(second.id),
+        })
+    }
+
+    pub fn merge_segments(
+        &mut self,
+        first_segment_id: &str,
+        second_segment_id: &str,
+        first_expected_revision: u64,
+        second_expected_revision: u64,
+    ) -> Result<EditorMutation> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let first = find_segment(&transaction, first_segment_id)?;
+        let second = find_segment(&transaction, second_segment_id)?;
+        ensure_revision(&first, first_expected_revision)?;
+        ensure_revision(&second, second_expected_revision)?;
+        ensure_segment_not_signed(&transaction, first_segment_id, "merge")?;
+        ensure_segment_not_signed(&transaction, second_segment_id, "merge")?;
+        if first.document_id != second.document_id || second.ordinal != first.ordinal + 1 {
+            return Err(StorageError::InvalidState(
+                "segments to merge must be adjacent in the same document".to_string(),
+            ));
+        }
+        let merged_path = merge_split_siblings(&first.structural_path, &second.structural_path)
+            .ok_or_else(|| {
+                StorageError::InvalidState(
+                    "this format can only safely merge sibling segments created by split"
+                        .to_string(),
+                )
+            })?;
+        let history_before =
+            capture_structural_history(&transaction, [first_segment_id, second_segment_id])?;
+        let first_source_len = first.source_text.chars().count();
+        let first_target_len = first.target_text.chars().count();
+        let source = format!("{}{}", first.source_text, second.source_text);
+        let target = format!("{}{}", first.target_text, second.target_text);
+        let mut source_tags = list_inline_tags(&transaction, first_segment_id, TagSide::Source)?;
+        let mut second_source_tags =
+            list_inline_tags(&transaction, second_segment_id, TagSide::Source)?;
+        let mut target_tags = list_inline_tags(&transaction, first_segment_id, TagSide::Target)?;
+        let mut second_target_tags =
+            list_inline_tags(&transaction, second_segment_id, TagSide::Target)?;
+        for tag in &mut second_source_tags {
+            tag.position = tag
+                .position
+                .saturating_add(u32::try_from(first_source_len).unwrap_or(u32::MAX));
+        }
+        for tag in &mut second_target_tags {
+            tag.position = tag
+                .position
+                .saturating_add(u32::try_from(first_target_len).unwrap_or(u32::MAX));
+        }
+        source_tags.extend(second_source_tags);
+        target_tags.extend(second_target_tags);
+        transaction.execute(
+            "DELETE FROM inline_tags WHERE segment_id IN (?1, ?2)",
+            params![first_segment_id, second_segment_id],
+        )?;
+        insert_inline_tags(
+            &transaction,
+            first_segment_id,
+            TagSide::Source,
+            &source_tags,
+        )?;
+        insert_inline_tags(
+            &transaction,
+            first_segment_id,
+            TagSide::Target,
+            &target_tags,
+        )?;
+        transaction.execute(
+            "UPDATE segment_comments SET segment_id = ?1 WHERE segment_id = ?2",
+            params![first_segment_id, second_segment_id],
+        )?;
+        transaction.execute(
+            "UPDATE review_revisions SET segment_id = ?1 WHERE segment_id = ?2",
+            params![first_segment_id, second_segment_id],
+        )?;
+        let mut notes = transaction
+            .prepare("SELECT id, text, author FROM segment_notes WHERE segment_id = ?1")?;
+        let second_notes = notes
+            .query_map([second_segment_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(notes);
+        for (id, text, author) in second_notes {
+            transaction.execute(
+                "INSERT OR IGNORE INTO segment_notes (segment_id, id, text, author)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![first_segment_id, format!("{}:merged", id), text, author],
+            )?;
+        }
+        transaction.execute(
+            "DELETE FROM segment_notes WHERE segment_id = ?1",
+            [second_segment_id],
+        )?;
+        let next_revision = first
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| StorageError::InvalidData("segment revision overflow".to_string()))?;
+        let now = now_ms();
+        transaction.execute(
+            "UPDATE segments SET structural_path = ?1, source_text = ?2, target_text = ?3,
+                state = ?4, revision = ?5, updated_at_ms = ?6 WHERE id = ?7 AND revision = ?8",
+            params![
+                merged_path,
+                source,
+                target,
+                segment_state_text(state_for_target(&target)),
+                to_i64(next_revision)?,
+                now,
+                first_segment_id,
+                to_i64(first_expected_revision)?,
+            ],
+        )?;
+        transaction.execute(
+            "DELETE FROM segments WHERE id = ?1 AND revision = ?2",
+            params![second_segment_id, to_i64(second_expected_revision)?],
+        )?;
+        normalize_document_ordinals(&transaction, &first.document_id)?;
+        recompute_segment_hashes(&transaction, &first.document_id)?;
+        transaction.execute(
+            "UPDATE documents SET segment_count = MAX(segment_count - 1, 0), updated_at_ms = ?1 WHERE id = ?2",
+            params![now, first.document_id],
+        )?;
+        let updated = find_segment(&transaction, first_segment_id)?;
+        transaction.execute(
+            "UPDATE segment_editor_meta SET lineage_id = ?1, updated_at_ms = ?2
+             WHERE segment_id = ?3",
+            params![history_before.segments[0].lineage_id, now, first_segment_id],
+        )?;
+        let project_id = project_id_for_segment(&transaction, first_segment_id)?;
+        let operation = append_operation(
+            &transaction,
+            &project_id,
+            "segment",
+            first_segment_id,
+            "segment.merge",
+            Some(first.revision),
+            Some(updated.revision),
+            LEGACY_DESKTOP_ACTOR,
+            None,
+            Some(serde_json::json!({"first": first, "second": second})),
+            Some(serde_json::to_value(&updated)?),
+        )?;
+        let history_after = capture_structural_history(&transaction, [first_segment_id])?;
+        append_editor_operation(
+            &transaction,
+            &project_id,
+            "segment.merge",
+            first_segment_id,
+            Some(first.revision),
+            Some(updated.revision),
+            LEGACY_DESKTOP_ACTOR,
+            None,
+            &history_before,
+            &history_after,
+        )?;
+        transaction.commit()?;
+        let (rows, _) = self.list_editor_rows(&EditorListRequest {
+            document_id: updated.document_id.clone(),
+            query: String::new(),
+            field: EditorSearchField::Both,
+            filter: EditorFilter::All,
+            sort: EditorSort::Ordinal,
+            descending: false,
+            offset: 0,
+            limit: 1_000,
+            include_context: true,
+        })?;
+        Ok(EditorMutation {
+            rows,
+            counts: self.counts_for_document_id(&updated.document_id)?,
+            operation_id: Some(operation.id),
+            focus_segment_id: Some(updated.id),
+        })
+    }
+
+    pub fn list_editor_comments(
+        &self,
+        segment_id: &str,
+        include_resolved: bool,
+    ) -> Result<Vec<EditorComment>> {
+        ensure_exists(&self.connection, "segments", "segment", segment_id)?;
+        list_editor_comments(&self.connection, segment_id, include_resolved)
+    }
+
+    pub fn create_editor_comment(
+        &mut self,
+        segment_id: &str,
+        author: &str,
+        text: &str,
+    ) -> Result<EditorComment> {
+        require_nonempty("comment author", author)?;
+        require_nonempty("comment text", text)?;
+        if author.len() > 256 || text.len() > 16_384 {
+            return Err(StorageError::InvalidState(
+                "comment author or text exceeds the configured limit".to_string(),
+            ));
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        ensure_exists(&transaction, "segments", "segment", segment_id)?;
+        let history_before = capture_structural_history(&transaction, [segment_id])?;
+        let now = now_ms();
+        let id = new_id();
+        transaction.execute(
+            "INSERT INTO segment_comments (
+                id, segment_id, author, text, created_at_ms, updated_at_ms,
+                revision, resolved, immutable
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?5, 0, 0, 0)",
+            params![id, segment_id, author, text, now],
+        )?;
+        let created = find_editor_comment(&transaction, &id)?;
+        let project_id = project_id_for_segment(&transaction, segment_id)?;
+        append_operation(
+            &transaction,
+            &project_id,
+            "segment_comment",
+            &id,
+            "segment.comment.create",
+            None,
+            Some(0),
+            author,
+            None,
+            None,
+            Some(serde_json::to_value(&created)?),
+        )?;
+        let history_after = capture_structural_history(&transaction, [segment_id])?;
+        append_editor_operation(
+            &transaction,
+            &project_id,
+            "segment.comment.create",
+            segment_id,
+            None,
+            Some(created.revision),
+            author,
+            None,
+            &history_before,
+            &history_after,
+        )?;
+        transaction.commit()?;
+        Ok(created)
+    }
+
+    pub fn update_editor_comment(
+        &mut self,
+        comment_id: &str,
+        text: &str,
+        expected_revision: u64,
+    ) -> Result<EditorComment> {
+        require_nonempty("comment text", text)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current = find_editor_comment(&transaction, comment_id)?;
+        if current.immutable {
+            return Err(StorageError::InvalidState(
+                "system comments are immutable".to_string(),
+            ));
+        }
+        if current.revision != expected_revision {
+            return Err(StorageError::Conflict {
+                segment_id: comment_id.to_string(),
+                expected_revision,
+                actual_revision: current.revision,
+            });
+        }
+        let history_before =
+            capture_structural_history(&transaction, [current.segment_id.as_str()])?;
+        let next_revision = current.revision.saturating_add(1);
+        transaction.execute(
+            "UPDATE segment_comments SET text = ?1, revision = ?2, updated_at_ms = ?3
+             WHERE id = ?4 AND revision = ?5",
+            params![
+                text,
+                to_i64(next_revision)?,
+                now_ms(),
+                comment_id,
+                to_i64(expected_revision)?
+            ],
+        )?;
+        let updated = find_editor_comment(&transaction, comment_id)?;
+        let project_id = project_id_for_segment(&transaction, &current.segment_id)?;
+        append_operation(
+            &transaction,
+            &project_id,
+            "segment_comment",
+            comment_id,
+            "segment.comment.update",
+            Some(current.revision),
+            Some(updated.revision),
+            LEGACY_DESKTOP_ACTOR,
+            None,
+            Some(serde_json::to_value(&current)?),
+            Some(serde_json::to_value(&updated)?),
+        )?;
+        let history_after =
+            capture_structural_history(&transaction, [current.segment_id.as_str()])?;
+        append_editor_operation(
+            &transaction,
+            &project_id,
+            "segment.comment.update",
+            &current.segment_id,
+            Some(current.revision),
+            Some(updated.revision),
+            LEGACY_DESKTOP_ACTOR,
+            None,
+            &history_before,
+            &history_after,
+        )?;
+        transaction.commit()?;
+        Ok(updated)
+    }
+
+    pub fn resolve_editor_comment(
+        &mut self,
+        comment_id: &str,
+        resolved: bool,
+        expected_revision: u64,
+    ) -> Result<EditorComment> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current = find_editor_comment(&transaction, comment_id)?;
+        if current.immutable {
+            return Err(StorageError::InvalidState(
+                "system comments are immutable".to_string(),
+            ));
+        }
+        if current.revision != expected_revision {
+            return Err(StorageError::Conflict {
+                segment_id: comment_id.to_string(),
+                expected_revision,
+                actual_revision: current.revision,
+            });
+        }
+        let history_before =
+            capture_structural_history(&transaction, [current.segment_id.as_str()])?;
+        let next_revision = current.revision.saturating_add(1);
+        transaction.execute(
+            "UPDATE segment_comments SET resolved = ?1, revision = ?2, updated_at_ms = ?3
+             WHERE id = ?4 AND revision = ?5",
+            params![
+                resolved,
+                to_i64(next_revision)?,
+                now_ms(),
+                comment_id,
+                to_i64(expected_revision)?
+            ],
+        )?;
+        let updated = find_editor_comment(&transaction, comment_id)?;
+        let project_id = project_id_for_segment(&transaction, &current.segment_id)?;
+        append_operation(
+            &transaction,
+            &project_id,
+            "segment_comment",
+            comment_id,
+            "segment.comment.resolve",
+            Some(current.revision),
+            Some(updated.revision),
+            LEGACY_DESKTOP_ACTOR,
+            None,
+            Some(serde_json::to_value(&current)?),
+            Some(serde_json::to_value(&updated)?),
+        )?;
+        let history_after =
+            capture_structural_history(&transaction, [current.segment_id.as_str()])?;
+        append_editor_operation(
+            &transaction,
+            &project_id,
+            "segment.comment.resolve",
+            &current.segment_id,
+            Some(current.revision),
+            Some(updated.revision),
+            LEGACY_DESKTOP_ACTOR,
+            None,
+            &history_before,
+            &history_after,
+        )?;
+        transaction.commit()?;
+        Ok(updated)
+    }
+
+    pub fn delete_editor_comment(
+        &mut self,
+        comment_id: &str,
+        expected_revision: u64,
+    ) -> Result<()> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current = find_editor_comment(&transaction, comment_id)?;
+        if current.immutable {
+            return Err(StorageError::InvalidState(
+                "system comments are immutable".to_string(),
+            ));
+        }
+        if current.revision != expected_revision {
+            return Err(StorageError::Conflict {
+                segment_id: comment_id.to_string(),
+                expected_revision,
+                actual_revision: current.revision,
+            });
+        }
+        let history_before =
+            capture_structural_history(&transaction, [current.segment_id.as_str()])?;
+        transaction.execute("DELETE FROM segment_comments WHERE id = ?1", [comment_id])?;
+        let project_id = project_id_for_segment(&transaction, &current.segment_id)?;
+        append_operation(
+            &transaction,
+            &project_id,
+            "segment_comment",
+            comment_id,
+            "segment.comment.delete",
+            Some(current.revision),
+            None,
+            LEGACY_DESKTOP_ACTOR,
+            None,
+            Some(serde_json::to_value(&current)?),
+            None,
+        )?;
+        let history_after =
+            capture_structural_history(&transaction, [current.segment_id.as_str()])?;
+        append_editor_operation(
+            &transaction,
+            &project_id,
+            "segment.comment.delete",
+            &current.segment_id,
+            Some(current.revision),
+            None,
+            LEGACY_DESKTOP_ACTOR,
+            None,
+            &history_before,
+            &history_after,
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn list_dictionary_words(&self, locale: &str) -> Result<Vec<String>> {
+        let mut statement = self.connection.prepare(
+            "SELECT word FROM user_dictionary WHERE locale = ?1 ORDER BY normalized_word",
+        )?;
+        statement
+            .query_map([locale], |row| row.get(0))?
+            .collect::<rusqlite::Result<Vec<String>>>()
+            .map_err(Into::into)
+    }
+
+    pub fn add_dictionary_word(&mut self, locale: &str, word: &str) -> Result<Vec<String>> {
+        let normalized = normalize_dictionary_word(word);
+        require_nonempty("dictionary word", &normalized)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute(
+            "INSERT INTO user_dictionary (locale, word, normalized_word, created_at_ms)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(locale, normalized_word) DO UPDATE SET word = excluded.word",
+            params![locale, word.trim(), normalized, now_ms()],
+        )?;
+        transaction.commit()?;
+        self.list_dictionary_words(locale)
+    }
+
+    pub fn remove_dictionary_word(&mut self, locale: &str, word: &str) -> Result<Vec<String>> {
+        let normalized = normalize_dictionary_word(word);
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute(
+            "DELETE FROM user_dictionary WHERE locale = ?1 AND normalized_word = ?2",
+            params![locale, normalized],
+        )?;
+        transaction.commit()?;
+        self.list_dictionary_words(locale)
+    }
+
+    pub fn get_editor_preferences(&self) -> Result<EditorPreferences> {
+        let raw = self
+            .connection
+            .query_row(
+                "SELECT preferences_json FROM editor_preferences WHERE id = 'default'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        raw.map(|value| serde_json::from_str(&value))
+            .transpose()
+            .map_err(|error| {
+                StorageError::InvalidData(format!("invalid editor preferences: {error}"))
+            })
+            .map(|value| value.unwrap_or_default())
+    }
+
+    pub fn update_editor_preferences(
+        &mut self,
+        preferences: &EditorPreferences,
+    ) -> Result<EditorPreferences> {
+        validate_editor_preferences(preferences)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let revision = transaction
+            .query_row(
+                "SELECT revision FROM editor_preferences WHERE id = 'default'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .unwrap_or(0)
+            .saturating_add(1);
+        transaction.execute(
+            "INSERT INTO editor_preferences (id, preferences_json, revision, updated_at_ms)
+             VALUES ('default', ?1, ?2, ?3)
+             ON CONFLICT(id) DO UPDATE SET preferences_json = excluded.preferences_json,
+                 revision = excluded.revision, updated_at_ms = excluded.updated_at_ms",
+            params![serde_json::to_string(preferences)?, revision, now_ms()],
+        )?;
+        transaction.commit()?;
+        Ok(preferences.clone())
+    }
+
+    pub fn create_review_revision(
+        &mut self,
+        proposal: &ReviewProposal<'_>,
+    ) -> Result<ReviewRevision> {
+        let ReviewProposal {
+            segment_id,
+            proposed_target,
+            proposed_source,
+            proposed_target_tags,
+            author,
+            reason,
+            expected_revision,
+        } = proposal;
+        require_nonempty("review author", author)?;
+        if let Some(source) = *proposed_source {
+            require_nonempty("review proposed source", source)?;
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let segment = find_segment(&transaction, segment_id)?;
+        ensure_revision(&segment, *expected_revision)?;
+        let workflow_state = transaction.query_row(
+            "SELECT workflow_state FROM segment_editor_meta WHERE segment_id = ?1",
+            [segment_id],
+            |row| row.get::<_, String>(0),
+        )?;
+        if workflow_state == "signed" {
+            return Err(StorageError::InvalidState(
+                "a signed segment cannot receive review proposals".to_string(),
+            ));
+        }
+        if proposed_source.is_some() && segment.state == SegmentState::Confirmed {
+            return Err(StorageError::InvalidState(
+                "a confirmed segment source cannot be proposed for revision".to_string(),
+            ));
+        }
+        let effective_target = proposed_target.unwrap_or(&segment.target_text);
+        let before_target_tags = list_inline_tags(&transaction, segment_id, TagSide::Target)?;
+        if let Some(tags) = *proposed_target_tags {
+            let source_tags = list_inline_tags(&transaction, segment_id, TagSide::Source)?;
+            let issues = validate_target_tags(&source_tags, tags, effective_target);
+            if !issues.is_empty() {
+                return Err(StorageError::InvalidState(
+                    serde_json::to_string(&issues)
+                        .unwrap_or_else(|_| "invalid proposed target tags".to_string()),
+                ));
+            }
+        }
+        let changes_target = proposed_target.is_some_and(|value| value != segment.target_text);
+        let changes_source = proposed_source.is_some_and(|value| value != segment.source_text);
+        let changes_tags = proposed_target_tags.is_some_and(|tags| tags != before_target_tags);
+        if !changes_target && !changes_source && !changes_tags {
+            return Err(StorageError::InvalidState(
+                "a review proposal must change source, target, or target tags".to_string(),
+            ));
+        }
+        let now = now_ms();
+        let id = new_id();
+        transaction.execute(
+            "INSERT INTO review_revisions (
+                id, segment_id, base_revision, before_target, proposed_target, author,
+                reason, status, created_at_ms, updated_at_ms, before_source,
+                proposed_source, before_target_tags_json, proposed_target_tags_json
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', ?8, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                id,
+                segment_id,
+                to_i64(segment.revision)?,
+                segment.target_text,
+                effective_target,
+                author,
+                reason,
+                now,
+                segment.source_text,
+                proposed_source,
+                serde_json::to_string(&before_target_tags)?,
+                proposed_target_tags
+                    .map(serde_json::to_string)
+                    .transpose()?,
+            ],
+        )?;
+        let project_id = project_id_for_segment(&transaction, segment_id)?;
+        append_operation(
+            &transaction,
+            &project_id,
+            "review",
+            segment_id,
+            "review.create",
+            Some(segment.revision),
+            Some(segment.revision),
+            author,
+            Some(&id),
+            None,
+            Some(serde_json::json!({
+                "reviewId": id,
+                "proposedTarget": proposed_target,
+                "proposedSource": proposed_source,
+                "proposedTargetTags": proposed_target_tags,
+            })),
+        )?;
+        let review = find_review(&transaction, &id)?;
+        transaction.commit()?;
+        Ok(review)
+    }
+
+    pub fn list_review_revisions(
+        &self,
+        document_id: &str,
+        include_closed: bool,
+    ) -> Result<Vec<ReviewRevision>> {
+        ensure_exists(&self.connection, "documents", "document", document_id)?;
+        let mut statement = self.connection.prepare(
+            "SELECT r.id, r.segment_id, r.base_revision, r.before_target, r.proposed_target,
+                    r.author, r.reason, r.status, r.created_at_ms, r.updated_at_ms,
+                    r.before_source, r.proposed_source, r.before_target_tags_json,
+                    r.proposed_target_tags_json
+             FROM review_revisions r JOIN segments s ON s.id = r.segment_id
+             WHERE s.document_id = ?1 AND (?2 = 1 OR r.status = 'pending')
+             ORDER BY r.created_at_ms DESC, r.id",
+        )?;
+        statement
+            .query_map(params![document_id, include_closed], row_to_review)
+            .and_then(|rows| rows.collect::<rusqlite::Result<Vec<_>>>())
+            .map_err(Into::into)
+    }
+
+    pub fn accept_review(
+        &mut self,
+        review_id: &str,
+        expected_segment_revision: u64,
+    ) -> Result<EditorMutation> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let review = find_review(&transaction, review_id)?;
+        if review.status != ReviewStatus::Pending {
+            return Err(StorageError::InvalidState(
+                "only pending reviews can be accepted".to_string(),
+            ));
+        }
+        let current = find_segment(&transaction, &review.segment_id)?;
+        if current.revision != expected_segment_revision || current.revision != review.base_revision
+        {
+            return Err(StorageError::Conflict {
+                segment_id: current.id,
+                expected_revision: expected_segment_revision,
+                actual_revision: current.revision,
+            });
+        }
+        let history_before =
+            capture_structural_history(&transaction, [review.segment_id.as_str()])?;
+        let next_revision = current
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| StorageError::InvalidData("segment revision overflow".to_string()))?;
+        let now = now_ms();
+        let next_source = review
+            .proposed_source
+            .as_deref()
+            .unwrap_or(&current.source_text);
+        transaction.execute(
+            "UPDATE segments SET source_text = ?1, target_text = ?2, state = ?3,
+                    revision = ?4, updated_at_ms = ?5
+             WHERE id = ?6 AND revision = ?7",
+            params![
+                next_source,
+                review.proposed_target,
+                segment_state_text(state_for_target(&review.proposed_target)),
+                to_i64(next_revision)?,
+                now,
+                current.id,
+                to_i64(expected_segment_revision)?,
+            ],
+        )?;
+        if let Some(tags) = review.proposed_target_tags.as_deref() {
+            transaction.execute(
+                "DELETE FROM inline_tags WHERE segment_id = ?1 AND side = 'target'",
+                [&current.id],
+            )?;
+            insert_target_tags(&transaction, &current.id, tags)?;
+        }
+        if review.proposed_source.is_some() {
+            transaction.execute(
+                "UPDATE segment_editor_meta
+                 SET source_edit_revision = source_edit_revision + 1, updated_at_ms = ?1
+                 WHERE segment_id = ?2",
+                params![now, current.id],
+            )?;
+            clamp_inline_tag_positions(&transaction, &current.id, TagSide::Source, next_source)?;
+            recompute_segment_hashes(&transaction, &current.document_id)?;
+        }
+        transaction.execute(
+            "UPDATE segment_editor_meta SET workflow_state = 'review', updated_at_ms = ?1
+             WHERE segment_id = ?2",
+            params![now, current.id],
+        )?;
+        transaction.execute(
+            "UPDATE review_revisions SET status = 'accepted', updated_at_ms = ?1 WHERE id = ?2",
+            params![now, review_id],
+        )?;
+        clamp_inline_tag_positions(
+            &transaction,
+            &current.id,
+            TagSide::Target,
+            &review.proposed_target,
+        )?;
+        let updated = find_segment(&transaction, &current.id)?;
+        let project_id = project_id_for_segment(&transaction, &current.id)?;
+        let operation = append_operation(
+            &transaction,
+            &project_id,
+            "segment",
+            &current.id,
+            "review.accept",
+            Some(current.revision),
+            Some(updated.revision),
+            &review.author,
+            Some(review_id),
+            Some(serde_json::to_value(&current)?),
+            Some(serde_json::to_value(&updated)?),
+        )?;
+        let history_after = capture_structural_history(&transaction, [review.segment_id.as_str()])?;
+        append_editor_operation(
+            &transaction,
+            &project_id,
+            "review.accept",
+            &current.id,
+            Some(current.revision),
+            Some(updated.revision),
+            &review.author,
+            Some(&review.reason),
+            &history_before,
+            &history_after,
+        )?;
+        transaction.commit()?;
+        let (rows, _) = self.list_editor_rows(&EditorListRequest {
+            document_id: updated.document_id.clone(),
+            query: String::new(),
+            field: EditorSearchField::Both,
+            filter: EditorFilter::All,
+            sort: EditorSort::Ordinal,
+            descending: false,
+            offset: 0,
+            limit: 1_000,
+            include_context: true,
+        })?;
+        Ok(EditorMutation {
+            rows,
+            counts: self.counts_for_document_id(&updated.document_id)?,
+            operation_id: Some(operation.id),
+            focus_segment_id: Some(updated.id),
+        })
+    }
+
+    pub fn reject_review(
+        &mut self,
+        review_id: &str,
+        expected_segment_revision: u64,
+    ) -> Result<ReviewRevision> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let review = find_review(&transaction, review_id)?;
+        if review.status != ReviewStatus::Pending {
+            return Err(StorageError::InvalidState(
+                "only pending reviews can be rejected".to_string(),
+            ));
+        }
+        let segment = find_segment(&transaction, &review.segment_id)?;
+        if segment.revision != expected_segment_revision {
+            return Err(StorageError::Conflict {
+                segment_id: segment.id,
+                expected_revision: expected_segment_revision,
+                actual_revision: segment.revision,
+            });
+        }
+        transaction.execute(
+            "UPDATE review_revisions SET status = 'rejected', updated_at_ms = ?1 WHERE id = ?2",
+            params![now_ms(), review_id],
+        )?;
+        let project_id = project_id_for_segment(&transaction, &review.segment_id)?;
+        append_operation(
+            &transaction,
+            &project_id,
+            "review",
+            &review.segment_id,
+            "review.reject",
+            Some(segment.revision),
+            Some(segment.revision),
+            &review.author,
+            Some(review_id),
+            Some(serde_json::to_value(&review)?),
+            Some(serde_json::json!({"status": "rejected"})),
+        )?;
+        let updated = find_review(&transaction, review_id)?;
+        transaction.commit()?;
+        Ok(updated)
+    }
+
+    pub fn set_editor_workflow(
+        &mut self,
+        segment_id: &str,
+        state: EditorWorkflowState,
+        expected_revision: u64,
+    ) -> Result<EditorMutation> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current = find_segment(&transaction, segment_id)?;
+        ensure_revision(&current, expected_revision)?;
+        let current_state = transaction.query_row(
+            "SELECT workflow_state FROM segment_editor_meta WHERE segment_id = ?1",
+            [segment_id],
+            |row| row.get::<_, String>(0),
+        )?;
+        let next_state = editor_workflow_state_text(state);
+        if current_state == next_state {
+            return Err(StorageError::InvalidState(format!(
+                "segment is already in {next_state} workflow state"
+            )));
+        }
+        if matches!(
+            state,
+            EditorWorkflowState::Review | EditorWorkflowState::Signed
+        ) && current.state != SegmentState::Confirmed
+        {
+            return Err(StorageError::InvalidState(
+                "review and signed workflow states require a confirmed segment".to_string(),
+            ));
+        }
+        if state == EditorWorkflowState::Signed && current_state != "review" {
+            return Err(StorageError::InvalidState(
+                "a segment must pass through review before it can be signed".to_string(),
+            ));
+        }
+        if state == EditorWorkflowState::Signed {
+            let pending: i64 = transaction.query_row(
+                "SELECT COUNT(*) FROM review_revisions
+                 WHERE segment_id = ?1 AND status = 'pending'",
+                [segment_id],
+                |row| row.get(0),
+            )?;
+            if pending != 0 {
+                return Err(StorageError::InvalidState(
+                    "pending review proposals must be resolved before signing".to_string(),
+                ));
+            }
+        }
+        let history_before = capture_structural_history(&transaction, [segment_id])?;
+        let next_revision = current
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| StorageError::InvalidData("segment revision overflow".to_string()))?;
+        let now = now_ms();
+        transaction.execute(
+            "UPDATE segments SET revision = ?1, updated_at_ms = ?2
+             WHERE id = ?3 AND revision = ?4",
+            params![
+                to_i64(next_revision)?,
+                now,
+                segment_id,
+                to_i64(expected_revision)?,
+            ],
+        )?;
+        transaction.execute(
+            "UPDATE segment_editor_meta SET workflow_state = ?1, updated_at_ms = ?2
+             WHERE segment_id = ?3",
+            params![next_state, now, segment_id],
+        )?;
+        let updated = find_segment(&transaction, segment_id)?;
+        let project_id = project_id_for_segment(&transaction, segment_id)?;
+        let operation = append_operation(
+            &transaction,
+            &project_id,
+            "segment",
+            segment_id,
+            "segment.workflow.set",
+            Some(current.revision),
+            Some(updated.revision),
+            LEGACY_DESKTOP_ACTOR,
+            Some(next_state),
+            Some(serde_json::json!({"segment": current, "workflowState": current_state})),
+            Some(serde_json::json!({"segment": updated, "workflowState": next_state})),
+        )?;
+        let history_after = capture_structural_history(&transaction, [segment_id])?;
+        append_editor_operation(
+            &transaction,
+            &project_id,
+            "segment.workflow.set",
+            segment_id,
+            Some(current.revision),
+            Some(updated.revision),
+            LEGACY_DESKTOP_ACTOR,
+            Some(next_state),
+            &history_before,
+            &history_after,
+        )?;
+        transaction.commit()?;
+        let (rows, _) = self.list_editor_rows(&EditorListRequest {
+            document_id: updated.document_id.clone(),
+            query: String::new(),
+            field: EditorSearchField::Both,
+            filter: EditorFilter::All,
+            sort: EditorSort::Ordinal,
+            descending: false,
+            offset: 0,
+            limit: 1_000,
+            include_context: true,
+        })?;
+        Ok(EditorMutation {
+            rows,
+            counts: self.counts_for_document_id(&updated.document_id)?,
+            operation_id: Some(operation.id),
+            focus_segment_id: Some(segment_id.to_string()),
+        })
+    }
+
     pub fn all_segments(&self, document_id: &str) -> Result<Vec<Segment>> {
         let (segments, total) = self.list_segments(document_id, 0, u32::MAX)?;
         debug_assert_eq!(segments.len(), total as usize);
         Ok(segments)
+    }
+
+    pub fn counts_for_document_id(&self, document_id: &str) -> Result<SegmentCounts> {
+        ensure_exists(&self.connection, "documents", "document", document_id)?;
+        counts_for_document(&self.connection, document_id)
     }
 
     pub fn update_target(
@@ -2361,6 +4656,8 @@ impl Store {
             transaction.commit()?;
             return Ok(current);
         }
+        ensure_segment_not_signed(&transaction, segment_id, "target text")?;
+        let history_before = capture_structural_history(&transaction, [segment_id])?;
 
         let state = state_for_target(target_text);
         let updated_at_ms = now_ms();
@@ -2389,6 +4686,7 @@ impl Store {
                 actual_revision: actual,
             });
         }
+        clamp_inline_tag_positions(&transaction, segment_id, TagSide::Target, target_text)?;
         let updated = find_segment(&transaction, segment_id)?;
         let project_id = project_id_for_segment(&transaction, segment_id)?;
         append_operation(
@@ -2403,6 +4701,19 @@ impl Store {
             None,
             Some(serde_json::to_value(&current)?),
             Some(serde_json::to_value(&updated)?),
+        )?;
+        let history_after = capture_structural_history(&transaction, [segment_id])?;
+        append_editor_operation(
+            &transaction,
+            &project_id,
+            "segment.update_target",
+            segment_id,
+            Some(current.revision),
+            Some(updated.revision),
+            LEGACY_DESKTOP_ACTOR,
+            None,
+            &history_before,
+            &history_after,
         )?;
         transaction.commit()?;
         Ok(updated)
@@ -2540,6 +4851,43 @@ impl Store {
                 "an empty target cannot be confirmed".to_string(),
             ));
         }
+        let source_history_before = capture_structural_history(&transaction, [segment_id])?;
+        let source_tags = list_inline_tags(&transaction, segment_id, TagSide::Source)?;
+        let mut target_tags = list_inline_tags(&transaction, segment_id, TagSide::Target)?;
+        if target_tags.is_empty() && !source_tags.is_empty() {
+            let target_length =
+                u32::try_from(segment.target_text.chars().count()).unwrap_or(u32::MAX);
+            let mut ordered_source_tags = source_tags.clone();
+            ordered_source_tags.sort_by_key(|tag| (tag.position, tag.id.clone()));
+            let denominator = u32::try_from(ordered_source_tags.len().saturating_sub(1))
+                .unwrap_or(u32::MAX)
+                .max(1);
+            target_tags = ordered_source_tags
+                .iter()
+                .enumerate()
+                .map(|(index, tag)| InlineTag {
+                    id: format!("{index:06}:{}", tag.id),
+                    side: TagSide::Target,
+                    position: u32::try_from(index)
+                        .unwrap_or(u32::MAX)
+                        .saturating_mul(target_length)
+                        / denominator,
+                    kind: tag.kind,
+                    pair_id: tag.pair_id.clone(),
+                    payload: tag.payload.clone(),
+                    display_text: tag.display_text.clone(),
+                    protected: true,
+                })
+                .collect();
+            insert_target_tags(&transaction, segment_id, &target_tags)?;
+        }
+        let tag_issues = validate_target_tags(&source_tags, &target_tags, &segment.target_text);
+        if !tag_issues.is_empty() {
+            return Err(StorageError::InvalidState(
+                serde_json::to_string(&tag_issues)
+                    .unwrap_or_else(|_| "target protected tags are invalid".to_string()),
+            ));
+        }
 
         let now = now_ms();
         let next_revision = segment
@@ -2576,6 +4924,75 @@ impl Store {
             &project_id,
             now,
         )?);
+        let mut propagation_statement = transaction.prepare(
+            "SELECT s.id, s.document_id, s.ordinal, s.structural_path, s.source_text,
+                    s.target_text, s.state, s.revision, s.source_hash, s.context_hash,
+                    s.updated_at_ms
+             FROM segments s
+             JOIN documents d ON d.id = s.document_id
+             WHERE d.project_id = ?1 AND s.source_hash = ?2 AND s.id <> ?3
+               AND s.state <> 'confirmed'
+             ORDER BY d.id, s.ordinal, s.id",
+        )?;
+        let propagation_candidates = propagation_statement
+            .query_map(
+                params![project_id, segment.source_hash, segment.id],
+                row_to_segment,
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(propagation_statement);
+        let mut history_before = source_history_before;
+        for candidate in &propagation_candidates {
+            history_before
+                .segments
+                .push(capture_segment_history(&transaction, &candidate.id)?);
+        }
+        let mut changed_ids = vec![segment_id.to_string()];
+        changed_ids.extend(
+            propagation_candidates
+                .iter()
+                .map(|candidate| candidate.id.clone()),
+        );
+        let propagation_tags = list_inline_tags(&transaction, segment_id, TagSide::Target)?;
+        let mut propagated = Vec::with_capacity(propagation_candidates.len());
+        for candidate in propagation_candidates {
+            let next_revision = candidate.revision.checked_add(1).ok_or_else(|| {
+                StorageError::InvalidData("segment revision overflow".to_string())
+            })?;
+            transaction.execute(
+                "UPDATE segments
+                 SET target_text = ?1, state = 'draft', revision = ?2, updated_at_ms = ?3
+                 WHERE id = ?4 AND revision = ?5 AND state <> 'confirmed'",
+                params![
+                    segment.target_text,
+                    to_i64(next_revision)?,
+                    now,
+                    candidate.id,
+                    to_i64(candidate.revision)?,
+                ],
+            )?;
+            transaction.execute(
+                "DELETE FROM inline_tags WHERE segment_id = ?1 AND side = 'target'",
+                [&candidate.id],
+            )?;
+            insert_target_tags(&transaction, &candidate.id, &propagation_tags)?;
+            let updated = find_segment(&transaction, &candidate.id)?;
+            let _ = reconcile_number_qa(&transaction, &updated, now)?;
+            append_operation(
+                &transaction,
+                &project_id,
+                "segment",
+                &candidate.id,
+                "segment.propagate",
+                Some(candidate.revision),
+                Some(updated.revision),
+                LEGACY_DESKTOP_ACTOR,
+                Some(segment_id),
+                Some(serde_json::to_value(&candidate)?),
+                Some(serde_json::to_value(&updated)?),
+            )?;
+            propagated.push(updated);
+        }
         let counts = counts_for_document(&transaction, &segment.document_id)?;
         append_operation(
             &transaction,
@@ -2590,6 +5007,19 @@ impl Store {
             Some(serde_json::to_value(&before)?),
             Some(serde_json::to_value(&segment)?),
         )?;
+        let history_after = capture_structural_history(&transaction, &changed_ids)?;
+        append_editor_operation(
+            &transaction,
+            &project_id,
+            "segment.confirm",
+            segment_id,
+            Some(before.revision),
+            Some(segment.revision),
+            LEGACY_DESKTOP_ACTOR,
+            None,
+            &history_before,
+            &history_after,
+        )?;
         transaction.commit()?;
 
         Ok(Confirmation {
@@ -2597,6 +5027,7 @@ impl Store {
             counts,
             tm_entry,
             qa_issues,
+            propagated,
         })
     }
 
@@ -2731,6 +5162,448 @@ fn not_found(entity: &'static str, id: &str) -> StorageError {
     }
 }
 
+fn editor_row(
+    connection: &Connection,
+    segment: &Segment,
+    include_context: bool,
+    context_before: Option<&Segment>,
+    context_after: Option<&Segment>,
+) -> Result<SegmentEditorRow> {
+    let source_tags = list_inline_tags(connection, &segment.id, TagSide::Source)?;
+    let target_tags = list_inline_tags(connection, &segment.id, TagSide::Target)?;
+    let tag_issues = validate_target_tags(&source_tags, &target_tags, &segment.target_text);
+    let comments = list_editor_comments(connection, &segment.id, true)?;
+    let workflow_state = connection
+        .query_row(
+            "SELECT workflow_state FROM segment_editor_meta WHERE segment_id = ?1",
+            [&segment.id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .map(|value| match value.as_str() {
+            "review" => EditorWorkflowState::Review,
+            "signed" => EditorWorkflowState::Signed,
+            _ => EditorWorkflowState::Translation,
+        })
+        .unwrap_or_default();
+    Ok(SegmentEditorRow {
+        segment: segment.clone(),
+        source_tags,
+        target_tags,
+        tag_issues,
+        spell_findings: Vec::new(),
+        comments,
+        workflow_state,
+        context_before: include_context.then(|| context_before.cloned()).flatten(),
+        context_after: include_context.then(|| context_after.cloned()).flatten(),
+    })
+}
+
+fn list_inline_tags(
+    connection: &Connection,
+    segment_id: &str,
+    side: TagSide,
+) -> Result<Vec<InlineTag>> {
+    let mut statement = connection.prepare(
+        "SELECT id, side, position, kind, pair_id, payload, display_text, protected
+         FROM inline_tags WHERE segment_id = ?1 AND side = ?2
+         ORDER BY position, rowid",
+    )?;
+    statement
+        .query_map(params![segment_id, tag_side_text(side)], row_to_inline_tag)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+fn row_to_inline_tag(row: &Row<'_>) -> rusqlite::Result<InlineTag> {
+    let side = match row.get::<_, String>(1)?.as_str() {
+        "source" => TagSide::Source,
+        "target" => TagSide::Target,
+        value => {
+            return Err(rusqlite::Error::FromSqlConversionFailure(
+                1,
+                Type::Text,
+                format!("invalid tag side {value}").into(),
+            ));
+        }
+    };
+    let kind = match row.get::<_, String>(3)?.as_str() {
+        "start" => TagKind::Start,
+        "end" => TagKind::End,
+        "standalone" => TagKind::Standalone,
+        value => {
+            return Err(rusqlite::Error::FromSqlConversionFailure(
+                3,
+                Type::Text,
+                format!("invalid tag kind {value}").into(),
+            ));
+        }
+    };
+    Ok(InlineTag {
+        id: row.get(0)?,
+        side,
+        position: read_u32(row, 2)?,
+        kind,
+        pair_id: row.get(4)?,
+        payload: row.get(5)?,
+        display_text: row.get(6)?,
+        protected: row.get(7)?,
+    })
+}
+
+fn insert_target_tags(
+    transaction: &Transaction<'_>,
+    segment_id: &str,
+    tags: &[InlineTag],
+) -> Result<()> {
+    for (index, tag) in tags.iter().enumerate() {
+        let id = format!("{segment_id}:target:{index}:{}", tag.id);
+        transaction.execute(
+            "INSERT INTO inline_tags (
+                id, segment_id, side, position, kind, pair_id, payload, display_text, protected
+             ) VALUES (?1, ?2, 'target', ?3, ?4, ?5, ?6, ?7, 1)",
+            params![
+                id,
+                segment_id,
+                i64::from(tag.position),
+                tag_kind_text(tag.kind),
+                tag.pair_id,
+                tag.payload,
+                tag.display_text,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+fn insert_inline_tags(
+    transaction: &Transaction<'_>,
+    segment_id: &str,
+    side: TagSide,
+    tags: &[InlineTag],
+) -> Result<()> {
+    for tag in tags {
+        transaction.execute(
+            "INSERT INTO inline_tags (
+                id, segment_id, side, position, kind, pair_id, payload, display_text, protected
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                tag.id,
+                segment_id,
+                tag_side_text(side),
+                i64::from(tag.position),
+                tag_kind_text(tag.kind),
+                tag.pair_id,
+                tag.payload,
+                tag.display_text,
+                tag.protected,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+fn clamp_inline_tag_positions(
+    transaction: &Transaction<'_>,
+    segment_id: &str,
+    side: TagSide,
+    text: &str,
+) -> Result<()> {
+    let length = u32::try_from(text.chars().count())
+        .map_err(|_| StorageError::InvalidState("segment text is too long".to_string()))?;
+    transaction.execute(
+        "UPDATE inline_tags SET position = MIN(position, ?1)
+         WHERE segment_id = ?2 AND side = ?3",
+        params![i64::from(length), segment_id, tag_side_text(side)],
+    )?;
+    Ok(())
+}
+
+fn split_at_chars(value: &str, offset: usize) -> (String, String) {
+    let byte_offset = value
+        .char_indices()
+        .nth(offset)
+        .map(|(position, _)| position)
+        .unwrap_or(value.len());
+    (
+        value[..byte_offset].to_string(),
+        value[byte_offset..].to_string(),
+    )
+}
+
+fn validate_split_tags(tags: &[InlineTag], offset: usize) -> Result<()> {
+    let mut pair_sides = BTreeMap::<String, Option<bool>>::new();
+    for tag in tags {
+        let side = usize::try_from(tag.position).unwrap_or(usize::MAX) >= offset;
+        if let Some(previous) = pair_sides.get(&tag.pair_id.clone().unwrap_or_default()) {
+            if tag.pair_id.is_some() && previous.is_some() && *previous != Some(side) {
+                return Err(StorageError::InvalidState(
+                    "split would separate a protected tag pair".to_string(),
+                ));
+            }
+        } else if let Some(pair_id) = &tag.pair_id {
+            pair_sides.insert(pair_id.clone(), Some(side));
+        }
+    }
+    Ok(())
+}
+
+fn partition_tags(tags: &[InlineTag], offset: usize) -> (Vec<InlineTag>, Vec<InlineTag>) {
+    let mut left = Vec::new();
+    let mut right = Vec::new();
+    for tag in tags {
+        let mut cloned = tag.clone();
+        if usize::try_from(tag.position).unwrap_or(usize::MAX) < offset {
+            left.push(cloned);
+        } else {
+            cloned.position = cloned
+                .position
+                .saturating_sub(u32::try_from(offset).unwrap_or(u32::MAX));
+            right.push(cloned);
+        }
+    }
+    (left, right)
+}
+
+fn normalize_document_ordinals(transaction: &Transaction<'_>, document_id: &str) -> Result<()> {
+    let mut statement = transaction
+        .prepare("SELECT id FROM segments WHERE document_id = ?1 ORDER BY ordinal, id")?;
+    let ids = statement
+        .query_map([document_id], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    drop(statement);
+    for (index, id) in ids.iter().enumerate() {
+        transaction.execute(
+            "UPDATE segments SET ordinal = ?1 + 1000000 WHERE id = ?2",
+            params![i64::try_from(index).unwrap_or(i64::MAX), id],
+        )?;
+    }
+    for (index, id) in ids.iter().enumerate() {
+        transaction.execute(
+            "UPDATE segments SET ordinal = ?1 WHERE id = ?2",
+            params![i64::try_from(index).unwrap_or(i64::MAX), id],
+        )?;
+    }
+    Ok(())
+}
+
+fn recompute_segment_hashes(transaction: &Transaction<'_>, document_id: &str) -> Result<()> {
+    let segments = query_all_segments(transaction, document_id)?;
+    for (index, segment) in segments.iter().enumerate() {
+        let previous = index
+            .checked_sub(1)
+            .and_then(|position| segments.get(position))
+            .map(|value| value.source_text.as_str());
+        let next = segments
+            .get(index + 1)
+            .map(|value| value.source_text.as_str());
+        let (source_hash, context_hash) = segment_hashes(&segment.source_text, previous, next);
+        transaction.execute(
+            "UPDATE segments SET source_hash = ?1, context_hash = ?2 WHERE id = ?3",
+            params![source_hash, context_hash, segment.id],
+        )?;
+    }
+    Ok(())
+}
+
+fn list_editor_comments(
+    connection: &Connection,
+    segment_id: &str,
+    include_resolved: bool,
+) -> Result<Vec<EditorComment>> {
+    let mut comments = Vec::new();
+    let mut statement = connection.prepare(
+        "SELECT id, author, text, created_at_ms, updated_at_ms, revision, resolved, immutable
+         FROM segment_comments WHERE segment_id = ?1
+           AND (?2 = 1 OR resolved = 0)
+         ORDER BY created_at_ms, id",
+    )?;
+    comments.extend(
+        statement
+            .query_map(params![segment_id, include_resolved], |row| {
+                Ok(EditorComment {
+                    id: row.get(0)?,
+                    segment_id: segment_id.to_string(),
+                    author: row.get(1)?,
+                    text: row.get(2)?,
+                    created_at_ms: row.get(3)?,
+                    updated_at_ms: row.get(4)?,
+                    revision: read_u64(row, 5)?,
+                    resolved: row.get(6)?,
+                    immutable: row.get(7)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?,
+    );
+    let mut notes = connection
+        .prepare("SELECT id, text, author FROM segment_notes WHERE segment_id = ?1 ORDER BY id")?;
+    for note in notes.query_map([segment_id], |row| {
+        Ok(EditorComment {
+            id: format!("system-note:{}", row.get::<_, String>(0)?),
+            segment_id: segment_id.to_string(),
+            author: row
+                .get::<_, Option<String>>(2)?
+                .unwrap_or_else(|| "system".to_string()),
+            text: row.get(1)?,
+            created_at_ms: 0,
+            updated_at_ms: 0,
+            revision: 0,
+            resolved: false,
+            immutable: true,
+        })
+    })? {
+        comments.push(note?);
+    }
+    Ok(comments)
+}
+
+fn find_editor_comment(connection: &Connection, comment_id: &str) -> Result<EditorComment> {
+    connection
+        .query_row(
+            "SELECT id, segment_id, author, text, created_at_ms, updated_at_ms,
+                    revision, resolved, immutable
+             FROM segment_comments WHERE id = ?1",
+            [comment_id],
+            |row| {
+                Ok(EditorComment {
+                    id: row.get(0)?,
+                    segment_id: row.get(1)?,
+                    author: row.get(2)?,
+                    text: row.get(3)?,
+                    created_at_ms: row.get(4)?,
+                    updated_at_ms: row.get(5)?,
+                    revision: read_u64(row, 6)?,
+                    resolved: row.get(7)?,
+                    immutable: row.get(8)?,
+                })
+            },
+        )
+        .optional()?
+        .ok_or_else(|| not_found("comment", comment_id))
+}
+
+fn row_to_review(row: &Row<'_>) -> rusqlite::Result<ReviewRevision> {
+    let status = match row.get::<_, String>(7)?.as_str() {
+        "pending" => ReviewStatus::Pending,
+        "accepted" => ReviewStatus::Accepted,
+        "rejected" => ReviewStatus::Rejected,
+        value => {
+            return Err(rusqlite::Error::FromSqlConversionFailure(
+                7,
+                Type::Text,
+                format!("invalid review status {value}").into(),
+            ));
+        }
+    };
+    Ok(ReviewRevision {
+        id: row.get(0)?,
+        segment_id: row.get(1)?,
+        base_revision: read_u64(row, 2)?,
+        before_source: row.get(10)?,
+        before_target: row.get(3)?,
+        proposed_source: row.get(11)?,
+        proposed_target: row.get(4)?,
+        before_target_tags: read_json(row, 12)?,
+        proposed_target_tags: read_optional_json(row, 13)?,
+        author: row.get(5)?,
+        reason: row.get(6)?,
+        status,
+        created_at_ms: row.get(8)?,
+        updated_at_ms: row.get(9)?,
+    })
+}
+
+fn find_review(connection: &Connection, review_id: &str) -> Result<ReviewRevision> {
+    connection
+        .query_row(
+            "SELECT id, segment_id, base_revision, before_target, proposed_target,
+                    author, reason, status, created_at_ms, updated_at_ms,
+                    before_source, proposed_source, before_target_tags_json,
+                    proposed_target_tags_json
+             FROM review_revisions WHERE id = ?1",
+            [review_id],
+            row_to_review,
+        )
+        .optional()?
+        .ok_or_else(|| not_found("review", review_id))
+}
+
+fn validate_editor_preferences(preferences: &EditorPreferences) -> Result<()> {
+    if !matches!(preferences.theme.as_str(), "system" | "light" | "dark") {
+        return Err(StorageError::InvalidState(
+            "editor theme must be system, light, or dark".to_string(),
+        ));
+    }
+    if !(75..=200).contains(&preferences.zoom) {
+        return Err(StorageError::InvalidState(
+            "editor zoom must be between 75 and 200".to_string(),
+        ));
+    }
+    if preferences.shortcuts.len() > 128
+        || preferences.shortcuts.keys().any(|key| {
+            key.trim().is_empty() || key.len() > 64 || !EDITOR_COMMAND_IDS.contains(&key.as_str())
+        })
+        || preferences.shortcuts.values().any(|value| {
+            value.trim().is_empty() || value.len() > 64 || !valid_editor_shortcut(value)
+        })
+    {
+        return Err(StorageError::InvalidState(
+            "editor shortcut map is invalid".to_string(),
+        ));
+    }
+    let mut bindings = BTreeSet::new();
+    for binding in preferences.shortcuts.values() {
+        if !bindings.insert(binding.to_lowercase()) {
+            return Err(StorageError::InvalidState(
+                "editor shortcut bindings must not collide".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn valid_editor_shortcut(value: &str) -> bool {
+    let parts = value.split('+').collect::<Vec<_>>();
+    let Some(key) = parts.last() else {
+        return false;
+    };
+    if key.trim().is_empty()
+        || matches!(key.to_ascii_lowercase().as_str(), "ctrl" | "alt" | "shift")
+    {
+        return false;
+    }
+    let mut modifiers = BTreeSet::new();
+    parts[..parts.len().saturating_sub(1)].iter().all(|part| {
+        let normalized = part.trim().to_ascii_lowercase();
+        matches!(normalized.as_str(), "ctrl" | "alt" | "shift") && modifiers.insert(normalized)
+    })
+}
+
+fn replace_preview_token(document_id: &str, items: &[ReplaceItem]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(document_id.as_bytes());
+    hasher.update([0]);
+    for item in items {
+        hasher.update(item.segment_id.as_bytes());
+        hasher.update([0]);
+        hasher.update(item.revision.to_le_bytes());
+        hasher.update([0]);
+        hasher.update(match item.field {
+            EditorSearchField::Source => b"source".as_slice(),
+            EditorSearchField::Target => b"target".as_slice(),
+            EditorSearchField::Both => b"both".as_slice(),
+        });
+        hasher.update([0]);
+        hasher.update(item.before.as_bytes());
+        hasher.update([0]);
+        hasher.update(item.after.as_bytes());
+        hasher.update([0]);
+        hasher.update(item.replacements.to_le_bytes());
+        hasher.update([0xff]);
+    }
+    format!("{:x}", hasher.finalize())
+}
+
 fn ensure_revision(segment: &Segment, expected_revision: u64) -> Result<()> {
     if segment.revision == expected_revision {
         Ok(())
@@ -2740,6 +5613,25 @@ fn ensure_revision(segment: &Segment, expected_revision: u64) -> Result<()> {
             expected_revision,
             actual_revision: segment.revision,
         })
+    }
+}
+
+fn ensure_segment_not_signed(
+    connection: &Connection,
+    segment_id: &str,
+    mutation: &str,
+) -> Result<()> {
+    let workflow_state = connection.query_row(
+        "SELECT workflow_state FROM segment_editor_meta WHERE segment_id = ?1",
+        [segment_id],
+        |row| row.get::<_, String>(0),
+    )?;
+    if workflow_state == "signed" {
+        Err(StorageError::InvalidState(format!(
+            "a signed segment cannot change {mutation}"
+        )))
+    } else {
+        Ok(())
     }
 }
 
@@ -3064,6 +5956,665 @@ fn append_operation(
     Ok(operation)
 }
 
+fn split_path_parts(path: &str) -> Option<(&str, &str, u8)> {
+    let (base, suffix) = path.rsplit_once("#split:")?;
+    let (lineage, part) = suffix.rsplit_once(':')?;
+    if base.is_empty() || lineage.is_empty() {
+        return None;
+    }
+    let part = part.parse::<u8>().ok()?;
+    matches!(part, 1 | 2).then_some((base, lineage, part))
+}
+
+fn merge_split_siblings(first: &str, second: &str) -> Option<String> {
+    let (first_base, first_lineage, first_part) = split_path_parts(first)?;
+    let (second_base, second_lineage, second_part) = split_path_parts(second)?;
+    (first_base == second_base
+        && first_lineage == second_lineage
+        && first_part == 1
+        && second_part == 2)
+        .then(|| first_base.to_string())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn append_editor_operation(
+    transaction: &Transaction<'_>,
+    project_id: &str,
+    kind: &str,
+    entity_id: &str,
+    base_revision: Option<u64>,
+    result_revision: Option<u64>,
+    actor: &str,
+    reason: Option<&str>,
+    before: &StructuralHistorySnapshot,
+    after: &StructuralHistorySnapshot,
+) -> Result<String> {
+    let (cursor, current_generation) = editor_cursor(transaction, project_id)?;
+    let has_redo = transaction.query_row(
+        "SELECT EXISTS(
+            SELECT 1 FROM editor_operations
+            WHERE project_id = ?1 AND generation = ?2 AND undone = 1
+              AND sequence > ?3
+         )",
+        params![project_id, to_i64(current_generation)?, to_i64(cursor)?],
+        |row| row.get::<_, bool>(0),
+    )?;
+    let generation = if has_redo {
+        current_generation
+            .checked_add(1)
+            .ok_or_else(|| StorageError::InvalidData("editor generation overflow".to_string()))?
+    } else {
+        current_generation
+    };
+    let sequence = transaction.query_row(
+        "SELECT COALESCE(MAX(sequence), 0) + 1 FROM editor_operations WHERE project_id = ?1",
+        [project_id],
+        |row| row.get::<_, i64>(0),
+    )?;
+    let sequence = u64::try_from(sequence)
+        .map_err(|_| StorageError::InvalidData("editor operation sequence overflow".to_string()))?;
+    let id = new_id();
+    transaction.execute(
+        "INSERT INTO editor_operations (
+            id, project_id, sequence, kind, entity_id, base_revision, result_revision,
+            before_json, after_json, actor, reason, undone, generation, created_at_ms
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0, ?12, ?13)",
+        params![
+            id,
+            project_id,
+            to_i64(sequence)?,
+            kind,
+            entity_id,
+            base_revision.map(to_i64).transpose()?,
+            result_revision.map(to_i64).transpose()?,
+            serde_json::to_string(before)?,
+            serde_json::to_string(after)?,
+            actor,
+            reason,
+            to_i64(generation)?,
+            now_ms(),
+        ],
+    )?;
+    set_editor_cursor(transaction, project_id, sequence, generation)?;
+    Ok(id)
+}
+
+fn editor_cursor(connection: &Connection, project_id: &str) -> Result<(u64, u64)> {
+    let values = connection
+        .query_row(
+            "SELECT cursor_sequence, generation FROM editor_cursors WHERE project_id = ?1",
+            [project_id],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .optional()?
+        .unwrap_or((0, 0));
+    Ok((
+        u64::try_from(values.0)
+            .map_err(|_| StorageError::InvalidData("editor cursor is negative".to_string()))?,
+        u64::try_from(values.1)
+            .map_err(|_| StorageError::InvalidData("editor generation is negative".to_string()))?,
+    ))
+}
+
+fn set_editor_cursor(
+    transaction: &Transaction<'_>,
+    project_id: &str,
+    sequence: u64,
+    generation: u64,
+) -> Result<()> {
+    transaction.execute(
+        "INSERT INTO editor_cursors (project_id, cursor_sequence, generation, updated_at_ms)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(project_id) DO UPDATE SET cursor_sequence = excluded.cursor_sequence,
+             generation = excluded.generation,
+             updated_at_ms = excluded.updated_at_ms",
+        params![project_id, to_i64(sequence)?, to_i64(generation)?, now_ms()],
+    )?;
+    Ok(())
+}
+
+fn row_to_editor_operation(row: &Row<'_>) -> rusqlite::Result<EditorOperationRecord> {
+    Ok(EditorOperationRecord {
+        id: row.get(0)?,
+        sequence: read_u64(row, 1)?,
+        entity_id: row.get(2)?,
+        base_revision: read_optional_u64(row, 3)?,
+        result_revision: read_optional_u64(row, 4)?,
+        before: read_optional_json(row, 5)?,
+        after: read_optional_json(row, 6)?,
+    })
+}
+
+fn capture_segment_history(
+    connection: &Connection,
+    segment_id: &str,
+) -> Result<SegmentHistorySnapshot> {
+    let segment = find_segment(connection, segment_id)?;
+    let (workflow_state, lineage_id, source_edit_revision) = connection.query_row(
+        "SELECT workflow_state, lineage_id, source_edit_revision
+         FROM segment_editor_meta WHERE segment_id = ?1",
+        [segment_id],
+        |row| {
+            let state = match row.get::<_, String>(0)?.as_str() {
+                "review" => EditorWorkflowState::Review,
+                "signed" => EditorWorkflowState::Signed,
+                _ => EditorWorkflowState::Translation,
+            };
+            Ok((state, row.get::<_, Option<String>>(1)?, read_u64(row, 2)?))
+        },
+    )?;
+    let mut note_statement = connection
+        .prepare("SELECT id, text, author FROM segment_notes WHERE segment_id = ?1 ORDER BY id")?;
+    let notes = note_statement
+        .query_map([segment_id], |row| {
+            Ok(DocumentNote {
+                id: row.get(0)?,
+                text: row.get(1)?,
+                author: row.get(2)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut review_statement = connection.prepare(
+        "SELECT id, segment_id, base_revision, before_target, proposed_target,
+                author, reason, status, created_at_ms, updated_at_ms,
+                before_source, proposed_source, before_target_tags_json,
+                proposed_target_tags_json
+         FROM review_revisions WHERE segment_id = ?1 ORDER BY created_at_ms, id",
+    )?;
+    let reviews = review_statement
+        .query_map([segment_id], row_to_review)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut tm_entry_statement = connection.prepare(
+        "SELECT id, memory_id, source_text, target_text, source_hash, origin_project_id,
+                origin_document_id, origin_segment_id, confirmed_at_ms
+         FROM tm_entries WHERE origin_segment_id = ?1 ORDER BY memory_id, id",
+    )?;
+    let tm_entries = tm_entry_statement
+        .query_map([segment_id], row_to_tm_entry)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut tm_unit_statement = connection.prepare(
+        "SELECT id, library_id, source_locale, target_locale, source_text, target_text,
+                source_hash, target_hash, domain, origin_project_id, origin_document_id,
+                origin_segment_id, context_before_hash, context_after_hash, author,
+                metadata_json, created_at_ms, updated_at_ms
+         FROM tm_units WHERE origin_segment_id = ?1 ORDER BY library_id, id",
+    )?;
+    let tm_units = tm_unit_statement
+        .query_map([segment_id], row_to_tm_unit)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut qa_statement = connection.prepare(
+        "SELECT id, segment_id, rule_id, severity, status, message, fingerprint,
+                evidence_json, created_at_ms, updated_at_ms
+         FROM qa_issues WHERE segment_id = ?1 ORDER BY rule_id, fingerprint, id",
+    )?;
+    let qa_issues = qa_statement
+        .query_map([segment_id], row_to_qa_issue)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(SegmentHistorySnapshot {
+        source_tags: list_inline_tags(connection, segment_id, TagSide::Source)?,
+        target_tags: list_inline_tags(connection, segment_id, TagSide::Target)?,
+        comments: list_editor_comments(connection, segment_id, true)?
+            .into_iter()
+            .filter(|comment| !comment.immutable)
+            .collect(),
+        notes,
+        workflow_state,
+        lineage_id,
+        source_edit_revision,
+        reviews,
+        tm_entries,
+        tm_units,
+        qa_issues,
+        segment,
+    })
+}
+
+fn capture_structural_history(
+    connection: &Connection,
+    segment_ids: impl IntoIterator<Item = impl AsRef<str>>,
+) -> Result<StructuralHistorySnapshot> {
+    let mut segments = segment_ids
+        .into_iter()
+        .map(|segment_id| capture_segment_history(connection, segment_id.as_ref()))
+        .collect::<Result<Vec<_>>>()?;
+    segments.sort_by_key(|snapshot| snapshot.segment.ordinal);
+    Ok(StructuralHistorySnapshot { segments })
+}
+
+fn apply_editor_operation_snapshot(
+    transaction: &Transaction<'_>,
+    operation: &EditorOperationRecord,
+    forward: bool,
+) -> Result<(String, String, StructuralHistorySnapshot)> {
+    let desired = if forward {
+        operation.after.as_ref()
+    } else {
+        operation.before.as_ref()
+    }
+    .ok_or_else(|| StorageError::InvalidState("editor snapshot is missing".to_string()))?;
+    let expected = if forward {
+        operation.before.as_ref()
+    } else {
+        operation.after.as_ref()
+    }
+    .ok_or_else(|| {
+        StorageError::InvalidState("editor comparison snapshot is missing".to_string())
+    })?;
+    let desired: StructuralHistorySnapshot = serde_json::from_value(desired.clone())?;
+    let expected: StructuralHistorySnapshot = serde_json::from_value(expected.clone())?;
+    if desired.segments.is_empty() || expected.segments.is_empty() {
+        return Err(StorageError::InvalidState(
+            "editor snapshot contains no segments".to_string(),
+        ));
+    }
+
+    let expected_ids = expected
+        .segments
+        .iter()
+        .map(|snapshot| snapshot.segment.id.as_str())
+        .collect::<BTreeSet<_>>();
+    let desired_ids = desired
+        .segments
+        .iter()
+        .map(|snapshot| snapshot.segment.id.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut current_snapshots = BTreeMap::new();
+    for snapshot in &expected.segments {
+        let current = capture_segment_history(transaction, &snapshot.segment.id).map_err(|_| {
+            StorageError::Conflict {
+                segment_id: snapshot.segment.id.clone(),
+                expected_revision: snapshot.segment.revision,
+                actual_revision: 0,
+            }
+        })?;
+        if current != *snapshot {
+            return Err(StorageError::Conflict {
+                segment_id: current.segment.id,
+                expected_revision: snapshot.segment.revision,
+                actual_revision: current.segment.revision,
+            });
+        }
+        current_snapshots.insert(snapshot.segment.id.clone(), current);
+    }
+    for snapshot in &desired.segments {
+        if !expected_ids.contains(snapshot.segment.id.as_str())
+            && find_segment(transaction, &snapshot.segment.id).is_ok()
+        {
+            let current = find_segment(transaction, &snapshot.segment.id)?;
+            return Err(StorageError::Conflict {
+                segment_id: current.id,
+                expected_revision: 0,
+                actual_revision: current.revision,
+            });
+        }
+    }
+
+    let document_ids = desired
+        .segments
+        .iter()
+        .chain(expected.segments.iter())
+        .map(|snapshot| snapshot.segment.document_id.clone())
+        .collect::<BTreeSet<_>>();
+    let structural_change = expected_ids != desired_ids
+        || desired.segments.iter().any(|desired_snapshot| {
+            current_snapshots
+                .get(&desired_snapshot.segment.id)
+                .is_some_and(|current| {
+                    current.segment.ordinal != desired_snapshot.segment.ordinal
+                        || current.segment.structural_path
+                            != desired_snapshot.segment.structural_path
+                })
+        });
+    let source_change = structural_change
+        || desired.segments.iter().any(|desired_snapshot| {
+            current_snapshots
+                .get(&desired_snapshot.segment.id)
+                .is_some_and(|current| {
+                    current.segment.source_text != desired_snapshot.segment.source_text
+                })
+        });
+    if structural_change {
+        for document_id in &document_ids {
+            transaction.execute(
+                "UPDATE segments SET ordinal = ordinal + 1000000000 WHERE document_id = ?1",
+                [document_id],
+            )?;
+            transaction.execute(
+                "UPDATE segments SET ordinal = (ordinal - 1000000000) * 2 + 1
+                 WHERE document_id = ?1",
+                [document_id],
+            )?;
+        }
+    }
+    for snapshot in &expected.segments {
+        if !desired_ids.contains(snapshot.segment.id.as_str()) {
+            transaction.execute(
+                "DELETE FROM tm_units WHERE origin_segment_id = ?1",
+                [&snapshot.segment.id],
+            )?;
+            transaction.execute("DELETE FROM segments WHERE id = ?1", [&snapshot.segment.id])?;
+        }
+    }
+    for snapshot in &desired.segments {
+        let mut restored_segment = snapshot.segment.clone();
+        if structural_change {
+            restored_segment.ordinal = restored_segment
+                .ordinal
+                .checked_mul(2)
+                .ok_or_else(|| StorageError::InvalidData("segment ordinal overflow".to_string()))?;
+        }
+        let revision = match find_segment(transaction, &snapshot.segment.id) {
+            Ok(current) => {
+                let semantic_change =
+                    current_snapshots
+                        .get(&snapshot.segment.id)
+                        .is_none_or(|previous| {
+                            !same_segment_content(&previous.segment, &snapshot.segment)
+                        });
+                let next_revision = if semantic_change {
+                    current.revision.checked_add(1).ok_or_else(|| {
+                        StorageError::InvalidData("segment revision overflow".to_string())
+                    })?
+                } else {
+                    current.revision
+                };
+                restore_segment_row(transaction, &restored_segment, next_revision)?;
+                next_revision
+            }
+            Err(StorageError::NotFound { .. }) => {
+                insert_segment_snapshot(transaction, &restored_segment)?;
+                snapshot.segment.revision
+            }
+            Err(error) => return Err(error),
+        };
+        restore_segment_children(transaction, snapshot, revision)?;
+    }
+    for document_id in &document_ids {
+        if structural_change {
+            normalize_document_ordinals(transaction, document_id)?;
+            transaction.execute(
+                "UPDATE documents SET segment_count = (
+                    SELECT COUNT(*) FROM segments WHERE document_id = ?1
+                 ), updated_at_ms = ?2 WHERE id = ?1",
+                params![document_id, now_ms()],
+            )?;
+        }
+        if source_change {
+            recompute_segment_hashes(transaction, document_id)?;
+        }
+    }
+    let actual = capture_structural_history(
+        transaction,
+        desired
+            .segments
+            .iter()
+            .map(|snapshot| snapshot.segment.id.as_str()),
+    )?;
+    let focus_segment_id = desired
+        .segments
+        .iter()
+        .find(|snapshot| snapshot.segment.id == operation.entity_id)
+        .or_else(|| desired.segments.last())
+        .map(|snapshot| snapshot.segment.id.clone())
+        .unwrap_or_else(|| operation.entity_id.clone());
+    let document_id = desired
+        .segments
+        .iter()
+        .find(|snapshot| snapshot.segment.id == focus_segment_id)
+        .map(|snapshot| snapshot.segment.document_id.clone())
+        .unwrap_or_else(|| desired.segments[0].segment.document_id.clone());
+    Ok((document_id, focus_segment_id, actual))
+}
+
+fn restore_segment_children(
+    transaction: &Transaction<'_>,
+    snapshot: &SegmentHistorySnapshot,
+    revision: u64,
+) -> Result<()> {
+    let segment_id = &snapshot.segment.id;
+    transaction.execute(
+        "DELETE FROM inline_tags WHERE segment_id = ?1",
+        [segment_id],
+    )?;
+    insert_inline_tags(
+        transaction,
+        segment_id,
+        TagSide::Source,
+        &snapshot.source_tags,
+    )?;
+    insert_inline_tags(
+        transaction,
+        segment_id,
+        TagSide::Target,
+        &snapshot.target_tags,
+    )?;
+    transaction.execute(
+        "DELETE FROM segment_comments WHERE segment_id = ?1",
+        [segment_id],
+    )?;
+    for comment in &snapshot.comments {
+        transaction.execute(
+            "INSERT INTO segment_comments (
+                id, segment_id, author, text, created_at_ms, updated_at_ms,
+                revision, resolved, immutable
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                comment.id,
+                segment_id,
+                comment.author,
+                comment.text,
+                comment.created_at_ms,
+                comment.updated_at_ms,
+                to_i64(comment.revision)?,
+                comment.resolved,
+                comment.immutable,
+            ],
+        )?;
+    }
+    transaction.execute(
+        "DELETE FROM segment_notes WHERE segment_id = ?1",
+        [segment_id],
+    )?;
+    for note in &snapshot.notes {
+        transaction.execute(
+            "INSERT INTO segment_notes (segment_id, id, text, author) VALUES (?1, ?2, ?3, ?4)",
+            params![segment_id, note.id, note.text, note.author],
+        )?;
+    }
+    transaction.execute(
+        "UPDATE segment_editor_meta SET workflow_state = ?1, lineage_id = ?2,
+                source_edit_revision = ?3, updated_at_ms = ?4 WHERE segment_id = ?5",
+        params![
+            editor_workflow_state_text(snapshot.workflow_state),
+            snapshot.lineage_id,
+            to_i64(snapshot.source_edit_revision)?,
+            now_ms(),
+            segment_id,
+        ],
+    )?;
+    transaction.execute(
+        "DELETE FROM review_revisions WHERE segment_id = ?1",
+        [segment_id],
+    )?;
+    for review in &snapshot.reviews {
+        transaction.execute(
+            "INSERT INTO review_revisions (
+                id, segment_id, base_revision, before_target, proposed_target, author,
+                reason, status, created_at_ms, updated_at_ms, before_source,
+                proposed_source, before_target_tags_json, proposed_target_tags_json
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            params![
+                review.id,
+                segment_id,
+                to_i64(review.base_revision)?,
+                review.before_target,
+                review.proposed_target,
+                review.author,
+                review.reason,
+                review_status_text(review.status),
+                review.created_at_ms,
+                review.updated_at_ms,
+                review.before_source,
+                review.proposed_source,
+                serde_json::to_string(&review.before_target_tags)?,
+                review
+                    .proposed_target_tags
+                    .as_ref()
+                    .map(serde_json::to_string)
+                    .transpose()?,
+            ],
+        )?;
+    }
+    transaction.execute(
+        "DELETE FROM tm_entries WHERE origin_segment_id = ?1",
+        [segment_id],
+    )?;
+    for entry in &snapshot.tm_entries {
+        transaction.execute(
+            "INSERT INTO tm_entries (
+                id, memory_id, source_text, target_text, source_hash, origin_project_id,
+                origin_document_id, origin_segment_id, confirmed_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                entry.id,
+                entry.memory_id,
+                entry.source_text,
+                entry.target_text,
+                entry.source_hash,
+                entry.origin_project_id,
+                entry.origin_document_id,
+                segment_id,
+                entry.confirmed_at_ms,
+            ],
+        )?;
+    }
+    transaction.execute(
+        "DELETE FROM tm_units WHERE origin_segment_id = ?1",
+        [segment_id],
+    )?;
+    for unit in &snapshot.tm_units {
+        transaction.execute(
+            "INSERT INTO tm_units (
+                id, library_id, source_locale, target_locale, source_text, target_text,
+                source_hash, source_key, target_hash, domain, origin_project_id,
+                origin_document_id, origin_segment_id, context_before_hash,
+                context_after_hash, author, metadata_json, created_at_ms, updated_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+                       ?14, ?15, ?16, ?17, ?18, ?19)",
+            params![
+                unit.id,
+                unit.library_id,
+                unit.source_locale,
+                unit.target_locale,
+                unit.source_text,
+                unit.target_text,
+                unit.source_hash,
+                normalize_match_key(&unit.source_text),
+                unit.target_hash,
+                unit.domain,
+                unit.origin_project_id,
+                unit.origin_document_id,
+                segment_id,
+                unit.context_before_hash,
+                unit.context_after_hash,
+                unit.author,
+                serde_json::to_string(&unit.metadata)?,
+                unit.created_at_ms,
+                unit.updated_at_ms,
+            ],
+        )?;
+    }
+    transaction.execute("DELETE FROM qa_issues WHERE segment_id = ?1", [segment_id])?;
+    for issue in &snapshot.qa_issues {
+        transaction.execute(
+            "INSERT INTO qa_issues (
+                id, segment_id, rule_id, severity, status, message, fingerprint,
+                evidence_json, created_at_ms, updated_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                issue.id,
+                segment_id,
+                issue.rule_id,
+                qa_severity_text(issue.severity),
+                qa_issue_status_text(issue.status),
+                issue.message,
+                issue.fingerprint,
+                serde_json::to_string(&issue.evidence)?,
+                issue.created_at_ms,
+                issue.updated_at_ms,
+            ],
+        )?;
+    }
+    transaction.execute(
+        "UPDATE segments SET revision = ?1 WHERE id = ?2",
+        params![to_i64(revision)?, segment_id],
+    )?;
+    Ok(())
+}
+
+fn same_segment_content(left: &Segment, right: &Segment) -> bool {
+    left.id == right.id
+        && left.document_id == right.document_id
+        && left.structural_path == right.structural_path
+        && left.source_text == right.source_text
+        && left.target_text == right.target_text
+        && left.state == right.state
+        && left.revision == right.revision
+        && left.source_hash == right.source_hash
+        && left.context_hash == right.context_hash
+}
+
+fn restore_segment_row(
+    transaction: &Transaction<'_>,
+    segment: &Segment,
+    revision: u64,
+) -> Result<()> {
+    transaction.execute(
+        "UPDATE segments SET ordinal = ?1, structural_path = ?2, source_text = ?3,
+            target_text = ?4, state = ?5, revision = ?6, updated_at_ms = ?7 WHERE id = ?8",
+        params![
+            i64::from(segment.ordinal),
+            segment.structural_path,
+            segment.source_text,
+            segment.target_text,
+            segment_state_text(segment.state),
+            to_i64(revision)?,
+            now_ms(),
+            segment.id
+        ],
+    )?;
+    Ok(())
+}
+
+fn insert_segment_snapshot(transaction: &Transaction<'_>, segment: &Segment) -> Result<()> {
+    let version_id: String = transaction.query_row(
+        "SELECT id FROM document_versions WHERE document_id = ?1 ORDER BY version DESC LIMIT 1",
+        [&segment.document_id],
+        |row| row.get(0),
+    )?;
+    transaction.execute(
+        "INSERT INTO segments (
+            id, document_id, ordinal, structural_path, source_text, target_text, state,
+            revision, source_hash, context_hash, updated_at_ms, document_version_id, source_version
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 1)",
+        params![
+            segment.id,
+            segment.document_id,
+            i64::from(segment.ordinal),
+            segment.structural_path,
+            segment.source_text,
+            segment.target_text,
+            segment_state_text(segment.state),
+            to_i64(segment.revision)?,
+            segment.source_hash,
+            segment.context_hash,
+            now_ms(),
+            version_id
+        ],
+    )?;
+    Ok(())
+}
+
 fn find_segment(connection: &Connection, segment_id: &str) -> Result<Segment> {
     connection
         .query_row(
@@ -3075,6 +6626,23 @@ fn find_segment(connection: &Connection, segment_id: &str) -> Result<Segment> {
         )
         .optional()?
         .ok_or_else(|| not_found("segment", segment_id))
+}
+
+fn find_segment_by_ordinal(
+    connection: &Connection,
+    document_id: &str,
+    ordinal: u32,
+) -> Result<Option<Segment>> {
+    connection
+        .query_row(
+            "SELECT id, document_id, ordinal, structural_path, source_text, target_text,
+                    state, revision, source_hash, context_hash, updated_at_ms
+             FROM segments WHERE document_id = ?1 AND ordinal = ?2",
+            params![document_id, i64::from(ordinal)],
+            row_to_segment,
+        )
+        .optional()
+        .map_err(Into::into)
 }
 
 fn query_all_segments(connection: &Connection, document_id: &str) -> Result<Vec<Segment>> {
@@ -4291,6 +7859,48 @@ fn segment_state_text(state: SegmentState) -> &'static str {
         SegmentState::Untranslated => "untranslated",
         SegmentState::Draft => "draft",
         SegmentState::Confirmed => "confirmed",
+    }
+}
+
+fn editor_workflow_state_text(state: EditorWorkflowState) -> &'static str {
+    match state {
+        EditorWorkflowState::Translation => "translation",
+        EditorWorkflowState::Review => "review",
+        EditorWorkflowState::Signed => "signed",
+    }
+}
+
+fn chinese_conversion_profile_text(profile: ChineseConversionProfile) -> &'static str {
+    match profile {
+        ChineseConversionProfile::SimplifiedToTraditional => "simplified-to-traditional",
+        ChineseConversionProfile::SimplifiedToTaiwan => "simplified-to-taiwan-vocabulary",
+        ChineseConversionProfile::SimplifiedToHongKong => "simplified-to-hong-kong",
+        ChineseConversionProfile::TraditionalToSimplified => "traditional-to-simplified",
+        ChineseConversionProfile::TaiwanToSimplified => "taiwan-vocabulary-to-simplified",
+        ChineseConversionProfile::HongKongToSimplified => "hong-kong-to-simplified",
+    }
+}
+
+fn review_status_text(status: ReviewStatus) -> &'static str {
+    match status {
+        ReviewStatus::Pending => "pending",
+        ReviewStatus::Accepted => "accepted",
+        ReviewStatus::Rejected => "rejected",
+    }
+}
+
+fn qa_severity_text(severity: QaSeverity) -> &'static str {
+    match severity {
+        QaSeverity::Error => "error",
+        QaSeverity::Warning => "warning",
+        QaSeverity::Info => "info",
+    }
+}
+
+fn qa_issue_status_text(status: QaIssueStatus) -> &'static str {
+    match status {
+        QaIssueStatus::Open => "open",
+        QaIssueStatus::Resolved => "resolved",
     }
 }
 

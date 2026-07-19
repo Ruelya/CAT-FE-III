@@ -3,7 +3,7 @@
   "name": "professional-editor",
   "title": "Professional translation editor",
   "description": "Implement protected tags, propagation, concordance, replace, split/merge, comments, spelling, shortcuts, undo/redo, themes, zoom, and large-document virtualization.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

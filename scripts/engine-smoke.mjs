@@ -50,6 +50,7 @@ async function main() {
   const malformedXlsxPath = join(dataDirectory, "malformed.xlsx");
   const malformedPptxPath = join(dataDirectory, "malformed.pptx");
   const textOutputPath = join(dataDirectory, "translated.txt");
+  const splitTextOutputPath = join(dataDirectory, "split-translated.txt");
   const markdownOutputPath = join(dataDirectory, "translated.md");
   const htmlOutputPath = join(dataDirectory, "translated.html");
   const xliffOutputPath = join(dataDirectory, "translated.xlf");
@@ -566,6 +567,396 @@ async function main() {
         "format draft should recover after restart",
       );
     }
+    const editorPage = await processHandle.call("segment.editor.list", {
+      documentId: document.id,
+      query: "",
+      field: "both",
+      filter: "all",
+      sort: "ordinal",
+      descending: false,
+      offset: 0,
+      limit: 80,
+      includeContext: true,
+    });
+    assert(
+      editorPage.items.length === 3 && editorPage.items[0].contextAfter,
+      "editor projection should include bounded context",
+    );
+    await processHandle.call("segment.propagate", {
+      segmentId: editorPage.items[0].segment.id,
+      expectedRevision: editorPage.items[0].segment.revision,
+    });
+    let propagatedLegacy = await processHandle.call("segment.list", {
+      documentId: legacyDocument.id,
+      offset: 0,
+      limit: 200,
+    });
+    assert(
+      propagatedLegacy.items[0].targetText ===
+        editorPage.items[0].segment.targetText,
+      "duplicate propagation should update the legacy document",
+    );
+    await processHandle.call("editor.undo", { projectId: project.id });
+    propagatedLegacy = await processHandle.call("segment.list", {
+      documentId: legacyDocument.id,
+      offset: 0,
+      limit: 200,
+    });
+    assert(
+      propagatedLegacy.items[0].targetText === "",
+      "duplicate propagation should undo atomically",
+    );
+    await processHandle.call("editor.redo", { projectId: project.id });
+
+    const txtDocument = formatDocuments.find(
+      (item) => item.filterId === "builtin.txt",
+    );
+    const xliffDocument = formatDocuments.find(
+      (item) => item.filterId === "builtin.xliff",
+    );
+    assert(txtDocument && xliffDocument, "editor smoke documents should exist");
+    let txtEditor = await processHandle.call("segment.editor.list", {
+      documentId: txtDocument.documentId,
+      query: "",
+      field: "both",
+      filter: "all",
+      sort: "ordinal",
+      descending: false,
+      offset: 0,
+      limit: 80,
+      includeContext: true,
+    });
+    const staleReplace = await processHandle.call("segment.replace.preview", {
+      documentId: txtDocument.documentId,
+      query: "第一句。",
+      replacement: "首句。",
+      field: "target",
+      regex: false,
+      caseSensitive: true,
+      wholeWord: false,
+    });
+    const simplifiedTxt = await processHandle.call("segment.updateTarget", {
+      segmentId: txtEditor.items[0].segment.id,
+      targetText: "鼠标和打印机里的软件",
+      expectedRevision: txtEditor.items[0].segment.revision,
+    });
+    const convertedTxt = await processHandle.call("segment.chinese.convert", {
+      segmentId: simplifiedTxt.id,
+      profile: "simplifiedToTaiwan",
+      expectedRevision: simplifiedTxt.revision,
+    });
+    assert(
+      convertedTxt.rows[0].segment.targetText === "滑鼠和印表機裡的軟體",
+      "OpenCC phrase conversion should be authoritative",
+    );
+    const undoneConversion = await processHandle.call("editor.undo", {
+      projectId: project.id,
+    });
+    const undoneConvertedRow = undoneConversion.rows.find(
+      (row) => row.segment.id === simplifiedTxt.id,
+    );
+    assert(
+      undoneConvertedRow?.segment.targetText === "鼠标和打印机里的软件",
+      "Chinese conversion should undo atomically",
+    );
+    const changedTxt = await processHandle.call("segment.updateTarget", {
+      segmentId: simplifiedTxt.id,
+      targetText: "临时译文。",
+      expectedRevision: undoneConvertedRow.segment.revision,
+    });
+    try {
+      await processHandle.call("segment.replace.apply", {
+        preview: staleReplace,
+      });
+      throw new Error("stale editor replace unexpectedly succeeded");
+    } catch (error) {
+      assert(
+        error?.code === "conflict",
+        "stale editor replace should conflict",
+      );
+    }
+    const freshReplace = await processHandle.call("segment.replace.preview", {
+      documentId: txtDocument.documentId,
+      query: "临时译文。",
+      replacement: "第一句。",
+      field: "target",
+      regex: false,
+      caseSensitive: true,
+      wholeWord: false,
+    });
+    await processHandle.call("segment.replace.apply", {
+      preview: freshReplace,
+    });
+    const undoneReplace = await processHandle.call("editor.undo", {
+      projectId: project.id,
+    });
+    assert(
+      undoneReplace.rows[0].segment.targetText === "临时译文。",
+      "replace should undo atomically",
+    );
+    await processHandle.call("editor.redo", { projectId: project.id });
+
+    const comment = await processHandle.call("segment.comment.create", {
+      segmentId: changedTxt.id,
+      author: "engine-smoke",
+      text: "Check the translated sentence.",
+    });
+    const resolvedComment = await processHandle.call(
+      "segment.comment.resolve",
+      {
+        commentId: comment.id,
+        resolved: true,
+        expectedRevision: comment.revision,
+      },
+    );
+    await processHandle.call("editor.undo", { projectId: project.id });
+    const undoneComments = await processHandle.call("segment.comment.list", {
+      segmentId: changedTxt.id,
+      includeResolved: true,
+    });
+    assert(
+      undoneComments.comments[0].resolved === false,
+      "comment resolution should undo",
+    );
+    await processHandle.call("editor.redo", { projectId: project.id });
+
+    txtEditor = await processHandle.call("segment.editor.list", {
+      documentId: txtDocument.documentId,
+      query: "",
+      field: "both",
+      filter: "all",
+      sort: "ordinal",
+      descending: false,
+      offset: 0,
+      limit: 80,
+      includeContext: true,
+    });
+    const sourceReview = await processHandle.call("review.create", {
+      segmentId: txtEditor.items[0].segment.id,
+      proposedTarget: null,
+      proposedSource: `${txtEditor.items[0].segment.sourceText} corrected`,
+      proposedTargetTags: null,
+      author: "engine-smoke",
+      reason: "Source review smoke",
+      expectedRevision: txtEditor.items[0].segment.revision,
+    });
+    const acceptedSourceReview = await processHandle.call("review.accept", {
+      reviewId: sourceReview.id,
+      expectedSegmentRevision: txtEditor.items[0].segment.revision,
+    });
+    assert(
+      acceptedSourceReview.rows[0].segment.sourceText.endsWith(" corrected"),
+      "source review should apply authoritatively",
+    );
+    await processHandle.call("editor.undo", { projectId: project.id });
+    await processHandle.call("editor.redo", { projectId: project.id });
+    txtEditor = await processHandle.call("segment.editor.list", {
+      documentId: txtDocument.documentId,
+      query: "",
+      field: "both",
+      filter: "all",
+      sort: "ordinal",
+      descending: false,
+      offset: 0,
+      limit: 80,
+      includeContext: true,
+    });
+    const review = await processHandle.call("review.create", {
+      segmentId: txtEditor.items[1].segment.id,
+      proposedTarget: "第二句审阅译文。",
+      author: "engine-smoke",
+      reason: "Review smoke",
+      expectedRevision: txtEditor.items[1].segment.revision,
+    });
+    await processHandle.call("review.accept", {
+      reviewId: review.id,
+      expectedSegmentRevision: txtEditor.items[1].segment.revision,
+    });
+    await processHandle.call("editor.undo", { projectId: project.id });
+    let reviews = await processHandle.call("review.list", {
+      documentId: txtDocument.documentId,
+      includeClosed: true,
+    });
+    assert(reviews.revisions[0].status === "pending", "review should undo");
+    await processHandle.call("editor.redo", { projectId: project.id });
+    txtEditor = await processHandle.call("segment.editor.list", {
+      documentId: txtDocument.documentId,
+      query: "",
+      field: "both",
+      filter: "all",
+      sort: "ordinal",
+      descending: false,
+      offset: 0,
+      limit: 80,
+      includeContext: true,
+    });
+    const confirmedReview = await processHandle.call("segment.confirm", {
+      segmentId: txtEditor.items[1].segment.id,
+      expectedRevision: txtEditor.items[1].segment.revision,
+    });
+    const signedReview = await processHandle.call("segment.workflow.set", {
+      segmentId: confirmedReview.segment.id,
+      state: "signed",
+      expectedRevision: confirmedReview.segment.revision,
+    });
+    assert(
+      signedReview.rows.find(
+        (row) => row.segment.id === confirmedReview.segment.id,
+      )?.workflowState === "signed",
+      "reviewed segment should enter signed workflow state",
+    );
+    await processHandle.call("editor.undo", { projectId: project.id });
+    await processHandle.call("editor.redo", { projectId: project.id });
+
+    const xliffEditor = await processHandle.call("segment.editor.list", {
+      documentId: xliffDocument.documentId,
+      query: "",
+      field: "both",
+      filter: "all",
+      sort: "ordinal",
+      descending: false,
+      offset: 0,
+      limit: 80,
+      includeContext: false,
+    });
+    const xliffTargetLength = xliffEditor.items[0].segment.targetText.length;
+    const targetTags = xliffEditor.items[0].sourceTags.map((tag, index) => ({
+      ...tag,
+      id: `engine-smoke-target-${index}`,
+      side: "target",
+      position: Math.min(index + 1, xliffTargetLength),
+    }));
+    await processHandle.call("segment.tag.set", {
+      segmentId: xliffEditor.items[0].segment.id,
+      targetTags,
+      expectedRevision: xliffEditor.items[0].segment.revision,
+    });
+    const undoneTags = await processHandle.call("editor.undo", {
+      projectId: project.id,
+    });
+    assert(
+      undoneTags.rows[0].targetTags.length === 0,
+      "protected tags should undo",
+    );
+    await processHandle.call("editor.redo", { projectId: project.id });
+
+    await processHandle.call("dictionary.add", {
+      locale: "en-US",
+      word: "mispellled",
+    });
+    const spell = await processHandle.call("segment.spell.check", {
+      locale: "en-US",
+      text: "mispellled mixed中文 punctuation，",
+      limit: 20,
+    });
+    assert(
+      spell.findings.every((finding) => finding.word !== "mispellled"),
+      "user dictionary should suppress its word",
+    );
+    const preferences = await processHandle.call("editor.preferences.get", {});
+    await processHandle.call("editor.preferences.update", {
+      preferences: {
+        ...preferences,
+        theme: "dark",
+        zoom: 125,
+        showNonprinting: true,
+      },
+    });
+
+    const splitBase = txtEditor.items[2].segment;
+    let splitResult = await processHandle.call("segment.split", {
+      segmentId: splitBase.id,
+      sourceOffset: 5,
+      targetOffset: 0,
+      expectedRevision: splitBase.revision,
+    });
+    assert(splitResult.rows.length === 4, "TXT segment should split");
+    await processHandle.call("document.export", {
+      documentId: txtDocument.documentId,
+      outputPath: splitTextOutputPath,
+    });
+    assert(
+      readFileSync(splitTextOutputPath, "utf8").includes("Third paragraph."),
+      "split TXT should collapse to its safe structural path on export",
+    );
+    const unsplitResult = await processHandle.call("editor.undo", {
+      projectId: project.id,
+    });
+    assert(unsplitResult.rows.length === 3, "split should undo");
+    splitResult = await processHandle.call("editor.redo", {
+      projectId: project.id,
+    });
+    const firstSplitIndex = splitResult.rows.findIndex(
+      (row) => row.segment.id === splitBase.id,
+    );
+    const firstSplit = splitResult.rows[firstSplitIndex].segment;
+    const secondSplit = splitResult.rows[firstSplitIndex + 1].segment;
+    const mergedResult = await processHandle.call("segment.merge", {
+      firstSegmentId: firstSplit.id,
+      secondSegmentId: secondSplit.id,
+      firstExpectedRevision: firstSplit.revision,
+      secondExpectedRevision: secondSplit.revision,
+    });
+    assert(mergedResult.rows.length === 3, "split siblings should merge");
+    await processHandle.call("editor.undo", { projectId: project.id });
+    await processHandle.call("editor.redo", { projectId: project.id });
+    const editorHistory = await processHandle.call("editor.history", {
+      projectId: project.id,
+      offset: 0,
+      limit: 100,
+    });
+    assert(
+      editorHistory.canUndo,
+      "editor history should survive compound actions",
+    );
+
+    await processHandle.stop();
+    processHandle = await EngineProcess.start(binary, dataDirectory);
+    await processHandle.call("engine.initialize", {
+      protocolVersion: 1,
+      client: { name: "engine-smoke", version: "0.1.0" },
+    });
+    const persistedPreferences = await processHandle.call(
+      "editor.preferences.get",
+      {},
+    );
+    assert(
+      persistedPreferences.theme === "dark" &&
+        persistedPreferences.zoom === 125,
+      "editor preferences should persist through restart",
+    );
+    const persistedComments = await processHandle.call("segment.comment.list", {
+      segmentId: changedTxt.id,
+      includeResolved: true,
+    });
+    assert(
+      persistedComments.comments[0].id === resolvedComment.id &&
+        persistedComments.comments[0].resolved,
+      "comments should persist through restart",
+    );
+    reviews = await processHandle.call("review.list", {
+      documentId: txtDocument.documentId,
+      includeClosed: true,
+    });
+    assert(
+      reviews.revisions[0].status === "accepted",
+      "review acceptance should persist through restart",
+    );
+    const persistedXliff = await processHandle.call("segment.editor.list", {
+      documentId: xliffDocument.documentId,
+      query: "",
+      field: "both",
+      filter: "all",
+      sort: "ordinal",
+      descending: false,
+      offset: 0,
+      limit: 80,
+      includeContext: false,
+    });
+    assert(
+      persistedXliff.items[0].targetTags.length === targetTags.length,
+      "protected tags should persist through restart",
+    );
     const scannedPdfDocument = formatDocuments.find(
       (item) => item.sourcePath === pdfScannedPath,
     );
@@ -753,7 +1144,7 @@ async function main() {
       destinationPath: backupPath,
     });
     assert(
-      backup.manifest.schemaVersion === 5,
+      backup.manifest.schemaVersion === 7,
       "backup should contain latest schema",
     );
     assert(
@@ -773,8 +1164,8 @@ async function main() {
       outputPath: legacyOutputPath,
     });
     assert(
-      legacyExported.translatedSegments === 0,
-      "legacy export should preserve an untranslated document",
+      legacyExported.translatedSegments === 2,
+      "legacy export should contain the confirmed duplicate propagated by the editor",
     );
     assert(statSync(outputPath).size > 0, "export should be non-empty");
     assert(
@@ -820,7 +1211,7 @@ async function main() {
     const textOutput = readFileSync(textOutputPath, "utf8");
     assert(
       textOutput.includes("第一句。") &&
-        textOutput.includes("Second sentence.") &&
+        textOutput.includes("第二句审阅译文。") &&
         textOutput.includes("Third paragraph."),
       "TXT export should preserve BOM/newlines and untranslated content",
     );

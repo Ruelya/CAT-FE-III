@@ -1,0 +1,13 @@
+[package]
+name = "translunar-editor-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+ferrous-opencc.workspace = true
+regex.workspace = true
+thiserror.workspace = true
+unicode-normalization.workspace = true
+translunar-domain = { path = "../domain" }

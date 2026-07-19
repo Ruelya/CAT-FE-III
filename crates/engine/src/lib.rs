@@ -1,13 +1,15 @@
-use std::collections::BTreeMap;
-use std::fs::File;
+use std::collections::{BTreeMap, BTreeSet};
+use std::env;
+use std::fs::{self, File};
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use serde::Serialize;
@@ -19,7 +21,14 @@ use thiserror::Error;
 use translunar_asset_core::{
     AssetError, TermExchangeEntry, TermExchangeTranslation, TermStatus, TmExchangeUnit,
 };
-use translunar_domain::{DataHealthReport, Document, Project, Segment};
+use translunar_domain::{
+    DataHealthReport, Document, EditorPreferences, Project, Segment, SegmentState, SpellFinding,
+    state_for_target,
+};
+use translunar_editor_core::{
+    SearchOptions, TextMatch, check_user_dictionary, cjk_assistance, normalize_dictionary_word,
+    spell_word_spans,
+};
 use translunar_filter_core::{
     ExportRequest, FilterError, FilterRegistry, ImportRequest, collect_imported_document,
 };
@@ -37,28 +46,42 @@ use translunar_pipeline::{
 use translunar_protocol::methods;
 use translunar_protocol::{
     AssetExchangeFormat, BackupResult, ConcordanceParams, ConcordanceResult, ConfirmSegmentParams,
-    ConfirmSegmentResult, CorrectOcrParams, CreateBackupParams, CreatePipelineParams,
-    CreateProjectParams, DocumentIdParams, DocumentListParams, DocumentPage, EmptyParams,
-    EmptyResult, ErrorCode, ExactLookupParams, ExactLookupResult, ExportDocumentParams,
-    ExportDocumentResult, ExportDocxParams, ExportDocxResult, FilterListResult, HistoryListParams,
+    ConfirmSegmentResult, ConvertSegmentChineseParams, CorrectOcrParams, CorrectSourceParams,
+    CreateBackupParams, CreatePipelineParams, CreateProjectParams, CreateSegmentCommentParams,
+    DeleteSegmentCommentParams, DictionaryListParams, DictionaryListResult, DictionaryWordParams,
+    DocumentIdParams, DocumentListParams, DocumentPage, EditorHistoryParams, EditorHistoryResult,
+    EditorMutationResult, EditorSearchField, EditorSegmentFilter, EditorSegmentListParams,
+    EditorSegmentPage, EditorSegmentSort, EditorUndoRedoParams, EmptyParams, EmptyResult,
+    ErrorCode, ExactLookupParams, ExactLookupResult, ExportDocumentParams, ExportDocumentResult,
+    ExportDocxParams, ExportDocxResult, FilterListResult, FindSegmentsParams, HistoryListParams,
     ImportDocumentParams, ImportDocumentResult, ImportDocxParams, InitializeParams,
-    InitializeResult, ListQaParams, OperationPage, PROTOCOL_VERSION, PdfBoundingBox, PdfPageBlock,
-    PdfPageDetail, PdfPageGetParams, PdfPageListParams, PdfPageListResult, PdfPageSummary,
-    PipelineCapabilityResult, PipelineDefinitionPage, PipelineIdParams, PipelineListParams,
-    PipelineRunIdParams, PipelineRunListParams, PipelineRunPage, PipelineRunRevisionParams,
-    PipelineRunSnapshot as ProtocolPipelineRunSnapshot, PipelineValidationResult, ProjectIdParams,
-    ProjectListParams, ProjectPage, ProjectSnapshot, QaListResult, RpcError, RpcRequest,
-    RpcResponse, RunPipelineParams, SegmentListParams, SegmentPage, SetProjectLifecycleParams,
-    TermSearchParams, TermSearchResult, TermUpsertParams, TermbaseCreateParams,
+    InitializeResult, ListQaParams, MergeSegmentsParams, OperationPage, PROTOCOL_VERSION,
+    PdfBoundingBox, PdfPageBlock, PdfPageDetail, PdfPageGetParams, PdfPageListParams,
+    PdfPageListResult, PdfPageSummary, PipelineCapabilityResult, PipelineDefinitionPage,
+    PipelineIdParams, PipelineListParams, PipelineRunIdParams, PipelineRunListParams,
+    PipelineRunPage, PipelineRunRevisionParams, PipelineRunSnapshot as ProtocolPipelineRunSnapshot,
+    PipelineValidationResult, ProjectIdParams, ProjectListParams, ProjectPage, ProjectSnapshot,
+    PropagateSegmentParams, QaListResult, ReplaceApplyParams, ReplacePreviewItem,
+    ReplacePreviewParams, ReplacePreviewResult, ResolveSegmentCommentParams, ReviewCreateParams,
+    ReviewDecisionParams, ReviewListParams, ReviewListResult, RpcError, RpcRequest, RpcResponse,
+    RunPipelineParams, SegmentCommentListParams, SegmentCommentListResult, SegmentFindMatch,
+    SegmentFindResult, SegmentListParams, SegmentPage, SetEditorWorkflowParams,
+    SetProjectLifecycleParams, SetSegmentTagsParams, SpellCheckParams, SpellCheckResult,
+    SplitSegmentParams, TermSearchParams, TermSearchResult, TermUpsertParams, TermbaseCreateParams,
     TermbaseExportParams, TermbaseExportResult, TermbaseImportParams, TermbaseImportResult,
     TermbaseListParams, TermbaseMountParams, TermbasePage, TermbaseUnmountParams, TmExportParams,
     TmExportResult, TmImportParams, TmImportResult, TmLibraryCreateParams, TmLibraryListParams,
     TmLibraryMountParams, TmLibraryPage, TmLibraryUnmountParams, TmSearchParams, TmSearchResult,
-    UpdateProjectParams, UpdateTargetParams, ValidatePipelineParams,
+    UpdateEditorPreferencesParams, UpdateProjectParams, UpdateSegmentCommentParams,
+    UpdateTargetParams, ValidatePipelineParams,
 };
 use translunar_storage::{
-    ConcordanceRequest as StorageConcordanceRequest, NewDocument, NewPipelineDefinition,
-    NewTermEntry, NewTermTranslation, NewTmLibrary, ProjectUpdate, StorageError, Store,
+    ConcordanceRequest as StorageConcordanceRequest, EditorFilter as StorageEditorFilter,
+    EditorListRequest as StorageEditorListRequest, EditorMutation as StorageEditorMutation,
+    EditorSearchField as StorageEditorSearchField, EditorSort as StorageEditorSort, NewDocument,
+    NewPipelineDefinition, NewTermEntry, NewTermTranslation, NewTmLibrary, ProjectUpdate,
+    ReplaceItem as StorageReplaceItem, ReplacePreview as StorageReplacePreview,
+    ReplaceRequest as StorageReplaceRequest, ReviewProposal, StorageError, Store,
     TermSearchRequest as StorageTermSearchRequest, TmSearchRequest as StorageTmSearchRequest,
 };
 
@@ -96,6 +119,301 @@ fn bounded_page_size(limit: u32) -> Result<u32> {
             "limit must be between 1 and 500".to_string(),
         ))
     }
+}
+
+fn storage_editor_field(field: EditorSearchField) -> StorageEditorSearchField {
+    match field {
+        EditorSearchField::Source => StorageEditorSearchField::Source,
+        EditorSearchField::Target => StorageEditorSearchField::Target,
+        EditorSearchField::Both => StorageEditorSearchField::Both,
+    }
+}
+
+fn protocol_editor_field(field: StorageEditorSearchField) -> EditorSearchField {
+    match field {
+        StorageEditorSearchField::Source => EditorSearchField::Source,
+        StorageEditorSearchField::Target => EditorSearchField::Target,
+        StorageEditorSearchField::Both => EditorSearchField::Both,
+    }
+}
+
+fn storage_editor_filter(filter: EditorSegmentFilter) -> StorageEditorFilter {
+    match filter {
+        EditorSegmentFilter::All => StorageEditorFilter::All,
+        EditorSegmentFilter::Untranslated => StorageEditorFilter::Untranslated,
+        EditorSegmentFilter::Draft => StorageEditorFilter::Draft,
+        EditorSegmentFilter::Confirmed => StorageEditorFilter::Confirmed,
+        EditorSegmentFilter::Issues => StorageEditorFilter::Issues,
+        EditorSegmentFilter::Tagged => StorageEditorFilter::Tagged,
+        EditorSegmentFilter::Commented => StorageEditorFilter::Commented,
+    }
+}
+
+fn storage_editor_sort(sort: EditorSegmentSort) -> StorageEditorSort {
+    match sort {
+        EditorSegmentSort::Ordinal => StorageEditorSort::Ordinal,
+        EditorSegmentSort::UpdatedAt => StorageEditorSort::UpdatedAt,
+        EditorSegmentSort::State => StorageEditorSort::State,
+    }
+}
+
+fn editor_mutation_result(mutation: StorageEditorMutation) -> EditorMutationResult {
+    EditorMutationResult {
+        rows: mutation.rows,
+        counts: mutation.counts,
+        operation_id: mutation.operation_id,
+        focus_segment_id: mutation.focus_segment_id,
+    }
+}
+
+fn structural_split_path(path: &str) -> Option<(&str, &str, u8)> {
+    let (base, suffix) = path.rsplit_once("#split:")?;
+    let (lineage, part) = suffix.rsplit_once(':')?;
+    if base.is_empty() || lineage.is_empty() {
+        return None;
+    }
+    let part = part.parse::<u8>().ok()?;
+    matches!(part, 1 | 2).then_some((base, lineage, part))
+}
+
+fn collapse_structural_segments(mut segments: Vec<Segment>) -> Result<Vec<Segment>> {
+    loop {
+        let mut collapsed = Vec::with_capacity(segments.len());
+        let mut index = 0;
+        let mut changed = false;
+        while index < segments.len() {
+            let segment = &segments[index];
+            let Some((base, lineage, part)) = structural_split_path(&segment.structural_path)
+            else {
+                collapsed.push(segment.clone());
+                index += 1;
+                continue;
+            };
+            if part != 1 {
+                return Err(EngineError::InvalidState(format!(
+                    "structural split part has no preceding sibling: {}",
+                    segment.structural_path
+                )));
+            }
+            let second = segments.get(index + 1).ok_or_else(|| {
+                EngineError::InvalidState(format!(
+                    "structural split is incomplete: {}",
+                    segment.structural_path
+                ))
+            })?;
+            let Some((second_base, second_lineage, second_part)) =
+                structural_split_path(&second.structural_path)
+            else {
+                return Err(EngineError::InvalidState(format!(
+                    "structural split is incomplete: {}",
+                    segment.structural_path
+                )));
+            };
+            if base != second_base || lineage != second_lineage || second_part != 2 {
+                return Err(EngineError::InvalidState(format!(
+                    "structural split siblings do not match: {} and {}",
+                    segment.structural_path, second.structural_path
+                )));
+            }
+            let mut combined = segment.clone();
+            combined.structural_path = base.to_string();
+            combined.source_text = format!("{}{}", segment.source_text, second.source_text);
+            combined.target_text =
+                if segment.target_text.is_empty() && second.target_text.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        "{}{}",
+                        if segment.target_text.is_empty() {
+                            &segment.source_text
+                        } else {
+                            &segment.target_text
+                        },
+                        if second.target_text.is_empty() {
+                            &second.source_text
+                        } else {
+                            &second.target_text
+                        }
+                    )
+                };
+            combined.state = if segment.state == SegmentState::Confirmed
+                && second.state == SegmentState::Confirmed
+            {
+                SegmentState::Confirmed
+            } else {
+                state_for_target(&combined.target_text)
+            };
+            combined.revision = segment.revision.max(second.revision);
+            combined.updated_at_ms = segment.updated_at_ms.max(second.updated_at_ms);
+            collapsed.push(combined);
+            index += 2;
+            changed = true;
+        }
+        if !changed {
+            return Ok(collapsed);
+        }
+        segments = collapsed;
+    }
+}
+
+fn hunspell_dictionary(locale: &str) -> Option<(PathBuf, String)> {
+    let normalized = locale.replace('-', "_");
+    let language = normalized.split('_').next().unwrap_or(&normalized);
+    let mut names = vec![normalized.clone(), locale.to_string(), language.to_string()];
+    names.sort();
+    names.dedup();
+    let mut directories = env::var_os("TRANSLUNAR_HUNSPELL_DIRS")
+        .map(|value| env::split_paths(&value).collect::<Vec<_>>())
+        .unwrap_or_default();
+    directories.extend([
+        PathBuf::from("/usr/share/hunspell"),
+        PathBuf::from("/usr/share/myspell"),
+        PathBuf::from("/usr/share/myspell/dicts"),
+        PathBuf::from("/usr/local/share/hunspell"),
+        PathBuf::from("/Library/Spelling"),
+        PathBuf::from("C:/Program Files/LibreOffice/share/extensions"),
+    ]);
+    for directory in directories {
+        for name in &names {
+            let direct = directory.join(format!("{name}.dic"));
+            let direct_affix = directory.join(format!("{name}.aff"));
+            if direct.is_file() && direct_affix.is_file() {
+                return Some((directory.clone(), name.clone()));
+            }
+            if let Ok(entries) = fs::read_dir(&directory) {
+                for entry in entries.flatten().take(256) {
+                    let child = entry.path();
+                    if child.join(format!("{name}.dic")).is_file()
+                        && child.join(format!("{name}.aff")).is_file()
+                    {
+                        return Some((child, name.clone()));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn run_hunspell(
+    locale: &str,
+    text: &str,
+    user_words: &BTreeSet<String>,
+    limit: usize,
+) -> Option<(String, Vec<SpellFinding>)> {
+    let (dictionary_directory, dictionary_name) = hunspell_dictionary(locale)?;
+    let words = spell_word_spans(text)
+        .into_iter()
+        .filter(|word| !user_words.contains(&normalize_dictionary_word(&word.text)))
+        .take(5_000)
+        .collect::<Vec<_>>();
+    let input = words
+        .iter()
+        .map(|word| word.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let binary = env::var_os("TRANSLUNAR_HUNSPELL_BIN")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(if cfg!(windows) {
+                "hunspell.exe"
+            } else {
+                "hunspell"
+            })
+        });
+    let stdout = NamedTempFile::new().ok()?;
+    let stderr = NamedTempFile::new().ok()?;
+    let mut command = Command::new(binary);
+    command
+        .arg("-a")
+        .arg("-d")
+        .arg(&dictionary_name)
+        .env("DICPATH", env::join_paths([&dictionary_directory]).ok()?)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::from(stdout.reopen().ok()?))
+        .stderr(Stdio::from(stderr.reopen().ok()?));
+    let mut child = command.spawn().ok()?;
+    if let Some(mut stdin) = child.stdin.take()
+        && (stdin.write_all(input.as_bytes()).is_err() || stdin.write_all(b"\n").is_err())
+    {
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    }
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            Err(_) => return None,
+        }
+    };
+    if !status.success() || stdout.as_file().metadata().ok()?.len() > 1_048_576 {
+        return None;
+    }
+    let output = fs::read_to_string(stdout.path()).ok()?;
+    let findings = parse_hunspell_output(
+        &output,
+        &words,
+        text,
+        &format!("hunspell:{dictionary_name}"),
+        limit,
+    )?;
+    Some((format!("hunspell:{dictionary_name}"), findings))
+}
+
+fn parse_hunspell_output(
+    output: &str,
+    words: &[TextMatch],
+    text: &str,
+    provider: &str,
+    limit: usize,
+) -> Option<Vec<SpellFinding>> {
+    let results = output
+        .lines()
+        .filter(|line| !line.trim().is_empty() && !line.starts_with('@'))
+        .collect::<Vec<_>>();
+    if results.len() < words.len() {
+        return None;
+    }
+    let mut findings = Vec::new();
+    for (word, result) in words.iter().zip(results) {
+        let marker = result.as_bytes().first().copied().unwrap_or_default();
+        if matches!(marker, b'*' | b'+' | b'-') {
+            continue;
+        }
+        if !matches!(marker, b'&' | b'#' | b'?') {
+            return None;
+        }
+        let suggestions = result
+            .split_once(':')
+            .map(|(_, suggestions)| {
+                suggestions
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|suggestion| !suggestion.is_empty())
+                    .take(8)
+                    .map(ToOwned::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        findings.push(SpellFinding {
+            word: word.text.clone(),
+            start: u32::try_from(text[..word.start].chars().count()).unwrap_or(u32::MAX),
+            end: u32::try_from(text[..word.end].chars().count()).unwrap_or(u32::MAX),
+            suggestions,
+            provider: provider.to_string(),
+        });
+        if findings.len() >= limit {
+            break;
+        }
+    }
+    Some(findings)
 }
 
 fn validate_filter_options(options: &std::collections::BTreeMap<String, String>) -> Result<()> {
@@ -734,6 +1052,393 @@ impl EngineService {
         })
     }
 
+    pub fn list_editor_segments(
+        &self,
+        params: EditorSegmentListParams,
+    ) -> Result<EditorSegmentPage> {
+        let limit = bounded_page_size(params.limit)?;
+        let (items, total) = self.store.list_editor_rows(&StorageEditorListRequest {
+            document_id: params.document_id,
+            query: params.query,
+            field: storage_editor_field(params.field),
+            filter: storage_editor_filter(params.filter),
+            sort: storage_editor_sort(params.sort),
+            descending: params.descending,
+            offset: params.offset,
+            limit,
+            include_context: params.include_context,
+        })?;
+        Ok(EditorSegmentPage {
+            items,
+            total,
+            offset: params.offset,
+            limit,
+        })
+    }
+
+    pub fn set_segment_tags(
+        &mut self,
+        params: SetSegmentTagsParams,
+    ) -> Result<EditorMutationResult> {
+        Ok(editor_mutation_result(self.store.set_target_tags(
+            &params.segment_id,
+            &params.target_tags,
+            params.expected_revision,
+        )?))
+    }
+
+    pub fn convert_segment_chinese(
+        &mut self,
+        params: ConvertSegmentChineseParams,
+    ) -> Result<EditorMutationResult> {
+        Ok(editor_mutation_result(self.store.convert_chinese_target(
+            &params.segment_id,
+            params.profile,
+            params.expected_revision,
+        )?))
+    }
+
+    pub fn propagate_segment(
+        &mut self,
+        params: PropagateSegmentParams,
+    ) -> Result<EditorMutationResult> {
+        Ok(editor_mutation_result(self.store.propagate_segment(
+            &params.segment_id,
+            params.expected_revision,
+        )?))
+    }
+
+    pub fn find_segments(&self, params: FindSegmentsParams) -> Result<SegmentFindResult> {
+        let limit = bounded_page_size(params.limit)?;
+        let options = SearchOptions {
+            regex: params.regex,
+            case_sensitive: params.case_sensitive,
+            whole_word: params.whole_word,
+        };
+        let (matches, total) = self.store.find_editor_matches(
+            &params.document_id,
+            &params.query,
+            storage_editor_field(params.field),
+            options,
+            params.offset,
+            limit,
+        )?;
+        Ok(SegmentFindResult {
+            matches: matches
+                .into_iter()
+                .map(|item| SegmentFindMatch {
+                    segment_id: item.segment_id,
+                    field: protocol_editor_field(item.field),
+                    start: item.start,
+                    end: item.end,
+                    matched_text: item.matched_text,
+                    revision: item.revision,
+                })
+                .collect(),
+            total,
+            offset: params.offset,
+            limit,
+        })
+    }
+
+    pub fn preview_replace(&self, params: ReplacePreviewParams) -> Result<ReplacePreviewResult> {
+        let preview = self.store.preview_replace(&StorageReplaceRequest {
+            document_id: params.document_id,
+            query: params.query,
+            replacement: params.replacement,
+            field: storage_editor_field(params.field),
+            options: SearchOptions {
+                regex: params.regex,
+                case_sensitive: params.case_sensitive,
+                whole_word: params.whole_word,
+            },
+        })?;
+        let changed_segments = preview
+            .items
+            .iter()
+            .map(|item| item.segment_id.as_str())
+            .collect::<BTreeSet<_>>()
+            .len();
+        let replacement_count = preview
+            .items
+            .iter()
+            .fold(0_u32, |total, item| total.saturating_add(item.replacements));
+        Ok(ReplacePreviewResult {
+            token: preview.token,
+            document_id: preview.document_id,
+            items: preview
+                .items
+                .into_iter()
+                .map(|item| ReplacePreviewItem {
+                    segment_id: item.segment_id,
+                    revision: item.revision,
+                    field: protocol_editor_field(item.field),
+                    before: item.before,
+                    after: item.after,
+                    replacements: item.replacements,
+                })
+                .collect(),
+            changed_segments: u32::try_from(changed_segments).unwrap_or(u32::MAX),
+            replacement_count,
+        })
+    }
+
+    pub fn apply_replace(&mut self, params: ReplaceApplyParams) -> Result<EditorMutationResult> {
+        let preview = StorageReplacePreview {
+            token: params.preview.token,
+            document_id: params.preview.document_id,
+            items: params
+                .preview
+                .items
+                .into_iter()
+                .map(|item| StorageReplaceItem {
+                    segment_id: item.segment_id,
+                    revision: item.revision,
+                    field: storage_editor_field(item.field),
+                    before: item.before,
+                    after: item.after,
+                    replacements: item.replacements,
+                })
+                .collect(),
+        };
+        Ok(editor_mutation_result(
+            self.store.apply_replace_preview(&preview)?,
+        ))
+    }
+
+    pub fn split_segment(&mut self, params: SplitSegmentParams) -> Result<EditorMutationResult> {
+        Ok(editor_mutation_result(self.store.split_segment(
+            &params.segment_id,
+            params.source_offset,
+            params.target_offset,
+            params.expected_revision,
+        )?))
+    }
+
+    pub fn merge_segments(&mut self, params: MergeSegmentsParams) -> Result<EditorMutationResult> {
+        Ok(editor_mutation_result(self.store.merge_segments(
+            &params.first_segment_id,
+            &params.second_segment_id,
+            params.first_expected_revision,
+            params.second_expected_revision,
+        )?))
+    }
+
+    pub fn correct_source(&mut self, params: CorrectSourceParams) -> Result<EditorMutationResult> {
+        Ok(editor_mutation_result(
+            self.store.generic_source_correction(
+                &params.segment_id,
+                &params.source_text,
+                &params.reason,
+                params.expected_revision,
+            )?,
+        ))
+    }
+
+    pub fn list_segment_comments(
+        &self,
+        params: SegmentCommentListParams,
+    ) -> Result<SegmentCommentListResult> {
+        Ok(SegmentCommentListResult {
+            comments: self
+                .store
+                .list_editor_comments(&params.segment_id, params.include_resolved)?,
+        })
+    }
+
+    pub fn create_segment_comment(
+        &mut self,
+        params: CreateSegmentCommentParams,
+    ) -> Result<translunar_domain::EditorComment> {
+        Ok(self
+            .store
+            .create_editor_comment(&params.segment_id, &params.author, &params.text)?)
+    }
+
+    pub fn update_segment_comment(
+        &mut self,
+        params: UpdateSegmentCommentParams,
+    ) -> Result<translunar_domain::EditorComment> {
+        Ok(self.store.update_editor_comment(
+            &params.comment_id,
+            &params.text,
+            params.expected_revision,
+        )?)
+    }
+
+    pub fn resolve_segment_comment(
+        &mut self,
+        params: ResolveSegmentCommentParams,
+    ) -> Result<translunar_domain::EditorComment> {
+        Ok(self.store.resolve_editor_comment(
+            &params.comment_id,
+            params.resolved,
+            params.expected_revision,
+        )?)
+    }
+
+    pub fn delete_segment_comment(
+        &mut self,
+        params: DeleteSegmentCommentParams,
+    ) -> Result<EmptyResult> {
+        self.store
+            .delete_editor_comment(&params.comment_id, params.expected_revision)?;
+        Ok(EmptyResult {})
+    }
+
+    pub fn spell_check(&self, params: SpellCheckParams) -> Result<SpellCheckResult> {
+        let limit = bounded_page_size(params.limit)? as usize;
+        if params.text.len() > 65_536 {
+            return Err(EngineError::InvalidRequest(
+                "spell-check text must be at most 65536 bytes".to_string(),
+            ));
+        }
+        let words = self
+            .store
+            .list_dictionary_words(&params.locale)?
+            .into_iter()
+            .map(|word| normalize_dictionary_word(&word))
+            .collect::<BTreeSet<_>>();
+        let (available, provider, mut findings) = if let Some((provider, findings)) =
+            run_hunspell(&params.locale, &params.text, &words, limit)
+        {
+            (true, provider, findings)
+        } else {
+            (
+                false,
+                "builtin-fallback".to_string(),
+                check_user_dictionary(&params.text, &words, limit),
+            )
+        };
+        if findings.len() < limit {
+            findings.extend(cjk_assistance(&params.text, limit - findings.len()));
+        }
+        Ok(SpellCheckResult {
+            available,
+            provider,
+            findings,
+        })
+    }
+
+    pub fn list_dictionary(&self, params: DictionaryListParams) -> Result<DictionaryListResult> {
+        Ok(DictionaryListResult {
+            words: self.store.list_dictionary_words(&params.locale)?,
+            locale: params.locale,
+        })
+    }
+
+    pub fn add_dictionary_word(
+        &mut self,
+        params: DictionaryWordParams,
+    ) -> Result<DictionaryListResult> {
+        Ok(DictionaryListResult {
+            words: self
+                .store
+                .add_dictionary_word(&params.locale, &params.word)?,
+            locale: params.locale,
+        })
+    }
+
+    pub fn remove_dictionary_word(
+        &mut self,
+        params: DictionaryWordParams,
+    ) -> Result<DictionaryListResult> {
+        Ok(DictionaryListResult {
+            words: self
+                .store
+                .remove_dictionary_word(&params.locale, &params.word)?,
+            locale: params.locale,
+        })
+    }
+
+    pub fn editor_history(&self, params: EditorHistoryParams) -> Result<EditorHistoryResult> {
+        let limit = bounded_page_size(params.limit)?;
+        let (operations, total, can_undo, can_redo) =
+            self.store
+                .editor_history(&params.project_id, params.offset, limit)?;
+        Ok(EditorHistoryResult {
+            operations,
+            total,
+            can_undo,
+            can_redo,
+        })
+    }
+
+    pub fn undo_editor(&mut self, params: EditorUndoRedoParams) -> Result<EditorMutationResult> {
+        Ok(editor_mutation_result(
+            self.store.undo_editor(&params.project_id)?,
+        ))
+    }
+
+    pub fn redo_editor(&mut self, params: EditorUndoRedoParams) -> Result<EditorMutationResult> {
+        Ok(editor_mutation_result(
+            self.store.redo_editor(&params.project_id)?,
+        ))
+    }
+
+    pub fn create_review(
+        &mut self,
+        params: ReviewCreateParams,
+    ) -> Result<translunar_domain::ReviewRevision> {
+        Ok(self.store.create_review_revision(&ReviewProposal {
+            segment_id: &params.segment_id,
+            proposed_target: params.proposed_target.as_deref(),
+            proposed_source: params.proposed_source.as_deref(),
+            proposed_target_tags: params.proposed_target_tags.as_deref(),
+            author: &params.author,
+            reason: &params.reason,
+            expected_revision: params.expected_revision,
+        })?)
+    }
+
+    pub fn set_editor_workflow(
+        &mut self,
+        params: SetEditorWorkflowParams,
+    ) -> Result<EditorMutationResult> {
+        Ok(editor_mutation_result(self.store.set_editor_workflow(
+            &params.segment_id,
+            params.state,
+            params.expected_revision,
+        )?))
+    }
+
+    pub fn list_reviews(&self, params: ReviewListParams) -> Result<ReviewListResult> {
+        Ok(ReviewListResult {
+            revisions: self
+                .store
+                .list_review_revisions(&params.document_id, params.include_closed)?,
+        })
+    }
+
+    pub fn accept_review(&mut self, params: ReviewDecisionParams) -> Result<EditorMutationResult> {
+        Ok(editor_mutation_result(self.store.accept_review(
+            &params.review_id,
+            params.expected_segment_revision,
+        )?))
+    }
+
+    pub fn reject_review(
+        &mut self,
+        params: ReviewDecisionParams,
+    ) -> Result<translunar_domain::ReviewRevision> {
+        Ok(self
+            .store
+            .reject_review(&params.review_id, params.expected_segment_revision)?)
+    }
+
+    pub fn get_editor_preferences(&self, _params: EmptyParams) -> Result<EditorPreferences> {
+        self.store.get_editor_preferences().map_err(Into::into)
+    }
+
+    pub fn update_editor_preferences(
+        &mut self,
+        params: UpdateEditorPreferencesParams,
+    ) -> Result<EditorPreferences> {
+        self.store
+            .update_editor_preferences(&params.preferences)
+            .map_err(Into::into)
+    }
+
     pub fn list_pdf_pages(&self, params: PdfPageListParams) -> Result<PdfPageListResult> {
         let document = self.store.get_document(&params.document_id)?;
         if document.document.filter_id != "builtin.pdf" {
@@ -741,7 +1446,7 @@ impl EngineService {
                 "pdf.page.list requires a PDF document".to_string(),
             ));
         }
-        let segments = self.store.all_segments(&params.document_id)?;
+        let segments = collapse_structural_segments(self.store.all_segments(&params.document_id)?)?;
         let mut counts = BTreeMap::<u32, (u32, u32, Vec<String>)>::new();
         for segment in &segments {
             let path = PdfPath::decode(&segment.structural_path)
@@ -899,6 +1604,7 @@ impl EngineService {
             counts: confirmation.counts,
             tm_entry: confirmation.tm_entry,
             qa_issues: confirmation.qa_issues,
+            propagated: confirmation.propagated,
         })
     }
 
@@ -1771,6 +2477,109 @@ impl RpcDispatcher {
                 self.service
                     .confirm_segment(parse_params(request.params)?)?,
             ),
+            methods::SEGMENT_EDITOR_LIST => serialize_result(
+                self.service
+                    .list_editor_segments(parse_params(request.params)?)?,
+            ),
+            methods::SEGMENT_TAG_SET => serialize_result(
+                self.service
+                    .set_segment_tags(parse_params(request.params)?)?,
+            ),
+            methods::SEGMENT_CHINESE_CONVERT => serialize_result(
+                self.service
+                    .convert_segment_chinese(parse_params(request.params)?)?,
+            ),
+            methods::SEGMENT_PROPAGATE => serialize_result(
+                self.service
+                    .propagate_segment(parse_params(request.params)?)?,
+            ),
+            methods::SEGMENT_FIND => {
+                serialize_result(self.service.find_segments(parse_params(request.params)?)?)
+            }
+            methods::SEGMENT_REPLACE_PREVIEW => serialize_result(
+                self.service
+                    .preview_replace(parse_params(request.params)?)?,
+            ),
+            methods::SEGMENT_REPLACE_APPLY => {
+                serialize_result(self.service.apply_replace(parse_params(request.params)?)?)
+            }
+            methods::SEGMENT_SPLIT => {
+                serialize_result(self.service.split_segment(parse_params(request.params)?)?)
+            }
+            methods::SEGMENT_MERGE => {
+                serialize_result(self.service.merge_segments(parse_params(request.params)?)?)
+            }
+            methods::SEGMENT_CORRECT_SOURCE => {
+                serialize_result(self.service.correct_source(parse_params(request.params)?)?)
+            }
+            methods::SEGMENT_WORKFLOW_SET => serialize_result(
+                self.service
+                    .set_editor_workflow(parse_params(request.params)?)?,
+            ),
+            methods::SEGMENT_COMMENT_LIST => serialize_result(
+                self.service
+                    .list_segment_comments(parse_params(request.params)?)?,
+            ),
+            methods::SEGMENT_COMMENT_CREATE => serialize_result(
+                self.service
+                    .create_segment_comment(parse_params(request.params)?)?,
+            ),
+            methods::SEGMENT_COMMENT_UPDATE => serialize_result(
+                self.service
+                    .update_segment_comment(parse_params(request.params)?)?,
+            ),
+            methods::SEGMENT_COMMENT_RESOLVE => serialize_result(
+                self.service
+                    .resolve_segment_comment(parse_params(request.params)?)?,
+            ),
+            methods::SEGMENT_COMMENT_DELETE => serialize_result(
+                self.service
+                    .delete_segment_comment(parse_params(request.params)?)?,
+            ),
+            methods::SEGMENT_SPELL_CHECK => {
+                serialize_result(self.service.spell_check(parse_params(request.params)?)?)
+            }
+            methods::DICTIONARY_LIST => serialize_result(
+                self.service
+                    .list_dictionary(parse_params(request.params)?)?,
+            ),
+            methods::DICTIONARY_ADD => serialize_result(
+                self.service
+                    .add_dictionary_word(parse_params(request.params)?)?,
+            ),
+            methods::DICTIONARY_REMOVE => serialize_result(
+                self.service
+                    .remove_dictionary_word(parse_params(request.params)?)?,
+            ),
+            methods::EDITOR_UNDO => {
+                serialize_result(self.service.undo_editor(parse_params(request.params)?)?)
+            }
+            methods::EDITOR_REDO => {
+                serialize_result(self.service.redo_editor(parse_params(request.params)?)?)
+            }
+            methods::EDITOR_HISTORY => {
+                serialize_result(self.service.editor_history(parse_params(request.params)?)?)
+            }
+            methods::REVIEW_CREATE => {
+                serialize_result(self.service.create_review(parse_params(request.params)?)?)
+            }
+            methods::REVIEW_LIST => {
+                serialize_result(self.service.list_reviews(parse_params(request.params)?)?)
+            }
+            methods::REVIEW_ACCEPT => {
+                serialize_result(self.service.accept_review(parse_params(request.params)?)?)
+            }
+            methods::REVIEW_REJECT => {
+                serialize_result(self.service.reject_review(parse_params(request.params)?)?)
+            }
+            methods::EDITOR_PREFERENCES_GET => serialize_result(
+                self.service
+                    .get_editor_preferences(parse_params(request.params)?)?,
+            ),
+            methods::EDITOR_PREFERENCES_UPDATE => serialize_result(
+                self.service
+                    .update_editor_preferences(parse_params(request.params)?)?,
+            ),
             methods::PDF_PAGE_LIST => {
                 serialize_result(self.service.list_pdf_pages(parse_params(request.params)?)?)
             }
@@ -1940,6 +2749,18 @@ impl RpcDispatcher {
                 "termbase.exchange".to_string(),
                 "qa.number-mismatch".to_string(),
                 "qa.term-forbidden".to_string(),
+                "editor.projection".to_string(),
+                "editor.protected-tags".to_string(),
+                "editor.chinese-conversion.opencc".to_string(),
+                "editor.find-replace".to_string(),
+                "editor.split-merge".to_string(),
+                "editor.comments".to_string(),
+                "editor.spell-fallback".to_string(),
+                "editor.spell-hunspell".to_string(),
+                "editor.undo-redo".to_string(),
+                "editor.review".to_string(),
+                "editor.workflow".to_string(),
+                "editor.preferences".to_string(),
             ],
         })
     }
@@ -2082,7 +2903,7 @@ fn copy_and_hash(source: &Path, destination: &mut File) -> Result<String> {
 mod tests {
     use serde_json::json;
     use tempfile::TempDir;
-    use translunar_domain::{QaIssueStatus, SegmentState};
+    use translunar_domain::{ChineseConversionProfile, QaIssueStatus, SegmentState};
     use translunar_filter_docx::fixture;
     use translunar_filter_pptx::fixture as pptx_fixture;
     use translunar_filter_xlsx::fixture as xlsx_fixture;
@@ -2866,7 +3687,7 @@ mod tests {
             .check_health(EmptyParams::default())
             .expect("check health");
         assert!(health.healthy, "unexpected findings: {:?}", health.findings);
-        assert_eq!(health.schema_version, 5);
+        assert_eq!(health.schema_version, 7);
 
         let destination = context.root.path().join("workspace-backup");
         let backup = service
@@ -2874,7 +3695,7 @@ mod tests {
                 destination_path: destination.to_string_lossy().into_owned(),
             })
             .expect("create backup");
-        assert_eq!(backup.manifest.schema_version, 5);
+        assert_eq!(backup.manifest.schema_version, 7);
         assert!(destination.join("translunar.sqlite3").is_file());
         assert!(
             destination
@@ -3042,5 +3863,889 @@ mod tests {
                 .and_then(|data| data.get("entity")),
             Some(&json!("filter"))
         );
+    }
+
+    #[test]
+    fn professional_editor_commands_are_transactional_and_persist() {
+        let context = TestContext::new();
+        let mut service = EngineService::open(context.root.path()).expect("open engine");
+        let project = TestContext::project(&mut service);
+        let document = service
+            .import_docx(ImportDocxParams {
+                project_id: project.id.clone(),
+                source_path: context.source.to_string_lossy().into_owned(),
+            })
+            .expect("import document");
+        let page = service
+            .list_editor_segments(EditorSegmentListParams {
+                document_id: document.id.clone(),
+                query: String::new(),
+                field: EditorSearchField::Both,
+                filter: EditorSegmentFilter::All,
+                sort: EditorSegmentSort::Ordinal,
+                descending: false,
+                offset: 0,
+                limit: 80,
+                include_context: true,
+            })
+            .expect("list editor rows");
+        assert_eq!(page.items.len(), 3);
+        assert!(page.items[0].context_after.is_some());
+
+        let first = &page.items[0].segment;
+        let saved = service
+            .update_target(UpdateTargetParams {
+                segment_id: first.id.clone(),
+                target_text: "保留期为 30 天。".to_string(),
+                expected_revision: first.revision,
+            })
+            .expect("save target");
+        let undone = service
+            .undo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            })
+            .expect("undo target");
+        assert!(
+            undone
+                .rows
+                .iter()
+                .find(|row| row.segment.id == first.id)
+                .expect("undone row")
+                .segment
+                .target_text
+                .is_empty()
+        );
+        let redone = service
+            .redo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            })
+            .expect("redo target");
+        let mut redone_first = redone
+            .rows
+            .iter()
+            .find(|row| row.segment.id == first.id)
+            .expect("redone row")
+            .segment
+            .clone();
+        assert_eq!(redone_first.target_text, saved.target_text);
+        let redone_editor_row = redone
+            .rows
+            .iter()
+            .find(|row| row.segment.id == first.id)
+            .expect("redone editor row");
+        let target_length = u32::try_from(redone_first.target_text.chars().count()).unwrap_or(1);
+        let denominator = u32::try_from(redone_editor_row.source_tags.len().saturating_sub(1))
+            .unwrap_or(1)
+            .max(1);
+        let target_tags = redone_editor_row
+            .source_tags
+            .iter()
+            .enumerate()
+            .map(|(index, tag)| translunar_domain::InlineTag {
+                id: format!("smoke-target-{index}"),
+                side: translunar_domain::TagSide::Target,
+                position: u32::try_from(index)
+                    .unwrap_or(u32::MAX)
+                    .saturating_mul(target_length)
+                    / denominator,
+                kind: tag.kind,
+                pair_id: tag.pair_id.clone(),
+                payload: tag.payload.clone(),
+                display_text: tag.display_text.clone(),
+                protected: true,
+            })
+            .collect::<Vec<_>>();
+        let partial_tags = target_tags.iter().take(2).cloned().collect::<Vec<_>>();
+        let partial_mutation = service
+            .set_segment_tags(SetSegmentTagsParams {
+                segment_id: first.id.clone(),
+                target_tags: partial_tags,
+                expected_revision: redone_first.revision,
+            })
+            .expect("insert one protected target tag pair");
+        let partial_row = partial_mutation
+            .rows
+            .iter()
+            .find(|row| row.segment.id == first.id)
+            .expect("partially tagged row");
+        assert_eq!(partial_row.target_tags.len(), 2);
+        assert!(
+            partial_row
+                .tag_issues
+                .iter()
+                .any(|issue| issue.code == "tag_missing")
+        );
+        let reverted_partial = service
+            .undo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            })
+            .expect("undo partial protected target tags");
+        redone_first = reverted_partial
+            .rows
+            .iter()
+            .find(|row| row.segment.id == first.id)
+            .expect("row after undoing partial protected target tags")
+            .segment
+            .clone();
+        service
+            .set_segment_tags(SetSegmentTagsParams {
+                segment_id: first.id.clone(),
+                target_tags,
+                expected_revision: redone_first.revision,
+            })
+            .expect("set protected target tags");
+        let undone_tags = service
+            .undo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            })
+            .expect("undo protected target tags");
+        assert!(
+            undone_tags
+                .rows
+                .iter()
+                .find(|row| row.segment.id == first.id)
+                .expect("undone protected tag row")
+                .target_tags
+                .is_empty()
+        );
+        let redone_tags = service
+            .redo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            })
+            .expect("redo protected target tags");
+        redone_first = redone_tags
+            .rows
+            .iter()
+            .find(|row| row.segment.id == first.id)
+            .expect("redone tagged row")
+            .segment
+            .clone();
+        assert_eq!(
+            redone_tags
+                .rows
+                .iter()
+                .find(|row| row.segment.id == first.id)
+                .expect("redone protected tag row")
+                .target_tags
+                .len(),
+            redone_editor_row.source_tags.len()
+        );
+
+        let stale_preview = service
+            .preview_replace(ReplacePreviewParams {
+                document_id: document.id.clone(),
+                query: "30".to_string(),
+                replacement: "60".to_string(),
+                field: EditorSearchField::Target,
+                regex: false,
+                case_sensitive: true,
+                whole_word: false,
+            })
+            .expect("preview replace");
+        let changed = service
+            .update_target(UpdateTargetParams {
+                segment_id: redone_first.id.clone(),
+                target_text: "保留期为 45 天。".to_string(),
+                expected_revision: redone_first.revision,
+            })
+            .expect("create stale preview");
+        assert!(matches!(
+            service.apply_replace(ReplaceApplyParams {
+                preview: stale_preview
+            }),
+            Err(EngineError::Storage(StorageError::Conflict { .. }))
+        ));
+        let preview = service
+            .preview_replace(ReplacePreviewParams {
+                document_id: document.id.clone(),
+                query: "45".to_string(),
+                replacement: "60".to_string(),
+                field: EditorSearchField::Target,
+                regex: false,
+                case_sensitive: true,
+                whole_word: false,
+            })
+            .expect("fresh preview");
+        let replaced = service
+            .apply_replace(ReplaceApplyParams { preview })
+            .expect("apply replace");
+        assert_eq!(
+            replaced
+                .rows
+                .iter()
+                .find(|row| row.segment.id == changed.id)
+                .expect("replaced row")
+                .segment
+                .target_text,
+            "保留期为 60 天。"
+        );
+
+        let comment = service
+            .create_segment_comment(CreateSegmentCommentParams {
+                segment_id: first.id.clone(),
+                author: "reviewer".to_string(),
+                text: "Check the number.".to_string(),
+            })
+            .expect("create comment");
+        let comment = service
+            .resolve_segment_comment(ResolveSegmentCommentParams {
+                comment_id: comment.id,
+                resolved: true,
+                expected_revision: comment.revision,
+            })
+            .expect("resolve comment");
+        assert!(comment.resolved);
+        service
+            .undo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            })
+            .expect("undo comment resolution");
+        assert!(
+            !service
+                .list_segment_comments(SegmentCommentListParams {
+                    segment_id: first.id.clone(),
+                    include_resolved: true,
+                })
+                .expect("list undone comment")
+                .comments[0]
+                .resolved
+        );
+        service
+            .redo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            })
+            .expect("redo comment resolution");
+
+        let second = &page.items[1].segment;
+        let review = service
+            .create_review(ReviewCreateParams {
+                segment_id: second.id.clone(),
+                proposed_target: Some("审阅后的译文。".to_string()),
+                proposed_source: None,
+                proposed_target_tags: None,
+                author: "reviewer".to_string(),
+                reason: "Improve clarity".to_string(),
+                expected_revision: second.revision,
+            })
+            .expect("create review");
+        let accepted = service
+            .accept_review(ReviewDecisionParams {
+                review_id: review.id,
+                expected_segment_revision: second.revision,
+            })
+            .expect("accept review");
+        assert_eq!(
+            accepted
+                .rows
+                .iter()
+                .find(|row| row.segment.id == second.id)
+                .expect("reviewed row")
+                .segment
+                .target_text,
+            "审阅后的译文。"
+        );
+        service
+            .undo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            })
+            .expect("undo accepted review");
+        let pending_review = service
+            .list_reviews(ReviewListParams {
+                document_id: document.id.clone(),
+                include_closed: true,
+            })
+            .expect("list undone review");
+        assert_eq!(
+            pending_review.revisions[0].status,
+            translunar_domain::ReviewStatus::Pending
+        );
+        let redone_review = service
+            .redo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            })
+            .expect("redo accepted review");
+        let reviewed_second = redone_review
+            .rows
+            .iter()
+            .find(|row| row.segment.id == second.id)
+            .expect("redone reviewed row")
+            .segment
+            .clone();
+        let confirmed_second = service
+            .confirm_segment(ConfirmSegmentParams {
+                segment_id: reviewed_second.id.clone(),
+                expected_revision: reviewed_second.revision,
+            })
+            .expect("confirm reviewed segment")
+            .segment;
+        let signed = service
+            .set_editor_workflow(SetEditorWorkflowParams {
+                segment_id: confirmed_second.id.clone(),
+                state: translunar_domain::EditorWorkflowState::Signed,
+                expected_revision: confirmed_second.revision,
+            })
+            .expect("sign reviewed segment");
+        assert_eq!(
+            signed
+                .rows
+                .iter()
+                .find(|row| row.segment.id == second.id)
+                .expect("signed row")
+                .workflow_state,
+            translunar_domain::EditorWorkflowState::Signed
+        );
+        let signed_segment = signed
+            .rows
+            .iter()
+            .find(|row| row.segment.id == second.id)
+            .expect("signed segment")
+            .segment
+            .clone();
+        assert!(matches!(
+            service.update_target(UpdateTargetParams {
+                segment_id: signed_segment.id,
+                target_text: "signed content must not change".to_string(),
+                expected_revision: signed_segment.revision,
+            }),
+            Err(EngineError::Storage(StorageError::InvalidState(_)))
+        ));
+        service
+            .undo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            })
+            .expect("undo signed workflow");
+        service
+            .redo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            })
+            .expect("redo signed workflow");
+
+        let third_document_row = &page.items[2];
+        let source_review = service
+            .create_review(ReviewCreateParams {
+                segment_id: third_document_row.segment.id.clone(),
+                proposed_target: None,
+                proposed_source: Some(format!(
+                    "{} corrected",
+                    third_document_row.segment.source_text
+                )),
+                proposed_target_tags: None,
+                author: "source-reviewer".to_string(),
+                reason: "Correct the source".to_string(),
+                expected_revision: third_document_row.segment.revision,
+            })
+            .expect("create source review");
+        assert!(source_review.proposed_source.is_some());
+        let accepted_source = service
+            .accept_review(ReviewDecisionParams {
+                review_id: source_review.id,
+                expected_segment_revision: third_document_row.segment.revision,
+            })
+            .expect("accept source review");
+        assert!(
+            accepted_source
+                .rows
+                .iter()
+                .find(|row| row.segment.id == third_document_row.segment.id)
+                .expect("source-reviewed row")
+                .segment
+                .source_text
+                .ends_with(" corrected")
+        );
+        service
+            .undo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            })
+            .expect("undo source review");
+        service
+            .redo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            })
+            .expect("redo source review");
+
+        let first_review_row = service
+            .list_editor_segments(EditorSegmentListParams {
+                document_id: document.id.clone(),
+                query: String::new(),
+                field: EditorSearchField::Both,
+                filter: EditorSegmentFilter::All,
+                sort: EditorSegmentSort::Ordinal,
+                descending: false,
+                offset: 0,
+                limit: 80,
+                include_context: true,
+            })
+            .expect("list tag review row")
+            .items
+            .into_iter()
+            .find(|row| row.segment.id == first.id)
+            .expect("tag review row");
+        let tag_review = service
+            .create_review(ReviewCreateParams {
+                segment_id: first.id.clone(),
+                proposed_target: Some("保留期为 60 天（审阅）。".to_string()),
+                proposed_source: None,
+                proposed_target_tags: Some(first_review_row.target_tags.clone()),
+                author: "tag-reviewer".to_string(),
+                reason: "Review target and protected tags together".to_string(),
+                expected_revision: first_review_row.segment.revision,
+            })
+            .expect("create tag review");
+        assert_eq!(
+            tag_review
+                .proposed_target_tags
+                .as_ref()
+                .expect("proposed review tags")
+                .len(),
+            first_review_row.target_tags.len()
+        );
+        let accepted_tags = service
+            .accept_review(ReviewDecisionParams {
+                review_id: tag_review.id,
+                expected_segment_revision: first_review_row.segment.revision,
+            })
+            .expect("accept tag review");
+        assert_eq!(
+            accepted_tags
+                .rows
+                .iter()
+                .find(|row| row.segment.id == first.id)
+                .expect("accepted tag review row")
+                .target_tags
+                .len(),
+            first_review_row.target_tags.len()
+        );
+
+        let split_source = context.root.path().join("split.txt");
+        std::fs::write(&split_source, "Alpha beta gamma.").expect("write split fixture");
+        let split_document = service
+            .import_document(ImportDocumentParams {
+                project_id: project.id.clone(),
+                source_path: split_source.to_string_lossy().into_owned(),
+                relative_path: None,
+                filter_id: Some("builtin.txt".to_string()),
+                options: Default::default(),
+            })
+            .expect("import split fixture")
+            .document;
+        let third = service
+            .list_editor_segments(EditorSegmentListParams {
+                document_id: split_document.id,
+                query: String::new(),
+                field: EditorSearchField::Both,
+                filter: EditorSegmentFilter::All,
+                sort: EditorSegmentSort::Ordinal,
+                descending: false,
+                offset: 0,
+                limit: 80,
+                include_context: true,
+            })
+            .expect("list split fixture")
+            .items
+            .remove(0)
+            .segment;
+        let split = service
+            .split_segment(SplitSegmentParams {
+                segment_id: third.id.clone(),
+                source_offset: 6,
+                target_offset: Some(0),
+                expected_revision: third.revision,
+            })
+            .expect("split segment");
+        assert_eq!(split.rows.len(), 2);
+        let unsplit = service
+            .undo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            })
+            .expect("undo split");
+        assert_eq!(unsplit.rows.len(), 1);
+        assert_eq!(unsplit.rows[0].segment.source_text, "Alpha beta gamma.");
+        let split = service
+            .redo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            })
+            .expect("redo split");
+        assert_eq!(split.rows.len(), 2);
+        let split_index = split
+            .rows
+            .iter()
+            .position(|row| row.segment.id == third.id)
+            .expect("split first row");
+        let split_first = &split.rows[split_index].segment;
+        let split_second = &split.rows[split_index + 1].segment;
+        let merged = service
+            .merge_segments(MergeSegmentsParams {
+                first_segment_id: split_first.id.clone(),
+                second_segment_id: split_second.id.clone(),
+                first_expected_revision: split_first.revision,
+                second_expected_revision: split_second.revision,
+            })
+            .expect("merge segment");
+        assert_eq!(merged.rows.len(), 1);
+        let unmerged = service
+            .undo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            })
+            .expect("undo merge");
+        assert_eq!(unmerged.rows.len(), 2);
+        let remerged = service
+            .redo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            })
+            .expect("redo merge");
+        assert_eq!(remerged.rows.len(), 1);
+
+        service
+            .add_dictionary_word(DictionaryWordParams {
+                locale: "en-US".to_string(),
+                word: "mispellled".to_string(),
+            })
+            .expect("add dictionary word");
+        let spell = service
+            .spell_check(SpellCheckParams {
+                locale: "en-US".to_string(),
+                text: "mispellled word".to_string(),
+                limit: 20,
+            })
+            .expect("spell check");
+        assert!(spell.findings.iter().all(|item| item.word != "mispellled"));
+
+        service
+            .update_editor_preferences(UpdateEditorPreferencesParams {
+                preferences: EditorPreferences {
+                    theme: "dark".to_string(),
+                    zoom: 125,
+                    show_nonprinting: true,
+                    ..EditorPreferences::default()
+                },
+            })
+            .expect("update preferences");
+        drop(service);
+
+        let service = EngineService::open(context.root.path()).expect("reopen engine");
+        assert_eq!(
+            service
+                .get_editor_preferences(EmptyParams {})
+                .expect("persisted preferences")
+                .theme,
+            "dark"
+        );
+        assert_eq!(
+            service
+                .list_segment_comments(SegmentCommentListParams {
+                    segment_id: first.id.clone(),
+                    include_resolved: true,
+                })
+                .expect("persisted comments")
+                .comments
+                .len(),
+            1
+        );
+        assert_eq!(
+            service
+                .list_reviews(ReviewListParams {
+                    document_id: document.id,
+                    include_closed: true,
+                })
+                .expect("persisted reviews")
+                .revisions[0]
+                .status,
+            translunar_domain::ReviewStatus::Accepted
+        );
+    }
+
+    #[test]
+    fn chinese_conversion_is_phrase_aware_durable_and_undoable() {
+        let context = TestContext::new();
+        let mut service = EngineService::open(context.root.path()).expect("open engine");
+        let project = TestContext::project(&mut service);
+        let document = service
+            .import_docx(ImportDocxParams {
+                project_id: project.id.clone(),
+                source_path: context.source.to_string_lossy().into_owned(),
+            })
+            .expect("import document");
+        let page = service
+            .list_editor_segments(EditorSegmentListParams {
+                document_id: document.id,
+                query: String::new(),
+                field: EditorSearchField::Both,
+                filter: EditorSegmentFilter::All,
+                sort: EditorSegmentSort::Ordinal,
+                descending: false,
+                offset: 0,
+                limit: 80,
+                include_context: false,
+            })
+            .expect("list editor rows");
+        let first = &page.items[0].segment;
+        let saved = service
+            .update_target(UpdateTargetParams {
+                segment_id: first.id.clone(),
+                target_text: "鼠标和打印机里的软件".to_string(),
+                expected_revision: first.revision,
+            })
+            .expect("save simplified target");
+        let converted = service
+            .convert_segment_chinese(ConvertSegmentChineseParams {
+                segment_id: first.id.clone(),
+                profile: ChineseConversionProfile::SimplifiedToTaiwan,
+                expected_revision: saved.revision,
+            })
+            .expect("convert target to Taiwan vocabulary");
+        assert_eq!(
+            converted
+                .rows
+                .iter()
+                .find(|row| row.segment.id == first.id)
+                .expect("converted row")
+                .segment
+                .target_text,
+            "滑鼠和印表機裡的軟體"
+        );
+        let undone = service
+            .undo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            })
+            .expect("undo Chinese conversion");
+        assert_eq!(
+            undone
+                .rows
+                .iter()
+                .find(|row| row.segment.id == first.id)
+                .expect("undone conversion row")
+                .segment
+                .target_text,
+            "鼠标和打印机里的软件"
+        );
+        drop(service);
+
+        let mut service = EngineService::open(context.root.path()).expect("reopen engine");
+        let redone = service
+            .redo_editor(EditorUndoRedoParams {
+                project_id: project.id,
+            })
+            .expect("redo Chinese conversion after restart");
+        assert_eq!(
+            redone
+                .rows
+                .iter()
+                .find(|row| row.segment.id == first.id)
+                .expect("redone conversion row")
+                .segment
+                .target_text,
+            "滑鼠和印表機裡的軟體"
+        );
+    }
+
+    #[test]
+    fn editor_history_invalidates_abandoned_redo_branch() {
+        let context = TestContext::new();
+        let mut service = EngineService::open(context.root.path()).expect("open engine");
+        let project = TestContext::project(&mut service);
+        let source = context.root.path().join("history.txt");
+        std::fs::write(&source, "Branching editor history.").expect("write history fixture");
+        let document = service
+            .import_document(ImportDocumentParams {
+                project_id: project.id.clone(),
+                source_path: source.to_string_lossy().into_owned(),
+                relative_path: None,
+                filter_id: Some("builtin.txt".to_string()),
+                options: Default::default(),
+            })
+            .expect("import history fixture")
+            .document;
+        let initial = service
+            .list_segments(SegmentListParams {
+                document_id: document.id,
+                offset: 0,
+                limit: 10,
+            })
+            .expect("list history segment")
+            .items
+            .remove(0);
+        service
+            .update_target(UpdateTargetParams {
+                segment_id: initial.id.clone(),
+                target_text: "first branch".to_string(),
+                expected_revision: initial.revision,
+            })
+            .expect("write first branch");
+        let undone = service
+            .undo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            })
+            .expect("undo first branch");
+        let base = undone
+            .rows
+            .iter()
+            .find(|row| row.segment.id == initial.id)
+            .expect("history base")
+            .segment
+            .clone();
+        service
+            .update_target(UpdateTargetParams {
+                segment_id: base.id.clone(),
+                target_text: "second branch".to_string(),
+                expected_revision: base.revision,
+            })
+            .expect("write second branch");
+        service
+            .undo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            })
+            .expect("undo second branch");
+        let redone = service
+            .redo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            })
+            .expect("redo second branch");
+        assert_eq!(redone.rows[0].segment.target_text, "second branch");
+        assert!(matches!(
+            service.redo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            }),
+            Err(EngineError::Storage(StorageError::InvalidState(_)))
+        ));
+        drop(service);
+
+        let mut service = EngineService::open(context.root.path()).expect("reopen engine");
+        let undone = service
+            .undo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            })
+            .expect("undo branch after restart");
+        assert!(undone.rows[0].segment.target_text.is_empty());
+        let redone = service
+            .redo_editor(EditorUndoRedoParams {
+                project_id: project.id,
+            })
+            .expect("redo branch after restart");
+        assert_eq!(redone.rows[0].segment.target_text, "second branch");
+    }
+
+    #[test]
+    fn undo_redo_restores_confirmation_tm_and_qa_side_effects() {
+        let context = TestContext::new();
+        let mut service = EngineService::open(context.root.path()).expect("open engine");
+        let project = TestContext::project(&mut service);
+        let source = context.root.path().join("confirm-history.txt");
+        std::fs::write(&source, "Retention is 30 days.").expect("write confirmation fixture");
+        let document = service
+            .import_document(ImportDocumentParams {
+                project_id: project.id.clone(),
+                source_path: source.to_string_lossy().into_owned(),
+                relative_path: None,
+                filter_id: Some("builtin.txt".to_string()),
+                options: Default::default(),
+            })
+            .expect("import confirmation fixture")
+            .document;
+        let segment = service
+            .list_segments(SegmentListParams {
+                document_id: document.id.clone(),
+                offset: 0,
+                limit: 10,
+            })
+            .expect("list confirmation fixture")
+            .items
+            .remove(0);
+        let draft = service
+            .update_target(UpdateTargetParams {
+                segment_id: segment.id.clone(),
+                target_text: "保留期为 60 天。".to_string(),
+                expected_revision: segment.revision,
+            })
+            .expect("save confirmation target");
+        service
+            .confirm_segment(ConfirmSegmentParams {
+                segment_id: segment.id.clone(),
+                expected_revision: draft.revision,
+            })
+            .expect("confirm fixture");
+        assert_eq!(
+            service
+                .lookup_exact(ExactLookupParams {
+                    project_id: project.id.clone(),
+                    source_text: segment.source_text.clone(),
+                })
+                .expect("confirmed exact lookup")
+                .matches
+                .len(),
+            1
+        );
+        assert_eq!(
+            service
+                .list_qa(ListQaParams {
+                    document_id: document.id.clone(),
+                    include_resolved: false,
+                })
+                .expect("confirmed QA")
+                .issues
+                .len(),
+            1
+        );
+        service
+            .undo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            })
+            .expect("undo confirmation");
+        assert!(
+            service
+                .lookup_exact(ExactLookupParams {
+                    project_id: project.id.clone(),
+                    source_text: segment.source_text.clone(),
+                })
+                .expect("undone exact lookup")
+                .matches
+                .is_empty()
+        );
+        assert!(
+            service
+                .list_qa(ListQaParams {
+                    document_id: document.id.clone(),
+                    include_resolved: true,
+                })
+                .expect("undone QA")
+                .issues
+                .is_empty()
+        );
+        service
+            .redo_editor(EditorUndoRedoParams {
+                project_id: project.id.clone(),
+            })
+            .expect("redo confirmation");
+        assert_eq!(
+            service
+                .lookup_exact(ExactLookupParams {
+                    project_id: project.id,
+                    source_text: segment.source_text,
+                })
+                .expect("redone exact lookup")
+                .matches
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn parses_bounded_hunspell_output_at_unicode_scalar_offsets() {
+        let text = "前缀 correct mispellled wrng";
+        let words = spell_word_spans(text);
+        let findings = parse_hunspell_output(
+            "@(#) Hunspell 1.7\n*\n& mispellled 1 0: misspelled\n# wrng 0\n",
+            &words,
+            text,
+            "hunspell:test",
+            1,
+        )
+        .expect("parse hunspell output");
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].word, "mispellled");
+        assert_eq!(findings[0].start, 11);
+        assert_eq!(findings[0].end, 21);
+        assert_eq!(findings[0].suggestions, ["misspelled"]);
+        assert_eq!(findings[0].provider, "hunspell:test");
+        assert!(parse_hunspell_output("*\n", &words, text, "hunspell:test", 10).is_none());
     }
 }
