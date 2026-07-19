@@ -23,8 +23,10 @@ use translunar_filter_core::{
 };
 use translunar_filter_docx::DocxFilter;
 use translunar_filter_html::HtmlFilter;
+use translunar_filter_pptx::PptxFilter;
 use translunar_filter_text::{MarkdownFilter, TxtFilter};
 use translunar_filter_xliff::XliffFilter;
+use translunar_filter_xlsx::XlsxFilter;
 use translunar_pipeline::{
     ArtifactKind, PipelineDefinition, PipelineError, PipelineFailure, PipelineStep,
     PipelineStepDefinition, StepDescriptor, StepExecutionContext, StepOutcome, StepRegistry,
@@ -507,6 +509,12 @@ impl EngineService {
         let mut filters = FilterRegistry::default();
         filters
             .register(Arc::new(DocxFilter))
+            .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+        filters
+            .register(Arc::new(XlsxFilter))
+            .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+        filters
+            .register(Arc::new(PptxFilter))
             .map_err(|error| EngineError::InvalidState(error.to_string()))?;
         filters
             .register(Arc::new(TxtFilter))
@@ -1913,6 +1921,8 @@ mod tests {
     use tempfile::TempDir;
     use translunar_domain::{QaIssueStatus, SegmentState};
     use translunar_filter_docx::fixture;
+    use translunar_filter_pptx::fixture as pptx_fixture;
+    use translunar_filter_xlsx::fixture as xlsx_fixture;
     use translunar_protocol::ClientInfo;
 
     use super::*;
@@ -2435,8 +2445,10 @@ mod tests {
                 "builtin.docx",
                 "builtin.html",
                 "builtin.markdown",
+                "builtin.pptx",
                 "builtin.txt",
                 "builtin.xliff",
+                "builtin.xlsx",
             ]
         );
 
@@ -2484,12 +2496,14 @@ mod tests {
     }
 
     #[test]
-    fn text_html_and_xliff_filters_round_trip_through_generic_engine() {
+    fn text_html_xliff_and_office_filters_round_trip_through_generic_engine() {
         let context = TestContext::new();
         let txt = context.root.path().join("sample.txt");
         let markdown = context.root.path().join("sample.md");
         let html = context.root.path().join("sample.html");
         let xliff = context.root.path().join("sample.xlf");
+        let xlsx = context.root.path().join("sample.xlsx");
+        let pptx = context.root.path().join("sample.pptx");
         std::fs::write(
             &txt,
             "\u{feff}First paragraph.\r\n\r\nSecond paragraph.\r\n",
@@ -2510,6 +2524,8 @@ mod tests {
             r#"<xliff version="2.1" srcLang="en" trgLang="zh" xmlns="urn:oasis:names:tc:xliff:document:2.1"><file id="f"><unit id="u"><notes><note id="n">Keep tone</note></notes><segment id="s" state="initial"><source>Hello <ph id="p"/> world</source></segment></unit></file></xliff>"#,
         )
         .expect("write XLIFF");
+        xlsx_fixture::write_fixture(&xlsx).expect("write XLSX");
+        pptx_fixture::write_fixture(&pptx).expect("write PPTX");
 
         let mut service = EngineService::open(context.root.path()).expect("open engine");
         let project = TestContext::project(&mut service);
@@ -2531,6 +2547,8 @@ mod tests {
             (&markdown, "builtin.markdown", "标题", "translated.md"),
             (&html, "builtin.html", "你好", "translated.html"),
             (&xliff, "builtin.xliff", "你好世界", "translated.xlf"),
+            (&xlsx, "builtin.xlsx", "你好表格", "translated.xlsx"),
+            (&pptx, "builtin.pptx", "你好幻灯片", "translated.pptx"),
         ];
         let mut exports = Vec::new();
         for (source, filter_id, target, output_name) in cases {
@@ -2643,6 +2661,14 @@ mod tests {
         assert!(xliff_output.contains("<target>"));
         assert!(xliff_output.contains("<ph id=\"p\"/>"));
         assert!(xliff_output.contains("id=\"s\""));
+        let xlsx_units = XlsxFilter
+            .extract_units(&ImportRequest::new(exports[4].1.clone()))
+            .expect("read XLSX export");
+        assert_eq!(xlsx_units[0].source_text, "你好表格");
+        let pptx_units = PptxFilter
+            .extract_units(&ImportRequest::new(exports[5].1.clone()))
+            .expect("read PPTX export");
+        assert_eq!(pptx_units[0].source_text, "你好幻灯片");
     }
 
     #[test]

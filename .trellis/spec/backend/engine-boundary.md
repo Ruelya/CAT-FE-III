@@ -459,3 +459,117 @@ transaction.execute(
     params![segment_id, note.id, note.text, note.author],
 )?;
 ```
+
+## Office OOXML Filter Boundary
+
+### 1. Scope / Trigger
+
+Use this contract when changing DOCX, XLSX, PPTX, or the shared OOXML package
+layer. Office filters must preserve the original ZIP package, own exact XML
+text ranges, and expose all user selection through the generic filter options
+map; Electron never opens an Office ZIP or evaluates a formula/macro.
+
+### 2. Signatures
+
+The wire surface remains unchanged:
+
+```text
+document.import ImportDocumentParams -> ImportDocumentResult
+document.export ExportDocumentParams -> ExportDocumentResult
+filter.list EmptyParams -> FilterListResult
+```
+
+Built-in IDs are `builtin.docx`, `builtin.xlsx`, and `builtin.pptx`. Supported
+options are:
+
+```text
+DOCX: includeComments=true|false
+XLSX: sheetNames, sheetIndexes, rowRange, columnRange, includeHiddenSheets
+PPTX: slideIndexes, includeNotes, includeMasters
+```
+
+Ranges are inclusive; sheet/slide indexes are 1-based. The Engine's shared
+32-entry/key/value bounds apply before a filter parses an option.
+
+### 3. Contracts
+
+- `filter-office-core` rejects encrypted, traversing, oversized, duplicate, or
+  deeply nested package entries; it never resolves external relationships.
+- Unchanged ZIP entries use raw-copy publication. Changed XML parts are
+  range-rewritten, reparsed, rebuilt into a staged ZIP, fsynced, and published
+  without replacing an existing destination.
+- DOCX includes body/table/text-box/header/footer/footnote/endnote text,
+  optionally comments, includes `w:ins`/`w:moveTo`, and excludes
+  `w:del`/`w:moveFrom`. Legacy body paths remain
+  `word/document.xml#p:<index>`.
+- XLSX owns cell paths such as
+  `xlsx:xl/worksheets/sheet1.xml#cell:B12`. Formulas, numbers, errors, and
+  booleans are protected. Translating a reused shared string clones `<si>`,
+  updates only the selected cell index, preserves rich-run markup, and updates
+  `uniqueCount`.
+- PPTX owns paragraph paths by part plus XML owner offset. Slides, shapes,
+  tables, and SmartArt are default; notes and masters are option-controlled.
+- Macros, ActiveX, embedded objects, and PPTX chart text are preserved as
+  opaque parts and reported as warning degradation findings on import/export.
+- Inline tag IDs include the Engine-assigned document ID. Office imports use no
+  Office-specific schema or RPC methods.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Missing content-types/root/main relationship or malformed ZIP/XML | `unsupported_document`; no managed source/document |
+| Encrypted entry, traversal name, external main part, duplicate relationship ID | typed import failure; no partial persistence |
+| Invalid sheet/row/column/slide/boolean option | `invalid_request`/typed import failure |
+| Formula, numeric cell, macro, ActiveX, embedded object | not editable; opaque data preserved; applicable degradation returned |
+| Unknown/duplicate structural path during export | export failure; destination absent/unchanged |
+| Existing destination | `export_error`; no overwrite |
+| Untranslated Office document | valid byte-preserving export with translated count 0 |
+
+### 5. Good / Base / Bad Cases
+
+- Good: import a workbook selecting two columns, translate one of two cells
+  sharing the same string, restart, and export without changing the other cell
+  or its formula neighbors.
+- Base: import a DOCX containing table, text box, header/footer, foot/endnotes,
+  accepted/deleted revisions, and optional comments; export one footer while
+  every unrelated package part remains present.
+- Bad: rewrite `sharedStrings.xml` in place for one cell, flatten every Office
+  run/property tree, execute a formula/macro, or silently omit chart/embedded
+  content without a degradation finding.
+
+### 6. Tests Required
+
+- Office core: range overlap, path traversal, DOCTYPE/depth/size bounds,
+  relationship target normalization, external target opacity, and raw-copy
+  package reconstruction.
+- DOCX: body/table/text box/header/footer/footnote/endnote/comment/revision,
+  multi-run Unicode round trip, legacy path/method, malformed input, and
+  unchanged custom parts.
+- XLSX: sheet/name/index/row/column selection, hidden sheets, shared/inline rich
+  strings, shared-string cloning and `uniqueCount`, formula/numeric protection,
+  malformed input, restart, and no-clobber.
+- PPTX: shape/table/SmartArt/notes/master, multi-run formatting, media/chart/
+  embedded preservation and degradation, malformed input, restart, and
+  no-clobber.
+- Stdio smoke must list seven filters and round-trip DOCX/XLSX/PPTX plus the
+  text/interchange filters. Desktop E2E uses the synchronized Windows Engine.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+// Mutates every cell that references shared string 7.
+shared_strings[7].text = target;
+// Re-serializes the complete workbook and drops opaque ZIP entries.
+```
+
+#### Correct
+
+```rust
+let cloned_si = clone_shared_string(shared_xml, &shared_strings[7], target)?;
+let new_index = shared_strings.len() + appended.len();
+rewrite_cell_value(sheet_xml, "B12", new_index)?;
+rebuild_package_with_raw_copy(source, changed_parts)?;
+```

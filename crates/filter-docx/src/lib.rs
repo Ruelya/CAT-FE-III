@@ -2,48 +2,44 @@
 
 pub mod fixture;
 
-use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::{BufReader, Cursor, Read, Write};
-use std::path::{Path, PathBuf};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::path::Path;
 
-use quick_xml::escape::resolve_predefined_entity;
-use quick_xml::events::{BytesText, Event};
-use quick_xml::{Reader, Writer};
-use tempfile::NamedTempFile;
+use quick_xml::Reader;
+use quick_xml::events::Event;
 use thiserror::Error;
-use translunar_domain::{Segment, normalize_text};
+use translunar_domain::{
+    DegradationFinding, DegradationSeverity, DocumentNote, InlineTag, Segment, TagKind, TagSide,
+    normalize_text,
+};
 use translunar_filter_core::{
     DocumentFilter, DocumentMetadata, ExportReport, ExportRequest, FilterCapabilities,
     FilterDescriptor, FilterError, FilterEvent, FilterEventStream, ImportRequest, ImportedUnit,
-    ProbeResult, ValidationReport, collect_imported_document,
+    ProbeResult, ValidationReport, collect_imported_document, publish_bytes_noclobber,
 };
-use zip::ZipArchive;
-use zip::write::ZipWriter;
+use translunar_filter_office_core::{
+    ByteReplacement, OfficeError, OfficePackage, XmlTextRange, apply_replacements,
+    decode_reference, decode_text, parse_relationships, rebuild_package, relationship_part,
+    resolve_relationship_target, validate_xml,
+};
+use zip::result::ZipError;
 
-const CONTENT_TYPES_PATH: &str = "[Content_Types].xml";
 const DOCUMENT_XML_PATH: &str = "word/document.xml";
+const MAIN_REL_TYPE: &str = "/officeDocument";
 const STRUCTURAL_PATH_PREFIX: &str = "word/document.xml#p:";
 
 #[derive(Debug, Error)]
 pub enum DocxError {
     #[error("DOCX I/O failed: {0}")]
     Io(#[from] std::io::Error),
-
     #[error("invalid DOCX ZIP package: {0}")]
-    Zip(#[from] zip::result::ZipError),
-
-    #[error("invalid DOCX XML: {0}")]
-    Xml(#[from] quick_xml::Error),
-
+    Zip(#[from] ZipError),
+    #[error(transparent)]
+    Office(#[from] OfficeError),
     #[error("invalid DOCX package: {0}")]
     InvalidPackage(String),
-
     #[error("invalid filter event stream: {0}")]
     Pipeline(#[from] FilterError),
-
-    #[error("failed to publish DOCX export: {0}")]
-    Publish(PathBuf, #[source] std::io::Error),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,18 +50,29 @@ pub struct ExportSummary {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DocxFilter;
 
+#[derive(Debug, Clone)]
+struct ParagraphUnit {
+    index: u32,
+    text: String,
+    ranges: Vec<XmlTextRange>,
+}
+
 impl DocxFilter {
     pub fn extract_units(&self, source: &Path) -> Result<Vec<ImportedUnit>, DocxError> {
-        let events = self.extract_events_inner(source)?.into_iter().map(Ok);
-        Ok(collect_imported_document(events)?.units)
+        let request = ImportRequest::new(source.to_path_buf());
+        let events = self.extract_events(&request)?;
+        Ok(collect_imported_document(events.into_iter().map(Ok))?.units)
     }
 
     pub fn validate(&self, source: &Path) -> Result<(), DocxError> {
-        let mut archive = open_archive(source)?;
-        let content_types = read_entry(&mut archive, CONTENT_TYPES_PATH)?;
-        validate_xml(&content_types, CONTENT_TYPES_PATH)?;
-        let document_xml = read_entry(&mut archive, DOCUMENT_XML_PATH)?;
-        validate_xml(&document_xml, DOCUMENT_XML_PATH)?;
+        let package = OfficePackage::open(source)?;
+        let main = discover_main_part(&package)?;
+        for name in package.names() {
+            if name.ends_with(".xml") || name.ends_with(".rels") {
+                validate_xml(package.require(name)?, name)?;
+            }
+        }
+        validate_xml(package.require(&main)?, &main)?;
         Ok(())
     }
 
@@ -81,53 +88,113 @@ impl DocxFilter {
             ));
         }
         self.validate(source)?;
-        let translations = translations_by_paragraph(segments)?;
-        let translated_segments = u32::try_from(translations.len()).map_err(|_| {
-            DocxError::InvalidPackage("translation count does not fit in u32".to_string())
-        })?;
-
-        let parent = output.parent().ok_or_else(|| {
-            DocxError::InvalidPackage("export path has no parent directory".to_string())
-        })?;
-        fs::create_dir_all(parent)?;
-        let mut temporary = NamedTempFile::new_in(parent)?;
-        {
-            let input = File::open(source)?;
-            let mut archive = ZipArchive::new(BufReader::new(input))?;
-            let mut writer = ZipWriter::new(temporary.as_file_mut());
-            for index in 0..archive.len() {
-                let mut entry = archive.by_index(index)?;
-                if entry.name() != DOCUMENT_XML_PATH {
-                    writer.raw_copy_file(entry)?;
+        let package = OfficePackage::open(source)?;
+        let parts = discover_text_parts(&package, true)?;
+        let targets = translations_by_path(segments)?;
+        let mut replacements = BTreeMap::new();
+        let mut applied = BTreeSet::new();
+        let mut translated_segments = 0_u32;
+        for part in parts {
+            let bytes = package.require(&part)?;
+            let units = parse_paragraphs(bytes, &part)?;
+            let mut part_replacements = Vec::new();
+            for unit in units {
+                let path = paragraph_path(&part, unit.index);
+                let Some(target) = targets.get(&path) else {
+                    continue;
+                };
+                if target.trim().is_empty() {
                     continue;
                 }
-
-                let options = entry.options();
-                let entry_name = entry.name().to_string();
-                let mut document_xml = Vec::new();
-                entry.read_to_end(&mut document_xml)?;
-                drop(entry);
-                let translated_xml = rewrite_document_xml(&document_xml, &translations)?;
-                writer.start_file(entry_name, options)?;
-                writer.write_all(&translated_xml)?;
+                for (index, range) in unit.ranges.iter().enumerate() {
+                    part_replacements.push(ByteReplacement {
+                        start: range.start,
+                        end: range.end,
+                        bytes: if index == 0 {
+                            translunar_filter_office_core::escape_xml_text(target)
+                        } else {
+                            Vec::new()
+                        },
+                    });
+                }
+                applied.insert(path);
+                translated_segments = translated_segments.checked_add(1).ok_or_else(|| {
+                    DocxError::InvalidPackage("translated paragraph count overflow".to_string())
+                })?;
             }
-            writer.finish()?;
+            if !part_replacements.is_empty() {
+                replacements.insert(part.clone(), apply_replacements(bytes, &part_replacements)?);
+            }
         }
-        temporary.as_file().sync_all()?;
-        self.validate(temporary.path())?;
-        temporary
-            .persist(output)
-            .map_err(|error| DocxError::Publish(output.to_path_buf(), error.error))?;
+        if applied.len() != targets.len() {
+            let missing = targets
+                .keys()
+                .find(|path| !applied.contains(*path))
+                .cloned()
+                .unwrap_or_else(|| "unknown".to_string());
+            return Err(DocxError::InvalidPackage(format!(
+                "DOCX structural path does not exist in source package: {missing}"
+            )));
+        }
+        let rebuilt = rebuild_package(source, &replacements)?;
+        validate_bytes(&rebuilt)?;
+        publish_bytes_noclobber(output, &rebuilt).map_err(DocxError::Pipeline)?;
         Ok(ExportSummary {
             translated_segments,
         })
     }
 
-    fn extract_events_inner(&self, source: &Path) -> Result<Vec<FilterEvent>, DocxError> {
-        self.validate(source)?;
-        let mut archive = open_archive(source)?;
-        let document_xml = read_entry(&mut archive, DOCUMENT_XML_PATH)?;
-        extract_document_events(&document_xml)
+    fn extract_events(&self, request: &ImportRequest) -> Result<Vec<FilterEvent>, DocxError> {
+        let include_comments =
+            parse_bool_option(&request.options, "includeComments")?.unwrap_or(false);
+        let package = OfficePackage::open(&request.source)?;
+        let degradation = docx_degradations(&package);
+        let parts = discover_text_parts(&package, include_comments)?;
+        let document_id = request.document_id.as_deref().unwrap_or("docx");
+        let mut events = vec![FilterEvent::StartDocument {
+            metadata: DocumentMetadata {
+                format: "docx".to_string(),
+                source_locale: request.source_locale.clone(),
+                properties: BTreeMap::from([
+                    ("filter".to_string(), "builtin.docx".to_string()),
+                    ("partCount".to_string(), parts.len().to_string()),
+                ]),
+            },
+        }];
+        events.extend(degradation.iter().cloned().map(FilterEvent::Degradation));
+        let mut ordinal = 0_u32;
+        for part in parts {
+            for unit in parse_paragraphs(package.require(&part)?, &part)? {
+                if normalize_text(&unit.text).is_empty() {
+                    continue;
+                }
+                let path = paragraph_path(&part, unit.index);
+                events.push(FilterEvent::StartUnit {
+                    ordinal,
+                    structural_path: path,
+                });
+                events.push(FilterEvent::Text(unit.text.clone()));
+                if part.ends_with("/comments.xml") {
+                    events.push(FilterEvent::Note(DocumentNote {
+                        id: format!("{document_id}:docx-comment:{ordinal}"),
+                        text: unit.text.clone(),
+                        author: None,
+                    }));
+                }
+                append_run_tags(&mut events, document_id, ordinal, &unit.ranges, &unit.text)?;
+                events.push(FilterEvent::EndUnit);
+                ordinal = ordinal.checked_add(1).ok_or_else(|| {
+                    DocxError::InvalidPackage("DOCX unit count overflow".to_string())
+                })?;
+            }
+        }
+        if ordinal == 0 {
+            return Err(DocxError::InvalidPackage(
+                "DOCX package contains no translatable paragraphs".to_string(),
+            ));
+        }
+        events.push(FilterEvent::EndDocument);
+        Ok(events)
     }
 }
 
@@ -142,8 +209,8 @@ impl DocumentFilter for DocxFilter {
                 import: true,
                 export: true,
                 validate: true,
-                inline_tags: false,
-                notes: false,
+                inline_tags: true,
+                notes: true,
                 degradation_report: true,
             },
         }
@@ -157,27 +224,34 @@ impl DocumentFilter for DocxFilter {
         if !extension_matches {
             return Ok(ProbeResult::no_match("file extension is not .docx"));
         }
-        match DocxFilter::validate(self, source) {
+        match self.validate(source) {
             Ok(()) => Ok(ProbeResult::matches(100, "valid DOCX OOXML package")),
             Err(DocxError::Io(error)) => Err(FilterError::Io(error)),
+            Err(DocxError::Office(OfficeError::Io(error))) => Err(FilterError::Io(error)),
             Err(error) => Ok(ProbeResult::no_match(error.to_string())),
         }
     }
 
     fn import(&self, request: ImportRequest) -> Result<FilterEventStream, FilterError> {
-        let events = self
-            .extract_events_inner(&request.source)
-            .map_err(map_docx_error)?;
-        Ok(Box::new(events.into_iter().map(Ok)))
+        Ok(Box::new(
+            self.extract_events(&request)
+                .map_err(map_docx_error)?
+                .into_iter()
+                .map(Ok),
+        ))
     }
 
     fn export(&self, request: ExportRequest<'_>) -> Result<ExportReport, FilterError> {
+        let package = OfficePackage::open(request.source)
+            .map_err(DocxError::from)
+            .map_err(map_docx_error)?;
+        let degradation = docx_degradations(&package);
         let summary = DocxFilter::export(self, request.source, request.output, request.segments)
             .map_err(map_docx_error)?;
         Ok(ExportReport {
             output_path: request.output.display().to_string(),
             translated_segments: summary.translated_segments,
-            degradation: Vec::new(),
+            degradation,
         })
     }
 
@@ -193,271 +267,335 @@ impl DocumentFilter for DocxFilter {
 fn map_docx_error(error: DocxError) -> FilterError {
     match error {
         DocxError::Io(error) => FilterError::Io(error),
+        DocxError::Office(OfficeError::Io(error)) => FilterError::Io(error),
         DocxError::InvalidPackage(message) => FilterError::Invalid(message),
-        other => FilterError::Processing(other.to_string()),
+        DocxError::Pipeline(error) => error,
+        other => FilterError::Invalid(other.to_string()),
     }
 }
 
-fn open_archive(source: &Path) -> Result<ZipArchive<BufReader<File>>, DocxError> {
-    let file = File::open(source)?;
-    ZipArchive::new(BufReader::new(file)).map_err(Into::into)
-}
-
-fn read_entry<R: Read + std::io::Seek>(
-    archive: &mut ZipArchive<R>,
-    name: &str,
-) -> Result<Vec<u8>, DocxError> {
-    let mut entry = archive.by_name(name).map_err(|error| match error {
-        zip::result::ZipError::FileNotFound => {
-            DocxError::InvalidPackage(format!("missing required package part {name}"))
-        }
-        other => DocxError::Zip(other),
+fn discover_main_part(package: &OfficePackage) -> Result<String, DocxError> {
+    let relationships = parse_relationships(package.require("_rels/.rels")?, "_rels/.rels")?;
+    let relationship = relationships
+        .iter()
+        .find(|relationship| relationship.relationship_type.ends_with(MAIN_REL_TYPE))
+        .ok_or_else(|| {
+            DocxError::InvalidPackage("package has no main document relationship".to_string())
+        })?;
+    let part = resolve_relationship_target("", relationship)?.ok_or_else(|| {
+        DocxError::InvalidPackage("main document relationship is external".to_string())
     })?;
-    let mut bytes = Vec::new();
-    entry.read_to_end(&mut bytes)?;
-    Ok(bytes)
+    package.require(&part)?;
+    Ok(part)
 }
 
-fn validate_xml(bytes: &[u8], part_name: &str) -> Result<(), DocxError> {
-    let mut reader = Reader::from_reader(Cursor::new(bytes));
-    reader.config_mut().trim_text(false);
-    let mut buffer = Vec::new();
-    loop {
-        match reader.read_event_into(&mut buffer) {
-            Ok(Event::Eof) => return Ok(()),
-            Ok(_) => buffer.clear(),
-            Err(error) => {
-                return Err(DocxError::InvalidPackage(format!(
-                    "{part_name} is not well-formed XML at byte {}: {error}",
-                    reader.error_position()
-                )));
+fn discover_text_parts(
+    package: &OfficePackage,
+    include_comments: bool,
+) -> Result<Vec<String>, DocxError> {
+    let main = discover_main_part(package)?;
+    let mut parts = vec![main.clone()];
+    let mut seen = BTreeSet::from([main.clone()]);
+    let rels_part = relationship_part(&main)?;
+    if let Some(rels_bytes) = package.get(&rels_part) {
+        for relationship in parse_relationships(rels_bytes, &rels_part)? {
+            let kind = relationship.relationship_type.as_str();
+            let allowed = kind.ends_with("/header")
+                || kind.ends_with("/footer")
+                || kind.ends_with("/footnotes")
+                || kind.ends_with("/endnotes")
+                || (include_comments && kind.ends_with("/comments"));
+            if !allowed {
+                continue;
+            }
+            if let Some(part) = resolve_relationship_target(&main, &relationship)? {
+                package.require(&part)?;
+                if seen.insert(part.clone()) {
+                    parts.push(part);
+                }
             }
         }
     }
+    // A few producers omit document relationships for a header/footer part;
+    // include only conventional Word text parts as a conservative fallback.
+    let mut fallback = package
+        .names()
+        .filter(|name| {
+            (name.starts_with("word/header") || name.starts_with("word/footer"))
+                && name.ends_with(".xml")
+        })
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+    fallback.sort();
+    for part in fallback {
+        if seen.insert(part.clone()) {
+            parts.push(part);
+        }
+    }
+    Ok(parts)
 }
 
-fn extract_document_events(document_xml: &[u8]) -> Result<Vec<FilterEvent>, DocxError> {
-    let mut reader = Reader::from_reader(Cursor::new(document_xml));
+fn parse_paragraphs(bytes: &[u8], part: &str) -> Result<Vec<ParagraphUnit>, DocxError> {
+    validate_xml(bytes, part)?;
+    let mut reader = Reader::from_reader(bytes);
     reader.config_mut().trim_text(false);
     let mut buffer = Vec::new();
-    let mut in_body = false;
-    let mut in_text = false;
+    let mut paragraph_stack: Vec<ParagraphBuilder> = Vec::new();
+    let mut text: Option<(usize, String)> = None;
+    let mut revision_excluded = 0_u32;
     let mut paragraph_index = 0_u32;
-    let mut current_paragraph: Option<(u32, String)> = None;
     let mut paragraphs = Vec::new();
-
     loop {
-        match reader.read_event_into(&mut buffer)? {
-            Event::Start(element) => match element.name().local_name().as_ref() {
-                b"body" => in_body = true,
-                b"p" if in_body && current_paragraph.is_none() => {
-                    current_paragraph = Some((paragraph_index, String::new()));
-                    paragraph_index = paragraph_index.checked_add(1).ok_or_else(|| {
-                        DocxError::InvalidPackage("paragraph count overflow".to_string())
-                    })?;
+        let before = usize::try_from(reader.buffer_position())
+            .map_err(|_| DocxError::InvalidPackage("DOCX XML offset overflow".to_string()))?;
+        match reader.read_event_into(&mut buffer) {
+            Ok(Event::Start(element)) => {
+                let local = element.name().local_name();
+                match local.as_ref() {
+                    b"del" | b"moveFrom" => revision_excluded = revision_excluded.saturating_add(1),
+                    b"p" => {
+                        let index = paragraph_index;
+                        paragraph_index = paragraph_index.checked_add(1).ok_or_else(|| {
+                            DocxError::InvalidPackage("DOCX paragraph count overflow".to_string())
+                        })?;
+                        paragraph_stack.push(ParagraphBuilder {
+                            index,
+                            text: String::new(),
+                            ranges: Vec::new(),
+                        });
+                    }
+                    b"t" if !paragraph_stack.is_empty() && revision_excluded == 0 => {
+                        text = Some((
+                            usize::try_from(reader.buffer_position()).map_err(|_| {
+                                DocxError::InvalidPackage("DOCX text offset overflow".to_string())
+                            })?,
+                            String::new(),
+                        ));
+                    }
+                    _ => {}
                 }
-                b"t" if current_paragraph.is_some() => in_text = true,
-                _ => {}
-            },
-            Event::Empty(element) => {
-                if let Some((_, text)) = current_paragraph.as_mut() {
+            }
+            Ok(Event::Empty(element)) => {
+                if revision_excluded == 0
+                    && let Some(current) = paragraph_stack.last_mut()
+                {
                     match element.name().local_name().as_ref() {
-                        b"tab" => text.push('\t'),
-                        b"br" | b"cr" => text.push('\n'),
+                        b"tab" => current.text.push('\t'),
+                        b"br" | b"cr" => current.text.push('\n'),
                         _ => {}
                     }
                 }
             }
-            Event::Text(text) if in_text => {
-                let decoded = text.decode().map_err(|error| {
-                    DocxError::InvalidPackage(format!("cannot decode document text: {error}"))
-                })?;
-                current_paragraph
-                    .as_mut()
-                    .expect("text only tracked inside a paragraph")
-                    .1
-                    .push_str(&decoded);
-            }
-            Event::GeneralRef(reference) if in_text => {
-                let value = resolve_reference(&reference)?;
-                current_paragraph
-                    .as_mut()
-                    .expect("entity reference only tracked inside a paragraph")
-                    .1
-                    .push_str(&value);
-            }
-            Event::End(element) => match element.name().local_name().as_ref() {
-                b"t" => in_text = false,
-                b"p" if current_paragraph.is_some() => {
-                    let paragraph = current_paragraph.take().expect("paragraph checked");
-                    if !normalize_text(&paragraph.1).is_empty() {
-                        paragraphs.push(paragraph);
-                    }
+            Ok(Event::Text(value)) if revision_excluded == 0 => {
+                if let Some((_, text_value)) = text.as_mut() {
+                    text_value.push_str(&decode_text(&value)?);
                 }
-                b"body" => in_body = false,
-                _ => {}
-            },
-            Event::Eof => break,
-            _ => {}
+            }
+            Ok(Event::GeneralRef(reference)) if revision_excluded == 0 => {
+                if let Some((_, text_value)) = text.as_mut() {
+                    text_value.push_str(&decode_reference(&reference)?);
+                }
+            }
+            Ok(Event::End(element)) => {
+                let local = element.name().local_name();
+                match local.as_ref() {
+                    b"t" => {
+                        if let Some((start, value)) = text.take()
+                            && let Some(current) = paragraph_stack.last_mut()
+                        {
+                            current.text.push_str(&value);
+                            current.ranges.push(XmlTextRange {
+                                start,
+                                end: before,
+                                text: value,
+                            });
+                        }
+                    }
+                    b"del" | b"moveFrom" => revision_excluded = revision_excluded.saturating_sub(1),
+                    b"p" => {
+                        if let Some(current) = paragraph_stack.pop() {
+                            paragraphs.push(current.finish());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::Eof) => break,
+            Ok(_) => {}
+            Err(error) => {
+                return Err(DocxError::InvalidPackage(format!(
+                    "cannot parse {part}: {error}"
+                )));
+            }
         }
         buffer.clear();
     }
-
-    if paragraph_index == 0 {
-        return Err(DocxError::InvalidPackage(
-            "word/document.xml contains no body paragraphs".to_string(),
-        ));
+    if !paragraph_stack.is_empty() {
+        return Err(DocxError::InvalidPackage(format!(
+            "unclosed paragraph in {part}"
+        )));
     }
-
-    let mut events = Vec::with_capacity(paragraphs.len() * 3 + 2);
-    events.push(FilterEvent::StartDocument {
-        metadata: DocumentMetadata {
-            format: "docx".to_string(),
-            source_locale: None,
-            properties: Default::default(),
-        },
-    });
-    for (ordinal, (body_paragraph, source_text)) in paragraphs.into_iter().enumerate() {
-        let ordinal = u32::try_from(ordinal).map_err(|_| {
-            DocxError::InvalidPackage("translatable unit count overflow".to_string())
-        })?;
-        events.push(FilterEvent::StartUnit {
-            ordinal,
-            structural_path: format!("{STRUCTURAL_PATH_PREFIX}{body_paragraph}"),
-        });
-        events.push(FilterEvent::Text(source_text));
-        events.push(FilterEvent::EndUnit);
-    }
-    events.push(FilterEvent::EndDocument);
-    Ok(events)
+    paragraphs.sort_by_key(|paragraph| paragraph.index);
+    Ok(paragraphs)
 }
 
-fn translations_by_paragraph(segments: &[Segment]) -> Result<HashMap<u32, &str>, DocxError> {
+#[derive(Debug)]
+struct ParagraphBuilder {
+    index: u32,
+    text: String,
+    ranges: Vec<XmlTextRange>,
+}
+
+impl ParagraphBuilder {
+    fn finish(self) -> ParagraphUnit {
+        ParagraphUnit {
+            index: self.index,
+            text: self.text,
+            ranges: self.ranges,
+        }
+    }
+}
+
+fn paragraph_path(part: &str, index: u32) -> String {
+    if part == DOCUMENT_XML_PATH {
+        format!("{STRUCTURAL_PATH_PREFIX}{index}")
+    } else {
+        format!("{part}#p:{index}")
+    }
+}
+
+fn translations_by_path(segments: &[Segment]) -> Result<HashMap<String, String>, DocxError> {
     let mut translations = HashMap::new();
     for segment in segments {
         if segment.target_text.trim().is_empty() {
             continue;
         }
-        let paragraph = segment
-            .structural_path
-            .strip_prefix(STRUCTURAL_PATH_PREFIX)
-            .ok_or_else(|| {
-                DocxError::InvalidPackage(format!(
-                    "unsupported DOCX structural path {}",
-                    segment.structural_path
-                ))
-            })?
-            .parse::<u32>()
-            .map_err(|_| {
-                DocxError::InvalidPackage(format!(
-                    "invalid DOCX structural path {}",
-                    segment.structural_path
-                ))
-            })?;
+        if !(segment.structural_path.starts_with("word/")
+            && segment.structural_path.contains("#p:"))
+        {
+            return Err(DocxError::InvalidPackage(format!(
+                "unsupported DOCX structural path {}",
+                segment.structural_path
+            )));
+        }
         if translations
-            .insert(paragraph, segment.target_text.as_str())
+            .insert(segment.structural_path.clone(), segment.target_text.clone())
             .is_some()
         {
             return Err(DocxError::InvalidPackage(format!(
-                "multiple segments target body paragraph {paragraph}"
+                "duplicate DOCX structural path {}",
+                segment.structural_path
             )));
         }
     }
     Ok(translations)
 }
 
-fn rewrite_document_xml(
-    document_xml: &[u8],
-    translations: &HashMap<u32, &str>,
-) -> Result<Vec<u8>, DocxError> {
-    let mut reader = Reader::from_reader(Cursor::new(document_xml));
-    reader.config_mut().trim_text(false);
-    let mut writer = Writer::new(Vec::with_capacity(document_xml.len()));
-    let mut buffer = Vec::new();
-    let mut in_body = false;
-    let mut in_text = false;
-    let mut paragraph_index = 0_u32;
-    let mut active_translation: Option<&str> = None;
-    let mut translation_written = false;
-
-    loop {
-        match reader.read_event_into(&mut buffer)? {
-            Event::Start(element) => {
-                match element.name().local_name().as_ref() {
-                    b"body" => in_body = true,
-                    b"p" if in_body && active_translation.is_none() => {
-                        active_translation = translations.get(&paragraph_index).copied();
-                        translation_written = false;
-                        paragraph_index = paragraph_index.checked_add(1).ok_or_else(|| {
-                            DocxError::InvalidPackage("paragraph count overflow".to_string())
-                        })?;
-                    }
-                    b"t" if active_translation.is_some() => in_text = true,
-                    _ => {}
-                }
-                writer.write_event(Event::Start(element))?;
-            }
-            Event::Text(text) if in_text && active_translation.is_some() => {
-                let replacement = if translation_written {
-                    ""
-                } else {
-                    translation_written = true;
-                    active_translation.expect("translation checked")
-                };
-                writer.write_event(Event::Text(BytesText::new(replacement)))?;
-                let _ = text;
-            }
-            Event::GeneralRef(reference) if in_text && active_translation.is_some() => {
-                if !translation_written {
-                    translation_written = true;
-                    writer.write_event(Event::Text(BytesText::new(
-                        active_translation.expect("translation checked"),
-                    )))?;
-                }
-                let _ = reference;
-            }
-            Event::End(element) => {
-                match element.name().local_name().as_ref() {
-                    b"t" => in_text = false,
-                    b"p" => {
-                        if active_translation.is_some() && !translation_written {
-                            return Err(DocxError::InvalidPackage(format!(
-                                "body paragraph {} has no writable text run",
-                                paragraph_index.saturating_sub(1)
-                            )));
-                        }
-                        active_translation = None;
-                        translation_written = false;
-                    }
-                    b"body" => in_body = false,
-                    _ => {}
-                }
-                writer.write_event(Event::End(element))?;
-            }
-            Event::Eof => break,
-            event => writer.write_event(event)?,
+fn append_run_tags(
+    events: &mut Vec<FilterEvent>,
+    document_id: &str,
+    ordinal: u32,
+    ranges: &[XmlTextRange],
+    source_text: &str,
+) -> Result<(), DocxError> {
+    let mut position = 0_u32;
+    for (index, range) in ranges.iter().enumerate() {
+        let length = u32::try_from(range.text.chars().count())
+            .map_err(|_| DocxError::InvalidPackage("run text length overflow".to_string()))?;
+        if length == 0 {
+            continue;
         }
-        buffer.clear();
+        let pair_id = format!("{document_id}:docx:{ordinal}:{index}");
+        events.push(FilterEvent::InlineTag(InlineTag {
+            id: format!("{pair_id}:start"),
+            side: TagSide::Source,
+            position,
+            kind: TagKind::Start,
+            pair_id: Some(pair_id.clone()),
+            payload: "ooxml-run".to_string(),
+            display_text: "R".to_string(),
+            protected: true,
+        }));
+        position = position
+            .checked_add(length)
+            .ok_or_else(|| DocxError::InvalidPackage("run tag position overflow".to_string()))?;
+        events.push(FilterEvent::InlineTag(InlineTag {
+            id: format!("{pair_id}:end"),
+            side: TagSide::Source,
+            position,
+            kind: TagKind::End,
+            pair_id: Some(pair_id),
+            payload: "ooxml-run".to_string(),
+            display_text: "R".to_string(),
+            protected: true,
+        }));
     }
-    Ok(writer.into_inner())
+    if usize::try_from(position).unwrap_or(usize::MAX) > source_text.chars().count() {
+        return Err(DocxError::InvalidPackage(
+            "run tags exceed paragraph source text".to_string(),
+        ));
+    }
+    Ok(())
 }
 
-fn resolve_reference(reference: &quick_xml::events::BytesRef<'_>) -> Result<String, DocxError> {
-    if let Some(character) = reference.resolve_char_ref()? {
-        return Ok(character.to_string());
+fn parse_bool_option(
+    options: &BTreeMap<String, String>,
+    key: &str,
+) -> Result<Option<bool>, DocxError> {
+    options
+        .get(key)
+        .map(|value| match value.trim().to_ascii_lowercase().as_str() {
+            "true" | "1" | "yes" => Ok(true),
+            "false" | "0" | "no" => Ok(false),
+            _ => Err(DocxError::InvalidPackage(format!(
+                "{key} must be true or false"
+            ))),
+        })
+        .transpose()
+}
+
+fn validate_bytes(bytes: &[u8]) -> Result<(), DocxError> {
+    let package = OfficePackage::from_bytes(bytes)?;
+    let _ = discover_main_part(&package)?;
+    for name in package.names() {
+        if name.ends_with(".xml") || name.ends_with(".rels") {
+            validate_xml(package.require(name)?, name)?;
+        }
     }
-    let name = reference.decode().map_err(|error| {
-        DocxError::InvalidPackage(format!("cannot decode XML entity reference: {error}"))
-    })?;
-    resolve_predefined_entity(&name)
-        .map(str::to_string)
-        .ok_or_else(|| DocxError::InvalidPackage(format!("unsupported XML entity &{name};")))
+    Ok(())
+}
+
+fn docx_degradations(package: &OfficePackage) -> Vec<DegradationFinding> {
+    package
+        .opaque_features()
+        .into_iter()
+        .map(|feature| {
+            let (code, message) = match feature.kind {
+                translunar_filter_office_core::OpaqueFeatureKind::Macro => (
+                    "docx.macro-preserved",
+                    "VBA macro part is preserved but not executed or translated",
+                ),
+                translunar_filter_office_core::OpaqueFeatureKind::ActiveX => (
+                    "docx.activex-preserved",
+                    "ActiveX part is preserved but not executed",
+                ),
+                translunar_filter_office_core::OpaqueFeatureKind::EmbeddedObject => (
+                    "docx.embedded-object-preserved",
+                    "embedded object is preserved but not translated",
+                ),
+            };
+            DegradationFinding {
+                code: code.to_string(),
+                severity: DegradationSeverity::Warning,
+                message: message.to_string(),
+                structural_path: Some(feature.part),
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use std::io::Read;
-
     use translunar_domain::{SegmentState, new_id, segment_hashes};
 
     use super::*;
@@ -522,34 +660,85 @@ mod tests {
             exported[2].source_text,
             "This paragraph remains untranslated."
         );
-
-        let source_part = read_package_part(&source, fixture::UNRELATED_PART);
-        let output_part = read_package_part(&output, fixture::UNRELATED_PART);
-        assert_eq!(source_part, output_part);
-        let document_xml = read_package_part(&output, DOCUMENT_XML_PATH);
-        let document_xml = String::from_utf8(document_xml).expect("UTF-8 document XML");
-        assert!(document_xml.contains("<w:pPr>"));
-        assert!(document_xml.contains("<w:b/>"));
-        assert!(document_xml.contains("&amp;"));
+        let source_package = OfficePackage::open(&source).expect("source package");
+        let output_package = OfficePackage::open(&output).expect("output package");
+        assert_eq!(
+            source_package.get("customXml/item1.xml"),
+            output_package.get("customXml/item1.xml")
+        );
     }
 
     #[test]
-    fn rejects_packages_without_document_xml() {
+    fn rejects_invalid_package_before_units() {
         let temp = tempfile::tempdir().expect("temporary directory");
         let source = temp.path().join("invalid.docx");
-        fixture::write_invalid_fixture(&source).expect("write invalid fixture");
-        let error = DocxFilter
-            .validate(&source)
-            .expect_err("reject invalid package");
-        assert!(matches!(error, DocxError::InvalidPackage(_)));
+        fixture::write_invalid_fixture(&source).expect("write fixture");
+        assert!(DocxFilter.extract_units(&source).is_err());
     }
 
-    fn read_package_part(path: &Path, name: &str) -> Vec<u8> {
-        let file = File::open(path).expect("open DOCX");
-        let mut archive = ZipArchive::new(file).expect("open ZIP");
-        let mut entry = archive.by_name(name).expect("find package part");
-        let mut bytes = Vec::new();
-        entry.read_to_end(&mut bytes).expect("read package part");
-        bytes
+    #[test]
+    fn imports_extended_parts_revisions_and_optional_comments() {
+        let temp = tempfile::tempdir().expect("temporary directory");
+        let source = temp.path().join("extended.docx");
+        fixture::write_extended_fixture(&source).expect("write fixture");
+        let units = DocxFilter.extract_units(&source).expect("extract fixture");
+        assert_eq!(units.len(), 6);
+        assert_eq!(units[0].source_text, "Visible body Inserted text");
+        assert_eq!(units[1].source_text, "Textbox text");
+        assert!(
+            units
+                .iter()
+                .all(|unit| !unit.source_text.contains("Deleted"))
+        );
+        for expected in [
+            "Header text",
+            "Footer text",
+            "Footnote text",
+            "Endnote text",
+        ] {
+            assert!(units.iter().any(|unit| unit.source_text == expected));
+        }
+
+        let mut request = ImportRequest::new(source);
+        request
+            .options
+            .insert("includeComments".to_string(), "true".to_string());
+        let events = DocxFilter.extract_events(&request).expect("comment events");
+        let with_comments =
+            collect_imported_document(events.into_iter().map(Ok)).expect("collect comments");
+        assert_eq!(with_comments.units.len(), 7);
+        assert!(
+            with_comments
+                .units
+                .iter()
+                .any(|unit| unit.source_text == "Comment text")
+        );
+        assert!(
+            with_comments
+                .units
+                .iter()
+                .any(|unit| !unit.notes.is_empty())
+        );
+    }
+
+    #[test]
+    fn exports_header_footer_and_note_parts() {
+        let temp = tempfile::tempdir().expect("temporary directory");
+        let source = temp.path().join("extended.docx");
+        let output = temp.path().join("translated.docx");
+        fixture::write_extended_fixture(&source).expect("write fixture");
+        let units = DocxFilter.extract_units(&source).expect("extract fixture");
+        let mut segments = segments_for(&units);
+        let footer = segments
+            .iter_mut()
+            .find(|segment| segment.structural_path == "word/footer1.xml#p:0")
+            .expect("footer segment");
+        footer.target_text = "页脚文本".to_string();
+        footer.state = SegmentState::Confirmed;
+        DocxFilter
+            .export(&source, &output, &segments)
+            .expect("export fixture");
+        let exported = DocxFilter.extract_units(&output).expect("reopen fixture");
+        assert!(exported.iter().any(|unit| unit.source_text == "页脚文本"));
     }
 }

@@ -20,7 +20,9 @@ translunar-asset-core = { path = "../asset-core" }
 translunar-filter-core = { path = "../filter-core" }
 translunar-filter-docx = { path = "../filter-docx" }
 translunar-filter-html = { path = "../filter-html" }
+translunar-filter-pptx = { path = "../filter-pptx" }
 translunar-filter-text = { path = "../filter-text" }
+translunar-filter-xlsx = { path = "../filter-xlsx" }
 translunar-filter-xliff = { path = "../filter-xliff" }
 translunar-pipeline = { path = "../pipeline" }
 translunar-protocol = { path = "../protocol" }

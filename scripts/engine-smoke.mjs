@@ -41,11 +41,17 @@ async function main() {
   const markdownPath = join(dataDirectory, "sample.md");
   const htmlPath = join(dataDirectory, "sample.html");
   const xliffPath = join(dataDirectory, "sample.xlf");
+  const xlsxPath = join(dataDirectory, "sample.xlsx");
+  const pptxPath = join(dataDirectory, "sample.pptx");
   const malformedXliffPath = join(dataDirectory, "malformed.xlf");
+  const malformedXlsxPath = join(dataDirectory, "malformed.xlsx");
+  const malformedPptxPath = join(dataDirectory, "malformed.pptx");
   const textOutputPath = join(dataDirectory, "translated.txt");
   const markdownOutputPath = join(dataDirectory, "translated.md");
   const htmlOutputPath = join(dataDirectory, "translated.html");
   const xliffOutputPath = join(dataDirectory, "translated.xlf");
+  const xlsxOutputPath = join(dataDirectory, "translated.xlsx");
+  const pptxOutputPath = join(dataDirectory, "translated.pptx");
   let processHandle;
 
   try {
@@ -86,6 +92,34 @@ async function main() {
       '<xliff version="2.1" srcLang="en" trgLang="zh" xmlns="urn:oasis:names:tc:xliff:document:2.1"><file id="f"><unit id="u"><segment id="s"><source>Hello <ph id="p"/> world</source></segment></unit></file></xliff>',
       "utf8",
     );
+    writeFileSync(
+      xlsxPath,
+      makeZip([
+        ["[Content_Types].xml", officeXlsxContentTypes],
+        ["_rels/.rels", officeXlsxRootRels],
+        ["xl/workbook.xml", officeXlsxWorkbook],
+        ["xl/_rels/workbook.xml.rels", officeXlsxWorkbookRels],
+        ["xl/sharedStrings.xml", officeXlsxSharedStrings],
+        ["xl/worksheets/sheet1.xml", officeXlsxSheet],
+        [
+          "xl/styles.xml",
+          '<?xml version="1.0"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font/></fonts></styleSheet>',
+        ],
+      ]),
+    );
+    writeFileSync(
+      pptxPath,
+      makeZip([
+        ["[Content_Types].xml", officePptxContentTypes],
+        ["_rels/.rels", officePptxRootRels],
+        ["ppt/presentation.xml", officePptxPresentation],
+        ["ppt/_rels/presentation.xml.rels", officePptxPresentationRels],
+        ["ppt/slides/slide1.xml", officePptxSlide],
+        ["ppt/slides/_rels/slide1.xml.rels", officePptxSlideRels],
+        ["ppt/diagrams/data1.xml", officePptxDiagram],
+        ["ppt/media/image1.png", Buffer.from("fixture-png")],
+      ]),
+    );
     const formatCases = [
       {
         sourcePath: txtPath,
@@ -115,6 +149,20 @@ async function main() {
         targetText: "你好世界",
         outputPath: xliffOutputPath,
         expectedSegments: 1,
+      },
+      {
+        sourcePath: xlsxPath,
+        filterId: "builtin.xlsx",
+        targetText: "你好表格",
+        outputPath: xlsxOutputPath,
+        expectedSegments: 3,
+      },
+      {
+        sourcePath: pptxPath,
+        filterId: "builtin.pptx",
+        targetText: "你好幻灯片",
+        outputPath: pptxOutputPath,
+        expectedSegments: 2,
       },
     ];
     const formatDocuments = [];
@@ -147,11 +195,9 @@ async function main() {
         outputPath: formatCase.outputPath,
       });
     }
-    writeFileSync(
-      malformedXliffPath,
-      '<xliff version="2.1"><file>',
-      "utf8",
-    );
+    writeFileSync(malformedXliffPath, '<xliff version="2.1"><file>', "utf8");
+    writeFileSync(malformedXlsxPath, "not a zip", "utf8");
+    writeFileSync(malformedPptxPath, "not a zip", "utf8");
     try {
       await processHandle.call("document.import", {
         projectId: project.id,
@@ -163,6 +209,20 @@ async function main() {
         error?.code === "unsupported_document",
         "malformed XLIFF should return a typed import error",
       );
+    }
+    for (const malformedPath of [malformedXlsxPath, malformedPptxPath]) {
+      try {
+        await processHandle.call("document.import", {
+          projectId: project.id,
+          sourcePath: malformedPath,
+        });
+        throw new Error(`${malformedPath} unexpectedly imported`);
+      } catch (error) {
+        assert(
+          error?.code === "unsupported_document",
+          "malformed Office package should return a typed import error",
+        );
+      }
     }
     const libraries = await processHandle.call("tm.library.list", {
       projectId: project.id,
@@ -370,14 +430,19 @@ async function main() {
       sourcePath: fixture,
     });
     const filters = await processHandle.call("filter.list", {});
-    assert(filters.filters.length === 5, "all built-in filters should register");
+    assert(
+      filters.filters.length === 7,
+      "all built-in filters should register",
+    );
     assert(
       [
         "builtin.docx",
         "builtin.html",
         "builtin.markdown",
+        "builtin.pptx",
         "builtin.txt",
         "builtin.xliff",
+        "builtin.xlsx",
       ].every((id) => filters.filters.some((filter) => filter.id === id)),
       "filter catalog should contain every P0 text filter",
     );
@@ -386,7 +451,7 @@ async function main() {
       offset: 0,
       limit: 50,
     });
-    assert(documents.total === 6, "six logical documents should be listed");
+    assert(documents.total === 8, "eight logical documents should be listed");
     const page = await processHandle.call("segment.list", {
       documentId: document.id,
       offset: 0,
@@ -652,6 +717,19 @@ async function main() {
         xliffOutput.includes('id="s"'),
       "XLIFF export should insert a target and preserve IDs/inline code",
     );
+    const xlsxOutput = readFileSync(xlsxOutputPath);
+    assert(
+      xlsxOutput.includes(Buffer.from("你好表格")) &&
+        xlsxOutput.includes(Buffer.from("SUM(A1:B1)")),
+      "XLSX export should translate selected text and preserve formulas",
+    );
+    const pptxOutput = readFileSync(pptxOutputPath);
+    assert(
+      pptxOutput.includes(Buffer.from("你好幻灯片")) &&
+        pptxOutput.includes(Buffer.from("SmartArt text")) &&
+        pptxOutput.includes(Buffer.from("fixture-png")),
+      "PPTX export should translate text and preserve SmartArt/media",
+    );
     console.log(`Engine smoke passed: ${outputPath}; backup: ${backupPath}`);
   } finally {
     await processHandle?.stop();
@@ -665,6 +743,73 @@ function delay(milliseconds) {
     setTimeout(resolvePromise, milliseconds),
   );
 }
+
+// The smoke fixture writer intentionally stores entries without compression;
+// this keeps the process test self-contained and makes byte assertions clear.
+function makeZip(entries) {
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+  for (const [name, value] of entries) {
+    const nameBytes = Buffer.from(name);
+    const data = Buffer.isBuffer(value) ? value : Buffer.from(value, "utf8");
+    const crc = crc32(data);
+    const local = Buffer.alloc(30 + nameBytes.length);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(nameBytes.length, 26);
+    nameBytes.copy(local, 30);
+    localParts.push(local, data);
+    const central = Buffer.alloc(46 + nameBytes.length);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt32LE(crc, 16);
+    central.writeUInt32LE(data.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(nameBytes.length, 28);
+    central.writeUInt32LE(offset, 42);
+    nameBytes.copy(central, 46);
+    centralParts.push(central);
+    offset += local.length + data.length;
+  }
+  const central = Buffer.concat(centralParts);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(central.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...localParts, central, end]);
+}
+
+function crc32(data) {
+  let crc = 0xffffffff;
+  for (const byte of data) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+const officeXlsxContentTypes = `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/></Types>`;
+const officeXlsxRootRels = `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
+const officeXlsxWorkbook = `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Main" sheetId="1" r:id="rId1"/></sheets></workbook>`;
+const officeXlsxWorkbookRels = `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/></Relationships>`;
+const officeXlsxSharedStrings = `<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="2" uniqueCount="2"><si><t>Hello table</t></si><si><t>Repeated</t></si></sst>`;
+const officeXlsxSheet = `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1" t="inlineStr"><is><t>Inline cell</t></is></c><c r="D1"><f>SUM(A1:B1)</f><v>3</v></c></row></sheetData></worksheet>`;
+const officePptxContentTypes = `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>`;
+const officePptxRootRels = `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>`;
+const officePptxPresentation = `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst></p:presentation>`;
+const officePptxPresentationRels = `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>`;
+const officePptxSlide = `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Hello slide</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`;
+const officePptxSlideRels = `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramData" Target="../diagrams/data1.xml"/></Relationships>`;
+const officePptxDiagram = `<dgm:dataModel xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><dgm:ptLst><dgm:pt><dgm:txBody><a:p><a:r><a:t>SmartArt text</a:t></a:r></a:p></dgm:txBody></dgm:pt></dgm:ptLst></dgm:dataModel>`;
 
 class EngineProcess {
   #child;

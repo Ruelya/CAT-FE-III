@@ -19,6 +19,9 @@ crates/
 |-- filter-text/src/           # TXT/Markdown extraction and range replacement
 |-- filter-html/src/           # HTML/XHTML tokenizer, attributes, inline tags
 |-- filter-xliff/src/          # XLIFF 1.2/2.x conservative interchange
+|-- filter-office-core/src/    # bounded OOXML ZIP/XML/relationship helpers
+|-- filter-xlsx/src/           # worksheet selection and cell-level round trip
+|-- filter-pptx/src/           # slides/tables/SmartArt/notes/master round trip
 `-- engine/src/                # application service, dispatcher, stdio executable
 packages/contracts/src/        # generated TypeScript projection of protocol
 scripts/                       # cross-process smoke and contract drift checks
@@ -31,6 +34,7 @@ domain <- protocol
 domain <- storage
 domain <- filter-docx
 filter-core <- segmentation-srx + filter-text + filter-html + filter-xliff
+filter-core <- filter-office-core <- filter-docx + filter-xlsx + filter-pptx
 domain + protocol + storage + filters <- engine
 protocol schema -> packages/contracts -> Electron
 ```

@@ -3,7 +3,7 @@
   "name": "office-document-filters",
   "title": "Complete Office document filters",
   "description": "Complete DOCX structural coverage and add XLSX/PPTX round-trip filters, previews, selection rules, and fidelity fixtures.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

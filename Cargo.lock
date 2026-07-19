@@ -1056,6 +1056,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "translunar-filter-office-core"
+version = "0.1.0"
+dependencies = [
+ "quick-xml",
+ "thiserror",
+ "zip",
+]
+
+[[package]]
+name = "translunar-filter-pptx"
+version = "0.1.0"
+dependencies = [
+ "quick-xml",
+ "thiserror",
+ "translunar-domain",
+ "translunar-filter-core",
+ "translunar-filter-office-core",
+ "zip",
+]
+
+[[package]]
 name = "translunar-filter-text"
 version = "0.1.0"
 dependencies = [
@@ -1075,6 +1096,18 @@ dependencies = [
  "thiserror",
  "translunar-domain",
  "translunar-filter-core",
+]
+
+[[package]]
+name = "translunar-filter-xlsx"
+version = "0.1.0"
+dependencies = [
+ "quick-xml",
+ "thiserror",
+ "translunar-domain",
+ "translunar-filter-core",
+ "translunar-filter-office-core",
+ "zip",
 ]
 
 [[package]]
