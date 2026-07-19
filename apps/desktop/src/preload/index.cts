@@ -7,6 +7,7 @@ const IPC_CHANNELS = {
   selectSource: "translunar:dialog:source-docx",
   selectExport: "translunar:dialog:export-docx",
   restartEngine: "translunar:engine:restart",
+  setAiCredential: "translunar:ai:credential:set",
   editorCommand: "translunar:editor:command",
 } as const;
 
@@ -18,6 +19,12 @@ const api: DesktopApi = {
   selectExportPath: (suggestedName) =>
     electron.ipcRenderer.invoke(IPC_CHANNELS.selectExport, suggestedName),
   restartEngine: () => electron.ipcRenderer.invoke(IPC_CHANNELS.restartEngine),
+  setAiCredential: (profileId, secret) =>
+    electron.ipcRenderer.invoke(
+      IPC_CHANNELS.setAiCredential,
+      profileId,
+      secret,
+    ),
   onEditorCommand: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, commandId: string) =>
       listener(commandId);

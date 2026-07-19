@@ -9,6 +9,7 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
+import { createServer } from "node:http";
 
 async function main() {
   const root = resolve(import.meta.dirname, "..");
@@ -59,7 +60,9 @@ async function main() {
   const pdfTextOutputPath = join(dataDirectory, "text-layout-translated.docx");
   const pdfScannedOutputPath = join(dataDirectory, "scanned-translated.docx");
   const pdfMixedOutputPath = join(dataDirectory, "mixed-translated.docx");
+  const aiSourcePath = join(dataDirectory, "ai-source.txt");
   let processHandle;
+  const aiFixture = await startAiFixture();
 
   try {
     processHandle = await EngineProcess.start(binary, dataDirectory);
@@ -1138,13 +1141,154 @@ async function main() {
       ocrHistory?.after?.reason === "Verified against original scan",
       "OCR correction history should retain the required reason",
     );
+
+    writeFileSync(aiSourcePath, "AI smoke source segment.\n", "utf8");
+    const aiDocument = await processHandle.call("document.import", {
+      projectId: project.id,
+      sourcePath: aiSourcePath,
+      filterId: "builtin.txt",
+      options: { segmentationMode: "paragraph" },
+    });
+    const aiSegments = await processHandle.call("segment.list", {
+      documentId: aiDocument.document.id,
+      offset: 0,
+      limit: 20,
+    });
+    const aiCatalog = await processHandle.call("ai.provider.catalog", {});
+    assert(
+      aiCatalog.items.length >= 10,
+      "AI provider catalog should expose all first-release connectors",
+    );
+    const aiProfile = await processHandle.call("ai.provider.create", {
+      name: "Smoke OpenAI-compatible",
+      kind: "openaiCompatible",
+      baseUrl: aiFixture.url,
+      model: "fixture-model",
+      timeoutMs: 5000,
+      maxResponseBytes: 1048576,
+      enabled: true,
+    });
+    const credentialStatus = await processHandle.call("ai.credential.set", {
+      profileId: aiProfile.id,
+      secret: "engine-smoke-secret",
+    });
+    assert(
+      credentialStatus.present && credentialStatus.backend === "test-memory",
+      "AI credential should use the injected test backend",
+    );
+    const aiSettings = await processHandle.call("ai.settings.get", {});
+    await processHandle.call("ai.settings.update", {
+      enabled: true,
+      defaultProfileId: aiProfile.id,
+      monthlyTokenBudget: 100000,
+      allowInteractive: true,
+      allowBatch: true,
+      allowedOrigins: [aiFixture.url],
+      expectedRevision: aiSettings.revision,
+    });
+    const conversation = await processHandle.call("ai.conversation.create", {
+      projectId: project.id,
+      title: "Smoke conversation",
+    });
+    const groundingOptions = defaultGroundingOptions();
+    const grounding = await processHandle.call("ai.grounding.preview", {
+      projectId: project.id,
+      segmentId: aiSegments.items[0].id,
+      expectedRevision: aiSegments.items[0].revision,
+      action: "translate",
+      prompt: "Translate for the smoke test",
+      options: groundingOptions,
+    });
+    assert(
+      grounding.bundle.sections.length >= 3 &&
+        grounding.bundle.promptHash.length === 64,
+      "grounding preview should be inspectable and hashed",
+    );
+    const aiRun = await processHandle.call("ai.run.start", {
+      projectId: project.id,
+      segmentId: aiSegments.items[0].id,
+      profileId: aiProfile.id,
+      expectedRevision: aiSegments.items[0].revision,
+      action: "translate",
+      prompt: "Translate for the smoke test",
+      options: groundingOptions,
+      conversationId: conversation.id,
+      maxAttempts: 2,
+    });
+    const completedAiRun = await waitForAiRun(processHandle, aiRun.id);
+    assert(
+      completedAiRun.status === "succeeded" &&
+        completedAiRun.proposalText === "AI fixture translation",
+      "AI run should retain the authoritative streamed proposal",
+    );
+    const aiEvents = await processHandle.call("ai.run.events", {
+      runId: aiRun.id,
+      afterSequence: 0,
+      limit: 100,
+    });
+    assert(
+      aiEvents.items.some((event) => event.kind === "delta") &&
+        aiEvents.items.some((event) => event.kind === "usage") &&
+        aiEvents.items.some((event) => event.kind === "completed"),
+      "AI event log should include streaming, usage, and completion",
+    );
+    await processHandle.call("ai.result.apply", {
+      runId: aiRun.id,
+      expectedRunRevision: completedAiRun.revision,
+      expectedSegmentRevision: aiSegments.items[0].revision,
+    });
+    const aiUsage = await processHandle.call("ai.usage.query", {
+      projectId: project.id,
+      sinceMs: 0,
+      untilMs: Date.now() + 1000,
+      dimension: "provider",
+      offset: 0,
+      limit: 100,
+    });
+    assert(
+      aiUsage.records.length === 1 &&
+        aiUsage.records[0].usage.inputTokens === 20,
+      "AI usage should be authoritative and exactly once",
+    );
+    const aiMessages = await processHandle.call("ai.conversation.messages", {
+      conversationId: conversation.id,
+      offset: 0,
+      limit: 20,
+    });
+    assert(
+      aiMessages.items.length === 2 &&
+        aiMessages.items[1].targetProposal === "AI fixture translation",
+      "AI conversation should retain the durable turn",
+    );
+    const emptyBatch = await processHandle.call("ai.batch.start", {
+      projectId: project.id,
+      documentId: aiDocument.document.id,
+      profileId: aiProfile.id,
+      tmThreshold: 85,
+      concurrency: 2,
+      requestsPerMinute: 600,
+      maxAttempts: 2,
+      replaceDrafts: false,
+      options: groundingOptions,
+    });
+    const completedBatch = await waitForAiBatch(processHandle, emptyBatch.id);
+    assert(
+      completedBatch.status === "succeeded" && completedBatch.total === 0,
+      "empty AI batch scope should converge to succeeded",
+    );
+    const pipelineSteps = await processHandle.call("pipeline.step.list", {});
+    assert(
+      pipelineSteps.steps.some((step) => step.id === "core.ai.pretranslate"),
+      "AI pretranslation should be registered as a pipeline step",
+    );
+
     const health = await processHandle.call("data.checkHealth", {});
     assert(health.healthy, "valid workspace should pass health check");
     const backup = await processHandle.call("data.createBackup", {
       destinationPath: backupPath,
     });
     assert(
-      backup.manifest.schemaVersion === 7,
+      backup.manifest.schemaVersion === health.schemaVersion,
       "backup should contain latest schema",
     );
     assert(
@@ -1252,6 +1396,7 @@ async function main() {
     console.log(`Engine smoke passed: ${outputPath}; backup: ${backupPath}`);
   } finally {
     await processHandle?.stop();
+    await aiFixture.close();
     await rm(dataDirectory, { recursive: true, force: true });
     await rm(backupParent, { recursive: true, force: true });
   }
@@ -1261,6 +1406,86 @@ function delay(milliseconds) {
   return new Promise((resolvePromise) =>
     setTimeout(resolvePromise, milliseconds),
   );
+}
+
+function defaultGroundingOptions() {
+  return {
+    includeTerms: true,
+    includeTm: true,
+    includeContext: true,
+    includeStyle: true,
+    tmTopN: 5,
+    contextBefore: 2,
+    contextAfter: 2,
+    maxChars: 24000,
+    systemInstruction: "",
+    styleInstruction: "",
+  };
+}
+
+async function waitForAiRun(processHandle, runId) {
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    const run = await processHandle.call("ai.run.get", { runId });
+    if (["succeeded", "failed", "canceled"].includes(run.status)) return run;
+    await delay(20);
+  }
+  throw new Error("AI run did not finish");
+}
+
+async function waitForAiBatch(processHandle, batchId) {
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    const batch = await processHandle.call("ai.batch.get", { batchId });
+    if (
+      ["succeeded", "completedWithErrors", "failed", "canceled"].includes(
+        batch.status,
+      )
+    ) {
+      return batch;
+    }
+    await delay(20);
+  }
+  throw new Error("AI batch did not finish");
+}
+
+async function startAiFixture() {
+  const server = createServer((request, response) => {
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk) => {
+      body += chunk;
+    });
+    request.on("end", () => {
+      assert(
+        !body.includes("engine-smoke-secret"),
+        "AI credential must not appear in the request body",
+      );
+      const events = [
+        'data: {"choices":[{"delta":{"content":"AI fixture "}}]}',
+        'data: {"choices":[{"delta":{"content":"translation"}}]}',
+        'data: {"choices":[],"usage":{"prompt_tokens":20,"completion_tokens":4}}',
+        "data: [DONE]",
+        "",
+      ].join("\n\n");
+      response.writeHead(200, {
+        "content-type": "text/event-stream",
+        "content-length": Buffer.byteLength(events),
+        connection: "close",
+      });
+      response.end(events);
+    });
+  });
+  await new Promise((resolvePromise, rejectPromise) => {
+    server.once("error", rejectPromise);
+    server.listen(0, "127.0.0.1", resolvePromise);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("AI fixture address unavailable");
+  }
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    close: () => new Promise((resolvePromise) => server.close(resolvePromise)),
+  };
 }
 
 // The smoke fixture writer intentionally stores entries without compression;
@@ -1355,6 +1580,11 @@ class EngineProcess {
       {
         stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
+        env: {
+          ...process.env,
+          TRANSLUNAR_AI_TEST_MODE: "1",
+          TRANSLUNAR_AI_TEST_CREDENTIAL: "engine-smoke-secret",
+        },
       },
     );
     this.#child.stdout.setEncoding("utf8");

@@ -476,9 +476,26 @@ export function Workbench({
 
   const applyEditorMutation = (mutation: EditorMutationResult) => {
     if (mutation.rows.length > 0) {
-      editorRowsRef.current = mutation.rows;
-      setEditorRows(mutation.rows);
-      const nextSegments = mutation.rows.map((row) => row.segment);
+      const mutationIds = new Set(mutation.rows.map((row) => row.segment.id));
+      const replacesVisibleSubset =
+        mutation.rows.length < editorRowsRef.current.length &&
+        mutation.rows.every((row) =>
+          editorRowsRef.current.some(
+            (current) => current.segment.id === row.segment.id,
+          ),
+        );
+      const nextRows = replacesVisibleSubset
+        ? editorRowsRef.current.map((row) =>
+            mutationIds.has(row.segment.id)
+              ? (mutation.rows.find(
+                  (updated) => updated.segment.id === row.segment.id,
+                ) ?? row)
+              : row,
+          )
+        : mutation.rows;
+      editorRowsRef.current = nextRows;
+      setEditorRows(nextRows);
+      const nextSegments = nextRows.map((row) => row.segment);
       segmentsRef.current = nextSegments;
       setSegments(nextSegments);
       setEditorTotal(mutation.counts.total);
@@ -1764,6 +1781,13 @@ export function Workbench({
                 >
                   Translation memory
                 </button>
+                <button
+                  type="button"
+                  disabled={actionBusy !== null}
+                  onClick={() => void navigateToSurface("ai-control")}
+                >
+                  AI control
+                </button>
                 <hr />
                 <button
                   type="button"
@@ -2257,6 +2281,7 @@ export function Workbench({
         </section>
 
         <SuggestionsPanel
+          projectId={snapshot.project.id}
           mode={suggestionsMode}
           onModeChange={setSuggestionsMode}
           tab={suggestionTab}
@@ -2267,6 +2292,7 @@ export function Workbench({
           matches={matches}
           termMatches={termMatches}
           onInsert={insertMatch}
+          onApplyMutation={applyEditorMutation}
         />
       </main>
 
@@ -3741,6 +3767,7 @@ function DocumentPreview({
 }
 
 interface SuggestionsProps {
+  projectId: string;
   mode: PanelMode;
   onModeChange(mode: PanelMode): void;
   tab: SuggestionTab;
@@ -3751,9 +3778,11 @@ interface SuggestionsProps {
   matches: TmEntry[];
   termMatches: TermMatch[];
   onInsert(target: string): void;
+  onApplyMutation(mutation: EditorMutationResult): void;
 }
 
 function SuggestionsPanel({
+  projectId,
   mode,
   onModeChange,
   tab,
@@ -3764,6 +3793,7 @@ function SuggestionsPanel({
   matches,
   termMatches,
   onInsert,
+  onApplyMutation,
 }: SuggestionsProps) {
   const openIssues = issues.filter((issue) => issue.status === "open");
   const collapseButtonRef = useRef<HTMLButtonElement>(null);
@@ -3956,6 +3986,8 @@ function SuggestionsPanel({
             <AssistantPanel
               activeSegment={activeSegment}
               onUseTarget={onInsert}
+              projectId={projectId}
+              onApplyMutation={onApplyMutation}
             />
           ) : openIssues.length ? (
             openIssues.map((issue) => (

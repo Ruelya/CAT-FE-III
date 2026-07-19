@@ -6,9 +6,11 @@ mod store;
 
 pub use error::{Result, StorageError};
 pub use store::{
-    ConcordanceRequest, Confirmation, DataPaths, EditorFilter, EditorFindMatch, EditorListRequest,
-    EditorMutation, EditorReviewDecision, EditorSearchField, EditorSort, ManagedDocument,
-    NewDocument, NewPipelineDefinition, NewTermEntry, NewTermTranslation, NewTermbase,
-    NewTmLibrary, PipelineRunSnapshot, ProjectAggregate, ProjectUpdate, ReplaceItem,
-    ReplacePreview, ReplaceRequest, ReviewProposal, Store, TermSearchRequest, TmSearchRequest,
+    AiProviderProfileUpdate, AiSettingsUpdate, ConcordanceRequest, Confirmation, DataPaths,
+    EditorFilter, EditorFindMatch, EditorListRequest, EditorMutation, EditorReviewDecision,
+    EditorSearchField, EditorSort, ManagedDocument, NewAiBatchItem, NewAiBatchRun,
+    NewAiProviderProfile, NewAiRun, NewDocument, NewPipelineDefinition, NewTermEntry,
+    NewTermTranslation, NewTermbase, NewTmLibrary, PipelineRunSnapshot, ProjectAggregate,
+    ProjectUpdate, ReplaceItem, ReplacePreview, ReplaceRequest, ReviewProposal, Store,
+    TermSearchRequest, TmSearchRequest,
 };

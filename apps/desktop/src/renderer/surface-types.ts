@@ -1,2 +1,6 @@
 export type AppSurface =
-  "workbench" | "qa-review" | "export-review" | "translation-memory";
+  | "workbench"
+  | "qa-review"
+  | "export-review"
+  | "translation-memory"
+  | "ai-control";

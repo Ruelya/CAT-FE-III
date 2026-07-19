@@ -88,6 +88,14 @@ export class EngineClient {
     method: Method,
     params: EngineParams<Method>,
   ): Promise<EngineResult<Method>> {
+    return this.#callRaw(method, params) as Promise<EngineResult<Method>>;
+  }
+
+  callInternal(method: string, params: unknown): Promise<unknown> {
+    return this.#callRaw(method, params);
+  }
+
+  #callRaw(method: string, params: unknown): Promise<unknown> {
     const child = this.#child;
     if (!child?.stdin.writable) {
       return Promise.reject(new Error("Translation engine is not running."));
@@ -102,7 +110,7 @@ export class EngineClient {
         reject(error);
       });
     });
-    return response as Promise<EngineResult<Method>>;
+    return response;
   }
 
   #consumeStdout(chunk: string): void {

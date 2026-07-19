@@ -2,6 +2,7 @@ import { mkdtempSync, statSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { createServer, type Server } from "node:http";
 
 import {
   _electron as electron,
@@ -57,6 +58,8 @@ async function launchHarness(
       TRANSLUNAR_ENGINE_PATH: engine,
       TRANSLUNAR_TEST_EXPORT_DOCX: exportPath,
       TRANSLUNAR_TEST_SOURCE: fixture,
+      TRANSLUNAR_AI_TEST_MODE: "1",
+      TRANSLUNAR_AI_TEST_CREDENTIAL: "desktop-ai-secret",
     },
   });
   const page = await application.firstWindow();
@@ -113,6 +116,61 @@ async function openApplicationMenu(page: Page): Promise<void> {
   await expect(
     page.getByRole("navigation", { name: "Application views" }),
   ).toBeVisible();
+}
+
+interface AiFixture {
+  url: string;
+  readonly requestCount: number;
+  close(): Promise<void>;
+}
+
+async function startAiFixture(): Promise<AiFixture> {
+  let requestCount = 0;
+  const server: Server = createServer((request, response) => {
+    requestCount += 1;
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk: string) => {
+      body += chunk;
+    });
+    request.on("end", () => {
+      expect(body).not.toContain("desktop-ai-secret");
+      const events = [
+        'data: {"choices":[{"delta":{"content":"Desktop fixture "}}]}',
+        'data: {"choices":[{"delta":{"content":"translation"}}]}',
+        'data: {"choices":[],"usage":{"prompt_tokens":20,"completion_tokens":4}}',
+        "data: [DONE]",
+        "",
+      ].join("\n\n");
+      response.writeHead(200, {
+        "content-type": "text/event-stream",
+        "content-length": Buffer.byteLength(events),
+        connection: "close",
+      });
+      response.end(events);
+    });
+  });
+  await new Promise<void>((resolvePromise, rejectPromise) => {
+    server.once("error", rejectPromise);
+    server.listen(0, "127.0.0.1", resolvePromise);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("AI fixture address is unavailable.");
+  }
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    get requestCount() {
+      return requestCount;
+    },
+    close: () =>
+      new Promise<void>((resolvePromise, rejectPromise) => {
+        server.close((error) => {
+          if (error) rejectPromise(error);
+          else resolvePromise();
+        });
+      }),
+  };
 }
 
 test("runs the local-first CAT workflow through Electron", async () => {
@@ -300,6 +358,153 @@ test("manages the offline Assistant and real workspace projections", async () =>
     expect(consoleErrors).toEqual([]);
   } finally {
     await closeHarness(harness);
+  }
+});
+
+test("configures BYOK AI, streams a grounded run, applies its diff, and reports usage", async () => {
+  const fixture = await startAiFixture();
+  const harness = await launchHarness("live-ai");
+  const { application, page, consoleErrors } = harness;
+
+  try {
+    await importFixture(page);
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "AI control" }).click();
+    await expect(
+      page.getByRole("heading", { name: "AI control" }),
+    ).toBeVisible();
+
+    await page.getByLabel("Connector").selectOption("openaiCompatible");
+    await page.getByLabel("Profile name").fill("Desktop fixture");
+    await page.getByLabel("Base URL").fill(fixture.url);
+    await page.getByLabel("Model").fill("fixture-model");
+    await page.getByRole("button", { name: "Add provider" }).click();
+
+    const profile = page.locator(".ai-profile-row", {
+      hasText: "Desktop fixture",
+    });
+    await expect(profile).toBeVisible();
+    await profile.getByRole("button", { name: "Edit Desktop fixture" }).click();
+    const profileEdit = page.locator(".ai-profile-edit");
+    await profileEdit.getByRole("button", { name: "Save" }).click();
+    await expect(
+      page.getByText("Desktop fixture profile updated."),
+    ).toBeVisible();
+    await profile
+      .getByRole("textbox", {
+        name: "Credential for Desktop fixture",
+        exact: true,
+      })
+      .fill("desktop-ai-secret");
+    const storeCredential = profile.locator(".ai-credential-entry button");
+    await expect(storeCredential).toBeEnabled();
+    await storeCredential.click();
+    await expect(profile).toContainText("Stored");
+
+    await page.getByLabel("AI enabled").check();
+    await page
+      .getByLabel("Default profile")
+      .selectOption({ label: "Desktop fixture" });
+    await page.getByRole("button", { name: "Save policy" }).click();
+    await expect(page.getByText("AI workspace policy saved.")).toBeVisible();
+    for (const viewport of [
+      { width: 1250, height: 744, label: "1250x744" },
+      { width: 1680, height: 942, label: "1680x942" },
+      { width: 1920, height: 1080, label: "1920x1080" },
+    ]) {
+      await resizeWindow(application, viewport.width, viewport.height);
+      await page.waitForTimeout(180);
+      await page.screenshot({
+        path: `test-results/ai-control-${viewport.label}.png`,
+      });
+      const horizontalOverflow = await page
+        .locator(".ai-control-surface")
+        .evaluate((element) => element.scrollWidth - element.clientWidth);
+      expect(horizontalOverflow).toBeLessThanOrEqual(1);
+    }
+    await page.getByRole("button", { name: "Back to workbench" }).click();
+
+    const targetRow = page.locator(".segment-row").nth(2);
+    const target = targetRow.locator("textarea");
+    await target.click();
+    await targetRow
+      .getByRole("button", { name: "Copy protected tags" })
+      .click();
+    await expect(
+      targetRow.locator(".target-tag-strip .tag-capsule"),
+    ).not.toHaveCount(0);
+    await page.getByRole("tab", { name: /Assistant/u }).click();
+    await expect(page.getByText("Engine connected")).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByLabel("Requested model")).toContainText(
+      "Desktop fixture",
+    );
+    await page.getByRole("button", { name: /Translate/u }).click();
+    await expect(page.locator(".grounding-inspector")).toBeVisible();
+    await expect(page.locator(".ai-diff-proposal")).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.locator(".assistant-metric")).toHaveCount(7);
+    for (const viewport of [
+      { width: 1250, height: 744, label: "1250x744" },
+      { width: 1680, height: 942, label: "1680x942" },
+      { width: 1920, height: 1080, label: "1920x1080" },
+    ]) {
+      await resizeWindow(application, viewport.width, viewport.height);
+      await page.waitForTimeout(180);
+      await page.screenshot({
+        path: `test-results/assistant-online-${viewport.label}.png`,
+      });
+      const transcriptOverflow = await page
+        .locator(".assistant-transcript")
+        .evaluate((element) => element.scrollWidth - element.clientWidth);
+      expect(transcriptOverflow).toBeLessThanOrEqual(1);
+      if (viewport.width <= 1320) {
+        const filterBox = await page.locator(".filter-group").boundingBox();
+        const matchScopeBox = await page.locator(".match-scope").boundingBox();
+        expect(filterBox).not.toBeNull();
+        expect(matchScopeBox).not.toBeNull();
+        expect(
+          (filterBox?.x ?? 0) + (filterBox?.width ?? 0),
+        ).toBeLessThanOrEqual((matchScopeBox?.x ?? 0) + 1);
+      }
+    }
+    await page
+      .locator(".ai-diff-proposal")
+      .getByRole("button", { name: "Use in target" })
+      .click();
+    await expect(target).toHaveValue("Desktop fixture translation");
+
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "AI control" }).click();
+    await page.getByRole("tab", { name: /Usage/u }).click();
+    await expect(page.locator(".usage-table")).toContainText(
+      "openai_compatible",
+    );
+    await expect(page.locator(".usage-table")).toContainText("20");
+    await page.getByRole("tab", { name: /Batch/u }).click();
+    await page.getByLabel("Requests / minute").fill("600");
+    await page.getByRole("button", { name: "Start batch" }).click();
+    await expect(page.locator(".batch-meter")).toContainText(
+      "completedWithErrors",
+      { timeout: 15_000 },
+    );
+    await expect(page.locator(".batch-item-list")).toContainText(
+      "tag_validation_failed",
+    );
+    expect(fixture.requestCount).toBe(3);
+    await page.getByRole("tab", { name: /Providers/u }).click();
+    await profile
+      .getByRole("button", {
+        name: "Delete credential for Desktop fixture",
+      })
+      .click();
+    await expect(profile).toContainText("Missing");
+    expect(consoleErrors).toEqual([]);
+  } finally {
+    await closeHarness(harness);
+    await fixture.close();
   }
 });
 

@@ -1,11 +1,12 @@
 import {
+  useEffect,
   useMemo,
   useReducer,
   useRef,
   useState,
   type KeyboardEvent,
 } from "react";
-import type { Segment } from "@translunar/contracts";
+import type { EditorMutationResult, Segment } from "@translunar/contracts";
 import {
   Archive,
   ArrowDownToLine,
@@ -32,10 +33,13 @@ import {
   type AssistantModel,
   type ReasoningLevel,
 } from "./assistant-state";
+import { LiveAssistantPanel } from "./LiveAssistantPanel";
 
 interface AssistantPanelProps {
   activeSegment: Segment | undefined;
   onUseTarget(target: string): void;
+  projectId?: string;
+  onApplyMutation?(mutation: EditorMutationResult): void;
 }
 
 const QUICK_ACTIONS: Array<{
@@ -52,7 +56,61 @@ const QUICK_ACTIONS: Array<{
 export function AssistantPanel({
   activeSegment,
   onUseTarget,
+  projectId,
+  onApplyMutation,
 }: AssistantPanelProps) {
+  const [liveAvailable, setLiveAvailable] = useState(false);
+  const canUseLive = Boolean(projectId && onApplyMutation);
+  useEffect(() => {
+    if (!projectId || !canUseLive) {
+      setLiveAvailable(false);
+      return;
+    }
+    let cancelled = false;
+    void Promise.all([
+      window.translunar.invoke("ai.settings.get", {}),
+      window.translunar.invoke("ai.provider.list", { offset: 0, limit: 100 }),
+    ])
+      .then(([settings, providers]) => {
+        if (!cancelled) {
+          setLiveAvailable(
+            settings.enabled &&
+              settings.allowInteractive &&
+              providers.items.some(
+                (profile) => profile.enabled && profile.credentialPresent,
+              ),
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLiveAvailable(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canUseLive, projectId]);
+
+  if (liveAvailable && projectId && onApplyMutation) {
+    return (
+      <LiveAssistantPanel
+        projectId={projectId}
+        activeSegment={activeSegment}
+        onApplyMutation={onApplyMutation}
+      />
+    );
+  }
+  return (
+    <OfflineAssistantPanel
+      activeSegment={activeSegment}
+      onUseTarget={onUseTarget}
+    />
+  );
+}
+
+function OfflineAssistantPanel({
+  activeSegment,
+  onUseTarget,
+}: Pick<AssistantPanelProps, "activeSegment" | "onUseTarget">) {
   const [state, dispatch] = useReducer(
     assistantReducer,
     activeSegment,

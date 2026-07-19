@@ -8,7 +8,9 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 base64.workspace = true
+chrono.workspace = true
 clap.workspace = true
+keyring.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -16,6 +18,7 @@ tempfile.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+translunar-ai-core = { path = "../ai-core" }
 translunar-domain = { path = "../domain" }
 translunar-editor-core = { path = "../editor-core" }
 translunar-asset-core = { path = "../asset-core" }

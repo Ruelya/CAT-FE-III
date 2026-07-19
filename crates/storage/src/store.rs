@@ -39,6 +39,12 @@ use translunar_pipeline::{
 use crate::migrations::{LATEST_SCHEMA_VERSION, configure_connection, migrate};
 use crate::{Result, StorageError};
 
+mod ai;
+pub use ai::{
+    AiProviderProfileUpdate, AiSettingsUpdate, NewAiBatchItem, NewAiBatchRun, NewAiProviderProfile,
+    NewAiRun,
+};
+
 const NUMBER_RULE_ID: &str = "number-mismatch";
 const NUMBER_RULE_MESSAGE: &str = "Source and target numbers do not match.";
 const LEGACY_DESKTOP_ACTOR: &str = "desktop";
@@ -435,6 +441,7 @@ impl Store {
         backfill_asset_keys(&mut connection)?;
         if recover_orphaned_runs {
             interrupt_orphaned_pipeline_runs(&mut connection)?;
+            ai::interrupt_orphaned_ai_work(&mut connection)?;
         }
         ensure_default_termbases(&mut connection)?;
         Ok(Self { connection, paths })
@@ -2640,6 +2647,31 @@ impl Store {
             )?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok((items, to_u32(total)?))
+    }
+
+    pub fn get_segment(&self, segment_id: &str) -> Result<Segment> {
+        find_segment(&self.connection, segment_id)
+    }
+
+    pub fn get_editor_row(&self, segment_id: &str) -> Result<SegmentEditorRow> {
+        let segment = find_segment(&self.connection, segment_id)?;
+        let context_before = if segment.ordinal > 0 {
+            find_segment_by_ordinal(&self.connection, &segment.document_id, segment.ordinal - 1)?
+        } else {
+            None
+        };
+        let context_after = find_segment_by_ordinal(
+            &self.connection,
+            &segment.document_id,
+            segment.ordinal.saturating_add(1),
+        )?;
+        editor_row(
+            &self.connection,
+            &segment,
+            true,
+            context_before.as_ref(),
+            context_after.as_ref(),
+        )
     }
 
     pub fn list_segment_notes(&self, segment_id: &str) -> Result<Vec<DocumentNote>> {

@@ -3,6 +3,7 @@ resolver = "3"
 members = [
   "crates/domain",
   "crates/editor-core",
+  "crates/ai-core",
   "crates/asset-core",
   "crates/filter-core",
   "crates/segmentation-srx",
@@ -33,8 +34,10 @@ csv = "1.4.0"
 chrono = { version = "0.4.42", default-features = false, features = ["clock", "serde"] }
 clap = { version = "4.5.54", features = ["derive"] }
 ferrous-opencc = { version = "0.4.0", default-features = false, features = ["s2t-conversion", "t2s-conversion"] }
+keyring = "4.1.5"
 quick-xml = "0.41.0"
 regex = "1.12.2"
+reqwest = { version = "0.12.28", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 rusqlite = { version = "0.40.1", features = ["backup", "bundled"] }
 schemars = { version = "1.2.1", features = ["chrono04", "uuid1"] }
 serde = { version = "1.0.228", features = ["derive"] }
@@ -45,5 +48,7 @@ thiserror = "2.0.17"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "json"] }
 unicode-normalization = "0.1.25"
+url = "2.5.8"
 uuid = { version = "1.24.0", features = ["serde", "v7"] }
+zeroize = "1.8.2"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }

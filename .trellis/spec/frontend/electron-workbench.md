@@ -387,3 +387,89 @@ const suggestion = engineRankedMatches.find((item) =>
   item.targetText.startsWith(draft),
 );
 ```
+
+## Engine-Backed AI Control And Assistant
+
+### 1. Scope / Trigger
+
+Use this contract when changing provider settings, credential entry, online
+Assistant behavior, grounding inspection, AI diffs, batch progress, or usage.
+
+### 2. Signatures
+
+The renderer uses generated `DesktopApi.invoke` signatures for public `ai.*`
+methods. The only secret-bearing desktop signature is private to the trusted
+bridge:
+
+```ts
+setAiCredential(profileId: string, secret: string): Promise<AiCredentialStatus>;
+```
+
+### 3. Contracts
+
+- Provider/settings/run/batch/conversation state comes from generated Engine
+  contracts. React may retain polling cursors, expanded state, and in-progress
+  display text, but it does not invent revisions, usage, or terminal states.
+- Credential values cross only `DesktopApi.setAiCredential`, a private
+  main/preload IPC guarded by trusted sender validation. They never enter the
+  generic renderer invoke catalog, localStorage, logs, or component state after
+  the write completes.
+- Offline preview remains explicitly labeled and uses deterministic synthetic
+  metrics. A configured profile uses durable Engine conversations, grounding,
+  run events, and authoritative nullable usage instead.
+- Online output is a proposal with word diff, Use in target, and Discard.
+  Applying delegates to `ai.result.apply`; the returned editor projection
+  replaces the affected row without collapsing the current editor page.
+- Conversation, model, and reasoning controls remain keyboard accessible.
+  Polling stops on unmount/collapse without canceling Engine work, and reopening
+  resumes from durable event/run/message state.
+- AI Control and Assistant must have no horizontal overflow at 1250x744,
+  1680x942, or 1920x1080. At narrow widths, redundant toolbar text may hide
+  while its control retains an accessible name and stable dimensions.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| No enabled credential-backed profile | Keep explicit offline Assistant; do not imply a network response |
+| Credential save/delete fails | Clear the input only on success and show the typed error without the value |
+| Stale/signed/tag-invalid proposal apply | Keep the proposal visible and show the Engine error; do not patch local target state |
+| Polling panel unmount/collapse | Stop renderer polling; do not cancel the durable Engine run |
+| First conversation is created during submit | Bind grounding to the returned conversation ID, not the previous null state |
+| Narrow toolbar | No child text overlaps an adjacent control; hidden text retains an accessible parent label |
+
+### 5. Good / Base / Bad Cases
+
+- Good: create a first conversation and immediately translate; the grounding
+  inspector remains attached to that new conversation through completion.
+- Base: select Local preview and receive explicitly synthetic metrics without a
+  provider request or keyring dependency.
+- Bad: clear grounding in a passive effect keyed by the previous conversation,
+  or replace the full editor page with the single row returned by AI apply.
+
+### 6. Tests Required
+
+- Electron E2E configures a loopback profile through trusted credential IPC,
+  enables policy, inspects grounding, streams and applies a proposal, verifies
+  all usage metrics, exercises batch tag rejection, and deletes the credential.
+- The AI Control and online Assistant are captured at all three supported
+  viewports with horizontal-overflow and adjacent-toolbar-boundary assertions.
+  Console/page errors fail the test.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```ts
+const bundle = await previewGrounding(action, prompt); // captures null thread
+setConversationId((await createConversation()).id);
+setSegments(mutation.rows.map((row) => row.segment)); // drops the page
+```
+
+#### Correct
+
+```ts
+const conversation = activeConversationId ?? (await createConversation()).id;
+const bundle = await previewGrounding(action, prompt, conversation);
+applyEditorMutation(mutation); // merges returned rows into the current page
+```

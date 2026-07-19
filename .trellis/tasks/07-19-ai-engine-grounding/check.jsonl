@@ -1,1 +1,4 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"type":"spec","path":".trellis/spec/backend/engine-boundary.md","reason":"Verify provider adapters never bypass Engine validation, secrets stay out of wire results, and run writes are atomic."}
+{"type":"spec","path":".trellis/spec/backend/database-guidelines.md","reason":"Verify AI migrations, bounded event/usage pages, key references, and restart recovery use SQLite transaction rules."}
+{"type":"spec","path":".trellis/spec/frontend/electron-workbench.md","reason":"Verify secure credential/profile UI, real streaming, diff application, batch recovery, accessibility, and no leakage."}
+{"type":"research","path":".trellis/tasks/07-19-complete-full-cat-prd/research/prd-gap-audit.md","reason":"Cross-check F-01..F-05, G-01/G-12, and M-02 acceptance against the parent PRD."}

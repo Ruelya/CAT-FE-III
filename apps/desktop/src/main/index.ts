@@ -21,6 +21,7 @@ const IPC_CHANNELS = {
   selectSource: "translunar:dialog:source-docx",
   selectExport: "translunar:dialog:export-docx",
   restartEngine: "translunar:engine:restart",
+  setAiCredential: "translunar:ai:credential:set",
   editorCommand: "translunar:editor:command",
 } as const;
 
@@ -186,6 +187,25 @@ function registerIpc(): void {
     assertTrustedSender(event);
     await requireEngine().restart();
   });
+  ipcMain.handle(
+    IPC_CHANNELS.setAiCredential,
+    async (event, profileId: unknown, secret: unknown) => {
+      assertTrustedSender(event);
+      if (
+        typeof profileId !== "string" ||
+        !profileId.trim() ||
+        typeof secret !== "string" ||
+        !secret ||
+        secret.length > 16_384
+      ) {
+        throw new Error("Invalid AI credential request.");
+      }
+      return requireEngine().callInternal("ai.credential.set", {
+        profileId,
+        secret,
+      });
+    },
+  );
 }
 
 function assertTrustedSender(event: IpcMainInvokeEvent): void {

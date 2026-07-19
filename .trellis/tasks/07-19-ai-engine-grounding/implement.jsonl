@@ -1,1 +1,5 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"type":"spec","path":".trellis/spec/backend/engine-boundary.md","reason":"Keep AI network, secrets, durable runs, revisions, and storage behind the Rust Engine boundary."}
+{"type":"spec","path":".trellis/spec/backend/database-guidelines.md","reason":"Apply additive migration, immediate transactions, bounded pages, and no-secret persistence rules."}
+{"type":"spec","path":".trellis/spec/frontend/electron-workbench.md","reason":"Route provider settings, streaming runs, diff application, and batch progress through the trusted desktop bridge."}
+{"type":"spec","path":".trellis/spec/frontend/state-management.md","reason":"Keep AI run state and editor revisions Engine-owned while retaining ephemeral streaming/panel UI state in React."}
+{"type":"research","path":".trellis/tasks/07-19-complete-full-cat-prd/research/prd-gap-audit.md","reason":"Confirmed F/G/M gaps and the parent task ownership boundary for the AI grounding child."}

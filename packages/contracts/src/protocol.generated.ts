@@ -8,9 +8,45 @@ export type QaIssueStatus = "open" | "resolved";
 export type HealthSeverity = "info" | "warning" | "error" | "fatal";
 export type DegradationSeverity = "warning" | "error";
 export type DocumentStatus = "active" | "failed" | "superseded";
+export type AiBatchStatus =
+  "queued" | "running" | "interrupted" | "canceling" | "canceled" | "succeeded" | "completedWithErrors" | "failed";
+export type AiBatchItemStatus =
+  "pending" | "tmApplied" | "running" | "succeeded" | "retrying" | "failed" | "skipped" | "canceled";
+export type AiConversationRole = "user" | "assistant";
+export type AiAction =
+  "translate" | "improve" | "formal" | "conversational" | "shorten" | "expand" | "literal" | "freeform";
+export type AiMessageRole = "system" | "user" | "assistant";
+export type AiProviderKind =
+  | "openai"
+  | "anthropic"
+  | "gemini"
+  | "deepl"
+  | "deepseek"
+  | "qwen"
+  | "glm"
+  | "kimi"
+  | "volcengine"
+  | "openaiCompatible";
+export type AiProviderProtocol =
+  "openaiChatCompletions" | "anthropicMessages" | "geminiGenerateContent" | "deeplTranslate";
+export type AiRunKind = "interactive" | "action" | "providerTest" | "batchItem";
+export type AiRunStatus =
+  "queued" | "running" | "retrying" | "interrupted" | "canceling" | "canceled" | "succeeded" | "failed";
 export type TagKind = "start" | "end" | "standalone";
 export type TagSide = "source" | "target";
 export type EditorWorkflowState = "translation" | "review" | "signed";
+export type AiRunEventKind =
+  | "started"
+  | "attempt"
+  | "delta"
+  | "usage"
+  | "retry"
+  | "completed"
+  | "failed"
+  | "canceling"
+  | "canceled"
+  | "interrupted";
+export type AiUsageDimension = "day" | "month" | "project" | "provider" | "model";
 export type PipelineRunStatus =
   "queued" | "running" | "canceling" | "canceled" | "interrupted" | "succeeded" | "failed";
 export type PipelineStepStatus =
@@ -37,6 +73,14 @@ export type ErrorCode =
   | "unsupported_document"
   | "storage_error"
   | "export_error"
+  | "credential_unavailable"
+  | "ai_disabled"
+  | "budget_exceeded"
+  | "provider_authentication"
+  | "provider_rate_limited"
+  | "provider_timeout"
+  | "provider_protocol"
+  | "provider_unavailable"
   | "internal_error";
 
 export interface ProtocolCatalog {
@@ -438,6 +482,35 @@ export interface ListQaParams {
   [k: string]: unknown;
 }
 export interface RpcMethodCatalog {
+  "ai.batch.cancel": MethodContract98;
+  "ai.batch.get": MethodContract95;
+  "ai.batch.items": MethodContract97;
+  "ai.batch.list": MethodContract96;
+  "ai.batch.resume": MethodContract98;
+  "ai.batch.start": MethodContract94;
+  "ai.conversation.create": MethodContract101;
+  "ai.conversation.list": MethodContract100;
+  "ai.conversation.messages": MethodContract103;
+  "ai.conversation.update": MethodContract102;
+  "ai.credential.delete": MethodContract84;
+  "ai.credential.status": MethodContract84;
+  "ai.grounding.preview": MethodContract87;
+  "ai.provider.catalog": MethodContract78;
+  "ai.provider.create": MethodContract80;
+  "ai.provider.delete": MethodContract82;
+  "ai.provider.list": MethodContract79;
+  "ai.provider.test": MethodContract83;
+  "ai.provider.update": MethodContract81;
+  "ai.result.apply": MethodContract93;
+  "ai.run.cancel": MethodContract92;
+  "ai.run.events": MethodContract91;
+  "ai.run.get": MethodContract89;
+  "ai.run.list": MethodContract90;
+  "ai.run.resume": MethodContract92;
+  "ai.run.start": MethodContract88;
+  "ai.settings.get": MethodContract85;
+  "ai.settings.update": MethodContract86;
+  "ai.usage.query": MethodContract99;
   "data.checkHealth": MethodContract67;
   "data.createBackup": MethodContract68;
   "dictionary.add": MethodContract32;
@@ -518,6 +591,662 @@ export interface RpcMethodCatalog {
   "tm.library.unmount": MethodContract48;
   "tm.lookupExact": MethodContract44;
   "tm.search": MethodContract49;
+}
+export interface MethodContract98 {
+  params: AiBatchRevisionParams;
+  result: AiBatchRun;
+  [k: string]: unknown;
+}
+export interface AiBatchRevisionParams {
+  batchId: string;
+  expectedRevision: number;
+}
+export interface AiBatchRun {
+  cancellationRequested: boolean;
+  completed: number;
+  completedAtMs?: number | null;
+  concurrency: number;
+  createdAtMs: number;
+  documentId?: string | null;
+  failed: number;
+  groundingOptions: GroundingOptions;
+  id: string;
+  maxAttempts: number;
+  profileId: string;
+  projectId: string;
+  replaceDrafts: boolean;
+  requestsPerMinute: number;
+  revision: number;
+  skipped: number;
+  startedAtMs?: number | null;
+  status: AiBatchStatus;
+  succeeded: number;
+  tmApplied: number;
+  tmThreshold: number;
+  total: number;
+  updatedAtMs: number;
+  usage: AiUsage;
+  [k: string]: unknown;
+}
+export interface GroundingOptions {
+  contextAfter: number;
+  contextBefore: number;
+  includeContext: boolean;
+  includeStyle: boolean;
+  includeTerms: boolean;
+  includeTm: boolean;
+  maxChars: number;
+  styleInstruction: string;
+  systemInstruction: string;
+  tmTopN: number;
+  [k: string]: unknown;
+}
+export interface AiUsage {
+  cacheReadTokens?: number | null;
+  cacheWriteTokens?: number | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  reasoningTokens?: number | null;
+  [k: string]: unknown;
+}
+export interface MethodContract95 {
+  params: AiBatchIdParams;
+  result: AiBatchRun;
+  [k: string]: unknown;
+}
+export interface AiBatchIdParams {
+  batchId: string;
+}
+export interface MethodContract97 {
+  params: AiBatchItemsParams;
+  result: AiBatchItemPage;
+  [k: string]: unknown;
+}
+export interface AiBatchItemsParams {
+  batchId: string;
+  limit?: number;
+  offset?: number;
+}
+export interface AiBatchItemPage {
+  items: AiBatchItem[];
+  limit: number;
+  offset: number;
+  total: number;
+  [k: string]: unknown;
+}
+export interface AiBatchItem {
+  attempts: number;
+  batchId: string;
+  errorCode?: string | null;
+  expectedRevision: number;
+  ordinal: number;
+  runId?: string | null;
+  segmentId: string;
+  source?: string | null;
+  status: AiBatchItemStatus;
+  updatedAtMs: number;
+  [k: string]: unknown;
+}
+export interface MethodContract96 {
+  params: AiBatchListParams;
+  result: AiBatchPage;
+  [k: string]: unknown;
+}
+export interface AiBatchListParams {
+  limit?: number;
+  offset?: number;
+  projectId: string;
+}
+export interface AiBatchPage {
+  items: AiBatchRun[];
+  limit: number;
+  offset: number;
+  total: number;
+  [k: string]: unknown;
+}
+export interface MethodContract94 {
+  params: AiBatchStartParams;
+  result: AiBatchRun;
+  [k: string]: unknown;
+}
+export interface AiBatchStartParams {
+  concurrency?: number;
+  documentId?: string | null;
+  maxAttempts?: number;
+  options?: GroundingOptions1;
+  profileId: string;
+  projectId: string;
+  replaceDrafts?: boolean;
+  requestsPerMinute?: number;
+  tmThreshold?: number;
+}
+export interface GroundingOptions1 {
+  contextAfter: number;
+  contextBefore: number;
+  includeContext: boolean;
+  includeStyle: boolean;
+  includeTerms: boolean;
+  includeTm: boolean;
+  maxChars: number;
+  styleInstruction: string;
+  systemInstruction: string;
+  tmTopN: number;
+  [k: string]: unknown;
+}
+export interface MethodContract101 {
+  params: AiConversationCreateParams;
+  result: AiConversation;
+  [k: string]: unknown;
+}
+export interface AiConversationCreateParams {
+  projectId: string;
+  title: string;
+}
+export interface AiConversation {
+  archived: boolean;
+  createdAtMs: number;
+  id: string;
+  projectId: string;
+  revision: number;
+  title: string;
+  updatedAtMs: number;
+  [k: string]: unknown;
+}
+export interface MethodContract100 {
+  params: AiConversationListParams;
+  result: AiConversationPage;
+  [k: string]: unknown;
+}
+export interface AiConversationListParams {
+  includeArchived?: boolean;
+  limit?: number;
+  offset?: number;
+  projectId: string;
+}
+export interface AiConversationPage {
+  items: AiConversation[];
+  limit: number;
+  offset: number;
+  total: number;
+  [k: string]: unknown;
+}
+export interface MethodContract103 {
+  params: AiConversationMessagesParams;
+  result: AiConversationMessagePage;
+  [k: string]: unknown;
+}
+export interface AiConversationMessagesParams {
+  conversationId: string;
+  limit?: number;
+  offset?: number;
+}
+export interface AiConversationMessagePage {
+  items: AiConversationMessage[];
+  limit: number;
+  offset: number;
+  total: number;
+  [k: string]: unknown;
+}
+export interface AiConversationMessage {
+  conversationId: string;
+  createdAtMs: number;
+  id: string;
+  role: AiConversationRole;
+  runId?: string | null;
+  segmentId?: string | null;
+  targetProposal?: string | null;
+  text: string;
+  [k: string]: unknown;
+}
+export interface MethodContract102 {
+  params: AiConversationUpdateParams;
+  result: AiConversation;
+  [k: string]: unknown;
+}
+export interface AiConversationUpdateParams {
+  archived: boolean;
+  conversationId: string;
+  expectedRevision: number;
+  title: string;
+}
+export interface MethodContract84 {
+  params: AiProfileIdParams;
+  result: AiCredentialStatus;
+  [k: string]: unknown;
+}
+export interface AiProfileIdParams {
+  profileId: string;
+}
+export interface AiCredentialStatus {
+  available: boolean;
+  backend: string;
+  present: boolean;
+  [k: string]: unknown;
+}
+export interface MethodContract87 {
+  params: AiGroundingPreviewParams;
+  result: AiGroundingPreviewResult;
+  [k: string]: unknown;
+}
+export interface AiGroundingPreviewParams {
+  action: AiAction;
+  expectedRevision: number;
+  options?: GroundingOptions2;
+  projectId: string;
+  prompt?: string;
+  segmentId: string;
+}
+export interface GroundingOptions2 {
+  contextAfter: number;
+  contextBefore: number;
+  includeContext: boolean;
+  includeStyle: boolean;
+  includeTerms: boolean;
+  includeTm: boolean;
+  maxChars: number;
+  styleInstruction: string;
+  systemInstruction: string;
+  tmTopN: number;
+  [k: string]: unknown;
+}
+export interface AiGroundingPreviewResult {
+  bundle: PromptBundle;
+  segmentId: string;
+  segmentRevision: number;
+  [k: string]: unknown;
+}
+export interface PromptBundle {
+  messages: AiMessage[];
+  promptHash: string;
+  sections: GroundingSection[];
+  totalChars: number;
+  truncated: boolean;
+  [k: string]: unknown;
+}
+export interface AiMessage {
+  role: AiMessageRole;
+  text: string;
+  [k: string]: unknown;
+}
+export interface GroundingSection {
+  id: string;
+  itemCount: number;
+  label: string;
+  text: string;
+  truncated: boolean;
+  [k: string]: unknown;
+}
+export interface MethodContract78 {
+  params: AiProviderCatalogParams;
+  result: AiProviderCatalogResult;
+  [k: string]: unknown;
+}
+export interface AiProviderCatalogParams {}
+export interface AiProviderCatalogResult {
+  items: AiProviderDescriptor[];
+  [k: string]: unknown;
+}
+export interface AiProviderDescriptor {
+  credentialHint: string;
+  defaultBaseUrl: string;
+  defaultModel: string;
+  displayName: string;
+  kind: AiProviderKind;
+  protocol: AiProviderProtocol;
+  reportsUsage: boolean;
+  supportsStreaming: boolean;
+  [k: string]: unknown;
+}
+export interface MethodContract80 {
+  params: AiProviderCreateParams;
+  result: AiProviderProfile;
+  [k: string]: unknown;
+}
+export interface AiProviderCreateParams {
+  baseUrl: string;
+  enabled?: boolean;
+  kind: AiProviderKind;
+  maxResponseBytes?: number;
+  model: string;
+  name: string;
+  timeoutMs?: number;
+}
+export interface AiProviderProfile {
+  baseUrl: string;
+  createdAtMs: number;
+  credentialPresent: boolean;
+  enabled: boolean;
+  id: string;
+  kind: AiProviderKind;
+  maxResponseBytes: number;
+  model: string;
+  name: string;
+  revision: number;
+  timeoutMs: number;
+  updatedAtMs: number;
+  [k: string]: unknown;
+}
+export interface MethodContract82 {
+  params: AiProfileRevisionParams;
+  result: EmptyResult;
+  [k: string]: unknown;
+}
+export interface AiProfileRevisionParams {
+  expectedRevision: number;
+  profileId: string;
+}
+export interface EmptyResult {
+  [k: string]: unknown;
+}
+export interface MethodContract79 {
+  params: AiProviderListParams;
+  result: AiProviderPage;
+  [k: string]: unknown;
+}
+export interface AiProviderListParams {
+  limit?: number;
+  offset?: number;
+}
+export interface AiProviderPage {
+  items: AiProviderProfile[];
+  limit: number;
+  offset: number;
+  total: number;
+  [k: string]: unknown;
+}
+export interface MethodContract83 {
+  params: AiProfileIdParams;
+  result: AiProviderTestResult;
+  [k: string]: unknown;
+}
+export interface AiProviderTestResult {
+  run: AiRun;
+  [k: string]: unknown;
+}
+export interface AiRun {
+  action: string;
+  attempt: number;
+  baseSegmentRevision?: number | null;
+  cancellationRequested: boolean;
+  completedAtMs?: number | null;
+  createdAtMs: number;
+  documentId?: string | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  errorRetryable: boolean;
+  id: string;
+  kind: AiRunKind;
+  maxAttempts: number;
+  model: string;
+  profileId?: string | null;
+  projectId?: string | null;
+  promptHash: string;
+  proposalText?: string | null;
+  request: AiRunRequest;
+  revision: number;
+  segmentId?: string | null;
+  startedAtMs?: number | null;
+  status: AiRunStatus;
+  updatedAtMs: number;
+  [k: string]: unknown;
+}
+export interface AiRunRequest {
+  conversationId?: string | null;
+  freeformPrompt: string;
+  groundingOptions: GroundingOptions;
+  [k: string]: unknown;
+}
+export interface MethodContract81 {
+  params: AiProviderUpdateParams;
+  result: AiProviderProfile;
+  [k: string]: unknown;
+}
+export interface AiProviderUpdateParams {
+  baseUrl: string;
+  enabled: boolean;
+  expectedRevision: number;
+  kind: AiProviderKind;
+  maxResponseBytes: number;
+  model: string;
+  name: string;
+  profileId: string;
+  timeoutMs: number;
+}
+export interface MethodContract93 {
+  params: AiResultApplyParams;
+  result: EditorMutationResult;
+  [k: string]: unknown;
+}
+export interface AiResultApplyParams {
+  expectedRunRevision: number;
+  expectedSegmentRevision: number;
+  runId: string;
+}
+export interface EditorMutationResult {
+  counts: SegmentCounts;
+  focusSegmentId?: string | null;
+  operationId?: string | null;
+  rows: SegmentEditorRow[];
+  [k: string]: unknown;
+}
+export interface SegmentEditorRow {
+  comments: EditorComment[];
+  contextAfter?: Segment | null;
+  contextBefore?: Segment | null;
+  segment: Segment;
+  sourceTags: InlineTag[];
+  spellFindings: SpellFinding[];
+  tagIssues: EditorTagIssue[];
+  targetTags: InlineTag[];
+  workflowState: EditorWorkflowState;
+  [k: string]: unknown;
+}
+export interface EditorComment {
+  author: string;
+  createdAtMs: number;
+  id: string;
+  immutable: boolean;
+  resolved: boolean;
+  revision: number;
+  segmentId: string;
+  text: string;
+  updatedAtMs: number;
+  [k: string]: unknown;
+}
+export interface InlineTag {
+  displayText: string;
+  id: string;
+  kind: TagKind;
+  pairId?: string | null;
+  payload: string;
+  position: number;
+  protected: boolean;
+  side: TagSide;
+  [k: string]: unknown;
+}
+export interface SpellFinding {
+  end: number;
+  provider: string;
+  start: number;
+  suggestions: string[];
+  word: string;
+  [k: string]: unknown;
+}
+export interface EditorTagIssue {
+  code: string;
+  message: string;
+  position?: number | null;
+  tagId?: string | null;
+  [k: string]: unknown;
+}
+export interface MethodContract92 {
+  params: AiRunRevisionParams;
+  result: AiRun;
+  [k: string]: unknown;
+}
+export interface AiRunRevisionParams {
+  expectedRevision: number;
+  runId: string;
+}
+export interface MethodContract91 {
+  params: AiRunEventsParams;
+  result: AiRunEventPage;
+  [k: string]: unknown;
+}
+export interface AiRunEventsParams {
+  afterSequence?: number;
+  limit?: number;
+  runId: string;
+}
+export interface AiRunEventPage {
+  afterSequence: number;
+  items: AiRunEvent[];
+  lastSequence: number;
+  [k: string]: unknown;
+}
+export interface AiRunEvent {
+  attempt?: number | null;
+  createdAtMs: number;
+  deltaText?: string | null;
+  kind: AiRunEventKind;
+  message?: string | null;
+  retryAfterMs?: number | null;
+  runId: string;
+  sequence: number;
+  usage?: AiUsage | null;
+  [k: string]: unknown;
+}
+export interface MethodContract89 {
+  params: AiRunIdParams;
+  result: AiRun;
+  [k: string]: unknown;
+}
+export interface AiRunIdParams {
+  runId: string;
+}
+export interface MethodContract90 {
+  params: AiRunListParams;
+  result: AiRunPage;
+  [k: string]: unknown;
+}
+export interface AiRunListParams {
+  limit?: number;
+  offset?: number;
+  projectId?: string | null;
+}
+export interface AiRunPage {
+  items: AiRun[];
+  limit: number;
+  offset: number;
+  total: number;
+  [k: string]: unknown;
+}
+export interface MethodContract88 {
+  params: AiRunStartParams;
+  result: AiRun;
+  [k: string]: unknown;
+}
+export interface AiRunStartParams {
+  action: AiAction;
+  conversationId?: string | null;
+  expectedRevision: number;
+  maxAttempts?: number;
+  options?: GroundingOptions3;
+  profileId: string;
+  projectId: string;
+  prompt?: string;
+  segmentId: string;
+}
+export interface GroundingOptions3 {
+  contextAfter: number;
+  contextBefore: number;
+  includeContext: boolean;
+  includeStyle: boolean;
+  includeTerms: boolean;
+  includeTm: boolean;
+  maxChars: number;
+  styleInstruction: string;
+  systemInstruction: string;
+  tmTopN: number;
+  [k: string]: unknown;
+}
+export interface MethodContract85 {
+  params: AiSettingsGetParams;
+  result: AiSettings;
+  [k: string]: unknown;
+}
+export interface AiSettingsGetParams {}
+export interface AiSettings {
+  allowBatch: boolean;
+  allowInteractive: boolean;
+  allowedOrigins: string[];
+  defaultProfileId?: string | null;
+  enabled: boolean;
+  monthlyTokenBudget?: number | null;
+  revision: number;
+  updatedAtMs: number;
+  [k: string]: unknown;
+}
+export interface MethodContract86 {
+  params: AiSettingsUpdateParams;
+  result: AiSettings;
+  [k: string]: unknown;
+}
+export interface AiSettingsUpdateParams {
+  allowBatch: boolean;
+  allowInteractive: boolean;
+  allowedOrigins?: string[];
+  defaultProfileId?: string | null;
+  enabled: boolean;
+  expectedRevision: number;
+  monthlyTokenBudget?: number | null;
+}
+export interface MethodContract99 {
+  params: AiUsageQueryParams;
+  result: AiUsageQueryResult;
+  [k: string]: unknown;
+}
+export interface AiUsageQueryParams {
+  dimension: AiUsageDimension;
+  limit?: number;
+  offset?: number;
+  projectId?: string | null;
+  sinceMs: number;
+  untilMs: number;
+}
+export interface AiUsageQueryResult {
+  aggregates: AiUsageAggregate[];
+  limit: number;
+  offset: number;
+  records: AiUsageRecord[];
+  total: number;
+  [k: string]: unknown;
+}
+export interface AiUsageAggregate {
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  elapsedMs: number;
+  inputTokens: number;
+  key: string;
+  outputTokens: number;
+  reasoningTokens: number;
+  requestCount: number;
+  [k: string]: unknown;
+}
+export interface AiUsageRecord {
+  attempt: number;
+  createdAtMs: number;
+  documentId?: string | null;
+  elapsedMs: number;
+  id: string;
+  model: string;
+  profileId?: string | null;
+  projectId?: string | null;
+  provider: AiProviderKind;
+  runId: string;
+  status: string;
+  usage: AiUsage;
+  [k: string]: unknown;
 }
 export interface MethodContract67 {
   params: EmptyParams;
@@ -654,63 +1383,6 @@ export interface MethodContract33 {
 }
 export interface EditorUndoRedoParams {
   projectId: string;
-  [k: string]: unknown;
-}
-export interface EditorMutationResult {
-  counts: SegmentCounts;
-  focusSegmentId?: string | null;
-  operationId?: string | null;
-  rows: SegmentEditorRow[];
-  [k: string]: unknown;
-}
-export interface SegmentEditorRow {
-  comments: EditorComment[];
-  contextAfter?: Segment | null;
-  contextBefore?: Segment | null;
-  segment: Segment;
-  sourceTags: InlineTag[];
-  spellFindings: SpellFinding[];
-  tagIssues: EditorTagIssue[];
-  targetTags: InlineTag[];
-  workflowState: EditorWorkflowState;
-  [k: string]: unknown;
-}
-export interface EditorComment {
-  author: string;
-  createdAtMs: number;
-  id: string;
-  immutable: boolean;
-  resolved: boolean;
-  revision: number;
-  segmentId: string;
-  text: string;
-  updatedAtMs: number;
-  [k: string]: unknown;
-}
-export interface InlineTag {
-  displayText: string;
-  id: string;
-  kind: TagKind;
-  pairId?: string | null;
-  payload: string;
-  position: number;
-  protected: boolean;
-  side: TagSide;
-  [k: string]: unknown;
-}
-export interface SpellFinding {
-  end: number;
-  provider: string;
-  start: number;
-  suggestions: string[];
-  word: string;
-  [k: string]: unknown;
-}
-export interface EditorTagIssue {
-  code: string;
-  message: string;
-  position?: number | null;
-  tagId?: string | null;
   [k: string]: unknown;
 }
 export interface MethodContract {
@@ -1199,9 +1871,6 @@ export interface MethodContract29 {
 export interface DeleteSegmentCommentParams {
   commentId: string;
   expectedRevision: number;
-  [k: string]: unknown;
-}
-export interface EmptyResult {
   [k: string]: unknown;
 }
 export interface MethodContract25 {

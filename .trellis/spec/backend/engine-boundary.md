@@ -772,3 +772,95 @@ tags.sort_by_key(|tag| tag.position); // stable: submitted order wins ties
 let blocking = issues.iter().filter(|issue| issue.code != "tag_missing");
 // Persist incremental structure; confirmation performs the complete check.
 ```
+
+## Grounded BYOK AI Boundary
+
+### 1. Scope / Trigger
+
+Use this contract for provider profiles, credentials, grounded prompts,
+interactive AI proposals, batch pretranslation, AI usage, or AI pipeline steps.
+The Engine owns policy, provider I/O, retries, durable state, usage, and every
+target mutation. Renderer code never calls a provider directly.
+
+### 2. Signatures
+
+Protocol v1 exposes the additive `ai.provider.*`, `ai.settings.*`,
+`ai.grounding.preview`, `ai.run.*`, `ai.result.apply`, `ai.batch.*`,
+`ai.usage.query`, and `ai.conversation.*` families. `ai.credential.set` is an
+internal Engine dispatch operation reached only through the main/preload
+trusted credential channel; it is deliberately absent from the generated
+renderer method catalog.
+
+### 3. Contracts
+
+- Migration 8 stores revisioned non-secret profiles/settings, runs/events,
+  batches/items, exactly-once usage, and conversations/messages. Provider
+  secrets live only in the OS keyring behind an opaque workspace/profile key.
+- Custom remote endpoints require HTTPS. Loopback HTTP is allowed for local
+  engines and deterministic fixtures. Redirects are disabled, response/SSE
+  sizes and timeouts are bounded, and errors crossing RPC are redacted.
+- Grounding is rebuilt from Engine-owned segment, tags, terms, TM, style, and
+  bounded context. The stored prompt hash and active-segment revision must
+  still match before network I/O.
+- Interactive completions remain proposals until `ai.result.apply` validates
+  run/segment revisions, signed state, and protected tags, then delegates to
+  the normal editor mutation/history path.
+- Batch workers claim durable items, prefer authoritative TM, rate-limit
+  provider work, and use expected revisions for drafts. Batch grounding omits
+  neighboring target text while retaining neighboring source text: another
+  worker may update those targets between run creation and execution, and such
+  batch-owned writes must not invalidate the prompt hash. Interactive runs keep
+  bilingual context.
+- Usage is committed once per `(run_id, attempt)`. Disabled AI, disallowed
+  request kinds/origins, missing credentials, and exhausted monthly budgets
+  fail before provider I/O.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Missing/unavailable OS credential storage | `credential_unavailable`; no plaintext fallback |
+| Disabled policy or exhausted budget | `ai_disabled` / `budget_exceeded` before network I/O |
+| Auth, rate, timeout, protocol, or availability failure | Stable typed provider error with retryability and no body/secret |
+| Stale or signed interactive target | Conflict/read-only error; proposal remains unapplied |
+| AI output with invalid protected tags | Typed rejection; no target write |
+| Restart with active run/batch item | Durable interrupted state that can resume within bounded attempts |
+
+### 5. Good / Base / Bad Cases
+
+- Good: create a keyring-backed profile, preview bounded grounding, stream a
+  proposal, apply it through the editor revision path, restart, and recover the
+  conversation and usage without any secret in SQLite.
+- Base: disable AI or omit a keyring capability; non-AI editing, filters, TM,
+  QA, and export remain available while real AI requests fail explicitly.
+- Bad: persist a prompt/credential for later replay, let renderer code call a
+  provider, or include neighboring batch targets in a prompt hash that another
+  worker can change before execution.
+
+### 6. Tests Required
+
+- AI-core fixtures cover OpenAI-compatible SSE, Anthropic, Gemini, DeepL,
+  catalog/URL validation, bounds, retries, cancellation, usage, and redaction.
+- Storage and Engine tests cover keyring lifecycle, restart recovery, grounding,
+  streaming, explicit resume, TM-first concurrent batches, protected tags,
+  budget gates, and exactly-once usage.
+- Stdio smoke and Electron E2E use loopback fixtures only. They must prove the
+  secret is absent from SQLite, protocol payloads, renderer state, and errors.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+// Another worker can update this target after run creation and stale the hash.
+batch_context.target = neighboring_segment.target_text;
+// Renderer-visible generic RPC accepts a plaintext credential.
+catalog.register("ai.credential.set");
+```
+
+#### Correct
+
+```rust
+batch_context.target = String::new(); // stable source-only batch context
+// Main/preload trusted IPC calls EngineClient::callInternal instead.
+```

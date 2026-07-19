@@ -19,6 +19,9 @@ use translunar_pipeline::{
     StepDescriptor,
 };
 
+mod ai;
+pub use ai::*;
+
 pub const PROTOCOL_VERSION: u32 = 1;
 
 pub mod methods {
@@ -102,6 +105,36 @@ pub mod methods {
     pub const PIPELINE_RUN_GET: &str = "pipeline.run.get";
     pub const PIPELINE_RUN_CANCEL: &str = "pipeline.run.cancel";
     pub const PIPELINE_RUN_RESUME: &str = "pipeline.run.resume";
+    pub const AI_PROVIDER_CATALOG: &str = "ai.provider.catalog";
+    pub const AI_PROVIDER_LIST: &str = "ai.provider.list";
+    pub const AI_PROVIDER_CREATE: &str = "ai.provider.create";
+    pub const AI_PROVIDER_UPDATE: &str = "ai.provider.update";
+    pub const AI_PROVIDER_DELETE: &str = "ai.provider.delete";
+    pub const AI_PROVIDER_TEST: &str = "ai.provider.test";
+    pub const AI_CREDENTIAL_SET: &str = "ai.credential.set";
+    pub const AI_CREDENTIAL_DELETE: &str = "ai.credential.delete";
+    pub const AI_CREDENTIAL_STATUS: &str = "ai.credential.status";
+    pub const AI_SETTINGS_GET: &str = "ai.settings.get";
+    pub const AI_SETTINGS_UPDATE: &str = "ai.settings.update";
+    pub const AI_GROUNDING_PREVIEW: &str = "ai.grounding.preview";
+    pub const AI_RUN_START: &str = "ai.run.start";
+    pub const AI_RUN_GET: &str = "ai.run.get";
+    pub const AI_RUN_LIST: &str = "ai.run.list";
+    pub const AI_RUN_EVENTS: &str = "ai.run.events";
+    pub const AI_RUN_CANCEL: &str = "ai.run.cancel";
+    pub const AI_RUN_RESUME: &str = "ai.run.resume";
+    pub const AI_RESULT_APPLY: &str = "ai.result.apply";
+    pub const AI_BATCH_START: &str = "ai.batch.start";
+    pub const AI_BATCH_GET: &str = "ai.batch.get";
+    pub const AI_BATCH_LIST: &str = "ai.batch.list";
+    pub const AI_BATCH_ITEMS: &str = "ai.batch.items";
+    pub const AI_BATCH_CANCEL: &str = "ai.batch.cancel";
+    pub const AI_BATCH_RESUME: &str = "ai.batch.resume";
+    pub const AI_USAGE_QUERY: &str = "ai.usage.query";
+    pub const AI_CONVERSATION_LIST: &str = "ai.conversation.list";
+    pub const AI_CONVERSATION_CREATE: &str = "ai.conversation.create";
+    pub const AI_CONVERSATION_UPDATE: &str = "ai.conversation.update";
+    pub const AI_CONVERSATION_MESSAGES: &str = "ai.conversation.messages";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,6 +195,14 @@ pub enum ErrorCode {
     UnsupportedDocument,
     StorageError,
     ExportError,
+    CredentialUnavailable,
+    AiDisabled,
+    BudgetExceeded,
+    ProviderAuthentication,
+    ProviderRateLimited,
+    ProviderTimeout,
+    ProviderProtocol,
+    ProviderUnavailable,
     InternalError,
 }
 
@@ -1523,6 +1564,65 @@ pub struct RpcMethodCatalog {
     pub pipeline_run_cancel: MethodContract<PipelineRunRevisionParams, PipelineRunSnapshot>,
     #[serde(rename = "pipeline.run.resume")]
     pub pipeline_run_resume: MethodContract<PipelineRunRevisionParams, PipelineRunSnapshot>,
+    #[serde(rename = "ai.provider.catalog")]
+    pub ai_provider_catalog: MethodContract<AiProviderCatalogParams, AiProviderCatalogResult>,
+    #[serde(rename = "ai.provider.list")]
+    pub ai_provider_list: MethodContract<AiProviderListParams, AiProviderPage>,
+    #[serde(rename = "ai.provider.create")]
+    pub ai_provider_create: MethodContract<AiProviderCreateParams, AiProviderProfile>,
+    #[serde(rename = "ai.provider.update")]
+    pub ai_provider_update: MethodContract<AiProviderUpdateParams, AiProviderProfile>,
+    #[serde(rename = "ai.provider.delete")]
+    pub ai_provider_delete: MethodContract<AiProfileRevisionParams, EmptyResult>,
+    #[serde(rename = "ai.provider.test")]
+    pub ai_provider_test: MethodContract<AiProfileIdParams, AiProviderTestResult>,
+    #[serde(rename = "ai.credential.delete")]
+    pub ai_credential_delete: MethodContract<AiProfileIdParams, AiCredentialStatus>,
+    #[serde(rename = "ai.credential.status")]
+    pub ai_credential_status: MethodContract<AiProfileIdParams, AiCredentialStatus>,
+    #[serde(rename = "ai.settings.get")]
+    pub ai_settings_get: MethodContract<AiSettingsGetParams, AiSettings>,
+    #[serde(rename = "ai.settings.update")]
+    pub ai_settings_update: MethodContract<AiSettingsUpdateParams, AiSettings>,
+    #[serde(rename = "ai.grounding.preview")]
+    pub ai_grounding_preview: MethodContract<AiGroundingPreviewParams, AiGroundingPreviewResult>,
+    #[serde(rename = "ai.run.start")]
+    pub ai_run_start: MethodContract<AiRunStartParams, AiRun>,
+    #[serde(rename = "ai.run.get")]
+    pub ai_run_get: MethodContract<AiRunIdParams, AiRun>,
+    #[serde(rename = "ai.run.list")]
+    pub ai_run_list: MethodContract<AiRunListParams, AiRunPage>,
+    #[serde(rename = "ai.run.events")]
+    pub ai_run_events: MethodContract<AiRunEventsParams, AiRunEventPage>,
+    #[serde(rename = "ai.run.cancel")]
+    pub ai_run_cancel: MethodContract<AiRunRevisionParams, AiRun>,
+    #[serde(rename = "ai.run.resume")]
+    pub ai_run_resume: MethodContract<AiRunRevisionParams, AiRun>,
+    #[serde(rename = "ai.result.apply")]
+    pub ai_result_apply: MethodContract<AiResultApplyParams, EditorMutationResult>,
+    #[serde(rename = "ai.batch.start")]
+    pub ai_batch_start: MethodContract<AiBatchStartParams, AiBatchRun>,
+    #[serde(rename = "ai.batch.get")]
+    pub ai_batch_get: MethodContract<AiBatchIdParams, AiBatchRun>,
+    #[serde(rename = "ai.batch.list")]
+    pub ai_batch_list: MethodContract<AiBatchListParams, AiBatchPage>,
+    #[serde(rename = "ai.batch.items")]
+    pub ai_batch_items: MethodContract<AiBatchItemsParams, AiBatchItemPage>,
+    #[serde(rename = "ai.batch.cancel")]
+    pub ai_batch_cancel: MethodContract<AiBatchRevisionParams, AiBatchRun>,
+    #[serde(rename = "ai.batch.resume")]
+    pub ai_batch_resume: MethodContract<AiBatchRevisionParams, AiBatchRun>,
+    #[serde(rename = "ai.usage.query")]
+    pub ai_usage_query: MethodContract<AiUsageQueryParams, AiUsageQueryResult>,
+    #[serde(rename = "ai.conversation.list")]
+    pub ai_conversation_list: MethodContract<AiConversationListParams, AiConversationPage>,
+    #[serde(rename = "ai.conversation.create")]
+    pub ai_conversation_create: MethodContract<AiConversationCreateParams, AiConversation>,
+    #[serde(rename = "ai.conversation.update")]
+    pub ai_conversation_update: MethodContract<AiConversationUpdateParams, AiConversation>,
+    #[serde(rename = "ai.conversation.messages")]
+    pub ai_conversation_messages:
+        MethodContract<AiConversationMessagesParams, AiConversationMessagePage>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]

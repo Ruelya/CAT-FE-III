@@ -12,12 +12,13 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 use thiserror::Error;
+use translunar_ai_core::AiCoreError;
 use translunar_asset_core::{
     AssetError, TermExchangeEntry, TermExchangeTranslation, TermStatus, TmExchangeUnit,
 };
@@ -85,6 +86,8 @@ use translunar_storage::{
     TermSearchRequest as StorageTermSearchRequest, TmSearchRequest as StorageTmSearchRequest,
 };
 
+mod ai;
+
 #[derive(Debug, Error)]
 pub enum EngineError {
     #[error(transparent)]
@@ -107,6 +110,18 @@ pub enum EngineError {
 
     #[error("invalid engine state: {0}")]
     InvalidState(String),
+
+    #[error(transparent)]
+    Ai(#[from] AiCoreError),
+
+    #[error("AI credential storage is unavailable: {0}")]
+    CredentialUnavailable(String),
+
+    #[error("AI is disabled")]
+    AiDisabled,
+
+    #[error("AI monthly token budget is exhausted")]
+    BudgetExceeded,
 }
 
 pub type Result<T> = std::result::Result<T, EngineError>;
@@ -531,6 +546,112 @@ struct QaDocumentStep {
     data_dir: PathBuf,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AiPretranslateConfig {
+    profile_id: String,
+    #[serde(default = "default_ai_tm_threshold")]
+    tm_threshold: u8,
+    #[serde(default = "default_ai_concurrency")]
+    concurrency: u8,
+    #[serde(default = "default_ai_requests_per_minute")]
+    requests_per_minute: u16,
+    #[serde(default = "default_ai_max_attempts")]
+    max_attempts: u8,
+    #[serde(default)]
+    replace_drafts: bool,
+    #[serde(default)]
+    grounding: translunar_ai_core::GroundingOptions,
+}
+
+struct AiPretranslateStep {
+    data_dir: PathBuf,
+    ai: ai::AiManager,
+}
+
+impl PipelineStep for AiPretranslateStep {
+    fn descriptor(&self) -> StepDescriptor {
+        StepDescriptor {
+            id: "core.ai.pretranslate".to_string(),
+            version: "1".to_string(),
+            display_name: "AI pretranslation".to_string(),
+            input: ArtifactKind::None,
+            output: ArtifactKind::Segments,
+            config_schema_version: 1,
+            resumable: true,
+            cancellable: true,
+        }
+    }
+
+    fn execute(
+        &self,
+        context: StepExecutionContext,
+    ) -> std::result::Result<StepOutcome, PipelineError> {
+        if context.cancellation.load(Ordering::Relaxed) {
+            return Err(PipelineError::Canceled);
+        }
+        let config: AiPretranslateConfig = serde_json::from_value(context.config)
+            .map_err(|_| PipelineError::Execution("AI batch config is invalid".to_string()))?;
+        let mut store = Store::open_worker(&self.data_dir)
+            .map_err(|_| PipelineError::Execution("AI batch storage is unavailable".to_string()))?;
+        let batch = ai::create_and_spawn_ai_batch(
+            &mut store,
+            &self.ai,
+            translunar_protocol::AiBatchStartParams {
+                project_id: context.project_id,
+                document_id: context.document_id,
+                profile_id: config.profile_id,
+                tm_threshold: config.tm_threshold,
+                concurrency: config.concurrency,
+                requests_per_minute: config.requests_per_minute,
+                max_attempts: config.max_attempts,
+                replace_drafts: config.replace_drafts,
+                options: config.grounding,
+            },
+        )
+        .map_err(|_| PipelineError::Execution("AI batch could not start".to_string()))?;
+        loop {
+            let current = store.get_ai_batch(&batch.id).map_err(|_| {
+                PipelineError::Execution("AI batch state is unavailable".to_string())
+            })?;
+            if context.cancellation.load(Ordering::Relaxed) {
+                let _ = store.request_ai_batch_cancel(&current.id, current.revision);
+                self.ai.cancel_batch(&current.id);
+                return Err(PipelineError::Canceled);
+            }
+            if current.status.is_terminal() {
+                if current.status == translunar_ai_core::AiBatchStatus::Failed {
+                    return Err(PipelineError::Execution("AI batch failed".to_string()));
+                }
+                return Ok(StepOutcome {
+                    output: serde_json::to_value(&current).map_err(|_| {
+                        PipelineError::Execution("AI batch output is invalid".to_string())
+                    })?,
+                    checkpoint: Some(json!({ "batchId": current.id })),
+                    usage: serde_json::to_value(&current.usage).ok(),
+                });
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+}
+
+const fn default_ai_tm_threshold() -> u8 {
+    85
+}
+
+const fn default_ai_concurrency() -> u8 {
+    3
+}
+
+const fn default_ai_requests_per_minute() -> u16 {
+    60
+}
+
+const fn default_ai_max_attempts() -> u8 {
+    3
+}
+
 impl PipelineStep for QaDocumentStep {
     fn descriptor(&self) -> StepDescriptor {
         StepDescriptor {
@@ -578,7 +699,7 @@ impl PipelineStep for QaDocumentStep {
 }
 
 impl PipelineManager {
-    fn new(data_dir: PathBuf) -> Result<Self> {
+    fn new(data_dir: PathBuf, ai: ai::AiManager) -> Result<Self> {
         let mut registry = StepRegistry::default();
         registry
             .register(Arc::new(CheckpointStep))
@@ -586,6 +707,12 @@ impl PipelineManager {
         registry
             .register(Arc::new(QaDocumentStep {
                 data_dir: data_dir.clone(),
+            }))
+            .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+        registry
+            .register(Arc::new(AiPretranslateStep {
+                data_dir: data_dir.clone(),
+                ai,
             }))
             .map_err(|error| EngineError::InvalidState(error.to_string()))?;
         Ok(Self {
@@ -827,11 +954,17 @@ pub struct EngineService {
     store: Store,
     filters: FilterRegistry,
     pipeline: PipelineManager,
+    ai: ai::AiManager,
 }
 
 impl EngineService {
     pub fn open(data_dir: impl AsRef<Path>) -> Result<Self> {
         let data_dir = data_dir.as_ref().to_path_buf();
+        let ai = ai::AiManager::new(data_dir.clone())?;
+        Self::open_with_ai(data_dir, ai)
+    }
+
+    fn open_with_ai(data_dir: PathBuf, ai: ai::AiManager) -> Result<Self> {
         let mut filters = FilterRegistry::default();
         filters
             .register(Arc::new(DocxFilter))
@@ -860,7 +993,8 @@ impl EngineService {
         Ok(Self {
             store: Store::open(&data_dir)?,
             filters,
-            pipeline: PipelineManager::new(data_dir)?,
+            pipeline: PipelineManager::new(data_dir, ai.clone())?,
+            ai,
         })
     }
 
@@ -2711,6 +2845,118 @@ impl RpcDispatcher {
                 self.service
                     .resume_pipeline_run(parse_params(request.params)?)?,
             ),
+            methods::AI_PROVIDER_CATALOG => serialize_result(
+                self.service
+                    .ai_provider_catalog(parse_params(request.params)?)?,
+            ),
+            methods::AI_PROVIDER_LIST => serialize_result(
+                self.service
+                    .list_ai_providers(parse_params(request.params)?)?,
+            ),
+            methods::AI_PROVIDER_CREATE => serialize_result(
+                self.service
+                    .create_ai_provider(parse_params(request.params)?)?,
+            ),
+            methods::AI_PROVIDER_UPDATE => serialize_result(
+                self.service
+                    .update_ai_provider(parse_params(request.params)?)?,
+            ),
+            methods::AI_PROVIDER_DELETE => serialize_result(
+                self.service
+                    .delete_ai_provider(parse_params(request.params)?)?,
+            ),
+            methods::AI_PROVIDER_TEST => serialize_result(
+                self.service
+                    .test_ai_provider(parse_params(request.params)?)?,
+            ),
+            methods::AI_CREDENTIAL_SET => serialize_result(
+                self.service
+                    .set_ai_credential(parse_params(request.params)?)?,
+            ),
+            methods::AI_CREDENTIAL_DELETE => serialize_result(
+                self.service
+                    .delete_ai_credential(parse_params(request.params)?)?,
+            ),
+            methods::AI_CREDENTIAL_STATUS => serialize_result(
+                self.service
+                    .ai_credential_status(parse_params(request.params)?)?,
+            ),
+            methods::AI_SETTINGS_GET => serialize_result(
+                self.service
+                    .get_ai_settings(parse_params(request.params)?)?,
+            ),
+            methods::AI_SETTINGS_UPDATE => serialize_result(
+                self.service
+                    .update_ai_settings(parse_params(request.params)?)?,
+            ),
+            methods::AI_GROUNDING_PREVIEW => serialize_result(
+                self.service
+                    .preview_ai_grounding(parse_params(request.params)?)?,
+            ),
+            methods::AI_RUN_START => {
+                serialize_result(self.service.start_ai_run(parse_params(request.params)?)?)
+            }
+            methods::AI_RUN_GET => {
+                serialize_result(self.service.get_ai_run(parse_params(request.params)?)?)
+            }
+            methods::AI_RUN_LIST => {
+                serialize_result(self.service.list_ai_runs(parse_params(request.params)?)?)
+            }
+            methods::AI_RUN_EVENTS => serialize_result(
+                self.service
+                    .list_ai_run_events(parse_params(request.params)?)?,
+            ),
+            methods::AI_RUN_CANCEL => {
+                serialize_result(self.service.cancel_ai_run(parse_params(request.params)?)?)
+            }
+            methods::AI_RUN_RESUME => {
+                serialize_result(self.service.resume_ai_run(parse_params(request.params)?)?)
+            }
+            methods::AI_RESULT_APPLY => serialize_result(
+                self.service
+                    .apply_ai_result(parse_params(request.params)?)?,
+            ),
+            methods::AI_BATCH_START => {
+                serialize_result(self.service.start_ai_batch(parse_params(request.params)?)?)
+            }
+            methods::AI_BATCH_GET => {
+                serialize_result(self.service.get_ai_batch(parse_params(request.params)?)?)
+            }
+            methods::AI_BATCH_LIST => serialize_result(
+                self.service
+                    .list_ai_batches(parse_params(request.params)?)?,
+            ),
+            methods::AI_BATCH_ITEMS => serialize_result(
+                self.service
+                    .list_ai_batch_items(parse_params(request.params)?)?,
+            ),
+            methods::AI_BATCH_CANCEL => serialize_result(
+                self.service
+                    .cancel_ai_batch(parse_params(request.params)?)?,
+            ),
+            methods::AI_BATCH_RESUME => serialize_result(
+                self.service
+                    .resume_ai_batch(parse_params(request.params)?)?,
+            ),
+            methods::AI_USAGE_QUERY => {
+                serialize_result(self.service.query_ai_usage(parse_params(request.params)?)?)
+            }
+            methods::AI_CONVERSATION_LIST => serialize_result(
+                self.service
+                    .list_ai_conversations(parse_params(request.params)?)?,
+            ),
+            methods::AI_CONVERSATION_CREATE => serialize_result(
+                self.service
+                    .create_ai_conversation(parse_params(request.params)?)?,
+            ),
+            methods::AI_CONVERSATION_UPDATE => serialize_result(
+                self.service
+                    .update_ai_conversation(parse_params(request.params)?)?,
+            ),
+            methods::AI_CONVERSATION_MESSAGES => serialize_result(
+                self.service
+                    .list_ai_conversation_messages(parse_params(request.params)?)?,
+            ),
             _ => Err(EngineError::InvalidRequest(format!(
                 "unknown method {}",
                 request.method
@@ -2738,6 +2984,7 @@ impl RpcDispatcher {
                 "data.backup".to_string(),
                 "pipeline.checkpoint".to_string(),
                 "pipeline.document-qa".to_string(),
+                "pipeline.ai-pretranslation".to_string(),
                 "pipeline.resumable".to_string(),
                 "project.lifecycle".to_string(),
                 "translation-memory.exact".to_string(),
@@ -2761,6 +3008,13 @@ impl RpcDispatcher {
                 "editor.review".to_string(),
                 "editor.workflow".to_string(),
                 "editor.preferences".to_string(),
+                "ai.provider.byok".to_string(),
+                "ai.provider.openai-compatible".to_string(),
+                "ai.grounding".to_string(),
+                "ai.streaming-events".to_string(),
+                "ai.batch-pretranslation".to_string(),
+                "ai.usage".to_string(),
+                "ai.credential.keyring".to_string(),
             ],
         })
     }
@@ -2789,6 +3043,62 @@ fn serialize_result<T: Serialize>(value: T) -> Result<Value> {
 
 fn rpc_error(error: EngineError) -> RpcError {
     match error {
+        EngineError::CredentialUnavailable(_message) => RpcError {
+            code: ErrorCode::CredentialUnavailable,
+            message: "operating-system credential storage is unavailable".to_string(),
+            data: None,
+        },
+        EngineError::AiDisabled => RpcError {
+            code: ErrorCode::AiDisabled,
+            message: "AI requests are disabled for this workspace".to_string(),
+            data: None,
+        },
+        EngineError::BudgetExceeded => RpcError {
+            code: ErrorCode::BudgetExceeded,
+            message: "the workspace AI token budget is exhausted".to_string(),
+            data: None,
+        },
+        EngineError::Ai(AiCoreError::Authentication | AiCoreError::InvalidCredential) => RpcError {
+            code: ErrorCode::ProviderAuthentication,
+            message: "AI provider authentication failed".to_string(),
+            data: None,
+        },
+        EngineError::Ai(AiCoreError::RateLimited { retry_after_ms }) => RpcError {
+            code: ErrorCode::ProviderRateLimited,
+            message: "AI provider rate limit was reached".to_string(),
+            data: Some(json!({ "retryAfterMs": retry_after_ms })),
+        },
+        EngineError::Ai(AiCoreError::Timeout) => RpcError {
+            code: ErrorCode::ProviderTimeout,
+            message: "AI provider request timed out".to_string(),
+            data: None,
+        },
+        EngineError::Ai(AiCoreError::Unavailable { retryable }) => RpcError {
+            code: ErrorCode::ProviderUnavailable,
+            message: "AI provider is unavailable".to_string(),
+            data: Some(json!({ "retryable": retryable })),
+        },
+        EngineError::Ai(AiCoreError::Canceled) => RpcError {
+            code: ErrorCode::InvalidState,
+            message: "AI request was canceled".to_string(),
+            data: None,
+        },
+        EngineError::Ai(
+            AiCoreError::InvalidProfile(_)
+            | AiCoreError::InvalidEndpoint(_)
+            | AiCoreError::InvalidGrounding(_),
+        ) => RpcError {
+            code: ErrorCode::InvalidRequest,
+            message: "AI request configuration is invalid".to_string(),
+            data: None,
+        },
+        EngineError::Ai(
+            AiCoreError::Protocol | AiCoreError::ResponseTooLarge | AiCoreError::EventSink,
+        ) => RpcError {
+            code: ErrorCode::ProviderProtocol,
+            message: "AI provider returned an invalid response".to_string(),
+            data: None,
+        },
         EngineError::Storage(StorageError::NotFound { entity, id }) => RpcError {
             code: ErrorCode::NotFound,
             message: format!("{entity} not found: {id}"),
@@ -3687,7 +3997,7 @@ mod tests {
             .check_health(EmptyParams::default())
             .expect("check health");
         assert!(health.healthy, "unexpected findings: {:?}", health.findings);
-        assert_eq!(health.schema_version, 7);
+        assert!(health.schema_version > 0);
 
         let destination = context.root.path().join("workspace-backup");
         let backup = service
@@ -3695,7 +4005,7 @@ mod tests {
                 destination_path: destination.to_string_lossy().into_owned(),
             })
             .expect("create backup");
-        assert_eq!(backup.manifest.schema_version, 7);
+        assert_eq!(backup.manifest.schema_version, health.schema_version);
         assert!(destination.join("translunar.sqlite3").is_file());
         assert!(
             destination

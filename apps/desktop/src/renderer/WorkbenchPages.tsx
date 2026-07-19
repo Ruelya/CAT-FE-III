@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 
 import { BrandMark } from "./BrandMark";
+import { AiControlPage } from "./AiControlPage";
 import { fileName, formatError } from "./workbench-utils";
 import type { AppSurface } from "./surface-types";
 
@@ -51,6 +52,7 @@ export function WorkspacePage(props: WorkspacePageProps) {
       {surface === "translation-memory" ? (
         <TranslationMemoryPage {...props} />
       ) : null}
+      {surface === "ai-control" ? <AiControlPage {...props} /> : null}
     </div>
   );
 }
@@ -67,7 +69,9 @@ function SurfaceHeader({
       ? "QA review"
       : surface === "export-review"
         ? "Export review"
-        : "Translation memory";
+        : surface === "translation-memory"
+          ? "Translation memory"
+          : "AI control";
   return (
     <header className="app-bar surface-header">
       <button
@@ -134,6 +138,14 @@ function SurfaceHeader({
                 onClick={() => onNavigate("translation-memory")}
               >
                 Translation memory
+              </button>
+              <button
+                type="button"
+                disabled={surface === "ai-control"}
+                aria-current={surface === "ai-control" ? "page" : undefined}
+                onClick={() => onNavigate("ai-control")}
+              >
+                AI control
               </button>
             </nav>
           ) : null}

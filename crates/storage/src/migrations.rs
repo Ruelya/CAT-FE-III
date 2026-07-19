@@ -2,7 +2,7 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use crate::{Result, StorageError};
 
-pub(crate) const LATEST_SCHEMA_VERSION: u32 = 7;
+pub(crate) const LATEST_SCHEMA_VERSION: u32 = 8;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -544,6 +544,212 @@ ALTER TABLE review_revisions ADD COLUMN before_target_tags_json TEXT NOT NULL DE
 ALTER TABLE review_revisions ADD COLUMN proposed_target_tags_json TEXT;
 "#;
 
+const MIGRATION_8: &str = r#"
+CREATE TABLE ai_provider_profiles (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN (
+        'openai', 'anthropic', 'gemini', 'deepl', 'deepseek', 'qwen', 'glm',
+        'kimi', 'volcengine', 'openai_compatible'
+    )),
+    base_url TEXT NOT NULL,
+    model TEXT NOT NULL,
+    timeout_ms INTEGER NOT NULL CHECK (timeout_ms BETWEEN 1000 AND 300000),
+    max_response_bytes INTEGER NOT NULL
+        CHECK (max_response_bytes BETWEEN 1024 AND 33554432),
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    credential_present INTEGER NOT NULL DEFAULT 0
+        CHECK (credential_present IN (0, 1)),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX ai_provider_profiles_enabled_idx
+    ON ai_provider_profiles(enabled, updated_at_ms DESC, id);
+
+CREATE TABLE ai_settings (
+    id TEXT PRIMARY KEY CHECK (id = 'default'),
+    enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+    default_profile_id TEXT REFERENCES ai_provider_profiles(id) ON DELETE SET NULL,
+    monthly_token_budget INTEGER CHECK (monthly_token_budget >= 0),
+    allow_interactive INTEGER NOT NULL DEFAULT 1 CHECK (allow_interactive IN (0, 1)),
+    allow_batch INTEGER NOT NULL DEFAULT 1 CHECK (allow_batch IN (0, 1)),
+    allowed_origins_json TEXT NOT NULL DEFAULT '[]',
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    updated_at_ms INTEGER NOT NULL DEFAULT 0
+) STRICT;
+
+INSERT INTO ai_settings (
+    id, enabled, default_profile_id, monthly_token_budget, allow_interactive,
+    allow_batch, allowed_origins_json, revision, updated_at_ms
+) VALUES ('default', 0, NULL, NULL, 1, 1, '[]', 0, 0);
+
+CREATE TABLE ai_runs (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN (
+        'interactive', 'action', 'provider_test', 'batch_item'
+    )),
+    project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+    document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
+    segment_id TEXT REFERENCES segments(id) ON DELETE CASCADE,
+    profile_id TEXT REFERENCES ai_provider_profiles(id) ON DELETE SET NULL,
+    model TEXT NOT NULL,
+    action TEXT NOT NULL,
+    prompt_hash TEXT NOT NULL,
+    request_json TEXT NOT NULL DEFAULT '{}',
+    base_segment_revision INTEGER CHECK (base_segment_revision >= 0),
+    status TEXT NOT NULL CHECK (status IN (
+        'queued', 'running', 'retrying', 'interrupted', 'canceling',
+        'canceled', 'succeeded', 'failed'
+    )),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    attempt INTEGER NOT NULL DEFAULT 0 CHECK (attempt >= 0),
+    max_attempts INTEGER NOT NULL DEFAULT 1 CHECK (max_attempts BETWEEN 1 AND 10),
+    cancellation_requested INTEGER NOT NULL DEFAULT 0
+        CHECK (cancellation_requested IN (0, 1)),
+    proposal_text TEXT,
+    error_code TEXT,
+    error_message TEXT,
+    error_retryable INTEGER NOT NULL DEFAULT 0 CHECK (error_retryable IN (0, 1)),
+    created_at_ms INTEGER NOT NULL,
+    started_at_ms INTEGER,
+    completed_at_ms INTEGER,
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX ai_runs_project_idx
+    ON ai_runs(project_id, created_at_ms DESC, id);
+CREATE INDEX ai_runs_status_idx
+    ON ai_runs(status, updated_at_ms, id);
+
+CREATE TABLE ai_run_events (
+    run_id TEXT NOT NULL REFERENCES ai_runs(id) ON DELETE CASCADE,
+    sequence INTEGER NOT NULL CHECK (sequence >= 1),
+    kind TEXT NOT NULL CHECK (kind IN (
+        'started', 'attempt', 'delta', 'usage', 'retry', 'completed', 'failed',
+        'canceling', 'canceled', 'interrupted'
+    )),
+    delta_text TEXT,
+    usage_json TEXT,
+    attempt INTEGER CHECK (attempt >= 0),
+    retry_after_ms INTEGER CHECK (retry_after_ms >= 0),
+    message TEXT,
+    created_at_ms INTEGER NOT NULL,
+    PRIMARY KEY(run_id, sequence)
+) STRICT;
+
+CREATE TABLE ai_batch_runs (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
+    profile_id TEXT NOT NULL REFERENCES ai_provider_profiles(id) ON DELETE RESTRICT,
+    status TEXT NOT NULL CHECK (status IN (
+        'queued', 'running', 'interrupted', 'canceling', 'canceled',
+        'succeeded', 'completed_with_errors', 'failed'
+    )),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    tm_threshold INTEGER NOT NULL CHECK (tm_threshold BETWEEN 0 AND 101),
+    concurrency INTEGER NOT NULL CHECK (concurrency BETWEEN 1 AND 16),
+    requests_per_minute INTEGER NOT NULL
+        CHECK (requests_per_minute BETWEEN 1 AND 600),
+    max_attempts INTEGER NOT NULL CHECK (max_attempts BETWEEN 1 AND 10),
+    replace_drafts INTEGER NOT NULL DEFAULT 0 CHECK (replace_drafts IN (0, 1)),
+    grounding_options_json TEXT NOT NULL DEFAULT '{}',
+    cancellation_requested INTEGER NOT NULL DEFAULT 0
+        CHECK (cancellation_requested IN (0, 1)),
+    total INTEGER NOT NULL DEFAULT 0 CHECK (total >= 0),
+    completed INTEGER NOT NULL DEFAULT 0 CHECK (completed >= 0),
+    succeeded INTEGER NOT NULL DEFAULT 0 CHECK (succeeded >= 0),
+    failed INTEGER NOT NULL DEFAULT 0 CHECK (failed >= 0),
+    skipped INTEGER NOT NULL DEFAULT 0 CHECK (skipped >= 0),
+    tm_applied INTEGER NOT NULL DEFAULT 0 CHECK (tm_applied >= 0),
+    usage_json TEXT NOT NULL DEFAULT '{}',
+    created_at_ms INTEGER NOT NULL,
+    started_at_ms INTEGER,
+    completed_at_ms INTEGER,
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX ai_batch_runs_project_idx
+    ON ai_batch_runs(project_id, created_at_ms DESC, id);
+CREATE INDEX ai_batch_runs_status_idx
+    ON ai_batch_runs(status, updated_at_ms, id);
+
+CREATE TABLE ai_batch_items (
+    batch_id TEXT NOT NULL REFERENCES ai_batch_runs(id) ON DELETE CASCADE,
+    segment_id TEXT NOT NULL REFERENCES segments(id) ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    expected_revision INTEGER NOT NULL CHECK (expected_revision >= 0),
+    status TEXT NOT NULL CHECK (status IN (
+        'pending', 'tm_applied', 'running', 'succeeded', 'retrying', 'failed',
+        'skipped', 'canceled'
+    )),
+    source TEXT CHECK (source IN ('tm', 'engine')),
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    run_id TEXT REFERENCES ai_runs(id) ON DELETE SET NULL,
+    error_code TEXT,
+    updated_at_ms INTEGER NOT NULL,
+    PRIMARY KEY(batch_id, segment_id)
+) STRICT;
+
+CREATE INDEX ai_batch_items_claim_idx
+    ON ai_batch_items(batch_id, status, ordinal, segment_id);
+
+CREATE TABLE ai_usage_records (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES ai_runs(id) ON DELETE CASCADE,
+    attempt INTEGER NOT NULL CHECK (attempt >= 1),
+    project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+    document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
+    profile_id TEXT REFERENCES ai_provider_profiles(id) ON DELETE SET NULL,
+    provider TEXT NOT NULL CHECK (provider IN (
+        'openai', 'anthropic', 'gemini', 'deepl', 'deepseek', 'qwen', 'glm',
+        'kimi', 'volcengine', 'openai_compatible'
+    )),
+    model TEXT NOT NULL,
+    status TEXT NOT NULL,
+    input_tokens INTEGER CHECK (input_tokens >= 0),
+    cache_read_tokens INTEGER CHECK (cache_read_tokens >= 0),
+    reasoning_tokens INTEGER CHECK (reasoning_tokens >= 0),
+    output_tokens INTEGER CHECK (output_tokens >= 0),
+    cache_write_tokens INTEGER CHECK (cache_write_tokens >= 0),
+    elapsed_ms INTEGER NOT NULL CHECK (elapsed_ms >= 0),
+    created_at_ms INTEGER NOT NULL,
+    UNIQUE(run_id, attempt)
+) STRICT;
+
+CREATE INDEX ai_usage_records_month_idx
+    ON ai_usage_records(created_at_ms, project_id, profile_id, provider, model);
+
+CREATE TABLE ai_conversations (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1)),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX ai_conversations_project_idx
+    ON ai_conversations(project_id, archived, updated_at_ms DESC, id);
+
+CREATE TABLE ai_messages (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES ai_conversations(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+    text TEXT NOT NULL,
+    target_proposal TEXT,
+    segment_id TEXT REFERENCES segments(id) ON DELETE SET NULL,
+    run_id TEXT REFERENCES ai_runs(id) ON DELETE SET NULL,
+    created_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX ai_messages_conversation_idx
+    ON ai_messages(conversation_id, created_at_ms, id);
+"#;
+
 pub(crate) fn configure_connection(connection: &Connection) -> Result<()> {
     connection.execute_batch(
         "PRAGMA foreign_keys = ON;\n\
@@ -572,6 +778,7 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<()> {
         (5_u32, MIGRATION_5),
         (6_u32, MIGRATION_6),
         (7_u32, MIGRATION_7),
+        (8_u32, MIGRATION_8),
     ] {
         if version <= current {
             continue;
