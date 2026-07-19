@@ -62,7 +62,7 @@
       find/replace, comments, spell, history, review, theme/zoom and virtualization.
 - [x] Run VPS fmt/clippy/tests/contracts/smoke/release and Node 22 Electron E2E;
       run local Prettier/ESLint/typecheck/unit/build and visual checks.
-- [ ] Update backend/frontend code specs, acceptance evidence, commit/archive,
+- [x] Update backend/frontend code specs, acceptance evidence, commit/archive,
       and continue to `07-19-ai-engine-grounding`.
 
 ## Validation Commands
