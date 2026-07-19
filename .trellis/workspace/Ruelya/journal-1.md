@@ -106,3 +106,36 @@ Implemented SRX 2.0 segmentation and range-preserving TXT, Markdown, HTML/XHTML,
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: Office OOXML filters
+
+**Date**: 2026-07-19
+**Task**: Office OOXML filters
+**Branch**: `master`
+
+### Summary
+
+Completed DOCX structural coverage and added XLSX/PPTX generic filters with bounded OOXML package handling, selection options, rich-text tags, formula protection, shared-string cloning, SmartArt/notes/master support, explicit opaque-feature degradation, round-trip fixtures, seven-filter smoke, Windows release build, and desktop E2E evidence.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7af2bc0` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
