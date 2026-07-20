@@ -171,3 +171,36 @@ Completed DOCX structural coverage and added XLSX/PPTX generic filters with boun
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: Project lifecycle and analytics
+
+**Date**: 2026-07-20
+**Task**: Project lifecycle and analytics
+**Branch**: `master`
+
+### Summary
+
+Implemented lifecycle-core, migration 10 storage, multi-file setup, templates, re-import, project archives, recycle/search, analysis and analytics contracts, plus desktop wizard integration and executable boundary specifications.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `775b706` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
