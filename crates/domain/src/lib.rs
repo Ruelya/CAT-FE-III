@@ -29,7 +29,7 @@ pub enum ProjectLifecycle {
     Trash,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectConfiguration {
     #[serde(default)]
@@ -40,6 +40,24 @@ pub struct ProjectConfiguration {
     pub pipeline_id: Option<String>,
     #[serde(default)]
     pub engine_allowlist: Vec<String>,
+    #[serde(default = "default_review_required")]
+    pub review_required: bool,
+}
+
+impl Default for ProjectConfiguration {
+    fn default() -> Self {
+        Self {
+            template_id: None,
+            qa_profile_id: None,
+            pipeline_id: None,
+            engine_allowlist: Vec::new(),
+            review_required: true,
+        }
+    }
+}
+
+fn default_review_required() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -561,5 +579,13 @@ mod tests {
         let (source_b, context_b) = segment_hashes("Same", Some("Other"), None);
         assert_eq!(source_a, source_b);
         assert_ne!(context_a, context_b);
+    }
+
+    #[test]
+    fn legacy_project_configuration_requires_review_by_default() {
+        let configuration: ProjectConfiguration =
+            serde_json::from_str("{}").expect("deserialize legacy project configuration");
+        assert!(configuration.review_required);
+        assert!(ProjectConfiguration::default().review_required);
     }
 }

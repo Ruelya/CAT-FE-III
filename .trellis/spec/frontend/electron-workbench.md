@@ -75,6 +75,15 @@ pnpm dev:desktop # Vite/tsc watches + Electron
   conversations and synthetic usage fixtures, but it never adds a preload
   method or implies a network model request. Target insertion must reuse the
   normal segment update path.
+- QA/review pages render generated `qa.*`/`review.*` projections. Report and
+  original-format destinations use the shared generic save dialog; its title
+  and extension filter follow the suggested filename rather than assuming
+  DOCX. A blocked delivery reveals override inputs only after an explicit
+  choice and sends actor/reason only when `qa.gate.check` is blocked.
+- The project review-policy control persists `reviewRequired` through
+  `project.update`. When it is false, a translation-to-signed command opens an
+  actor/reason dialog and sends both through `segment.workflow.set`; closing or
+  failing that dialog must not imply a successful sign-off.
 
 ## 4. Validation & Error Matrix
 
@@ -132,6 +141,9 @@ pnpm dev:desktop # Vite/tsc watches + Electron
   transcript overflow at the compact breakpoint.
 - Cover save-before-navigation and real QA/TM/export projections with the Rust
   engine process, not renderer mocks.
+- Cover QA profile clone/regex, project/document runs, HTML/XLSX buttons,
+  waive/revoke/navigation, review policy/direct sign-off, blocked export and
+  override at 1250x744, 1680x942, and 1920x1080 with no horizontal overflow.
 - Production build must be part of E2E so `base: "./"`, preload output, and
   Electron main output are exercised.
 - The E2E harness may set `TRANSLUNAR_ENGINE_PATH` to a synchronized test

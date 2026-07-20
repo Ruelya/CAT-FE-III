@@ -3,7 +3,7 @@
   "name": "qa-review-workflow",
   "title": "Comprehensive QA and review workflow",
   "description": "Implement mechanical and CJK QA profiles, terminology and consistency checks, reports, review state flow, revision acceptance, and delivery gate behavior.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

@@ -1,4 +1,10 @@
-import { mkdtempSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -57,6 +63,7 @@ async function launchHarness(
       TRANSLUNAR_DATA_DIR: dataDirectory,
       TRANSLUNAR_ENGINE_PATH: engine,
       TRANSLUNAR_TEST_EXPORT_DOCX: exportPath,
+      TRANSLUNAR_TEST_EXPORT_DIRECTORY: dataDirectory,
       TRANSLUNAR_TEST_SOURCE: fixture,
       TRANSLUNAR_AI_TEST_MODE: "1",
       TRANSLUNAR_AI_TEST_CREDENTIAL: "desktop-ai-secret",
@@ -196,13 +203,26 @@ test("runs the local-first CAT workflow through Electron", async () => {
         new CompositionEvent("compositionstart", { bubbles: true }),
       );
     });
-    await firstTarget.press("Control+Enter");
-    await expect(page.locator(".segment-row").first()).toContainText("Draft");
+    await firstTarget.evaluate((element) => {
+      element.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          code: "Enter",
+          ctrlKey: true,
+          isComposing: true,
+          bubbles: true,
+        }),
+      );
+    });
+    await expect(
+      page.locator(".segment-row").nth(1).locator("textarea"),
+    ).not.toBeFocused();
     await firstTarget.evaluate((element) => {
       element.dispatchEvent(
         new CompositionEvent("compositionend", { bubbles: true }),
       );
     });
+    await firstTarget.focus();
     await firstTarget.press("Control+Enter");
     await expect(page.locator(".segment-row").first()).toContainText("Issues");
     await expect(
@@ -210,9 +230,10 @@ test("runs the local-first CAT workflow through Electron", async () => {
     ).toBeFocused();
 
     await page.getByRole("tab", { name: /^QA/u }).click();
-    await expect(page.locator(".qa-card")).toHaveCount(1);
-    await expect(page.locator(".qa-evidence")).toContainText("30");
-    await expect(page.locator(".qa-evidence")).toContainText("60");
+    const lengthIssue = page.locator(".qa-card", {
+      hasText: "Target length",
+    });
+    await expect(lengthIssue).toHaveCount(1);
     await firstTarget.focus();
     await page.getByRole("tab", { name: /^Matches/u }).click();
     await expect(page.locator(".match-card")).toHaveCount(1);
@@ -224,17 +245,13 @@ test("runs the local-first CAT workflow through Electron", async () => {
     await firstTarget.fill("保留期为 30 天。");
     await expect(page.locator(".save-indicator")).toContainText("Saved");
     await page.getByRole("button", { name: "Confirm", exact: true }).click();
-    await expect(page.locator(".segment-row").first()).toContainText(
-      "Confirmed",
-    );
+    await expect(page.locator(".segment-row").first()).toContainText("Issues");
     await page.getByRole("button", { name: "Run QA" }).click();
-    await expect(page.getByText("No open QA issues")).toBeVisible();
+    await expect(page.locator(".qa-card").first()).toBeVisible();
 
     await page.getByRole("button", { name: "Export" }).click();
-    await expect(page.locator(".toast")).toContainText(
-      "Exported 1 translated segments",
-    );
-    expect(statSync(exportPath).size).toBeGreaterThan(0);
+    await expect(page.locator(".toast")).toContainText("QA");
+    expect(existsSync(exportPath)).toBe(false);
     expect(consoleErrors).toEqual([]);
   } finally {
     await closeHarness(harness);
@@ -261,7 +278,13 @@ test("manages the offline Assistant and real workspace projections", async () =>
     await expect(page.getByText("Offline preview")).toBeVisible();
     await expect(page.locator(".assistant-metric")).toHaveCount(7);
     const inputMetric = page.getByLabel("Synthetic input tokens: 1,438");
-    await inputMetric.hover();
+    const metricBox = await inputMetric.boundingBox();
+    expect(metricBox).not.toBeNull();
+    await page.mouse.move(1, 1);
+    await page.mouse.move(
+      (metricBox?.x ?? 0) + (metricBox?.width ?? 0) / 2,
+      (metricBox?.y ?? 0) + (metricBox?.height ?? 0) / 2,
+    );
     await expect
       .poll(() =>
         inputMetric.evaluate(
@@ -312,19 +335,131 @@ test("manages the offline Assistant and real workspace projections", async () =>
     await openApplicationMenu(page);
     await page.getByRole("button", { name: "QA review" }).click();
     await expect(
-      page.getByRole("heading", { name: "Check the current document" }),
+      page.getByRole("heading", { name: "QA and review" }),
+    ).toBeVisible();
+    const editProfileButton = page
+      .getByLabel("QA controls")
+      .getByRole("button", { name: "Edit profile" });
+    await expect(editProfileButton).toBeEnabled();
+    await editProfileButton.click();
+    let profileDialog = page.locator(".profile-editor");
+    await expect(profileDialog).toBeVisible();
+    await profileDialog
+      .locator("label", { hasText: "Name" })
+      .locator("input")
+      .fill("E2E QA profile");
+    await profileDialog.getByRole("button", { name: "Clone profile" }).click();
+    await expect(profileDialog).not.toBeVisible();
+    await expect(page.getByLabel("Profile")).toContainText("E2E QA profile");
+
+    await expect(editProfileButton).toBeEnabled();
+    await editProfileButton.click();
+    profileDialog = page.locator(".profile-editor");
+    await expect(profileDialog).toBeVisible();
+    await profileDialog.getByRole("button", { name: "Add rule" }).click();
+    await profileDialog.getByLabel("Pattern").fill("临时草稿");
+    await profileDialog
+      .getByLabel("Message")
+      .fill("Temporary draft marker remains");
+    await profileDialog.getByRole("button", { name: "Save profile" }).click();
+    await expect(profileDialog).not.toBeVisible();
+
+    await page.getByRole("button", { name: "Project", exact: true }).click();
+    await page.getByRole("button", { name: "Run QA" }).click();
+    await page.getByRole("button", { name: "Document", exact: true }).click();
+    await page.getByRole("button", { name: "Run QA" }).click();
+    await page.getByRole("button", { name: "HTML" }).click();
+    await expect(page.getByText(/Saved HTML report/u)).toBeVisible();
+    await page.getByRole("button", { name: "XLSX" }).click();
+    await expect(page.getByText(/Saved XLSX report/u)).toBeVisible();
+    const reportFiles = readdirSync(harness.dataDirectory).filter((name) =>
+      name.startsWith("qa-"),
+    );
+    expect(reportFiles.some((name) => name.endsWith(".html"))).toBe(true);
+    expect(reportFiles.some((name) => name.endsWith(".xlsx"))).toBe(true);
+    for (const viewport of [
+      { width: 1250, height: 744, label: "1250x744" },
+      { width: 1680, height: 942, label: "1680x942" },
+      { width: 1920, height: 1080, label: "1920x1080" },
+    ]) {
+      await resizeWindow(application, viewport.width, viewport.height);
+      await page.waitForTimeout(100);
+      await page.screenshot({
+        path: `test-results/qa-review-${viewport.label}.png`,
+      });
+      const overflow = await page
+        .locator(".qa-workspace")
+        .evaluate((element) => element.scrollWidth - element.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(1);
+    }
+    await resizeWindow(application, 1250, 744);
+    const mandatoryReview = page.getByLabel("Mandatory review");
+    await mandatoryReview.click();
+    await page.waitForTimeout(150);
+    const reviewPolicyError =
+      (await page.locator(".qa-banner").textContent()) ?? "";
+    expect(mandatoryReview, reviewPolicyError).not.toBeChecked();
+    await expect(page.getByText(/Direct sign-off is enabled/u)).toBeVisible();
+    await expect(page.locator(".qa-issue-row").first()).toBeVisible();
+    await expect(
+      page.getByText("Temporary draft marker remains"),
+    ).toBeVisible();
+    await expect(page.getByLabel("Review statistics and queue")).toBeVisible();
+    await page.getByLabel("Disposition").selectOption("all");
+    await page.getByLabel("Disposition").selectOption("open");
+    await page
+      .locator(".qa-issue-row", { hasText: "Temporary draft marker remains" })
+      .click();
+    await page.getByRole("button", { name: "Waive finding" }).click();
+    const waiverDialog = page.getByRole("dialog", {
+      name: "Waive this finding",
+    });
+    await waiverDialog.getByLabel("Actor").fill("E2E QA reviewer");
+    await waiverDialog
+      .getByLabel("Reason")
+      .fill("Verified fixture-specific false positive");
+    await waiverDialog.getByRole("button", { name: "Record waiver" }).click();
+    await page.getByLabel("Disposition").selectOption("all");
+    await page
+      .locator(".qa-issue-row", { hasText: "Temporary draft marker remains" })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Revoke waiver" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Revoke waiver" }).click();
+    await expect(
+      page.getByRole("button", { name: "Waive finding" }),
     ).toBeVisible();
     await page.screenshot({ path: "test-results/page-qa-review-1250x744.png" });
-    await page.getByRole("button", { name: "Go to segment" }).click();
+    await page.getByRole("button", { name: "Open segment" }).click();
     await expect(
       page.getByRole("region", { name: "Translation segments" }),
     ).toBeVisible();
     await expect(
-      page.locator(".segment-row").first().locator("textarea"),
+      page.locator(".segment-row").nth(2).locator("textarea"),
     ).toBeFocused();
     await expect(
       page.locator(".segment-row").nth(2).locator("textarea"),
     ).toHaveValue("临时草稿");
+    const firstRowForSignoff = page.locator(".segment-row").first();
+    await firstRowForSignoff.locator("textarea").click();
+    await firstRowForSignoff
+      .getByRole("button", { name: "Open review panel" })
+      .click();
+    await page.getByRole("button", { name: "signed", exact: true }).click();
+    const signoffDialog = page.getByRole("dialog", {
+      name: "Sign off directly",
+    });
+    await signoffDialog.getByLabel("Actor").fill("E2E direct reviewer");
+    await signoffDialog
+      .getByLabel("Reason")
+      .fill("Exercise explicit direct sign-off audit");
+    await signoffDialog.getByRole("button", { name: "Sign off" }).click();
+    await expect(firstRowForSignoff).toContainText("signed");
+    await page
+      .getByRole("button", { name: "translation", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Close review panel" }).click();
     await page.locator(".segment-row").nth(2).locator("textarea").fill("");
     await expect(page.locator(".save-indicator")).toContainText("Saved");
 
@@ -342,17 +477,40 @@ test("manages the offline Assistant and real workspace projections", async () =>
     await expect(page.locator(".save-indicator")).toContainText("Saved");
     await page.getByRole("button", { name: "Confirm", exact: true }).click();
     await page.getByRole("button", { name: "Run QA" }).click();
-    await expect(page.getByText("No open QA issues")).toBeVisible();
 
     await openApplicationMenu(page);
     await page.getByRole("button", { name: "Export review" }).click();
     await expect(
-      page.getByRole("heading", { name: "Review before export" }),
+      page.getByRole("heading", { name: "Export review" }),
     ).toBeVisible();
+    await expect(page.getByText("Publication blocked")).toBeVisible();
+    for (const viewport of [
+      { width: 1250, height: 744, label: "1250x744" },
+      { width: 1680, height: 942, label: "1680x942" },
+      { width: 1920, height: 1080, label: "1920x1080" },
+    ]) {
+      await resizeWindow(application, viewport.width, viewport.height);
+      await page.waitForTimeout(100);
+      await page.screenshot({
+        path: `test-results/export-review-${viewport.label}.png`,
+      });
+      const overflow = await page
+        .locator(".export-review-workspace")
+        .evaluate((element) => element.scrollWidth - element.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(1);
+    }
+    await resizeWindow(application, 1250, 744);
     await page.screenshot({ path: "test-results/page-export-1250x744.png" });
-    await page.getByRole("button", { name: "Export DOCX" }).click();
+    await page.getByLabel("Override the QA delivery gate").check();
+    await page.getByLabel("Actor").fill("E2E delivery reviewer");
+    await page
+      .getByLabel("Reason")
+      .fill(
+        "Fixture intentionally leaves untranslated segments for round-trip coverage",
+      );
+    await page.getByRole("button", { name: "Export document" }).click();
     await expect(
-      page.getByText(/Exported 1 translated segments/u),
+      page.getByText(/Exported \d+ translated segments/u),
     ).toBeVisible();
     expect(statSync(exportPath).size).toBeGreaterThan(0);
     expect(consoleErrors).toEqual([]);
@@ -558,7 +716,7 @@ test("uses the authoritative professional editor commands", async () => {
       firstRow.locator(".target-tag-strip .tag-capsule"),
     ).toHaveCount(4);
     await page.getByRole("button", { name: "Confirm", exact: true }).click();
-    await expect(firstRow).toContainText("Confirmed");
+    await expect(firstRow).toContainText("Issues");
 
     await firstTarget.fill("保留期为");
     await expect(

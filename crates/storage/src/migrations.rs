@@ -2,7 +2,7 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use crate::{Result, StorageError};
 
-pub(crate) const LATEST_SCHEMA_VERSION: u32 = 8;
+pub(crate) const LATEST_SCHEMA_VERSION: u32 = 9;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -750,6 +750,142 @@ CREATE INDEX ai_messages_conversation_idx
     ON ai_messages(conversation_id, created_at_ms, id);
 "#;
 
+const MIGRATION_9: &str = r#"
+CREATE TABLE qa_profiles (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    owner_project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+    built_in INTEGER NOT NULL CHECK (built_in IN (0, 1)),
+    definition_json TEXT NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX qa_profiles_owner_idx
+    ON qa_profiles(owner_project_id, built_in DESC, updated_at_ms DESC, id);
+
+CREATE TABLE qa_runs (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
+    scope TEXT NOT NULL CHECK (scope IN ('document', 'project')),
+    profile_id TEXT NOT NULL REFERENCES qa_profiles(id) ON DELETE RESTRICT,
+    profile_name TEXT NOT NULL,
+    profile_revision INTEGER NOT NULL CHECK (profile_revision >= 0),
+    profile_snapshot_hash TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed')),
+    checked_segments INTEGER NOT NULL DEFAULT 0 CHECK (checked_segments >= 0),
+    errors INTEGER NOT NULL DEFAULT 0 CHECK (errors >= 0),
+    warnings INTEGER NOT NULL DEFAULT 0 CHECK (warnings >= 0),
+    info INTEGER NOT NULL DEFAULT 0 CHECK (info >= 0),
+    waived INTEGER NOT NULL DEFAULT 0 CHECK (waived >= 0),
+    created_at_ms INTEGER NOT NULL,
+    completed_at_ms INTEGER
+) STRICT;
+
+CREATE INDEX qa_runs_project_idx
+    ON qa_runs(project_id, created_at_ms DESC, id);
+CREATE INDEX qa_runs_document_idx
+    ON qa_runs(document_id, created_at_ms DESC, id);
+
+ALTER TABLE qa_issues ADD COLUMN category TEXT NOT NULL DEFAULT 'numbers'
+    CHECK (category IN (
+        'completeness', 'numbers', 'tags', 'punctuation', 'whitespace',
+        'repetition', 'length', 'terminology', 'consistency', 'custom'
+    ));
+ALTER TABLE qa_issues ADD COLUMN profile_id TEXT REFERENCES qa_profiles(id) ON DELETE SET NULL;
+ALTER TABLE qa_issues ADD COLUMN run_id TEXT REFERENCES qa_runs(id) ON DELETE SET NULL;
+UPDATE qa_issues SET category = 'terminology' WHERE rule_id LIKE 'term-forbidden:%';
+
+CREATE INDEX qa_issues_gate_idx
+    ON qa_issues(status, severity, segment_id, category, rule_id);
+CREATE INDEX qa_issues_run_idx ON qa_issues(run_id, segment_id, rule_id);
+
+CREATE TABLE qa_waivers (
+    id TEXT PRIMARY KEY,
+    issue_id TEXT NOT NULL REFERENCES qa_issues(id) ON DELETE CASCADE,
+    fingerprint TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    created_at_ms INTEGER NOT NULL,
+    revoked_at_ms INTEGER,
+    UNIQUE(issue_id, fingerprint)
+) STRICT;
+
+CREATE INDEX qa_waivers_active_idx
+    ON qa_waivers(issue_id, fingerprint, revoked_at_ms);
+
+CREATE TABLE qa_run_items (
+    run_id TEXT NOT NULL REFERENCES qa_runs(id) ON DELETE CASCADE,
+    issue_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    document_name TEXT NOT NULL,
+    segment_id TEXT NOT NULL,
+    segment_ordinal INTEGER NOT NULL CHECK (segment_ordinal >= 0),
+    rule_id TEXT NOT NULL,
+    category TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    disposition TEXT NOT NULL CHECK (disposition IN ('open', 'waived', 'resolved')),
+    message TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,
+    waiver_actor TEXT,
+    waiver_reason TEXT,
+    PRIMARY KEY(run_id, issue_id)
+) STRICT;
+
+CREATE INDEX qa_run_items_report_idx
+    ON qa_run_items(run_id, segment_ordinal, rule_id, issue_id);
+
+CREATE TABLE qa_report_records (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES qa_runs(id) ON DELETE CASCADE,
+    format TEXT NOT NULL CHECK (format IN ('html', 'xlsx')),
+    output_path TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    UNIQUE(run_id, format, output_path)
+) STRICT;
+
+CREATE TABLE qa_export_overrides (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    run_id TEXT NOT NULL REFERENCES qa_runs(id) ON DELETE RESTRICT,
+    actor TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    error_count INTEGER NOT NULL CHECK (error_count > 0),
+    destination_name TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'succeeded', 'failed')),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX qa_export_overrides_project_idx
+    ON qa_export_overrides(project_id, created_at_ms DESC, id);
+
+INSERT INTO qa_profiles (
+    id, name, owner_project_id, built_in, definition_json, revision,
+    created_at_ms, updated_at_ms
+) VALUES
+    ('builtin.qa.standard', 'Standard', NULL, 1, '{}', 0, 0, 0),
+    ('builtin.qa.cjk-professional', 'CJK professional', NULL, 1, '{}', 0, 0, 0);
+"#;
+
+const MIGRATIONS: [(u32, &str); 9] = [
+    (1_u32, MIGRATION_1),
+    (2_u32, MIGRATION_2),
+    (3_u32, MIGRATION_3),
+    (4_u32, MIGRATION_4),
+    (5_u32, MIGRATION_5),
+    (6_u32, MIGRATION_6),
+    (7_u32, MIGRATION_7),
+    (8_u32, MIGRATION_8),
+    (9_u32, MIGRATION_9),
+];
+
 pub(crate) fn configure_connection(connection: &Connection) -> Result<()> {
     connection.execute_batch(
         "PRAGMA foreign_keys = ON;\n\
@@ -770,18 +906,16 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<()> {
         });
     }
 
-    for (version, sql) in [
-        (1_u32, MIGRATION_1),
-        (2_u32, MIGRATION_2),
-        (3_u32, MIGRATION_3),
-        (4_u32, MIGRATION_4),
-        (5_u32, MIGRATION_5),
-        (6_u32, MIGRATION_6),
-        (7_u32, MIGRATION_7),
-        (8_u32, MIGRATION_8),
-    ] {
+    migrate_from_to(connection, current, LATEST_SCHEMA_VERSION)
+}
+
+fn migrate_from_to(connection: &mut Connection, current: u32, target: u32) -> Result<()> {
+    for (version, sql) in MIGRATIONS {
         if version <= current {
             continue;
+        }
+        if version > target {
+            break;
         }
 
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -791,4 +925,118 @@ pub(crate) fn migrate(connection: &mut Connection) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use rusqlite::Connection;
+
+    use super::*;
+
+    fn create_v8(connection: &mut Connection) {
+        migrate_from_to(connection, 0, 8).expect("create schema v8");
+    }
+
+    #[test]
+    fn migration_9_upgrades_legacy_qa_rows_and_survives_reopen() {
+        let temp = tempfile::tempdir().expect("temporary migration directory");
+        let database = temp.path().join("translunar.sqlite3");
+        let mut connection = Connection::open(&database).expect("open v8 database");
+        create_v8(&mut connection);
+        connection
+            .execute(
+                "INSERT INTO projects (
+                    id, name, source_locale, target_locale, domain, created_at_ms, updated_at_ms
+                 ) VALUES ('p9', 'Migration 9', 'en-US', 'zh-CN', 'legal', 1, 1)",
+                [],
+            )
+            .expect("insert v8 project");
+        connection
+            .execute(
+                "INSERT INTO documents (
+                    id, project_id, name, format, source_sha256, original_source_path,
+                    managed_source_path, segment_count, imported_at_ms
+                 ) VALUES ('d9', 'p9', 'legacy.txt', 'txt', 'hash', 'legacy.txt',
+                           'sources/d9.txt', 1, 2)",
+                [],
+            )
+            .expect("insert v8 document");
+        connection
+            .execute(
+                "INSERT INTO segments (
+                    id, document_id, ordinal, structural_path, source_text, target_text,
+                    state, revision, source_hash, context_hash, updated_at_ms
+                 ) VALUES ('s9', 'd9', 0, 'txt:0', 'paragraph', '禁用词',
+                           'draft', 1, 'source-hash', 'context-hash', 3)",
+                [],
+            )
+            .expect("insert v8 segment");
+        connection
+            .execute(
+                "INSERT INTO qa_issues (
+                    id, segment_id, rule_id, severity, status, message,
+                    fingerprint, evidence_json, created_at_ms, updated_at_ms
+                 ) VALUES ('q9', 's9', 'term-forbidden:legacy', 'warning', 'open',
+                           'legacy terminology', 'legacy-fingerprint', '{}', 4, 4)",
+                [],
+            )
+            .expect("insert v8 QA issue");
+
+        migrate(&mut connection).expect("upgrade to schema v9");
+        drop(connection);
+
+        let connection = Connection::open(database).expect("reopen upgraded database");
+        let version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read upgraded version");
+        assert_eq!(version, 9);
+        let category = connection
+            .query_row(
+                "SELECT category FROM qa_issues WHERE id = 'q9'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("read migrated QA category");
+        assert_eq!(category, "terminology");
+        let built_ins = connection
+            .query_row(
+                "SELECT COUNT(*) FROM qa_profiles WHERE built_in = 1",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("count built-in profiles");
+        assert_eq!(built_ins, 2);
+    }
+
+    #[test]
+    fn migration_9_rolls_back_every_prior_statement_on_failure() {
+        let mut connection = Connection::open_in_memory().expect("open migration database");
+        create_v8(&mut connection);
+        connection
+            .execute("CREATE TABLE qa_waivers (id TEXT PRIMARY KEY) STRICT", [])
+            .expect("create conflicting late migration table");
+
+        assert!(migrate(&mut connection).is_err());
+        let version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read rolled-back version");
+        assert_eq!(version, 8);
+        let profile_table_count = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name = 'qa_profiles'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("check rolled-back table");
+        assert_eq!(profile_table_count, 0);
+        let category_column_count = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('qa_issues') WHERE name = 'category'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("check rolled-back column");
+        assert_eq!(category_column_count, 0);
+    }
 }

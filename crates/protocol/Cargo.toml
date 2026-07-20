@@ -14,6 +14,7 @@ translunar-domain = { path = "../domain" }
 translunar-asset-core = { path = "../asset-core" }
 translunar-filter-core = { path = "../filter-core" }
 translunar-pipeline = { path = "../pipeline" }
+translunar-qa-core = { path = "../qa-core" }
 
 [[bin]]
 name = "export-schema"

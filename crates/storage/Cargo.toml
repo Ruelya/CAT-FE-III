@@ -18,6 +18,7 @@ translunar-editor-core = { path = "../editor-core" }
 translunar-asset-core = { path = "../asset-core" }
 translunar-filter-core = { path = "../filter-core" }
 translunar-pipeline = { path = "../pipeline" }
+translunar-qa-core = { path = "../qa-core" }
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -168,17 +168,30 @@ function registerIpc(): void {
     IPC_CHANNELS.selectExport,
     async (event, suggestedName: unknown) => {
       assertTrustedSender(event);
-      if (process.env.TRANSLUNAR_TEST_EXPORT_DOCX) {
-        return process.env.TRANSLUNAR_TEST_EXPORT_DOCX;
-      }
       const safeName =
         typeof suggestedName === "string" && suggestedName.trim()
           ? suggestedName.replaceAll(/[\\/:*?"<>|]/gu, "-")
           : "translation.docx";
+      if (
+        process.env.TRANSLUNAR_TEST_EXPORT_DIRECTORY &&
+        safeName.startsWith("qa-")
+      ) {
+        return join(process.env.TRANSLUNAR_TEST_EXPORT_DIRECTORY, safeName);
+      }
+      if (process.env.TRANSLUNAR_TEST_EXPORT_DOCX) {
+        return process.env.TRANSLUNAR_TEST_EXPORT_DOCX;
+      }
+      const extension = safeName.match(/\.([^.]+)$/u)?.[1]?.toLowerCase();
+      const filters =
+        extension === "html"
+          ? [{ name: "HTML reports", extensions: ["html"] }]
+          : extension === "xlsx"
+            ? [{ name: "Excel workbooks", extensions: ["xlsx"] }]
+            : [{ name: "Source format", extensions: [extension ?? "docx"] }];
       const result = await dialog.showSaveDialog(requireWindow(), {
-        title: "Export translated DOCX",
+        title: "Export Translunar file",
         defaultPath: join(app.getPath("documents"), safeName),
-        filters: [{ name: "Word documents", extensions: ["docx"] }],
+        filters,
       });
       return result.canceled ? null : (result.filePath ?? null);
     },

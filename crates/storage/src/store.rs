@@ -40,10 +40,12 @@ use crate::migrations::{LATEST_SCHEMA_VERSION, configure_connection, migrate};
 use crate::{Result, StorageError};
 
 mod ai;
+mod qa;
 pub use ai::{
     AiProviderProfileUpdate, AiSettingsUpdate, NewAiBatchItem, NewAiBatchRun, NewAiProviderProfile,
     NewAiRun,
 };
+pub use qa::{NewQaProfile, QaIssueFilter, QaProfileUpdate};
 
 const NUMBER_RULE_ID: &str = "number-mismatch";
 const NUMBER_RULE_MESSAGE: &str = "Source and target numbers do not match.";
@@ -3092,17 +3094,19 @@ impl Store {
             .revision
             .checked_add(1)
             .ok_or_else(|| StorageError::InvalidData("segment revision overflow".to_string()))?;
+        let updated_at_ms = now_ms();
         transaction.execute(
             "UPDATE segments SET revision = ?1, updated_at_ms = ?2 WHERE id = ?3 AND revision = ?4",
             params![
                 to_i64(next_revision)?,
-                now_ms(),
+                updated_at_ms,
                 segment_id,
                 to_i64(expected_revision)?
             ],
         )?;
         let updated = find_segment(&transaction, segment_id)?;
         let stored_target_tags = list_inline_tags(&transaction, segment_id, TagSide::Target)?;
+        qa::reconcile_segment_local_qa(&transaction, segment_id, updated_at_ms)?;
         let project_id = project_id_for_segment(&transaction, segment_id)?;
         let operation = append_operation(
             &transaction,
@@ -4549,11 +4553,30 @@ impl Store {
         state: EditorWorkflowState,
         expected_revision: u64,
     ) -> Result<EditorMutation> {
+        self.set_editor_workflow_with_context(
+            segment_id,
+            state,
+            expected_revision,
+            LEGACY_DESKTOP_ACTOR,
+            None,
+        )
+    }
+
+    pub fn set_editor_workflow_with_context(
+        &mut self,
+        segment_id: &str,
+        state: EditorWorkflowState,
+        expected_revision: u64,
+        actor: &str,
+        reason: Option<&str>,
+    ) -> Result<EditorMutation> {
+        require_nonempty("workflow actor", actor)?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let current = find_segment(&transaction, segment_id)?;
         ensure_revision(&current, expected_revision)?;
+        let project_id = project_id_for_segment(&transaction, segment_id)?;
         let current_state = transaction.query_row(
             "SELECT workflow_state FROM segment_editor_meta WHERE segment_id = ?1",
             [segment_id],
@@ -4574,10 +4597,31 @@ impl Store {
                 "review and signed workflow states require a confirmed segment".to_string(),
             ));
         }
-        if state == EditorWorkflowState::Signed && current_state != "review" {
-            return Err(StorageError::InvalidState(
-                "a segment must pass through review before it can be signed".to_string(),
-            ));
+        let direct_sign_off = state == EditorWorkflowState::Signed && current_state != "review";
+        if direct_sign_off {
+            let configuration_json = transaction.query_row(
+                "SELECT configuration_json FROM projects WHERE id = ?1",
+                [&project_id],
+                |row| row.get::<_, String>(0),
+            )?;
+            let configuration: ProjectConfiguration = serde_json::from_str(&configuration_json)?;
+            if configuration.review_required {
+                return Err(StorageError::InvalidState(
+                    "a segment must pass through review before it can be signed".to_string(),
+                ));
+            }
+            let reason = reason
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| {
+                    StorageError::InvalidState(
+                        "direct sign-off requires a non-empty reason".to_string(),
+                    )
+                })?;
+            if reason.chars().count() > 1_000 {
+                return Err(StorageError::InvalidState(
+                    "direct sign-off reason cannot exceed 1000 characters".to_string(),
+                ));
+            }
         }
         if state == EditorWorkflowState::Signed {
             let pending: i64 = transaction.query_row(
@@ -4614,7 +4658,6 @@ impl Store {
             params![next_state, now, segment_id],
         )?;
         let updated = find_segment(&transaction, segment_id)?;
-        let project_id = project_id_for_segment(&transaction, segment_id)?;
         let operation = append_operation(
             &transaction,
             &project_id,
@@ -4623,10 +4666,15 @@ impl Store {
             "segment.workflow.set",
             Some(current.revision),
             Some(updated.revision),
-            LEGACY_DESKTOP_ACTOR,
+            actor,
             Some(next_state),
             Some(serde_json::json!({"segment": current, "workflowState": current_state})),
-            Some(serde_json::json!({"segment": updated, "workflowState": next_state})),
+            Some(serde_json::json!({
+                "segment": updated,
+                "workflowState": next_state,
+                "directSignOff": direct_sign_off,
+                "directSignOffReason": reason,
+            })),
         )?;
         let history_after = capture_structural_history(&transaction, [segment_id])?;
         append_editor_operation(
@@ -4636,8 +4684,8 @@ impl Store {
             segment_id,
             Some(current.revision),
             Some(updated.revision),
-            LEGACY_DESKTOP_ACTOR,
-            Some(next_state),
+            actor,
+            reason.or(Some(next_state)),
             &history_before,
             &history_after,
         )?;
@@ -4720,6 +4768,7 @@ impl Store {
         }
         clamp_inline_tag_positions(&transaction, segment_id, TagSide::Target, target_text)?;
         let updated = find_segment(&transaction, segment_id)?;
+        qa::reconcile_segment_local_qa(&transaction, segment_id, updated_at_ms)?;
         let project_id = project_id_for_segment(&transaction, segment_id)?;
         append_operation(
             &transaction,
@@ -4956,6 +5005,7 @@ impl Store {
             &project_id,
             now,
         )?);
+        qa::reconcile_segment_local_qa(&transaction, segment_id, now)?;
         let mut propagation_statement = transaction.prepare(
             "SELECT s.id, s.document_id, s.ordinal, s.structural_path, s.source_text,
                     s.target_text, s.state, s.revision, s.source_hash, s.context_hash,
@@ -5010,6 +5060,7 @@ impl Store {
             insert_target_tags(&transaction, &candidate.id, &propagation_tags)?;
             let updated = find_segment(&transaction, &candidate.id)?;
             let _ = reconcile_number_qa(&transaction, &updated, now)?;
+            qa::reconcile_segment_local_qa(&transaction, &candidate.id, now)?;
             append_operation(
                 &transaction,
                 &project_id,
@@ -8192,10 +8243,14 @@ mod tests {
             .confirm_segment(&segment.id, draft.revision)
             .expect("confirm mismatch");
         assert_eq!(first.segment.state, SegmentState::Confirmed);
-        assert_eq!(first.qa_issues.len(), 1);
-        assert_eq!(first.qa_issues[0].evidence.source_numbers, vec!["30"]);
-        assert_eq!(first.qa_issues[0].evidence.target_numbers, vec!["60"]);
-        let issue_id = first.qa_issues[0].id.clone();
+        let number_issue = first
+            .qa_issues
+            .iter()
+            .find(|issue| issue.rule_id == NUMBER_RULE_ID)
+            .expect("legacy number issue");
+        assert_eq!(number_issue.evidence.source_numbers, vec!["30"]);
+        assert_eq!(number_issue.evidence.target_numbers, vec!["60"]);
+        let issue_id = number_issue.id.clone();
 
         let second = fixture
             .store
@@ -8220,15 +8275,20 @@ mod tests {
             .store
             .list_qa(&fixture.document.id, true)
             .expect("list all issues");
-        assert_eq!(all_issues.len(), 1);
-        assert_eq!(all_issues[0].id, issue_id);
-        assert_eq!(all_issues[0].status, QaIssueStatus::Resolved);
+        let resolved_number = all_issues
+            .iter()
+            .find(|issue| issue.id == issue_id)
+            .expect("resolved legacy number issue");
+        assert_eq!(resolved_number.status, QaIssueStatus::Resolved);
         assert!(
             fixture
                 .store
                 .list_qa(&fixture.document.id, false)
                 .expect("list open issues")
-                .is_empty()
+                .iter()
+                .all(|issue| {
+                    issue.rule_id != NUMBER_RULE_ID && issue.rule_id != "qa.number-mismatch"
+                })
         );
     }
 

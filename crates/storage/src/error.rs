@@ -38,6 +38,9 @@ pub enum StorageError {
     #[error("invalid state: {0}")]
     InvalidState(String),
 
+    #[error("invalid QA profile: {0}")]
+    QaProfileInvalid(String),
+
     #[error("invalid stored data: {0}")]
     InvalidData(String),
 

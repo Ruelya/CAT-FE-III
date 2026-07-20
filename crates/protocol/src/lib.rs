@@ -21,6 +21,8 @@ use translunar_pipeline::{
 
 mod ai;
 pub use ai::*;
+mod qa;
+pub use qa::*;
 
 pub const PROTOCOL_VERSION: u32 = 1;
 
@@ -65,6 +67,8 @@ pub mod methods {
     pub const REVIEW_LIST: &str = "review.list";
     pub const REVIEW_ACCEPT: &str = "review.accept";
     pub const REVIEW_REJECT: &str = "review.reject";
+    pub const REVIEW_QUEUE: &str = "review.queue";
+    pub const REVIEW_STATS: &str = "review.stats";
     pub const EDITOR_PREFERENCES_GET: &str = "editor.preferences.get";
     pub const EDITOR_PREFERENCES_UPDATE: &str = "editor.preferences.update";
     pub const PDF_PAGE_LIST: &str = "pdf.page.list";
@@ -89,6 +93,20 @@ pub mod methods {
     pub const TERMBASE_EXPORT: &str = "termbase.export";
     pub const QA_RUN_DOCUMENT: &str = "qa.runDocument";
     pub const QA_LIST: &str = "qa.list";
+    pub const QA_PROFILE_LIST: &str = "qa.profile.list";
+    pub const QA_PROFILE_CREATE: &str = "qa.profile.create";
+    pub const QA_PROFILE_CLONE: &str = "qa.profile.clone";
+    pub const QA_PROFILE_UPDATE: &str = "qa.profile.update";
+    pub const QA_PROFILE_DELETE: &str = "qa.profile.delete";
+    pub const QA_RUN: &str = "qa.run";
+    pub const QA_RUN_LIST: &str = "qa.run.list";
+    pub const QA_RUN_GET: &str = "qa.run.get";
+    pub const QA_ISSUE_LIST: &str = "qa.issue.list";
+    pub const QA_ISSUE_WAIVE: &str = "qa.issue.waive";
+    pub const QA_ISSUE_REVOKE: &str = "qa.issue.revoke";
+    pub const QA_REPORT_EXPORT: &str = "qa.report.export";
+    pub const QA_GATE_CHECK: &str = "qa.gate.check";
+    pub const QA_OVERRIDE_LIST: &str = "qa.override.list";
     pub const DOCUMENT_EXPORT_DOCX: &str = "document.exportDocx";
     pub const DOCUMENT_EXPORT: &str = "document.export";
     pub const FILTER_LIST: &str = "filter.list";
@@ -195,6 +213,9 @@ pub enum ErrorCode {
     UnsupportedDocument,
     StorageError,
     ExportError,
+    QaGateBlocked,
+    QaProfileInvalid,
+    ReportExportError,
     CredentialUnavailable,
     AiDisabled,
     BudgetExceeded,
@@ -697,6 +718,10 @@ pub struct SetEditorWorkflowParams {
     pub segment_id: String,
     pub state: EditorWorkflowState,
     pub expected_revision: u64,
+    #[serde(default)]
+    pub actor: Option<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -1152,6 +1177,8 @@ pub struct ListQaParams {
 pub struct ExportDocxParams {
     pub document_id: String,
     pub output_path: String,
+    #[serde(default)]
+    pub qa_override: Option<QaOverrideInput>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -1159,6 +1186,8 @@ pub struct ExportDocxParams {
 pub struct ExportDocumentParams {
     pub document_id: String,
     pub output_path: String,
+    #[serde(default)]
+    pub qa_override: Option<QaOverrideInput>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -1484,6 +1513,10 @@ pub struct RpcMethodCatalog {
     pub review_accept: MethodContract<ReviewDecisionParams, EditorMutationResult>,
     #[serde(rename = "review.reject")]
     pub review_reject: MethodContract<ReviewDecisionParams, ReviewRevision>,
+    #[serde(rename = "review.queue")]
+    pub review_queue: MethodContract<ReviewQueueParams, ReviewQueuePage>,
+    #[serde(rename = "review.stats")]
+    pub review_stats: MethodContract<ReviewStatisticsParams, ReviewStatisticsResult>,
     #[serde(rename = "editor.preferences.get")]
     pub editor_preferences_get: MethodContract<EmptyParams, EditorPreferences>,
     #[serde(rename = "editor.preferences.update")]
@@ -1532,6 +1565,34 @@ pub struct RpcMethodCatalog {
     pub qa_run_document: MethodContract<DocumentIdParams, QaListResult>,
     #[serde(rename = "qa.list")]
     pub qa_list: MethodContract<ListQaParams, QaListResult>,
+    #[serde(rename = "qa.profile.list")]
+    pub qa_profile_list: MethodContract<QaProfileListParams, QaProfilePage>,
+    #[serde(rename = "qa.profile.create")]
+    pub qa_profile_create: MethodContract<QaProfileCreateParams, translunar_qa_core::QaProfile>,
+    #[serde(rename = "qa.profile.clone")]
+    pub qa_profile_clone: MethodContract<QaProfileCloneParams, translunar_qa_core::QaProfile>,
+    #[serde(rename = "qa.profile.update")]
+    pub qa_profile_update: MethodContract<QaProfileUpdateParams, translunar_qa_core::QaProfile>,
+    #[serde(rename = "qa.profile.delete")]
+    pub qa_profile_delete: MethodContract<QaProfileDeleteParams, EmptyResult>,
+    #[serde(rename = "qa.run")]
+    pub qa_run: MethodContract<QaRunParams, QaRunResult>,
+    #[serde(rename = "qa.run.list")]
+    pub qa_run_list: MethodContract<QaRunListParams, QaRunPage>,
+    #[serde(rename = "qa.run.get")]
+    pub qa_run_get: MethodContract<QaRunIdParams, QaRunResult>,
+    #[serde(rename = "qa.issue.list")]
+    pub qa_issue_list: MethodContract<QaIssueListParams, QaIssuePage>,
+    #[serde(rename = "qa.issue.waive")]
+    pub qa_issue_waive: MethodContract<QaIssueWaiveParams, translunar_qa_core::QaIssueView>,
+    #[serde(rename = "qa.issue.revoke")]
+    pub qa_issue_revoke: MethodContract<QaIssueRevokeParams, translunar_qa_core::QaIssueView>,
+    #[serde(rename = "qa.report.export")]
+    pub qa_report_export: MethodContract<QaReportExportParams, QaReportExportResult>,
+    #[serde(rename = "qa.gate.check")]
+    pub qa_gate_check: MethodContract<QaGateCheckParams, QaGateCheckResult>,
+    #[serde(rename = "qa.override.list")]
+    pub qa_override_list: MethodContract<QaOverrideListParams, QaOverridePage>,
     #[serde(rename = "document.exportDocx")]
     pub document_export_docx: MethodContract<ExportDocxParams, ExportDocxResult>,
     #[serde(rename = "document.export")]
@@ -1681,6 +1742,28 @@ pub struct ProtocolCatalog {
     pub termbase_export_params: TermbaseExportParams,
     pub termbase_export_result: TermbaseExportResult,
     pub list_qa_params: ListQaParams,
+    pub qa_profile_list_params: QaProfileListParams,
+    pub qa_profile_create_params: QaProfileCreateParams,
+    pub qa_profile_clone_params: QaProfileCloneParams,
+    pub qa_profile_update_params: QaProfileUpdateParams,
+    pub qa_profile_delete_params: QaProfileDeleteParams,
+    pub qa_profile_page: QaProfilePage,
+    pub qa_run_params: QaRunParams,
+    pub qa_run_list_params: QaRunListParams,
+    pub qa_run_id_params: QaRunIdParams,
+    pub qa_run_page: QaRunPage,
+    pub qa_issue_list_params: QaIssueListParams,
+    pub qa_issue_page: QaIssuePage,
+    pub qa_issue_waive_params: QaIssueWaiveParams,
+    pub qa_issue_revoke_params: QaIssueRevokeParams,
+    pub qa_report_export_params: QaReportExportParams,
+    pub qa_gate_check_params: QaGateCheckParams,
+    pub qa_override_input: QaOverrideInput,
+    pub qa_override_list_params: QaOverrideListParams,
+    pub qa_override_page: QaOverridePage,
+    pub review_queue_params: ReviewQueueParams,
+    pub review_queue_page: ReviewQueuePage,
+    pub review_statistics_params: ReviewStatisticsParams,
     pub export_docx_params: ExportDocxParams,
     pub export_document_params: ExportDocumentParams,
     pub history_list_params: HistoryListParams,
@@ -1762,5 +1845,28 @@ mod tests {
             serde_json::to_string(&ErrorCode::UnsupportedDocument).expect("serialize"),
             "\"unsupported_document\""
         );
+        assert_eq!(
+            serde_json::to_string(&ErrorCode::QaGateBlocked).expect("serialize QA gate code"),
+            "\"qa_gate_blocked\""
+        );
+    }
+
+    #[test]
+    fn qa_additions_preserve_legacy_export_and_workflow_requests() {
+        let export: ExportDocumentParams = serde_json::from_value(serde_json::json!({
+            "documentId": "document",
+            "outputPath": "delivery.docx"
+        }))
+        .expect("deserialize legacy export request");
+        assert!(export.qa_override.is_none());
+
+        let workflow: SetEditorWorkflowParams = serde_json::from_value(serde_json::json!({
+            "segmentId": "segment",
+            "state": "review",
+            "expectedRevision": 4
+        }))
+        .expect("deserialize legacy workflow request");
+        assert!(workflow.actor.is_none());
+        assert!(workflow.reason.is_none());
     }
 }

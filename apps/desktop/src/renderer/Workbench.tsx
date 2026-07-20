@@ -241,6 +241,9 @@ export function Workbench({
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [commentEditText, setCommentEditText] = useState("");
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [directSignoffOpen, setDirectSignoffOpen] = useState(false);
+  const [directSignoffActor, setDirectSignoffActor] = useState("");
+  const [directSignoffReason, setDirectSignoffReason] = useState("");
   const [reviewTarget, setReviewTarget] = useState("");
   const [reviewSource, setReviewSource] = useState("");
   const [reviewCopyTags, setReviewCopyTags] = useState(false);
@@ -1209,7 +1212,10 @@ export function Workbench({
     }
   };
 
-  const setWorkflowState = async (next: EditorWorkflowState) => {
+  const setWorkflowState = async (
+    next: EditorWorkflowState,
+    decision?: { actor: string; reason: string },
+  ) => {
     if (!activeEditorRow) return;
     try {
       const saved = await persistSegment(activeEditorRow.segment.id);
@@ -1218,15 +1224,25 @@ export function Workbench({
           segmentId: saved.id,
           state: next,
           expectedRevision: saved.revision,
+          ...(decision ? decision : {}),
         }),
       );
+      return true;
     } catch (error) {
       setToast(formatError(error));
+      return false;
     }
   };
 
   const advanceWorkflow = async () => {
     if (!activeEditorRow) return;
+    if (
+      activeEditorRow.workflowState === "translation" &&
+      snapshot.project.configuration.reviewRequired === false
+    ) {
+      setDirectSignoffOpen(true);
+      return;
+    }
     const next: EditorWorkflowState =
       activeEditorRow.workflowState === "translation"
         ? "review"
@@ -1234,6 +1250,30 @@ export function Workbench({
           ? "signed"
           : "translation";
     await setWorkflowState(next);
+  };
+
+  const requestWorkflowState = (next: EditorWorkflowState) => {
+    if (
+      next === "signed" &&
+      activeEditorRow?.workflowState === "translation" &&
+      snapshot.project.configuration.reviewRequired === false
+    ) {
+      setDirectSignoffOpen(true);
+      return;
+    }
+    void setWorkflowState(next);
+  };
+
+  const confirmDirectSignoff = async () => {
+    if (!directSignoffActor.trim() || !directSignoffReason.trim()) return;
+    const signed = await setWorkflowState("signed", {
+      actor: directSignoffActor.trim(),
+      reason: directSignoffReason.trim(),
+    });
+    if (!signed) return;
+    setDirectSignoffOpen(false);
+    setDirectSignoffActor("");
+    setDirectSignoffReason("");
   };
 
   const undoEditor = async () => {
@@ -2984,6 +3024,62 @@ export function Workbench({
         </aside>
       ) : null}
 
+      {directSignoffOpen ? (
+        <div className="surface-dialog-backdrop">
+          <section
+            className="surface-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="direct-signoff-title"
+          >
+            <span className="surface-kicker">Review bypass</span>
+            <h2 id="direct-signoff-title">Sign off directly</h2>
+            <p>
+              Mandatory review is disabled for this project. This explicit
+              decision is written to durable editor history.
+            </p>
+            <label>
+              Actor
+              <input
+                autoFocus
+                value={directSignoffActor}
+                onChange={(event) =>
+                  setDirectSignoffActor(event.currentTarget.value)
+                }
+              />
+            </label>
+            <label>
+              Reason
+              <textarea
+                value={directSignoffReason}
+                onChange={(event) =>
+                  setDirectSignoffReason(event.currentTarget.value)
+                }
+              />
+            </label>
+            <footer>
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => setDirectSignoffOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="button primary"
+                disabled={
+                  !directSignoffActor.trim() || !directSignoffReason.trim()
+                }
+                onClick={() => void confirmDirectSignoff()}
+              >
+                Sign off
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
+
       {reviewOpen ? (
         <aside
           className="comments-sheet review-sheet"
@@ -3015,7 +3111,7 @@ export function Workbench({
                   key={state}
                   aria-pressed={activeEditorRow?.workflowState === state}
                   disabled={activeEditorRow?.workflowState === state}
-                  onClick={() => void setWorkflowState(state)}
+                  onClick={() => requestWorkflowState(state)}
                 >
                   {state}
                 </button>

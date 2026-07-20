@@ -1,1 +1,4 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"type":"spec","file":".trellis/spec/backend/engine-boundary.md","reason":"Verify rules and export gates do not leak into renderer code and every mutation remains revision/transaction safe."}
+{"type":"spec","file":".trellis/spec/backend/quality-guidelines.md","reason":"Verify multilingual rule fixtures, migration/restart tests, report validation, and full cross-platform gates."}
+{"type":"spec","file":".trellis/spec/frontend/electron-workbench.md","reason":"Verify QA, review, reports, overrides, navigation, accessibility, console safety, and three-viewport geometry."}
+{"type":"research","file":".trellis/tasks/07-19-complete-full-cat-prd/research/prd-gap-audit.md","reason":"Cross-check completed H/I coverage and ensure advanced/later requirements were not silently dropped."}

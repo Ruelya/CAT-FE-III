@@ -87,6 +87,7 @@ use translunar_storage::{
 };
 
 mod ai;
+mod qa;
 
 #[derive(Debug, Error)]
 pub enum EngineError {
@@ -110,6 +111,20 @@ pub enum EngineError {
 
     #[error("invalid engine state: {0}")]
     InvalidState(String),
+
+    #[error("QA gate blocked document export")]
+    QaGateBlocked {
+        document_id: String,
+        run_id: String,
+        blocker_issue_ids: Vec<String>,
+        error_count: u64,
+        warning_count: u64,
+        info_count: u64,
+        waived_count: u64,
+    },
+
+    #[error("QA report export failed: {0}")]
+    ReportExport(String),
 
     #[error(transparent)]
     Ai(#[from] AiCoreError),
@@ -1529,11 +1544,16 @@ impl EngineService {
         &mut self,
         params: SetEditorWorkflowParams,
     ) -> Result<EditorMutationResult> {
-        Ok(editor_mutation_result(self.store.set_editor_workflow(
-            &params.segment_id,
-            params.state,
-            params.expected_revision,
-        )?))
+        let actor = params.actor.as_deref().unwrap_or("desktop");
+        Ok(editor_mutation_result(
+            self.store.set_editor_workflow_with_context(
+                &params.segment_id,
+                params.state,
+                params.expected_revision,
+                actor,
+                params.reason.as_deref(),
+            )?,
+        ))
     }
 
     pub fn list_reviews(&self, params: ReviewListParams) -> Result<ReviewListResult> {
@@ -2174,8 +2194,11 @@ impl EngineService {
     }
 
     pub fn run_document_qa(&mut self, document_id: &str) -> Result<QaListResult> {
+        let document = self.store.get_document(document_id)?;
+        self.store
+            .run_qa(&document.document.project_id, Some(document_id), None)?;
         Ok(QaListResult {
-            issues: self.store.run_document_qa(document_id)?,
+            issues: self.store.list_qa(document_id, false)?,
         })
     }
 
@@ -2187,10 +2210,11 @@ impl EngineService {
         })
     }
 
-    pub fn export_docx(&self, params: ExportDocxParams) -> Result<ExportDocxResult> {
+    pub fn export_docx(&mut self, params: ExportDocxParams) -> Result<ExportDocxResult> {
         let result = self.export_document(ExportDocumentParams {
             document_id: params.document_id,
             output_path: params.output_path,
+            qa_override: params.qa_override,
         })?;
         Ok(ExportDocxResult {
             output_path: result.output_path,
@@ -2198,21 +2222,70 @@ impl EngineService {
         })
     }
 
-    pub fn export_document(&self, params: ExportDocumentParams) -> Result<ExportDocumentResult> {
+    pub fn export_document(
+        &mut self,
+        params: ExportDocumentParams,
+    ) -> Result<ExportDocumentResult> {
         let document = self.store.get_document(&params.document_id)?;
         let segments = self.store.all_segments(&params.document_id)?;
         let output_path = PathBuf::from(&params.output_path);
+        let gate =
+            self.store
+                .check_qa_gate(&document.document.project_id, &params.document_id, None)?;
+        let override_id = if gate.clear {
+            if params.qa_override.is_some() {
+                return Err(EngineError::InvalidRequest(
+                    "a clear QA gate does not require an override".to_string(),
+                ));
+            }
+            None
+        } else if let Some(qa_override) = params.qa_override.as_ref() {
+            let destination_name = output_path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| params.output_path.clone());
+            Some(
+                self.store
+                    .create_qa_export_override(
+                        &gate,
+                        &document.document.project_id,
+                        &qa_override.actor,
+                        &qa_override.reason,
+                        &destination_name,
+                    )?
+                    .id,
+            )
+        } else {
+            return Err(EngineError::QaGateBlocked {
+                document_id: gate.document_id,
+                run_id: gate.run.id,
+                blocker_issue_ids: gate.blocker_issue_ids,
+                error_count: gate.error_count,
+                warning_count: gate.warning_count,
+                info_count: gate.info_count,
+                waived_count: gate.waived_count,
+            });
+        };
         let filter = self
             .filters
             .resolve(&document.document.filter_id)
             .map_err(EngineError::Export)?;
-        let report = filter
-            .export(ExportRequest {
-                source: &document.managed_source_path,
-                output: &output_path,
-                segments: &segments,
-            })
-            .map_err(EngineError::Export)?;
+        let report = match filter.export(ExportRequest {
+            source: &document.managed_source_path,
+            output: &output_path,
+            segments: &segments,
+        }) {
+            Ok(report) => report,
+            Err(error) => {
+                if let Some(override_id) = override_id.as_deref() {
+                    let _ = self.store.finish_qa_export_override(override_id, false);
+                }
+                return Err(EngineError::Export(error));
+            }
+        };
+        if let Some(override_id) = override_id.as_deref() {
+            self.store.finish_qa_export_override(override_id, true)?;
+        }
         Ok(ExportDocumentResult {
             output_path: report.output_path,
             filter_id: document.document.filter_id,
@@ -2706,6 +2779,14 @@ impl RpcDispatcher {
             methods::REVIEW_REJECT => {
                 serialize_result(self.service.reject_review(parse_params(request.params)?)?)
             }
+            methods::REVIEW_QUEUE => serialize_result(
+                self.service
+                    .list_review_queue(parse_params(request.params)?)?,
+            ),
+            methods::REVIEW_STATS => serialize_result(
+                self.service
+                    .review_statistics(parse_params(request.params)?)?,
+            ),
             methods::EDITOR_PREFERENCES_GET => serialize_result(
                 self.service
                     .get_editor_preferences(parse_params(request.params)?)?,
@@ -2789,6 +2870,56 @@ impl RpcDispatcher {
             methods::QA_LIST => {
                 serialize_result(self.service.list_qa(parse_params(request.params)?)?)
             }
+            methods::QA_PROFILE_LIST => serialize_result(
+                self.service
+                    .list_qa_profiles(parse_params(request.params)?)?,
+            ),
+            methods::QA_PROFILE_CREATE => serialize_result(
+                self.service
+                    .create_qa_profile(parse_params(request.params)?)?,
+            ),
+            methods::QA_PROFILE_CLONE => serialize_result(
+                self.service
+                    .clone_qa_profile(parse_params(request.params)?)?,
+            ),
+            methods::QA_PROFILE_UPDATE => serialize_result(
+                self.service
+                    .update_qa_profile(parse_params(request.params)?)?,
+            ),
+            methods::QA_PROFILE_DELETE => serialize_result(
+                self.service
+                    .delete_qa_profile(parse_params(request.params)?)?,
+            ),
+            methods::QA_RUN => {
+                serialize_result(self.service.run_qa(parse_params(request.params)?)?)
+            }
+            methods::QA_RUN_LIST => {
+                serialize_result(self.service.list_qa_runs(parse_params(request.params)?)?)
+            }
+            methods::QA_RUN_GET => {
+                serialize_result(self.service.get_qa_run(parse_params(request.params)?)?)
+            }
+            methods::QA_ISSUE_LIST => {
+                serialize_result(self.service.list_qa_issues(parse_params(request.params)?)?)
+            }
+            methods::QA_ISSUE_WAIVE => {
+                serialize_result(self.service.waive_qa_issue(parse_params(request.params)?)?)
+            }
+            methods::QA_ISSUE_REVOKE => serialize_result(
+                self.service
+                    .revoke_qa_issue(parse_params(request.params)?)?,
+            ),
+            methods::QA_REPORT_EXPORT => serialize_result(
+                self.service
+                    .export_qa_report(parse_params(request.params)?)?,
+            ),
+            methods::QA_GATE_CHECK => {
+                serialize_result(self.service.check_qa_gate(parse_params(request.params)?)?)
+            }
+            methods::QA_OVERRIDE_LIST => serialize_result(
+                self.service
+                    .list_qa_overrides(parse_params(request.params)?)?,
+            ),
             methods::DOCUMENT_EXPORT_DOCX => {
                 serialize_result(self.service.export_docx(parse_params(request.params)?)?)
             }
@@ -2996,6 +3127,12 @@ impl RpcDispatcher {
                 "termbase.exchange".to_string(),
                 "qa.number-mismatch".to_string(),
                 "qa.term-forbidden".to_string(),
+                "qa.profiles".to_string(),
+                "qa.mechanical-cjk".to_string(),
+                "qa.terminology-consistency".to_string(),
+                "qa.waivers".to_string(),
+                "qa.reports.html-xlsx".to_string(),
+                "qa.delivery-gate".to_string(),
                 "editor.projection".to_string(),
                 "editor.protected-tags".to_string(),
                 "editor.chinese-conversion.opencc".to_string(),
@@ -3006,7 +3143,9 @@ impl RpcDispatcher {
                 "editor.spell-hunspell".to_string(),
                 "editor.undo-redo".to_string(),
                 "editor.review".to_string(),
+                "editor.review-queue-statistics".to_string(),
                 "editor.workflow".to_string(),
+                "editor.workflow-direct-signoff".to_string(),
                 "editor.preferences".to_string(),
                 "ai.provider.byok".to_string(),
                 "ai.provider.openai-compatible".to_string(),
@@ -3132,6 +3271,37 @@ fn rpc_error(error: EngineError) -> RpcError {
                 "actualRevision": actual_revision,
             })),
         },
+        EngineError::QaGateBlocked {
+            document_id,
+            run_id,
+            blocker_issue_ids,
+            error_count,
+            warning_count,
+            info_count,
+            waived_count,
+        } => RpcError {
+            code: ErrorCode::QaGateBlocked,
+            message: "document export is blocked by open QA errors".to_string(),
+            data: Some(json!({
+                "documentId": document_id,
+                "runId": run_id,
+                "blockerIssueIds": blocker_issue_ids,
+                "errorCount": error_count,
+                "warningCount": warning_count,
+                "infoCount": info_count,
+                "waivedCount": waived_count,
+            })),
+        },
+        EngineError::Storage(StorageError::QaProfileInvalid(message)) => RpcError {
+            code: ErrorCode::QaProfileInvalid,
+            message,
+            data: None,
+        },
+        EngineError::ReportExport(message) => RpcError {
+            code: ErrorCode::ReportExportError,
+            message,
+            data: None,
+        },
         EngineError::Storage(StorageError::InvalidState(message))
         | EngineError::InvalidState(message) => RpcError {
             code: ErrorCode::InvalidState,
@@ -3246,6 +3416,14 @@ mod tests {
         }
     }
 
+    fn test_qa_override() -> translunar_protocol::QaOverrideInput {
+        translunar_protocol::QaOverrideInput {
+            actor: "integration-test".to_string(),
+            reason: "Fixture intentionally preserves untranslated or mechanically dirty rows"
+                .to_string(),
+        }
+    }
+
     struct NonResumableStep;
 
     impl PipelineStep for NonResumableStep {
@@ -3322,7 +3500,9 @@ mod tests {
             })
             .expect("confirm segment");
         assert_eq!(confirmation.segment.state, SegmentState::Confirmed);
-        assert_eq!(confirmation.qa_issues.len(), 1);
+        assert!(confirmation.qa_issues.iter().any(|issue| {
+            issue.evidence.source_numbers == ["30"] && issue.evidence.target_numbers == ["60"]
+        }));
 
         let exact = service
             .lookup_exact(ExactLookupParams {
@@ -3351,14 +3531,25 @@ mod tests {
                 include_resolved: true,
             })
             .expect("list QA");
-        assert_eq!(issues.issues.len(), 1);
-        assert_eq!(issues.issues[0].status, QaIssueStatus::Resolved);
+        assert!(issues.issues.iter().any(|issue| {
+            matches!(
+                issue.rule_id.as_str(),
+                "number-mismatch" | "qa.number-mismatch"
+            ) && issue.status == QaIssueStatus::Resolved
+        }));
+        assert!(issues.issues.iter().all(|issue| {
+            !matches!(
+                issue.rule_id.as_str(),
+                "number-mismatch" | "qa.number-mismatch"
+            ) || issue.status == QaIssueStatus::Resolved
+        }));
 
         let output = context.root.path().join("translated.docx");
         let exported = service
             .export_docx(ExportDocxParams {
                 document_id: document.id,
                 output_path: output.to_string_lossy().into_owned(),
+                qa_override: Some(test_qa_override()),
             })
             .expect("export DOCX");
         assert_eq!(exported.translated_segments, 1);
@@ -3748,7 +3939,7 @@ mod tests {
         );
 
         drop(service);
-        let service = EngineService::open(context.root.path()).expect("restart engine");
+        let mut service = EngineService::open(context.root.path()).expect("restart engine");
         let recovered = service
             .list_documents(DocumentListParams {
                 project_id: project.id.clone(),
@@ -3776,12 +3967,14 @@ mod tests {
             .export_document(ExportDocumentParams {
                 document_id: first_document.document.id,
                 output_path: generic_output.to_string_lossy().into_owned(),
+                qa_override: Some(test_qa_override()),
             })
             .expect("generic export after restart");
         let legacy_result = service
             .export_docx(ExportDocxParams {
                 document_id: second_document.id,
                 output_path: legacy_output.to_string_lossy().into_owned(),
+                qa_override: Some(test_qa_override()),
             })
             .expect("legacy export after restart");
         assert_eq!(generic_result.translated_segments, 1);
@@ -3917,12 +4110,13 @@ mod tests {
         );
 
         drop(service);
-        let service = EngineService::open(context.root.path()).expect("restart engine");
+        let mut service = EngineService::open(context.root.path()).expect("restart engine");
         for (document_id, output) in &exports {
             service
                 .export_document(ExportDocumentParams {
                     document_id: document_id.clone(),
                     output_path: output.to_string_lossy().into_owned(),
+                    qa_override: Some(test_qa_override()),
                 })
                 .expect("export after restart");
         }
@@ -4022,7 +4216,7 @@ mod tests {
                 .join(format!("{}.docx", document.id)),
         )
         .expect("remove original managed source");
-        let restored = EngineService::open(&destination).expect("open restored backup");
+        let mut restored = EngineService::open(&destination).expect("open restored backup");
         let restored_health = restored
             .check_health(EmptyParams::default())
             .expect("check restored health");
@@ -4053,6 +4247,7 @@ mod tests {
             .export_document(ExportDocumentParams {
                 document_id: document.id,
                 output_path: restored_output.to_string_lossy().into_owned(),
+                qa_override: Some(test_qa_override()),
             })
             .expect("export restored document");
         assert_eq!(exported.translated_segments, 1);
@@ -4493,6 +4688,8 @@ mod tests {
                 segment_id: confirmed_second.id.clone(),
                 state: translunar_domain::EditorWorkflowState::Signed,
                 expected_revision: confirmed_second.revision,
+                actor: None,
+                reason: None,
             })
             .expect("sign reviewed segment");
         assert_eq!(
@@ -4967,6 +5164,16 @@ mod tests {
                 expected_revision: segment.revision,
             })
             .expect("save confirmation target");
+        let preconfirm_qa = service
+            .list_qa(ListQaParams {
+                document_id: document.id.clone(),
+                include_resolved: true,
+            })
+            .expect("pre-confirm live QA")
+            .issues
+            .into_iter()
+            .map(|issue| issue.id)
+            .collect::<BTreeSet<_>>();
         service
             .confirm_segment(ConfirmSegmentParams {
                 segment_id: segment.id.clone(),
@@ -4984,17 +5191,14 @@ mod tests {
                 .len(),
             1
         );
-        assert_eq!(
-            service
-                .list_qa(ListQaParams {
-                    document_id: document.id.clone(),
-                    include_resolved: false,
-                })
-                .expect("confirmed QA")
-                .issues
-                .len(),
-            1
-        );
+        let confirmed_qa = service
+            .list_qa(ListQaParams {
+                document_id: document.id.clone(),
+                include_resolved: false,
+            })
+            .expect("confirmed QA")
+            .issues;
+        assert!(confirmed_qa.len() > preconfirm_qa.len());
         service
             .undo_editor(EditorUndoRedoParams {
                 project_id: project.id.clone(),
@@ -5010,16 +5214,17 @@ mod tests {
                 .matches
                 .is_empty()
         );
-        assert!(
-            service
-                .list_qa(ListQaParams {
-                    document_id: document.id.clone(),
-                    include_resolved: true,
-                })
-                .expect("undone QA")
-                .issues
-                .is_empty()
-        );
+        let undone_qa = service
+            .list_qa(ListQaParams {
+                document_id: document.id.clone(),
+                include_resolved: true,
+            })
+            .expect("undone QA")
+            .issues
+            .into_iter()
+            .map(|issue| issue.id)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(undone_qa, preconfirm_qa);
         service
             .redo_editor(EditorUndoRedoParams {
                 project_id: project.id.clone(),
@@ -5035,6 +5240,135 @@ mod tests {
                 .matches
                 .len(),
             1
+        );
+    }
+
+    #[test]
+    fn qa_reports_gate_and_override_flow_are_engine_owned() {
+        let context = TestContext::new();
+        let mut service = EngineService::open(context.root.path()).expect("open QA engine");
+        let project = TestContext::project(&mut service);
+        let document = service
+            .import_docx(ImportDocxParams {
+                project_id: project.id.clone(),
+                source_path: context.source.to_string_lossy().into_owned(),
+            })
+            .expect("import QA fixture");
+        let segment = service
+            .list_segments(SegmentListParams {
+                document_id: document.id.clone(),
+                offset: 0,
+                limit: 20,
+            })
+            .expect("list QA fixture")
+            .items
+            .remove(0);
+        service
+            .update_target(UpdateTargetParams {
+                segment_id: segment.id,
+                target_text: "保留期为 60 天。".to_string(),
+                expected_revision: segment.revision,
+            })
+            .expect("seed dirty QA target");
+
+        let run = service
+            .run_qa(translunar_protocol::QaRunParams {
+                project_id: project.id.clone(),
+                document_id: Some(document.id.clone()),
+                profile_id: Some(translunar_qa_core::STANDARD_PROFILE_ID.to_string()),
+            })
+            .expect("run comprehensive QA");
+        assert!(run.errors > 0);
+        let issue_page = service
+            .list_qa_issues(translunar_protocol::QaIssueListParams {
+                project_id: project.id.clone(),
+                document_id: Some(document.id.clone()),
+                segment_id: None,
+                severity: None,
+                category: None,
+                disposition: Some(translunar_qa_core::QaIssueDisposition::Open),
+                rule_id: None,
+                offset: 0,
+                limit: 100,
+            })
+            .expect("list comprehensive QA");
+        assert!(issue_page.total > 0);
+
+        let html_path = context.root.path().join("qa-report.html");
+        let html_record = service
+            .export_qa_report(translunar_protocol::QaReportExportParams {
+                run_id: run.id.clone(),
+                format: translunar_qa_core::QaReportFormat::Html,
+                output_path: html_path.to_string_lossy().into_owned(),
+            })
+            .expect("export QA HTML");
+        assert_eq!(html_record.run_id, run.id);
+        translunar_qa_core::validate_html(&fs::read(&html_path).expect("read QA HTML"))
+            .expect("validate QA HTML");
+        assert!(matches!(
+            service.export_qa_report(translunar_protocol::QaReportExportParams {
+                run_id: run.id.clone(),
+                format: translunar_qa_core::QaReportFormat::Html,
+                output_path: html_path.to_string_lossy().into_owned(),
+            }),
+            Err(EngineError::ReportExport(_))
+        ));
+
+        let xlsx_path = context.root.path().join("qa-report.xlsx");
+        service
+            .export_qa_report(translunar_protocol::QaReportExportParams {
+                run_id: run.id,
+                format: translunar_qa_core::QaReportFormat::Xlsx,
+                output_path: xlsx_path.to_string_lossy().into_owned(),
+            })
+            .expect("export QA XLSX");
+        translunar_qa_core::validate_xlsx(&fs::read(&xlsx_path).expect("read QA XLSX"))
+            .expect("validate QA XLSX");
+
+        let blocked_output = context.root.path().join("blocked.docx");
+        let blocked = service
+            .export_document(ExportDocumentParams {
+                document_id: document.id.clone(),
+                output_path: blocked_output.to_string_lossy().into_owned(),
+                qa_override: None,
+            })
+            .expect_err("block dirty export");
+        assert!(!blocked_output.exists());
+        let gate_error = rpc_error(blocked);
+        assert_eq!(gate_error.code, ErrorCode::QaGateBlocked);
+        assert!(
+            gate_error
+                .data
+                .as_ref()
+                .and_then(|data| data.get("blockerIssueIds"))
+                .and_then(Value::as_array)
+                .is_some_and(|ids| !ids.is_empty())
+        );
+
+        let delivered_output = context.root.path().join("delivered.docx");
+        service
+            .export_document(ExportDocumentParams {
+                document_id: document.id.clone(),
+                output_path: delivered_output.to_string_lossy().into_owned(),
+                qa_override: Some(translunar_protocol::QaOverrideInput {
+                    actor: "lead-reviewer".to_string(),
+                    reason: "Customer approved known fixture findings".to_string(),
+                }),
+            })
+            .expect("override dirty export");
+        assert!(delivered_output.is_file());
+        let overrides = service
+            .list_qa_overrides(translunar_protocol::QaOverrideListParams {
+                project_id: project.id,
+                document_id: Some(document.id),
+                offset: 0,
+                limit: 20,
+            })
+            .expect("list QA overrides");
+        assert_eq!(overrides.total, 1);
+        assert_eq!(
+            overrides.items[0].status,
+            translunar_qa_core::QaOverrideStatus::Succeeded
         );
     }
 

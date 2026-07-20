@@ -4,6 +4,7 @@ members = [
   "crates/domain",
   "crates/editor-core",
   "crates/ai-core",
+  "crates/qa-core",
   "crates/asset-core",
   "crates/filter-core",
   "crates/segmentation-srx",

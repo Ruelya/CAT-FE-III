@@ -1,1 +1,4 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"type":"spec","file":".trellis/spec/backend/engine-boundary.md","reason":"Keep QA rules, issue reconciliation, reports, review writes, and export gating behind the Rust Engine boundary."}
+{"type":"spec","file":".trellis/spec/backend/database-guidelines.md","reason":"Apply additive migration 9, immediate transactions, deterministic pages, waivers, runs, and override audit transitions."}
+{"type":"spec","file":".trellis/spec/frontend/electron-workbench.md","reason":"Keep QA/review/gate UI on generated contracts with keyboard, IME, accessibility, and visual constraints."}
+{"type":"research","file":".trellis/tasks/07-19-complete-full-cat-prd/research/prd-gap-audit.md","reason":"Map H-01..H-09 and I-01/I-02 to the child while preserving later AI/plugin/interop/collaboration ownership."}

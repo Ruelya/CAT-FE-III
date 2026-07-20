@@ -9,8 +9,8 @@ pub use store::{
     AiProviderProfileUpdate, AiSettingsUpdate, ConcordanceRequest, Confirmation, DataPaths,
     EditorFilter, EditorFindMatch, EditorListRequest, EditorMutation, EditorReviewDecision,
     EditorSearchField, EditorSort, ManagedDocument, NewAiBatchItem, NewAiBatchRun,
-    NewAiProviderProfile, NewAiRun, NewDocument, NewPipelineDefinition, NewTermEntry,
+    NewAiProviderProfile, NewAiRun, NewDocument, NewPipelineDefinition, NewQaProfile, NewTermEntry,
     NewTermTranslation, NewTermbase, NewTmLibrary, PipelineRunSnapshot, ProjectAggregate,
-    ProjectUpdate, ReplaceItem, ReplacePreview, ReplaceRequest, ReviewProposal, Store,
-    TermSearchRequest, TmSearchRequest,
+    ProjectUpdate, QaIssueFilter, QaProfileUpdate, ReplaceItem, ReplacePreview, ReplaceRequest,
+    ReviewProposal, Store, TermSearchRequest, TmSearchRequest,
 };

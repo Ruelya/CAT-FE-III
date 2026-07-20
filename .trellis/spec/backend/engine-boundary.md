@@ -864,3 +864,93 @@ catalog.register("ai.credential.set");
 batch_context.target = String::new(); // stable source-only batch context
 // Main/preload trusted IPC calls EngineClient::callInternal instead.
 ```
+
+## Comprehensive QA, Review, And Delivery Gate
+
+### 1. Scope / Trigger
+
+Use this contract when changing mechanical/CJK QA, profiles, issue waivers,
+reports, review statistics/state, or any original-format export.
+
+### 2. Signatures
+
+Protocol v1 exposes additive `qa.profile.*`, `qa.run`, `qa.run.list/get`,
+`qa.issue.list/waive/revoke`, `qa.report.export`, `qa.gate.check`,
+`qa.override.list`, `review.queue`, and `review.stats`. `document.export` and
+legacy `document.exportDocx` accept optional
+`qaOverride { actor, reason }`; `segment.workflow.set` accepts optional actor
+and reason for a direct translation-to-signed transition.
+
+Migration 9 owns `qa_profiles`, `qa_runs`, `qa_run_items`, `qa_waivers`,
+`qa_report_records`, and `qa_export_overrides`, plus additive QA issue columns.
+Built-in Standard and CJK profiles are deterministic migration seeds.
+
+### 3. Contracts
+
+- `qa-core` is provider-free and owns validated profiles, deterministic rule
+  evaluation/fingerprints/scalar spans, and escaped HTML/formula-safe XLSX.
+- Storage resolves locale defaults, gathers authoritative tags/terms/segments,
+  reconciles findings, preserves matching waivers, and derives review data.
+- Every original-format export runs fresh QA. Open unwaived errors return
+  `qa_gate_blocked` before publication. An override is valid only when the gate
+  is blocked and its pending attempt must finish as succeeded or failed.
+- Reports and document exports validate staging and publish no-clobber. A
+  report DB failure removes the published file rather than leaving an orphan.
+- `reviewRequired` defaults to true for old and new projects. When false, a
+  translation-to-signed transition still requires bounded actor and reason and
+  records both in durable editor history.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Invalid/duplicate/bounded regex profile data | `qa_profile_invalid`; no persistence |
+| Open unwaived error at export | `qa_gate_blocked` with IDs/counts only; no output |
+| Override on a clear gate | `invalid_request`; no audit row or export |
+| Blocked override missing actor/reason | `invalid_request`; no publication |
+| Existing report/export destination | typed export error; destination unchanged |
+| Direct sign-off while review is required | invalid state; no workflow mutation |
+| Direct sign-off without actor/reason | invalid request; no history mutation |
+
+### 5. Good / Base / Bad Cases
+
+- Good: clone a built-in profile, add a validated regex, run project/document
+  QA, waive/revoke by fingerprint, export both reports, then resolve blockers
+  or perform one explicit audited delivery override.
+- Base: a clean document exports normally and rejects an unnecessary override.
+- Bad: let React recompute findings/gate totals, carry a waiver to a changed
+  fingerprint, skip fresh QA for a legacy export, or mark a failed override as
+  succeeded.
+
+### 6. Tests Required
+
+- QA-core covers every rule family, Unicode spans/fingerprints, hostile HTML,
+  formula-looking XLSX text, and consistency grouping.
+- Storage covers migration 9 fresh/upgrade/rollback/reopen, profile revisions,
+  live reconciliation, runs/pages, terms/consistency, waivers, gate/override,
+  review queue/stats, and direct sign-off history.
+- Engine and stdio smoke cover dirty multilingual data, both report formats,
+  blocked/no-output export, successful override, restart, and legacy exports.
+- Electron E2E uses the real Engine for profile regex, report buttons,
+  navigation, waive/revoke, three QA/export viewports, review policy/direct
+  sign-off, blockers, and override without console/page errors.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```typescript
+const clear = visibleIssues.filter((issue) => issue.severity === "error").length === 0;
+await invoke("document.export", { documentId, outputPath, qaOverride: { actor, reason } });
+```
+
+#### Correct
+
+```typescript
+const gate = await invoke("qa.gate.check", { projectId, documentId });
+await invoke("document.export", {
+  documentId,
+  outputPath,
+  ...(!gate.clear ? { qaOverride: { actor, reason } } : {}),
+});
+```

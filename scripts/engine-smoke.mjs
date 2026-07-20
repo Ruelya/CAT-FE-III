@@ -60,6 +60,8 @@ async function main() {
   const pdfTextOutputPath = join(dataDirectory, "text-layout-translated.docx");
   const pdfScannedOutputPath = join(dataDirectory, "scanned-translated.docx");
   const pdfMixedOutputPath = join(dataDirectory, "mixed-translated.docx");
+  const qaHtmlReportPath = join(dataDirectory, "qa-report.html");
+  const qaXlsxReportPath = join(dataDirectory, "qa-report.xlsx");
   const aiSourcePath = join(dataDirectory, "ai-source.txt");
   let processHandle;
   const aiFixture = await startAiFixture();
@@ -874,14 +876,6 @@ async function main() {
       expectedRevision: splitBase.revision,
     });
     assert(splitResult.rows.length === 4, "TXT segment should split");
-    await processHandle.call("document.export", {
-      documentId: txtDocument.documentId,
-      outputPath: splitTextOutputPath,
-    });
-    assert(
-      readFileSync(splitTextOutputPath, "utf8").includes("Third paragraph."),
-      "split TXT should collapse to its safe structural path on export",
-    );
     const unsplitResult = await processHandle.call("editor.undo", {
       projectId: project.id,
     });
@@ -911,6 +905,29 @@ async function main() {
     assert(
       editorHistory.canUndo,
       "editor history should survive compound actions",
+    );
+    const mergedTxtPage = await processHandle.call("segment.list", {
+      documentId: txtDocument.documentId,
+      offset: 0,
+      limit: 20,
+    });
+    const exportSplitBase = mergedTxtPage.items.at(-1);
+    await processHandle.call("segment.split", {
+      segmentId: exportSplitBase.id,
+      sourceOffset: 5,
+      targetOffset: 0,
+      expectedRevision: exportSplitBase.revision,
+    });
+    await exportWithQaDecision(
+      processHandle,
+      project.id,
+      txtDocument.documentId,
+      splitTextOutputPath,
+      "Exercise split structural export with intentionally incomplete fixture targets",
+    );
+    assert(
+      readFileSync(splitTextOutputPath, "utf8").includes("Third paragraph."),
+      "split TXT should collapse to its safe structural path on export",
     );
 
     await processHandle.stop();
@@ -1026,7 +1043,10 @@ async function main() {
       segmentId: first.id,
       expectedRevision: recovered.items[0].revision,
     });
-    assert(confirmed.qaIssues.length === 1, "30/60 should create one QA issue");
+    assert(
+      confirmed.qaIssues.some((issue) => issue.ruleId === "qa.number-mismatch"),
+      "30/60 should create the authoritative number-mismatch finding",
+    );
     const exact = await processHandle.call("tm.lookupExact", {
       projectId: project.id,
       sourceText: first.sourceText,
@@ -1098,9 +1118,15 @@ async function main() {
       includeResolved: true,
     });
     assert(
-      issues.issues.length === 2 &&
-        issues.issues.every((issue) => issue.status === "resolved"),
-      "QA issue should resolve",
+      issues.issues.some(
+        (issue) =>
+          issue.ruleId === "qa.number-mismatch" && issue.status === "resolved",
+      ) &&
+        issues.issues.some(
+          (issue) =>
+            issue.ruleId.includes("term") && issue.status === "resolved",
+        ),
+      "corrected number and forbidden-term findings should resolve",
     );
     const definition = await processHandle.call("pipeline.create", {
       projectId: project.id,
@@ -1282,6 +1308,126 @@ async function main() {
       "AI pretranslation should be registered as a pipeline step",
     );
 
+    const qaProfiles = await processHandle.call("qa.profile.list", {
+      projectId: project.id,
+      offset: 0,
+      limit: 100,
+    });
+    const builtInProfile = qaProfiles.items.find((profile) => profile.builtIn);
+    assert(builtInProfile, "QA should expose a built-in profile");
+    const customQaProfile = await processHandle.call("qa.profile.clone", {
+      profileId: builtInProfile.id,
+      ownerProjectId: project.id,
+      name: "Smoke QA profile",
+    });
+    const updatedQaProfile = await processHandle.call("qa.profile.update", {
+      profileId: customQaProfile.id,
+      expectedRevision: customQaProfile.revision,
+      name: customQaProfile.name,
+      definition: {
+        ...customQaProfile.definition,
+        regexRules: [
+          ...(customQaProfile.definition.regexRules ?? []),
+          {
+            id: "smoke.target-marker",
+            label: "Smoke target marker",
+            field: "target",
+            pattern: "保留期",
+            severity: "warning",
+            message: "Smoke target marker matched",
+            replacementHint: null,
+          },
+        ],
+      },
+    });
+    const projectQaRun = await processHandle.call("qa.run", {
+      projectId: project.id,
+      profileId: updatedQaProfile.id,
+    });
+    assert(
+      projectQaRun.scope === "project" && projectQaRun.checkedSegments > 3,
+      "project QA should check every active document",
+    );
+    const documentQaRun = await processHandle.call("qa.run", {
+      projectId: project.id,
+      documentId: document.id,
+      profileId: updatedQaProfile.id,
+    });
+    const qaIssues = await processHandle.call("qa.issue.list", {
+      projectId: project.id,
+      documentId: document.id,
+      disposition: "open",
+      offset: 0,
+      limit: 100,
+    });
+    assert(
+      qaIssues.total > 0 &&
+        qaIssues.items.some(
+          (issue) => issue.ruleId === "qa.regex:smoke.target-marker",
+        ),
+      "document QA should return mechanical and custom regex findings",
+    );
+    const waiverTarget = qaIssues.items[0];
+    const waivedIssue = await processHandle.call("qa.issue.waive", {
+      issueId: waiverTarget.id,
+      actor: "engine-smoke",
+      reason: "Exercise durable false-positive review",
+    });
+    assert(waivedIssue.disposition === "waived", "QA issue should be waived");
+    const reopenedIssue = await processHandle.call("qa.issue.revoke", {
+      issueId: waivedIssue.id,
+      expectedRevision: waivedIssue.waiver.revision,
+    });
+    assert(reopenedIssue.disposition === "open", "QA waiver should revoke");
+    const htmlReport = await processHandle.call("qa.report.export", {
+      runId: documentQaRun.id,
+      format: "html",
+      outputPath: qaHtmlReportPath,
+    });
+    const xlsxReport = await processHandle.call("qa.report.export", {
+      runId: documentQaRun.id,
+      format: "xlsx",
+      outputPath: qaXlsxReportPath,
+    });
+    assert(
+      htmlReport.format === "html" &&
+        xlsxReport.format === "xlsx" &&
+        readFileSync(qaHtmlReportPath, "utf8").includes(
+          "translunar://segment/",
+        ) &&
+        statSync(qaXlsxReportPath).size > 0,
+      "QA HTML/XLSX reports should publish navigable snapshots",
+    );
+    const reviewStats = await processHandle.call("review.stats", {
+      projectId: project.id,
+      documentId: document.id,
+    });
+    const reviewQueue = await processHandle.call("review.queue", {
+      projectId: project.id,
+      documentId: document.id,
+      offset: 0,
+      limit: 100,
+    });
+    assert(
+      reviewStats.translationSegments +
+        reviewStats.reviewSegments +
+        reviewStats.signedSegments ===
+        document.segmentCount && Array.isArray(reviewQueue.items),
+      "review statistics and queue should be authoritative",
+    );
+    try {
+      await processHandle.call("document.export", {
+        documentId: document.id,
+        outputPath,
+      });
+      throw new Error("dirty document unexpectedly bypassed the QA gate");
+    } catch (error) {
+      assert(
+        error?.code === "qa_gate_blocked" && !existsSync(outputPath),
+        "dirty export should be blocked without publication",
+      );
+    }
+
     const health = await processHandle.call("data.checkHealth", {});
     assert(health.healthy, "valid workspace should pass health check");
     const backup = await processHandle.call("data.createBackup", {
@@ -1298,14 +1444,31 @@ async function main() {
     const exported = await processHandle.call("document.export", {
       documentId: document.id,
       outputPath,
+      qaOverride: {
+        actor: "engine-smoke",
+        reason:
+          "Exercise an audited delivery override for the dirty smoke fixture",
+      },
     });
     assert(
       exported.translatedSegments === 2,
       "export should contain two translated segments",
     );
+    const legacyGate = await processHandle.call("qa.gate.check", {
+      projectId: project.id,
+      documentId: legacyDocument.id,
+    });
     const legacyExported = await processHandle.call("document.exportDocx", {
       documentId: legacyDocument.id,
       outputPath: legacyOutputPath,
+      ...(!legacyGate.clear
+        ? {
+            qaOverride: {
+              actor: "engine-smoke",
+              reason: "Exercise legacy export compatibility with the QA gate",
+            },
+          }
+        : {}),
     });
     assert(
       legacyExported.translatedSegments === 2,
@@ -1317,19 +1480,35 @@ async function main() {
       "legacy export should be non-empty",
     );
     for (const formatDocument of formatDocuments) {
-      await processHandle.call("document.export", {
-        documentId: formatDocument.documentId,
-        outputPath: formatDocument.outputPath,
-      });
+      await exportWithQaDecision(
+        processHandle,
+        project.id,
+        formatDocument.documentId,
+        formatDocument.outputPath,
+        "Exercise format round-trip with intentionally partial translations",
+      );
       assert(
         statSync(formatDocument.outputPath).size > 0,
         "format export should be non-empty",
       );
     }
     try {
+      const scannedGate = await processHandle.call("qa.gate.check", {
+        projectId: project.id,
+        documentId: scannedPdfDocument.documentId,
+      });
       await processHandle.call("document.export", {
         documentId: scannedPdfDocument.documentId,
         outputPath: pdfScannedOutputPath,
+        ...(!scannedGate.clear
+          ? {
+              qaOverride: {
+                actor: "engine-smoke",
+                reason:
+                  "Reach the no-clobber publication check through the QA gate",
+              },
+            }
+          : {}),
       });
       throw new Error("PDF export unexpectedly replaced an existing file");
     } catch (error) {
@@ -1400,6 +1579,24 @@ async function main() {
     await rm(dataDirectory, { recursive: true, force: true });
     await rm(backupParent, { recursive: true, force: true });
   }
+}
+
+async function exportWithQaDecision(
+  processHandle,
+  projectId,
+  documentId,
+  outputPath,
+  reason,
+) {
+  const gate = await processHandle.call("qa.gate.check", {
+    projectId,
+    documentId,
+  });
+  return processHandle.call("document.export", {
+    documentId,
+    outputPath,
+    ...(!gate.clear ? { qaOverride: { actor: "engine-smoke", reason } } : {}),
+  });
 }
 
 function delay(milliseconds) {
@@ -1559,7 +1756,6 @@ class EngineProcess {
   #child;
   #nextId = 1;
   #buffer = "";
-  #responses = [];
   #waiters = [];
 
   static async start(binaryPath, dataDir) {
@@ -1605,6 +1801,7 @@ class EngineProcess {
     return new Promise((resolvePromise, rejectPromise) => {
       this.#waiters.push({
         id,
+        method,
         resolve: resolvePromise,
         reject: rejectPromise,
       });
@@ -1643,7 +1840,7 @@ class EngineProcess {
       if (waiterIndex < 0) continue;
       const [waiter] = this.#waiters.splice(waiterIndex, 1);
       if (response.error) {
-        const error = new Error(response.error.message);
+        const error = new Error(`${waiter.method}: ${response.error.message}`);
         error.code = response.error.code;
         error.data = response.error.data;
         waiter.reject(error);

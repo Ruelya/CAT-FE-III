@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   Document,
   ProjectSnapshot,
@@ -8,23 +8,20 @@ import type {
 } from "@translunar/contracts";
 import {
   ArrowLeft,
-  ArrowRight,
-  CheckCircle2,
   Database,
-  Download,
   FileText,
   MoreHorizontal,
-  RefreshCw,
   Search,
-  ShieldAlert,
 } from "lucide-react";
 
 import { BrandMark } from "./BrandMark";
 import { AiControlPage } from "./AiControlPage";
-import { fileName, formatError } from "./workbench-utils";
+import { ExportReviewPage as ComprehensiveExportReviewPage } from "./ExportReviewPage";
+import { QaReviewPage as ComprehensiveQaReviewPage } from "./QaReviewPage";
+import { formatError } from "./workbench-utils";
 import type { AppSurface } from "./surface-types";
 
-interface WorkspacePageProps {
+export interface WorkspacePageProps {
   surface: Exclude<AppSurface, "workbench">;
   snapshot: ProjectSnapshot;
   document: Document;
@@ -47,8 +44,12 @@ export function WorkspacePage(props: WorkspacePageProps) {
         <span />
         <span />
       </div>
-      {surface === "qa-review" ? <QaReviewPage {...props} /> : null}
-      {surface === "export-review" ? <ExportReviewPage {...props} /> : null}
+      {surface === "qa-review" ? (
+        <ComprehensiveQaReviewPage {...props} />
+      ) : null}
+      {surface === "export-review" ? (
+        <ComprehensiveExportReviewPage {...props} />
+      ) : null}
       {surface === "translation-memory" ? (
         <TranslationMemoryPage {...props} />
       ) : null}
@@ -152,208 +153,6 @@ function SurfaceHeader({
         </div>
       </div>
     </header>
-  );
-}
-
-function QaReviewPage({
-  snapshot,
-  document,
-  segments,
-  issues,
-  onRefresh,
-  onOpenSegment,
-}: WorkspacePageProps) {
-  const openIssues = issues.filter((issue) => issue.status === "open");
-  const segmentById = useMemo(
-    () => new Map(segments.map((segment) => [segment.id, segment])),
-    [segments],
-  );
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const runQa = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await window.translunar.invoke("qa.runDocument", {
-        documentId: document.id,
-      });
-      await onRefresh();
-    } catch (reason) {
-      setError(formatError(reason));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <main className="surface-main qa-surface">
-      <section className="surface-intro">
-        <span className="surface-kicker">Quality review</span>
-        <h1>Check the current document</h1>
-        <p>
-          {openIssues.length} open issues · {document.name}
-        </p>
-        <div className="surface-intro-actions">
-          <button
-            type="button"
-            className="button primary"
-            onClick={runQa}
-            disabled={busy}
-          >
-            <RefreshCw size={15} className={busy ? "spin" : undefined} />
-            {busy ? "Running QA" : "Run QA"}
-          </button>
-        </div>
-        {error ? <p className="surface-error">{error}</p> : null}
-      </section>
-      <section className="surface-list" aria-label="Open QA issues">
-        <header className="surface-list-header">
-          <div>
-            <span className="surface-kicker">{document.name}</span>
-            <h2>{openIssues.length} open issues</h2>
-          </div>
-          <span className="surface-count">
-            {snapshot.counts.openIssues} total
-          </span>
-        </header>
-        {openIssues.length ? (
-          openIssues.map((issue) => {
-            const segment = segmentById.get(issue.segmentId);
-            return (
-              <article className="surface-issue" key={issue.id}>
-                <div className="surface-issue-mark">
-                  <ShieldAlert size={16} />
-                </div>
-                <div className="surface-issue-copy">
-                  <div className="surface-issue-heading">
-                    <strong>{issue.ruleId}</strong>
-                    <span>{issue.severity}</span>
-                    <code>Segment {segment ? segment.ordinal + 1 : "—"}</code>
-                  </div>
-                  <p>{issue.message}</p>
-                  <div className="surface-evidence">
-                    <span>
-                      Source{" "}
-                      <b>{issue.evidence.sourceNumbers.join(", ") || "—"}</b>
-                    </span>
-                    <span>
-                      Target{" "}
-                      <b>{issue.evidence.targetNumbers.join(", ") || "—"}</b>
-                    </span>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="button secondary"
-                  onClick={() => onOpenSegment(issue.segmentId)}
-                >
-                  Go to segment
-                  <ArrowRight size={14} />
-                </button>
-              </article>
-            );
-          })
-        ) : (
-          <div className="surface-empty">
-            <CheckCircle2 size={24} />
-            <strong>No open QA issues</strong>
-            <span>The current QA result has no open findings.</span>
-          </div>
-        )}
-      </section>
-    </main>
-  );
-}
-
-function ExportReviewPage({ snapshot, document, issues }: WorkspacePageProps) {
-  const openIssues = issues.filter((issue) => issue.status === "open");
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const exportDocument = async () => {
-    setBusy(true);
-    setMessage(null);
-    setError(null);
-    try {
-      const suggestedName = document.name.replace(
-        /\.docx$/iu,
-        "-translated.docx",
-      );
-      const outputPath =
-        await window.translunar.selectExportPath(suggestedName);
-      if (!outputPath) return;
-      const result = await window.translunar.invoke("document.exportDocx", {
-        documentId: document.id,
-        outputPath,
-      });
-      setMessage(
-        `Exported ${result.translatedSegments} translated segments to ${fileName(result.outputPath)}.`,
-      );
-    } catch (reason) {
-      setError(formatError(reason));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <main className="surface-main export-surface">
-      <section className="surface-intro">
-        <span className="surface-kicker">Delivery check</span>
-        <h1>Review before export</h1>
-        <p>
-          {snapshot.counts.confirmed} confirmed · {openIssues.length} open QA
-          issues
-        </p>
-        <div className="surface-intro-actions">
-          <button
-            type="button"
-            className="button primary"
-            onClick={exportDocument}
-            disabled={busy}
-          >
-            <Download size={15} />
-            {busy ? "Preparing export" : "Export DOCX"}
-          </button>
-        </div>
-        {message ? <p className="surface-success">{message}</p> : null}
-        {error ? <p className="surface-error">{error}</p> : null}
-      </section>
-      <section className="export-summary" aria-label="Export summary">
-        <div className="export-summary-heading">
-          <FileText size={18} />
-          <div>
-            <span className="surface-kicker">Source package</span>
-            <h2>{document.name}</h2>
-          </div>
-        </div>
-        <dl>
-          <div>
-            <dt>Segments</dt>
-            <dd>{document.segmentCount.toLocaleString("en-US")}</dd>
-          </div>
-          <div>
-            <dt>Confirmed</dt>
-            <dd>{snapshot.counts.confirmed.toLocaleString("en-US")}</dd>
-          </div>
-          <div>
-            <dt>Untranslated</dt>
-            <dd>{snapshot.counts.untranslated.toLocaleString("en-US")}</dd>
-          </div>
-          <div className={openIssues.length ? "has-issues" : undefined}>
-            <dt>Open QA issues</dt>
-            <dd>{openIssues.length.toLocaleString("en-US")}</dd>
-          </div>
-        </dl>
-        <p className="export-note">
-          {openIssues.length
-            ? `Export available with ${openIssues.length} open QA issues.`
-            : "No open QA issues."}
-        </p>
-      </section>
-    </main>
   );
 }
 

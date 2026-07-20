@@ -32,4 +32,5 @@ translunar-filter-xlsx = { path = "../filter-xlsx" }
 translunar-filter-xliff = { path = "../filter-xliff" }
 translunar-pipeline = { path = "../pipeline" }
 translunar-protocol = { path = "../protocol" }
+translunar-qa-core = { path = "../qa-core" }
 translunar-storage = { path = "../storage" }
