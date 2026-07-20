@@ -19,6 +19,9 @@ import { EngineClient } from "./engine-client.js";
 const IPC_CHANNELS = {
   invoke: "translunar:engine:invoke",
   selectSource: "translunar:dialog:source-docx",
+  selectSources: "translunar:dialog:source-documents",
+  selectSourceFolder: "translunar:dialog:source-folder",
+  selectProjectArchive: "translunar:dialog:project-archive",
   selectExport: "translunar:dialog:export-docx",
   restartEngine: "translunar:engine:restart",
   setAiCredential: "translunar:ai:credential:set",
@@ -142,23 +145,48 @@ function registerIpc(): void {
     const result = await dialog.showOpenDialog(owner, {
       title: "Import source document",
       properties: ["openFile"],
+      filters: [supportedDocumentFilter()],
+    });
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
+  ipcMain.handle(IPC_CHANNELS.selectSources, async (event) => {
+    assertTrustedSender(event);
+    const testSources = process.env.TRANSLUNAR_TEST_SOURCE_FILES;
+    if (testSources) {
+      return testSources
+        .split(process.platform === "win32" ? ";" : ":")
+        .filter(Boolean);
+    }
+    const result = await dialog.showOpenDialog(requireWindow(), {
+      title: "Add source documents",
+      properties: ["openFile", "multiSelections"],
+      filters: [supportedDocumentFilter()],
+    });
+    return result.canceled ? [] : result.filePaths.slice(0, 500);
+  });
+  ipcMain.handle(IPC_CHANNELS.selectSourceFolder, async (event) => {
+    assertTrustedSender(event);
+    if (process.env.TRANSLUNAR_TEST_SOURCE_FOLDER) {
+      return process.env.TRANSLUNAR_TEST_SOURCE_FOLDER;
+    }
+    const result = await dialog.showOpenDialog(requireWindow(), {
+      title: "Add a source folder",
+      properties: ["openDirectory"],
+    });
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
+  ipcMain.handle(IPC_CHANNELS.selectProjectArchive, async (event) => {
+    assertTrustedSender(event);
+    if (process.env.TRANSLUNAR_TEST_PROJECT_ARCHIVE) {
+      return process.env.TRANSLUNAR_TEST_PROJECT_ARCHIVE;
+    }
+    const result = await dialog.showOpenDialog(requireWindow(), {
+      title: "Restore a Translunar project",
+      properties: ["openFile"],
       filters: [
         {
-          name: "Supported documents",
-          extensions: [
-            "docx",
-            "xlsx",
-            "pptx",
-            "pdf",
-            "txt",
-            "md",
-            "markdown",
-            "html",
-            "htm",
-            "xhtml",
-            "xlf",
-            "xliff",
-          ],
+          name: "Translunar project archives",
+          extensions: ["tcat", "zip"],
         },
       ],
     });
@@ -219,6 +247,26 @@ function registerIpc(): void {
       });
     },
   );
+}
+
+function supportedDocumentFilter(): Electron.FileFilter {
+  return {
+    name: "Supported documents",
+    extensions: [
+      "docx",
+      "xlsx",
+      "pptx",
+      "pdf",
+      "txt",
+      "md",
+      "markdown",
+      "html",
+      "htm",
+      "xhtml",
+      "xlf",
+      "xliff",
+    ],
+  };
 }
 
 function assertTrustedSender(event: IpcMainInvokeEvent): void {

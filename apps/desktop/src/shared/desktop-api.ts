@@ -10,7 +10,11 @@ export interface DesktopApi {
     params: EngineParams<Method>,
   ): Promise<EngineResult<Method>>;
   selectSourceDocument(): Promise<string | null>;
+  selectSourceDocuments(): Promise<string[]>;
+  selectSourceFolder(): Promise<string | null>;
+  selectProjectArchive(): Promise<string | null>;
   selectExportPath(suggestedName: string): Promise<string | null>;
+  resolveDroppedPaths(files: readonly File[]): string[];
   restartEngine(): Promise<void>;
   setAiCredential(profileId: string, secret: string): Promise<void>;
   onEditorCommand(listener: (commandId: string) => void): () => void;

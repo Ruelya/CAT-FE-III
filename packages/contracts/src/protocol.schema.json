@@ -126,6 +126,12 @@
     "pipeline_validation_result": {
       "$ref": "#/$defs/PipelineValidationResult"
     },
+    "project_analytics_params": {
+      "$ref": "#/$defs/ProjectAnalyticsParams"
+    },
+    "project_create_from_template_params": {
+      "$ref": "#/$defs/ProjectCreateFromTemplateParams"
+    },
     "project_id_params": {
       "$ref": "#/$defs/ProjectIdParams"
     },
@@ -310,6 +316,8 @@
     "initialize_result",
     "create_project_params",
     "project_id_params",
+    "project_create_from_template_params",
+    "project_analytics_params",
     "project_list_params",
     "update_project_params",
     "set_project_lifecycle_params",
@@ -854,6 +862,70 @@
         "succeeded",
         "completedWithErrors",
         "failed"
+      ]
+    },
+    "AiContribution": {
+      "type": "object",
+      "properties": {
+        "appliedSegments": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "editDistance": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "proposalCharacters": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "replacedSegments": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "retainedCharacters": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "retainedSegments": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "appliedSegments",
+        "retainedSegments",
+        "replacedSegments",
+        "proposalCharacters",
+        "retainedCharacters",
+        "editDistance"
+      ]
+    },
+    "AiContributionSummary": {
+      "type": "object",
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "contribution": {
+          "$ref": "#/$defs/AiContribution"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "available",
+        "contribution"
       ]
     },
     "AiConversation": {
@@ -2372,6 +2444,369 @@
         "createdAtMs"
       ]
     },
+    "AnalysisProfile": {
+      "type": "object",
+      "properties": {
+        "builtIn": {
+          "type": "boolean"
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "weights": {
+          "$ref": "#/$defs/AnalysisWeights"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "name",
+        "weights",
+        "builtIn",
+        "createdAtMs",
+        "updatedAtMs"
+      ]
+    },
+    "AnalysisProfileListResult": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AnalysisProfile"
+          }
+        }
+      },
+      "required": [
+        "items"
+      ]
+    },
+    "AnalysisRunIdParams": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId"
+      ]
+    },
+    "AnalysisRunParams": {
+      "type": "object",
+      "properties": {
+        "documentId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "profileId": {
+          "type": "string",
+          "default": "builtin.analysis.standard"
+        },
+        "profileRevision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "default": null,
+          "minimum": 0
+        },
+        "projectId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId"
+      ]
+    },
+    "AnalysisRunResult": {
+      "type": "object",
+      "properties": {
+        "completedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "documentId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "documentRevision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "default": null,
+          "minimum": 0
+        },
+        "documentSummaries": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/AnalysisSummary"
+          }
+        },
+        "id": {
+          "type": "string"
+        },
+        "profileId": {
+          "type": "string"
+        },
+        "profileRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "projectRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "stale": {
+          "type": "boolean"
+        },
+        "summary": {
+          "$ref": "#/$defs/AnalysisSummary"
+        }
+      },
+      "required": [
+        "id",
+        "projectId",
+        "profileId",
+        "profileRevision",
+        "projectRevision",
+        "stale",
+        "summary",
+        "documentSummaries",
+        "createdAtMs",
+        "completedAtMs"
+      ]
+    },
+    "AnalysisSummary": {
+      "type": "object",
+      "properties": {
+        "aiContribution": {
+          "$ref": "#/$defs/AiContribution"
+        },
+        "matchBands": {
+          "$ref": "#/$defs/MatchBandCounts"
+        },
+        "repeatedSegments": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "segments": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "sourceCharacters": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "sourceCjkCharacters": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "sourceWords": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "targetCharacters": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "targetCjkCharacters": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "targetWords": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "weightedEffortMilliUnits": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "workflowReview": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "workflowSigned": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "workflowTranslation": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "segments",
+        "sourceWords",
+        "sourceCharacters",
+        "sourceCjkCharacters",
+        "targetWords",
+        "targetCharacters",
+        "targetCjkCharacters",
+        "repeatedSegments",
+        "workflowTranslation",
+        "workflowReview",
+        "workflowSigned",
+        "matchBands",
+        "weightedEffortMilliUnits",
+        "aiContribution"
+      ]
+    },
+    "AnalysisWeights": {
+      "type": "object",
+      "properties": {
+        "exactBasisPoints": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "match5074BasisPoints": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "match7584BasisPoints": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "match8594BasisPoints": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "match9599BasisPoints": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "noMatchBasisPoints": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "repetitionBasisPoints": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "noMatchBasisPoints",
+        "match5074BasisPoints",
+        "match7584BasisPoints",
+        "match8594BasisPoints",
+        "match9599BasisPoints",
+        "exactBasisPoints",
+        "repetitionBasisPoints"
+      ]
+    },
+    "AnalyticsTrendBucket": {
+      "type": "object",
+      "properties": {
+        "confirmations": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "endMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "qaRunsCompleted": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "startMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "targetEdits": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "termsAdded": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "tmUnitsAdded": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "workflowTransitions": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "startMs",
+        "endMs",
+        "targetEdits",
+        "confirmations",
+        "workflowTransitions",
+        "tmUnitsAdded",
+        "termsAdded",
+        "qaRunsCompleted"
+      ]
+    },
     "ArtifactKind": {
       "type": "string",
       "enum": [
@@ -2407,6 +2842,43 @@
         "csv",
         "tsv",
         "tbx"
+      ]
+    },
+    "AssetHealthSummary": {
+      "type": "object",
+      "properties": {
+        "curationOutcomes": {
+          "$ref": "#/$defs/OptionalCountMetric"
+        },
+        "mountedLibraryHitSegments": {
+          "$ref": "#/$defs/OptionalCountMetric"
+        },
+        "qaOpenBlockers": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "termEntries": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "tmConfirmedUnits": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "tmReuseSegments": {
+          "$ref": "#/$defs/OptionalCountMetric"
+        }
+      },
+      "required": [
+        "tmConfirmedUnits",
+        "termEntries",
+        "qaOpenBlockers",
+        "tmReuseSegments",
+        "mountedLibraryHitSegments",
+        "curationOutcomes"
       ]
     },
     "AssetMountMode": {
@@ -2485,6 +2957,75 @@
       "required": [
         "destinationPath",
         "manifest"
+      ]
+    },
+    "BatchImportAtomicity": {
+      "type": "string",
+      "enum": [
+        "bestEffort",
+        "allOrNothing"
+      ]
+    },
+    "BatchImportDiagnostic": {
+      "type": "object",
+      "properties": {
+        "document": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Document"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "errorCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "path": {
+          "type": "string"
+        },
+        "relativePath": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "relativePath",
+        "status"
+      ]
+    },
+    "BatchImportItem": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "relativePath": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "path"
       ]
     },
     "ChineseConversionProfile": {
@@ -3063,6 +3604,93 @@
         "total",
         "offset",
         "limit"
+      ]
+    },
+    "DocumentReimportApplyParams": {
+      "type": "object",
+      "properties": {
+        "actor": {
+          "type": "string",
+          "default": "desktop"
+        },
+        "expectedDocumentRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "previewId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "previewId",
+        "expectedDocumentRevision"
+      ]
+    },
+    "DocumentReimportPreviewParams": {
+      "type": "object",
+      "properties": {
+        "actor": {
+          "type": "string",
+          "default": "desktop"
+        },
+        "documentId": {
+          "type": "string"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "options": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "sourcePath": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "documentId",
+        "sourcePath",
+        "expectedRevision"
+      ]
+    },
+    "DocumentReimportPreviewResult": {
+      "type": "object",
+      "properties": {
+        "candidateSourceSha256": {
+          "type": "string"
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "documentId": {
+          "type": "string"
+        },
+        "expectedDocumentRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "plan": {
+          "$ref": "#/$defs/ReimportPlan"
+        },
+        "previewId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "previewId",
+        "documentId",
+        "expectedDocumentRevision",
+        "candidateSourceSha256",
+        "plan",
+        "createdAtMs"
       ]
     },
     "DocumentStatus": {
@@ -3676,6 +4304,181 @@
         "query"
       ]
     },
+    "GlobalSearchHit": {
+      "type": "object",
+      "properties": {
+        "documentId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "documentName": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "field": {
+          "type": "string"
+        },
+        "locale": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "projectName": {
+          "type": "string"
+        },
+        "segmentId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "segmentOrdinal": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        },
+        "snippet": {
+          "type": "string"
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "workflowState": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "projectId",
+        "projectName",
+        "field",
+        "snippet",
+        "updatedAtMs"
+      ]
+    },
+    "GlobalSearchPage": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GlobalSearchHit"
+          }
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "items",
+        "total",
+        "offset",
+        "limit"
+      ]
+    },
+    "GlobalSearchParams": {
+      "type": "object",
+      "properties": {
+        "fields": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "includeRecycled": {
+          "type": "boolean",
+          "default": false
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 200,
+          "minimum": 0
+        },
+        "locale": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        },
+        "projectId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "text": {
+          "type": "string"
+        },
+        "updatedAfterMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "default": null
+        },
+        "updatedBeforeMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "default": null
+        },
+        "workflowState": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "text"
+      ]
+    },
     "GroundingOptions": {
       "type": "object",
       "properties": {
@@ -4012,6 +4815,55 @@
         "documentId"
       ]
     },
+    "MatchBandCounts": {
+      "type": "object",
+      "properties": {
+        "exact": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "match5074": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "match7584": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "match8594": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "match9599": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "noMatch": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "repetitions": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "noMatch",
+        "match5074",
+        "match7584",
+        "match8594",
+        "match9599",
+        "exact",
+        "repetitions"
+      ]
+    },
     "MergeSegmentsParams": {
       "type": "object",
       "properties": {
@@ -4058,10 +4910,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ImportDocxParams"
+          "$ref": "#/$defs/ProjectTemplateUpdateParams"
         },
         "result": {
-          "$ref": "#/$defs/Document"
+          "$ref": "#/$defs/ProjectTemplate"
         }
       },
       "required": [
@@ -4070,6 +4922,306 @@
       ]
     },
     "MethodContract100": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/EmptyParams"
+        },
+        "result": {
+          "$ref": "#/$defs/FilterListResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract101": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/HistoryListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/OperationPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract102": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/EmptyParams"
+        },
+        "result": {
+          "$ref": "#/$defs/DataHealthReport"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract103": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CreateBackupParams"
+        },
+        "result": {
+          "$ref": "#/$defs/BackupResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract104": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/EmptyParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineCapabilityResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract105": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CreatePipelineParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineDefinition"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract106": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/PipelineListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineDefinitionPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract107": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/PipelineIdParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineDefinition"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract108": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/ValidatePipelineParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineValidationResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract109": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/RunPipelineParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineRunSnapshot"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract11": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/ProjectTemplateDeleteParams"
+        },
+        "result": {
+          "$ref": "#/$defs/EmptyResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract110": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/PipelineRunListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineRunPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract111": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/PipelineRunIdParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineRunSnapshot"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract112": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/PipelineRunRevisionParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineRunSnapshot"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract113": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiProviderCatalogParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiProviderCatalogResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract114": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiProviderListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiProviderPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract115": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiProviderCreateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiProviderProfile"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract116": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiProviderUpdateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiProviderProfile"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract117": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiProfileRevisionParams"
+        },
+        "result": {
+          "$ref": "#/$defs/EmptyResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract118": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiProfileIdParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiProviderTestResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract119": {
       "type": "object",
       "properties": {
         "params": {
@@ -4084,7 +5236,22 @@
         "result"
       ]
     },
-    "MethodContract101": {
+    "MethodContract12": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/ProjectCreateFromTemplateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/ProjectCreateFromTemplateResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract120": {
       "type": "object",
       "properties": {
         "params": {
@@ -4099,7 +5266,7 @@
         "result"
       ]
     },
-    "MethodContract102": {
+    "MethodContract121": {
       "type": "object",
       "properties": {
         "params": {
@@ -4114,7 +5281,7 @@
         "result"
       ]
     },
-    "MethodContract103": {
+    "MethodContract122": {
       "type": "object",
       "properties": {
         "params": {
@@ -4129,7 +5296,7 @@
         "result"
       ]
     },
-    "MethodContract104": {
+    "MethodContract123": {
       "type": "object",
       "properties": {
         "params": {
@@ -4144,7 +5311,7 @@
         "result"
       ]
     },
-    "MethodContract105": {
+    "MethodContract124": {
       "type": "object",
       "properties": {
         "params": {
@@ -4159,7 +5326,7 @@
         "result"
       ]
     },
-    "MethodContract106": {
+    "MethodContract125": {
       "type": "object",
       "properties": {
         "params": {
@@ -4174,7 +5341,7 @@
         "result"
       ]
     },
-    "MethodContract107": {
+    "MethodContract126": {
       "type": "object",
       "properties": {
         "params": {
@@ -4189,7 +5356,7 @@
         "result"
       ]
     },
-    "MethodContract108": {
+    "MethodContract127": {
       "type": "object",
       "properties": {
         "params": {
@@ -4204,7 +5371,7 @@
         "result"
       ]
     },
-    "MethodContract109": {
+    "MethodContract128": {
       "type": "object",
       "properties": {
         "params": {
@@ -4219,22 +5386,7 @@
         "result"
       ]
     },
-    "MethodContract11": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/SegmentListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/SegmentPage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract110": {
+    "MethodContract129": {
       "type": "object",
       "properties": {
         "params": {
@@ -4249,7 +5401,22 @@
         "result"
       ]
     },
-    "MethodContract111": {
+    "MethodContract13": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/ProjectBatchImportParams"
+        },
+        "result": {
+          "$ref": "#/$defs/ProjectBatchImportResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract130": {
       "type": "object",
       "properties": {
         "params": {
@@ -4264,7 +5431,7 @@
         "result"
       ]
     },
-    "MethodContract112": {
+    "MethodContract131": {
       "type": "object",
       "properties": {
         "params": {
@@ -4279,7 +5446,7 @@
         "result"
       ]
     },
-    "MethodContract113": {
+    "MethodContract132": {
       "type": "object",
       "properties": {
         "params": {
@@ -4294,7 +5461,7 @@
         "result"
       ]
     },
-    "MethodContract114": {
+    "MethodContract133": {
       "type": "object",
       "properties": {
         "params": {
@@ -4309,7 +5476,7 @@
         "result"
       ]
     },
-    "MethodContract115": {
+    "MethodContract134": {
       "type": "object",
       "properties": {
         "params": {
@@ -4324,7 +5491,7 @@
         "result"
       ]
     },
-    "MethodContract116": {
+    "MethodContract135": {
       "type": "object",
       "properties": {
         "params": {
@@ -4339,7 +5506,7 @@
         "result"
       ]
     },
-    "MethodContract117": {
+    "MethodContract136": {
       "type": "object",
       "properties": {
         "params": {
@@ -4354,7 +5521,7 @@
         "result"
       ]
     },
-    "MethodContract118": {
+    "MethodContract137": {
       "type": "object",
       "properties": {
         "params": {
@@ -4369,7 +5536,7 @@
         "result"
       ]
     },
-    "MethodContract119": {
+    "MethodContract138": {
       "type": "object",
       "properties": {
         "params": {
@@ -4384,44 +5551,14 @@
         "result"
       ]
     },
-    "MethodContract12": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/UpdateTargetParams"
-        },
-        "result": {
-          "$ref": "#/$defs/Segment"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract13": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/ConfirmSegmentParams"
-        },
-        "result": {
-          "$ref": "#/$defs/ConfirmSegmentResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
     "MethodContract14": {
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/EditorSegmentListParams"
+          "$ref": "#/$defs/ProjectArchiveExportParams"
         },
         "result": {
-          "$ref": "#/$defs/EditorSegmentPage"
+          "$ref": "#/$defs/ProjectArchiveResult"
         }
       },
       "required": [
@@ -4433,10 +5570,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/SetSegmentTagsParams"
+          "$ref": "#/$defs/ProjectArchiveRestoreParams"
         },
         "result": {
-          "$ref": "#/$defs/EditorMutationResult"
+          "$ref": "#/$defs/ProjectArchiveResult"
         }
       },
       "required": [
@@ -4448,10 +5585,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ConvertSegmentChineseParams"
+          "$ref": "#/$defs/DocumentListParams"
         },
         "result": {
-          "$ref": "#/$defs/EditorMutationResult"
+          "$ref": "#/$defs/DocumentPage"
         }
       },
       "required": [
@@ -4463,10 +5600,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PropagateSegmentParams"
+          "$ref": "#/$defs/DocumentIdParams"
         },
         "result": {
-          "$ref": "#/$defs/EditorMutationResult"
+          "$ref": "#/$defs/Document"
         }
       },
       "required": [
@@ -4478,10 +5615,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/FindSegmentsParams"
+          "$ref": "#/$defs/ImportDocumentParams"
         },
         "result": {
-          "$ref": "#/$defs/SegmentFindResult"
+          "$ref": "#/$defs/ImportDocumentResult"
         }
       },
       "required": [
@@ -4493,10 +5630,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ReplacePreviewParams"
+          "$ref": "#/$defs/ImportDocxParams"
         },
         "result": {
-          "$ref": "#/$defs/ReplacePreviewResult"
+          "$ref": "#/$defs/Document"
         }
       },
       "required": [
@@ -4523,10 +5660,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ReplaceApplyParams"
+          "$ref": "#/$defs/DocumentReimportPreviewParams"
         },
         "result": {
-          "$ref": "#/$defs/EditorMutationResult"
+          "$ref": "#/$defs/DocumentReimportPreviewResult"
         }
       },
       "required": [
@@ -4538,10 +5675,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/SplitSegmentParams"
+          "$ref": "#/$defs/DocumentReimportApplyParams"
         },
         "result": {
-          "$ref": "#/$defs/EditorMutationResult"
+          "$ref": "#/$defs/Document"
         }
       },
       "required": [
@@ -4553,10 +5690,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/MergeSegmentsParams"
+          "$ref": "#/$defs/RecycleListParams"
         },
         "result": {
-          "$ref": "#/$defs/EditorMutationResult"
+          "$ref": "#/$defs/RecyclePage"
         }
       },
       "required": [
@@ -4568,10 +5705,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CorrectSourceParams"
+          "$ref": "#/$defs/RecycleDeleteParams"
         },
         "result": {
-          "$ref": "#/$defs/EditorMutationResult"
+          "$ref": "#/$defs/RecycleEntry"
         }
       },
       "required": [
@@ -4583,10 +5720,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/SetEditorWorkflowParams"
+          "$ref": "#/$defs/RecycleEntryActionParams"
         },
         "result": {
-          "$ref": "#/$defs/EditorMutationResult"
+          "$ref": "#/$defs/EmptyResult"
         }
       },
       "required": [
@@ -4598,10 +5735,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/SegmentCommentListParams"
+          "$ref": "#/$defs/GlobalSearchParams"
         },
         "result": {
-          "$ref": "#/$defs/SegmentCommentListResult"
+          "$ref": "#/$defs/GlobalSearchPage"
         }
       },
       "required": [
@@ -4613,10 +5750,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CreateSegmentCommentParams"
+          "$ref": "#/$defs/EmptyParams"
         },
         "result": {
-          "$ref": "#/$defs/EditorComment"
+          "$ref": "#/$defs/AnalysisProfileListResult"
         }
       },
       "required": [
@@ -4628,10 +5765,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/UpdateSegmentCommentParams"
+          "$ref": "#/$defs/AnalysisRunParams"
         },
         "result": {
-          "$ref": "#/$defs/EditorComment"
+          "$ref": "#/$defs/AnalysisRunResult"
         }
       },
       "required": [
@@ -4643,10 +5780,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ResolveSegmentCommentParams"
+          "$ref": "#/$defs/AnalysisRunIdParams"
         },
         "result": {
-          "$ref": "#/$defs/EditorComment"
+          "$ref": "#/$defs/AnalysisRunResult"
         }
       },
       "required": [
@@ -4658,10 +5795,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/DeleteSegmentCommentParams"
+          "$ref": "#/$defs/ProjectAnalyticsParams"
         },
         "result": {
-          "$ref": "#/$defs/EmptyResult"
+          "$ref": "#/$defs/ProjectAnalyticsSummary"
         }
       },
       "required": [
@@ -4688,10 +5825,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/SpellCheckParams"
+          "$ref": "#/$defs/SegmentListParams"
         },
         "result": {
-          "$ref": "#/$defs/SpellCheckResult"
+          "$ref": "#/$defs/SegmentPage"
         }
       },
       "required": [
@@ -4703,10 +5840,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/DictionaryListParams"
+          "$ref": "#/$defs/UpdateTargetParams"
         },
         "result": {
-          "$ref": "#/$defs/DictionaryListResult"
+          "$ref": "#/$defs/Segment"
         }
       },
       "required": [
@@ -4718,10 +5855,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/DictionaryWordParams"
+          "$ref": "#/$defs/ConfirmSegmentParams"
         },
         "result": {
-          "$ref": "#/$defs/DictionaryListResult"
+          "$ref": "#/$defs/ConfirmSegmentResult"
         }
       },
       "required": [
@@ -4733,10 +5870,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/EditorUndoRedoParams"
+          "$ref": "#/$defs/EditorSegmentListParams"
         },
         "result": {
-          "$ref": "#/$defs/EditorMutationResult"
+          "$ref": "#/$defs/EditorSegmentPage"
         }
       },
       "required": [
@@ -4748,10 +5885,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/EditorHistoryParams"
+          "$ref": "#/$defs/SetSegmentTagsParams"
         },
         "result": {
-          "$ref": "#/$defs/EditorHistoryResult"
+          "$ref": "#/$defs/EditorMutationResult"
         }
       },
       "required": [
@@ -4763,10 +5900,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ReviewCreateParams"
+          "$ref": "#/$defs/ConvertSegmentChineseParams"
         },
         "result": {
-          "$ref": "#/$defs/ReviewRevision"
+          "$ref": "#/$defs/EditorMutationResult"
         }
       },
       "required": [
@@ -4778,10 +5915,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ReviewListParams"
+          "$ref": "#/$defs/PropagateSegmentParams"
         },
         "result": {
-          "$ref": "#/$defs/ReviewListResult"
+          "$ref": "#/$defs/EditorMutationResult"
         }
       },
       "required": [
@@ -4793,10 +5930,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ReviewDecisionParams"
+          "$ref": "#/$defs/FindSegmentsParams"
         },
         "result": {
-          "$ref": "#/$defs/EditorMutationResult"
+          "$ref": "#/$defs/SegmentFindResult"
         }
       },
       "required": [
@@ -4808,10 +5945,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ReviewDecisionParams"
+          "$ref": "#/$defs/ReplacePreviewParams"
         },
         "result": {
-          "$ref": "#/$defs/ReviewRevision"
+          "$ref": "#/$defs/ReplacePreviewResult"
         }
       },
       "required": [
@@ -4823,10 +5960,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ReviewQueueParams"
+          "$ref": "#/$defs/ReplaceApplyParams"
         },
         "result": {
-          "$ref": "#/$defs/ReviewQueuePage"
+          "$ref": "#/$defs/EditorMutationResult"
         }
       },
       "required": [
@@ -4853,10 +5990,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ReviewStatisticsParams"
+          "$ref": "#/$defs/SplitSegmentParams"
         },
         "result": {
-          "$ref": "#/$defs/ReviewStatistics"
+          "$ref": "#/$defs/EditorMutationResult"
         }
       },
       "required": [
@@ -4868,10 +6005,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/EmptyParams"
+          "$ref": "#/$defs/MergeSegmentsParams"
         },
         "result": {
-          "$ref": "#/$defs/EditorPreferences"
+          "$ref": "#/$defs/EditorMutationResult"
         }
       },
       "required": [
@@ -4883,10 +6020,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/UpdateEditorPreferencesParams"
+          "$ref": "#/$defs/CorrectSourceParams"
         },
         "result": {
-          "$ref": "#/$defs/EditorPreferences"
+          "$ref": "#/$defs/EditorMutationResult"
         }
       },
       "required": [
@@ -4898,10 +6035,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PdfPageListParams"
+          "$ref": "#/$defs/SetEditorWorkflowParams"
         },
         "result": {
-          "$ref": "#/$defs/PdfPageListResult"
+          "$ref": "#/$defs/EditorMutationResult"
         }
       },
       "required": [
@@ -4913,10 +6050,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PdfPageGetParams"
+          "$ref": "#/$defs/SegmentCommentListParams"
         },
         "result": {
-          "$ref": "#/$defs/PdfPageDetail"
+          "$ref": "#/$defs/SegmentCommentListResult"
         }
       },
       "required": [
@@ -4928,10 +6065,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CorrectOcrParams"
+          "$ref": "#/$defs/CreateSegmentCommentParams"
         },
         "result": {
-          "$ref": "#/$defs/Segment"
+          "$ref": "#/$defs/EditorComment"
         }
       },
       "required": [
@@ -4943,10 +6080,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ExactLookupParams"
+          "$ref": "#/$defs/UpdateSegmentCommentParams"
         },
         "result": {
-          "$ref": "#/$defs/ExactLookupResult"
+          "$ref": "#/$defs/EditorComment"
         }
       },
       "required": [
@@ -4958,10 +6095,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TmLibraryListParams"
+          "$ref": "#/$defs/ResolveSegmentCommentParams"
         },
         "result": {
-          "$ref": "#/$defs/TmLibraryPage"
+          "$ref": "#/$defs/EditorComment"
         }
       },
       "required": [
@@ -4973,10 +6110,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TmLibraryCreateParams"
+          "$ref": "#/$defs/DeleteSegmentCommentParams"
         },
         "result": {
-          "$ref": "#/$defs/TmLibrary"
+          "$ref": "#/$defs/EmptyResult"
         }
       },
       "required": [
@@ -4988,10 +6125,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TmLibraryMountParams"
+          "$ref": "#/$defs/SpellCheckParams"
         },
         "result": {
-          "$ref": "#/$defs/TmLibraryMount"
+          "$ref": "#/$defs/SpellCheckResult"
         }
       },
       "required": [
@@ -5018,10 +6155,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TmLibraryUnmountParams"
+          "$ref": "#/$defs/DictionaryListParams"
         },
         "result": {
-          "$ref": "#/$defs/EmptyResult"
+          "$ref": "#/$defs/DictionaryListResult"
         }
       },
       "required": [
@@ -5033,10 +6170,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TmSearchParams"
+          "$ref": "#/$defs/DictionaryWordParams"
         },
         "result": {
-          "$ref": "#/$defs/TmSearchResult"
+          "$ref": "#/$defs/DictionaryListResult"
         }
       },
       "required": [
@@ -5048,10 +6185,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ConcordanceParams"
+          "$ref": "#/$defs/EditorUndoRedoParams"
         },
         "result": {
-          "$ref": "#/$defs/ConcordanceResult"
+          "$ref": "#/$defs/EditorMutationResult"
         }
       },
       "required": [
@@ -5063,10 +6200,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TmImportParams"
+          "$ref": "#/$defs/EditorHistoryParams"
         },
         "result": {
-          "$ref": "#/$defs/TmImportResult"
+          "$ref": "#/$defs/EditorHistoryResult"
         }
       },
       "required": [
@@ -5078,10 +6215,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TmExportParams"
+          "$ref": "#/$defs/ReviewCreateParams"
         },
         "result": {
-          "$ref": "#/$defs/TmExportResult"
+          "$ref": "#/$defs/ReviewRevision"
         }
       },
       "required": [
@@ -5093,10 +6230,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TermbaseListParams"
+          "$ref": "#/$defs/ReviewListParams"
         },
         "result": {
-          "$ref": "#/$defs/TermbasePage"
+          "$ref": "#/$defs/ReviewListResult"
         }
       },
       "required": [
@@ -5108,10 +6245,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TermbaseCreateParams"
+          "$ref": "#/$defs/ReviewDecisionParams"
         },
         "result": {
-          "$ref": "#/$defs/Termbase"
+          "$ref": "#/$defs/EditorMutationResult"
         }
       },
       "required": [
@@ -5123,10 +6260,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TermbaseMountParams"
+          "$ref": "#/$defs/ReviewDecisionParams"
         },
         "result": {
-          "$ref": "#/$defs/TermbaseMount"
+          "$ref": "#/$defs/ReviewRevision"
         }
       },
       "required": [
@@ -5138,10 +6275,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TermbaseUnmountParams"
+          "$ref": "#/$defs/ReviewQueueParams"
         },
         "result": {
-          "$ref": "#/$defs/EmptyResult"
+          "$ref": "#/$defs/ReviewQueuePage"
         }
       },
       "required": [
@@ -5153,10 +6290,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TermSearchParams"
+          "$ref": "#/$defs/ReviewStatisticsParams"
         },
         "result": {
-          "$ref": "#/$defs/TermSearchResult"
+          "$ref": "#/$defs/ReviewStatistics"
         }
       },
       "required": [
@@ -5183,10 +6320,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TermUpsertParams"
+          "$ref": "#/$defs/EmptyParams"
         },
         "result": {
-          "$ref": "#/$defs/TermEntry"
+          "$ref": "#/$defs/EditorPreferences"
         }
       },
       "required": [
@@ -5198,10 +6335,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TermbaseImportParams"
+          "$ref": "#/$defs/UpdateEditorPreferencesParams"
         },
         "result": {
-          "$ref": "#/$defs/TermbaseImportResult"
+          "$ref": "#/$defs/EditorPreferences"
         }
       },
       "required": [
@@ -5213,10 +6350,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TermbaseExportParams"
+          "$ref": "#/$defs/PdfPageListParams"
         },
         "result": {
-          "$ref": "#/$defs/TermbaseExportResult"
+          "$ref": "#/$defs/PdfPageListResult"
         }
       },
       "required": [
@@ -5228,10 +6365,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/DocumentIdParams"
+          "$ref": "#/$defs/PdfPageGetParams"
         },
         "result": {
-          "$ref": "#/$defs/QaListResult"
+          "$ref": "#/$defs/PdfPageDetail"
         }
       },
       "required": [
@@ -5243,10 +6380,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ListQaParams"
+          "$ref": "#/$defs/CorrectOcrParams"
         },
         "result": {
-          "$ref": "#/$defs/QaListResult"
+          "$ref": "#/$defs/Segment"
         }
       },
       "required": [
@@ -5258,10 +6395,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/QaProfileListParams"
+          "$ref": "#/$defs/ExactLookupParams"
         },
         "result": {
-          "$ref": "#/$defs/QaProfilePage"
+          "$ref": "#/$defs/ExactLookupResult"
         }
       },
       "required": [
@@ -5273,10 +6410,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/QaProfileCreateParams"
+          "$ref": "#/$defs/TmLibraryListParams"
         },
         "result": {
-          "$ref": "#/$defs/QaProfile"
+          "$ref": "#/$defs/TmLibraryPage"
         }
       },
       "required": [
@@ -5288,10 +6425,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/QaProfileCloneParams"
+          "$ref": "#/$defs/TmLibraryCreateParams"
         },
         "result": {
-          "$ref": "#/$defs/QaProfile"
+          "$ref": "#/$defs/TmLibrary"
         }
       },
       "required": [
@@ -5303,10 +6440,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/QaProfileUpdateParams"
+          "$ref": "#/$defs/TmLibraryMountParams"
         },
         "result": {
-          "$ref": "#/$defs/QaProfile"
+          "$ref": "#/$defs/TmLibraryMount"
         }
       },
       "required": [
@@ -5318,7 +6455,7 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/QaProfileDeleteParams"
+          "$ref": "#/$defs/TmLibraryUnmountParams"
         },
         "result": {
           "$ref": "#/$defs/EmptyResult"
@@ -5333,10 +6470,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/DocumentListParams"
+          "$ref": "#/$defs/ProjectTemplateListParams"
         },
         "result": {
-          "$ref": "#/$defs/DocumentPage"
+          "$ref": "#/$defs/ProjectTemplatePage"
         }
       },
       "required": [
@@ -5345,6 +6482,306 @@
       ]
     },
     "MethodContract70": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TmSearchParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TmSearchResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract71": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/ConcordanceParams"
+        },
+        "result": {
+          "$ref": "#/$defs/ConcordanceResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract72": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TmImportParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TmImportResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract73": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TmExportParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TmExportResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract74": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermbaseListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermbasePage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract75": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermbaseCreateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/Termbase"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract76": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermbaseMountParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermbaseMount"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract77": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermbaseUnmountParams"
+        },
+        "result": {
+          "$ref": "#/$defs/EmptyResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract78": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermSearchParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermSearchResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract79": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermUpsertParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermEntry"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract8": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/ProjectTemplateGetParams"
+        },
+        "result": {
+          "$ref": "#/$defs/ProjectTemplate"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract80": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermbaseImportParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermbaseImportResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract81": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermbaseExportParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermbaseExportResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract82": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/DocumentIdParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaListResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract83": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/ListQaParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaListResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract84": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/QaProfileListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaProfilePage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract85": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/QaProfileCreateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaProfile"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract86": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/QaProfileCloneParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaProfile"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract87": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/QaProfileUpdateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaProfile"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract88": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/QaProfileDeleteParams"
+        },
+        "result": {
+          "$ref": "#/$defs/EmptyResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract89": {
       "type": "object",
       "properties": {
         "params": {
@@ -5359,7 +6796,22 @@
         "result"
       ]
     },
-    "MethodContract71": {
+    "MethodContract9": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/ProjectTemplateCreateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/ProjectTemplate"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract90": {
       "type": "object",
       "properties": {
         "params": {
@@ -5374,7 +6826,7 @@
         "result"
       ]
     },
-    "MethodContract72": {
+    "MethodContract91": {
       "type": "object",
       "properties": {
         "params": {
@@ -5389,7 +6841,7 @@
         "result"
       ]
     },
-    "MethodContract73": {
+    "MethodContract92": {
       "type": "object",
       "properties": {
         "params": {
@@ -5404,7 +6856,7 @@
         "result"
       ]
     },
-    "MethodContract74": {
+    "MethodContract93": {
       "type": "object",
       "properties": {
         "params": {
@@ -5419,7 +6871,7 @@
         "result"
       ]
     },
-    "MethodContract75": {
+    "MethodContract94": {
       "type": "object",
       "properties": {
         "params": {
@@ -5434,7 +6886,7 @@
         "result"
       ]
     },
-    "MethodContract76": {
+    "MethodContract95": {
       "type": "object",
       "properties": {
         "params": {
@@ -5449,7 +6901,7 @@
         "result"
       ]
     },
-    "MethodContract77": {
+    "MethodContract96": {
       "type": "object",
       "properties": {
         "params": {
@@ -5464,7 +6916,7 @@
         "result"
       ]
     },
-    "MethodContract78": {
+    "MethodContract97": {
       "type": "object",
       "properties": {
         "params": {
@@ -5479,7 +6931,7 @@
         "result"
       ]
     },
-    "MethodContract79": {
+    "MethodContract98": {
       "type": "object",
       "properties": {
         "params": {
@@ -5494,22 +6946,7 @@
         "result"
       ]
     },
-    "MethodContract8": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/DocumentIdParams"
-        },
-        "result": {
-          "$ref": "#/$defs/Document"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract80": {
+    "MethodContract99": {
       "type": "object",
       "properties": {
         "params": {
@@ -5517,306 +6954,6 @@
         },
         "result": {
           "$ref": "#/$defs/ExportDocumentResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract81": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/EmptyParams"
-        },
-        "result": {
-          "$ref": "#/$defs/FilterListResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract82": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/HistoryListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/OperationPage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract83": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/EmptyParams"
-        },
-        "result": {
-          "$ref": "#/$defs/DataHealthReport"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract84": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/CreateBackupParams"
-        },
-        "result": {
-          "$ref": "#/$defs/BackupResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract85": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/EmptyParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineCapabilityResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract86": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/CreatePipelineParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineDefinition"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract87": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/PipelineListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineDefinitionPage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract88": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/PipelineIdParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineDefinition"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract89": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/ValidatePipelineParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineValidationResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract9": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/ImportDocumentParams"
-        },
-        "result": {
-          "$ref": "#/$defs/ImportDocumentResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract90": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/RunPipelineParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineRunSnapshot"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract91": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/PipelineRunListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineRunPage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract92": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/PipelineRunIdParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineRunSnapshot"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract93": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/PipelineRunRevisionParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineRunSnapshot"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract94": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiProviderCatalogParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiProviderCatalogResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract95": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiProviderListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiProviderPage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract96": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiProviderCreateParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiProviderProfile"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract97": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiProviderUpdateParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiProviderProfile"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract98": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiProfileRevisionParams"
-        },
-        "result": {
-          "$ref": "#/$defs/EmptyResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract99": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiProfileIdParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiProviderTestResult"
         }
       },
       "required": [
@@ -5948,6 +7085,31 @@
         "total",
         "offset",
         "limit"
+      ]
+    },
+    "OptionalCountMetric": {
+      "type": "object",
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "value": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "available"
       ]
     },
     "PdfBoundingBox": {
@@ -6671,6 +7833,108 @@
         "candidateValue"
       ]
     },
+    "ProductivitySummary": {
+      "type": "object",
+      "properties": {
+        "activeEditingMs": {
+          "$ref": "#/$defs/OptionalCountMetric"
+        },
+        "activityEvents": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "confirmedSegmentsPerHourMilli": {
+          "$ref": "#/$defs/OptionalCountMetric"
+        },
+        "idleGapMs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "timeInStateMs": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/OptionalCountMetric"
+          }
+        }
+      },
+      "required": [
+        "idleGapMs",
+        "activityEvents",
+        "activeEditingMs",
+        "confirmedSegmentsPerHourMilli",
+        "timeInStateMs"
+      ]
+    },
+    "ProgressSummary": {
+      "type": "object",
+      "properties": {
+        "completionBasisPoints": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "confirmedSegments": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "draftSegments": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "qaBlockers": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "reviewedSegments": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "totalSegments": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "untranslatedSegments": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "workflowReview": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "workflowSigned": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "workflowTranslation": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "totalSegments",
+        "untranslatedSegments",
+        "draftSegments",
+        "confirmedSegments",
+        "workflowTranslation",
+        "workflowReview",
+        "workflowSigned",
+        "reviewedSegments",
+        "qaBlockers",
+        "completionBasisPoints"
+      ]
+    },
     "Project": {
       "type": "object",
       "properties": {
@@ -6730,9 +7994,238 @@
         "updatedAtMs"
       ]
     },
+    "ProjectAnalyticsParams": {
+      "type": "object",
+      "properties": {
+        "idleGapMs": {
+          "type": "integer",
+          "format": "uint64",
+          "default": 300000,
+          "minimum": 0
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "trendBucketCount": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 30,
+          "minimum": 0
+        },
+        "trendBucketMs": {
+          "type": "integer",
+          "format": "uint64",
+          "default": 86400000,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "projectId"
+      ]
+    },
+    "ProjectAnalyticsSummary": {
+      "type": "object",
+      "properties": {
+        "ai": {
+          "$ref": "#/$defs/AiContributionSummary"
+        },
+        "assets": {
+          "$ref": "#/$defs/AssetHealthSummary"
+        },
+        "documentProgress": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/ProgressSummary"
+          }
+        },
+        "generatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "productivity": {
+          "$ref": "#/$defs/ProductivitySummary"
+        },
+        "progress": {
+          "$ref": "#/$defs/ProgressSummary"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "trends": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AnalyticsTrendBucket"
+          }
+        }
+      },
+      "required": [
+        "projectId",
+        "generatedAtMs",
+        "progress",
+        "documentProgress",
+        "productivity",
+        "ai",
+        "assets",
+        "trends"
+      ]
+    },
+    "ProjectArchiveExportParams": {
+      "type": "object",
+      "properties": {
+        "actor": {
+          "type": "string",
+          "default": "desktop"
+        },
+        "destinationPath": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId",
+        "destinationPath"
+      ]
+    },
+    "ProjectArchiveRestoreParams": {
+      "type": "object",
+      "properties": {
+        "actor": {
+          "type": "string",
+          "default": "desktop"
+        },
+        "archivePath": {
+          "type": "string"
+        },
+        "dependencyRemaps": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        }
+      },
+      "required": [
+        "archivePath"
+      ]
+    },
+    "ProjectArchiveResult": {
+      "type": "object",
+      "properties": {
+        "archivePath": {
+          "type": "string"
+        },
+        "archiveSha256": {
+          "type": "string"
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "projectId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId",
+        "archivePath",
+        "archiveSha256",
+        "diagnostics"
+      ]
+    },
+    "ProjectBatchImportParams": {
+      "type": "object",
+      "properties": {
+        "atomicity": {
+          "$ref": "#/$defs/BatchImportAtomicity",
+          "default": "bestEffort"
+        },
+        "filterId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BatchImportItem"
+          }
+        },
+        "options": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "projectId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId",
+        "items"
+      ]
+    },
+    "ProjectBatchImportResult": {
+      "type": "object",
+      "properties": {
+        "failed": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BatchImportDiagnostic"
+          }
+        },
+        "succeeded": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "items",
+        "succeeded",
+        "failed"
+      ]
+    },
     "ProjectConfiguration": {
       "type": "object",
       "properties": {
+        "aiProfileIds": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "analysisProfileId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "editorDefaults": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EditorPreferences"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "engineAllowlist": {
           "type": "array",
           "default": [],
@@ -6766,6 +8259,76 @@
           "default": null
         }
       }
+    },
+    "ProjectCreateFromTemplateParams": {
+      "type": "object",
+      "properties": {
+        "dependencyRemaps": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "domain": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "name": {
+          "type": "string"
+        },
+        "sourceLocale": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "targetLocale": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "templateId": {
+          "type": "string"
+        },
+        "templateRevision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "default": null,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "templateId",
+        "name"
+      ]
+    },
+    "ProjectCreateFromTemplateResult": {
+      "type": "object",
+      "properties": {
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TemplateDependencyDiagnostic"
+          }
+        },
+        "project": {
+          "$ref": "#/$defs/Project"
+        }
+      },
+      "required": [
+        "project",
+        "diagnostics"
+      ]
     },
     "ProjectIdParams": {
       "type": "object",
@@ -6866,6 +8429,179 @@
         "project",
         "documents",
         "counts"
+      ]
+    },
+    "ProjectTemplate": {
+      "type": "object",
+      "properties": {
+        "builtIn": {
+          "type": "boolean"
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "definition": true,
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "name",
+        "description",
+        "definition",
+        "builtIn",
+        "createdAtMs",
+        "updatedAtMs"
+      ]
+    },
+    "ProjectTemplateCreateParams": {
+      "type": "object",
+      "properties": {
+        "definition": {
+          "default": null
+        },
+        "description": {
+          "type": "string",
+          "default": ""
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "ProjectTemplateDeleteParams": {
+      "type": "object",
+      "properties": {
+        "expectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "templateId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "templateId",
+        "expectedRevision"
+      ]
+    },
+    "ProjectTemplateGetParams": {
+      "type": "object",
+      "properties": {
+        "revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "default": null,
+          "minimum": 0
+        },
+        "templateId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "templateId"
+      ]
+    },
+    "ProjectTemplateListParams": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 200,
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        }
+      }
+    },
+    "ProjectTemplatePage": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProjectTemplate"
+          }
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "items",
+        "total",
+        "offset",
+        "limit"
+      ]
+    },
+    "ProjectTemplateUpdateParams": {
+      "type": "object",
+      "properties": {
+        "definition": {
+          "default": null
+        },
+        "description": {
+          "type": "string",
+          "default": ""
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "name": {
+          "type": "string"
+        },
+        "templateId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "templateId",
+        "expectedRevision",
+        "name"
       ]
     },
     "PromptBundle": {
@@ -8160,6 +9896,273 @@
         "createdAtMs"
       ]
     },
+    "RecycleDeleteParams": {
+      "type": "object",
+      "properties": {
+        "actor": {
+          "type": "string",
+          "default": "desktop"
+        },
+        "entityId": {
+          "type": "string"
+        },
+        "entityType": {
+          "type": "string"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "reason": {
+          "type": "string"
+        },
+        "retentionMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "default": null
+        }
+      },
+      "required": [
+        "entityType",
+        "entityId",
+        "expectedRevision",
+        "reason"
+      ]
+    },
+    "RecycleEntry": {
+      "type": "object",
+      "properties": {
+        "actor": {
+          "type": "string"
+        },
+        "deletedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "entityId": {
+          "type": "string"
+        },
+        "entityType": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "previousState": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "purgedAtMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "default": null
+        },
+        "reason": {
+          "type": "string"
+        },
+        "restoredAtMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "default": null
+        },
+        "retentionUntilMs": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "id",
+        "projectId",
+        "entityType",
+        "entityId",
+        "displayName",
+        "previousState",
+        "actor",
+        "reason",
+        "deletedAtMs",
+        "retentionUntilMs"
+      ]
+    },
+    "RecycleEntryActionParams": {
+      "type": "object",
+      "properties": {
+        "actor": {
+          "type": "string",
+          "default": "desktop"
+        },
+        "entryId": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "required": [
+        "entryId"
+      ]
+    },
+    "RecycleListParams": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 200,
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        }
+      }
+    },
+    "RecyclePage": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RecycleEntry"
+          }
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "items",
+        "total",
+        "offset",
+        "limit"
+      ]
+    },
+    "ReimportDisposition": {
+      "type": "string",
+      "enum": [
+        "unchanged",
+        "changed",
+        "new",
+        "removed",
+        "ambiguous"
+      ]
+    },
+    "ReimportMatch": {
+      "type": "object",
+      "properties": {
+        "disposition": {
+          "$ref": "#/$defs/ReimportDisposition"
+        },
+        "newOrdinal": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "newSegmentId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "oldOrdinal": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "oldSegmentId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "disposition",
+        "reason"
+      ]
+    },
+    "ReimportPlan": {
+      "type": "object",
+      "properties": {
+        "ambiguous": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "changed": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ReimportMatch"
+          }
+        },
+        "newSegments": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "removed": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "unchanged": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "items",
+        "unchanged",
+        "changed",
+        "newSegments",
+        "removed",
+        "ambiguous"
+      ]
+    },
     "ReplaceApplyParams": {
       "type": "object",
       "properties": {
@@ -8719,190 +10722,220 @@
       "type": "object",
       "properties": {
         "ai.batch.cancel": {
-          "$ref": "#/$defs/MethodContract114"
+          "$ref": "#/$defs/MethodContract133"
         },
         "ai.batch.get": {
-          "$ref": "#/$defs/MethodContract111"
+          "$ref": "#/$defs/MethodContract130"
         },
         "ai.batch.items": {
-          "$ref": "#/$defs/MethodContract113"
+          "$ref": "#/$defs/MethodContract132"
         },
         "ai.batch.list": {
-          "$ref": "#/$defs/MethodContract112"
+          "$ref": "#/$defs/MethodContract131"
         },
         "ai.batch.resume": {
-          "$ref": "#/$defs/MethodContract114"
+          "$ref": "#/$defs/MethodContract133"
         },
         "ai.batch.start": {
-          "$ref": "#/$defs/MethodContract110"
+          "$ref": "#/$defs/MethodContract129"
         },
         "ai.conversation.create": {
-          "$ref": "#/$defs/MethodContract117"
+          "$ref": "#/$defs/MethodContract136"
         },
         "ai.conversation.list": {
-          "$ref": "#/$defs/MethodContract116"
+          "$ref": "#/$defs/MethodContract135"
         },
         "ai.conversation.messages": {
-          "$ref": "#/$defs/MethodContract119"
+          "$ref": "#/$defs/MethodContract138"
         },
         "ai.conversation.update": {
-          "$ref": "#/$defs/MethodContract118"
+          "$ref": "#/$defs/MethodContract137"
         },
         "ai.credential.delete": {
-          "$ref": "#/$defs/MethodContract100"
+          "$ref": "#/$defs/MethodContract119"
         },
         "ai.credential.status": {
-          "$ref": "#/$defs/MethodContract100"
+          "$ref": "#/$defs/MethodContract119"
         },
         "ai.grounding.preview": {
-          "$ref": "#/$defs/MethodContract103"
+          "$ref": "#/$defs/MethodContract122"
         },
         "ai.provider.catalog": {
-          "$ref": "#/$defs/MethodContract94"
+          "$ref": "#/$defs/MethodContract113"
         },
         "ai.provider.create": {
-          "$ref": "#/$defs/MethodContract96"
-        },
-        "ai.provider.delete": {
-          "$ref": "#/$defs/MethodContract98"
-        },
-        "ai.provider.list": {
-          "$ref": "#/$defs/MethodContract95"
-        },
-        "ai.provider.test": {
-          "$ref": "#/$defs/MethodContract99"
-        },
-        "ai.provider.update": {
-          "$ref": "#/$defs/MethodContract97"
-        },
-        "ai.result.apply": {
-          "$ref": "#/$defs/MethodContract109"
-        },
-        "ai.run.cancel": {
-          "$ref": "#/$defs/MethodContract108"
-        },
-        "ai.run.events": {
-          "$ref": "#/$defs/MethodContract107"
-        },
-        "ai.run.get": {
-          "$ref": "#/$defs/MethodContract105"
-        },
-        "ai.run.list": {
-          "$ref": "#/$defs/MethodContract106"
-        },
-        "ai.run.resume": {
-          "$ref": "#/$defs/MethodContract108"
-        },
-        "ai.run.start": {
-          "$ref": "#/$defs/MethodContract104"
-        },
-        "ai.settings.get": {
-          "$ref": "#/$defs/MethodContract101"
-        },
-        "ai.settings.update": {
-          "$ref": "#/$defs/MethodContract102"
-        },
-        "ai.usage.query": {
           "$ref": "#/$defs/MethodContract115"
         },
+        "ai.provider.delete": {
+          "$ref": "#/$defs/MethodContract117"
+        },
+        "ai.provider.list": {
+          "$ref": "#/$defs/MethodContract114"
+        },
+        "ai.provider.test": {
+          "$ref": "#/$defs/MethodContract118"
+        },
+        "ai.provider.update": {
+          "$ref": "#/$defs/MethodContract116"
+        },
+        "ai.result.apply": {
+          "$ref": "#/$defs/MethodContract128"
+        },
+        "ai.run.cancel": {
+          "$ref": "#/$defs/MethodContract127"
+        },
+        "ai.run.events": {
+          "$ref": "#/$defs/MethodContract126"
+        },
+        "ai.run.get": {
+          "$ref": "#/$defs/MethodContract124"
+        },
+        "ai.run.list": {
+          "$ref": "#/$defs/MethodContract125"
+        },
+        "ai.run.resume": {
+          "$ref": "#/$defs/MethodContract127"
+        },
+        "ai.run.start": {
+          "$ref": "#/$defs/MethodContract123"
+        },
+        "ai.settings.get": {
+          "$ref": "#/$defs/MethodContract120"
+        },
+        "ai.settings.update": {
+          "$ref": "#/$defs/MethodContract121"
+        },
+        "ai.usage.query": {
+          "$ref": "#/$defs/MethodContract134"
+        },
+        "analysis.profile.list": {
+          "$ref": "#/$defs/MethodContract26"
+        },
+        "analysis.run": {
+          "$ref": "#/$defs/MethodContract27"
+        },
+        "analysis.run.get": {
+          "$ref": "#/$defs/MethodContract28"
+        },
         "data.checkHealth": {
-          "$ref": "#/$defs/MethodContract83"
+          "$ref": "#/$defs/MethodContract102"
         },
         "data.createBackup": {
-          "$ref": "#/$defs/MethodContract84"
+          "$ref": "#/$defs/MethodContract103"
         },
         "dictionary.add": {
-          "$ref": "#/$defs/MethodContract32"
+          "$ref": "#/$defs/MethodContract51"
         },
         "dictionary.list": {
-          "$ref": "#/$defs/MethodContract31"
+          "$ref": "#/$defs/MethodContract50"
         },
         "dictionary.remove": {
-          "$ref": "#/$defs/MethodContract32"
+          "$ref": "#/$defs/MethodContract51"
         },
         "document.export": {
-          "$ref": "#/$defs/MethodContract80"
+          "$ref": "#/$defs/MethodContract99"
         },
         "document.exportDocx": {
-          "$ref": "#/$defs/MethodContract79"
+          "$ref": "#/$defs/MethodContract98"
         },
         "document.get": {
-          "$ref": "#/$defs/MethodContract8"
+          "$ref": "#/$defs/MethodContract17"
         },
         "document.import": {
-          "$ref": "#/$defs/MethodContract9"
+          "$ref": "#/$defs/MethodContract18"
         },
         "document.importDocx": {
-          "$ref": "#/$defs/MethodContract10"
+          "$ref": "#/$defs/MethodContract19"
         },
         "document.list": {
-          "$ref": "#/$defs/MethodContract7"
+          "$ref": "#/$defs/MethodContract16"
+        },
+        "document.reimport.apply": {
+          "$ref": "#/$defs/MethodContract21"
+        },
+        "document.reimport.preview": {
+          "$ref": "#/$defs/MethodContract20"
         },
         "editor.history": {
-          "$ref": "#/$defs/MethodContract34"
+          "$ref": "#/$defs/MethodContract53"
         },
         "editor.preferences.get": {
-          "$ref": "#/$defs/MethodContract41"
+          "$ref": "#/$defs/MethodContract60"
         },
         "editor.preferences.update": {
-          "$ref": "#/$defs/MethodContract42"
+          "$ref": "#/$defs/MethodContract61"
         },
         "editor.redo": {
-          "$ref": "#/$defs/MethodContract33"
+          "$ref": "#/$defs/MethodContract52"
         },
         "editor.undo": {
-          "$ref": "#/$defs/MethodContract33"
+          "$ref": "#/$defs/MethodContract52"
         },
         "engine.initialize": {
           "$ref": "#/$defs/MethodContract"
         },
         "filter.list": {
-          "$ref": "#/$defs/MethodContract81"
+          "$ref": "#/$defs/MethodContract100"
         },
         "history.list": {
-          "$ref": "#/$defs/MethodContract82"
+          "$ref": "#/$defs/MethodContract101"
         },
         "pdf.correctOcr": {
-          "$ref": "#/$defs/MethodContract45"
+          "$ref": "#/$defs/MethodContract64"
         },
         "pdf.page.get": {
-          "$ref": "#/$defs/MethodContract44"
+          "$ref": "#/$defs/MethodContract63"
         },
         "pdf.page.list": {
-          "$ref": "#/$defs/MethodContract43"
+          "$ref": "#/$defs/MethodContract62"
         },
         "pipeline.create": {
-          "$ref": "#/$defs/MethodContract86"
+          "$ref": "#/$defs/MethodContract105"
         },
         "pipeline.get": {
-          "$ref": "#/$defs/MethodContract88"
+          "$ref": "#/$defs/MethodContract107"
         },
         "pipeline.list": {
-          "$ref": "#/$defs/MethodContract87"
+          "$ref": "#/$defs/MethodContract106"
         },
         "pipeline.run": {
-          "$ref": "#/$defs/MethodContract90"
+          "$ref": "#/$defs/MethodContract109"
         },
         "pipeline.run.cancel": {
-          "$ref": "#/$defs/MethodContract93"
+          "$ref": "#/$defs/MethodContract112"
         },
         "pipeline.run.get": {
-          "$ref": "#/$defs/MethodContract92"
+          "$ref": "#/$defs/MethodContract111"
         },
         "pipeline.run.list": {
-          "$ref": "#/$defs/MethodContract91"
+          "$ref": "#/$defs/MethodContract110"
         },
         "pipeline.run.resume": {
-          "$ref": "#/$defs/MethodContract93"
+          "$ref": "#/$defs/MethodContract112"
         },
         "pipeline.step.list": {
-          "$ref": "#/$defs/MethodContract85"
+          "$ref": "#/$defs/MethodContract104"
         },
         "pipeline.validate": {
-          "$ref": "#/$defs/MethodContract89"
+          "$ref": "#/$defs/MethodContract108"
+        },
+        "project.analytics.get": {
+          "$ref": "#/$defs/MethodContract29"
+        },
+        "project.archive.export": {
+          "$ref": "#/$defs/MethodContract14"
+        },
+        "project.archive.restore": {
+          "$ref": "#/$defs/MethodContract15"
+        },
+        "project.batchImport": {
+          "$ref": "#/$defs/MethodContract13"
         },
         "project.create": {
           "$ref": "#/$defs/MethodContract2"
+        },
+        "project.createFromTemplate": {
+          "$ref": "#/$defs/MethodContract12"
         },
         "project.get": {
           "$ref": "#/$defs/MethodContract3"
@@ -8913,185 +10946,215 @@
         "project.setLifecycle": {
           "$ref": "#/$defs/MethodContract6"
         },
+        "project.template.create": {
+          "$ref": "#/$defs/MethodContract9"
+        },
+        "project.template.delete": {
+          "$ref": "#/$defs/MethodContract11"
+        },
+        "project.template.get": {
+          "$ref": "#/$defs/MethodContract8"
+        },
+        "project.template.list": {
+          "$ref": "#/$defs/MethodContract7"
+        },
+        "project.template.update": {
+          "$ref": "#/$defs/MethodContract10"
+        },
         "project.update": {
           "$ref": "#/$defs/MethodContract5"
         },
         "qa.gate.check": {
-          "$ref": "#/$defs/MethodContract77"
+          "$ref": "#/$defs/MethodContract96"
         },
         "qa.issue.list": {
-          "$ref": "#/$defs/MethodContract73"
+          "$ref": "#/$defs/MethodContract92"
         },
         "qa.issue.revoke": {
-          "$ref": "#/$defs/MethodContract75"
+          "$ref": "#/$defs/MethodContract94"
         },
         "qa.issue.waive": {
-          "$ref": "#/$defs/MethodContract74"
+          "$ref": "#/$defs/MethodContract93"
         },
         "qa.list": {
-          "$ref": "#/$defs/MethodContract64"
+          "$ref": "#/$defs/MethodContract83"
         },
         "qa.override.list": {
-          "$ref": "#/$defs/MethodContract78"
+          "$ref": "#/$defs/MethodContract97"
         },
         "qa.profile.clone": {
-          "$ref": "#/$defs/MethodContract67"
+          "$ref": "#/$defs/MethodContract86"
         },
         "qa.profile.create": {
-          "$ref": "#/$defs/MethodContract66"
+          "$ref": "#/$defs/MethodContract85"
         },
         "qa.profile.delete": {
-          "$ref": "#/$defs/MethodContract69"
+          "$ref": "#/$defs/MethodContract88"
         },
         "qa.profile.list": {
-          "$ref": "#/$defs/MethodContract65"
+          "$ref": "#/$defs/MethodContract84"
         },
         "qa.profile.update": {
-          "$ref": "#/$defs/MethodContract68"
+          "$ref": "#/$defs/MethodContract87"
         },
         "qa.report.export": {
-          "$ref": "#/$defs/MethodContract76"
+          "$ref": "#/$defs/MethodContract95"
         },
         "qa.run": {
-          "$ref": "#/$defs/MethodContract70"
+          "$ref": "#/$defs/MethodContract89"
         },
         "qa.run.get": {
-          "$ref": "#/$defs/MethodContract72"
+          "$ref": "#/$defs/MethodContract91"
         },
         "qa.run.list": {
-          "$ref": "#/$defs/MethodContract71"
+          "$ref": "#/$defs/MethodContract90"
         },
         "qa.runDocument": {
-          "$ref": "#/$defs/MethodContract63"
+          "$ref": "#/$defs/MethodContract82"
         },
-        "review.accept": {
-          "$ref": "#/$defs/MethodContract37"
-        },
-        "review.create": {
-          "$ref": "#/$defs/MethodContract35"
-        },
-        "review.list": {
-          "$ref": "#/$defs/MethodContract36"
-        },
-        "review.queue": {
-          "$ref": "#/$defs/MethodContract39"
-        },
-        "review.reject": {
-          "$ref": "#/$defs/MethodContract38"
-        },
-        "review.stats": {
-          "$ref": "#/$defs/MethodContract40"
-        },
-        "segment.chinese.convert": {
-          "$ref": "#/$defs/MethodContract16"
-        },
-        "segment.comment.create": {
-          "$ref": "#/$defs/MethodContract26"
-        },
-        "segment.comment.delete": {
-          "$ref": "#/$defs/MethodContract29"
-        },
-        "segment.comment.list": {
-          "$ref": "#/$defs/MethodContract25"
-        },
-        "segment.comment.resolve": {
-          "$ref": "#/$defs/MethodContract28"
-        },
-        "segment.comment.update": {
-          "$ref": "#/$defs/MethodContract27"
-        },
-        "segment.confirm": {
-          "$ref": "#/$defs/MethodContract13"
-        },
-        "segment.correctSource": {
+        "recycle.delete": {
           "$ref": "#/$defs/MethodContract23"
         },
-        "segment.editor.list": {
-          "$ref": "#/$defs/MethodContract14"
-        },
-        "segment.find": {
-          "$ref": "#/$defs/MethodContract18"
-        },
-        "segment.list": {
-          "$ref": "#/$defs/MethodContract11"
-        },
-        "segment.merge": {
+        "recycle.list": {
           "$ref": "#/$defs/MethodContract22"
         },
-        "segment.propagate": {
-          "$ref": "#/$defs/MethodContract17"
-        },
-        "segment.replace.apply": {
-          "$ref": "#/$defs/MethodContract20"
-        },
-        "segment.replace.preview": {
-          "$ref": "#/$defs/MethodContract19"
-        },
-        "segment.spell.check": {
-          "$ref": "#/$defs/MethodContract30"
-        },
-        "segment.split": {
-          "$ref": "#/$defs/MethodContract21"
-        },
-        "segment.tag.set": {
-          "$ref": "#/$defs/MethodContract15"
-        },
-        "segment.updateTarget": {
-          "$ref": "#/$defs/MethodContract12"
-        },
-        "segment.workflow.set": {
+        "recycle.purge": {
           "$ref": "#/$defs/MethodContract24"
         },
-        "term.search": {
-          "$ref": "#/$defs/MethodContract59"
+        "recycle.restore": {
+          "$ref": "#/$defs/MethodContract24"
         },
-        "term.upsert": {
-          "$ref": "#/$defs/MethodContract60"
-        },
-        "termbase.create": {
+        "review.accept": {
           "$ref": "#/$defs/MethodContract56"
         },
-        "termbase.export": {
-          "$ref": "#/$defs/MethodContract62"
-        },
-        "termbase.import": {
-          "$ref": "#/$defs/MethodContract61"
-        },
-        "termbase.list": {
-          "$ref": "#/$defs/MethodContract55"
-        },
-        "termbase.mount": {
-          "$ref": "#/$defs/MethodContract57"
-        },
-        "termbase.unmount": {
-          "$ref": "#/$defs/MethodContract58"
-        },
-        "tm.concordance": {
-          "$ref": "#/$defs/MethodContract52"
-        },
-        "tm.export": {
+        "review.create": {
           "$ref": "#/$defs/MethodContract54"
         },
-        "tm.import": {
-          "$ref": "#/$defs/MethodContract53"
+        "review.list": {
+          "$ref": "#/$defs/MethodContract55"
         },
-        "tm.library.create": {
+        "review.queue": {
+          "$ref": "#/$defs/MethodContract58"
+        },
+        "review.reject": {
+          "$ref": "#/$defs/MethodContract57"
+        },
+        "review.stats": {
+          "$ref": "#/$defs/MethodContract59"
+        },
+        "search.global": {
+          "$ref": "#/$defs/MethodContract25"
+        },
+        "segment.chinese.convert": {
+          "$ref": "#/$defs/MethodContract35"
+        },
+        "segment.comment.create": {
+          "$ref": "#/$defs/MethodContract45"
+        },
+        "segment.comment.delete": {
           "$ref": "#/$defs/MethodContract48"
         },
-        "tm.library.list": {
+        "segment.comment.list": {
+          "$ref": "#/$defs/MethodContract44"
+        },
+        "segment.comment.resolve": {
           "$ref": "#/$defs/MethodContract47"
         },
-        "tm.library.mount": {
-          "$ref": "#/$defs/MethodContract49"
-        },
-        "tm.library.unmount": {
-          "$ref": "#/$defs/MethodContract50"
-        },
-        "tm.lookupExact": {
+        "segment.comment.update": {
           "$ref": "#/$defs/MethodContract46"
         },
+        "segment.confirm": {
+          "$ref": "#/$defs/MethodContract32"
+        },
+        "segment.correctSource": {
+          "$ref": "#/$defs/MethodContract42"
+        },
+        "segment.editor.list": {
+          "$ref": "#/$defs/MethodContract33"
+        },
+        "segment.find": {
+          "$ref": "#/$defs/MethodContract37"
+        },
+        "segment.list": {
+          "$ref": "#/$defs/MethodContract30"
+        },
+        "segment.merge": {
+          "$ref": "#/$defs/MethodContract41"
+        },
+        "segment.propagate": {
+          "$ref": "#/$defs/MethodContract36"
+        },
+        "segment.replace.apply": {
+          "$ref": "#/$defs/MethodContract39"
+        },
+        "segment.replace.preview": {
+          "$ref": "#/$defs/MethodContract38"
+        },
+        "segment.spell.check": {
+          "$ref": "#/$defs/MethodContract49"
+        },
+        "segment.split": {
+          "$ref": "#/$defs/MethodContract40"
+        },
+        "segment.tag.set": {
+          "$ref": "#/$defs/MethodContract34"
+        },
+        "segment.updateTarget": {
+          "$ref": "#/$defs/MethodContract31"
+        },
+        "segment.workflow.set": {
+          "$ref": "#/$defs/MethodContract43"
+        },
+        "term.search": {
+          "$ref": "#/$defs/MethodContract78"
+        },
+        "term.upsert": {
+          "$ref": "#/$defs/MethodContract79"
+        },
+        "termbase.create": {
+          "$ref": "#/$defs/MethodContract75"
+        },
+        "termbase.export": {
+          "$ref": "#/$defs/MethodContract81"
+        },
+        "termbase.import": {
+          "$ref": "#/$defs/MethodContract80"
+        },
+        "termbase.list": {
+          "$ref": "#/$defs/MethodContract74"
+        },
+        "termbase.mount": {
+          "$ref": "#/$defs/MethodContract76"
+        },
+        "termbase.unmount": {
+          "$ref": "#/$defs/MethodContract77"
+        },
+        "tm.concordance": {
+          "$ref": "#/$defs/MethodContract71"
+        },
+        "tm.export": {
+          "$ref": "#/$defs/MethodContract73"
+        },
+        "tm.import": {
+          "$ref": "#/$defs/MethodContract72"
+        },
+        "tm.library.create": {
+          "$ref": "#/$defs/MethodContract67"
+        },
+        "tm.library.list": {
+          "$ref": "#/$defs/MethodContract66"
+        },
+        "tm.library.mount": {
+          "$ref": "#/$defs/MethodContract68"
+        },
+        "tm.library.unmount": {
+          "$ref": "#/$defs/MethodContract69"
+        },
+        "tm.lookupExact": {
+          "$ref": "#/$defs/MethodContract65"
+        },
         "tm.search": {
-          "$ref": "#/$defs/MethodContract51"
+          "$ref": "#/$defs/MethodContract70"
         }
       },
       "additionalProperties": false,
@@ -9102,10 +11165,30 @@
         "project.list",
         "project.update",
         "project.setLifecycle",
+        "project.template.list",
+        "project.template.get",
+        "project.template.create",
+        "project.template.update",
+        "project.template.delete",
+        "project.createFromTemplate",
+        "project.batchImport",
+        "project.archive.export",
+        "project.archive.restore",
         "document.list",
         "document.get",
         "document.import",
         "document.importDocx",
+        "document.reimport.preview",
+        "document.reimport.apply",
+        "recycle.list",
+        "recycle.delete",
+        "recycle.restore",
+        "recycle.purge",
+        "search.global",
+        "analysis.profile.list",
+        "analysis.run",
+        "analysis.run.get",
+        "project.analytics.get",
         "segment.list",
         "segment.updateTarget",
         "segment.confirm",
@@ -9828,6 +11911,36 @@
       "enum": [
         "source",
         "target"
+      ]
+    },
+    "TemplateDependencyDiagnostic": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "requestedId": {
+          "type": "string"
+        },
+        "resolvedId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "requestedId",
+        "status",
+        "message"
       ]
     },
     "TermEntry": {
@@ -11160,6 +13273,9 @@
         "configuration": {
           "$ref": "#/$defs/ProjectConfiguration",
           "default": {
+            "aiProfileIds": [],
+            "analysisProfileId": null,
+            "editorDefaults": null,
             "engineAllowlist": [],
             "pipelineId": null,
             "qaProfileId": null,

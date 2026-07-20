@@ -958,8 +958,12 @@ impl EngineService {
                 "AI proposal does not preserve the protected tag structure".to_string(),
             ));
         }
-        self.store
-            .update_target(&segment_id, &proposal, params.expected_segment_revision)?;
+        self.store.apply_ai_proposal(
+            &params.run_id,
+            &segment_id,
+            &proposal,
+            params.expected_segment_revision,
+        )?;
         let row = self.store.get_editor_row(&segment_id)?;
         let project_id = run.project_id.ok_or_else(|| {
             EngineError::InvalidState("AI run does not reference a project".to_string())
@@ -1731,7 +1735,8 @@ mod tests {
     use translunar_protocol::{
         AiBatchStartParams, AiProfileIdParams, AiProviderCreateParams, AiProviderUpdateParams,
         AiRunStartParams, AiSettingsUpdateParams, ConfirmSegmentParams, CreatePipelineParams,
-        ImportDocumentParams, PipelineRunIdParams, RunPipelineParams, UpdateTargetParams,
+        ImportDocumentParams, PipelineRunIdParams, ProjectAnalyticsParams, RunPipelineParams,
+        UpdateTargetParams,
     };
 
     use super::*;
@@ -2053,6 +2058,36 @@ mod tests {
             })
             .expect("apply AI result");
         assert_eq!(applied.rows[0].segment.target_text, "机器译文");
+        let retained_analytics = service
+            .get_project_analytics(ProjectAnalyticsParams {
+                project_id: project.id.clone(),
+                idle_gap_ms: 5 * 60 * 1_000,
+                trend_bucket_ms: 24 * 60 * 60 * 1_000,
+                trend_bucket_count: 30,
+            })
+            .expect("read retained AI analytics");
+        assert!(retained_analytics.ai.available);
+        assert_eq!(retained_analytics.ai.contribution.applied_segments, 1);
+        assert_eq!(retained_analytics.ai.contribution.retained_segments, 1);
+        assert_eq!(retained_analytics.ai.contribution.replaced_segments, 0);
+        let human_edited = service
+            .update_target(UpdateTargetParams {
+                segment_id: applied.rows[0].segment.id.clone(),
+                target_text: "人工修订".to_string(),
+                expected_revision: applied.rows[0].segment.revision,
+            })
+            .expect("replace applied AI proposal");
+        let replaced_analytics = service
+            .get_project_analytics(ProjectAnalyticsParams {
+                project_id: project.id.clone(),
+                idle_gap_ms: 5 * 60 * 1_000,
+                trend_bucket_ms: 24 * 60 * 60 * 1_000,
+                trend_bucket_count: 30,
+            })
+            .expect("read replaced AI analytics");
+        assert_eq!(replaced_analytics.ai.contribution.applied_segments, 1);
+        assert_eq!(replaced_analytics.ai.contribution.retained_segments, 0);
+        assert_eq!(replaced_analytics.ai.contribution.replaced_segments, 1);
         let budget_settings = service
             .get_ai_settings(AiSettingsGetParams::default())
             .expect("read budget settings");
@@ -2070,9 +2105,9 @@ mod tests {
         assert!(matches!(
             service.start_ai_run(AiRunStartParams {
                 project_id: project.id,
-                segment_id: applied.rows[0].segment.id.clone(),
+                segment_id: human_edited.id,
                 profile_id: profile.id,
-                expected_revision: applied.rows[0].segment.revision,
+                expected_revision: human_edited.revision,
                 action: AiAction::Translate,
                 prompt: String::new(),
                 options: GroundingOptions::default(),

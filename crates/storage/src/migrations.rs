@@ -2,7 +2,7 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use crate::{Result, StorageError};
 
-pub(crate) const LATEST_SCHEMA_VERSION: u32 = 9;
+pub(crate) const LATEST_SCHEMA_VERSION: u32 = 10;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -874,7 +874,230 @@ INSERT INTO qa_profiles (
     ('builtin.qa.cjk-professional', 'CJK professional', NULL, 1, '{}', 0, 0, 0);
 "#;
 
-const MIGRATIONS: [(u32, &str); 9] = [
+const MIGRATION_10: &str = r#"
+ALTER TABLE documents ADD COLUMN lifecycle TEXT NOT NULL DEFAULT 'active'
+    CHECK (lifecycle IN ('active', 'trash'));
+ALTER TABLE termbases ADD COLUMN owner_project_id TEXT REFERENCES projects(id) ON DELETE CASCADE;
+UPDATE termbases
+SET owner_project_id = (
+    SELECT MIN(m.project_id) FROM termbase_mounts m
+    WHERE m.termbase_id = termbases.id AND m.writable = 1
+)
+WHERE writable = 1 AND (
+    SELECT COUNT(DISTINCT m.project_id) FROM termbase_mounts m
+    WHERE m.termbase_id = termbases.id AND m.writable = 1
+) = 1;
+
+CREATE TABLE project_templates (
+    id TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK (revision >= 1),
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    definition_json TEXT NOT NULL,
+    built_in INTEGER NOT NULL DEFAULT 0 CHECK (built_in IN (0, 1)),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    PRIMARY KEY(id, revision)
+) STRICT;
+
+CREATE INDEX project_templates_latest_idx
+    ON project_templates(id, revision DESC);
+CREATE INDEX project_templates_name_idx
+    ON project_templates(updated_at_ms DESC, name, id);
+
+CREATE TABLE document_reimport_previews (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    expected_document_revision INTEGER NOT NULL CHECK (expected_document_revision >= 0),
+    candidate_source_sha256 TEXT NOT NULL,
+    original_source_path TEXT NOT NULL,
+    staged_source_path TEXT NOT NULL,
+    filter_id TEXT NOT NULL,
+    options_json TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'applied', 'discarded')),
+    actor TEXT NOT NULL,
+    unchanged_count INTEGER NOT NULL CHECK (unchanged_count >= 0),
+    changed_count INTEGER NOT NULL CHECK (changed_count >= 0),
+    new_count INTEGER NOT NULL CHECK (new_count >= 0),
+    removed_count INTEGER NOT NULL CHECK (removed_count >= 0),
+    ambiguous_count INTEGER NOT NULL CHECK (ambiguous_count >= 0),
+    created_at_ms INTEGER NOT NULL,
+    applied_at_ms INTEGER
+) STRICT;
+
+CREATE INDEX document_reimport_previews_document_idx
+    ON document_reimport_previews(document_id, created_at_ms DESC, id);
+
+CREATE TABLE document_reimport_items (
+    preview_id TEXT NOT NULL REFERENCES document_reimport_previews(id) ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    disposition TEXT NOT NULL
+        CHECK (disposition IN ('unchanged', 'changed', 'new', 'removed', 'ambiguous')),
+    old_segment_id TEXT,
+    new_segment_key TEXT,
+    old_ordinal INTEGER CHECK (old_ordinal >= 0),
+    new_ordinal INTEGER CHECK (new_ordinal >= 0),
+    structural_path TEXT,
+    source_text TEXT,
+    imported_unit_json TEXT,
+    reason TEXT NOT NULL,
+    PRIMARY KEY(preview_id, ordinal)
+) STRICT;
+
+CREATE INDEX document_reimport_items_old_segment_idx
+    ON document_reimport_items(old_segment_id, preview_id);
+
+CREATE TABLE document_version_segments (
+    version_id TEXT NOT NULL REFERENCES document_versions(id) ON DELETE CASCADE,
+    old_segment_id TEXT NOT NULL,
+    old_ordinal INTEGER NOT NULL CHECK (old_ordinal >= 0),
+    disposition TEXT NOT NULL
+        CHECK (disposition IN ('unchanged', 'changed', 'removed', 'ambiguous')),
+    snapshot_json TEXT NOT NULL,
+    PRIMARY KEY(version_id, old_segment_id)
+) STRICT;
+
+CREATE INDEX document_version_segments_ordinal_idx
+    ON document_version_segments(version_id, old_ordinal, old_segment_id);
+
+CREATE TABLE recycle_entries (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    entity_type TEXT NOT NULL CHECK (entity_type IN ('project', 'document')),
+    entity_id TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    previous_state TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    deleted_at_ms INTEGER NOT NULL,
+    retention_until_ms INTEGER NOT NULL,
+    restored_at_ms INTEGER,
+    purged_at_ms INTEGER,
+    UNIQUE(entity_type, entity_id, deleted_at_ms)
+) STRICT;
+
+CREATE INDEX recycle_entries_active_idx
+    ON recycle_entries(purged_at_ms, restored_at_ms, deleted_at_ms DESC, id);
+CREATE INDEX recycle_entries_project_idx
+    ON recycle_entries(project_id, deleted_at_ms DESC, id);
+
+CREATE TABLE project_archive_records (
+    id TEXT PRIMARY KEY,
+    project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+    direction TEXT NOT NULL CHECK (direction IN ('export', 'restore')),
+    format_version INTEGER NOT NULL CHECK (format_version >= 1),
+    archive_path TEXT NOT NULL,
+    archive_sha256 TEXT NOT NULL,
+    manifest_json TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('staged', 'succeeded', 'failed')),
+    actor TEXT NOT NULL,
+    error_code TEXT,
+    created_at_ms INTEGER NOT NULL,
+    completed_at_ms INTEGER
+) STRICT;
+
+CREATE INDEX project_archive_records_project_idx
+    ON project_archive_records(project_id, created_at_ms DESC, id);
+
+CREATE TABLE analysis_profiles (
+    id TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK (revision >= 1),
+    name TEXT NOT NULL,
+    definition_json TEXT NOT NULL,
+    built_in INTEGER NOT NULL DEFAULT 0 CHECK (built_in IN (0, 1)),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    PRIMARY KEY(id, revision)
+) STRICT;
+
+CREATE INDEX analysis_profiles_latest_idx
+    ON analysis_profiles(id, revision DESC);
+
+CREATE TABLE analysis_runs (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
+    scope TEXT NOT NULL CHECK (scope IN ('project', 'document')),
+    profile_id TEXT NOT NULL,
+    profile_revision INTEGER NOT NULL CHECK (profile_revision >= 1),
+    project_revision INTEGER NOT NULL CHECK (project_revision >= 0),
+    document_revision INTEGER CHECK (document_revision >= 0),
+    status TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed')),
+    stale INTEGER NOT NULL DEFAULT 0 CHECK (stale IN (0, 1)),
+    summary_json TEXT,
+    error_code TEXT,
+    created_at_ms INTEGER NOT NULL,
+    completed_at_ms INTEGER,
+    FOREIGN KEY(profile_id, profile_revision)
+        REFERENCES analysis_profiles(id, revision) ON DELETE RESTRICT
+) STRICT;
+
+CREATE INDEX analysis_runs_project_idx
+    ON analysis_runs(project_id, created_at_ms DESC, id);
+CREATE INDEX analysis_runs_document_idx
+    ON analysis_runs(document_id, created_at_ms DESC, id);
+
+CREATE TABLE analysis_run_items (
+    run_id TEXT NOT NULL REFERENCES analysis_runs(id) ON DELETE CASCADE,
+    document_id TEXT NOT NULL,
+    document_name TEXT NOT NULL,
+    document_revision INTEGER NOT NULL CHECK (document_revision >= 0),
+    summary_json TEXT NOT NULL,
+    PRIMARY KEY(run_id, document_id)
+) STRICT;
+
+CREATE TABLE global_search_entries (
+    id INTEGER PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    project_name TEXT NOT NULL,
+    document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
+    document_name TEXT,
+    segment_id TEXT REFERENCES segments(id) ON DELETE CASCADE,
+    segment_ordinal INTEGER CHECK (segment_ordinal >= 0),
+    field TEXT NOT NULL CHECK (field IN ('project', 'document', 'source', 'target', 'comment', 'note')),
+    locale TEXT,
+    workflow_state TEXT,
+    content TEXT NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX global_search_entries_scope_idx
+    ON global_search_entries(project_id, field, updated_at_ms DESC, id);
+CREATE INDEX global_search_entries_segment_idx
+    ON global_search_entries(segment_id, field, id);
+
+CREATE VIRTUAL TABLE global_search_fts USING fts5(
+    content,
+    content='global_search_entries',
+    content_rowid='id',
+    tokenize='unicode61 remove_diacritics 2'
+);
+
+CREATE TRIGGER global_search_entries_ai AFTER INSERT ON global_search_entries BEGIN
+    INSERT INTO global_search_fts(rowid, content) VALUES (new.id, new.content);
+END;
+CREATE TRIGGER global_search_entries_ad AFTER DELETE ON global_search_entries BEGIN
+    INSERT INTO global_search_fts(global_search_fts, rowid, content)
+        VALUES ('delete', old.id, old.content);
+END;
+CREATE TRIGGER global_search_entries_au AFTER UPDATE ON global_search_entries BEGIN
+    INSERT INTO global_search_fts(global_search_fts, rowid, content)
+        VALUES ('delete', old.id, old.content);
+    INSERT INTO global_search_fts(rowid, content) VALUES (new.id, new.content);
+END;
+
+INSERT INTO analysis_profiles (
+    id, revision, name, definition_json, built_in, created_at_ms, updated_at_ms
+) VALUES (
+    'builtin.analysis.standard', 1, 'Standard weighted effort',
+    '{"noMatchBasisPoints":10000,"match5074BasisPoints":8000,"match7584BasisPoints":6000,"match8594BasisPoints":4000,"match9599BasisPoints":2000,"exactBasisPoints":0,"repetitionBasisPoints":1000}',
+    1, 0, 0
+);
+"#;
+
+const MIGRATIONS: [(u32, &str); 10] = [
     (1_u32, MIGRATION_1),
     (2_u32, MIGRATION_2),
     (3_u32, MIGRATION_3),
@@ -884,6 +1107,7 @@ const MIGRATIONS: [(u32, &str); 9] = [
     (7_u32, MIGRATION_7),
     (8_u32, MIGRATION_8),
     (9_u32, MIGRATION_9),
+    (10_u32, MIGRATION_10),
 ];
 
 pub(crate) fn configure_connection(connection: &Connection) -> Result<()> {
@@ -937,6 +1161,10 @@ mod tests {
         migrate_from_to(connection, 0, 8).expect("create schema v8");
     }
 
+    fn create_v9(connection: &mut Connection) {
+        migrate_from_to(connection, 0, 9).expect("create schema v9");
+    }
+
     #[test]
     fn migration_9_upgrades_legacy_qa_rows_and_survives_reopen() {
         let temp = tempfile::tempdir().expect("temporary migration directory");
@@ -982,7 +1210,7 @@ mod tests {
             )
             .expect("insert v8 QA issue");
 
-        migrate(&mut connection).expect("upgrade to schema v9");
+        migrate_from_to(&mut connection, 8, 9).expect("upgrade to schema v9");
         drop(connection);
 
         let connection = Connection::open(database).expect("reopen upgraded database");
@@ -1038,5 +1266,85 @@ mod tests {
             )
             .expect("check rolled-back column");
         assert_eq!(category_column_count, 0);
+    }
+
+    #[test]
+    fn migration_10_creates_lifecycle_search_and_analysis_schema_and_reopens() {
+        let temp = tempfile::tempdir().expect("temporary migration directory");
+        let database = temp.path().join("translunar.sqlite3");
+        let mut connection = Connection::open(&database).expect("open v9 database");
+        create_v9(&mut connection);
+
+        migrate(&mut connection).expect("upgrade to schema v10");
+        connection
+            .execute(
+                "INSERT INTO projects (
+                    id, name, source_locale, target_locale, domain,
+                    created_at_ms, updated_at_ms
+                 ) VALUES ('p10', 'Searchable project', 'en-US', 'zh-CN',
+                           'general', 1, 1)",
+                [],
+            )
+            .expect("insert project");
+        connection
+            .execute(
+                "INSERT INTO global_search_entries (
+                    project_id, project_name, field, content, updated_at_ms
+                 ) VALUES ('p10', 'Searchable project', 'project',
+                           'multilingual 世界', 1)",
+                [],
+            )
+            .expect("insert search projection");
+        let hits = connection
+            .query_row(
+                "SELECT COUNT(*) FROM global_search_fts
+                 WHERE global_search_fts MATCH 'multilingual'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("query FTS projection");
+        assert_eq!(hits, 1);
+        drop(connection);
+
+        let connection = Connection::open(database).expect("reopen upgraded database");
+        let version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read upgraded version");
+        assert_eq!(version, 10);
+        let profiles = connection
+            .query_row(
+                "SELECT COUNT(*) FROM analysis_profiles WHERE built_in = 1",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("count built-in analysis profiles");
+        assert_eq!(profiles, 1);
+    }
+
+    #[test]
+    fn migration_10_rolls_back_every_prior_statement_on_failure() {
+        let mut connection = Connection::open_in_memory().expect("open migration database");
+        create_v9(&mut connection);
+        connection
+            .execute(
+                "CREATE TABLE analysis_runs (id TEXT PRIMARY KEY) STRICT",
+                [],
+            )
+            .expect("create conflicting late migration table");
+
+        assert!(migrate(&mut connection).is_err());
+        let version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read rolled-back version");
+        assert_eq!(version, 9);
+        let template_table_count = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name = 'project_templates'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("check rolled-back table");
+        assert_eq!(template_table_count, 0);
     }
 }

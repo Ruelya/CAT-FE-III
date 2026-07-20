@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs::{self, File};
 use std::io::{BufReader, Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{
     Arc, Mutex,
@@ -40,51 +40,75 @@ use translunar_filter_pptx::PptxFilter;
 use translunar_filter_text::{MarkdownFilter, TxtFilter};
 use translunar_filter_xliff::XliffFilter;
 use translunar_filter_xlsx::XlsxFilter;
+use translunar_lifecycle_core::{
+    ArchiveEntry, MAX_ARCHIVE_ENTRIES, MAX_ARCHIVE_ENTRY_BYTES, MAX_ARCHIVE_TOTAL_BYTES,
+    PROJECT_ARCHIVE_FORMAT_VERSION, ProjectArchiveManifest, sha256_hex,
+};
 use translunar_pipeline::{
     ArtifactKind, PipelineDefinition, PipelineError, PipelineFailure, PipelineStep,
     PipelineStepDefinition, StepDescriptor, StepExecutionContext, StepOutcome, StepRegistry,
 };
 use translunar_protocol::methods;
 use translunar_protocol::{
-    AssetExchangeFormat, BackupResult, ConcordanceParams, ConcordanceResult, ConfirmSegmentParams,
+    AnalysisProfile, AnalysisProfileListResult, AnalysisRunIdParams, AnalysisRunParams,
+    AnalysisRunResult, AssetExchangeFormat, BackupResult, BatchImportAtomicity,
+    BatchImportDiagnostic, ConcordanceParams, ConcordanceResult, ConfirmSegmentParams,
     ConfirmSegmentResult, ConvertSegmentChineseParams, CorrectOcrParams, CorrectSourceParams,
     CreateBackupParams, CreatePipelineParams, CreateProjectParams, CreateSegmentCommentParams,
     DeleteSegmentCommentParams, DictionaryListParams, DictionaryListResult, DictionaryWordParams,
-    DocumentIdParams, DocumentListParams, DocumentPage, EditorHistoryParams, EditorHistoryResult,
-    EditorMutationResult, EditorSearchField, EditorSegmentFilter, EditorSegmentListParams,
-    EditorSegmentPage, EditorSegmentSort, EditorUndoRedoParams, EmptyParams, EmptyResult,
-    ErrorCode, ExactLookupParams, ExactLookupResult, ExportDocumentParams, ExportDocumentResult,
-    ExportDocxParams, ExportDocxResult, FilterListResult, FindSegmentsParams, HistoryListParams,
-    ImportDocumentParams, ImportDocumentResult, ImportDocxParams, InitializeParams,
-    InitializeResult, ListQaParams, MergeSegmentsParams, OperationPage, PROTOCOL_VERSION,
-    PdfBoundingBox, PdfPageBlock, PdfPageDetail, PdfPageGetParams, PdfPageListParams,
-    PdfPageListResult, PdfPageSummary, PipelineCapabilityResult, PipelineDefinitionPage,
-    PipelineIdParams, PipelineListParams, PipelineRunIdParams, PipelineRunListParams,
-    PipelineRunPage, PipelineRunRevisionParams, PipelineRunSnapshot as ProtocolPipelineRunSnapshot,
-    PipelineValidationResult, ProjectIdParams, ProjectListParams, ProjectPage, ProjectSnapshot,
-    PropagateSegmentParams, QaListResult, ReplaceApplyParams, ReplacePreviewItem,
-    ReplacePreviewParams, ReplacePreviewResult, ResolveSegmentCommentParams, ReviewCreateParams,
-    ReviewDecisionParams, ReviewListParams, ReviewListResult, RpcError, RpcRequest, RpcResponse,
-    RunPipelineParams, SegmentCommentListParams, SegmentCommentListResult, SegmentFindMatch,
-    SegmentFindResult, SegmentListParams, SegmentPage, SetEditorWorkflowParams,
+    DocumentIdParams, DocumentListParams, DocumentPage, DocumentReimportApplyParams,
+    DocumentReimportPreviewParams, DocumentReimportPreviewResult, EditorHistoryParams,
+    EditorHistoryResult, EditorMutationResult, EditorSearchField, EditorSegmentFilter,
+    EditorSegmentListParams, EditorSegmentPage, EditorSegmentSort, EditorUndoRedoParams,
+    EmptyParams, EmptyResult, ErrorCode, ExactLookupParams, ExactLookupResult,
+    ExportDocumentParams, ExportDocumentResult, ExportDocxParams, ExportDocxResult,
+    FilterListResult, FindSegmentsParams, GlobalSearchHit, GlobalSearchPage, GlobalSearchParams,
+    HistoryListParams, ImportDocumentParams, ImportDocumentResult, ImportDocxParams,
+    InitializeParams, InitializeResult, ListQaParams, MergeSegmentsParams, OperationPage,
+    PROTOCOL_VERSION, PdfBoundingBox, PdfPageBlock, PdfPageDetail, PdfPageGetParams,
+    PdfPageListParams, PdfPageListResult, PdfPageSummary, PipelineCapabilityResult,
+    PipelineDefinitionPage, PipelineIdParams, PipelineListParams, PipelineRunIdParams,
+    PipelineRunListParams, PipelineRunPage, PipelineRunRevisionParams,
+    PipelineRunSnapshot as ProtocolPipelineRunSnapshot, PipelineValidationResult,
+    ProjectAnalyticsParams, ProjectAnalyticsResult, ProjectArchiveExportParams,
+    ProjectArchiveRestoreParams, ProjectArchiveResult, ProjectBatchImportParams,
+    ProjectBatchImportResult, ProjectCreateFromTemplateParams, ProjectCreateFromTemplateResult,
+    ProjectIdParams, ProjectListParams, ProjectPage, ProjectSnapshot, ProjectTemplate,
+    ProjectTemplateCreateParams, ProjectTemplateDeleteParams, ProjectTemplateGetParams,
+    ProjectTemplateListParams, ProjectTemplatePage, ProjectTemplateUpdateParams,
+    PropagateSegmentParams, QaListResult, RecycleDeleteParams, RecycleEntry,
+    RecycleEntryActionParams, RecycleListParams, RecyclePage, ReplaceApplyParams,
+    ReplacePreviewItem, ReplacePreviewParams, ReplacePreviewResult, ResolveSegmentCommentParams,
+    ReviewCreateParams, ReviewDecisionParams, ReviewListParams, ReviewListResult, RpcError,
+    RpcRequest, RpcResponse, RunPipelineParams, SegmentCommentListParams, SegmentCommentListResult,
+    SegmentFindMatch, SegmentFindResult, SegmentListParams, SegmentPage, SetEditorWorkflowParams,
     SetProjectLifecycleParams, SetSegmentTagsParams, SpellCheckParams, SpellCheckResult,
-    SplitSegmentParams, TermSearchParams, TermSearchResult, TermUpsertParams, TermbaseCreateParams,
-    TermbaseExportParams, TermbaseExportResult, TermbaseImportParams, TermbaseImportResult,
-    TermbaseListParams, TermbaseMountParams, TermbasePage, TermbaseUnmountParams, TmExportParams,
-    TmExportResult, TmImportParams, TmImportResult, TmLibraryCreateParams, TmLibraryListParams,
-    TmLibraryMountParams, TmLibraryPage, TmLibraryUnmountParams, TmSearchParams, TmSearchResult,
+    SplitSegmentParams, TemplateDependencyDiagnostic, TermSearchParams, TermSearchResult,
+    TermUpsertParams, TermbaseCreateParams, TermbaseExportParams, TermbaseExportResult,
+    TermbaseImportParams, TermbaseImportResult, TermbaseListParams, TermbaseMountParams,
+    TermbasePage, TermbaseUnmountParams, TmExportParams, TmExportResult, TmImportParams,
+    TmImportResult, TmLibraryCreateParams, TmLibraryListParams, TmLibraryMountParams,
+    TmLibraryPage, TmLibraryUnmountParams, TmSearchParams, TmSearchResult,
     UpdateEditorPreferencesParams, UpdateProjectParams, UpdateSegmentCommentParams,
     UpdateTargetParams, ValidatePipelineParams,
 };
 use translunar_storage::{
+    AnalysisProfileRecord as StorageAnalysisProfile, AnalysisRunRecord as StorageAnalysisRun,
     ConcordanceRequest as StorageConcordanceRequest, EditorFilter as StorageEditorFilter,
     EditorListRequest as StorageEditorListRequest, EditorMutation as StorageEditorMutation,
-    EditorSearchField as StorageEditorSearchField, EditorSort as StorageEditorSort, NewDocument,
-    NewPipelineDefinition, NewTermEntry, NewTermTranslation, NewTmLibrary, ProjectUpdate,
+    EditorSearchField as StorageEditorSearchField, EditorSort as StorageEditorSort,
+    GlobalSearchQuery as StorageGlobalSearchQuery, GlobalSearchResult as StorageGlobalSearchResult,
+    NewDocument, NewPipelineDefinition, NewProjectArchiveRecord, NewReimportPreview, NewTermEntry,
+    NewTermTranslation, NewTmLibrary, ProjectArchiveData,
+    ProjectFromTemplateResult as StorageProjectFromTemplateResult,
+    ProjectTemplateRecord as StorageProjectTemplate, ProjectUpdate,
+    RecycleEntryRecord as StorageRecycleEntry, ReimportPreviewRecord as StorageReimportPreview,
     ReplaceItem as StorageReplaceItem, ReplacePreview as StorageReplacePreview,
     ReplaceRequest as StorageReplaceRequest, ReviewProposal, StorageError, Store,
     TermSearchRequest as StorageTermSearchRequest, TmSearchRequest as StorageTmSearchRequest,
 };
+use zip::write::{SimpleFileOptions, ZipWriter};
+use zip::{CompressionMethod, ZipArchive};
 
 mod ai;
 mod qa;
@@ -105,6 +129,9 @@ pub enum EngineError {
 
     #[error("engine I/O failed: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("engine JSON processing failed: {0}")]
+    Json(#[from] serde_json::Error),
 
     #[error("invalid request: {0}")]
     InvalidRequest(String),
@@ -149,6 +176,383 @@ fn bounded_page_size(limit: u32) -> Result<u32> {
             "limit must be between 1 and 500".to_string(),
         ))
     }
+}
+
+fn collect_batch_files(
+    root: &Path,
+    directory: &Path,
+    output: &mut Vec<(PathBuf, Option<String>)>,
+    max_files: usize,
+) -> Result<()> {
+    let mut entries = fs::read_dir(directory)?.collect::<std::io::Result<Vec<_>>>()?;
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+    for entry in entries {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_batch_files(root, &path, output, max_files)?;
+        } else if path.is_file() {
+            if output.len() >= max_files {
+                return Err(EngineError::InvalidRequest(format!(
+                    "folder import exceeds the {max_files} file limit"
+                )));
+            }
+            let relative = path
+                .strip_prefix(root)
+                .map_err(|_| {
+                    EngineError::InvalidRequest(
+                        "discovered file escaped the selected folder".to_string(),
+                    )
+                })?
+                .to_string_lossy()
+                .replace('\\', "/");
+            output.push((path, Some(relative)));
+        }
+    }
+    Ok(())
+}
+
+fn engine_error_code(error: &EngineError) -> &'static str {
+    match error {
+        EngineError::Storage(StorageError::NotFound { .. }) => "not_found",
+        EngineError::Storage(StorageError::Conflict { .. })
+        | EngineError::Storage(StorageError::EntityConflict { .. }) => "conflict",
+        EngineError::Import(_) => "unsupported_document",
+        EngineError::InvalidRequest(_) => "invalid_request",
+        EngineError::InvalidState(_) => "invalid_state",
+        EngineError::Io(_) | EngineError::Storage(_) => "storage_error",
+        _ => "internal_error",
+    }
+}
+
+fn protocol_template(value: StorageProjectTemplate) -> ProjectTemplate {
+    ProjectTemplate {
+        id: value.id,
+        revision: value.revision,
+        name: value.name,
+        description: value.description,
+        definition: value.definition,
+        built_in: value.built_in,
+        created_at_ms: value.created_at_ms,
+        updated_at_ms: value.updated_at_ms,
+    }
+}
+
+fn protocol_project_from_template(
+    value: StorageProjectFromTemplateResult,
+) -> ProjectCreateFromTemplateResult {
+    ProjectCreateFromTemplateResult {
+        project: value.project,
+        diagnostics: value
+            .diagnostics
+            .into_iter()
+            .map(|diagnostic| TemplateDependencyDiagnostic {
+                kind: diagnostic.kind,
+                requested_id: diagnostic.requested_id,
+                resolved_id: diagnostic.resolved_id,
+                status: diagnostic.status,
+                message: diagnostic.message,
+            })
+            .collect(),
+    }
+}
+
+fn protocol_recycle_entry(value: StorageRecycleEntry) -> RecycleEntry {
+    RecycleEntry {
+        id: value.id,
+        project_id: value.project_id,
+        entity_type: value.entity_type,
+        entity_id: value.entity_id,
+        display_name: value.display_name,
+        previous_state: value.previous_state,
+        actor: value.actor,
+        reason: value.reason,
+        deleted_at_ms: value.deleted_at_ms,
+        retention_until_ms: value.retention_until_ms,
+        restored_at_ms: value.restored_at_ms,
+        purged_at_ms: value.purged_at_ms,
+    }
+}
+
+fn protocol_search_hit(value: StorageGlobalSearchResult) -> GlobalSearchHit {
+    GlobalSearchHit {
+        project_id: value.project_id,
+        project_name: value.project_name,
+        document_id: value.document_id,
+        document_name: value.document_name,
+        segment_id: value.segment_id,
+        segment_ordinal: value.segment_ordinal,
+        field: value.field,
+        locale: value.locale,
+        workflow_state: value.workflow_state,
+        snippet: value.snippet,
+        updated_at_ms: value.updated_at_ms,
+    }
+}
+
+fn protocol_analysis_profile(value: StorageAnalysisProfile) -> AnalysisProfile {
+    AnalysisProfile {
+        id: value.id,
+        revision: value.revision,
+        name: value.name,
+        weights: value.weights,
+        built_in: value.built_in,
+        created_at_ms: value.created_at_ms,
+        updated_at_ms: value.updated_at_ms,
+    }
+}
+
+fn protocol_analysis_run(value: StorageAnalysisRun) -> AnalysisRunResult {
+    AnalysisRunResult {
+        id: value.id,
+        project_id: value.project_id,
+        document_id: value.document_id,
+        profile_id: value.profile_id,
+        profile_revision: value.profile_revision,
+        project_revision: value.project_revision,
+        document_revision: value.document_revision,
+        stale: value.stale,
+        summary: value.summary,
+        document_summaries: value.document_summaries,
+        created_at_ms: value.created_at_ms,
+        completed_at_ms: value.completed_at_ms,
+    }
+}
+
+fn protocol_reimport_preview(value: StorageReimportPreview) -> DocumentReimportPreviewResult {
+    DocumentReimportPreviewResult {
+        preview_id: value.id,
+        document_id: value.document_id,
+        expected_document_revision: value.expected_document_revision,
+        candidate_source_sha256: value.candidate_source_sha256,
+        plan: value.plan,
+        created_at_ms: value.created_at_ms,
+    }
+}
+
+struct ValidatedProjectArchive {
+    manifest: ProjectArchiveManifest,
+    data: ProjectArchiveData,
+    payloads: BTreeMap<String, Vec<u8>>,
+}
+
+struct PreparedDocumentImport {
+    input: NewDocument,
+    units: Vec<translunar_filter_core::ImportedUnit>,
+}
+
+enum BatchSelection {
+    Candidate {
+        path: PathBuf,
+        display: String,
+        relative: String,
+    },
+    Failed(Box<BatchImportDiagnostic>),
+}
+
+fn validate_project_archive_file(path: &Path) -> Result<()> {
+    let _ = read_validated_project_archive(path)?;
+    Ok(())
+}
+
+fn read_validated_project_archive(path: &Path) -> Result<ValidatedProjectArchive> {
+    if !path.is_file() {
+        return Err(EngineError::InvalidRequest(
+            "project archive does not exist".to_string(),
+        ));
+    }
+    let file = File::open(path)?;
+    let mut archive = ZipArchive::new(file).map_err(|error| {
+        EngineError::InvalidRequest(format!("invalid project archive: {error}"))
+    })?;
+    if archive.is_empty() || archive.len() > MAX_ARCHIVE_ENTRIES.saturating_add(1) {
+        return Err(EngineError::InvalidRequest(
+            "project archive entry count is outside supported bounds".to_string(),
+        ));
+    }
+    let mut manifest_bytes = None;
+    let mut payloads = BTreeMap::new();
+    let mut total = 0_u64;
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).map_err(|error| {
+            EngineError::InvalidRequest(format!("invalid project archive entry: {error}"))
+        })?;
+        if entry.is_dir() {
+            return Err(EngineError::InvalidRequest(
+                "project archive cannot contain directory entries".to_string(),
+            ));
+        }
+        let name = entry.name().to_string();
+        if name == "manifest.json" {
+            if manifest_bytes.is_some() || entry.size() > 8 * 1024 * 1024 {
+                return Err(EngineError::InvalidRequest(
+                    "project archive contains an invalid manifest".to_string(),
+                ));
+            }
+            let mut bytes = Vec::with_capacity(usize::try_from(entry.size()).unwrap_or(0));
+            entry.read_to_end(&mut bytes)?;
+            manifest_bytes = Some(bytes);
+            continue;
+        }
+        if entry.size() > MAX_ARCHIVE_ENTRY_BYTES {
+            return Err(EngineError::InvalidRequest(
+                "project archive entry exceeds the size limit".to_string(),
+            ));
+        }
+        total = total.checked_add(entry.size()).ok_or_else(|| {
+            EngineError::InvalidRequest("project archive size overflow".to_string())
+        })?;
+        if total > MAX_ARCHIVE_TOTAL_BYTES {
+            return Err(EngineError::InvalidRequest(
+                "project archive exceeds the total size limit".to_string(),
+            ));
+        }
+        let mut bytes = Vec::with_capacity(usize::try_from(entry.size()).unwrap_or(0));
+        entry.read_to_end(&mut bytes)?;
+        if payloads.insert(name, bytes).is_some() {
+            return Err(EngineError::InvalidRequest(
+                "project archive contains duplicate entry paths".to_string(),
+            ));
+        }
+    }
+    let manifest: ProjectArchiveManifest =
+        serde_json::from_slice(&manifest_bytes.ok_or_else(|| {
+            EngineError::InvalidRequest("project archive manifest is missing".to_string())
+        })?)?;
+    manifest
+        .validate()
+        .map_err(|error| EngineError::InvalidRequest(error.to_string()))?;
+    if payloads.len() != manifest.entries.len() {
+        return Err(EngineError::InvalidRequest(
+            "project archive entries do not match its manifest".to_string(),
+        ));
+    }
+    for expected in &manifest.entries {
+        let bytes = payloads.get(&expected.path).ok_or_else(|| {
+            EngineError::InvalidRequest(format!(
+                "project archive entry is missing: {}",
+                expected.path
+            ))
+        })?;
+        if u64::try_from(bytes.len()).unwrap_or(u64::MAX) != expected.size_bytes
+            || sha256_hex(bytes) != expected.sha256
+        {
+            return Err(EngineError::InvalidRequest(format!(
+                "project archive entry failed hash validation: {}",
+                expected.path
+            )));
+        }
+    }
+    let project_bytes = payloads.get("project.json").ok_or_else(|| {
+        EngineError::InvalidRequest("project archive data is missing".to_string())
+    })?;
+    let data: ProjectArchiveData = serde_json::from_slice(project_bytes)?;
+    if data.project.id != manifest.project_id
+        || data.project.name != manifest.project_name
+        || data.project.source_locale != manifest.source_locale
+        || data.project.target_locale != manifest.target_locale
+    {
+        return Err(EngineError::InvalidRequest(
+            "project archive identity does not match its manifest".to_string(),
+        ));
+    }
+    Ok(ValidatedProjectArchive {
+        manifest,
+        data,
+        payloads,
+    })
+}
+
+fn sha256_path(path: &Path) -> Result<String> {
+    let mut file = File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn archive_managed_source_path(root: &Path, stored: &str) -> Result<PathBuf> {
+    let path = Path::new(stored);
+    if path
+        .components()
+        .any(|component| matches!(component, Component::ParentDir))
+    {
+        return Err(EngineError::InvalidState(
+            "managed archive source path contains traversal".to_string(),
+        ));
+    }
+    let resolved = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    if !resolved.starts_with(root) {
+        return Err(EngineError::InvalidState(
+            "managed archive source escaped the workspace".to_string(),
+        ));
+    }
+    Ok(resolved)
+}
+
+#[derive(Default)]
+struct StagedArchiveSources {
+    paths: Vec<PathBuf>,
+    retain: bool,
+}
+
+impl StagedArchiveSources {
+    fn retain(&mut self) {
+        self.retain = true;
+    }
+}
+
+impl Drop for StagedArchiveSources {
+    fn drop(&mut self) {
+        if !self.retain {
+            for path in &self.paths {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
+}
+
+fn stage_archive_source(
+    store: &Store,
+    source_key: &str,
+    bytes: &[u8],
+    extension: &str,
+    managed_sources: &mut BTreeMap<String, String>,
+    created_sources: &mut StagedArchiveSources,
+) -> Result<String> {
+    if let Some(existing) = managed_sources.get(source_key) {
+        return Ok(existing.clone());
+    }
+    let restored_name = format!("archive-{}", translunar_domain::new_id());
+    let destination = store.paths().managed_source(&restored_name, extension);
+    let mut temporary = tempfile::Builder::new()
+        .prefix("archive-source-")
+        .suffix(&format!(".{extension}"))
+        .tempfile_in(&store.paths().temporary)?;
+    temporary.write_all(bytes)?;
+    temporary.as_file().sync_all()?;
+    temporary
+        .persist_noclobber(&destination)
+        .map_err(|error| EngineError::Io(error.error))?;
+    let relative = destination
+        .strip_prefix(&store.paths().root)
+        .map_err(|_| {
+            EngineError::InvalidState("restored source escaped the workspace".to_string())
+        })?
+        .to_string_lossy()
+        .replace('\\', "/");
+    managed_sources.insert(source_key.to_string(), relative.clone());
+    created_sources.paths.push(destination);
+    Ok(relative)
 }
 
 fn storage_editor_field(field: EditorSearchField) -> StorageEditorSearchField {
@@ -1076,6 +1480,601 @@ impl EngineService {
             .map_err(Into::into)
     }
 
+    pub fn list_project_templates(
+        &self,
+        params: ProjectTemplateListParams,
+    ) -> Result<ProjectTemplatePage> {
+        let limit = bounded_page_size(params.limit)?;
+        let (items, total) = self.store.list_project_templates(params.offset, limit)?;
+        Ok(ProjectTemplatePage {
+            items: items.into_iter().map(protocol_template).collect(),
+            total,
+            offset: params.offset,
+            limit,
+        })
+    }
+
+    pub fn get_project_template(
+        &self,
+        params: ProjectTemplateGetParams,
+    ) -> Result<ProjectTemplate> {
+        Ok(protocol_template(self.store.get_project_template(
+            &params.template_id,
+            params.revision,
+        )?))
+    }
+
+    pub fn create_project_template(
+        &mut self,
+        params: ProjectTemplateCreateParams,
+    ) -> Result<ProjectTemplate> {
+        Ok(protocol_template(self.store.create_project_template(
+            &params.name,
+            &params.description,
+            params.definition,
+        )?))
+    }
+
+    pub fn update_project_template(
+        &mut self,
+        params: ProjectTemplateUpdateParams,
+    ) -> Result<ProjectTemplate> {
+        Ok(protocol_template(self.store.update_project_template(
+            &params.template_id,
+            params.expected_revision,
+            &params.name,
+            &params.description,
+            params.definition,
+        )?))
+    }
+
+    pub fn delete_project_template(
+        &mut self,
+        params: ProjectTemplateDeleteParams,
+    ) -> Result<EmptyResult> {
+        self.store
+            .delete_project_template(&params.template_id, params.expected_revision)?;
+        Ok(EmptyResult::default())
+    }
+
+    pub fn create_project_from_template(
+        &mut self,
+        params: ProjectCreateFromTemplateParams,
+    ) -> Result<ProjectCreateFromTemplateResult> {
+        Ok(protocol_project_from_template(
+            self.store.create_project_from_template(
+                &params.template_id,
+                params.template_revision,
+                &params.name,
+                params.source_locale.as_deref(),
+                params.target_locale.as_deref(),
+                params.domain.as_deref(),
+                &params.dependency_remaps,
+            )?,
+        ))
+    }
+
+    pub fn export_project_archive(
+        &mut self,
+        params: ProjectArchiveExportParams,
+    ) -> Result<ProjectArchiveResult> {
+        let destination = PathBuf::from(&params.destination_path);
+        if destination.exists() {
+            return Err(EngineError::InvalidState(
+                "project archive destination already exists".to_string(),
+            ));
+        }
+        let parent = destination
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        fs::create_dir_all(parent)?;
+        let archive_data = self.store.export_project_archive_data(&params.project_id)?;
+        let project_json = serde_json::to_vec_pretty(&archive_data)?;
+        let mut payloads = vec![("project.json".to_string(), project_json)];
+        for document in &archive_data.documents {
+            if document.versions.is_empty() {
+                let managed = self.store.get_document(&document.document.id)?;
+                let bytes = fs::read(&managed.managed_source_path)?;
+                let extension = managed
+                    .managed_source_path
+                    .extension()
+                    .and_then(|value| value.to_str())
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("source");
+                payloads.push((
+                    format!("sources/{}/source.{extension}", document.document.id),
+                    bytes,
+                ));
+            } else {
+                for version in &document.versions {
+                    let source = archive_managed_source_path(
+                        &self.store.paths().root,
+                        &version.version.managed_source_path,
+                    )?;
+                    let bytes = fs::read(&source).map_err(|error| {
+                        EngineError::InvalidState(format!(
+                            "archive source for document version {} is unavailable: {error}",
+                            version.version.id
+                        ))
+                    })?;
+                    let extension = source
+                        .extension()
+                        .and_then(|value| value.to_str())
+                        .filter(|value| !value.is_empty())
+                        .unwrap_or("source");
+                    payloads.push((
+                        format!(
+                            "sources/{}/versions/{}/source.{extension}",
+                            document.document.id, version.version.id
+                        ),
+                        bytes,
+                    ));
+                }
+            }
+            for preview in &document.reimport_previews {
+                let source = archive_managed_source_path(
+                    &self.store.paths().root,
+                    &preview.staged_source_path,
+                )?;
+                if !source.is_file() {
+                    if preview.status == "pending" {
+                        return Err(EngineError::InvalidState(format!(
+                            "pending re-import preview {} source is unavailable",
+                            preview.id
+                        )));
+                    }
+                    continue;
+                }
+                let bytes = fs::read(&source)?;
+                let extension = source
+                    .extension()
+                    .and_then(|value| value.to_str())
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("source");
+                payloads.push((
+                    format!(
+                        "sources/{}/reimports/{}/source.{extension}",
+                        document.document.id, preview.id
+                    ),
+                    bytes,
+                ));
+            }
+        }
+        payloads.sort_by(|left, right| left.0.cmp(&right.0));
+        let entries = payloads
+            .iter()
+            .map(|(path, bytes)| ArchiveEntry {
+                path: path.clone(),
+                size_bytes: u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+                sha256: sha256_hex(bytes),
+            })
+            .collect::<Vec<_>>();
+        let manifest = ProjectArchiveManifest {
+            format_version: PROJECT_ARCHIVE_FORMAT_VERSION,
+            schema_version: self.store.check_health()?.schema_version,
+            created_at_ms: chrono::Utc::now().timestamp_millis(),
+            project_id: archive_data.project.id.clone(),
+            project_name: archive_data.project.name.clone(),
+            source_locale: archive_data.project.source_locale.clone(),
+            target_locale: archive_data.project.target_locale.clone(),
+            entries,
+            dependencies: archive_data.dependencies.clone(),
+        };
+        manifest
+            .validate()
+            .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+        let manifest_json = serde_json::to_vec_pretty(&manifest)?;
+        let mut temporary = NamedTempFile::new_in(parent)?;
+        {
+            let mut writer = ZipWriter::new(temporary.as_file_mut());
+            let options = SimpleFileOptions::default()
+                .compression_method(CompressionMethod::Deflated)
+                .unix_permissions(0o600);
+            for (path, bytes) in &payloads {
+                writer
+                    .start_file(path, options)
+                    .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+                writer.write_all(bytes)?;
+            }
+            writer
+                .start_file("manifest.json", options)
+                .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+            writer.write_all(&manifest_json)?;
+            writer
+                .finish()
+                .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+        }
+        temporary.as_file().sync_all()?;
+        validate_project_archive_file(temporary.path())?;
+        let archive_sha256 = sha256_path(temporary.path())?;
+        temporary
+            .persist_noclobber(&destination)
+            .map_err(|error| EngineError::Io(error.error))?;
+        if let Err(error) = self.store.record_project_archive_export(
+            &archive_data.project.id,
+            &NewProjectArchiveRecord {
+                archive_path: destination.to_string_lossy().into_owned(),
+                archive_sha256: archive_sha256.clone(),
+                manifest: serde_json::to_value(&manifest)?,
+                actor: params.actor,
+            },
+        ) {
+            let _ = fs::remove_file(&destination);
+            return Err(error.into());
+        }
+        Ok(ProjectArchiveResult {
+            project_id: archive_data.project.id,
+            archive_path: destination.to_string_lossy().into_owned(),
+            archive_sha256,
+            diagnostics: manifest
+                .dependencies
+                .iter()
+                .map(|dependency| {
+                    format!(
+                        "External {} '{}' must be remapped after restore",
+                        dependency.kind, dependency.name
+                    )
+                })
+                .collect(),
+        })
+    }
+
+    pub fn restore_project_archive(
+        &mut self,
+        params: ProjectArchiveRestoreParams,
+    ) -> Result<ProjectArchiveResult> {
+        let archive_path = PathBuf::from(&params.archive_path);
+        let validated = read_validated_project_archive(&archive_path)?;
+        let archive_sha256 = sha256_path(&archive_path)?;
+        let mut managed_sources = BTreeMap::new();
+        let mut created_sources = StagedArchiveSources::default();
+        for document in &validated.data.documents {
+            if document.versions.is_empty() {
+                let prefix = format!("sources/{}/source.", document.document.id);
+                let (entry_path, bytes) = validated
+                    .payloads
+                    .iter()
+                    .find(|(path, _)| path.starts_with(&prefix))
+                    .ok_or_else(|| {
+                        EngineError::InvalidRequest(format!(
+                            "archive is missing the managed source for document {}",
+                            document.document.id
+                        ))
+                    })?;
+                let extension = Path::new(entry_path)
+                    .extension()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("source");
+                let relative = stage_archive_source(
+                    &self.store,
+                    &document.document.id,
+                    bytes,
+                    extension,
+                    &mut managed_sources,
+                    &mut created_sources,
+                )?;
+                managed_sources.insert(document.managed_source_path.clone(), relative);
+            } else {
+                for version in &document.versions {
+                    let prefix = format!(
+                        "sources/{}/versions/{}/source.",
+                        document.document.id, version.version.id
+                    );
+                    let (entry_path, bytes) = validated
+                        .payloads
+                        .iter()
+                        .find(|(path, _)| path.starts_with(&prefix))
+                        .ok_or_else(|| {
+                            EngineError::InvalidRequest(format!(
+                                "archive is missing source for document version {}",
+                                version.version.id
+                            ))
+                        })?;
+                    let extension = Path::new(entry_path)
+                        .extension()
+                        .and_then(|value| value.to_str())
+                        .unwrap_or("source");
+                    stage_archive_source(
+                        &self.store,
+                        &version.version.managed_source_path,
+                        bytes,
+                        extension,
+                        &mut managed_sources,
+                        &mut created_sources,
+                    )?;
+                }
+            }
+            for preview in &document.reimport_previews {
+                let prefix = format!(
+                    "sources/{}/reimports/{}/source.",
+                    document.document.id, preview.id
+                );
+                let payload = validated
+                    .payloads
+                    .iter()
+                    .find(|(path, _)| path.starts_with(&prefix));
+                let Some((entry_path, bytes)) = payload else {
+                    if preview.status == "pending" {
+                        return Err(EngineError::InvalidRequest(format!(
+                            "archive is missing pending re-import source {}",
+                            preview.id
+                        )));
+                    }
+                    continue;
+                };
+                let extension = Path::new(entry_path)
+                    .extension()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("source");
+                stage_archive_source(
+                    &self.store,
+                    &preview.staged_source_path,
+                    bytes,
+                    extension,
+                    &mut managed_sources,
+                    &mut created_sources,
+                )?;
+            }
+        }
+        let restored = self.store.restore_project_archive_data(
+            &validated.data,
+            &managed_sources,
+            &params.dependency_remaps,
+            &params.actor,
+            &NewProjectArchiveRecord {
+                archive_path: archive_path.to_string_lossy().into_owned(),
+                archive_sha256: archive_sha256.clone(),
+                manifest: serde_json::to_value(&validated.manifest)?,
+                actor: params.actor.clone(),
+            },
+        );
+        let project = restored?;
+        created_sources.retain();
+        let remapped = validated
+            .manifest
+            .dependencies
+            .iter()
+            .filter(|dependency| params.dependency_remaps.contains_key(&dependency.id))
+            .count();
+        Ok(ProjectArchiveResult {
+            project_id: project.id,
+            archive_path: archive_path.to_string_lossy().into_owned(),
+            archive_sha256,
+            diagnostics: vec![format!(
+                "Restored with {remapped} of {} external dependencies explicitly remapped",
+                validated.manifest.dependencies.len()
+            )],
+        })
+    }
+
+    pub fn batch_import(
+        &mut self,
+        params: ProjectBatchImportParams,
+    ) -> Result<ProjectBatchImportResult> {
+        if params.items.is_empty() || params.items.len() > 1_000 {
+            return Err(EngineError::InvalidRequest(
+                "batch import requires between 1 and 1000 selections".to_string(),
+            ));
+        }
+        validate_filter_options(&params.options)?;
+        let project = self.store.get_project(&params.project_id)?;
+        let mut expanded = Vec::new();
+        for item in params.items {
+            let path = PathBuf::from(&item.path);
+            if path.is_dir() {
+                collect_batch_files(&path, &path, &mut expanded, 1_000)?;
+            } else {
+                expanded.push((path, item.relative_path));
+            }
+        }
+        if expanded.is_empty() {
+            return Err(EngineError::InvalidRequest(
+                "batch import selection contains no files".to_string(),
+            ));
+        }
+        let mut seen = BTreeSet::new();
+        let mut offset = 0_u32;
+        loop {
+            let (documents, total) = self.store.list_documents(&params.project_id, offset, 500)?;
+            seen.extend(documents.into_iter().map(|document| document.relative_path));
+            offset = offset.saturating_add(500);
+            if offset >= total {
+                break;
+            }
+        }
+        let mut selections = Vec::with_capacity(expanded.len());
+        for (path, relative_path) in expanded {
+            let display = path.to_string_lossy().into_owned();
+            let relative = match normalize_relative_path(relative_path.as_deref(), &path) {
+                Ok(relative) => relative,
+                Err(error) => {
+                    selections.push(BatchSelection::Failed(Box::new(BatchImportDiagnostic {
+                        path: display,
+                        relative_path: relative_path.unwrap_or_default(),
+                        status: "failed".to_string(),
+                        document: None,
+                        error_code: Some(engine_error_code(&error).to_string()),
+                        message: Some(error.to_string()),
+                    })));
+                    continue;
+                }
+            };
+            if !seen.insert(relative.clone()) {
+                selections.push(BatchSelection::Failed(Box::new(BatchImportDiagnostic {
+                    path: display,
+                    relative_path: relative,
+                    status: "failed".to_string(),
+                    document: None,
+                    error_code: Some("relative_path_collision".to_string()),
+                    message: Some(
+                        "the relative path already exists in the project or batch".to_string(),
+                    ),
+                })));
+                continue;
+            }
+            selections.push(BatchSelection::Candidate {
+                path,
+                display,
+                relative,
+            });
+        }
+        let diagnostics = match params.atomicity {
+            BatchImportAtomicity::BestEffort => selections
+                .into_iter()
+                .map(|selection| match selection {
+                    BatchSelection::Failed(diagnostic) => *diagnostic,
+                    BatchSelection::Candidate {
+                        display, relative, ..
+                    } => {
+                        let result = self.import_document(ImportDocumentParams {
+                            project_id: params.project_id.clone(),
+                            source_path: display.clone(),
+                            relative_path: Some(relative.clone()),
+                            filter_id: params.filter_id.clone(),
+                            options: params.options.clone(),
+                        });
+                        match result {
+                            Ok(imported) => BatchImportDiagnostic {
+                                path: display,
+                                relative_path: relative,
+                                status: "succeeded".to_string(),
+                                document: Some(imported.document),
+                                error_code: None,
+                                message: None,
+                            },
+                            Err(error) => BatchImportDiagnostic {
+                                path: display,
+                                relative_path: relative,
+                                status: "failed".to_string(),
+                                document: None,
+                                error_code: Some(engine_error_code(&error).to_string()),
+                                message: Some(error.to_string()),
+                            },
+                        }
+                    }
+                })
+                .collect(),
+            BatchImportAtomicity::AllOrNothing => self.import_batch_atomically(
+                &params.project_id,
+                &project.project.source_locale,
+                params.filter_id.as_deref(),
+                &params.options,
+                selections,
+            )?,
+        };
+        let succeeded = u32::try_from(
+            diagnostics
+                .iter()
+                .filter(|item| item.status == "succeeded")
+                .count(),
+        )
+        .unwrap_or(u32::MAX);
+        let failed = u32::try_from(diagnostics.len())
+            .unwrap_or(u32::MAX)
+            .saturating_sub(succeeded);
+        Ok(ProjectBatchImportResult {
+            items: diagnostics,
+            succeeded,
+            failed,
+        })
+    }
+
+    pub fn list_recycle(&self, params: RecycleListParams) -> Result<RecyclePage> {
+        let limit = bounded_page_size(params.limit)?;
+        let (items, total) = self.store.list_recycle_entries(params.offset, limit)?;
+        Ok(RecyclePage {
+            items: items.into_iter().map(protocol_recycle_entry).collect(),
+            total,
+            offset: params.offset,
+            limit,
+        })
+    }
+
+    pub fn recycle_delete(&mut self, params: RecycleDeleteParams) -> Result<RecycleEntry> {
+        Ok(protocol_recycle_entry(self.store.recycle_entity(
+            &params.entity_type,
+            &params.entity_id,
+            params.expected_revision,
+            &params.actor,
+            &params.reason,
+            params.retention_ms,
+        )?))
+    }
+
+    pub fn recycle_restore(&mut self, params: RecycleEntryActionParams) -> Result<EmptyResult> {
+        self.store
+            .restore_recycle_entry(&params.entry_id, &params.actor)?;
+        Ok(EmptyResult::default())
+    }
+
+    pub fn recycle_purge(&mut self, params: RecycleEntryActionParams) -> Result<EmptyResult> {
+        self.store
+            .purge_recycle_entry(&params.entry_id, &params.actor, &params.reason)?;
+        Ok(EmptyResult::default())
+    }
+
+    pub fn search_global(&mut self, params: GlobalSearchParams) -> Result<GlobalSearchPage> {
+        let limit = bounded_page_size(params.limit)?;
+        let query = StorageGlobalSearchQuery {
+            text: params.text,
+            project_id: params.project_id,
+            fields: params.fields,
+            locale: params.locale,
+            workflow_state: params.workflow_state,
+            updated_after_ms: params.updated_after_ms,
+            updated_before_ms: params.updated_before_ms,
+            include_recycled: params.include_recycled,
+            offset: params.offset,
+            limit,
+        };
+        let (items, total) = self.store.search_global(&query)?;
+        Ok(GlobalSearchPage {
+            items: items.into_iter().map(protocol_search_hit).collect(),
+            total,
+            offset: params.offset,
+            limit,
+        })
+    }
+
+    pub fn list_analysis_profiles(&self) -> Result<AnalysisProfileListResult> {
+        Ok(AnalysisProfileListResult {
+            items: self
+                .store
+                .list_analysis_profiles()?
+                .into_iter()
+                .map(protocol_analysis_profile)
+                .collect(),
+        })
+    }
+
+    pub fn run_analysis(&mut self, params: AnalysisRunParams) -> Result<AnalysisRunResult> {
+        Ok(protocol_analysis_run(self.store.run_analysis(
+            &params.project_id,
+            params.document_id.as_deref(),
+            &params.profile_id,
+            params.profile_revision,
+        )?))
+    }
+
+    pub fn get_analysis_run(&self, params: AnalysisRunIdParams) -> Result<AnalysisRunResult> {
+        Ok(protocol_analysis_run(
+            self.store.get_analysis_run(&params.run_id)?,
+        ))
+    }
+
+    pub fn get_project_analytics(
+        &self,
+        params: ProjectAnalyticsParams,
+    ) -> Result<ProjectAnalyticsResult> {
+        Ok(self.store.get_project_analytics(
+            &params.project_id,
+            params.idle_gap_ms,
+            params.trend_bucket_ms,
+            params.trend_bucket_count,
+        )?)
+    }
+
     pub fn list_documents(&self, params: DocumentListParams) -> Result<DocumentPage> {
         let limit = bounded_page_size(params.limit)?;
         let (items, total) = self
@@ -1119,6 +2118,37 @@ impl EngineService {
             )));
         }
         let relative_path = normalize_relative_path(params.relative_path.as_deref(), &source_path)?;
+        let prepared = self.prepare_document_import(
+            &params.project_id,
+            &project.project.source_locale,
+            source_path,
+            relative_path,
+            params.filter_id.as_deref(),
+            &params.options,
+        )?;
+        let managed_source_path = prepared.input.managed_source_path.clone();
+        match self.store.insert_document(&prepared.input, &prepared.units) {
+            Ok(document) => Ok(ImportDocumentResult {
+                filter_id: prepared.input.filter_id,
+                degradation: prepared.input.degradation,
+                document,
+            }),
+            Err(error) => {
+                let _ = std::fs::remove_file(managed_source_path);
+                Err(error.into())
+            }
+        }
+    }
+
+    fn prepare_document_import(
+        &self,
+        project_id: &str,
+        source_locale: &str,
+        source_path: PathBuf,
+        relative_path: String,
+        filter_id: Option<&str>,
+        options: &BTreeMap<String, String>,
+    ) -> Result<PreparedDocumentImport> {
         let name = Path::new(&relative_path)
             .file_name()
             .and_then(|value| value.to_str())
@@ -1129,10 +2159,9 @@ impl EngineService {
             .to_string();
         let filter = self
             .filters
-            .select(&source_path, params.filter_id.as_deref())
+            .select(&source_path, filter_id)
             .map_err(EngineError::Import)?;
         let descriptor = filter.descriptor();
-
         let document_id = translunar_domain::new_id();
         let extension = source_path
             .extension()
@@ -1149,8 +2178,8 @@ impl EngineService {
             .import(ImportRequest {
                 source: temporary.path().to_path_buf(),
                 document_id: Some(document_id.clone()),
-                source_locale: Some(project.project.source_locale.clone()),
-                options: params.options.clone(),
+                source_locale: Some(source_locale.to_string()),
+                options: options.clone(),
             })
             .map_err(EngineError::Import)?;
         let imported = collect_imported_document(stream).map_err(EngineError::Import)?;
@@ -1162,30 +2191,228 @@ impl EngineService {
         temporary
             .persist_noclobber(&managed_source_path)
             .map_err(|error| EngineError::Io(error.error))?;
-
-        let input = NewDocument {
-            id: document_id,
-            project_id: params.project_id,
-            name,
-            relative_path,
-            format: imported.metadata.format,
-            filter_id: descriptor.id.clone(),
-            source_sha256,
-            degradation: imported.degradation.clone(),
-            original_source_path: source_path,
-            managed_source_path: managed_source_path.clone(),
-        };
-        match self.store.insert_document(&input, &imported.units) {
-            Ok(document) => Ok(ImportDocumentResult {
-                filter_id: descriptor.id,
+        Ok(PreparedDocumentImport {
+            input: NewDocument {
+                id: document_id,
+                project_id: project_id.to_string(),
+                name,
+                relative_path,
+                format: imported.metadata.format,
+                filter_id: descriptor.id.clone(),
+                source_sha256,
                 degradation: imported.degradation,
-                document,
-            }),
+                original_source_path: source_path,
+                managed_source_path,
+            },
+            units: imported.units,
+        })
+    }
+
+    fn import_batch_atomically(
+        &mut self,
+        project_id: &str,
+        source_locale: &str,
+        filter_id: Option<&str>,
+        options: &BTreeMap<String, String>,
+        selections: Vec<BatchSelection>,
+    ) -> Result<Vec<BatchImportDiagnostic>> {
+        let mut diagnostics = Vec::with_capacity(selections.len());
+        let mut ready = Vec::new();
+        for (index, selection) in selections.into_iter().enumerate() {
+            match selection {
+                BatchSelection::Failed(diagnostic) => diagnostics.push(Some(*diagnostic)),
+                BatchSelection::Candidate {
+                    path,
+                    display,
+                    relative,
+                } => match self.prepare_document_import(
+                    project_id,
+                    source_locale,
+                    path,
+                    relative.clone(),
+                    filter_id,
+                    options,
+                ) {
+                    Ok(prepared) => {
+                        diagnostics.push(None);
+                        ready.push((index, display, relative, prepared));
+                    }
+                    Err(error) => diagnostics.push(Some(BatchImportDiagnostic {
+                        path: display,
+                        relative_path: relative,
+                        status: "failed".to_string(),
+                        document: None,
+                        error_code: Some(engine_error_code(&error).to_string()),
+                        message: Some(error.to_string()),
+                    })),
+                },
+            }
+        }
+        if diagnostics.iter().any(Option::is_some) {
+            for (_, _, _, prepared) in &ready {
+                let _ = fs::remove_file(&prepared.input.managed_source_path);
+            }
+            for (index, display, relative, _) in ready {
+                diagnostics[index] = Some(BatchImportDiagnostic {
+                    path: display,
+                    relative_path: relative,
+                    status: "failed".to_string(),
+                    document: None,
+                    error_code: Some("atomic_batch_aborted".to_string()),
+                    message: Some(
+                        "atomic batch was rolled back because another file failed".to_string(),
+                    ),
+                });
+            }
+            return Ok(diagnostics
+                .into_iter()
+                .map(|diagnostic| diagnostic.expect("atomic batch diagnostic"))
+                .collect());
+        }
+        let mut inputs = Vec::with_capacity(ready.len());
+        for (_, _, _, prepared) in &ready {
+            inputs.push((&prepared.input, prepared.units.as_slice()));
+        }
+        let documents = match self.store.insert_documents_atomic(&inputs) {
+            Ok(documents) => documents,
             Err(error) => {
-                let _ = std::fs::remove_file(managed_source_path);
+                for (_, _, _, prepared) in &ready {
+                    let _ = fs::remove_file(&prepared.input.managed_source_path);
+                }
+                let error = EngineError::from(error);
+                let code = engine_error_code(&error).to_string();
+                let message = error.to_string();
+                return Ok(ready
+                    .into_iter()
+                    .map(|(_, display, relative, _)| BatchImportDiagnostic {
+                        path: display,
+                        relative_path: relative,
+                        status: "failed".to_string(),
+                        document: None,
+                        error_code: Some(code.clone()),
+                        message: Some(message.clone()),
+                    })
+                    .collect());
+            }
+        };
+        for ((index, display, relative, prepared), document) in ready.into_iter().zip(documents) {
+            diagnostics[index] = Some(BatchImportDiagnostic {
+                path: display,
+                relative_path: relative,
+                status: "succeeded".to_string(),
+                document: Some(document),
+                error_code: None,
+                message: None,
+            });
+            // The managed source is now owned by the committed document.
+            let _ = prepared;
+        }
+        Ok(diagnostics
+            .into_iter()
+            .map(|diagnostic| diagnostic.expect("atomic batch diagnostic"))
+            .collect())
+    }
+
+    pub fn preview_document_reimport(
+        &mut self,
+        params: DocumentReimportPreviewParams,
+    ) -> Result<DocumentReimportPreviewResult> {
+        validate_filter_options(&params.options)?;
+        let managed = self.store.get_document(&params.document_id)?;
+        if managed.document.revision != params.expected_revision {
+            return Err(StorageError::EntityConflict {
+                entity: "document",
+                id: params.document_id,
+                expected_revision: params.expected_revision,
+                actual_revision: managed.document.revision,
+            }
+            .into());
+        }
+        let project = self.store.get_project(&managed.document.project_id)?;
+        let source_path = PathBuf::from(&params.source_path);
+        if !source_path.is_file() {
+            return Err(EngineError::InvalidRequest(format!(
+                "source document does not exist: {}",
+                source_path.display()
+            )));
+        }
+        let filter = self
+            .filters
+            .select(&source_path, Some(&managed.document.filter_id))
+            .map_err(EngineError::Import)?;
+        let extension = source_path
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("source");
+        let staged_name = format!(
+            "{}-reimport-{}",
+            managed.document.id,
+            translunar_domain::new_id()
+        );
+        let staged_path = self.store.paths().managed_source(&staged_name, extension);
+        let mut temporary = tempfile::Builder::new()
+            .prefix("reimport-")
+            .suffix(&format!(".{extension}"))
+            .tempfile_in(&self.store.paths().temporary)?;
+        let source_sha256 = copy_and_hash(&source_path, temporary.as_file_mut())?;
+        temporary.as_file().sync_all()?;
+        let stream = filter
+            .import(ImportRequest {
+                source: temporary.path().to_path_buf(),
+                document_id: Some(managed.document.id.clone()),
+                source_locale: Some(project.project.source_locale),
+                options: params.options.clone(),
+            })
+            .map_err(EngineError::Import)?;
+        let imported = collect_imported_document(stream).map_err(EngineError::Import)?;
+        if imported.units.is_empty() {
+            return Err(EngineError::Import(FilterError::Invalid(
+                "re-import candidate contains no translatable units".to_string(),
+            )));
+        }
+        temporary
+            .persist_noclobber(&staged_path)
+            .map_err(|error| EngineError::Io(error.error))?;
+        let staged_relative_path = staged_path
+            .strip_prefix(&self.store.paths().root)
+            .map_err(|_| {
+                EngineError::InvalidState(
+                    "re-import staging path escaped the workspace".to_string(),
+                )
+            })?
+            .to_string_lossy()
+            .replace('\\', "/");
+        let result = self.store.create_reimport_preview(NewReimportPreview {
+            document_id: managed.document.id,
+            expected_document_revision: params.expected_revision,
+            candidate_source_sha256: source_sha256,
+            original_source_path: source_path.to_string_lossy().into_owned(),
+            staged_source_path: staged_relative_path,
+            filter_id: managed.document.filter_id,
+            options: params.options,
+            actor: params.actor,
+            units: imported.units,
+        });
+        match result {
+            Ok(preview) => Ok(protocol_reimport_preview(preview)),
+            Err(error) => {
+                let _ = fs::remove_file(staged_path);
                 Err(error.into())
             }
         }
+    }
+
+    pub fn apply_document_reimport(
+        &mut self,
+        params: DocumentReimportApplyParams,
+    ) -> Result<Document> {
+        self.store
+            .apply_reimport_preview(
+                &params.preview_id,
+                params.expected_document_revision,
+                &params.actor,
+            )
+            .map_err(Into::into)
     }
 
     pub fn list_segments(&self, params: SegmentListParams) -> Result<SegmentPage> {
@@ -2660,6 +3887,41 @@ impl RpcDispatcher {
                 self.service
                     .set_project_lifecycle(parse_params(request.params)?)?,
             ),
+            methods::PROJECT_TEMPLATE_LIST => serialize_result(
+                self.service
+                    .list_project_templates(parse_params(request.params)?)?,
+            ),
+            methods::PROJECT_TEMPLATE_GET => serialize_result(
+                self.service
+                    .get_project_template(parse_params(request.params)?)?,
+            ),
+            methods::PROJECT_TEMPLATE_CREATE => serialize_result(
+                self.service
+                    .create_project_template(parse_params(request.params)?)?,
+            ),
+            methods::PROJECT_TEMPLATE_UPDATE => serialize_result(
+                self.service
+                    .update_project_template(parse_params(request.params)?)?,
+            ),
+            methods::PROJECT_TEMPLATE_DELETE => serialize_result(
+                self.service
+                    .delete_project_template(parse_params(request.params)?)?,
+            ),
+            methods::PROJECT_CREATE_FROM_TEMPLATE => serialize_result(
+                self.service
+                    .create_project_from_template(parse_params(request.params)?)?,
+            ),
+            methods::PROJECT_BATCH_IMPORT => {
+                serialize_result(self.service.batch_import(parse_params(request.params)?)?)
+            }
+            methods::PROJECT_ARCHIVE_EXPORT => serialize_result(
+                self.service
+                    .export_project_archive(parse_params(request.params)?)?,
+            ),
+            methods::PROJECT_ARCHIVE_RESTORE => serialize_result(
+                self.service
+                    .restore_project_archive(parse_params(request.params)?)?,
+            ),
             methods::DOCUMENT_LIST => {
                 serialize_result(self.service.list_documents(parse_params(request.params)?)?)
             }
@@ -2674,6 +3936,45 @@ impl RpcDispatcher {
             methods::DOCUMENT_IMPORT_DOCX => {
                 serialize_result(self.service.import_docx(parse_params(request.params)?)?)
             }
+            methods::DOCUMENT_REIMPORT_PREVIEW => serialize_result(
+                self.service
+                    .preview_document_reimport(parse_params(request.params)?)?,
+            ),
+            methods::DOCUMENT_REIMPORT_APPLY => serialize_result(
+                self.service
+                    .apply_document_reimport(parse_params(request.params)?)?,
+            ),
+            methods::RECYCLE_LIST => {
+                serialize_result(self.service.list_recycle(parse_params(request.params)?)?)
+            }
+            methods::RECYCLE_DELETE => {
+                serialize_result(self.service.recycle_delete(parse_params(request.params)?)?)
+            }
+            methods::RECYCLE_RESTORE => serialize_result(
+                self.service
+                    .recycle_restore(parse_params(request.params)?)?,
+            ),
+            methods::RECYCLE_PURGE => {
+                serialize_result(self.service.recycle_purge(parse_params(request.params)?)?)
+            }
+            methods::SEARCH_GLOBAL => {
+                serialize_result(self.service.search_global(parse_params(request.params)?)?)
+            }
+            methods::ANALYSIS_PROFILE_LIST => {
+                let _: EmptyParams = parse_params(request.params)?;
+                serialize_result(self.service.list_analysis_profiles()?)
+            }
+            methods::ANALYSIS_RUN => {
+                serialize_result(self.service.run_analysis(parse_params(request.params)?)?)
+            }
+            methods::ANALYSIS_RUN_GET => serialize_result(
+                self.service
+                    .get_analysis_run(parse_params(request.params)?)?,
+            ),
+            methods::PROJECT_ANALYTICS_GET => serialize_result(
+                self.service
+                    .get_project_analytics(parse_params(request.params)?)?,
+            ),
             methods::SEGMENT_LIST => {
                 serialize_result(self.service.list_segments(parse_params(request.params)?)?)
             }
@@ -3118,6 +4419,15 @@ impl RpcDispatcher {
                 "pipeline.ai-pretranslation".to_string(),
                 "pipeline.resumable".to_string(),
                 "project.lifecycle".to_string(),
+                "project.templates".to_string(),
+                "project.create-from-template".to_string(),
+                "project.batch-import".to_string(),
+                "project.archive-portable".to_string(),
+                "document.reimport".to_string(),
+                "project.recycle".to_string(),
+                "search.global".to_string(),
+                "analysis.weighted-effort".to_string(),
+                "analysis.project-operational".to_string(),
                 "translation-memory.exact".to_string(),
                 "translation-memory.library".to_string(),
                 "translation-memory.fuzzy-cjk".to_string(),
@@ -3361,6 +4671,11 @@ fn rpc_error(error: EngineError) -> RpcError {
             message: error.to_string(),
             data: None,
         },
+        EngineError::Json(_) => RpcError {
+            code: ErrorCode::InvalidRequest,
+            message: "archive or request JSON is invalid".to_string(),
+            data: None,
+        },
     }
 }
 
@@ -3387,7 +4702,7 @@ mod tests {
     use translunar_filter_docx::fixture;
     use translunar_filter_pptx::fixture as pptx_fixture;
     use translunar_filter_xlsx::fixture as xlsx_fixture;
-    use translunar_protocol::ClientInfo;
+    use translunar_protocol::{BatchImportItem, ClientInfo};
 
     use super::*;
 
@@ -3984,6 +5299,152 @@ mod tests {
     }
 
     #[test]
+    fn batch_import_preserves_relative_paths_and_all_or_nothing_is_atomic() {
+        let context = TestContext::new();
+        let folder = context.root.path().join("batch");
+        let nested = folder.join("nested");
+        std::fs::create_dir_all(&nested).expect("create batch folder");
+        let first = folder.join("first.txt");
+        let second = nested.join("second.md");
+        let bad = folder.join("unsupported.bin");
+        std::fs::write(&first, "First batch source").expect("write first batch source");
+        std::fs::write(&second, "Second *batch* source").expect("write second batch source");
+        std::fs::write(&bad, [0, 1, 2, 3]).expect("write unsupported source");
+
+        let mut service = EngineService::open(context.root.path()).expect("open engine");
+        let project = TestContext::project(&mut service);
+        let best_effort = service
+            .batch_import(ProjectBatchImportParams {
+                project_id: project.id.clone(),
+                items: vec![BatchImportItem {
+                    path: folder.to_string_lossy().into_owned(),
+                    relative_path: None,
+                }],
+                filter_id: None,
+                options: BTreeMap::new(),
+                atomicity: BatchImportAtomicity::BestEffort,
+            })
+            .expect("best effort batch import");
+        assert_eq!(best_effort.succeeded, 2);
+        assert_eq!(best_effort.failed, 1);
+        assert!(
+            best_effort
+                .items
+                .iter()
+                .any(|item| item.relative_path == "nested/second.md" && item.status == "succeeded")
+        );
+        assert!(
+            best_effort
+                .items
+                .iter()
+                .any(|item| item.path.ends_with("unsupported.bin") && item.status == "failed")
+        );
+        let before_atomic = service
+            .list_documents(DocumentListParams {
+                project_id: project.id.clone(),
+                offset: 0,
+                limit: 100,
+            })
+            .expect("list after best effort")
+            .total;
+
+        let atomic_good = context.root.path().join("atomic-good.txt");
+        std::fs::write(&atomic_good, "Atomic good").expect("write atomic good");
+        let atomic_bad = context.root.path().join("atomic-bad.bin");
+        std::fs::write(&atomic_bad, [4, 5, 6]).expect("write atomic bad");
+        let atomic_failed = service
+            .batch_import(ProjectBatchImportParams {
+                project_id: project.id.clone(),
+                items: vec![
+                    BatchImportItem {
+                        path: atomic_good.to_string_lossy().into_owned(),
+                        relative_path: Some("atomic/good.txt".to_string()),
+                    },
+                    BatchImportItem {
+                        path: atomic_bad.to_string_lossy().into_owned(),
+                        relative_path: Some("atomic/bad.bin".to_string()),
+                    },
+                ],
+                filter_id: None,
+                options: BTreeMap::new(),
+                atomicity: BatchImportAtomicity::AllOrNothing,
+            })
+            .expect("atomic failure diagnostics");
+        assert_eq!(atomic_failed.succeeded, 0);
+        assert_eq!(atomic_failed.failed, 2);
+        assert!(
+            atomic_failed
+                .items
+                .iter()
+                .all(|item| item.status == "failed")
+        );
+        assert_eq!(
+            service
+                .list_documents(DocumentListParams {
+                    project_id: project.id.clone(),
+                    offset: 0,
+                    limit: 100,
+                })
+                .expect("list after atomic rollback")
+                .total,
+            before_atomic
+        );
+
+        let traversal = service
+            .batch_import(ProjectBatchImportParams {
+                project_id: project.id.clone(),
+                items: vec![BatchImportItem {
+                    path: atomic_good.to_string_lossy().into_owned(),
+                    relative_path: Some("../escape.txt".to_string()),
+                }],
+                filter_id: None,
+                options: BTreeMap::new(),
+                atomicity: BatchImportAtomicity::BestEffort,
+            })
+            .expect("traversal diagnostics");
+        assert_eq!(traversal.succeeded, 0);
+        assert_eq!(
+            traversal.items[0].error_code.as_deref(),
+            Some("invalid_request")
+        );
+
+        let atomic_a = context.root.path().join("atomic-a.txt");
+        let atomic_b = context.root.path().join("atomic-b.txt");
+        std::fs::write(&atomic_a, "Atomic A").expect("write atomic a");
+        std::fs::write(&atomic_b, "Atomic B").expect("write atomic b");
+        let atomic_success = service
+            .batch_import(ProjectBatchImportParams {
+                project_id: project.id.clone(),
+                items: vec![
+                    BatchImportItem {
+                        path: atomic_a.to_string_lossy().into_owned(),
+                        relative_path: Some("atomic/a.txt".to_string()),
+                    },
+                    BatchImportItem {
+                        path: atomic_b.to_string_lossy().into_owned(),
+                        relative_path: Some("atomic/b.txt".to_string()),
+                    },
+                ],
+                filter_id: None,
+                options: BTreeMap::new(),
+                atomicity: BatchImportAtomicity::AllOrNothing,
+            })
+            .expect("atomic success");
+        assert_eq!(atomic_success.succeeded, 2);
+        assert_eq!(atomic_success.failed, 0);
+        drop(service);
+        let restarted = EngineService::open(context.root.path()).expect("restart engine");
+        let recovered = restarted
+            .list_documents(DocumentListParams {
+                project_id: project.id,
+                offset: 0,
+                limit: 100,
+            })
+            .expect("list batch documents after restart");
+        assert_eq!(recovered.total, before_atomic + 2);
+    }
+
+    #[test]
     fn text_html_xliff_and_office_filters_round_trip_through_generic_engine() {
         let context = TestContext::new();
         let txt = context.root.path().join("sample.txt");
@@ -4368,6 +5829,117 @@ mod tests {
                 .and_then(|data| data.get("entity")),
             Some(&json!("filter"))
         );
+    }
+
+    #[test]
+    fn dispatcher_creates_projects_from_templates_and_returns_unavailable_analytics() {
+        let context = TestContext::new();
+        let mut dispatcher = RpcDispatcher::open(context.root.path()).expect("open dispatcher");
+        let initialized = dispatcher.handle(RpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: json!(1),
+            method: methods::INITIALIZE.to_string(),
+            params: serde_json::to_value(InitializeParams {
+                protocol_version: PROTOCOL_VERSION,
+                client: ClientInfo {
+                    name: "lifecycle-test".to_string(),
+                    version: "0".to_string(),
+                },
+            })
+            .expect("serialize initialize params"),
+        });
+        let initialize_result: InitializeResult =
+            serde_json::from_value(initialized.result.expect("initialize result"))
+                .expect("decode initialize result");
+        assert!(
+            initialize_result
+                .capabilities
+                .iter()
+                .any(|value| value == "project.create-from-template")
+        );
+        assert!(
+            initialize_result
+                .capabilities
+                .iter()
+                .any(|value| value == "analysis.project-operational")
+        );
+
+        let created_template = dispatcher.handle(RpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: json!(2),
+            method: methods::PROJECT_TEMPLATE_CREATE.to_string(),
+            params: serde_json::to_value(ProjectTemplateCreateParams {
+                name: "Lifecycle template".to_string(),
+                description: "Safe reusable defaults".to_string(),
+                definition: json!({
+                    "sourceLocale": "en-US",
+                    "targetLocale": "zh-CN",
+                    "domain": "legal",
+                    "qaProfileId": "builtin.qa.cjk-professional",
+                    "pipelineId": "missing-pipeline",
+                    "analysisProfileId": "builtin.analysis.standard",
+                    "reviewRequired": false
+                }),
+            })
+            .expect("serialize template params"),
+        });
+        let template: ProjectTemplate =
+            serde_json::from_value(created_template.result.expect("template result"))
+                .expect("decode template");
+
+        let instantiated = dispatcher.handle(RpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: json!(3),
+            method: methods::PROJECT_CREATE_FROM_TEMPLATE.to_string(),
+            params: serde_json::to_value(ProjectCreateFromTemplateParams {
+                template_id: template.id.clone(),
+                template_revision: Some(template.revision),
+                name: "Instantiated lifecycle project".to_string(),
+                source_locale: None,
+                target_locale: None,
+                domain: None,
+                dependency_remaps: BTreeMap::new(),
+            })
+            .expect("serialize create-from-template params"),
+        });
+        let created: ProjectCreateFromTemplateResult =
+            serde_json::from_value(instantiated.result.expect("instantiated project result"))
+                .expect("decode instantiated project");
+        assert_eq!(created.project.source_locale, "en-US");
+        assert_eq!(created.project.target_locale, "zh-CN");
+        assert_eq!(created.project.domain, "legal");
+        assert_eq!(
+            created.project.configuration.template_id.as_deref(),
+            Some(template.id.as_str())
+        );
+        assert!(!created.project.configuration.review_required);
+        assert!(
+            created.diagnostics.iter().any(|diagnostic| {
+                diagnostic.kind == "pipeline" && diagnostic.status == "missing"
+            })
+        );
+
+        let analytics_response = dispatcher.handle(RpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: json!(4),
+            method: methods::PROJECT_ANALYTICS_GET.to_string(),
+            params: serde_json::to_value(ProjectAnalyticsParams {
+                project_id: created.project.id.clone(),
+                idle_gap_ms: 5 * 60 * 1_000,
+                trend_bucket_ms: 24 * 60 * 60 * 1_000,
+                trend_bucket_count: 3,
+            })
+            .expect("serialize analytics params"),
+        });
+        let analytics: ProjectAnalyticsResult =
+            serde_json::from_value(analytics_response.result.expect("analytics result"))
+                .expect("decode analytics");
+        assert_eq!(analytics.project_id, created.project.id);
+        assert_eq!(analytics.progress.total_segments, 0);
+        assert!(!analytics.productivity.active_editing_ms.available);
+        assert!(!analytics.ai.available);
+        assert!(!analytics.assets.tm_reuse_segments.available);
+        assert_eq!(analytics.trends.len(), 3);
     }
 
     #[test]
@@ -5391,5 +6963,107 @@ mod tests {
         assert_eq!(findings[0].suggestions, ["misspelled"]);
         assert_eq!(findings[0].provider, "hunspell:test");
         assert!(parse_hunspell_output("*\n", &words, text, "hunspell:test", 10).is_none());
+    }
+
+    #[test]
+    fn project_archive_is_hash_validated_no_clobber_and_restores_new_identity() {
+        let context = TestContext::new();
+        let mut service = EngineService::open(context.root.path()).expect("open engine");
+        let project = TestContext::project(&mut service);
+        let document = service
+            .import_docx(ImportDocxParams {
+                project_id: project.id.clone(),
+                source_path: context.source.to_string_lossy().into_owned(),
+            })
+            .expect("import DOCX");
+        let page = service
+            .list_segments(SegmentListParams {
+                document_id: document.id.clone(),
+                offset: 0,
+                limit: 20,
+            })
+            .expect("list segments");
+        service
+            .update_target(UpdateTargetParams {
+                segment_id: page.items[0].id.clone(),
+                target_text: "归档译文".to_string(),
+                expected_revision: page.items[0].revision,
+            })
+            .expect("translate archive segment");
+        let archive = context.root.path().join("portable.tlcat");
+        let exported = service
+            .export_project_archive(ProjectArchiveExportParams {
+                project_id: project.id.clone(),
+                destination_path: archive.to_string_lossy().into_owned(),
+                actor: "tester".to_string(),
+            })
+            .expect("export project archive");
+        assert_eq!(exported.project_id, project.id);
+        assert!(archive.is_file());
+        assert!(
+            service
+                .export_project_archive(ProjectArchiveExportParams {
+                    project_id: project.id.clone(),
+                    destination_path: archive.to_string_lossy().into_owned(),
+                    actor: "tester".to_string(),
+                })
+                .is_err()
+        );
+
+        let corrupt = context.root.path().join("corrupt.tlcat");
+        let mut bytes = fs::read(&archive).expect("read archive");
+        let middle = bytes.len() / 2;
+        bytes[middle] ^= 0x5a;
+        fs::write(&corrupt, bytes).expect("write corrupt archive");
+        let before = service
+            .list_projects(ProjectListParams {
+                lifecycle: None,
+                offset: 0,
+                limit: 100,
+            })
+            .expect("list projects before corrupt restore")
+            .total;
+        assert!(
+            service
+                .restore_project_archive(ProjectArchiveRestoreParams {
+                    archive_path: corrupt.to_string_lossy().into_owned(),
+                    dependency_remaps: BTreeMap::new(),
+                    actor: "tester".to_string(),
+                })
+                .is_err()
+        );
+        assert_eq!(
+            service
+                .list_projects(ProjectListParams {
+                    lifecycle: None,
+                    offset: 0,
+                    limit: 100,
+                })
+                .expect("list projects after corrupt restore")
+                .total,
+            before
+        );
+
+        let restored = service
+            .restore_project_archive(ProjectArchiveRestoreParams {
+                archive_path: archive.to_string_lossy().into_owned(),
+                dependency_remaps: BTreeMap::new(),
+                actor: "tester".to_string(),
+            })
+            .expect("restore valid archive");
+        assert_ne!(restored.project_id, project.id);
+        let restored_snapshot = service
+            .get_project(&restored.project_id)
+            .expect("get restored project");
+        assert_eq!(restored_snapshot.documents.len(), 1);
+        assert_ne!(restored_snapshot.documents[0].id, document.id);
+        let restored_segments = service
+            .list_segments(SegmentListParams {
+                document_id: restored_snapshot.documents[0].id.clone(),
+                offset: 0,
+                limit: 20,
+            })
+            .expect("list restored segments");
+        assert_eq!(restored_segments.items[0].target_text, "归档译文");
     }
 }

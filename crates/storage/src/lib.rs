@@ -6,11 +6,15 @@ mod store;
 
 pub use error::{Result, StorageError};
 pub use store::{
-    AiProviderProfileUpdate, AiSettingsUpdate, ConcordanceRequest, Confirmation, DataPaths,
-    EditorFilter, EditorFindMatch, EditorListRequest, EditorMutation, EditorReviewDecision,
-    EditorSearchField, EditorSort, ManagedDocument, NewAiBatchItem, NewAiBatchRun,
-    NewAiProviderProfile, NewAiRun, NewDocument, NewPipelineDefinition, NewQaProfile, NewTermEntry,
-    NewTermTranslation, NewTermbase, NewTmLibrary, PipelineRunSnapshot, ProjectAggregate,
-    ProjectUpdate, QaIssueFilter, QaProfileUpdate, ReplaceItem, ReplacePreview, ReplaceRequest,
-    ReviewProposal, Store, TermSearchRequest, TmSearchRequest,
+    AiProviderProfileUpdate, AiSettingsUpdate, AnalysisProfileRecord, AnalysisRunRecord,
+    ArchiveDocumentData, ArchiveSegmentData, ArchiveTermbaseData, ArchiveTmLibraryData,
+    ConcordanceRequest, Confirmation, DataPaths, EditorFilter, EditorFindMatch, EditorListRequest,
+    EditorMutation, EditorReviewDecision, EditorSearchField, EditorSort, GlobalSearchQuery,
+    GlobalSearchResult, ManagedDocument, NewAiBatchItem, NewAiBatchRun, NewAiProviderProfile,
+    NewAiRun, NewDocument, NewPipelineDefinition, NewProjectArchiveRecord, NewQaProfile,
+    NewReimportPreview, NewTermEntry, NewTermTranslation, NewTermbase, NewTmLibrary,
+    PipelineRunSnapshot, ProjectAggregate, ProjectArchiveData, ProjectFromTemplateResult,
+    ProjectTemplateRecord, ProjectUpdate, QaIssueFilter, QaProfileUpdate, RecycleEntryRecord,
+    ReimportPreviewRecord, ReplaceItem, ReplacePreview, ReplaceRequest, ReviewProposal, Store,
+    TermSearchRequest, TmSearchRequest,
 };

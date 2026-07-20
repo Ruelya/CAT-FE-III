@@ -5,6 +5,7 @@ members = [
   "crates/editor-core",
   "crates/ai-core",
   "crates/qa-core",
+  "crates/lifecycle-core",
   "crates/asset-core",
   "crates/filter-core",
   "crates/segmentation-srx",

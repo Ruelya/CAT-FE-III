@@ -23,6 +23,8 @@ mod ai;
 pub use ai::*;
 mod qa;
 pub use qa::*;
+mod lifecycle;
+pub use lifecycle::*;
 
 pub const PROTOCOL_VERSION: u32 = 1;
 
@@ -33,10 +35,30 @@ pub mod methods {
     pub const PROJECT_LIST: &str = "project.list";
     pub const PROJECT_UPDATE: &str = "project.update";
     pub const PROJECT_SET_LIFECYCLE: &str = "project.setLifecycle";
+    pub const PROJECT_TEMPLATE_LIST: &str = "project.template.list";
+    pub const PROJECT_TEMPLATE_GET: &str = "project.template.get";
+    pub const PROJECT_TEMPLATE_CREATE: &str = "project.template.create";
+    pub const PROJECT_TEMPLATE_UPDATE: &str = "project.template.update";
+    pub const PROJECT_TEMPLATE_DELETE: &str = "project.template.delete";
+    pub const PROJECT_CREATE_FROM_TEMPLATE: &str = "project.createFromTemplate";
+    pub const PROJECT_BATCH_IMPORT: &str = "project.batchImport";
+    pub const PROJECT_ARCHIVE_EXPORT: &str = "project.archive.export";
+    pub const PROJECT_ARCHIVE_RESTORE: &str = "project.archive.restore";
     pub const DOCUMENT_LIST: &str = "document.list";
     pub const DOCUMENT_GET: &str = "document.get";
     pub const DOCUMENT_IMPORT: &str = "document.import";
     pub const DOCUMENT_IMPORT_DOCX: &str = "document.importDocx";
+    pub const DOCUMENT_REIMPORT_PREVIEW: &str = "document.reimport.preview";
+    pub const DOCUMENT_REIMPORT_APPLY: &str = "document.reimport.apply";
+    pub const RECYCLE_LIST: &str = "recycle.list";
+    pub const RECYCLE_DELETE: &str = "recycle.delete";
+    pub const RECYCLE_RESTORE: &str = "recycle.restore";
+    pub const RECYCLE_PURGE: &str = "recycle.purge";
+    pub const SEARCH_GLOBAL: &str = "search.global";
+    pub const ANALYSIS_PROFILE_LIST: &str = "analysis.profile.list";
+    pub const ANALYSIS_RUN: &str = "analysis.run";
+    pub const ANALYSIS_RUN_GET: &str = "analysis.run.get";
+    pub const PROJECT_ANALYTICS_GET: &str = "project.analytics.get";
     pub const SEGMENT_LIST: &str = "segment.list";
     pub const SEGMENT_UPDATE_TARGET: &str = "segment.updateTarget";
     pub const SEGMENT_CONFIRM: &str = "segment.confirm";
@@ -1445,6 +1467,25 @@ pub struct RpcMethodCatalog {
     pub project_update: MethodContract<UpdateProjectParams, Project>,
     #[serde(rename = "project.setLifecycle")]
     pub project_set_lifecycle: MethodContract<SetProjectLifecycleParams, Project>,
+    #[serde(rename = "project.template.list")]
+    pub project_template_list: MethodContract<ProjectTemplateListParams, ProjectTemplatePage>,
+    #[serde(rename = "project.template.get")]
+    pub project_template_get: MethodContract<ProjectTemplateGetParams, ProjectTemplate>,
+    #[serde(rename = "project.template.create")]
+    pub project_template_create: MethodContract<ProjectTemplateCreateParams, ProjectTemplate>,
+    #[serde(rename = "project.template.update")]
+    pub project_template_update: MethodContract<ProjectTemplateUpdateParams, ProjectTemplate>,
+    #[serde(rename = "project.template.delete")]
+    pub project_template_delete: MethodContract<ProjectTemplateDeleteParams, EmptyResult>,
+    #[serde(rename = "project.createFromTemplate")]
+    pub project_create_from_template:
+        MethodContract<ProjectCreateFromTemplateParams, ProjectCreateFromTemplateResult>,
+    #[serde(rename = "project.batchImport")]
+    pub project_batch_import: MethodContract<ProjectBatchImportParams, ProjectBatchImportResult>,
+    #[serde(rename = "project.archive.export")]
+    pub project_archive_export: MethodContract<ProjectArchiveExportParams, ProjectArchiveResult>,
+    #[serde(rename = "project.archive.restore")]
+    pub project_archive_restore: MethodContract<ProjectArchiveRestoreParams, ProjectArchiveResult>,
     #[serde(rename = "document.list")]
     pub document_list: MethodContract<DocumentListParams, DocumentPage>,
     #[serde(rename = "document.get")]
@@ -1453,6 +1494,29 @@ pub struct RpcMethodCatalog {
     pub document_import: MethodContract<ImportDocumentParams, ImportDocumentResult>,
     #[serde(rename = "document.importDocx")]
     pub document_import_docx: MethodContract<ImportDocxParams, Document>,
+    #[serde(rename = "document.reimport.preview")]
+    pub document_reimport_preview:
+        MethodContract<DocumentReimportPreviewParams, DocumentReimportPreviewResult>,
+    #[serde(rename = "document.reimport.apply")]
+    pub document_reimport_apply: MethodContract<DocumentReimportApplyParams, Document>,
+    #[serde(rename = "recycle.list")]
+    pub recycle_list: MethodContract<RecycleListParams, RecyclePage>,
+    #[serde(rename = "recycle.delete")]
+    pub recycle_delete: MethodContract<RecycleDeleteParams, RecycleEntry>,
+    #[serde(rename = "recycle.restore")]
+    pub recycle_restore: MethodContract<RecycleEntryActionParams, EmptyResult>,
+    #[serde(rename = "recycle.purge")]
+    pub recycle_purge: MethodContract<RecycleEntryActionParams, EmptyResult>,
+    #[serde(rename = "search.global")]
+    pub search_global: MethodContract<GlobalSearchParams, GlobalSearchPage>,
+    #[serde(rename = "analysis.profile.list")]
+    pub analysis_profile_list: MethodContract<EmptyParams, AnalysisProfileListResult>,
+    #[serde(rename = "analysis.run")]
+    pub analysis_run: MethodContract<AnalysisRunParams, AnalysisRunResult>,
+    #[serde(rename = "analysis.run.get")]
+    pub analysis_run_get: MethodContract<AnalysisRunIdParams, AnalysisRunResult>,
+    #[serde(rename = "project.analytics.get")]
+    pub project_analytics_get: MethodContract<ProjectAnalyticsParams, ProjectAnalyticsResult>,
     #[serde(rename = "segment.list")]
     pub segment_list: MethodContract<SegmentListParams, SegmentPage>,
     #[serde(rename = "segment.updateTarget")]
@@ -1702,6 +1766,8 @@ pub struct ProtocolCatalog {
     pub initialize_result: InitializeResult,
     pub create_project_params: CreateProjectParams,
     pub project_id_params: ProjectIdParams,
+    pub project_create_from_template_params: ProjectCreateFromTemplateParams,
+    pub project_analytics_params: ProjectAnalyticsParams,
     pub project_list_params: ProjectListParams,
     pub update_project_params: UpdateProjectParams,
     pub set_project_lifecycle_params: SetProjectLifecycleParams,

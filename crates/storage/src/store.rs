@@ -40,10 +40,17 @@ use crate::migrations::{LATEST_SCHEMA_VERSION, configure_connection, migrate};
 use crate::{Result, StorageError};
 
 mod ai;
+mod lifecycle;
 mod qa;
 pub use ai::{
     AiProviderProfileUpdate, AiSettingsUpdate, NewAiBatchItem, NewAiBatchRun, NewAiProviderProfile,
     NewAiRun,
+};
+pub use lifecycle::{
+    AnalysisProfileRecord, AnalysisRunRecord, ArchiveDocumentData, ArchiveSegmentData,
+    ArchiveTermbaseData, ArchiveTmLibraryData, GlobalSearchQuery, GlobalSearchResult,
+    NewProjectArchiveRecord, NewReimportPreview, ProjectArchiveData, ProjectFromTemplateResult,
+    ProjectTemplateRecord, RecycleEntryRecord, ReimportPreviewRecord,
 };
 pub use qa::{NewQaProfile, QaIssueFilter, QaProfileUpdate};
 
@@ -463,104 +470,16 @@ impl Store {
         require_nonempty("project name", name)?;
         require_nonempty("source locale", source_locale)?;
         require_nonempty("target locale", target_locale)?;
-
-        let now = now_ms();
-        let project = Project {
-            id: new_id(),
-            name: name.trim().to_string(),
-            source_locale: source_locale.trim().to_string(),
-            target_locale: target_locale.trim().to_string(),
-            domain: domain.trim().to_string(),
-            lifecycle: ProjectLifecycle::Active,
-            revision: 0,
-            configuration: ProjectConfiguration::default(),
-            created_at_ms: now,
-            updated_at_ms: now,
-            archived_at_ms: None,
-        };
-        let memory = TranslationMemory {
-            id: new_id(),
-            project_id: project.id.clone(),
-            name: format!("{} TM", project.name),
-            source_locale: project.source_locale.clone(),
-            target_locale: project.target_locale.clone(),
-            writable: true,
-        };
-
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        transaction.execute(
-            "INSERT INTO projects (
-                id, name, source_locale, target_locale, domain, lifecycle, revision,
-                configuration_json, created_at_ms, updated_at_ms, archived_at_ms
-             ) VALUES (?1, ?2, ?3, ?4, ?5, 'active', 0, ?6, ?7, ?8, NULL)",
-            params![
-                project.id,
-                project.name,
-                project.source_locale,
-                project.target_locale,
-                project.domain,
-                serde_json::to_string(&project.configuration)?,
-                project.created_at_ms,
-                project.updated_at_ms,
-            ],
-        )?;
-        transaction.execute(
-            "INSERT INTO translation_memories (
-                id, project_id, name, source_locale, target_locale, writable
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                memory.id,
-                memory.project_id,
-                memory.name,
-                memory.source_locale,
-                memory.target_locale,
-                memory.writable,
-            ],
-        )?;
-        transaction.execute(
-            "INSERT INTO tm_libraries (
-                id, name, source_locale, target_locale, domain, owner_project_id,
-                writable, revision, created_at_ms, updated_at_ms
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, 0, ?7, ?7)",
-            params![
-                memory.id,
-                memory.name,
-                memory.source_locale,
-                memory.target_locale,
-                project.domain,
-                project.id,
-                project.created_at_ms,
-            ],
-        )?;
-        transaction.execute(
-            "INSERT INTO tm_library_mounts (
-                project_id, library_id, mode, priority, enabled, revision,
-                created_at_ms, updated_at_ms
-             ) VALUES (?1, ?2, 'write', 0, 1, 0, ?3, ?3)",
-            params![project.id, memory.id, project.created_at_ms],
-        )?;
-        let termbase_id = new_id();
-        transaction.execute(
-            "INSERT INTO termbases (
-                id, name, source_locale, domain, writable, revision,
-                created_at_ms, updated_at_ms
-             ) VALUES (?1, ?2, ?3, ?4, 1, 0, ?5, ?5)",
-            params![
-                termbase_id,
-                format!("{} Termbase", project.name),
-                project.source_locale,
-                project.domain,
-                project.created_at_ms,
-            ],
-        )?;
-        transaction.execute(
-            "INSERT INTO termbase_mounts (
-                project_id, termbase_id, priority, writable, enabled, revision,
-                created_at_ms, updated_at_ms
-             ) VALUES (?1, ?2, 0, 1, 1, 0, ?3, ?3)",
-            params![project.id, termbase_id, project.created_at_ms],
+        let project = create_project_in_transaction(
+            &transaction,
+            name,
+            source_locale,
+            target_locale,
+            domain,
+            ProjectConfiguration::default(),
         )?;
         transaction.commit()?;
         Ok(project)
@@ -2480,126 +2399,46 @@ impl Store {
         require_nonempty("source digest", &input.source_sha256)?;
         ensure_unique_units(units)?;
 
-        let imported_at_ms = now_ms();
-        let document = Document {
-            id: input.id.clone(),
-            project_id: input.project_id.clone(),
-            name: input.name.clone(),
-            relative_path: input.relative_path.clone(),
-            format: input.format.clone(),
-            filter_id: input.filter_id.clone(),
-            source_sha256: input.source_sha256.clone(),
-            current_version: 1,
-            status: DocumentStatus::Active,
-            revision: 0,
-            segment_count: to_u32(units.len())?,
-            degradation: input.degradation.clone(),
-            imported_at_ms,
-            updated_at_ms: imported_at_ms,
-        };
-        let version_id = new_id();
-
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        ensure_exists(&transaction, "projects", "project", &input.project_id)?;
-        let original_source_path = path_text(&input.original_source_path);
-        let managed_source_path =
-            stored_managed_source_path(&self.paths, &input.managed_source_path);
-        transaction.execute(
-            "INSERT INTO documents (
-                id, project_id, name, relative_path, format, filter_id, source_sha256,
-                original_source_path, managed_source_path, current_version, status,
-                revision, segment_count, degradation_json, imported_at_ms, updated_at_ms
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, 'active', 0, ?10, ?11, ?12, ?12)",
-            params![
-                document.id,
-                document.project_id,
-                document.name,
-                document.relative_path,
-                document.format,
-                document.filter_id,
-                document.source_sha256,
-                original_source_path,
-                managed_source_path.clone(),
-                i64::from(document.segment_count),
-                serde_json::to_string(&document.degradation)?,
-                document.imported_at_ms,
-            ],
-        )?;
-        transaction.execute(
-            "INSERT INTO document_versions (
-                id, document_id, version, source_sha256, original_source_path,
-                managed_source_path, reason, created_at_ms
-             ) VALUES (?1, ?2, 1, ?3, ?4, ?5, 'initial-import', ?6)",
-            params![
-                version_id,
-                document.id,
-                document.source_sha256,
-                original_source_path,
-                managed_source_path,
-                document.imported_at_ms,
-            ],
-        )?;
-
-        for (index, unit) in units.iter().enumerate() {
-            let previous = index
-                .checked_sub(1)
-                .and_then(|position| units.get(position))
-                .map(|item| item.source_text.as_str());
-            let next = units.get(index + 1).map(|item| item.source_text.as_str());
-            let (source_hash, context_hash) = segment_hashes(&unit.source_text, previous, next);
-            let segment_id = new_id();
-            let target_text = unit.target_text.as_deref().unwrap_or_default();
-            transaction.execute(
-                "INSERT INTO segments (
-                    id, document_id, ordinal, structural_path, source_text, target_text,
-                    state, revision, source_hash, context_hash, updated_at_ms,
-                    document_version_id, source_version
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9, ?10, ?11, 1)",
-                params![
-                    segment_id,
-                    document.id,
-                    i64::from(unit.ordinal),
-                    unit.structural_path,
-                    unit.source_text,
-                    target_text,
-                    segment_state_text(state_for_target(target_text)),
-                    source_hash,
-                    context_hash,
-                    imported_at_ms,
-                    version_id,
-                ],
-            )?;
-            for tag in &unit.inline_tags {
-                transaction.execute(
-                    "INSERT INTO inline_tags (
-                        id, segment_id, side, position, kind, pair_id, payload,
-                        display_text, protected
-                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                    params![
-                        tag.id,
-                        segment_id,
-                        tag_side_text(tag.side),
-                        i64::from(tag.position),
-                        tag_kind_text(tag.kind),
-                        tag.pair_id,
-                        tag.payload,
-                        tag.display_text,
-                        tag.protected,
-                    ],
-                )?;
-            }
-            for note in &unit.notes {
-                transaction.execute(
-                    "INSERT INTO segment_notes (segment_id, id, text, author)
-                     VALUES (?1, ?2, ?3, ?4)",
-                    params![segment_id, note.id, note.text, note.author],
-                )?;
-            }
-        }
+        let document =
+            insert_document_in_transaction(&transaction, &self.paths, input, units, now_ms())?;
         transaction.commit()?;
         Ok(document)
+    }
+
+    pub fn insert_documents_atomic(
+        &mut self,
+        inputs: &[(&NewDocument, &[ImportedUnit])],
+    ) -> Result<Vec<Document>> {
+        if inputs.is_empty() {
+            return Err(StorageError::InvalidState(
+                "atomic document import requires at least one document".to_string(),
+            ));
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let imported_at_ms = now_ms();
+        let mut documents = Vec::with_capacity(inputs.len());
+        for (input, units) in inputs {
+            require_nonempty("document id", &input.id)?;
+            require_nonempty("project id", &input.project_id)?;
+            require_nonempty("document name", &input.name)?;
+            require_nonempty("document format", &input.format)?;
+            require_nonempty("source digest", &input.source_sha256)?;
+            ensure_unique_units(units)?;
+            documents.push(insert_document_in_transaction(
+                &transaction,
+                &self.paths,
+                input,
+                units,
+                imported_at_ms,
+            )?);
+        }
+        transaction.commit()?;
+        Ok(documents)
     }
 
     pub fn get_document(&self, document_id: &str) -> Result<ManagedDocument> {
@@ -4729,72 +4568,59 @@ impl Store {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let current = find_segment(&transaction, segment_id)?;
-        ensure_revision(&current, expected_revision)?;
-
-        if current.target_text == target_text {
-            transaction.commit()?;
-            return Ok(current);
-        }
-        ensure_segment_not_signed(&transaction, segment_id, "target text")?;
-        let history_before = capture_structural_history(&transaction, [segment_id])?;
-
-        let state = state_for_target(target_text);
-        let updated_at_ms = now_ms();
-        let next_revision = current
-            .revision
-            .checked_add(1)
-            .ok_or_else(|| StorageError::InvalidData("segment revision overflow".to_string()))?;
-        let changed = transaction.execute(
-            "UPDATE segments
-             SET target_text = ?1, state = ?2, revision = ?3, updated_at_ms = ?4
-             WHERE id = ?5 AND revision = ?6",
-            params![
-                target_text,
-                segment_state_text(state),
-                to_i64(next_revision)?,
-                updated_at_ms,
-                segment_id,
-                to_i64(expected_revision)?,
-            ],
-        )?;
-        if changed != 1 {
-            let actual = find_segment(&transaction, segment_id)?.revision;
-            return Err(StorageError::Conflict {
-                segment_id: segment_id.to_string(),
-                expected_revision,
-                actual_revision: actual,
-            });
-        }
-        clamp_inline_tag_positions(&transaction, segment_id, TagSide::Target, target_text)?;
-        let updated = find_segment(&transaction, segment_id)?;
-        qa::reconcile_segment_local_qa(&transaction, segment_id, updated_at_ms)?;
-        let project_id = project_id_for_segment(&transaction, segment_id)?;
-        append_operation(
+        let updated = update_target_in_transaction(
             &transaction,
-            &project_id,
-            "segment",
             segment_id,
-            "segment.update_target",
-            Some(current.revision),
-            Some(updated.revision),
-            LEGACY_DESKTOP_ACTOR,
-            None,
-            Some(serde_json::to_value(&current)?),
-            Some(serde_json::to_value(&updated)?),
+            target_text,
+            expected_revision,
+            TargetUpdateMetadata {
+                operation_kind: "segment.update_target",
+                actor: LEGACY_DESKTOP_ACTOR,
+                correlation_id: None,
+                record_unchanged: false,
+            },
         )?;
-        let history_after = capture_structural_history(&transaction, [segment_id])?;
-        append_editor_operation(
+        transaction.commit()?;
+        Ok(updated)
+    }
+
+    pub fn apply_ai_proposal(
+        &mut self,
+        run_id: &str,
+        segment_id: &str,
+        target_text: &str,
+        expected_revision: u64,
+    ) -> Result<Segment> {
+        require_nonempty("AI run id", run_id)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let run_matches = transaction
+            .query_row(
+                "SELECT 1 FROM ai_runs
+                 WHERE id = ?1 AND segment_id = ?2 AND status = 'succeeded'
+                   AND proposal_text = ?3",
+                params![run_id, segment_id, target_text],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if !run_matches {
+            return Err(StorageError::InvalidState(
+                "AI run proposal does not match the requested segment update".to_string(),
+            ));
+        }
+        let updated = update_target_in_transaction(
             &transaction,
-            &project_id,
-            "segment.update_target",
             segment_id,
-            Some(current.revision),
-            Some(updated.revision),
-            LEGACY_DESKTOP_ACTOR,
-            None,
-            &history_before,
-            &history_after,
+            target_text,
+            expected_revision,
+            TargetUpdateMetadata {
+                operation_kind: "segment.ai_apply",
+                actor: "ai",
+                correlation_id: Some(run_id),
+                record_unchanged: true,
+            },
         )?;
         transaction.commit()?;
         Ok(updated)
@@ -5187,6 +5013,323 @@ fn page_slice<T>(values: Vec<T>, offset: u32, limit: u32) -> Result<Vec<T>> {
     let limit = usize::try_from(limit)
         .map_err(|_| StorageError::InvalidData("page limit does not fit usize".to_string()))?;
     Ok(values.into_iter().skip(offset).take(limit).collect())
+}
+
+struct TargetUpdateMetadata<'a> {
+    operation_kind: &'a str,
+    actor: &'a str,
+    correlation_id: Option<&'a str>,
+    record_unchanged: bool,
+}
+
+fn update_target_in_transaction(
+    transaction: &Transaction<'_>,
+    segment_id: &str,
+    target_text: &str,
+    expected_revision: u64,
+    metadata: TargetUpdateMetadata<'_>,
+) -> Result<Segment> {
+    let current = find_segment(transaction, segment_id)?;
+    ensure_revision(&current, expected_revision)?;
+    if current.target_text == target_text && !metadata.record_unchanged {
+        return Ok(current);
+    }
+    ensure_segment_not_signed(transaction, segment_id, "target text")?;
+    let history_before = capture_structural_history(transaction, [segment_id])?;
+    let updated_at_ms = now_ms();
+    let updated = if current.target_text == target_text {
+        current.clone()
+    } else {
+        let state = state_for_target(target_text);
+        let next_revision = current
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| StorageError::InvalidData("segment revision overflow".to_string()))?;
+        let changed = transaction.execute(
+            "UPDATE segments
+             SET target_text = ?1, state = ?2, revision = ?3, updated_at_ms = ?4
+             WHERE id = ?5 AND revision = ?6",
+            params![
+                target_text,
+                segment_state_text(state),
+                to_i64(next_revision)?,
+                updated_at_ms,
+                segment_id,
+                to_i64(expected_revision)?,
+            ],
+        )?;
+        if changed != 1 {
+            let actual = find_segment(transaction, segment_id)?.revision;
+            return Err(StorageError::Conflict {
+                segment_id: segment_id.to_string(),
+                expected_revision,
+                actual_revision: actual,
+            });
+        }
+        clamp_inline_tag_positions(transaction, segment_id, TagSide::Target, target_text)?;
+        let updated = find_segment(transaction, segment_id)?;
+        qa::reconcile_segment_local_qa(transaction, segment_id, updated_at_ms)?;
+        updated
+    };
+    let project_id = project_id_for_segment(transaction, segment_id)?;
+    append_operation(
+        transaction,
+        &project_id,
+        "segment",
+        segment_id,
+        metadata.operation_kind,
+        Some(current.revision),
+        Some(updated.revision),
+        metadata.actor,
+        metadata.correlation_id,
+        Some(serde_json::to_value(&current)?),
+        Some(serde_json::to_value(&updated)?),
+    )?;
+    let history_after = capture_structural_history(transaction, [segment_id])?;
+    append_editor_operation(
+        transaction,
+        &project_id,
+        metadata.operation_kind,
+        segment_id,
+        Some(current.revision),
+        Some(updated.revision),
+        metadata.actor,
+        metadata.correlation_id,
+        &history_before,
+        &history_after,
+    )?;
+    Ok(updated)
+}
+
+pub(super) fn create_project_in_transaction(
+    transaction: &Transaction<'_>,
+    name: &str,
+    source_locale: &str,
+    target_locale: &str,
+    domain: &str,
+    configuration: ProjectConfiguration,
+) -> Result<Project> {
+    require_nonempty("project name", name)?;
+    require_nonempty("source locale", source_locale)?;
+    require_nonempty("target locale", target_locale)?;
+    let now = now_ms();
+    let project = Project {
+        id: new_id(),
+        name: name.trim().to_string(),
+        source_locale: source_locale.trim().to_string(),
+        target_locale: target_locale.trim().to_string(),
+        domain: domain.trim().to_string(),
+        lifecycle: ProjectLifecycle::Active,
+        revision: 0,
+        configuration,
+        created_at_ms: now,
+        updated_at_ms: now,
+        archived_at_ms: None,
+    };
+    let memory = TranslationMemory {
+        id: new_id(),
+        project_id: project.id.clone(),
+        name: format!("{} TM", project.name),
+        source_locale: project.source_locale.clone(),
+        target_locale: project.target_locale.clone(),
+        writable: true,
+    };
+    transaction.execute(
+        "INSERT INTO projects (
+            id, name, source_locale, target_locale, domain, lifecycle, revision,
+            configuration_json, created_at_ms, updated_at_ms, archived_at_ms
+         ) VALUES (?1, ?2, ?3, ?4, ?5, 'active', 0, ?6, ?7, ?8, NULL)",
+        params![
+            project.id,
+            project.name,
+            project.source_locale,
+            project.target_locale,
+            project.domain,
+            serde_json::to_string(&project.configuration)?,
+            project.created_at_ms,
+            project.updated_at_ms,
+        ],
+    )?;
+    transaction.execute(
+        "INSERT INTO translation_memories (
+            id, project_id, name, source_locale, target_locale, writable
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            memory.id,
+            memory.project_id,
+            memory.name,
+            memory.source_locale,
+            memory.target_locale,
+            memory.writable,
+        ],
+    )?;
+    transaction.execute(
+        "INSERT INTO tm_libraries (
+            id, name, source_locale, target_locale, domain, owner_project_id,
+            writable, revision, created_at_ms, updated_at_ms
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, 0, ?7, ?7)",
+        params![
+            memory.id,
+            memory.name,
+            memory.source_locale,
+            memory.target_locale,
+            project.domain,
+            project.id,
+            project.created_at_ms,
+        ],
+    )?;
+    transaction.execute(
+        "INSERT INTO tm_library_mounts (
+            project_id, library_id, mode, priority, enabled, revision,
+            created_at_ms, updated_at_ms
+         ) VALUES (?1, ?2, 'write', 0, 1, 0, ?3, ?3)",
+        params![project.id, memory.id, project.created_at_ms],
+    )?;
+    let termbase_id = new_id();
+    transaction.execute(
+        "INSERT INTO termbases (
+            id, name, source_locale, domain, writable, revision,
+            created_at_ms, updated_at_ms, owner_project_id
+         ) VALUES (?1, ?2, ?3, ?4, 1, 0, ?5, ?5, ?6)",
+        params![
+            termbase_id,
+            format!("{} Termbase", project.name),
+            project.source_locale,
+            project.domain,
+            project.created_at_ms,
+            project.id,
+        ],
+    )?;
+    transaction.execute(
+        "INSERT INTO termbase_mounts (
+            project_id, termbase_id, priority, writable, enabled, revision,
+            created_at_ms, updated_at_ms
+         ) VALUES (?1, ?2, 0, 1, 1, 0, ?3, ?3)",
+        params![project.id, termbase_id, project.created_at_ms],
+    )?;
+    Ok(project)
+}
+
+fn insert_document_in_transaction(
+    transaction: &Transaction<'_>,
+    paths: &DataPaths,
+    input: &NewDocument,
+    units: &[ImportedUnit],
+    imported_at_ms: i64,
+) -> Result<Document> {
+    let document = Document {
+        id: input.id.clone(),
+        project_id: input.project_id.clone(),
+        name: input.name.clone(),
+        relative_path: input.relative_path.clone(),
+        format: input.format.clone(),
+        filter_id: input.filter_id.clone(),
+        source_sha256: input.source_sha256.clone(),
+        current_version: 1,
+        status: DocumentStatus::Active,
+        revision: 0,
+        segment_count: to_u32(units.len())?,
+        degradation: input.degradation.clone(),
+        imported_at_ms,
+        updated_at_ms: imported_at_ms,
+    };
+    let version_id = new_id();
+    ensure_exists(transaction, "projects", "project", &input.project_id)?;
+    let original_source_path = path_text(&input.original_source_path);
+    let managed_source_path = stored_managed_source_path(paths, &input.managed_source_path);
+    transaction.execute(
+        "INSERT INTO documents (
+            id, project_id, name, relative_path, format, filter_id, source_sha256,
+            original_source_path, managed_source_path, current_version, status,
+            revision, segment_count, degradation_json, imported_at_ms, updated_at_ms
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, 'active', 0, ?10, ?11, ?12, ?12)",
+        params![
+            document.id,
+            document.project_id,
+            document.name,
+            document.relative_path,
+            document.format,
+            document.filter_id,
+            document.source_sha256,
+            original_source_path,
+            managed_source_path.clone(),
+            i64::from(document.segment_count),
+            serde_json::to_string(&document.degradation)?,
+            document.imported_at_ms,
+        ],
+    )?;
+    transaction.execute(
+        "INSERT INTO document_versions (
+            id, document_id, version, source_sha256, original_source_path,
+            managed_source_path, reason, created_at_ms
+         ) VALUES (?1, ?2, 1, ?3, ?4, ?5, 'initial-import', ?6)",
+        params![
+            version_id,
+            document.id,
+            document.source_sha256,
+            original_source_path,
+            managed_source_path,
+            document.imported_at_ms,
+        ],
+    )?;
+
+    for (index, unit) in units.iter().enumerate() {
+        let previous = index
+            .checked_sub(1)
+            .and_then(|position| units.get(position))
+            .map(|item| item.source_text.as_str());
+        let next = units.get(index + 1).map(|item| item.source_text.as_str());
+        let (source_hash, context_hash) = segment_hashes(&unit.source_text, previous, next);
+        let segment_id = new_id();
+        let target_text = unit.target_text.as_deref().unwrap_or_default();
+        transaction.execute(
+            "INSERT INTO segments (
+                id, document_id, ordinal, structural_path, source_text, target_text,
+                state, revision, source_hash, context_hash, updated_at_ms,
+                document_version_id, source_version
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9, ?10, ?11, 1)",
+            params![
+                segment_id,
+                document.id,
+                i64::from(unit.ordinal),
+                unit.structural_path,
+                unit.source_text,
+                target_text,
+                segment_state_text(state_for_target(target_text)),
+                source_hash,
+                context_hash,
+                imported_at_ms,
+                version_id,
+            ],
+        )?;
+        for tag in &unit.inline_tags {
+            transaction.execute(
+                "INSERT INTO inline_tags (
+                    id, segment_id, side, position, kind, pair_id, payload,
+                    display_text, protected
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    tag.id,
+                    segment_id,
+                    tag_side_text(tag.side),
+                    i64::from(tag.position),
+                    tag_kind_text(tag.kind),
+                    tag.pair_id,
+                    tag.payload,
+                    tag.display_text,
+                    tag.protected,
+                ],
+            )?;
+        }
+        for note in &unit.notes {
+            transaction.execute(
+                "INSERT INTO segment_notes (segment_id, id, text, author)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![segment_id, note.id, note.text, note.author],
+            )?;
+        }
+    }
+    Ok(document)
 }
 
 fn ensure_unique_units(units: &[ImportedUnit]) -> Result<()> {
@@ -7364,14 +7507,15 @@ fn ensure_default_termbases(connection: &mut Connection) -> Result<()> {
         transaction.execute(
             "INSERT INTO termbases (
                 id, name, source_locale, domain, writable, revision,
-                created_at_ms, updated_at_ms
-             ) VALUES (?1, ?2, ?3, ?4, 1, 0, ?5, ?5)",
+                created_at_ms, updated_at_ms, owner_project_id
+             ) VALUES (?1, ?2, ?3, ?4, 1, 0, ?5, ?5, ?6)",
             params![
                 termbase_id,
                 format!("{project_name} Termbase"),
                 source_locale,
                 domain,
                 created_at_ms,
+                project_id,
             ],
         )?;
         transaction.execute(

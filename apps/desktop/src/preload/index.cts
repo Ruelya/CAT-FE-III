@@ -5,6 +5,9 @@ import type { DesktopApi } from "../shared/desktop-api.js";
 const IPC_CHANNELS = {
   invoke: "translunar:engine:invoke",
   selectSource: "translunar:dialog:source-docx",
+  selectSources: "translunar:dialog:source-documents",
+  selectSourceFolder: "translunar:dialog:source-folder",
+  selectProjectArchive: "translunar:dialog:project-archive",
   selectExport: "translunar:dialog:export-docx",
   restartEngine: "translunar:engine:restart",
   setAiCredential: "translunar:ai:credential:set",
@@ -16,8 +19,19 @@ const api: DesktopApi = {
     electron.ipcRenderer.invoke(IPC_CHANNELS.invoke, method, params),
   selectSourceDocument: () =>
     electron.ipcRenderer.invoke(IPC_CHANNELS.selectSource),
+  selectSourceDocuments: () =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.selectSources),
+  selectSourceFolder: () =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.selectSourceFolder),
+  selectProjectArchive: () =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.selectProjectArchive),
   selectExportPath: (suggestedName) =>
     electron.ipcRenderer.invoke(IPC_CHANNELS.selectExport, suggestedName),
+  resolveDroppedPaths: (files) =>
+    files
+      .slice(0, 500)
+      .map((file) => electron.webUtils.getPathForFile(file))
+      .filter((path) => path.length > 0),
   restartEngine: () => electron.ipcRenderer.invoke(IPC_CHANNELS.restartEngine),
   setAiCredential: (profileId, secret) =>
     electron.ipcRenderer.invoke(

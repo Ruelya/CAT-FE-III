@@ -398,7 +398,7 @@ test("manages the offline Assistant and real workspace projections", async () =>
     await page.waitForTimeout(150);
     const reviewPolicyError =
       (await page.locator(".qa-banner").textContent()) ?? "";
-    expect(mandatoryReview, reviewPolicyError).not.toBeChecked();
+    await expect(mandatoryReview, reviewPolicyError).not.toBeChecked();
     await expect(page.getByText(/Direct sign-off is enabled/u)).toBeVisible();
     await expect(page.locator(".qa-issue-row").first()).toBeVisible();
     await expect(

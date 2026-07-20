@@ -954,3 +954,88 @@ await invoke("document.export", {
   ...(!gate.clear ? { qaOverride: { actor, reason } } : {}),
 });
 ```
+
+## Project Lifecycle And Analytics
+
+### 1. Scope / Trigger
+
+Use this contract for multi-file project setup, templates, source re-import,
+project archives, recycle/history, global search, analysis, or operational
+analytics. These operations are Engine-owned and are additive to legacy
+single-document and workspace-backup methods.
+
+### 2. Signatures
+
+Protocol v1 exposes `project.template.*`, `document.reimport.preview/apply`,
+`project.archive.export/restore`, `recycle.*`, `search.global`,
+`analysis.profile.list`, `analysis.run/get`, and `project.analytics.get`.
+Migration 10 stores template revisions, document versions/re-import previews,
+recycle entries, archive records, analysis snapshots, and search projections.
+
+### 3. Contracts
+
+- Batch import accepts bounded OS paths and returns one diagnostic per input;
+  Engine normalizes relative paths, rejects traversal/collisions, and never
+  reads source content in Electron.
+- Re-import previews are tied to document revision and source hash. Apply is
+  expected-revision protected and preserves unchanged target/tags/comments;
+  removed rows remain recoverable as superseded versions.
+- Archive restore validates schema, limits, entry hashes, and dependencies
+  before one atomic transaction. It always creates a new project identity and
+  never includes credentials or external shared-library content.
+- Normal search, recycle, and analytics queries exclude soft-deleted rows;
+  analysis and weighted effort are snapshots with explicit stale state and
+  deterministic integer weights. Missing historical instrumentation is null,
+  never fabricated as zero.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Traversal, collision, unsupported batch item | Per-file diagnostic; no silent drop |
+| Stale re-import preview or mutable project revision | `conflict`; no partial write |
+| Invalid archive schema/hash/limit/dependency | typed invalid request; workspace unchanged |
+| Search/recycle/analytics references purged item | Exclude from normal result; admin history remains bounded |
+| Analysis source/config revision changed | `stale: true`; caller must rerun |
+
+### 5. Good / Base / Bad Cases
+
+- Good: import two nested files, restart, page deterministic results, re-import
+  one file, and observe unchanged target state plus explicit mapping counts.
+- Base: restore a valid archive into a new identity while reporting unresolved
+  shared dependencies for deliberate remapping.
+- Bad: let React calculate words/weights, overwrite an archive destination,
+  transfer an ambiguous translation, or expose recycled text in search.
+
+### 6. Tests Required
+
+- Lifecycle-core tests cover normalized matching, Unicode/CJK counts,
+  repetition, integer weighting, and manifest hashes.
+- Storage tests cover migration 10 fresh/upgrade/rollback/reopen, template
+  revisions, stale previews, recycle/purge, search reconciliation, snapshots,
+  and archive transaction rollback.
+- Engine/stdio tests cover batch import, both re-import directions, archive
+  restore validation, restart, search exclusion, and analytics null history.
+- Electron E2E uses the real Engine for wizard/drop, template, search,
+  re-import preview, recycle/archive actions, analytics, three viewports, and
+  no console/page errors.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```typescript
+const words = sourceText.trim().split(/\s+/u).length;
+await invoke("document.reimport.apply", { documentId, rows });
+```
+
+#### Correct
+
+```typescript
+const analysis = await invoke("analysis.run", { projectId, profileId });
+await invoke("document.reimport.apply", {
+  documentId,
+  previewId,
+  expectedRevision: document.revision,
+});
+```

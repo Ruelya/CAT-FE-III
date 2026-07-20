@@ -42,6 +42,38 @@ Implemented and verified the local-first Electron/Rust CAT workflow, generated c
 - None - task complete
 
 
+## Session 5: Project lifecycle and analytics (in progress)
+
+**Date**: 2026-07-20
+**Task**: `07-19-project-lifecycle-analytics`
+**Branch**: `master`
+
+### Checkpoint
+
+- Added and VPS-verified `translunar-lifecycle-core` for structural-first
+  re-import planning, Unicode/CJK/repetition/weighted analysis, AI retention,
+  and archive manifest validation.
+- Added migration 10 with templates, re-import metadata/snapshots, recycle,
+  archive records, analysis snapshots, document lifecycle, and FTS5 search.
+- Added storage template revisions, credential exclusion, recycle/restore/purge,
+  restart-safe search projection, analysis profiles/runs/stale detection, and
+  tests. Full storage suite: 28 passed; strict Clippy passed on `moehub`.
+- Added generated protocol contracts and Engine RPC for templates, recursive
+  batch import, recycle, global search, and analysis. Protocol tests and Engine
+  strict Clippy passed on `moehub`; TypeScript contracts regenerated with Node
+  22.
+- Still required before this child can finish: transactional re-import apply,
+  archive export/restore, template-based project creation/reference diagnostics,
+  complete desktop project home/wizard/search/recycle/analytics surfaces,
+  smoke/Electron E2E/full gates.
+
+### Safety
+
+- Do not touch `.trellis/workspace/Ruelya/workbench-assistant-1250x744.png`.
+- Local MSVC linker remains broken; continue Rust gates and Windows GNU build
+  through `/home/ubuntu/workspaces/cat-translunar-m0` on `ssh moehub`.
+
+
 ## Session 2: Complete desktop CAT MVP
 
 **Date**: 2026-07-19

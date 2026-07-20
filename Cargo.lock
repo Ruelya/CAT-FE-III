@@ -2504,10 +2504,12 @@ dependencies = [
  "translunar-filter-text",
  "translunar-filter-xliff",
  "translunar-filter-xlsx",
+ "translunar-lifecycle-core",
  "translunar-pipeline",
  "translunar-protocol",
  "translunar-qa-core",
  "translunar-storage",
+ "zip",
 ]
 
 [[package]]
@@ -2621,6 +2623,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "translunar-lifecycle-core"
+version = "0.1.0"
+dependencies = [
+ "schemars",
+ "serde",
+ "sha2",
+ "thiserror",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "translunar-pipeline"
 version = "0.1.0"
 dependencies = [
@@ -2641,6 +2654,7 @@ dependencies = [
  "translunar-asset-core",
  "translunar-domain",
  "translunar-filter-core",
+ "translunar-lifecycle-core",
  "translunar-pipeline",
  "translunar-qa-core",
 ]
@@ -2686,6 +2700,7 @@ dependencies = [
  "translunar-editor-core",
  "translunar-filter-core",
  "translunar-filter-docx",
+ "translunar-lifecycle-core",
  "translunar-pipeline",
  "translunar-qa-core",
 ]

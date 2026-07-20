@@ -40,6 +40,12 @@ pub struct ProjectConfiguration {
     pub pipeline_id: Option<String>,
     #[serde(default)]
     pub engine_allowlist: Vec<String>,
+    #[serde(default)]
+    pub ai_profile_ids: Vec<String>,
+    #[serde(default)]
+    pub analysis_profile_id: Option<String>,
+    #[serde(default)]
+    pub editor_defaults: Option<EditorPreferences>,
     #[serde(default = "default_review_required")]
     pub review_required: bool,
 }
@@ -51,6 +57,9 @@ impl Default for ProjectConfiguration {
             qa_profile_id: None,
             pipeline_id: None,
             engine_allowlist: Vec::new(),
+            ai_profile_ids: Vec::new(),
+            analysis_profile_id: None,
+            editor_defaults: None,
             review_required: true,
         }
     }
