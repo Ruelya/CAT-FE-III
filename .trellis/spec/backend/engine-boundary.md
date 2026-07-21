@@ -987,6 +987,19 @@ recycle entries, archive records, analysis snapshots, and search projections.
   analysis and weighted effort are snapshots with explicit stale state and
   deterministic integer weights. Missing historical instrumentation is null,
   never fabricated as zero.
+- The global-search FTS projection retains both active and recycled project,
+  document, and segment rows. `includeRecycled` is enforced by the query, not
+  by deleting trash rows during projection rebuild; otherwise an admin search
+  cannot recover recycled content after restart or another rebuild.
+- `project.get`, `document.list`, project counts, and analytics expose active
+  documents only. Recycled document relative paths still reserve collision
+  keys for batch import until restore or purge, so a hidden document cannot be
+  shadowed by a second import at the same project-relative path.
+- A permanent document/project purge deletes dependent segment rows inside the
+  same immediate transaction before the document cascade reaches version rows
+  protected by restrictive foreign keys.
+- ZIP entry read failures and malformed archive manifest/project JSON map to
+  `invalid_request`. Restore staging is discarded and SQLite remains unchanged.
 
 ### 4. Validation & Error Matrix
 
@@ -995,7 +1008,10 @@ recycle entries, archive records, analysis snapshots, and search projections.
 | Traversal, collision, unsupported batch item | Per-file diagnostic; no silent drop |
 | Stale re-import preview or mutable project revision | `conflict`; no partial write |
 | Invalid archive schema/hash/limit/dependency | typed invalid request; workspace unchanged |
+| Truncated ZIP entry or malformed manifest/project JSON | `invalid_request`; workspace unchanged |
 | Search/recycle/analytics references purged item | Exclude from normal result; admin history remains bounded |
+| Recycled document/project | Exclude from snapshots, counts, and normal search; include when explicitly requested; reserve relative paths |
+| Purge a document with current/superseded versions | Delete dependent segments then cascade in one transaction; no FK failure |
 | Analysis source/config revision changed | `stale: true`; caller must rerun |
 
 ### 5. Good / Base / Bad Cases
@@ -1014,8 +1030,12 @@ recycle entries, archive records, analysis snapshots, and search projections.
 - Storage tests cover migration 10 fresh/upgrade/rollback/reopen, template
   revisions, stale previews, recycle/purge, search reconciliation, snapshots,
   and archive transaction rollback.
+- Storage regressions recycle and restore a searchable document, prove
+  `includeRecycled` survives projection rebuild/restart, verify active-only
+  project/document projections, and purge versioned documents and projects.
 - Engine/stdio tests cover batch import, both re-import directions, archive
-  restore validation, restart, search exclusion, and analytics null history.
+  restore validation (including malformed JSON/ZIP), no-clobber, restart,
+  search exclusion/inclusion, and analytics null history.
 - Electron E2E uses the real Engine for wizard/drop, template, search,
   re-import preview, recycle/archive actions, analytics, three viewports, and
   no console/page errors.
@@ -1038,4 +1058,19 @@ await invoke("document.reimport.apply", {
   previewId,
   expectedRevision: document.revision,
 });
+```
+
+#### Wrong
+
+```rust
+// Rebuilding only active rows makes includeRecycled permanently empty.
+SELECT id FROM projects WHERE lifecycle != 'trash';
+```
+
+#### Correct
+
+```rust
+// Rebuild the complete projection; normal/admin visibility is query policy.
+SELECT id FROM projects ORDER BY id;
+// search_global adds lifecycle predicates unless include_recycled is true.
 ```

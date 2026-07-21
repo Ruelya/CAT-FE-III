@@ -143,7 +143,7 @@ interface InitialWorkspace {
 
 interface WorkbenchProps {
   initialWorkspace: InitialWorkspace;
-  onStartAnotherProject(): void;
+  onReturnHome(): void;
   onNavigate(surface: AppSurface): Promise<void>;
   focusSegmentId: string | null;
 }
@@ -174,7 +174,7 @@ interface WorkbenchPreferences {
 
 export function Workbench({
   initialWorkspace,
-  onStartAnotherProject,
+  onReturnHome,
   onNavigate,
   focusSegmentId,
 }: WorkbenchProps) {
@@ -877,12 +877,12 @@ export function Workbench({
     }
   };
 
-  const startAnotherProject = async () => {
+  const returnHome = async () => {
     setActionBusy("navigate");
     setToast(null);
     try {
       await persistAllSegments();
-      onStartAnotherProject();
+      onReturnHome();
     } catch (error) {
       setToast(formatError(error));
     } finally {
@@ -1832,9 +1832,17 @@ export function Workbench({
                 <button
                   type="button"
                   disabled={actionBusy !== null}
-                  onClick={() => void startAnotherProject()}
+                  onClick={() => void navigateToSurface("project-insights")}
                 >
-                  New project
+                  Project insights
+                </button>
+                <hr />
+                <button
+                  type="button"
+                  disabled={actionBusy !== null}
+                  onClick={() => void returnHome()}
+                >
+                  Projects
                 </button>
               </nav>
             ) : null}

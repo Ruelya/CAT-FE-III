@@ -3,4 +3,5 @@ export type AppSurface =
   | "qa-review"
   | "export-review"
   | "translation-memory"
-  | "ai-control";
+  | "ai-control"
+  | "project-insights";

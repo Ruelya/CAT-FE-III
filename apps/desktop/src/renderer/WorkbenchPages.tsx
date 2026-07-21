@@ -18,6 +18,7 @@ import { BrandMark } from "./BrandMark";
 import { AiControlPage } from "./AiControlPage";
 import { ExportReviewPage as ComprehensiveExportReviewPage } from "./ExportReviewPage";
 import { QaReviewPage as ComprehensiveQaReviewPage } from "./QaReviewPage";
+import { ProjectInsightsPage } from "./ProjectInsightsPage";
 import { formatError } from "./workbench-utils";
 import type { AppSurface } from "./surface-types";
 
@@ -30,6 +31,8 @@ export interface WorkspacePageProps {
   onNavigate(surface: AppSurface): void;
   onRefresh(): Promise<void>;
   onOpenSegment(segmentId: string): void;
+  onOpenDocument(documentId: string): Promise<void>;
+  onReturnHome(): void;
 }
 
 export function WorkspacePage(props: WorkspacePageProps) {
@@ -54,6 +57,15 @@ export function WorkspacePage(props: WorkspacePageProps) {
         <TranslationMemoryPage {...props} />
       ) : null}
       {surface === "ai-control" ? <AiControlPage {...props} /> : null}
+      {surface === "project-insights" ? (
+        <ProjectInsightsPage
+          snapshot={props.snapshot}
+          document={props.document}
+          onRefresh={props.onRefresh}
+          onOpenDocument={props.onOpenDocument}
+          onReturnHome={props.onReturnHome}
+        />
+      ) : null}
     </div>
   );
 }
@@ -63,6 +75,7 @@ function SurfaceHeader({
   snapshot,
   document,
   onNavigate,
+  onReturnHome,
 }: WorkspacePageProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const pageTitle =
@@ -72,7 +85,9 @@ function SurfaceHeader({
         ? "Export review"
         : surface === "translation-memory"
           ? "Translation memory"
-          : "AI control";
+          : surface === "ai-control"
+            ? "AI control"
+            : "Project insights";
   return (
     <header className="app-bar surface-header">
       <button
@@ -147,6 +162,20 @@ function SurfaceHeader({
                 onClick={() => onNavigate("ai-control")}
               >
                 AI control
+              </button>
+              <button
+                type="button"
+                disabled={surface === "project-insights"}
+                aria-current={
+                  surface === "project-insights" ? "page" : undefined
+                }
+                onClick={() => onNavigate("project-insights")}
+              >
+                Project insights
+              </button>
+              <hr />
+              <button type="button" onClick={onReturnHome}>
+                Projects
               </button>
             </nav>
           ) : null}

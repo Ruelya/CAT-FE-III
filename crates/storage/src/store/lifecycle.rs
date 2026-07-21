@@ -1742,9 +1742,22 @@ impl Store {
         ensure_active_recycle_entry(&entry)?;
         match entry.entity_type.as_str() {
             "project" => {
+                // Segments RESTRICT-delete their document version. Remove them
+                // before the project cascade reaches documents and versions.
+                transaction.execute(
+                    "DELETE FROM segments
+                     WHERE document_id IN (
+                         SELECT id FROM documents WHERE project_id = ?1
+                     )",
+                    [&entry.entity_id],
+                )?;
                 transaction.execute("DELETE FROM projects WHERE id = ?1", [&entry.entity_id])?;
             }
             "document" => {
+                transaction.execute(
+                    "DELETE FROM segments WHERE document_id = ?1",
+                    [&entry.entity_id],
+                )?;
                 transaction.execute("DELETE FROM documents WHERE id = ?1", [&entry.entity_id])?;
                 transaction.execute(
                     "UPDATE recycle_entries SET purged_at_ms = ?1, actor = ?2, reason = ?3
@@ -1770,8 +1783,7 @@ impl Store {
             rebuild_project_search(&transaction, project_id)?;
         } else {
             transaction.execute("DELETE FROM global_search_entries", [])?;
-            let mut statement = transaction
-                .prepare("SELECT id FROM projects WHERE lifecycle != 'trash' ORDER BY id")?;
+            let mut statement = transaction.prepare("SELECT id FROM projects ORDER BY id")?;
             let project_ids = statement
                 .query_map([], |row| row.get::<_, String>(0))?
                 .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -2916,7 +2928,7 @@ fn rebuild_project_search(transaction: &Transaction<'_>, project_id: &str) -> Re
             project_id, project_name, field, locale, content, updated_at_ms
          )
          SELECT id, name, 'project', source_locale, name, updated_at_ms
-         FROM projects WHERE id = ?1 AND lifecycle != 'trash'",
+         FROM projects WHERE id = ?1",
         [project_id],
     )?;
     transaction.execute(
@@ -2927,7 +2939,7 @@ fn rebuild_project_search(transaction: &Transaction<'_>, project_id: &str) -> Re
          SELECT p.id, p.name, d.id, d.name, 'document', p.source_locale,
                 d.name || ' ' || d.relative_path, d.updated_at_ms
          FROM projects p JOIN documents d ON d.project_id = p.id
-         WHERE p.id = ?1 AND p.lifecycle != 'trash' AND d.lifecycle = 'active'",
+         WHERE p.id = ?1",
         [project_id],
     )?;
     transaction.execute(
@@ -2942,7 +2954,7 @@ fn rebuild_project_search(transaction: &Transaction<'_>, project_id: &str) -> Re
          JOIN documents d ON d.project_id = p.id
          JOIN segments s ON s.document_id = d.id
          LEFT JOIN segment_editor_meta m ON m.segment_id = s.id
-         WHERE p.id = ?1 AND p.lifecycle != 'trash' AND d.lifecycle = 'active'",
+         WHERE p.id = ?1",
         [project_id],
     )?;
     transaction.execute(
@@ -2957,8 +2969,7 @@ fn rebuild_project_search(transaction: &Transaction<'_>, project_id: &str) -> Re
          JOIN documents d ON d.project_id = p.id
          JOIN segments s ON s.document_id = d.id
          LEFT JOIN segment_editor_meta m ON m.segment_id = s.id
-         WHERE p.id = ?1 AND p.lifecycle != 'trash' AND d.lifecycle = 'active'
-           AND s.target_text != ''",
+         WHERE p.id = ?1 AND s.target_text != ''",
         [project_id],
     )?;
     transaction.execute(
@@ -2974,7 +2985,7 @@ fn rebuild_project_search(transaction: &Transaction<'_>, project_id: &str) -> Re
          JOIN segments s ON s.document_id = d.id
          JOIN segment_comments c ON c.segment_id = s.id
          LEFT JOIN segment_editor_meta m ON m.segment_id = s.id
-         WHERE p.id = ?1 AND p.lifecycle != 'trash' AND d.lifecycle = 'active'",
+         WHERE p.id = ?1",
         [project_id],
     )?;
     transaction.execute(
@@ -2990,7 +3001,7 @@ fn rebuild_project_search(transaction: &Transaction<'_>, project_id: &str) -> Re
          JOIN segments s ON s.document_id = d.id
          JOIN segment_notes n ON n.segment_id = s.id
          LEFT JOIN segment_editor_meta m ON m.segment_id = s.id
-         WHERE p.id = ?1 AND p.lifecycle != 'trash' AND d.lifecycle = 'active'",
+         WHERE p.id = ?1",
         [project_id],
     )?;
     Ok(())
@@ -4308,7 +4319,37 @@ mod tests {
                 None,
             )
             .expect("recycle document");
+        let recycled_project = store
+            .get_project(&project.id)
+            .expect("read project after recycle");
+        assert!(recycled_project.documents.is_empty());
+        assert_eq!(recycled_project.counts.total, 0);
+        assert_eq!(
+            store
+                .list_documents(&project.id, 0, 20)
+                .expect("list active documents after recycle")
+                .1,
+            0
+        );
+        assert_eq!(
+            store
+                .list_all_document_relative_paths(&project.id)
+                .expect("list all relative paths after recycle"),
+            vec!["docs/guide.txt"]
+        );
         assert_eq!(store.search_global(&query).expect("search recycled").1, 0);
+        let recycled_query = GlobalSearchQuery {
+            include_recycled: true,
+            ..query.clone()
+        };
+        let (recycled_hits, recycled_total) = store
+            .search_global(&recycled_query)
+            .expect("search including recycled");
+        assert_eq!(recycled_total, 1);
+        assert_eq!(
+            recycled_hits[0].document_id.as_deref(),
+            Some(document.id.as_str())
+        );
         store
             .restore_recycle_entry(&entry.id, "tester")
             .expect("restore document");
@@ -4323,6 +4364,111 @@ mod tests {
                 .summary
                 .segments,
             2
+        );
+    }
+
+    #[test]
+    fn purge_removes_versioned_documents_and_projects() {
+        let (_temp, mut store) = create_store();
+        let project = store
+            .create_project("Purge", "en-US", "zh-CN", "general")
+            .expect("create project");
+        let first_source = store.paths().managed_source("purge-document", "txt");
+        std::fs::write(&first_source, "First versioned source").expect("write first source");
+        let first_document = store
+            .insert_document(
+                &NewDocument {
+                    id: "purge-document".to_string(),
+                    project_id: project.id.clone(),
+                    name: "first.txt".to_string(),
+                    relative_path: "first.txt".to_string(),
+                    format: "txt".to_string(),
+                    filter_id: "builtin.txt".to_string(),
+                    source_sha256: "first-digest".to_string(),
+                    degradation: Vec::new(),
+                    original_source_path: first_source.clone(),
+                    managed_source_path: first_source,
+                },
+                &[ImportedUnit::plain(0, "p/1", "First versioned source")],
+            )
+            .expect("insert first document");
+        let document_entry = store
+            .recycle_entity(
+                "document",
+                &first_document.id,
+                first_document.revision,
+                "tester",
+                "remove document",
+                None,
+            )
+            .expect("recycle document");
+        store
+            .purge_recycle_entry(&document_entry.id, "tester", "purge document")
+            .expect("purge versioned document");
+        assert!(matches!(
+            store.get_document(&first_document.id),
+            Err(StorageError::NotFound {
+                entity: "document",
+                ..
+            })
+        ));
+        assert_eq!(
+            store
+                .list_recycle_entries(0, 20)
+                .expect("list after document purge")
+                .1,
+            0
+        );
+
+        let second_source = store.paths().managed_source("purge-project", "txt");
+        std::fs::write(&second_source, "Project versioned source").expect("write second source");
+        store
+            .insert_document(
+                &NewDocument {
+                    id: "purge-project".to_string(),
+                    project_id: project.id.clone(),
+                    name: "second.txt".to_string(),
+                    relative_path: "second.txt".to_string(),
+                    format: "txt".to_string(),
+                    filter_id: "builtin.txt".to_string(),
+                    source_sha256: "second-digest".to_string(),
+                    degradation: Vec::new(),
+                    original_source_path: second_source.clone(),
+                    managed_source_path: second_source,
+                },
+                &[ImportedUnit::plain(0, "p/1", "Project versioned source")],
+            )
+            .expect("insert second document");
+        let current_project = store
+            .get_project(&project.id)
+            .expect("read current project")
+            .project;
+        let project_entry = store
+            .recycle_entity(
+                "project",
+                &current_project.id,
+                current_project.revision,
+                "tester",
+                "remove project",
+                None,
+            )
+            .expect("recycle project");
+        store
+            .purge_recycle_entry(&project_entry.id, "tester", "purge project")
+            .expect("purge project with versioned document");
+        assert!(matches!(
+            store.get_project(&project.id),
+            Err(StorageError::NotFound {
+                entity: "project",
+                ..
+            })
+        ));
+        assert_eq!(
+            store
+                .list_recycle_entries(0, 20)
+                .expect("list after project purge")
+                .1,
+            0
         );
     }
 

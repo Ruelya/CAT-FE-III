@@ -18,9 +18,17 @@ export interface DesktopApi {
     method: Method,
     params: EngineParams<Method>,
   ): Promise<EngineResult<Method>>;
-  selectSourceDocx(): Promise<string | null>;
+  selectSourceDocument(): Promise<string | null>;
+  selectSourceDocuments(): Promise<string[]>;
+  selectSourceFolder(): Promise<string | null>;
+  selectProjectArchive(): Promise<string | null>;
+  selectProjectArchiveDestination(
+    suggestedName: string,
+  ): Promise<string | null>;
   selectExportPath(suggestedName: string): Promise<string | null>;
+  resolveDroppedPaths(files: readonly File[]): string[];
   restartEngine(): Promise<void>;
+  setAiCredential(profileId: string, secret: string): Promise<void>;
 }
 ```
 
@@ -231,6 +239,188 @@ the returned `items`/`matches` pages and surface typed `not_found`, `conflict`,
 and row-diagnostic `invalid_request` errors without reading SQLite or local
 exchange files from React.
 
+## Project Lifecycle Desktop Surface
+
+### 1. Scope / Trigger
+
+Use this contract for the project home, three-step setup wizard, project
+insights page, template editor, global search, archive/recycle actions, source
+re-import, and project-level analysis/analytics. The renderer orchestrates
+these surfaces; the Engine remains authoritative for project identity,
+documents, revisions, diagnostics, search visibility, archive validity, and
+metrics.
+
+### 2. Signatures
+
+The renderer calls generated `DesktopApi.invoke` methods for
+`project.list/get/create/update`, `project.batchImport`, `project.template.*`,
+`document.list`, `document.reimport.preview/apply`, `search.global`,
+`recycle.*`, `history.list`, `analysis.profile.list`, `analysis.run/get`,
+`project.analytics.get`, and `project.archive.export/restore`.
+
+The trusted bridge owns the file boundaries:
+
+```typescript
+selectSourceDocument(): Promise<string | null>;
+selectSourceDocuments(): Promise<string[]>;
+selectSourceFolder(): Promise<string | null>;
+selectProjectArchive(): Promise<string | null>;
+selectProjectArchiveDestination(
+  suggestedName: string,
+): Promise<string | null>;
+resolveDroppedPaths(files: readonly File[]): string[];
+```
+
+Project navigation uses an explicit selection contract:
+`onOpen(projectId, documentId?, segmentId?, segmentOrdinal?)`. The parent loads
+the project/document and persists the session selection; a segment ordinal is
+only a bounded page hint and never a renderer-derived document position.
+Project Home requests `project.list` with a bounded `offset`/`limit` and must
+render deterministic previous/next controls when `total` exceeds the page.
+
+### 3. Contracts
+
+- With no valid stored session, `App` renders Project Home first. A valid
+  session restores the Engine-backed workspace; a missing/recycled project,
+  malformed JSON, or an incomplete session shape removes the session key and
+  returns to Home before any editor projection is requested.
+- Leaving `Workbench` for Home awaits its shared `persistAllSegments` path
+  before clearing the session. Leaving for Insights already occurs through
+  the same save-before-navigation boundary. A failed flush keeps the current
+  workspace mounted and displays the typed error.
+- Project Home lists bounded Engine `project.list`/`project.get` projections.
+  `document.list`, analytics, and counts are rendered as returned; React does
+  not estimate progress, effort, retention, or history. Search pages through
+  Engine offsets and sends the projection field identifiers exactly as
+  `source`, `target`, `project`, `document`, `comment`, and `note`; UI labels
+  must not invent aliases such as `project_name`. Snippets are rendered by
+  parsing only balanced `<mark>` pairs into text and `<mark>` nodes, never
+  `dangerouslySetInnerHTML`.
+- Template editing starts from a recursive clone of the complete safe
+  definition. The clone preserves unrendered safe fields such as `pipelineId`,
+  QA/TM/termbase references, editor defaults, and future extensions while
+  dropping credential/secret keys and private source payloads at every nested
+  level. Visible fields overlay that sanitized clone on save; credentials and
+  private source content are never displayed or serialized by the renderer.
+- Setup has explicit `template`, `required`, and `optional` review-policy
+  states. A blank template/analysis override inherits the Engine-resolved
+  template value (then the standard analysis profile); selecting a template
+  clears stale explicit overrides. Dependency diagnostics remain visible in
+  Setup until the user explicitly chooses `Open workspace`; they must not be
+  hidden by automatic navigation. Mixed batch diagnostics keep every result,
+  including successful documents that can be opened after partial failure.
+- Archive publication obtains its destination through
+  `selectProjectArchiveDestination`; the renderer never writes files and must
+  not reuse a document-export filter. Restore uses the open-archive dialog and
+  refreshes the Home list only after the Engine response succeeds.
+- Recycle, restore, purge, archive, and re-import confirmations use an
+  accessible in-app dialog. The dialog stays mounted, disables duplicate
+  actions, and retains the action/error state until the awaited RPC resolves;
+  no browser-native `confirm` is used. Re-import apply sends the preview ID
+  and expected document revision returned by the preview, then reloads the
+  authoritative workspace projections.
+- Insights displays Engine-provided stale analysis and unavailable optional
+  history/asset metrics as explicit states. It never turns missing history
+  into zero and never introduces billing, rate, currency, quote, or invoice
+  copy.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| No stored session or invalid/recycled session | Show Home; remove only the invalid session key |
+| Malformed session JSON/shape or a `trash` project snapshot | Remove the session key and do not request editor rows |
+| Pending Workbench save rejects while leaving | Keep Workbench mounted; show the typed save error; do not clear selection |
+| Canceled source/archive dialog | Keep the current surface; make no create/import/export/restore RPC |
+| Mixed batch result | Render every diagnostic and retain successful document IDs for explicit opening |
+| Template dependency diagnostics | Keep Setup visible with diagnostics and an explicit `Open workspace` action |
+| Template edit | Preserve all unrendered safe definition keys; never send credentials/source content |
+| Search snippet contains unbalanced or markup-like text | Render it as text; only balanced Engine `<mark>` pairs become highlights |
+| Search field filter selected | Send the Engine projection value (`project`, `document`, `note`, etc.), not the display label |
+| Project `total` exceeds the page limit | Show deterministic offset paging; never silently hide later projects |
+| Re-import preview is stale or apply conflicts | Keep the preview/current workspace; show the typed conflict; make no optimistic mutation |
+| Destructive RPC pending or failing | Keep confirmation dialog mounted and busy/error state visible; close only after success or cancel |
+| Archive destination exists or archive is malformed | Surface Engine error; leave destination/workspace unchanged; refresh Home only on success |
+| Analysis/history metric unavailable or stale | Display `Unavailable`/stale state from the payload, never a fabricated zero |
+
+### 5. Good / Base / Bad Cases
+
+- Good: start at Home, create a multi-file project, inspect mixed diagnostics,
+  explicitly open a successful document, search a highlighted segment, return
+  Home after a flushed edit, and reopen the same project after restart.
+- Good: edit a template containing hidden pipeline/TM fields, save a visible
+  locale change, and verify the hidden fields remain in the next revision.
+- Good: reopen with malformed and recycled session keys, then page a project
+  list past its first bounded page and filter project/document names.
+- Base: cancel a file/archive dialog or receive unavailable historical data;
+  the current view remains usable and the state is labeled rather than guessed.
+- Bad: navigate away before flushing a draft, auto-dismiss dependency
+  diagnostics, rebuild a template from only visible controls, parse snippets as
+  HTML, write an archive from React, or close a destructive dialog before the
+  RPC settles.
+
+### 6. Tests Required
+
+- Unit tests cover balanced/unbalanced search-snippet parsing, stored-session
+  parsing, and recursive safe template definition cloning/field preservation,
+  including nested extension fields and credential/source exclusion.
+- Engine/storage tests cover active-only projections, recycled-path
+  collisions, purge of versioned documents/projects, malformed archive
+  rollback, stale re-import, and analytics unavailable/stale values.
+- Real stdio smoke covers template creation/use, multi-file import, both search
+  directions, re-import preview/apply, analysis, recycle/restore,
+  archive/restore, malformed/no-clobber paths, and process restart.
+- Real-Engine Electron E2E covers Home, wizard, dependency diagnostics,
+  template CRUD, search/direct segment navigation, re-import, recycle/restore,
+  archive export/restore, analytics, and configuration assertions. It fails on
+  console/page errors or horizontal overflow and captures 1250x744, 1680x942,
+  and 1920x1080 screenshots.
+- The Node 22 quality chain runs format, lint, typecheck, unit/Rust tests,
+  contracts, desktop production build, Engine smoke, and the focused/full
+  Electron suites. Node 24 results are development feedback only.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+// Drops safe fields, reserializes sensitive keys, and unmounts the action while
+// the RPC is pending.
+const definition = { sourceLocale, targetLocale };
+setPendingAction(null);
+void invoke("project.template.update", { definition });
+```
+
+```tsx
+// Hides dependency diagnostics and lets the renderer publish an archive.
+useEffect(() => openWorkspace(createdProject), [createdProject]);
+await window.require("fs").writeFile(destination, bytes);
+```
+
+#### Correct
+
+```tsx
+const definition = {
+  ...cloneTemplateDefinition(template.definition),
+  sourceLocale,
+  targetLocale,
+};
+await invoke("project.template.update", {
+  templateId: template.id,
+  expectedRevision: template.revision,
+  definition,
+});
+// Keep the dialog mounted until the awaited call succeeds.
+```
+
+```tsx
+setDependencyDiagnostics(result.diagnostics);
+// The user explicitly chooses this after reviewing diagnostics.
+<button onClick={() => void onCreated(projectId, documentId)}>
+  Open workspace
+</button>;
+```
+
 ## PDF Review Surface
 
 ### 1. Scope / Trigger
@@ -414,7 +604,7 @@ methods. The only secret-bearing desktop signature is private to the trusted
 bridge:
 
 ```ts
-setAiCredential(profileId: string, secret: string): Promise<AiCredentialStatus>;
+setAiCredential(profileId: string, secret: string): Promise<void>;
 ```
 
 ### 3. Contracts

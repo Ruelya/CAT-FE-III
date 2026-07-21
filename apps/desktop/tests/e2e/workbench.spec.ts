@@ -1,5 +1,6 @@
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   statSync,
@@ -15,7 +16,11 @@ import {
   expect,
   test,
   type Page,
+  type TestInfo,
 } from "@playwright/test";
+import type { Project, ProjectTemplate } from "@translunar/contracts";
+
+import type { DesktopApi } from "../../src/shared/desktop-api.js";
 
 type ElectronApplication = Awaited<ReturnType<typeof electron.launch>>;
 
@@ -24,12 +29,20 @@ interface ElectronHarness {
   page: Page;
   dataDirectory: string;
   exportPath: string;
+  archivePath: string;
   consoleErrors: string[];
+}
+
+interface HarnessOptions {
+  source?: string;
+  sourceFiles?: string[];
+  sourceFolder?: string;
+  replacementSource?: string;
 }
 
 async function launchHarness(
   label: string,
-  sourceOverride?: string,
+  sourceOverride?: string | HarnessOptions,
 ): Promise<ElectronHarness> {
   const desktopRoot = process.cwd();
   const workspaceRoot = resolve(desktopRoot, "..", "..");
@@ -37,8 +50,12 @@ async function launchHarness(
     join(tmpdir(), `translunar-desktop-${label}-`),
   );
   const exportPath = join(dataDirectory, "translated.docx");
+  const options: HarnessOptions =
+    typeof sourceOverride === "string"
+      ? { source: sourceOverride }
+      : (sourceOverride ?? {});
   const fixture =
-    sourceOverride ?? join(workspaceRoot, "fixtures", "docx", "m0-source.docx");
+    options.source ?? join(workspaceRoot, "fixtures", "docx", "m0-source.docx");
   const engine =
     process.env.TRANSLUNAR_ENGINE_PATH ??
     join(
@@ -50,6 +67,8 @@ async function launchHarness(
         : "translunar-engine",
     );
   const consoleErrors: string[] = [];
+  const archivePath = join(dataDirectory, "project-archive.tlcat");
+  const sourceDelimiter = process.platform === "win32" ? ";" : ":";
   const application = await electron.launch({
     args: [
       "--no-sandbox",
@@ -64,7 +83,15 @@ async function launchHarness(
       TRANSLUNAR_ENGINE_PATH: engine,
       TRANSLUNAR_TEST_EXPORT_DOCX: exportPath,
       TRANSLUNAR_TEST_EXPORT_DIRECTORY: dataDirectory,
-      TRANSLUNAR_TEST_SOURCE: fixture,
+      TRANSLUNAR_TEST_SOURCE: options.replacementSource ?? fixture,
+      TRANSLUNAR_TEST_SOURCE_FILES: (options.sourceFiles ?? [fixture]).join(
+        sourceDelimiter,
+      ),
+      ...(options.sourceFolder
+        ? { TRANSLUNAR_TEST_SOURCE_FOLDER: options.sourceFolder }
+        : {}),
+      TRANSLUNAR_TEST_PROJECT_ARCHIVE: archivePath,
+      TRANSLUNAR_TEST_PROJECT_ARCHIVE_DESTINATION: archivePath,
       TRANSLUNAR_AI_TEST_MODE: "1",
       TRANSLUNAR_AI_TEST_CREDENTIAL: "desktop-ai-secret",
     },
@@ -79,6 +106,7 @@ async function launchHarness(
     page,
     dataDirectory,
     exportPath,
+    archivePath,
     consoleErrors,
   };
 }
@@ -88,14 +116,25 @@ async function closeHarness(harness: ElectronHarness): Promise<void> {
   await rm(harness.dataDirectory, { recursive: true, force: true });
 }
 
-async function importFixture(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "Choose file" }).click();
-  await expect(page.getByText("m0-source.docx")).toBeVisible();
-  await page.getByRole("button", { name: "Create and import" }).click();
+async function importFixture(
+  page: Page,
+  expectedName = "m0-source.docx",
+  timeout = 10_000,
+): Promise<void> {
+  await expect(
+    page.getByRole("heading", { name: "Continue translating" }),
+  ).toBeVisible({ timeout });
+  await page.getByRole("button", { name: "New project" }).first().click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Add files" }).click();
+  await expect(page.getByText(expectedName, { exact: true })).toBeVisible({
+    timeout,
+  });
+  await page.getByRole("button", { name: "Create project" }).click();
   await expect(
     page.getByRole("region", { name: "Translation segments" }),
-  ).toBeVisible();
-  await expect(page.locator(".segment-row")).toHaveCount(3);
+  ).toBeVisible({ timeout });
 }
 
 async function resizeWindow(
@@ -123,6 +162,81 @@ async function openApplicationMenu(page: Page): Promise<void> {
   await expect(
     page.getByRole("navigation", { name: "Application views" }),
   ).toBeVisible();
+}
+
+async function dropLocalFiles(
+  page: Page,
+  dropzoneSelector: string,
+  paths: string[],
+): Promise<void> {
+  const inputSelector = 'input[data-e2e-drop-source="true"]';
+  await page.evaluate(() => {
+    document.querySelector('input[data-e2e-drop-source="true"]')?.remove();
+    const input = document.createElement("input");
+    input.type = "file";
+    input.multiple = true;
+    input.dataset.e2eDropSource = "true";
+    input.style.position = "fixed";
+    input.style.inset = "0 auto auto 0";
+    input.style.opacity = "0";
+    input.style.pointerEvents = "none";
+    document.body.append(input);
+  });
+  await page.locator(inputSelector).setInputFiles(paths);
+  await page.evaluate(
+    ({ inputSelector, dropzoneSelector }) => {
+      const input = document.querySelector<HTMLInputElement>(inputSelector);
+      const dropzone = document.querySelector<HTMLElement>(dropzoneSelector);
+      if (!input?.files || !dropzone) {
+        throw new Error("E2E drop source or destination was not mounted.");
+      }
+      const dataTransfer = new DataTransfer();
+      for (const file of input.files) dataTransfer.items.add(file);
+      for (const type of ["dragenter", "dragover", "drop"] as const) {
+        dropzone.dispatchEvent(
+          new DragEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            dataTransfer,
+          }),
+        );
+      }
+      input.remove();
+    },
+    { inputSelector, dropzoneSelector },
+  );
+}
+
+async function captureResponsiveSurface(
+  harness: ElectronHarness,
+  testInfo: TestInfo,
+  label: string,
+): Promise<void> {
+  for (const viewport of [
+    { width: 1250, height: 744 },
+    { width: 1680, height: 942 },
+    { width: 1920, height: 1080 },
+  ]) {
+    await resizeWindow(harness.application, viewport.width, viewport.height);
+    await harness.page.waitForTimeout(120);
+    const overflow = await harness.page.evaluate(() => ({
+      body: document.body.scrollWidth - document.body.clientWidth,
+      html:
+        document.documentElement.scrollWidth -
+        document.documentElement.clientWidth,
+      root:
+        (document.querySelector<HTMLElement>("#root")?.scrollWidth ?? 0) -
+        (document.querySelector<HTMLElement>("#root")?.clientWidth ?? 0),
+    }));
+    expect(overflow.body).toBeLessThanOrEqual(1);
+    expect(overflow.html).toBeLessThanOrEqual(1);
+    expect(overflow.root).toBeLessThanOrEqual(1);
+    await harness.page.screenshot({
+      path: testInfo.outputPath(
+        `${label}-${viewport.width}x${viewport.height}.png`,
+      ),
+    });
+  }
 }
 
 interface AiFixture {
@@ -672,8 +786,10 @@ test("uses the authoritative professional editor commands", async () => {
 
   try {
     await importFixture(page);
-    const firstRow = page.locator(".segment-row").first();
-    const firstTarget = firstRow.locator("textarea");
+    const firstRow = page
+      .locator(".segment-row")
+      .filter({ has: page.getByLabel("Target segment 1") });
+    const firstTarget = firstRow.getByLabel("Target segment 1");
     await expect(firstRow.locator(".tag-capsule.source-tag")).toHaveCount(4);
     await expect(firstRow.locator(".tag-issue")).toHaveCount(0);
 
@@ -717,6 +833,7 @@ test("uses the authoritative professional editor commands", async () => {
     ).toHaveCount(4);
     await page.getByRole("button", { name: "Confirm", exact: true }).click();
     await expect(firstRow).toContainText("Issues");
+    await expect(firstTarget).toHaveValue("保留期为 30 天。");
 
     await firstTarget.fill("保留期为");
     await expect(
@@ -878,6 +995,479 @@ test("uses the authoritative professional editor commands", async () => {
   }
 });
 
+test("pages the bounded project home list", async ({ browserName }) => {
+  expect(browserName).toBe("chromium");
+  test.setTimeout(60_000);
+  const harness = await launchHarness("project-pagination");
+  const { page, consoleErrors } = harness;
+
+  try {
+    await expect(
+      page.getByRole("heading", { name: "Continue translating" }),
+    ).toBeVisible();
+    await page.evaluate(async () => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      for (let index = 0; index < 51; index += 1) {
+        await api.invoke("project.create", {
+          name: `Pagination project ${String(index).padStart(2, "0")}`,
+          sourceLocale: "en-US",
+          targetLocale: "zh-CN",
+          domain: "Pagination",
+        });
+      }
+    });
+    await page.getByRole("button", { name: "Refresh project data" }).click();
+    await expect(page.locator(".project-card")).toHaveCount(50);
+    const pagination = page.getByLabel("Project pages");
+    await expect(pagination).toContainText("1-50 of 51");
+    await pagination.getByRole("button", { name: "Next" }).click();
+    await expect(page.locator(".project-card")).toHaveCount(1);
+    await expect(pagination).toContainText("51-51 of 51");
+    expect(consoleErrors).toEqual([]);
+  } finally {
+    await closeHarness(harness);
+  }
+});
+
+test("manages the complete project lifecycle through the real Engine", async ({
+  browserName,
+}, testInfo) => {
+  expect(browserName).toBe("chromium");
+  test.setTimeout(120_000);
+  const fixtureDirectory = mkdtempSync(join(tmpdir(), "translunar-lifecycle-"));
+  const sourceDirectory = join(fixtureDirectory, "initial");
+  const addDirectory = join(fixtureDirectory, "additional");
+  mkdirSync(sourceDirectory, { recursive: true });
+  mkdirSync(addDirectory, { recursive: true });
+  const sourceA = join(sourceDirectory, "alpha.txt");
+  const sourceB = join(sourceDirectory, "beta.txt");
+  const sourceC = join(addDirectory, "gamma.txt");
+  const sourceD = join(fixtureDirectory, "delta.txt");
+  const replacement = join(fixtureDirectory, "alpha-revised.txt");
+  writeFileSync(
+    sourceA,
+    "Stable lifecycle sentence.\n\nChanged lifecycle sentence.\n\nSearchable source note.",
+    "utf8",
+  );
+  writeFileSync(
+    sourceB,
+    "Second project file.\n\nAnother source segment.",
+    "utf8",
+  );
+  writeFileSync(sourceC, "Added from folder.\n\nFolder detail.", "utf8");
+  writeFileSync(sourceD, "Added by a real file drop.\n\nDrop detail.", "utf8");
+  writeFileSync(
+    replacement,
+    "Stable lifecycle sentence.\n\nRevised lifecycle sentence.\n\nNew lifecycle sentence.",
+    "utf8",
+  );
+  const harness = await launchHarness("lifecycle", {
+    source: sourceA,
+    sourceFiles: [sourceA, sourceB],
+    sourceFolder: addDirectory,
+    replacementSource: replacement,
+  });
+  const { page, archivePath, consoleErrors } = harness;
+  const projectName = "Lifecycle desktop project";
+  const templateName = "Lifecycle UI template";
+
+  try {
+    await expect(
+      page.getByRole("heading", { name: "Continue translating" }),
+    ).toBeVisible();
+    await page.evaluate(() => {
+      localStorage.setItem("translunar.active-workspace.v1", "{malformed");
+    });
+    await page.reload();
+    await expect(
+      page.getByRole("heading", { name: "Continue translating" }),
+    ).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          localStorage.getItem("translunar.active-workspace.v1"),
+        ),
+      )
+      .toBeNull();
+    await captureResponsiveSurface(harness, testInfo, "project-home");
+
+    await page.getByRole("button", { name: "Templates", exact: true }).click();
+    await page.getByRole("button", { name: "New template" }).click();
+    let templateDialog = page.getByRole("dialog", {
+      name: "New project template",
+    });
+    await templateDialog.getByLabel("Name").fill(templateName);
+    await templateDialog.getByLabel("Description").fill("Lifecycle defaults");
+    await templateDialog.getByLabel("Domain").fill("Product");
+    await templateDialog.getByLabel("Require review before sign-off").uncheck();
+    await templateDialog.getByRole("button", { name: "Save template" }).click();
+    let templateCard = page
+      .locator(".template-list > article")
+      .filter({ hasText: templateName });
+    await expect(templateCard).toContainText("revision 1");
+    await page.evaluate(async (name) => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      const templatePage = await api.invoke("project.template.list", {
+        offset: 0,
+        limit: 100,
+      });
+      const template = templatePage.items.find(
+        (item: ProjectTemplate) => item.name === name,
+      );
+      if (!template) throw new Error("lifecycle template was not found");
+      const definition =
+        typeof template.definition === "object" &&
+        template.definition !== null &&
+        !Array.isArray(template.definition)
+          ? template.definition
+          : {};
+      await api.invoke("project.template.update", {
+        templateId: template.id,
+        expectedRevision: template.revision,
+        name: template.name,
+        description: template.description,
+        definition: { ...definition, pipelineId: "missing.lifecycle.pipeline" },
+      });
+    }, templateName);
+    await page.getByRole("button", { name: "Refresh project data" }).click();
+    await expect(templateCard).toContainText("revision 2");
+    await templateCard.getByRole("button", { name: "Edit" }).click();
+    templateDialog = page.getByRole("dialog", {
+      name: "Edit project template",
+    });
+    await templateDialog
+      .getByLabel("Description")
+      .fill("Updated lifecycle defaults");
+    await templateDialog.getByRole("button", { name: "Save template" }).click();
+    templateCard = page
+      .locator(".template-list > article")
+      .filter({ hasText: templateName });
+    await expect(templateCard).toContainText("revision 3");
+    const editedTemplateDefinition = await page.evaluate(async (name) => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      const templatePage = await api.invoke("project.template.list", {
+        offset: 0,
+        limit: 100,
+      });
+      return templatePage.items.find(
+        (item: ProjectTemplate) => item.name === name,
+      )?.definition;
+    }, templateName);
+    expect(
+      (editedTemplateDefinition as { pipelineId?: string } | undefined)
+        ?.pipelineId,
+    ).toBe("missing.lifecycle.pipeline");
+
+    await page.getByRole("button", { name: "Projects", exact: true }).click();
+    await page.getByRole("button", { name: "New project" }).first().click();
+    await page.getByLabel("Project name").fill(projectName);
+    await page.getByRole("button", { name: "Continue" }).click();
+    const templateSelect = page.getByLabel("Project template");
+    await expect(
+      templateSelect.locator("option", { hasText: templateName }),
+    ).toHaveCount(1);
+    await templateSelect.selectOption({ label: `${templateName} · r3` });
+    await page.getByRole("button", { name: "Continue" }).click();
+    await dropLocalFiles(page, ".wizard-dropzone", [sourceA, sourceB]);
+    await expect(page.getByText("alpha.txt", { exact: true })).toBeVisible();
+    await expect(page.getByText("beta.txt", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Create project" }).click();
+    await expect(
+      page
+        .locator(".wizard-diagnostics")
+        .filter({ hasText: "missing.lifecycle.pipeline" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Open workspace" }).click();
+    await expect(
+      page.getByRole("region", { name: "Translation segments" }),
+    ).toBeVisible();
+    const createdProject = await page.evaluate(async (name) => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      const projectPage = await api.invoke("project.list", {
+        lifecycle: "active",
+        offset: 0,
+        limit: 100,
+      });
+      const project = projectPage.items.find(
+        (item: Project) => item.name === name,
+      );
+      if (!project) throw new Error("lifecycle project was not found");
+      const snapshot = await api.invoke("project.get", {
+        projectId: project.id,
+      });
+      const documentId = snapshot.documents[0]?.id;
+      if (!documentId) throw new Error("lifecycle document was not found");
+      return { project, documentId };
+    }, projectName);
+    expect(createdProject.project.configuration).toMatchObject({
+      reviewRequired: false,
+      pipelineId: null,
+    });
+    expect(createdProject.project.configuration.templateId).toBeTruthy();
+    await expect(page.locator(".document-switcher")).toContainText("alpha.txt");
+    const firstTarget = page.locator(".segment-row textarea").first();
+    await firstTarget.fill("Lifecycle retained target.");
+    await expect(page.locator(".save-indicator")).toContainText("Saved");
+
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "Project insights" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Project insights" }),
+    ).toBeVisible();
+    await page.getByRole("tab", { name: "Files" }).click();
+    await expect(page.locator(".insights-file-list > article")).toHaveCount(2);
+    await page.getByRole("button", { name: "Add folder" }).click();
+    await expect(page.locator(".insights-file-list > article")).toHaveCount(3);
+    await expect(page.getByRole("status")).toContainText("1 succeeded");
+    await dropLocalFiles(page, ".insights-dropzone", [sourceD]);
+    await expect(page.locator(".insights-file-list > article")).toHaveCount(4);
+    await expect(page.getByRole("status")).toContainText("1 succeeded");
+    await expect(page.locator(".insights-diagnostic-row")).toContainText(
+      "delta.txt",
+    );
+    const deltaFile = page
+      .locator(".insights-file-list > article")
+      .filter({ hasText: "delta.txt" });
+    await deltaFile.getByRole("button", { name: "Recycle delta.txt" }).click();
+    await page
+      .getByRole("dialog", { name: "Recycle document" })
+      .getByRole("button", { name: "Recycle document" })
+      .click();
+    await expect(deltaFile).toHaveCount(0);
+    await page.getByRole("tab", { name: "Overview" }).click();
+    await expect(
+      page.locator(".insights-metric").filter({ hasText: "Files" }),
+    ).toContainText("3");
+
+    await page.getByRole("tab", { name: "Re-import" }).click();
+    await page.getByRole("button", { name: "Select replacement" }).click();
+    await expect(
+      page.getByText("alpha-revised.txt", { exact: true }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Preview reconciliation" }).click();
+    await expect(page.locator(".reimport-counts")).toBeVisible();
+    await expect(page.locator(".reimport-counts")).toContainText("Unchanged");
+    await expect(page.locator(".reimport-counts")).toContainText("Changed");
+    await expect(page.locator(".reimport-counts")).toContainText("New");
+    await expect(page.locator(".reimport-counts")).toContainText("Removed");
+    await expect(page.locator(".reimport-counts")).toContainText("Ambiguous");
+    await page.getByRole("button", { name: "Apply preview" }).click();
+    await page
+      .getByRole("dialog", { name: "Apply re-import" })
+      .getByRole("button", { name: "Apply preview" })
+      .click();
+    await expect(page.getByRole("status")).toContainText("was re-imported");
+
+    await page.getByRole("tab", { name: "Analysis" }).click();
+    await page.getByRole("button", { name: "Run analysis" }).click();
+    await expect(page.locator(".analysis-results")).toContainText(
+      "Analysis snapshot",
+    );
+    await expect(page.locator(".analysis-results")).toContainText(
+      "Weighted effort",
+    );
+    await page.getByRole("tab", { name: "History" }).click();
+    await expect(
+      page.locator(".insights-history-list article").first(),
+    ).toBeVisible();
+    await page.getByRole("tab", { name: "Overview" }).click();
+    await expect(page.locator(".insights-metric-strip")).toContainText(
+      "QA blockers",
+    );
+    await expect(page.locator(".insights-overview")).toContainText(
+      "AI contribution",
+    );
+    await expect(page.locator(".insights-overview")).toContainText(
+      "Asset health",
+    );
+    await captureResponsiveSurface(harness, testInfo, "project-insights");
+
+    await page.getByRole("tab", { name: "Archive" }).click();
+    await page.getByRole("button", { name: "Export .tlcat" }).click();
+    await expect.poll(() => existsSync(archivePath)).toBe(true);
+    await page.getByRole("button", { name: "Export .tlcat" }).click();
+    await expect(page.getByRole("alert")).toContainText("already exists");
+
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "Projects", exact: true }).click();
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    await page.getByLabel("Global search query").fill("Stable lifecycle");
+    await page.getByLabel("Search field").selectOption("source");
+    await page
+      .locator(".global-search-form")
+      .getByRole("button", { name: "Search" })
+      .click();
+    const sourceSearchResult = page.locator(".search-results > button").first();
+    await expect(sourceSearchResult).toBeVisible();
+    await expect(sourceSearchResult.locator("mark")).not.toHaveCount(0);
+    await expect(sourceSearchResult).not.toContainText("<mark>");
+    await sourceSearchResult.click();
+    await expect(
+      page.getByRole("region", { name: "Translation segments" }),
+    ).toBeVisible();
+    await expect(page.locator(".segment-row textarea").first()).toBeFocused();
+
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "Projects", exact: true }).click();
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    await page
+      .getByLabel("Global search query")
+      .fill("Lifecycle retained target");
+    await page.getByLabel("Search field").selectOption("target");
+    await page
+      .locator(".global-search-form")
+      .getByRole("button", { name: "Search" })
+      .click();
+    await expect(
+      page.locator(".search-results > button").first(),
+    ).toContainText("Lifecycle");
+    await expect(
+      page.locator(".search-results > button").first(),
+    ).toContainText("target");
+
+    await page.getByLabel("Global search query").fill(projectName);
+    await page.getByLabel("Search field").selectOption("project");
+    await page
+      .locator(".global-search-form")
+      .getByRole("button", { name: "Search" })
+      .click();
+    await expect(
+      page.locator(".search-results > button").first(),
+    ).toContainText(projectName);
+    await expect(page.locator(".search-result-field").first()).toHaveText(
+      "project",
+    );
+
+    await page.getByLabel("Global search query").fill("alpha");
+    await page.getByLabel("Search field").selectOption("document");
+    await page
+      .locator(".global-search-form")
+      .getByRole("button", { name: "Search" })
+      .click();
+    await expect(
+      page.locator(".search-results > button").first(),
+    ).toContainText("alpha.txt");
+    await expect(page.locator(".search-result-field").first()).toHaveText(
+      "document",
+    );
+    await page.getByLabel("Search field").selectOption({
+      label: "Import notes",
+    });
+    await expect(page.getByLabel("Search field")).toHaveValue("note");
+
+    await page.getByRole("button", { name: "Templates", exact: true }).click();
+    templateCard = page
+      .locator(".template-list > article")
+      .filter({ hasText: templateName });
+    await templateCard
+      .getByRole("button", { name: `Delete ${templateName}` })
+      .click();
+    await page
+      .getByRole("dialog", { name: "Delete project template" })
+      .getByRole("button", { name: "Delete template" })
+      .click();
+    await expect(templateCard).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Projects", exact: true }).click();
+    let projectCard = page
+      .locator(".project-card")
+      .filter({ hasText: projectName });
+    await projectCard
+      .getByRole("button", { name: `Recycle ${projectName}` })
+      .click();
+    await page
+      .getByRole("dialog", { name: "Move project to recycle bin" })
+      .getByRole("button", { name: "Move to recycle bin" })
+      .click();
+    await expect(projectCard).toHaveCount(0);
+    await page.evaluate(
+      ({ projectId, documentId }) => {
+        localStorage.setItem(
+          "translunar.active-workspace.v1",
+          JSON.stringify({ projectId, documentId }),
+        );
+      },
+      {
+        projectId: createdProject.project.id,
+        documentId: createdProject.documentId,
+      },
+    );
+    await page.reload();
+    await expect(
+      page.getByRole("heading", { name: "Continue translating" }),
+    ).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          localStorage.getItem("translunar.active-workspace.v1"),
+        ),
+      )
+      .toBeNull();
+    await page
+      .locator(".project-home-nav")
+      .getByRole("button", { name: /^Recycle/u })
+      .click();
+    let recycleEntry = page
+      .locator(".recycle-list > article")
+      .filter({ hasText: projectName });
+    await recycleEntry.getByRole("button", { name: "Restore" }).click();
+    await page
+      .getByRole("dialog", { name: "Restore recycled item" })
+      .getByRole("button", { name: "Restore" })
+      .click();
+    await expect(recycleEntry).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Projects", exact: true }).click();
+    await page.getByRole("button", { name: "Restore archive" }).click();
+    await expect(
+      page.locator(".project-card").filter({ hasText: projectName }),
+    ).toHaveCount(2);
+
+    projectCard = page
+      .locator(".project-card")
+      .filter({ hasText: projectName })
+      .last();
+    await projectCard
+      .getByRole("button", { name: `Recycle ${projectName}` })
+      .click();
+    await page
+      .getByRole("dialog", { name: "Move project to recycle bin" })
+      .getByRole("button", { name: "Move to recycle bin" })
+      .click();
+    await page
+      .locator(".project-home-nav")
+      .getByRole("button", { name: /^Recycle/u })
+      .click();
+    recycleEntry = page
+      .locator(".recycle-list > article")
+      .filter({ hasText: projectName });
+    await recycleEntry
+      .getByRole("button", { name: `Purge ${projectName}` })
+      .click();
+    const purgeDialog = page.getByRole("dialog", {
+      name: "Permanently purge item",
+    });
+    await purgeDialog
+      .getByRole("button", { name: "Permanently purge" })
+      .click();
+    await expect(purgeDialog).toHaveCount(0);
+    await expect(recycleEntry).toHaveCount(0);
+
+    await page.evaluate("window.translunar.restartEngine()");
+    await page.reload();
+    await expect(
+      page.getByRole("heading", { name: "Continue translating" }),
+    ).toBeVisible();
+    await expect(
+      page.locator(".project-card").filter({ hasText: projectName }),
+    ).toHaveCount(1);
+    expect(consoleErrors).toEqual([]);
+  } finally {
+    await closeHarness(harness);
+    await rm(fixtureDirectory, { recursive: true, force: true });
+  }
+});
+
 test("keeps a 10,000 segment document inside the virtual row and 60-second performance budget", async ({
   browserName,
 }, testInfo) => {
@@ -896,12 +1486,7 @@ test("keeps a 10,000 segment document inside the virtual row and 60-second perfo
   const { page, consoleErrors } = harness;
 
   try {
-    await page.getByRole("button", { name: "Choose file" }).click();
-    await expect(page.getByText("ten-thousand.txt")).toBeVisible();
-    await page.getByRole("button", { name: "Create and import" }).click();
-    await expect(
-      page.getByRole("region", { name: "Translation segments" }),
-    ).toBeVisible({ timeout: 60_000 });
+    await importFixture(page, "ten-thousand.txt", 60_000);
     await expect(page.locator(".document-switcher")).toContainText(
       "10000 segments",
     );

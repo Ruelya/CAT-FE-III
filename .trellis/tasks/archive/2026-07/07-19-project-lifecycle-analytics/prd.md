@@ -127,32 +127,32 @@ rather than duplicated.
 
 ## Acceptance Criteria
 
-- [ ] Migration 10 fresh/upgrade/rollback/reopen tests cover templates,
+- [x] Migration 10 fresh/upgrade/rollback/reopen tests cover templates,
       versions/re-import maps, recycle records, archive metadata, analysis
       snapshots, search index, and analytics events without breaking v1..v9.
-- [ ] Multi-file and recursive folder import preserve relative paths, return
+- [x] Multi-file and recursive folder import preserve relative paths, return
       mixed batch diagnostics, reject traversal/collisions, and survive restart.
-- [ ] Template CRUD/revisions and create-from-template preserve safe references,
+- [x] Template CRUD/revisions and create-from-template preserve safe references,
       report missing dependencies, and never serialize credentials.
-- [ ] Re-import preview/apply fixtures prove unchanged translations/tags/history
+- [x] Re-import preview/apply fixtures prove unchanged translations/tags/history
       survive, changed/new/removed segments are explicit, ambiguous mappings do
       not transfer work, and stale previews conflict.
-- [ ] Project archive validates hashes, restores an equivalent project under a
+- [x] Project archive validates hashes, restores an equivalent project under a
       new identity, excludes secrets, publishes no-clobber, and corrupt restore
       leaves the workspace unchanged.
-- [ ] Recycle/restore/purge and operation history are reasoned, restart-safe,
+- [x] Recycle/restore/purge and operation history are reasoned, restart-safe,
       bounded, and excluded/included correctly by normal/admin queries.
-- [ ] Global search updates after edits/re-import/recycle and returns bounded
+- [x] Global search updates after edits/re-import/recycle and returns bounded
       multilingual snippets plus direct locations with deterministic paging.
-- [ ] Word/CJK/repetition/TM-band and weighted-effort fixtures are deterministic;
+- [x] Word/CJK/repetition/TM-band and weighted-effort fixtures are deterministic;
       progress/time/AI/asset trends derive from durable state and mark missing
       history unavailable.
-- [ ] Stdio smoke covers a multi-file project, template, re-import, both search
+- [x] Stdio smoke covers a multi-file project, template, re-import, both search
       directions, analysis, recycle/restore, archive/restore, and restart.
-- [ ] Electron E2E covers wizard/drag-drop or batch add, dashboard/search,
+- [x] Electron E2E covers wizard/drag-drop or batch add, dashboard/search,
       template, re-import preview, recycle/restore, archive/restore, analytics,
       three viewports, direct navigation, and no console/page errors.
-- [ ] Rust fmt/clippy/workspace tests, contracts, Node 22 format/lint/typecheck/
+- [x] Rust fmt/clippy/workspace tests, contracts, Node 22 format/lint/typecheck/
       unit/build, Windows GNU, stdio smoke, Electron E2E and performance gates
       remain green.
 
@@ -162,3 +162,24 @@ Multi-target projects, VCS/webhook continuous localization, offline task-package
 handoff, bilingual review DOCX, alignment/reference corpora, collaboration
 server sync, enterprise retention/RBAC/audit, billing/rates/currency/invoicing,
 and new semantic asset-curation scoring belong to later children.
+
+## Corrective Acceptance Record
+
+The lifecycle implementation was originally archived before its desktop,
+stdio, and Electron evidence was recorded. The acceptance criteria above are
+now verified by corrective task
+`.trellis/tasks/07-20-project-lifecycle-acceptance`; that task preserves this
+PRD's A-01..A-08 and K-01..K-05 scope and adds no new product scope.
+
+Evidence is recorded in its `implement.md` and includes:
+
+- Node 22.17.0 format, ESLint, typecheck, Vitest, and production desktop build;
+- Linux Rust fmt, strict clippy, workspace tests, protocol contracts, debug and
+  release Engine builds, and the complete lifecycle stdio smoke on the
+  isolated synchronized tree `/home/ubuntu/workspaces/cat-lifecycle-acceptance`;
+- Windows GNU release binary SHA-256
+  `b2cd0e0fa8fffa215efdbb460632010d287a39df5d18a0ce22f8cad737fa813d`;
+- real-Engine Electron E2E: 7 passed and 1 pre-existing PDF prerequisite
+  branch skipped, including lifecycle, performance, geometry, overflow, and
+  console/page-error assertions; and
+- inspected 1250x744, 1680x942, and 1920x1080 Project Home/Insights screenshots.

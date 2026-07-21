@@ -1,15 +1,18 @@
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { rm } from "node:fs/promises";
+import { Buffer } from "node:buffer";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
+import { clearTimeout, setTimeout } from "node:timers";
 
 async function main() {
   const root = resolve(import.meta.dirname, "..");
@@ -536,6 +539,10 @@ async function main() {
       expectedRevision: archived.revision,
       actor: "engine-smoke",
     });
+    const lifecycleEvidence = await exerciseLifecycleBeforeRestart(
+      processHandle,
+      dataDirectory,
+    );
     await processHandle.stop();
 
     processHandle = await EngineProcess.start(binary, dataDirectory);
@@ -572,6 +579,7 @@ async function main() {
         "format draft should recover after restart",
       );
     }
+    await verifyLifecycleAfterRestart(processHandle, lifecycleEvidence);
     const editorPage = await processHandle.call("segment.editor.list", {
       documentId: document.id,
       query: "",
@@ -1579,6 +1587,592 @@ async function main() {
     await rm(dataDirectory, { recursive: true, force: true });
     await rm(backupParent, { recursive: true, force: true });
   }
+}
+
+async function exerciseLifecycleBeforeRestart(processHandle, dataDirectory) {
+  const sourceQuery = "OrbitLifecycleAlpha";
+  const targetQuery = "OrbitLifecycleTarget";
+  const expectedTarget = `${targetQuery} retained translation.`;
+  const inputDirectory = join(dataDirectory, "lifecycle-inputs");
+  const alphaDirectory = join(inputDirectory, "alpha");
+  const betaDirectory = join(inputDirectory, "beta");
+  mkdirSync(alphaDirectory, { recursive: true });
+  mkdirSync(betaDirectory, { recursive: true });
+  const alphaPath = join(alphaDirectory, "lifecycle-alpha.txt");
+  const betaPath = join(betaDirectory, "lifecycle-beta.txt");
+  const unsupportedPath = join(betaDirectory, "unsupported.bin");
+  const replacementPath = join(dataDirectory, "lifecycle-alpha-revised.txt");
+  const archivePath = join(dataDirectory, "lifecycle-project.tlcat");
+  const corruptArchivePath = join(dataDirectory, "lifecycle-corrupt.tlcat");
+  writeFileSync(
+    alphaPath,
+    `${sourceQuery} stable source.\n\nOrbitLifecycleChange old source.\n\nOrbitLifecycleRemove old source.`,
+    "utf8",
+  );
+  writeFileSync(
+    betaPath,
+    "OrbitLifecycleBeta source.\n\nOrbitLifecycleBeta detail.",
+    "utf8",
+  );
+  writeFileSync(unsupportedPath, Buffer.from([0, 1, 2, 3]));
+  writeFileSync(
+    replacementPath,
+    `${sourceQuery} stable source.\n\nOrbitLifecycleChange new source.\n\nOrbitLifecycleNew source.`,
+    "utf8",
+  );
+
+  const createdTemplate = await processHandle.call("project.template.create", {
+    name: "Lifecycle smoke template",
+    description: "Initial lifecycle defaults",
+    definition: {
+      sourceLocale: "en-US",
+      targetLocale: "zh-CN",
+      domain: "legal",
+      qaProfileId: "builtin.qa.cjk-professional",
+      pipelineId: "missing.lifecycle.pipeline",
+      analysisProfileId: "builtin.analysis.standard",
+      reviewRequired: false,
+    },
+  });
+  const updatedTemplate = await processHandle.call("project.template.update", {
+    templateId: createdTemplate.id,
+    expectedRevision: createdTemplate.revision,
+    name: "Lifecycle smoke template",
+    description: "Updated lifecycle defaults",
+    definition: {
+      sourceLocale: "en-US",
+      targetLocale: "zh-CN",
+      domain: "product",
+      qaProfileId: "builtin.qa.cjk-professional",
+      pipelineId: "missing.lifecycle.pipeline",
+      analysisProfileId: "builtin.analysis.standard",
+      reviewRequired: false,
+    },
+  });
+  assert(
+    updatedTemplate.revision === createdTemplate.revision + 1,
+    "template update should create a new revision",
+  );
+  const firstTemplateRevision = await processHandle.call(
+    "project.template.get",
+    { templateId: createdTemplate.id, revision: createdTemplate.revision },
+  );
+  const currentTemplate = await processHandle.call("project.template.get", {
+    templateId: createdTemplate.id,
+  });
+  assert(
+    firstTemplateRevision.description === "Initial lifecycle defaults" &&
+      currentTemplate.description === "Updated lifecycle defaults",
+    "template get should expose historical and current revisions",
+  );
+  const templatePage = await processHandle.call("project.template.list", {
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    templatePage.items.some(
+      (item) =>
+        item.id === createdTemplate.id &&
+        item.revision === updatedTemplate.revision,
+    ),
+    "template list should return the latest revision",
+  );
+
+  const instantiated = await processHandle.call("project.createFromTemplate", {
+    templateId: updatedTemplate.id,
+    templateRevision: updatedTemplate.revision,
+    name: "Lifecycle stdio project",
+    dependencyRemaps: {},
+  });
+  assert(
+    instantiated.project.domain === "product" &&
+      instantiated.project.configuration.reviewRequired === false,
+    "create-from-template should apply safe reusable configuration",
+  );
+  assert(
+    instantiated.diagnostics.some(
+      (diagnostic) =>
+        diagnostic.kind === "pipeline" && diagnostic.status === "missing",
+    ),
+    "create-from-template should report a missing dependency",
+  );
+  await processHandle.call("project.template.delete", {
+    templateId: updatedTemplate.id,
+    expectedRevision: updatedTemplate.revision,
+  });
+
+  const batch = await processHandle.call("project.batchImport", {
+    projectId: instantiated.project.id,
+    items: [{ path: inputDirectory }],
+    options: { segmentationMode: "paragraph" },
+    atomicity: "bestEffort",
+  });
+  assert(
+    batch.items.length === 3 && batch.succeeded === 2 && batch.failed === 1,
+    "batch import should return every mixed diagnostic",
+  );
+  assert(
+    batch.items.some(
+      (item) =>
+        item.relativePath === "alpha/lifecycle-alpha.txt" &&
+        item.status === "succeeded",
+    ) &&
+      batch.items.some(
+        (item) =>
+          item.path.endsWith("unsupported.bin") && item.status === "failed",
+      ),
+    "batch import should preserve nested paths and unsupported-file failures",
+  );
+  const alphaDiagnostic = batch.items.find(
+    (item) => item.relativePath === "alpha/lifecycle-alpha.txt",
+  );
+  assert(
+    alphaDiagnostic?.document,
+    "batch import should return the lifecycle alpha document",
+  );
+  const alphaDocument = alphaDiagnostic.document;
+  const alphaSegments = await processHandle.call("segment.list", {
+    documentId: alphaDocument.id,
+    offset: 0,
+    limit: 20,
+  });
+  assert(
+    alphaSegments.items.length === 3,
+    "lifecycle alpha fixture should contain three segments",
+  );
+  await processHandle.call("segment.updateTarget", {
+    segmentId: alphaSegments.items[0].id,
+    targetText: expectedTarget,
+    expectedRevision: alphaSegments.items[0].revision,
+  });
+
+  const sourceSearch = await processHandle.call("search.global", {
+    text: sourceQuery,
+    projectId: instantiated.project.id,
+    fields: ["source"],
+    offset: 0,
+    limit: 1,
+  });
+  const targetSearch = await processHandle.call("search.global", {
+    text: targetQuery,
+    projectId: instantiated.project.id,
+    fields: ["target"],
+    offset: 0,
+    limit: 1,
+  });
+  assert(
+    sourceSearch.total === 1 &&
+      sourceSearch.items[0].field === "source" &&
+      sourceSearch.items[0].snippet.includes("<mark>"),
+    "global search should page and highlight source hits",
+  );
+  assert(
+    targetSearch.total === 1 &&
+      targetSearch.items[0].field === "target" &&
+      targetSearch.items[0].segmentId === alphaSegments.items[0].id,
+    "global search should return the authoritative target hit",
+  );
+
+  const preview = await processHandle.call("document.reimport.preview", {
+    documentId: alphaDocument.id,
+    sourcePath: replacementPath,
+    expectedRevision: alphaDocument.revision,
+    options: { segmentationMode: "paragraph" },
+    actor: "engine-smoke",
+  });
+  assert(
+    preview.plan.items.length ===
+      preview.plan.unchanged +
+        preview.plan.changed +
+        preview.plan.newSegments +
+        preview.plan.removed +
+        preview.plan.ambiguous &&
+      preview.plan.unchanged === 1 &&
+      preview.plan.changed === 1 &&
+      preview.plan.newSegments === 1 &&
+      preview.plan.removed === 1 &&
+      preview.plan.ambiguous === 0,
+    "re-import preview should expose the authoritative reconciliation plan",
+  );
+  await assertRpcError(
+    () =>
+      processHandle.call("document.reimport.apply", {
+        previewId: preview.previewId,
+        expectedDocumentRevision: preview.expectedDocumentRevision + 1,
+        actor: "engine-smoke",
+      }),
+    "conflict",
+    "stale re-import apply",
+  );
+  const reimported = await processHandle.call("document.reimport.apply", {
+    previewId: preview.previewId,
+    expectedDocumentRevision: preview.expectedDocumentRevision,
+    actor: "engine-smoke",
+  });
+  assert(
+    reimported.currentVersion === alphaDocument.currentVersion + 1,
+    "re-import apply should publish a new document version",
+  );
+  const reimportedSegments = await processHandle.call("segment.list", {
+    documentId: alphaDocument.id,
+    offset: 0,
+    limit: 20,
+  });
+  assert(
+    reimportedSegments.items[0].sourceText.includes(sourceQuery) &&
+      reimportedSegments.items[0].targetText === expectedTarget,
+    "re-import should preserve unchanged translated work",
+  );
+
+  const profiles = await processHandle.call("analysis.profile.list", {});
+  const standardProfile = profiles.items.find(
+    (profile) => profile.id === "builtin.analysis.standard",
+  );
+  assert(standardProfile, "standard analysis profile should be available");
+  const analysis = await processHandle.call("analysis.run", {
+    projectId: instantiated.project.id,
+    profileId: standardProfile.id,
+    profileRevision: standardProfile.revision,
+  });
+  const analysisRead = await processHandle.call("analysis.run.get", {
+    runId: analysis.id,
+  });
+  assert(
+    analysisRead.id === analysis.id &&
+      analysisRead.summary.segments >= 5 &&
+      analysisRead.summary.weightedEffortMilliUnits > 0 &&
+      !analysisRead.stale,
+    "analysis run/get should return a durable authoritative snapshot",
+  );
+  const analytics = await processHandle.call("project.analytics.get", {
+    projectId: instantiated.project.id,
+    trendBucketCount: 3,
+  });
+  assert(
+    analytics.progress.totalSegments >= 5 &&
+      analytics.documentProgress[alphaDocument.id]?.totalSegments === 3 &&
+      typeof analytics.productivity.activeEditingMs.available === "boolean" &&
+      analytics.trends.length === 3,
+    "project analytics should expose progress, availability, and bounded trends",
+  );
+  const history = await processHandle.call("history.list", {
+    projectId: instantiated.project.id,
+    offset: 0,
+    limit: 100,
+    descending: false,
+  });
+  assert(
+    history.items.some((operation) => operation.kind === "document.reimport"),
+    "project history should include the re-import operation",
+  );
+
+  const exportedArchive = await processHandle.call("project.archive.export", {
+    projectId: instantiated.project.id,
+    destinationPath: archivePath,
+    actor: "engine-smoke",
+  });
+  assert(
+    exportedArchive.projectId === instantiated.project.id &&
+      exportedArchive.archiveSha256.length === 64 &&
+      statSync(archivePath).size > 0,
+    "project archive export should publish a hashed archive",
+  );
+  await assertRpcError(
+    () =>
+      processHandle.call("project.archive.export", {
+        projectId: instantiated.project.id,
+        destinationPath: archivePath,
+        actor: "engine-smoke",
+      }),
+    "invalid_state",
+    "project archive no-clobber",
+  );
+  const corruptBytes = Buffer.from(readFileSync(archivePath));
+  corruptBytes[Math.floor(corruptBytes.length / 2)] ^= 0x5a;
+  writeFileSync(corruptArchivePath, corruptBytes);
+  const projectsBeforeCorruptRestore = await processHandle.call(
+    "project.list",
+    { offset: 0, limit: 100 },
+  );
+  await assertRpcError(
+    () =>
+      processHandle.call("project.archive.restore", {
+        archivePath: corruptArchivePath,
+        dependencyRemaps: {},
+        actor: "engine-smoke",
+      }),
+    "invalid_request",
+    "corrupt project archive restore",
+  );
+  const projectsAfterCorruptRestore = await processHandle.call("project.list", {
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    projectsAfterCorruptRestore.total === projectsBeforeCorruptRestore.total,
+    "corrupt archive restore should not mutate project storage",
+  );
+  const restoredArchive = await processHandle.call("project.archive.restore", {
+    archivePath,
+    dependencyRemaps: {},
+    actor: "engine-smoke",
+  });
+  assert(
+    restoredArchive.projectId !== instantiated.project.id,
+    "valid archive restore should create a new project identity",
+  );
+  const restoredSnapshot = await processHandle.call("project.get", {
+    projectId: restoredArchive.projectId,
+  });
+  const restoredAlpha = restoredSnapshot.documents.find(
+    (item) => item.relativePath === alphaDocument.relativePath,
+  );
+  assert(
+    restoredAlpha && restoredAlpha.id !== alphaDocument.id,
+    "archive restore should remap document identities",
+  );
+  const restoredSegments = await processHandle.call("segment.list", {
+    documentId: restoredAlpha.id,
+    offset: 0,
+    limit: 20,
+  });
+  assert(
+    restoredSegments.items[0].targetText === expectedTarget,
+    "archive restore should preserve translated segment state",
+  );
+
+  const recycleEntry = await processHandle.call("recycle.delete", {
+    entityType: "document",
+    entityId: alphaDocument.id,
+    expectedRevision: reimported.revision,
+    actor: "engine-smoke",
+    reason: "Exercise restart-safe document recycle",
+  });
+  const excludedSearch = await processHandle.call("search.global", {
+    text: targetQuery,
+    projectId: instantiated.project.id,
+    fields: ["target"],
+    offset: 0,
+    limit: 20,
+  });
+  const recycledSearch = await processHandle.call("search.global", {
+    text: targetQuery,
+    projectId: instantiated.project.id,
+    fields: ["target"],
+    includeRecycled: true,
+    offset: 0,
+    limit: 20,
+  });
+  assert(
+    excludedSearch.total === 0 && recycledSearch.total === 1,
+    "normal search should exclude recycled documents while admin search can find them",
+  );
+
+  return {
+    projectId: instantiated.project.id,
+    templateId: updatedTemplate.id,
+    documentId: alphaDocument.id,
+    documentRelativePath: alphaDocument.relativePath,
+    recycleEntryId: recycleEntry.id,
+    analysisRunId: analysis.id,
+    restoredProjectId: restoredArchive.projectId,
+    sourceQuery,
+    targetQuery,
+    expectedTarget,
+  };
+}
+
+async function verifyLifecycleAfterRestart(processHandle, evidence) {
+  const recoveredProject = await processHandle.call("project.get", {
+    projectId: evidence.projectId,
+  });
+  assert(
+    recoveredProject.documents.every(
+      (document) => document.id !== evidence.documentId,
+    ),
+    "recycled document should remain outside the active project after restart",
+  );
+  const templates = await processHandle.call("project.template.list", {
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    templates.items.every((template) => template.id !== evidence.templateId),
+    "deleted template should remain deleted after restart",
+  );
+  const recoveredAnalysis = await processHandle.call("analysis.run.get", {
+    runId: evidence.analysisRunId,
+  });
+  assert(
+    recoveredAnalysis.id === evidence.analysisRunId &&
+      recoveredAnalysis.summary.segments >= 5,
+    "analysis snapshot should remain readable after restart",
+  );
+  const recyclePage = await processHandle.call("recycle.list", {
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    recyclePage.items.some((entry) => entry.id === evidence.recycleEntryId),
+    "recycle entry should survive process restart",
+  );
+  const excludedSearch = await processHandle.call("search.global", {
+    text: evidence.targetQuery,
+    projectId: evidence.projectId,
+    fields: ["target"],
+    offset: 0,
+    limit: 20,
+  });
+  const recycledSearch = await processHandle.call("search.global", {
+    text: evidence.targetQuery,
+    projectId: evidence.projectId,
+    fields: ["target"],
+    includeRecycled: true,
+    offset: 0,
+    limit: 20,
+  });
+  assert(
+    excludedSearch.total === 0 && recycledSearch.total === 1,
+    "search recycle filtering should survive process restart",
+  );
+
+  await processHandle.call("recycle.restore", {
+    entryId: evidence.recycleEntryId,
+    actor: "engine-smoke",
+    reason: "Restore after process restart",
+  });
+  const restoredDocument = await processHandle.call("document.get", {
+    documentId: evidence.documentId,
+  });
+  assert(
+    restoredDocument.relativePath === evidence.documentRelativePath,
+    "document restore should recover the original identity and relative path",
+  );
+  const restoredSegments = await processHandle.call("segment.list", {
+    documentId: evidence.documentId,
+    offset: 0,
+    limit: 20,
+  });
+  assert(
+    restoredSegments.items[0].targetText === evidence.expectedTarget,
+    "document restore should preserve re-imported translated work",
+  );
+  const restoredSearch = await processHandle.call("search.global", {
+    text: evidence.targetQuery,
+    projectId: evidence.projectId,
+    fields: ["target"],
+    offset: 0,
+    limit: 20,
+  });
+  assert(
+    restoredSearch.total === 1,
+    "restored document should return to normal search",
+  );
+  const analytics = await processHandle.call("project.analytics.get", {
+    projectId: evidence.projectId,
+    trendBucketCount: 3,
+  });
+  assert(
+    analytics.progress.totalSegments >= 5 && analytics.trends.length === 3,
+    "project analytics should remain authoritative after restart and restore",
+  );
+  const history = await processHandle.call("history.list", {
+    projectId: evidence.projectId,
+    offset: 0,
+    limit: 100,
+    descending: false,
+  });
+  assert(
+    history.items.some((operation) => operation.kind === "recycle.delete") &&
+      history.items.some((operation) => operation.kind === "recycle.restore"),
+    "history should retain recycle and restore operations across restart",
+  );
+
+  const restoredArchiveProject = await processHandle.call("project.get", {
+    projectId: evidence.restoredProjectId,
+  });
+  const restoredArchiveDocument = restoredArchiveProject.documents.find(
+    (document) => document.relativePath === evidence.documentRelativePath,
+  );
+  assert(
+    restoredArchiveDocument,
+    "archive-restored project should remain readable after restart",
+  );
+  const restoredArchiveSegments = await processHandle.call("segment.list", {
+    documentId: restoredArchiveDocument.id,
+    offset: 0,
+    limit: 20,
+  });
+  assert(
+    restoredArchiveSegments.items[0].targetText === evidence.expectedTarget,
+    "archive-restored document should preserve translated work after restart",
+  );
+  const archiveRecycleEntry = await processHandle.call("recycle.delete", {
+    entityType: "project",
+    entityId: evidence.restoredProjectId,
+    expectedRevision: restoredArchiveProject.project.revision,
+    actor: "engine-smoke",
+    reason: "Exercise permanent purge of a versioned restored project",
+  });
+  const archivedProjectSearch = await processHandle.call("search.global", {
+    text: evidence.targetQuery,
+    projectId: evidence.restoredProjectId,
+    fields: ["target"],
+    offset: 0,
+    limit: 20,
+  });
+  assert(
+    archivedProjectSearch.total === 0,
+    "recycled archive project should leave normal search",
+  );
+  await processHandle.call("recycle.purge", {
+    entryId: archiveRecycleEntry.id,
+    actor: "engine-smoke",
+    reason: "Complete lifecycle purge acceptance",
+  });
+  await assertRpcError(
+    () =>
+      processHandle.call("project.get", {
+        projectId: evidence.restoredProjectId,
+      }),
+    "not_found",
+    "purged archive project lookup",
+  );
+  const recycleAfterPurge = await processHandle.call("recycle.list", {
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    recycleAfterPurge.items.every(
+      (entry) => entry.id !== archiveRecycleEntry.id,
+    ),
+    "purged project should leave the active recycle list",
+  );
+  const searchAfterPurge = await processHandle.call("search.global", {
+    text: evidence.targetQuery,
+    projectId: evidence.restoredProjectId,
+    fields: ["target"],
+    includeRecycled: true,
+    offset: 0,
+    limit: 20,
+  });
+  assert(
+    searchAfterPurge.total === 0,
+    "purged project should leave global search projections",
+  );
+}
+
+async function assertRpcError(call, expectedCode, label) {
+  try {
+    await call();
+  } catch (error) {
+    assert(
+      error?.code === expectedCode,
+      `${label} should return ${expectedCode}, received ${error?.code ?? "unknown"}`,
+    );
+    return;
+  }
+  throw new Error(`${label} unexpectedly succeeded`);
 }
 
 async function exportWithQaDecision(

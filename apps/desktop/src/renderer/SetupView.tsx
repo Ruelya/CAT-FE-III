@@ -39,6 +39,7 @@ interface SetupViewProps {
 }
 
 type WizardStep = 1 | 2 | 3;
+type ReviewPolicy = "template" | "required" | "optional";
 
 export function SetupView({ onCreated, onCancel }: SetupViewProps) {
   const [step, setStep] = useState<WizardStep>(1);
@@ -57,10 +58,8 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
   const [qaProfileId, setQaProfileId] = useState("");
   const [pipelineId, setPipelineId] = useState("");
   const [aiProfileId, setAiProfileId] = useState("");
-  const [analysisProfileId, setAnalysisProfileId] = useState(
-    "builtin.analysis.standard",
-  );
-  const [reviewRequired, setReviewRequired] = useState(true);
+  const [analysisProfileId, setAnalysisProfileId] = useState("");
+  const [reviewPolicy, setReviewPolicy] = useState<ReviewPolicy>("template");
   const [atomicity, setAtomicity] = useState<"bestEffort" | "allOrNothing">(
     "bestEffort",
   );
@@ -112,6 +111,15 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
     [selectedTemplateId, templates],
   );
 
+  const selectTemplate = (templateId: string) => {
+    setSelectedTemplateId(templateId);
+    setQaProfileId("");
+    setPipelineId("");
+    setAiProfileId("");
+    setAnalysisProfileId("");
+    setReviewPolicy("template");
+  };
+
   const addPaths = (paths: readonly string[]) => {
     setSourcePaths((current) =>
       [...new Set([...current, ...paths.filter(Boolean)])].slice(0, 500),
@@ -119,19 +127,33 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
   };
 
   const chooseFiles = async () => {
-    addPaths(await window.translunar.selectSourceDocuments());
+    setError(null);
+    try {
+      addPaths(await window.translunar.selectSourceDocuments());
+    } catch (reason) {
+      setError(formatError(reason));
+    }
   };
 
   const chooseFolder = async () => {
-    const selected = await window.translunar.selectSourceFolder();
-    if (selected) addPaths([selected]);
+    setError(null);
+    try {
+      const selected = await window.translunar.selectSourceFolder();
+      if (selected) addPaths([selected]);
+    } catch (reason) {
+      setError(formatError(reason));
+    }
   };
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
-    addPaths(
-      window.translunar.resolveDroppedPaths([...event.dataTransfer.files]),
-    );
+    try {
+      addPaths(
+        window.translunar.resolveDroppedPaths([...event.dataTransfer.files]),
+      );
+    } catch (reason) {
+      setError(formatError(reason));
+    }
   };
 
   const goNext = () => {
@@ -147,7 +169,9 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
     setStep((step + 1) as WizardStep);
   };
 
-  const createProject = async (): Promise<{
+  const createProject = async (
+    onProjectCreated: (project: Project) => void,
+  ): Promise<{
     project: Project;
     dependencies: TemplateDependencyDiagnostic[];
   }> => {
@@ -168,6 +192,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
       );
       project = result.project;
       dependencies = result.diagnostics;
+      onProjectCreated(project);
     } else {
       project = await window.translunar.invoke("project.create", {
         name: name.trim(),
@@ -175,6 +200,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
         targetLocale,
         domain: domain.trim(),
       });
+      onProjectCreated(project);
     }
     const configuration = {
       ...project.configuration,
@@ -187,7 +213,10 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
         analysisProfileId ||
         project.configuration.analysisProfileId ||
         "builtin.analysis.standard",
-      reviewRequired,
+      reviewRequired:
+        reviewPolicy === "template"
+          ? (project.configuration.reviewRequired ?? true)
+          : reviewPolicy === "required",
     };
     const configurationChanged =
       JSON.stringify(configuration) !== JSON.stringify(project.configuration);
@@ -202,24 +231,38 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
         expectedRevision: project.revision,
         actor: "desktop-wizard",
       });
+      onProjectCreated(project);
     }
     return { project, dependencies };
   };
 
-  const rollbackEmptyProject = async (project: Project) => {
-    const entry = await window.translunar.invoke("recycle.delete", {
-      entityType: "project",
-      entityId: project.id,
-      expectedRevision: project.revision,
-      actor: "desktop-wizard",
-      reason: "Project setup imported no supported files",
-      retentionMs: 0,
-    });
-    await window.translunar.invoke("recycle.purge", {
-      entryId: entry.id,
-      actor: "desktop-wizard",
-      reason: "Rollback empty project setup",
-    });
+  const rollbackEmptyProject = async (project: Project): Promise<string> => {
+    try {
+      const current = await window.translunar.invoke("project.get", {
+        projectId: project.id,
+      });
+      if (current.project.lifecycle !== "active") {
+        return "Cleanup was skipped because the project is no longer active.";
+      }
+      if (current.documents.length > 0) {
+        return "The project was retained because it contains imported documents.";
+      }
+      const entry = await window.translunar.invoke("recycle.delete", {
+        entityType: "project",
+        entityId: project.id,
+        expectedRevision: current.project.revision,
+        actor: "desktop-wizard",
+        reason: "Project setup imported no supported files",
+      });
+      await window.translunar.invoke("recycle.purge", {
+        entryId: entry.id,
+        actor: "desktop-wizard",
+        reason: "Rollback empty project setup",
+      });
+      return "The empty project was removed.";
+    } catch (reason) {
+      return `Empty-project cleanup failed: ${formatError(reason)}`;
+    }
   };
 
   const submit = async (event: FormEvent) => {
@@ -232,8 +275,11 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
     setError(null);
     setDiagnostics([]);
     setDependencyDiagnostics([]);
+    let createdProject: Project | null = null;
     try {
-      const created = await createProject();
+      const created = await createProject((project) => {
+        createdProject = project;
+      });
       setDependencyDiagnostics(created.dependencies);
       const imported = await window.translunar.invoke("project.batchImport", {
         projectId: created.project.id,
@@ -246,17 +292,22 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
         (item) => item.status === "succeeded" && item.document,
       )?.document;
       if (!firstDocument) {
-        await rollbackEmptyProject(created.project);
+        const cleanup = await rollbackEmptyProject(created.project);
         setError(
-          "No files were imported. The empty project was removed; review the diagnostics and try again.",
+          `No files were imported. ${cleanup} Review the diagnostics and try again.`,
         );
         return;
       }
-      if (imported.failed === 0) {
+      if (imported.failed === 0 && created.dependencies.length === 0) {
         await onCreated(created.project.id, firstDocument.id);
       }
     } catch (reason) {
-      setError(formatError(reason));
+      const cleanup = createdProject
+        ? await rollbackEmptyProject(createdProject)
+        : null;
+      setError(
+        cleanup ? `${formatError(reason)} ${cleanup}` : formatError(reason),
+      );
     } finally {
       setBusy(false);
     }
@@ -265,6 +316,19 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
   const successfulDocument = diagnostics.find(
     (item) => item.status === "succeeded" && item.document,
   )?.document;
+
+  const openSuccessfulDocument = async () => {
+    if (!successfulDocument) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onCreated(successfulDocument.projectId, successfulDocument.id);
+    } catch (reason) {
+      setError(formatError(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="setup-shell setup-wizard-shell">
@@ -391,7 +455,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                   <select
                     value={selectedTemplateId}
                     onChange={(event) =>
-                      setSelectedTemplateId(event.currentTarget.value)
+                      selectTemplate(event.currentTarget.value)
                     }
                   >
                     <option value="">No template · built-in defaults</option>
@@ -458,6 +522,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                       setAnalysisProfileId(event.currentTarget.value)
                     }
                   >
+                    <option value="">Template / standard</option>
                     {analysisProfiles.map((profile) => (
                       <option key={profile.id} value={profile.id}>
                         {profile.name}
@@ -465,21 +530,20 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                     ))}
                   </select>
                 </label>
-                <label className="wizard-check field-wide">
-                  <input
-                    type="checkbox"
-                    checked={reviewRequired}
+                <label className="field">
+                  <span>Review policy</span>
+                  <select
+                    value={reviewPolicy}
                     onChange={(event) =>
-                      setReviewRequired(event.currentTarget.checked)
+                      setReviewPolicy(event.currentTarget.value as ReviewPolicy)
                     }
-                  />
-                  <span>
-                    <strong>Require review before sign-off</strong>
-                    <small>
-                      Direct translation-to-signed transitions remain blocked
-                      unless this policy is disabled.
-                    </small>
-                  </span>
+                  >
+                    <option value="template">
+                      Template / required default
+                    </option>
+                    <option value="required">Require review</option>
+                    <option value="optional">Allow direct sign-off</option>
+                  </select>
                 </label>
               </>
             ) : null}
@@ -596,7 +660,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
             ) : null}
             <div className="setup-actions wizard-actions field-wide">
               <span className="setup-note">
-                SQLite workspace · local files · no billing data
+                SQLite workspace · local files · private by default
               </span>
               <div>
                 {step > 1 ? (
@@ -621,12 +685,8 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                   <button
                     className="button primary"
                     type="button"
-                    onClick={() =>
-                      void onCreated(
-                        successfulDocument.projectId,
-                        successfulDocument.id,
-                      )
-                    }
+                    onClick={() => void openSuccessfulDocument()}
+                    disabled={busy}
                   >
                     Open workspace <ArrowRight size={16} />
                   </button>

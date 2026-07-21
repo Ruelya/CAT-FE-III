@@ -13,6 +13,9 @@ export interface DesktopApi {
   selectSourceDocuments(): Promise<string[]>;
   selectSourceFolder(): Promise<string | null>;
   selectProjectArchive(): Promise<string | null>;
+  selectProjectArchiveDestination(
+    suggestedName: string,
+  ): Promise<string | null>;
   selectExportPath(suggestedName: string): Promise<string | null>;
   resolveDroppedPaths(files: readonly File[]): string[];
   restartEngine(): Promise<void>;

@@ -21,6 +21,6 @@
   "children": [],
   "parent": "07-19-complete-full-cat-prd",
   "relatedFiles": [],
-  "notes": "",
+  "notes": "Acceptance evidence completed by corrective task 07-20-project-lifecycle-acceptance; see its implement.md for Node 22, VPS, Engine SHA, stdio, and Electron E2E evidence.",
   "meta": {}
 }

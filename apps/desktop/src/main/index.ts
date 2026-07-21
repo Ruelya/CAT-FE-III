@@ -22,6 +22,8 @@ const IPC_CHANNELS = {
   selectSources: "translunar:dialog:source-documents",
   selectSourceFolder: "translunar:dialog:source-folder",
   selectProjectArchive: "translunar:dialog:project-archive",
+  selectProjectArchiveDestination:
+    "translunar:dialog:project-archive-destination",
   selectExport: "translunar:dialog:export-docx",
   restartEngine: "translunar:engine:restart",
   setAiCredential: "translunar:ai:credential:set",
@@ -186,12 +188,36 @@ function registerIpc(): void {
       filters: [
         {
           name: "Translunar project archives",
-          extensions: ["tcat", "zip"],
+          extensions: ["tlcat", "zip"],
         },
       ],
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
+  ipcMain.handle(
+    IPC_CHANNELS.selectProjectArchiveDestination,
+    async (event, suggestedName: unknown) => {
+      assertTrustedSender(event);
+      const safeName =
+        typeof suggestedName === "string" && suggestedName.trim()
+          ? suggestedName.replaceAll(/[\\/:*?"<>|]/gu, "-")
+          : "project.tlcat";
+      if (process.env.TRANSLUNAR_TEST_PROJECT_ARCHIVE_DESTINATION) {
+        return process.env.TRANSLUNAR_TEST_PROJECT_ARCHIVE_DESTINATION;
+      }
+      const result = await dialog.showSaveDialog(requireWindow(), {
+        title: "Export Translunar project archive",
+        defaultPath: join(app.getPath("documents"), safeName),
+        filters: [
+          {
+            name: "Translunar project archives",
+            extensions: ["tlcat"],
+          },
+        ],
+      });
+      return result.canceled ? null : (result.filePath ?? null);
+    },
+  );
   ipcMain.handle(
     IPC_CHANNELS.selectExport,
     async (event, suggestedName: unknown) => {

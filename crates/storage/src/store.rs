@@ -502,7 +502,9 @@ impl Store {
             "SELECT id, project_id, name, relative_path, format, filter_id, source_sha256,
                     current_version, status, revision, segment_count, degradation_json,
                     imported_at_ms, updated_at_ms
-             FROM documents WHERE project_id = ?1 ORDER BY imported_at_ms, id",
+             FROM documents
+             WHERE project_id = ?1 AND lifecycle = 'active'
+             ORDER BY imported_at_ms, id",
         )?;
         let documents = statement
             .query_map([project_id], row_to_document)?
@@ -689,7 +691,8 @@ impl Store {
     ) -> Result<(Vec<Document>, u32)> {
         ensure_exists(&self.connection, "projects", "project", project_id)?;
         let total = self.connection.query_row(
-            "SELECT COUNT(*) FROM documents WHERE project_id = ?1",
+            "SELECT COUNT(*) FROM documents
+             WHERE project_id = ?1 AND lifecycle = 'active'",
             [project_id],
             |row| row.get::<_, i64>(0),
         )?;
@@ -698,7 +701,7 @@ impl Store {
                     current_version, status, revision, segment_count, degradation_json,
                     imported_at_ms, updated_at_ms
              FROM documents
-             WHERE project_id = ?1
+             WHERE project_id = ?1 AND lifecycle = 'active'
              ORDER BY relative_path, imported_at_ms, id
              LIMIT ?2 OFFSET ?3",
         )?;
@@ -709,6 +712,18 @@ impl Store {
             )?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok((items, to_u32(total)?))
+    }
+
+    pub fn list_all_document_relative_paths(&self, project_id: &str) -> Result<Vec<String>> {
+        ensure_exists(&self.connection, "projects", "project", project_id)?;
+        let mut statement = self.connection.prepare(
+            "SELECT relative_path FROM documents
+             WHERE project_id = ?1 ORDER BY relative_path, id",
+        )?;
+        statement
+            .query_map([project_id], |row| row.get::<_, String>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(StorageError::from)
     }
 
     pub fn list_operations(
@@ -7702,11 +7717,11 @@ fn counts_for_project(connection: &Connection, project_id: &str) -> Result<Segme
             COALESCE(SUM(CASE WHEN s.state = 'draft' THEN 1 ELSE 0 END), 0),
             COALESCE(SUM(CASE WHEN s.state = 'confirmed' THEN 1 ELSE 0 END), 0)
          FROM segments s JOIN documents d ON d.id = s.document_id
-         WHERE d.project_id = ?1",
+         WHERE d.project_id = ?1 AND d.lifecycle = 'active'",
         "SELECT COUNT(*) FROM qa_issues q
          JOIN segments s ON s.id = q.segment_id
          JOIN documents d ON d.id = s.document_id
-         WHERE d.project_id = ?1 AND q.status = 'open'",
+         WHERE d.project_id = ?1 AND d.lifecycle = 'active' AND q.status = 'open'",
         project_id,
     )
 }

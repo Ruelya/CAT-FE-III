@@ -8,6 +8,8 @@ import type {
 } from "@translunar/contracts";
 
 import { BrandMark } from "./BrandMark";
+import { ProjectHome } from "./ProjectHome";
+import { parseStoredSession, type StoredSession } from "./session-utils";
 import { SetupView } from "./SetupView";
 import type { AppSurface } from "./surface-types";
 import { Workbench } from "./Workbench";
@@ -23,14 +25,12 @@ interface WorkspaceData {
   issues: QaIssue[];
 }
 
-interface StoredSession {
-  projectId: string;
-  documentId: string;
-}
+type AppMode = "home" | "setup" | "workspace";
 
 export function App() {
   const [workspace, setWorkspace] = useState<WorkspaceData | null>(null);
   const [restoring, setRestoring] = useState(true);
+  const [mode, setMode] = useState<AppMode>("home");
   const [surface, setSurface] = useState<AppSurface>("workbench");
   const [focusSegmentId, setFocusSegmentId] = useState<string | null>(null);
 
@@ -44,9 +44,13 @@ export function App() {
       }
       try {
         const data = await loadWorkspace(session.projectId, session.documentId);
-        if (!cancelled) setWorkspace(data);
+        if (!cancelled) {
+          setWorkspace(data);
+          setMode("workspace");
+        }
       } catch {
         localStorage.removeItem(SESSION_KEY);
+        if (!cancelled) setMode("home");
       } finally {
         if (!cancelled) setRestoring(false);
       }
@@ -57,19 +61,27 @@ export function App() {
     };
   }, []);
 
-  const openWorkspace = async (projectId: string, documentId: string) => {
-    const data = await loadWorkspace(projectId, documentId);
+  const openWorkspace = async (
+    projectId: string,
+    documentId?: string,
+    segmentId?: string,
+    segmentOrdinal?: number,
+  ) => {
+    const data = await loadWorkspace(projectId, documentId, segmentOrdinal);
     localStorage.setItem(
       SESSION_KEY,
-      JSON.stringify({ projectId, documentId }),
+      JSON.stringify({ projectId, documentId: data.document.id }),
     );
     setWorkspace(data);
+    setMode("workspace");
     setSurface("workbench");
+    setFocusSegmentId(segmentId ?? null);
   };
 
-  const startAnotherProject = () => {
+  const returnHome = () => {
     localStorage.removeItem(SESSION_KEY);
     setWorkspace(null);
+    setMode("home");
     setSurface("workbench");
     setFocusSegmentId(null);
   };
@@ -111,7 +123,16 @@ export function App() {
     );
   }
 
-  if (!workspace) return <SetupView onCreated={openWorkspace} />;
+  if (mode === "home" || !workspace) {
+    if (mode === "setup") {
+      return (
+        <SetupView onCreated={openWorkspace} onCancel={() => setMode("home")} />
+      );
+    }
+    return (
+      <ProjectHome onCreate={() => setMode("setup")} onOpen={openWorkspace} />
+    );
+  }
 
   if (surface !== "workbench") {
     return (
@@ -124,6 +145,10 @@ export function App() {
         onNavigate={setSurface}
         onRefresh={refreshWorkspace}
         onOpenSegment={openSegment}
+        onOpenDocument={(documentId) =>
+          openWorkspace(workspace.snapshot.project.id, documentId)
+        }
+        onReturnHome={returnHome}
       />
     );
   }
@@ -131,7 +156,7 @@ export function App() {
   return (
     <Workbench
       initialWorkspace={workspace}
-      onStartAnotherProject={startAnotherProject}
+      onReturnHome={returnHome}
       onNavigate={navigateFromWorkbench}
       focusSegmentId={focusSegmentId}
     />
@@ -140,28 +165,38 @@ export function App() {
 
 async function loadWorkspace(
   projectId: string,
-  documentId: string,
+  documentId?: string,
+  focusSegmentOrdinal?: number,
 ): Promise<WorkspaceData> {
-  const [snapshot, page, qa] = await Promise.all([
-    window.translunar.invoke("project.get", { projectId }),
+  const snapshot = await window.translunar.invoke("project.get", { projectId });
+  if (snapshot.project.lifecycle === "trash") {
+    throw new Error("This project is in the recycle bin.");
+  }
+  const document =
+    snapshot.documents.find((item) => item.id === documentId) ??
+    snapshot.documents[0];
+  if (!document) throw new Error("This project has no active documents.");
+  const offset =
+    focusSegmentOrdinal === undefined
+      ? 0
+      : Math.max(0, focusSegmentOrdinal - 20);
+  const [page, qa] = await Promise.all([
     window.translunar.invoke("segment.editor.list", {
-      documentId,
+      documentId: document.id,
       query: "",
       field: "both",
       filter: "all",
       sort: "ordinal",
       descending: false,
-      offset: 0,
+      offset,
       limit: 80,
       includeContext: true,
     }),
     window.translunar.invoke("qa.list", {
-      documentId,
+      documentId: document.id,
       includeResolved: false,
     }),
   ]);
-  const document = snapshot.documents.find((item) => item.id === documentId);
-  if (!document) throw new Error("The active document no longer exists.");
   return {
     snapshot,
     document,
@@ -173,21 +208,7 @@ async function loadWorkspace(
 
 function readSession(): StoredSession | null {
   const value = localStorage.getItem(SESSION_KEY);
-  if (!value) return null;
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      "projectId" in parsed &&
-      typeof parsed.projectId === "string" &&
-      "documentId" in parsed &&
-      typeof parsed.documentId === "string"
-    ) {
-      return { projectId: parsed.projectId, documentId: parsed.documentId };
-    }
-  } catch {
-    return null;
-  }
-  return null;
+  const session = parseStoredSession(value);
+  if (!session && value !== null) localStorage.removeItem(SESSION_KEY);
+  return session;
 }

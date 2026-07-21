@@ -9,38 +9,38 @@
 
 ## 1. Lifecycle Core And Storage
 
-- [ ] Add lifecycle-core models and deterministic re-import matching,
+- [x] Add lifecycle-core models and deterministic re-import matching,
       word/CJK/repetition counting, weighting and archive manifests.
-- [ ] Add migration 10 tables/indexes/default analysis profile and fresh/
+- [x] Add migration 10 tables/indexes/default analysis profile and fresh/
       upgrade/rollback/reopen coverage.
-- [ ] Implement template CRUD/resolution, document versions/re-import apply,
+- [x] Implement template CRUD/resolution, document versions/re-import apply,
       recycle/history, search reconciliation and analysis/analytics queries.
 
 ## 2. Engine And Protocol
 
-- [ ] Add batch file/folder discovery/import with bounded diagnostics and
+- [x] Add batch file/folder discovery/import with bounded diagnostics and
       preserved relative paths; retain legacy imports.
-- [ ] Add template, re-import preview/apply, archive export/restore, recycle,
+- [x] Add template, re-import preview/apply, archive export/restore, recycle,
       history, search, analysis and analytics RPC/capability contracts.
-- [ ] Implement versioned hash-validated no-clobber project archives and atomic
+- [x] Implement versioned hash-validated no-clobber project archives and atomic
       restore without credentials/shared external asset leakage.
 
 ## 3. Desktop
 
-- [ ] Build three-step setup and project home with multi-file progress,
+- [x] Build three-step setup and project home with multi-file progress,
       add-file/folder/drag-drop diagnostics and recent/lifecycle actions.
-- [ ] Build templates, re-import preview, archive/restore, recycle/history and
+- [x] Build templates, re-import preview, archive/restore, recycle/history and
       global search with direct project/document/segment navigation.
-- [ ] Build analysis/weighted effort/progress/productivity/AI/asset views with
+- [x] Build analysis/weighted effort/progress/productivity/AI/asset views with
       unavailable/stale states and no billing semantics.
 
 ## 4. Integration And Finish
 
-- [ ] Extend storage/Engine tests and stdio smoke through multi-file/template/
+- [x] Extend storage/Engine tests and stdio smoke through multi-file/template/
       re-import/search/analysis/recycle/archive/restart flows.
-- [ ] Extend real-Engine Electron E2E and three-viewport screenshots/overflow/
+- [x] Extend real-Engine Electron E2E and three-viewport screenshots/overflow/
       console gates; retain 10,000-row and panel performance checks.
-- [ ] Run full Rust/contracts/smoke/Windows GNU/Node 22/Electron gates, update
+- [x] Run full Rust/contracts/smoke/Windows GNU/Node 22/Electron gates, update
       specs, commit and archive.
 
 ## Validation Commands
@@ -71,3 +71,30 @@ cd apps/desktop && pnpm exec playwright test
 - Recycle and history preserve inverse information until explicit purge.
 - Renderer never becomes the source of truth for matching, archive validity,
   counts, weighting, productivity or asset health.
+
+## Completion Record
+
+This archived implementation record is completed through corrective task
+`.trellis/tasks/07-20-project-lifecycle-acceptance`, which was created after
+the original archive exposed missing desktop and process-level evidence. The
+corrective task preserves the original PRD rather than replacing it.
+
+Verified evidence (2026-07-21):
+
+- Node 22.17.0 / pnpm 10.18.3: format, ESLint, typecheck, 15 Vitest tests,
+  and production desktop build passed.
+- `/home/ubuntu/workspaces/cat-lifecycle-acceptance` (isolated synchronized
+  tree, no `.git`): `pnpm format:check`, `pnpm lint`, `pnpm test`,
+  `pnpm contracts:check`, Rust fmt/clippy/workspace tests, Engine smoke, and
+  Linux/Windows GNU release builds passed.
+- Windows GNU Engine SHA-256:
+  `b2cd0e0fa8fffa215efdbb460632010d287a39df5d18a0ce22f8cad737fa813d`.
+- Real-Engine Electron E2E passed 7 tests with 1 existing PDF prerequisite
+  branch skipped; lifecycle, performance, geometry, overflow, and
+  console/page-error assertions were included.
+- Project Home and Project Insights screenshots at 1250x744, 1680x942, and
+  1920x1080 were captured and manually inspected.
+
+The Trellis `mem` executable was unavailable because its installed module was
+missing; repository context scripts supplied the equivalent checks. This is a
+tooling note, not an unchecked implementation item.

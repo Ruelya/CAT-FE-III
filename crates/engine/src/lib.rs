@@ -389,7 +389,11 @@ fn read_validated_project_archive(path: &Path) -> Result<ValidatedProjectArchive
                 ));
             }
             let mut bytes = Vec::with_capacity(usize::try_from(entry.size()).unwrap_or(0));
-            entry.read_to_end(&mut bytes)?;
+            entry.read_to_end(&mut bytes).map_err(|error| {
+                EngineError::InvalidRequest(format!(
+                    "invalid project archive manifest data: {error}"
+                ))
+            })?;
             manifest_bytes = Some(bytes);
             continue;
         }
@@ -407,17 +411,22 @@ fn read_validated_project_archive(path: &Path) -> Result<ValidatedProjectArchive
             ));
         }
         let mut bytes = Vec::with_capacity(usize::try_from(entry.size()).unwrap_or(0));
-        entry.read_to_end(&mut bytes)?;
+        entry.read_to_end(&mut bytes).map_err(|error| {
+            EngineError::InvalidRequest(format!("invalid project archive entry data: {error}"))
+        })?;
         if payloads.insert(name, bytes).is_some() {
             return Err(EngineError::InvalidRequest(
                 "project archive contains duplicate entry paths".to_string(),
             ));
         }
     }
+    let manifest_bytes = manifest_bytes.ok_or_else(|| {
+        EngineError::InvalidRequest("project archive manifest is missing".to_string())
+    })?;
     let manifest: ProjectArchiveManifest =
-        serde_json::from_slice(&manifest_bytes.ok_or_else(|| {
-            EngineError::InvalidRequest("project archive manifest is missing".to_string())
-        })?)?;
+        serde_json::from_slice(&manifest_bytes).map_err(|error| {
+            EngineError::InvalidRequest(format!("invalid project archive manifest: {error}"))
+        })?;
     manifest
         .validate()
         .map_err(|error| EngineError::InvalidRequest(error.to_string()))?;
@@ -445,7 +454,9 @@ fn read_validated_project_archive(path: &Path) -> Result<ValidatedProjectArchive
     let project_bytes = payloads.get("project.json").ok_or_else(|| {
         EngineError::InvalidRequest("project archive data is missing".to_string())
     })?;
-    let data: ProjectArchiveData = serde_json::from_slice(project_bytes)?;
+    let data: ProjectArchiveData = serde_json::from_slice(project_bytes).map_err(|error| {
+        EngineError::InvalidRequest(format!("invalid project archive data: {error}"))
+    })?;
     if data.project.id != manifest.project_id
         || data.project.name != manifest.project_name
         || data.project.source_locale != manifest.source_locale
@@ -1873,16 +1884,11 @@ impl EngineService {
                 "batch import selection contains no files".to_string(),
             ));
         }
-        let mut seen = BTreeSet::new();
-        let mut offset = 0_u32;
-        loop {
-            let (documents, total) = self.store.list_documents(&params.project_id, offset, 500)?;
-            seen.extend(documents.into_iter().map(|document| document.relative_path));
-            offset = offset.saturating_add(500);
-            if offset >= total {
-                break;
-            }
-        }
+        let mut seen = self
+            .store
+            .list_all_document_relative_paths(&params.project_id)?
+            .into_iter()
+            .collect::<BTreeSet<_>>();
         let mut selections = Vec::with_capacity(expanded.len());
         for (path, relative_path) in expanded {
             let display = path.to_string_lossy().into_owned();
@@ -7023,15 +7029,14 @@ mod tests {
             })
             .expect("list projects before corrupt restore")
             .total;
-        assert!(
-            service
-                .restore_project_archive(ProjectArchiveRestoreParams {
-                    archive_path: corrupt.to_string_lossy().into_owned(),
-                    dependency_remaps: BTreeMap::new(),
-                    actor: "tester".to_string(),
-                })
-                .is_err()
-        );
+        let corrupt_error = service
+            .restore_project_archive(ProjectArchiveRestoreParams {
+                archive_path: corrupt.to_string_lossy().into_owned(),
+                dependency_remaps: BTreeMap::new(),
+                actor: "tester".to_string(),
+            })
+            .expect_err("corrupt archive should be rejected");
+        assert!(matches!(corrupt_error, EngineError::InvalidRequest(_)));
         assert_eq!(
             service
                 .list_projects(ProjectListParams {
