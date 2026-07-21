@@ -204,3 +204,36 @@ Implemented lifecycle-core, migration 10 storage, multi-file setup, templates, r
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: Complete project lifecycle acceptance
+
+**Date**: 2026-07-21
+**Task**: Complete project lifecycle acceptance
+**Branch**: `master`
+
+### Summary
+
+Completed and verified the full desktop project lifecycle acceptance surface, lifecycle Engine regressions, stdio smoke, real-Engine Electron E2E, executable specs, and archived the corrective task.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c1688ba` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
