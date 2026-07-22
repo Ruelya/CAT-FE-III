@@ -1031,6 +1031,11 @@ async function main() {
       "split TXT should collapse to its safe structural path on export",
     );
 
+    const alignmentEvidence = await exerciseAlignmentBeforeRestart(
+      processHandle,
+      dataDirectory,
+      project.id,
+    );
     const interopEvidence = await exerciseInteropBeforeRestart(
       processHandle,
       dataDirectory,
@@ -1044,6 +1049,7 @@ async function main() {
       client: { name: "engine-smoke", version: "0.1.0" },
     });
     await verifyInteropAfterRestart(processHandle, interopEvidence);
+    await verifyAlignmentAfterRestart(processHandle, alignmentEvidence);
     const persistedPreferences = await processHandle.call(
       "editor.preferences.get",
       {},
@@ -1416,6 +1422,33 @@ async function main() {
       "AI pretranslation should be registered as a pipeline step",
     );
 
+    const alignmentApplyEvidence = await exerciseAlignmentBeforeApplyRestart(
+      processHandle,
+      dataDirectory,
+      project.id,
+      alignmentEvidence,
+      aiProfile.id,
+    );
+    await processHandle.stop();
+    processHandle = await EngineProcess.start(binary, dataDirectory);
+    await processHandle.call("engine.initialize", {
+      protocolVersion: 1,
+      client: { name: "engine-smoke", version: "0.1.0" },
+    });
+    const restoredCredential = await processHandle.call("ai.credential.set", {
+      profileId: aiProfile.id,
+      secret: "engine-smoke-secret",
+    });
+    assert(
+      restoredCredential.present,
+      "AI fixture credential should be restored after alignment restart",
+    );
+    await verifyAlignmentAfterApplyRestart(
+      processHandle,
+      project.id,
+      alignmentApplyEvidence,
+    );
+
     const qaProfiles = await processHandle.call("qa.profile.list", {
       projectId: project.id,
       offset: 0,
@@ -1750,6 +1783,774 @@ async function main() {
     await rm(dataDirectory, { recursive: true, force: true });
     await rm(backupParent, { recursive: true, force: true });
   }
+}
+
+async function exerciseAlignmentBeforeRestart(
+  processHandle,
+  dataDirectory,
+  projectId,
+) {
+  const sourcePath = join(dataDirectory, "alignment-source.txt");
+  const targetPath = join(dataDirectory, "alignment-target.txt");
+  writeFileSync(
+    sourcePath,
+    "Invoice 2026 is due.\n\nPay within 30 days.\n",
+    "utf8",
+  );
+  writeFileSync(
+    targetPath,
+    "2026 年发票已到期。\n\n请在 30 天内付款。\n",
+    "utf8",
+  );
+  const sourceImport = await processHandle.call("document.import", {
+    projectId,
+    sourcePath,
+    relativePath: "alignment/source.txt",
+    filterId: "builtin.txt",
+    options: { segmentationMode: "paragraph" },
+  });
+  const targetImport = await processHandle.call("document.import", {
+    projectId,
+    sourcePath: targetPath,
+    relativePath: "alignment/target.txt",
+    filterId: "builtin.txt",
+    options: { segmentationMode: "paragraph" },
+  });
+  const sourceSegments = await processHandle.call("segment.list", {
+    documentId: sourceImport.document.id,
+    offset: 0,
+    limit: 20,
+  });
+  const targetSegments = await processHandle.call("segment.list", {
+    documentId: targetImport.document.id,
+    offset: 0,
+    limit: 20,
+  });
+  assert(
+    sourceSegments.items.length === 2 && targetSegments.items.length === 2,
+    "alignment fixtures should each contain two ordered paragraphs",
+  );
+
+  const projectSnapshot = await processHandle.call("project.get", {
+    projectId,
+  });
+  const created = await processHandle.call("alignment.session.create", {
+    projectId,
+    sourceDocumentId: sourceImport.document.id,
+    targetDocumentId: targetImport.document.id,
+    expectedProjectRevision: projectSnapshot.project.revision,
+    expectedSourceDocumentRevision: sourceImport.document.revision,
+    expectedTargetDocumentRevision: targetImport.document.revision,
+    actor: "engine-smoke",
+    reason: "Create deterministic alignment smoke session",
+    correlationId: "engine-smoke-alignment-create",
+  });
+  assert(
+    created.linkCount > 0 && created.workUnits > 0,
+    "alignment creation should return bounded deterministic candidates",
+  );
+  const initial = await processHandle.call("alignment.session.get", {
+    sessionId: created.session.id,
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    initial.total === initial.links.length && initial.links.length > 0,
+    "alignment session should page every initial candidate",
+  );
+
+  const canonicalReplacement = sourceSegments.items.map((segment, index) => ({
+    sourceSegmentIds: [segment.id],
+    targetSegmentIds: [targetSegments.items[index].id],
+  }));
+  const canonical = await processHandle.call("alignment.session.update", {
+    sessionId: initial.session.id,
+    expectedSessionRevision: initial.session.revision,
+    mutation: {
+      kind: "replaceLinks",
+      links: initial.links.map((link) => ({
+        linkId: link.id,
+        expectedRevision: link.revision,
+      })),
+      replacement: canonicalReplacement,
+    },
+    actor: "engine-smoke",
+    reason: "Normalize the smoke partition into two reviewed links",
+    correlationId: "engine-smoke-alignment-normalize",
+  });
+  assert(
+    canonical.links.length === 2 &&
+      canonical.links.every(
+        (link) =>
+          link.origin === "manual" &&
+          link.sourceSegmentIds.length === 1 &&
+          link.targetSegmentIds.length === 1,
+      ),
+    "manual replacement should produce two one-to-one proposed links",
+  );
+
+  const merged = await processHandle.call("alignment.session.update", {
+    sessionId: canonical.session.id,
+    expectedSessionRevision: canonical.session.revision,
+    mutation: {
+      kind: "replaceLinks",
+      links: canonical.links.map((link) => ({
+        linkId: link.id,
+        expectedRevision: link.revision,
+      })),
+      replacement: [
+        {
+          sourceSegmentIds: sourceSegments.items.map((segment) => segment.id),
+          targetSegmentIds: targetSegments.items.map((segment) => segment.id),
+        },
+      ],
+    },
+    actor: "engine-smoke",
+    reason: "Exercise an ordered manual alignment merge",
+    correlationId: "engine-smoke-alignment-merge",
+  });
+  assert(
+    merged.links.length === 1 && merged.links[0].origin === "manual",
+    "manual merge should replace the selected partition atomically",
+  );
+  await assertRpcError(
+    () =>
+      processHandle.call("alignment.session.update", {
+        sessionId: merged.session.id,
+        expectedSessionRevision: merged.session.revision,
+        mutation: {
+          kind: "setStatus",
+          linkId: merged.links[0].id,
+          expectedLinkRevision: merged.links[0].revision + 1,
+          status: "confirmed",
+        },
+        actor: "engine-smoke",
+        reason: "Prove a stale link revision cannot mutate alignment state",
+      }),
+    "conflict",
+    "stale alignment edit",
+  );
+  const afterStale = await processHandle.call("alignment.session.get", {
+    sessionId: merged.session.id,
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    afterStale.session.revision === merged.session.revision &&
+      afterStale.links.length === 1 &&
+      afterStale.links[0].status === "proposed",
+    "stale alignment edit should leave the session and link unchanged",
+  );
+
+  const split = await processHandle.call("alignment.session.update", {
+    sessionId: afterStale.session.id,
+    expectedSessionRevision: afterStale.session.revision,
+    mutation: {
+      kind: "replaceLinks",
+      links: [
+        {
+          linkId: afterStale.links[0].id,
+          expectedRevision: afterStale.links[0].revision,
+        },
+      ],
+      replacement: canonicalReplacement,
+    },
+    actor: "engine-smoke",
+    reason: "Split the reviewed smoke partition before restart",
+    correlationId: "engine-smoke-alignment-split",
+  });
+  assert(
+    split.links.length === 2 &&
+      split.links.every((link) => link.status === "proposed"),
+    "manual split should restore two proposed links",
+  );
+  return {
+    sessionId: split.session.id,
+    sessionRevision: split.session.revision,
+    sourceDocumentId: sourceImport.document.id,
+    targetDocumentId: targetImport.document.id,
+    sourceSegmentIds: sourceSegments.items.map((segment) => segment.id),
+    targetSegmentIds: targetSegments.items.map((segment) => segment.id),
+    linkIds: split.links.map((link) => link.id),
+  };
+}
+
+async function verifyAlignmentAfterRestart(processHandle, evidence) {
+  const recovered = await processHandle.call("alignment.session.get", {
+    sessionId: evidence.sessionId,
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    recovered.session.status === "open" &&
+      recovered.session.revision === evidence.sessionRevision &&
+      JSON.stringify(recovered.links.map((link) => link.id)) ===
+        JSON.stringify(evidence.linkIds),
+    "manual alignment partition should persist unchanged through restart",
+  );
+  assert(
+    JSON.stringify(recovered.links.flatMap((link) => link.sourceSegmentIds)) ===
+      JSON.stringify(evidence.sourceSegmentIds) &&
+      JSON.stringify(
+        recovered.links.flatMap((link) => link.targetSegmentIds),
+      ) === JSON.stringify(evidence.targetSegmentIds),
+    "recovered alignment should retain ordered one-owner membership",
+  );
+  const sessions = await processHandle.call("alignment.session.list", {
+    projectId: recovered.session.projectId,
+    status: "open",
+    offset: 0,
+    limit: 50,
+  });
+  assert(
+    sessions.items.some((session) => session.id === evidence.sessionId),
+    "open alignment session should remain pageable after restart",
+  );
+}
+
+async function exerciseAlignmentBeforeApplyRestart(
+  processHandle,
+  dataDirectory,
+  projectId,
+  alignmentEvidence,
+  profileId,
+) {
+  const openSession = await processHandle.call("alignment.session.get", {
+    sessionId: alignmentEvidence.sessionId,
+    offset: 0,
+    limit: 100,
+  });
+  const refinement = await processHandle.call("alignment.session.refine", {
+    sessionId: openSession.session.id,
+    expectedSessionRevision: openSession.session.revision,
+    links: openSession.links.map((link) => ({
+      linkId: link.id,
+      expectedRevision: link.revision,
+    })),
+    profileId,
+    maxAttempts: 1,
+    actor: "engine-smoke",
+    reason: "Exercise strict ID-only alignment refinement",
+    correlationId: "engine-smoke-alignment-refine",
+  });
+  assert(
+    refinement.action === "alignment_refinement",
+    "alignment refinement should start as a typed AI run",
+  );
+  const completedRefinement = await waitForAiRun(processHandle, refinement.id);
+  assert(
+    completedRefinement.status === "succeeded",
+    `alignment refinement should succeed, received ${completedRefinement.status}`,
+  );
+  const refined = await processHandle.call("alignment.session.get", {
+    sessionId: alignmentEvidence.sessionId,
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    refined.session.revision === openSession.session.revision + 1 &&
+      refined.links.length === 1 &&
+      refined.links[0].origin === "ai" &&
+      refined.links[0].status === "proposed" &&
+      refined.links[0].evidence.some((item) => item.kind === "aiRefinement"),
+    "AI refinement should persist one proposed ID-only partition",
+  );
+
+  let confirmedState = refined;
+  for (const link of refined.links) {
+    confirmedState = await processHandle.call("alignment.session.update", {
+      sessionId: confirmedState.session.id,
+      expectedSessionRevision: confirmedState.session.revision,
+      mutation: {
+        kind: "setStatus",
+        linkId: link.id,
+        expectedLinkRevision: link.revision,
+        status: "confirmed",
+      },
+      actor: "engine-smoke",
+      reason: "Confirm the reviewed AI alignment suggestion",
+      correlationId: "engine-smoke-alignment-confirm",
+    });
+  }
+  const confirmedLinks = confirmedState.links.filter(
+    (link) =>
+      link.status === "confirmed" &&
+      link.sourceText.trim() &&
+      link.targetText.trim(),
+  );
+  assert(
+    confirmedLinks.length === 1,
+    "one non-empty bilingual alignment link should be explicitly confirmed",
+  );
+
+  const libraries = await processHandle.call("tm.library.list", {
+    projectId,
+    offset: 0,
+    limit: 100,
+  });
+  const library = libraries.items.find((item) => item.writable);
+  assert(library, "alignment apply should find a writable project TM");
+  const applyRequest = {
+    sessionId: confirmedState.session.id,
+    libraryId: library.id,
+    expectedSessionRevision: confirmedState.session.revision,
+    expectedLibraryRevision: library.revision,
+    links: confirmedLinks.map((link) => ({
+      linkId: link.id,
+      expectedRevision: link.revision,
+    })),
+    actor: "engine-smoke",
+    reason: "Apply one explicitly confirmed alignment link",
+    correlationId: "engine-smoke-alignment-apply",
+  };
+  await assertRpcError(
+    () =>
+      processHandle.call("alignment.session.apply", {
+        ...applyRequest,
+        expectedSessionRevision: applyRequest.expectedSessionRevision - 1,
+      }),
+    "conflict",
+    "stale alignment apply",
+  );
+  const librariesAfterStale = await processHandle.call("tm.library.list", {
+    projectId,
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    librariesAfterStale.items.find((item) => item.id === library.id)
+      ?.revision === library.revision,
+    "stale alignment apply should not advance the TM library revision",
+  );
+  const applied = await processHandle.call(
+    "alignment.session.apply",
+    applyRequest,
+  );
+  assert(
+    applied.status === "applied" &&
+      applied.selectedCount === confirmedLinks.length &&
+      applied.insertedCount + applied.duplicateCount ===
+        applied.selectedCount &&
+      applied.tmUnitIds.length === applied.insertedCount,
+    "alignment apply should atomically return its terminal TM result",
+  );
+
+  const currentProject = await processHandle.call("project.get", {
+    projectId,
+  });
+  const alignmentCorpus = await processHandle.call("corpus.fromAlignment", {
+    projectId,
+    expectedProjectRevision: currentProject.project.revision,
+    sessionId: confirmedState.session.id,
+    expectedSessionRevision: applied.sessionRevision,
+    name: "Smoke alignment corpus",
+    links: applyRequest.links,
+    actor: "engine-smoke",
+    reason: "Mount the confirmed alignment as a reference corpus",
+    correlationId: "engine-smoke-corpus-alignment",
+  });
+  assert(
+    alignmentCorpus.corpus.sourceKind === "alignment" &&
+      alignmentCorpus.corpus.entryCount === confirmedLinks.length,
+    "confirmed alignment should materialize as a provenance-bearing corpus",
+  );
+
+  const sourceCorpusPath = join(dataDirectory, "alignment-source-corpus.txt");
+  const bilingualCorpusPath = join(
+    dataDirectory,
+    "alignment-bilingual-corpus.xlf",
+  );
+  const emptyCorpusPath = join(dataDirectory, "alignment-empty-corpus.txt");
+  writeFileSync(
+    sourceCorpusPath,
+    "Invoice 2026 is due.\n\nPayment remains due in 30 days.\n",
+    "utf8",
+  );
+  writeFileSync(
+    bilingualCorpusPath,
+    '<xliff version="2.1" srcLang="en-US" trgLang="zh-CN" xmlns="urn:oasis:names:tc:xliff:document:2.1"><file id="f"><unit id="u"><segment id="s"><source>Invoice 2026 is due.</source><target>2026 年发票已到期。</target></segment></unit></file></xliff>',
+    "utf8",
+  );
+  writeFileSync(emptyCorpusPath, "", "utf8");
+
+  const sourceProject = await processHandle.call("project.get", { projectId });
+  const sourceCorpus = await processHandle.call("corpus.import", {
+    projectId,
+    expectedProjectRevision: sourceProject.project.revision,
+    sourcePath: sourceCorpusPath,
+    name: "Smoke source corpus",
+    kind: "monolingualSource",
+    sourceLocale: sourceProject.project.sourceLocale,
+    targetLocale: sourceProject.project.targetLocale,
+    filterId: "builtin.txt",
+    options: { segmentationMode: "paragraph" },
+    actor: "engine-smoke",
+    reason: "Import a monolingual source reference corpus",
+    correlationId: "engine-smoke-corpus-source",
+  });
+  assert(
+    sourceCorpus.corpus.entryCount === 2 &&
+      sourceCorpus.corpus.managedSourcePath &&
+      sourceCorpus.corpus.inputSha256?.length === 64,
+    "source corpus import should retain entries and managed-source metadata",
+  );
+
+  const bilingualProject = await processHandle.call("project.get", {
+    projectId,
+  });
+  const bilingualCorpus = await processHandle.call("corpus.import", {
+    projectId,
+    expectedProjectRevision: bilingualProject.project.revision,
+    sourcePath: bilingualCorpusPath,
+    name: "Smoke bilingual corpus",
+    kind: "bilingual",
+    sourceLocale: bilingualProject.project.sourceLocale,
+    targetLocale: bilingualProject.project.targetLocale,
+    filterId: "builtin.xliff",
+    options: {},
+    actor: "engine-smoke",
+    reason: "Import a bilingual XLIFF reference corpus",
+    correlationId: "engine-smoke-corpus-bilingual",
+  });
+  assert(
+    bilingualCorpus.corpus.entryCount === 1 &&
+      bilingualCorpus.corpus.inputFilterId === "builtin.xliff",
+    "bilingual corpus import should require an authoritative target",
+  );
+
+  const corpusCountBeforeInvalid = await processHandle.call("corpus.list", {
+    projectId,
+    status: "active",
+    offset: 0,
+    limit: 100,
+  });
+  const managedCountBeforeInvalid = countFiles(join(dataDirectory, "sources"));
+  const invalidProject = await processHandle.call("project.get", { projectId });
+  await assertRpcError(
+    () =>
+      processHandle.call("corpus.import", {
+        projectId,
+        expectedProjectRevision: invalidProject.project.revision,
+        sourcePath: emptyCorpusPath,
+        name: "Empty corpus should roll back",
+        kind: "monolingualSource",
+        sourceLocale: invalidProject.project.sourceLocale,
+        targetLocale: invalidProject.project.targetLocale,
+        filterId: "builtin.txt",
+        options: {},
+        actor: "engine-smoke",
+        reason: "Prove empty corpus import cleanup",
+      }),
+    "unsupported_corpus_input",
+    "empty corpus import",
+  );
+  const corpusCountAfterInvalid = await processHandle.call("corpus.list", {
+    projectId,
+    status: "active",
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    corpusCountAfterInvalid.total === corpusCountBeforeInvalid.total &&
+      countFiles(join(dataDirectory, "sources")) === managedCountBeforeInvalid,
+    "failed corpus import should leave no row or managed-source residue",
+  );
+
+  const preRestartSearch = await processHandle.call("corpus.search", {
+    projectId,
+    query: "Invoice 2026",
+    side: "both",
+    corpusIds: [
+      alignmentCorpus.corpus.id,
+      sourceCorpus.corpus.id,
+      bilingualCorpus.corpus.id,
+    ],
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    preRestartSearch.total >= 3 &&
+      preRestartSearch.items.every(
+        (hit) => hit.entry.structuralPath && hit.entry.provenance,
+      ),
+    "corpus search should return ranked file/path provenance before restart",
+  );
+  return {
+    alignment: alignmentEvidence,
+    applyRequest,
+    applied,
+    refinementRunId: refinement.id,
+    alignmentCorpusId: alignmentCorpus.corpus.id,
+    sourceCorpusId: sourceCorpus.corpus.id,
+    bilingualCorpusId: bilingualCorpus.corpus.id,
+    managedSourceFiles: [
+      sourceCorpus.corpus.managedSourcePath,
+      bilingualCorpus.corpus.managedSourcePath,
+    ].map((path) => resolve(dataDirectory, path)),
+    preRestartSearch: preRestartSearch.items.map(corpusHitProjection),
+  };
+}
+
+async function verifyAlignmentAfterApplyRestart(
+  processHandle,
+  projectId,
+  evidence,
+) {
+  const repeatedApply = await processHandle.call(
+    "alignment.session.apply",
+    evidence.applyRequest,
+  );
+  assert(
+    repeatedApply.operationId === evidence.applied.operationId &&
+      repeatedApply.sessionRevision === evidence.applied.sessionRevision &&
+      repeatedApply.libraryRevision === evidence.applied.libraryRevision &&
+      JSON.stringify(repeatedApply.tmUnitIds) ===
+        JSON.stringify(evidence.applied.tmUnitIds),
+    "identical alignment apply should return its terminal result after restart",
+  );
+  const terminal = await processHandle.call("alignment.session.get", {
+    sessionId: evidence.alignment.sessionId,
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    terminal.session.status === "applied" &&
+      terminal.session.terminalResult?.operationId ===
+        evidence.applied.operationId,
+    "applied alignment session should retain its terminal result",
+  );
+
+  const activeCorpora = await processHandle.call("corpus.list", {
+    projectId,
+    status: "active",
+    offset: 0,
+    limit: 100,
+  });
+  const corpusIds = [
+    evidence.alignmentCorpusId,
+    evidence.sourceCorpusId,
+    evidence.bilingualCorpusId,
+  ];
+  assert(
+    corpusIds.every((id) =>
+      activeCorpora.items.some((corpus) => corpus.id === id),
+    ),
+    "alignment and file corpora should remain active after restart",
+  );
+  const recoveredSearch = await processHandle.call("corpus.search", {
+    projectId,
+    query: "Invoice 2026",
+    side: "both",
+    corpusIds,
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    JSON.stringify(recoveredSearch.items.map(corpusHitProjection)) ===
+      JSON.stringify(evidence.preRestartSearch),
+    "corpus ranking and provenance should be stable through restart",
+  );
+  const alignmentHit = recoveredSearch.items.find(
+    (hit) => hit.corpus.id === evidence.alignmentCorpusId,
+  );
+  assert(
+    alignmentHit?.entry.provenance?.alignmentSessionId ===
+      evidence.alignment.sessionId,
+    "alignment corpus search should expose its session provenance",
+  );
+
+  const sourceCorpus = activeCorpora.items.find(
+    (corpus) => corpus.id === evidence.sourceCorpusId,
+  );
+  assert(sourceCorpus, "source corpus should be available for reindex");
+  const sourceSearchBefore = await processHandle.call("corpus.search", {
+    projectId,
+    query: "Invoice 2026",
+    side: "source",
+    corpusIds: [sourceCorpus.id],
+    offset: 0,
+    limit: 100,
+  });
+  const reindexed = await processHandle.call("corpus.reindex", {
+    corpusId: sourceCorpus.id,
+    expectedRevision: sourceCorpus.revision,
+    actor: "engine-smoke",
+    reason: "Rebuild the source corpus index deterministically",
+    correlationId: "engine-smoke-corpus-reindex",
+  });
+  const sourceSearchAfter = await processHandle.call("corpus.search", {
+    projectId,
+    query: "Invoice 2026",
+    side: "source",
+    corpusIds: [sourceCorpus.id],
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    reindexed.corpus.revision === sourceCorpus.revision + 1 &&
+      JSON.stringify(sourceSearchAfter.items.map(corpusHitProjection)) ===
+        JSON.stringify(sourceSearchBefore.items.map(corpusHitProjection)),
+    "corpus reindex should preserve the authoritative search projection",
+  );
+  await assertRpcError(
+    () =>
+      processHandle.call("corpus.reindex", {
+        corpusId: sourceCorpus.id,
+        expectedRevision: sourceCorpus.revision,
+        actor: "engine-smoke",
+        reason: "Prove stale corpus reindex rollback",
+      }),
+    "conflict",
+    "stale corpus reindex",
+  );
+  const sourceSearchAfterStale = await processHandle.call("corpus.search", {
+    projectId,
+    query: "Invoice 2026",
+    side: "source",
+    corpusIds: [sourceCorpus.id],
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    JSON.stringify(sourceSearchAfterStale.items.map(corpusHitProjection)) ===
+      JSON.stringify(sourceSearchAfter.items.map(corpusHitProjection)),
+    "stale corpus reindex should leave the rebuilt projection unchanged",
+  );
+
+  const bilingualSearch = await processHandle.call("corpus.search", {
+    projectId,
+    query: "发票已到期",
+    side: "target",
+    corpusIds: [evidence.bilingualCorpusId],
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    bilingualSearch.total === 1 &&
+      bilingualSearch.items[0].matchedSide === "target" &&
+      bilingualSearch.items[0].entry.targetText,
+    "bilingual corpus should search its authoritative target side",
+  );
+  const concordance = await processHandle.call("tm.concordance", {
+    projectId,
+    query: "Invoice 2026",
+    side: "source",
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    concordance.total >= 1 &&
+      concordance.corpusTotal >= 3 &&
+      concordance.corpusHits.some(
+        (hit) => hit.corpus.id === evidence.alignmentCorpusId,
+      ),
+    "TM concordance should add authoritative corpus hits without replacing TM hits",
+  );
+
+  const sourceSegments = await processHandle.call("segment.list", {
+    documentId: evidence.alignment.sourceDocumentId,
+    offset: 0,
+    limit: 20,
+  });
+  const groundingSegment = sourceSegments.items.find(
+    (segment) => segment.id === evidence.alignment.sourceSegmentIds[0],
+  );
+  assert(groundingSegment, "alignment source segment should survive restart");
+  const grounding = await processHandle.call("ai.grounding.preview", {
+    projectId,
+    segmentId: groundingSegment.id,
+    expectedRevision: groundingSegment.revision,
+    action: "translate",
+    prompt: "Inspect corpus grounding for the alignment smoke",
+    options: {
+      ...defaultGroundingOptions(),
+      includeCorpus: true,
+      corpusTopN: 5,
+    },
+  });
+  const corpusSection = grounding.bundle.sections.find(
+    (section) => section.id === "corpus",
+  );
+  assert(
+    corpusSection?.itemCount >= 1 &&
+      corpusSection.text.includes(evidence.alignmentCorpusId),
+    "AI grounding should include bounded visible corpus provenance",
+  );
+
+  const sourceTextBeforeRemove = groundingSegment.sourceText;
+  for (const corpusId of corpusIds) {
+    const current = await processHandle.call("corpus.list", {
+      projectId,
+      status: "active",
+      offset: 0,
+      limit: 100,
+    });
+    const corpus = current.items.find((item) => item.id === corpusId);
+    assert(corpus, `active corpus ${corpusId} should be removable`);
+    const removed = await processHandle.call("corpus.remove", {
+      corpusId,
+      expectedRevision: corpus.revision,
+      actor: "engine-smoke",
+      reason: "Remove the smoke corpus without mutating source assets",
+      correlationId: `engine-smoke-corpus-remove-${corpusId}`,
+    });
+    assert(
+      removed.corpus.status === "removed",
+      "corpus removal should return a terminal removed record",
+    );
+  }
+  const activeAfterRemove = await processHandle.call("corpus.list", {
+    projectId,
+    status: "active",
+    offset: 0,
+    limit: 100,
+  });
+  const searchAfterRemove = await processHandle.call("corpus.search", {
+    projectId,
+    query: "Invoice 2026",
+    side: "both",
+    corpusIds: [],
+    offset: 0,
+    limit: 100,
+  });
+  const concordanceAfterRemove = await processHandle.call("tm.concordance", {
+    projectId,
+    query: "Invoice 2026",
+    side: "source",
+    offset: 0,
+    limit: 100,
+  });
+  const sourceSegmentsAfterRemove = await processHandle.call("segment.list", {
+    documentId: evidence.alignment.sourceDocumentId,
+    offset: 0,
+    limit: 20,
+  });
+  assert(
+    activeAfterRemove.total === 0 &&
+      searchAfterRemove.total === 0 &&
+      concordanceAfterRemove.corpusTotal === 0 &&
+      concordanceAfterRemove.total === concordance.total &&
+      sourceSegmentsAfterRemove.items[0].sourceText === sourceTextBeforeRemove,
+    "corpus removal should isolate search while preserving TM and documents",
+  );
+  assert(
+    evidence.managedSourceFiles.every((path) => existsSync(path)),
+    "removed corpora should retain immutable managed sources until workspace cleanup",
+  );
+}
+
+function corpusHitProjection(hit) {
+  return [
+    hit.corpus.id,
+    hit.entry.id,
+    hit.entry.ordinal,
+    hit.entry.sourceText,
+    hit.entry.targetText,
+    hit.entry.structuralPath,
+    JSON.stringify(hit.entry.provenance),
+    hit.matchedSide,
+    hit.matchKind,
+  ];
 }
 
 async function exerciseInteropBeforeRestart(
@@ -2970,9 +3771,11 @@ function defaultGroundingOptions() {
   return {
     includeTerms: true,
     includeTm: true,
+    includeCorpus: true,
     includeContext: true,
     includeStyle: true,
     tmTopN: 5,
+    corpusTopN: 5,
     contextBefore: 2,
     contextAfter: 2,
     maxChars: 24000,
@@ -3017,10 +3820,38 @@ async function startAiFixture() {
         !body.includes("engine-smoke-secret"),
         "AI credential must not appear in the request body",
       );
+      const alignmentPayload = extractAlignmentFixturePayload(body);
+      const completionChunks = alignmentPayload
+        ? [
+            JSON.stringify({
+              links: [
+                {
+                  sourceSegmentIds: alignmentPayload.sourceSegments.map(
+                    (segment) => segment.id,
+                  ),
+                  targetSegmentIds: alignmentPayload.targetSegments.map(
+                    (segment) => segment.id,
+                  ),
+                  confidenceBasisPoints: 9_300,
+                  evidence:
+                    "The fixture preserves the ordered bilingual partition.",
+                },
+              ],
+            }),
+          ]
+        : ["AI fixture ", "translation"];
       const events = [
-        'data: {"choices":[{"delta":{"content":"AI fixture "}}]}',
-        'data: {"choices":[{"delta":{"content":"translation"}}]}',
-        'data: {"choices":[],"usage":{"prompt_tokens":20,"completion_tokens":4}}',
+        ...completionChunks.map(
+          (content) =>
+            `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}`,
+        ),
+        `data: ${JSON.stringify({
+          choices: [],
+          usage: {
+            prompt_tokens: alignmentPayload ? 24 : 20,
+            completion_tokens: alignmentPayload ? 18 : 4,
+          },
+        })}`,
         "data: [DONE]",
         "",
       ].join("\n\n");
@@ -3044,6 +3875,54 @@ async function startAiFixture() {
     url: `http://127.0.0.1:${address.port}`,
     close: () => new Promise((resolvePromise) => server.close(resolvePromise)),
   };
+}
+
+function extractAlignmentFixturePayload(body) {
+  let request;
+  try {
+    request = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  const findMessage = (value) => {
+    if (typeof value === "string") {
+      return value.includes("<alignment-refinement-data>") ? value : null;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const found = findMessage(item);
+        if (found) return found;
+      }
+      return null;
+    }
+    if (value && typeof value === "object") {
+      for (const item of Object.values(value)) {
+        const found = findMessage(item);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+  const message = findMessage(request);
+  if (!message) return null;
+  const match = message.match(
+    /<alignment-refinement-data>\s*([\s\S]*?)\s*<\/alignment-refinement-data>/,
+  );
+  if (!match) return null;
+  try {
+    const payload = JSON.parse(match[1]);
+    if (
+      !Array.isArray(payload.sourceSegments) ||
+      !Array.isArray(payload.targetSegments) ||
+      payload.sourceSegments.length === 0 ||
+      payload.targetSegments.length === 0
+    ) {
+      return null;
+    }
+    return payload;
+  } catch {
+    return null;
+  }
 }
 
 // The smoke fixture writer intentionally stores entries without compression;

@@ -23,7 +23,7 @@
 - [x] Build the Project Insights Alignment/Corpora workflow, trusted dialog,
       correction controls, terminal/stale/error states, corpus management/search,
       Workbench concordance corpus results, and supported responsive layouts.
-- [ ] Extend stdio smoke through create/edit/restart/refine/apply, corpus import/
+- [x] Extend stdio smoke through create/edit/restart/refine/apply, corpus import/
       search/reindex/remove, grounding, stale/rollback/idempotence, and cleanup.
 - [ ] Add real-Engine Electron E2E and screenshots at 1250x744, 1680x942, and
       1920x1080 with keyboard labels, no overlap/overflow, and no console errors.
