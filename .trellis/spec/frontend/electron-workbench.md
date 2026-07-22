@@ -787,3 +787,144 @@ setSelectedRows(
   ),
 );
 ```
+
+## Alignment And Reference Corpus Desktop Surface
+
+### 1. Scope / Trigger
+
+Use this contract for the Project Insights alignment/corpus workflow, corpus
+file selection, alignment AI polling, alignment-to-TM apply, corpus search, or
+the additive corpus projection in Workbench concordance. Electron owns trusted
+path selection and presentation orchestration only; Engine and Store own
+alignment scoring, revisions, partitions, parsing, indexing, ranking, and
+persistence.
+
+### 2. Signatures
+
+The trusted bridge adds one path selector:
+
+```typescript
+selectCorpusInput(): Promise<string | null>;
+```
+
+Main validates the active sender, honors `TRANSLUNAR_TEST_CORPUS_INPUT` in the
+desktop harness, and otherwise opens the shared supported-document filter.
+Renderer orchestration uses generated contracts for:
+
+```text
+alignment.session.create/get/list/update/refine/apply
+corpus.list/import/fromAlignment/search/reindex/remove
+tm.library.list
+tm.concordance
+ai.provider.list
+ai.run.get/cancel
+```
+
+### 3. Contracts
+
+- Project Insights owns one `AlignmentCorpusPanel` with explicit Alignment and
+  Reference corpora modes. It sends IDs, expected revisions, bounded actor and
+  reason fields, and returned link selections; it never scores candidates,
+  parses files, invokes a provider directly, or derives a storage revision.
+- Session creation uses active document and project revisions from the latest
+  parent snapshot. A stale-state reload refreshes the parent workspace as well
+  as session/library pages so a retry cannot reuse stale project or document
+  revisions.
+- Link/Merge/Unlink/Split send a complete replacement partition for a
+  contiguous returned link range. Confirm/reject, correction, refine, apply,
+  reindex, remove, and corpus creation stay disabled until actor and reason are
+  non-empty. Renderer selection never implies confirmation or TM application.
+- AI refinement accepts selected proposed links only. Poll `ai.run.get` at a
+  bounded cadence, treat `succeeded`, `failed`, `interrupted`, and `canceled`
+  as terminal, and stop renderer polling on unmount without canceling durable
+  Engine work. Cancel uses the latest returned run revision.
+- TM selection includes only returned writable libraries whose locales equal
+  the project locales. Apply sends explicitly selected confirmed bilingual
+  links and then reloads the terminal session, library page, and parent
+  workspace; no optimistic TM count or session status is invented.
+- Corpus paths come only from `selectCorpusInput` or
+  `resolveDroppedPaths`. Project locales remain visible but authoritative;
+  React does not offer a locale value that Store will reject. Import, reindex,
+  and remove replace list/search state from Engine responses.
+- Corpus management pages independently from search scope. The scope selector
+  is populated from one bounded all-active page (the project capacity is below
+  the protocol page maximum), not from the currently visible status/list page.
+  Query, side, or scope edits clear old results; removing the selected scope
+  clears that ID before searching again.
+- `tm.concordance` keeps `hits`/`total` as TM-only values and renders additive
+  `corpusHits`/`corpusTotal` separately, in Engine order, with corpus/file/path/
+  entry/matched-side provenance. A corpus row exposes target insertion only
+  when `targetText` is non-empty; monolingual source evidence never inserts an
+  empty or fabricated target.
+- Busy, error, empty, open, stale, canceled/interrupted, and applied states are
+  mutually coherent. The remove confirmation stays mounted through failure,
+  has a dialog name and initial focus, closes on Escape only while idle, and
+  closes after a successful remove.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Corpus dialog canceled or dropped file has no trusted path | Keep the form unchanged and make no import RPC |
+| Fewer than two active documents or the same document is selected twice | Disable session creation |
+| Actor/reason is empty | Disable every affected mutation while keeping read-only paging/search usable |
+| Selected links are non-contiguous or do not fit the command shape | Disable that correction; never synthesize a partial partition |
+| AI run is `interrupted` | Stop polling and show the returned failure; do not offer cancel against a terminal run |
+| Session/project/document/library/corpus conflict | Keep current selections and show the typed error; authoritative reload refreshes parent revisions |
+| No locale-matching writable TM | Show an empty TM option and disable apply |
+| Current corpus page becomes empty after removal | Reload the last valid Engine page |
+| Removed corpus was the active search scope | Clear the scope before re-running search |
+| Corpus hit has no target text | Render provenance without an insertion command |
+| Supported viewport | No document-level horizontal overflow, clipped controls, or overlapping rows |
+
+### 5. Good / Base / Bad Cases
+
+- Good: create a session, link contiguous unaligned sides, confirm selected
+  bilingual rows, apply them to a matching writable TM, reopen the terminal
+  result, and create a corpus from confirmed links.
+- Good: import a target-monolingual corpus, search it from a different list
+  page, inspect file/path provenance, reindex, remove it, and observe the scope
+  and concordance projections update from Engine state.
+- Base: no credentialed AI profile or writable TM leaves deterministic manual
+  alignment, corpus creation, and search usable.
+- Bad: keep polling an interrupted run, populate search scope from only the
+  visible 20-row list page, retry a conflict with stale props, locally rank
+  corpus hits, or show `Insert target` for an empty target.
+
+### 6. Tests Required
+
+- Vitest covers ordered/contiguous selection, merge/unlink/split replacement
+  shapes, unknown provenance formatting, and interrupted-run terminal status.
+- Typecheck and generated-contract drift cover `selectCorpusInput`, all
+  alignment/corpus invoke payloads, and additive concordance fields.
+- Real-Engine Electron E2E creates and edits a session, exercises AI success/
+  cancel/interrupted/error states, applies selected confirmed links, imports/
+  searches/reindexes/removes file and alignment corpora, and verifies corpus
+  concordance insertion gating and provenance.
+- Capture 1250x744, 1680x942, and 1920x1080 screenshots. Fail on renderer
+  console/page errors, inaccessible controls/dialogs, document horizontal
+  overflow, overlap, or text escaping a control.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+const scope = visibleCorpora.filter((corpus) => corpus.status === "active");
+const ranked = locallyRankCorpusHits(await invoke("corpus.search", params));
+if (run.status === "interrupted") continuePolling(run.id);
+```
+
+#### Correct
+
+```tsx
+const scope = await window.translunar.invoke("corpus.list", {
+  projectId,
+  status: "active",
+  offset: 0,
+  limit: 500,
+});
+const result = await window.translunar.invoke("corpus.search", params);
+setSearchResults(result); // Preserve Engine order and provenance.
+if (isTerminalAiRunStatus(run.status)) stopPolling();
+```

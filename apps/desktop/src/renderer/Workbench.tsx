@@ -13,6 +13,7 @@ import {
 import type {
   ChineseConversionProfile,
   ConcordanceHit,
+  CorpusSearchHit,
   Document,
   EditorComment,
   EditorMutationResult,
@@ -69,6 +70,7 @@ import {
 } from "lucide-react";
 
 import { AssistantPanel } from "./AssistantPanel";
+import { formatCorpusProvenance } from "./alignment-corpus-utils";
 import { BrandMark } from "./BrandMark";
 import {
   EDITOR_COMMANDS,
@@ -261,6 +263,10 @@ export function Workbench({
   >("both");
   const [concordanceHits, setConcordanceHits] = useState<ConcordanceHit[]>([]);
   const [concordanceTotal, setConcordanceTotal] = useState(0);
+  const [concordanceCorpusHits, setConcordanceCorpusHits] = useState<
+    CorpusSearchHit[]
+  >([]);
+  const [concordanceCorpusTotal, setConcordanceCorpusTotal] = useState(0);
   const [concordanceBusy, setConcordanceBusy] = useState(false);
   const [selectedTargetTagId, setSelectedTargetTagId] = useState<string | null>(
     null,
@@ -1189,6 +1195,10 @@ export function Workbench({
       editor.selectionEnd,
     );
     setConcordanceQuery(selected?.trim() || activeSegment?.sourceText || "");
+    setConcordanceHits([]);
+    setConcordanceTotal(0);
+    setConcordanceCorpusHits([]);
+    setConcordanceCorpusTotal(0);
     setConcordanceOpen(true);
   };
 
@@ -1205,6 +1215,8 @@ export function Workbench({
       });
       setConcordanceHits(result.hits);
       setConcordanceTotal(result.total);
+      setConcordanceCorpusHits(result.corpusHits ?? []);
+      setConcordanceCorpusTotal(result.corpusTotal ?? 0);
     } catch (error) {
       setToast(formatError(error));
     } finally {
@@ -2605,7 +2617,10 @@ export function Workbench({
               </button>
             </div>
             <div className="concordance-results" aria-live="polite">
-              <small>{concordanceTotal} results</small>
+              <div className="concordance-result-summary">
+                <small>{concordanceTotal} TM results</small>
+                <small>{concordanceCorpusTotal} corpus results</small>
+              </div>
               {concordanceHits.map((hit) => (
                 <article key={`${hit.libraryId}-${hit.unit.id}`}>
                   <header>
@@ -2625,7 +2640,50 @@ export function Workbench({
                   </button>
                 </article>
               ))}
-              {!concordanceBusy && concordanceHits.length === 0 ? (
+              {concordanceCorpusHits.map((hit) => (
+                <article
+                  className="concordance-corpus-result"
+                  key={`${hit.corpus.id}-${hit.entry.id}`}
+                >
+                  <header>
+                    <strong>Corpus · {hit.matchedSide}</strong>
+                    <small>{hit.corpus.name}</small>
+                  </header>
+                  <p>{hit.entry.sourceText || "(no source expression)"}</p>
+                  <p className="match-target">
+                    {hit.entry.targetText || "(no target expression)"}
+                  </p>
+                  <div className="concordance-corpus-provenance">
+                    <small>
+                      {hit.corpus.managedSourcePath
+                        ? fileName(hit.corpus.managedSourcePath)
+                        : (hit.corpus.sourceDocumentId?.slice(0, 8) ??
+                          hit.corpus.alignmentSessionId?.slice(0, 8) ??
+                          hit.corpus.sourceKind)}
+                    </small>
+                    <code>
+                      {hit.entry.structuralPath || "No structural path"}
+                    </code>
+                    <small title={formatCorpusProvenance(hit.entry.provenance)}>
+                      {hit.matchKind} · entry {hit.entry.ordinal + 1}
+                    </small>
+                  </div>
+                  {hit.entry.targetText ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        insertMatch(hit.entry.targetText);
+                        setConcordanceOpen(false);
+                      }}
+                    >
+                      Insert target
+                    </button>
+                  ) : null}
+                </article>
+              ))}
+              {!concordanceBusy &&
+              concordanceHits.length === 0 &&
+              concordanceCorpusHits.length === 0 ? (
                 <div className="empty-comment">No concordance results.</div>
               ) : null}
             </div>

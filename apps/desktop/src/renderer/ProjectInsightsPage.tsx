@@ -26,6 +26,7 @@ import {
   FilePlus2,
   FileText,
   FolderOpen,
+  GitCompareArrows,
   History,
   Languages,
   LoaderCircle,
@@ -37,12 +38,14 @@ import {
 } from "lucide-react";
 
 import { fileName, formatError } from "./workbench-utils";
+import { AlignmentCorpusPanel } from "./AlignmentCorpusPanel";
 import { InteropPanel } from "./InteropPanel";
 
 type InsightsTab =
   | "overview"
   | "files"
   | "reimport"
+  | "alignment"
   | "interop"
   | "archive"
   | "history"
@@ -72,6 +75,11 @@ const TABS: Array<{
   { id: "overview", label: "Overview", icon: <BarChart3 size={15} /> },
   { id: "files", label: "Files", icon: <FileText size={15} /> },
   { id: "reimport", label: "Re-import", icon: <RotateCcw size={15} /> },
+  {
+    id: "alignment",
+    label: "Alignment / corpora",
+    icon: <GitCompareArrows size={15} />,
+  },
   { id: "interop", label: "Interop", icon: <Languages size={15} /> },
   { id: "archive", label: "Archive", icon: <Archive size={15} /> },
   { id: "history", label: "History", icon: <History size={15} /> },
@@ -157,6 +165,10 @@ export function ProjectInsightsPage({
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    setDocuments(snapshot.documents);
+  }, [snapshot.documents]);
 
   useEffect(() => {
     setReplacementPath("");
@@ -480,6 +492,12 @@ export function ProjectInsightsPage({
             onChoose={() => void chooseReplacement()}
             onPreview={() => void previewReimport()}
             onApply={requestApplyReimport}
+          />
+        ) : tab === "alignment" ? (
+          <AlignmentCorpusPanel
+            snapshot={snapshot}
+            documents={documents}
+            onRefresh={onRefresh}
           />
         ) : tab === "interop" ? (
           <InteropPanel

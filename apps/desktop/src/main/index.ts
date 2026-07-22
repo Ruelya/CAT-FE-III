@@ -26,6 +26,7 @@ const IPC_CHANNELS = {
     "translunar:dialog:project-archive-destination",
   selectExport: "translunar:dialog:export-docx",
   selectInteropInput: "translunar:dialog:interop-input",
+  selectCorpusInput: "translunar:dialog:corpus-input",
   restartEngine: "translunar:engine:restart",
   setAiCredential: "translunar:ai:credential:set",
   editorCommand: "translunar:editor:command",
@@ -279,6 +280,18 @@ function registerIpc(): void {
       return result.canceled ? null : (result.filePaths[0] ?? null);
     },
   );
+  ipcMain.handle(IPC_CHANNELS.selectCorpusInput, async (event) => {
+    assertTrustedSender(event);
+    if (process.env.TRANSLUNAR_TEST_CORPUS_INPUT) {
+      return process.env.TRANSLUNAR_TEST_CORPUS_INPUT;
+    }
+    const result = await dialog.showOpenDialog(requireWindow(), {
+      title: "Import reference corpus",
+      properties: ["openFile"],
+      filters: [supportedDocumentFilter()],
+    });
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
   ipcMain.handle(IPC_CHANNELS.restartEngine, async (event) => {
     assertTrustedSender(event);
     await requireEngine().restart();

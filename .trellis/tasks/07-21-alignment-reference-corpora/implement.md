@@ -20,7 +20,7 @@
       Schema plus TypeScript contracts; keep concordance/grounding additive.
 - [x] Extend AI grounding with bounded corpus matches and visible provenance;
       extend authoritative concordance with additive corpus results.
-- [ ] Build the Project Insights Alignment/Corpora workflow, trusted dialog,
+- [x] Build the Project Insights Alignment/Corpora workflow, trusted dialog,
       correction controls, terminal/stale/error states, corpus management/search,
       Workbench concordance corpus results, and supported responsive layouts.
 - [ ] Extend stdio smoke through create/edit/restart/refine/apply, corpus import/
