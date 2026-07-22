@@ -1,10 +1,88 @@
 /* eslint-disable -- Generated from the Rust protocol schema. Do not edit. */
 
+export type AlignmentSessionStatus = "open" | "applied" | "discarded";
+export type AlignmentEvidence =
+  | {
+      kind: "length";
+      scoreBasisPoints: number;
+      sourceChars: number;
+      summary: string;
+      targetChars: number;
+    }
+  | {
+      kind: "numbers";
+      scoreBasisPoints: number;
+      sourceValueCount: number;
+      sourceValues: string[];
+      summary: string;
+      targetValueCount: number;
+      targetValues: string[];
+    }
+  | {
+      kind: "punctuation";
+      scoreBasisPoints: number;
+      sourceSignature: string[];
+      summary: string;
+      targetSignature: string[];
+    }
+  | {
+      kind: "tags";
+      scoreBasisPoints: number;
+      sourceSignature: string[];
+      sourceTagCount: number;
+      summary: string;
+      targetSignature: string[];
+      targetTagCount: number;
+    }
+  | {
+      kind: "lexicalAnchors";
+      scoreBasisPoints: number;
+      sharedAnchorCount: number;
+      sharedAnchors: string[];
+      summary: string;
+    }
+  | {
+      kind: "displacement";
+      penaltyBasisPoints: number;
+      sourcePositionBasisPoints: number;
+      summary: string;
+      targetPositionBasisPoints: number;
+    }
+  | {
+      kind: "unaligned";
+      penaltyBasisPoints: number;
+      side: AlignmentSide;
+      summary: string;
+    }
+  | {
+      kind: "aiRefinement";
+      summary: string;
+    };
+export type AlignmentSide = "source" | "target";
+export type AlignmentOrigin = "deterministic" | "manual" | "ai";
+export type AlignmentLinkStatus = "proposed" | "confirmed" | "rejected";
+export type AlignmentSessionMutation =
+  | {
+      kind: "replaceLinks";
+      links: AlignmentExpectedLinkRevision[];
+      replacement: AlignmentManualLink[];
+    }
+  | {
+      expectedLinkRevision: number;
+      kind: "setStatus";
+      linkId: string;
+      status: AlignmentLinkStatus;
+    };
 export type AssetExchangeFormat = "tmx" | "csv" | "tsv" | "tbx";
 export type ConcordanceSide = "source" | "target" | "both";
 export type SegmentState = "untranslated" | "draft" | "confirmed";
 export type QaSeverity = "error" | "warning" | "info";
 export type QaIssueStatus = "open" | "resolved";
+export type ReferenceCorpusKind = "monolingualSource" | "monolingualTarget" | "bilingual";
+export type ReferenceCorpusStatus = "active" | "removed";
+export type ReferenceCorpusSourceKind = "file" | "alignment";
+export type CorpusMatchKind = "exact" | "prefix" | "contains";
+export type CorpusMatchedSide = "source" | "target" | "both";
 export type HealthSeverity = "info" | "warning" | "error" | "fatal";
 export type DegradationSeverity = "warning" | "error";
 export type DocumentStatus = "active" | "failed" | "superseded";
@@ -106,9 +184,23 @@ export type ErrorCode =
   | "provider_timeout"
   | "provider_protocol"
   | "provider_unavailable"
+  | "alignment_invalid_partition"
+  | "alignment_response_invalid"
+  | "unsupported_corpus_input"
+  | "resource_limit_exceeded"
   | "internal_error";
 
 export interface ProtocolCatalog {
+  alignment_apply_result: AlignmentApplyResult;
+  alignment_mutation_result: AlignmentMutationResult;
+  alignment_session_apply_params: AlignmentSessionApplyParams;
+  alignment_session_create_params: AlignmentSessionCreateParams;
+  alignment_session_get_params: AlignmentSessionGetParams;
+  alignment_session_get_result: AlignmentSessionGetResult;
+  alignment_session_list_params: AlignmentSessionListParams;
+  alignment_session_page: AlignmentSessionPage;
+  alignment_session_refine_params: AlignmentSessionRefineParams;
+  alignment_session_update_params: AlignmentSessionUpdateParams;
   asset_diagnostic: AssetDiagnostic;
   asset_exchange_format: AssetExchangeFormat;
   backup_result: BackupResult;
@@ -116,6 +208,12 @@ export interface ProtocolCatalog {
   concordance_result: ConcordanceResult;
   confirm_segment_params: ConfirmSegmentParams;
   confirm_segment_result: ConfirmSegmentResult;
+  corpus_from_alignment_params: CorpusFromAlignmentParams;
+  corpus_import_params: CorpusImportParams;
+  corpus_list_params: CorpusListParams;
+  corpus_mutation_params: CorpusMutationParams;
+  corpus_search_params: CorpusSearchParams;
+  corpus_search_result: CorpusSearchResult;
   create_backup_params: CreateBackupParams;
   create_pipeline_params: CreatePipelineParams;
   create_project_params: CreateProjectParams;
@@ -176,6 +274,8 @@ export interface ProtocolCatalog {
   qa_run_list_params: QaRunListParams;
   qa_run_page: QaRunPage;
   qa_run_params: QaRunParams;
+  reference_corpus_mutation_result: ReferenceCorpusMutationResult;
+  reference_corpus_page: ReferenceCorpusPage;
   review_queue_page: ReviewQueuePage;
   review_queue_params: ReviewQueueParams;
   review_statistics_params: ReviewStatisticsParams;
@@ -212,6 +312,152 @@ export interface ProtocolCatalog {
   update_target_params: UpdateTargetParams;
   validate_pipeline_params: ValidatePipelineParams;
   [k: string]: unknown;
+}
+export interface AlignmentApplyResult {
+  duplicateCount: number;
+  duplicates: AlignmentApplyDuplicate[];
+  insertedCount: number;
+  libraryId: string;
+  libraryRevision: number;
+  operationId: string;
+  selectedCount: number;
+  sessionId: string;
+  sessionRevision: number;
+  status: AlignmentSessionStatus;
+  tmUnitIds: string[];
+  [k: string]: unknown;
+}
+export interface AlignmentApplyDuplicate {
+  linkId: string;
+  tmUnitId: string;
+  [k: string]: unknown;
+}
+export interface AlignmentMutationResult {
+  links: AlignmentLink[];
+  operationId?: string | null;
+  session: AlignmentSession;
+  [k: string]: unknown;
+}
+export interface AlignmentLink {
+  confidenceBasisPoints: number;
+  createdAtMs: number;
+  evidence: AlignmentEvidence[];
+  id: string;
+  ordinal: number;
+  origin: AlignmentOrigin;
+  revision: number;
+  sessionId: string;
+  sourceSegmentIds: string[];
+  sourceText: string;
+  status: AlignmentLinkStatus;
+  targetSegmentIds: string[];
+  targetText: string;
+  updatedAtMs: number;
+  [k: string]: unknown;
+}
+export interface AlignmentSession {
+  algorithmVersion: string;
+  closedAtMs?: number | null;
+  createdAtMs: number;
+  id: string;
+  projectId: string;
+  revision: number;
+  sourceDocumentId: string;
+  sourceDocumentRevision: number;
+  sourceLocale: string;
+  status: AlignmentSessionStatus;
+  targetDocumentId: string;
+  targetDocumentRevision: number;
+  targetLocale: string;
+  terminalResult?: AlignmentApplyResult | null;
+  updatedAtMs: number;
+  [k: string]: unknown;
+}
+export interface AlignmentSessionApplyParams {
+  actor?: string;
+  correlationId?: string | null;
+  expectedLibraryRevision: number;
+  expectedSessionRevision: number;
+  libraryId: string;
+  links: AlignmentExpectedLinkRevision[];
+  reason: string;
+  sessionId: string;
+}
+export interface AlignmentExpectedLinkRevision {
+  expectedRevision: number;
+  linkId: string;
+  [k: string]: unknown;
+}
+export interface AlignmentSessionCreateParams {
+  actor?: string;
+  correlationId?: string | null;
+  expectedProjectRevision: number;
+  expectedSourceDocumentRevision: number;
+  expectedTargetDocumentRevision: number;
+  options?: AlignmentOptions;
+  projectId: string;
+  reason: string;
+  sourceDocumentId: string;
+  targetDocumentId: string;
+}
+export interface AlignmentOptions {
+  bandWidth: number;
+  maxEvidenceValues: number;
+  maxGroupSize: number;
+  maxSegmentsPerSide: number;
+  maxTagsPerSegment: number;
+  maxTotalInputChars: number;
+  maxWorkUnits: number;
+  [k: string]: unknown;
+}
+export interface AlignmentSessionGetParams {
+  limit?: number;
+  linkStatus?: AlignmentLinkStatus | null;
+  offset?: number;
+  sessionId: string;
+}
+export interface AlignmentSessionGetResult {
+  limit: number;
+  links: AlignmentLink[];
+  offset: number;
+  session: AlignmentSession;
+  total: number;
+  [k: string]: unknown;
+}
+export interface AlignmentSessionListParams {
+  limit?: number;
+  offset?: number;
+  projectId: string;
+  status?: AlignmentSessionStatus | null;
+}
+export interface AlignmentSessionPage {
+  items: AlignmentSession[];
+  limit: number;
+  offset: number;
+  total: number;
+  [k: string]: unknown;
+}
+export interface AlignmentSessionRefineParams {
+  actor?: string;
+  correlationId?: string | null;
+  expectedSessionRevision: number;
+  links: AlignmentExpectedLinkRevision[];
+  maxAttempts?: number;
+  profileId: string;
+  reason: string;
+  sessionId: string;
+}
+export interface AlignmentSessionUpdateParams {
+  actor?: string;
+  correlationId?: string | null;
+  expectedSessionRevision: number;
+  mutation: AlignmentSessionMutation;
+  reason: string;
+  sessionId: string;
+}
+export interface AlignmentManualLink {
+  sourceSegmentIds: string[];
+  targetSegmentIds: string[];
 }
 export interface AssetDiagnostic {
   message: string;
@@ -344,6 +590,105 @@ export interface TmEntry {
   sourceHash: string;
   sourceText: string;
   targetText: string;
+  [k: string]: unknown;
+}
+export interface CorpusFromAlignmentParams {
+  actor?: string;
+  correlationId?: string | null;
+  expectedProjectRevision: number;
+  expectedSessionRevision: number;
+  links: AlignmentExpectedLinkRevision[];
+  name: string;
+  projectId: string;
+  reason: string;
+  sessionId: string;
+}
+export interface CorpusImportParams {
+  actor?: string;
+  correlationId?: string | null;
+  expectedProjectRevision: number;
+  filterId?: string | null;
+  kind: ReferenceCorpusKind;
+  name: string;
+  options?: {
+    [k: string]: string;
+  };
+  projectId: string;
+  reason: string;
+  sourceLocale: string;
+  sourcePath: string;
+  targetLocale: string;
+}
+export interface CorpusListParams {
+  limit?: number;
+  offset?: number;
+  projectId: string;
+  status?: ReferenceCorpusStatus | null;
+}
+export interface CorpusMutationParams {
+  actor?: string;
+  corpusId: string;
+  correlationId?: string | null;
+  expectedRevision: number;
+  reason: string;
+}
+export interface CorpusSearchParams {
+  corpusIds?: string[];
+  limit?: number;
+  offset?: number;
+  projectId: string;
+  query: string;
+  side?: "source" | "target" | "both";
+}
+export interface CorpusSearchResult {
+  items: CorpusSearchHit[];
+  limit: number;
+  offset: number;
+  total: number;
+  [k: string]: unknown;
+}
+export interface CorpusSearchHit {
+  corpus: ReferenceCorpus;
+  entry: ReferenceCorpusEntry;
+  matchKind: CorpusMatchKind;
+  matchedSide: CorpusMatchedSide;
+  [k: string]: unknown;
+}
+export interface ReferenceCorpus {
+  alignmentSessionId?: string | null;
+  createdAtMs: number;
+  diagnosticCount: number;
+  diagnostics: string[];
+  entryCount: number;
+  id: string;
+  inputFilterId?: string | null;
+  inputFormat?: string | null;
+  inputSha256?: string | null;
+  kind: ReferenceCorpusKind;
+  managedSourcePath?: string | null;
+  name: string;
+  projectId: string;
+  removedAtMs?: number | null;
+  revision: number;
+  sourceDocumentId?: string | null;
+  sourceKind: ReferenceCorpusSourceKind;
+  sourceLocale: string;
+  status: ReferenceCorpusStatus;
+  targetDocumentId?: string | null;
+  targetLocale: string;
+  updatedAtMs: number;
+  [k: string]: unknown;
+}
+export interface ReferenceCorpusEntry {
+  corpusId: string;
+  createdAtMs: number;
+  id: string;
+  ordinal: number;
+  provenance: unknown;
+  sourceText: string;
+  structuralPath: string;
+  targetText: string;
+  updatedAtMs: number;
   [k: string]: unknown;
 }
 export interface CreateBackupParams {
@@ -538,45 +883,57 @@ export interface ListQaParams {
   [k: string]: unknown;
 }
 export interface RpcMethodCatalog {
-  "ai.batch.cancel": MethodContract138;
-  "ai.batch.get": MethodContract135;
-  "ai.batch.items": MethodContract137;
-  "ai.batch.list": MethodContract136;
-  "ai.batch.resume": MethodContract138;
-  "ai.batch.start": MethodContract134;
-  "ai.conversation.create": MethodContract141;
-  "ai.conversation.list": MethodContract140;
-  "ai.conversation.messages": MethodContract143;
-  "ai.conversation.update": MethodContract142;
-  "ai.credential.delete": MethodContract124;
-  "ai.credential.status": MethodContract124;
-  "ai.grounding.preview": MethodContract127;
-  "ai.provider.catalog": MethodContract118;
-  "ai.provider.create": MethodContract120;
-  "ai.provider.delete": MethodContract122;
-  "ai.provider.list": MethodContract119;
-  "ai.provider.test": MethodContract123;
-  "ai.provider.update": MethodContract121;
-  "ai.result.apply": MethodContract133;
-  "ai.run.cancel": MethodContract132;
-  "ai.run.events": MethodContract131;
-  "ai.run.get": MethodContract129;
-  "ai.run.list": MethodContract130;
-  "ai.run.resume": MethodContract132;
-  "ai.run.start": MethodContract128;
-  "ai.settings.get": MethodContract125;
-  "ai.settings.update": MethodContract126;
-  "ai.usage.query": MethodContract139;
+  "ai.batch.cancel": MethodContract149;
+  "ai.batch.get": MethodContract146;
+  "ai.batch.items": MethodContract148;
+  "ai.batch.list": MethodContract147;
+  "ai.batch.resume": MethodContract149;
+  "ai.batch.start": MethodContract145;
+  "ai.conversation.create": MethodContract152;
+  "ai.conversation.list": MethodContract151;
+  "ai.conversation.messages": MethodContract154;
+  "ai.conversation.update": MethodContract153;
+  "ai.credential.delete": MethodContract135;
+  "ai.credential.status": MethodContract135;
+  "ai.grounding.preview": MethodContract138;
+  "ai.provider.catalog": MethodContract129;
+  "ai.provider.create": MethodContract131;
+  "ai.provider.delete": MethodContract133;
+  "ai.provider.list": MethodContract130;
+  "ai.provider.test": MethodContract134;
+  "ai.provider.update": MethodContract132;
+  "ai.result.apply": MethodContract144;
+  "ai.run.cancel": MethodContract143;
+  "ai.run.events": MethodContract142;
+  "ai.run.get": MethodContract140;
+  "ai.run.list": MethodContract141;
+  "ai.run.resume": MethodContract143;
+  "ai.run.start": MethodContract139;
+  "ai.settings.get": MethodContract136;
+  "ai.settings.update": MethodContract137;
+  "ai.usage.query": MethodContract150;
+  "alignment.session.apply": MethodContract75;
+  "alignment.session.create": MethodContract70;
+  "alignment.session.get": MethodContract71;
+  "alignment.session.list": MethodContract72;
+  "alignment.session.refine": MethodContract74;
+  "alignment.session.update": MethodContract73;
   "analysis.profile.list": MethodContract26;
   "analysis.run": MethodContract27;
   "analysis.run.get": MethodContract28;
-  "data.checkHealth": MethodContract107;
-  "data.createBackup": MethodContract108;
+  "corpus.fromAlignment": MethodContract78;
+  "corpus.import": MethodContract77;
+  "corpus.list": MethodContract76;
+  "corpus.reindex": MethodContract80;
+  "corpus.remove": MethodContract80;
+  "corpus.search": MethodContract79;
+  "data.checkHealth": MethodContract118;
+  "data.createBackup": MethodContract119;
   "dictionary.add": MethodContract51;
   "dictionary.list": MethodContract50;
   "dictionary.remove": MethodContract51;
-  "document.export": MethodContract104;
-  "document.exportDocx": MethodContract103;
+  "document.export": MethodContract115;
+  "document.exportDocx": MethodContract114;
   "document.get": MethodContract17;
   "document.import": MethodContract18;
   "document.importDocx": MethodContract19;
@@ -589,8 +946,8 @@ export interface RpcMethodCatalog {
   "editor.redo": MethodContract52;
   "editor.undo": MethodContract52;
   "engine.initialize": MethodContract;
-  "filter.list": MethodContract105;
-  "history.list": MethodContract106;
+  "filter.list": MethodContract116;
+  "history.list": MethodContract117;
   "interop.review.apply": MethodContract62;
   "interop.review.export": MethodContract60;
   "interop.review.preview": MethodContract61;
@@ -599,16 +956,16 @@ export interface RpcMethodCatalog {
   "pdf.correctOcr": MethodContract69;
   "pdf.page.get": MethodContract68;
   "pdf.page.list": MethodContract67;
-  "pipeline.create": MethodContract110;
-  "pipeline.get": MethodContract112;
-  "pipeline.list": MethodContract111;
-  "pipeline.run": MethodContract114;
-  "pipeline.run.cancel": MethodContract117;
-  "pipeline.run.get": MethodContract116;
-  "pipeline.run.list": MethodContract115;
-  "pipeline.run.resume": MethodContract117;
-  "pipeline.step.list": MethodContract109;
-  "pipeline.validate": MethodContract113;
+  "pipeline.create": MethodContract121;
+  "pipeline.get": MethodContract123;
+  "pipeline.list": MethodContract122;
+  "pipeline.run": MethodContract125;
+  "pipeline.run.cancel": MethodContract128;
+  "pipeline.run.get": MethodContract127;
+  "pipeline.run.list": MethodContract126;
+  "pipeline.run.resume": MethodContract128;
+  "pipeline.step.list": MethodContract120;
+  "pipeline.validate": MethodContract124;
   "project.analytics.get": MethodContract29;
   "project.archive.export": MethodContract14;
   "project.archive.restore": MethodContract15;
@@ -624,22 +981,22 @@ export interface RpcMethodCatalog {
   "project.template.list": MethodContract7;
   "project.template.update": MethodContract10;
   "project.update": MethodContract5;
-  "qa.gate.check": MethodContract101;
-  "qa.issue.list": MethodContract97;
-  "qa.issue.revoke": MethodContract99;
-  "qa.issue.waive": MethodContract98;
-  "qa.list": MethodContract88;
-  "qa.override.list": MethodContract102;
-  "qa.profile.clone": MethodContract91;
-  "qa.profile.create": MethodContract90;
-  "qa.profile.delete": MethodContract93;
-  "qa.profile.list": MethodContract89;
-  "qa.profile.update": MethodContract92;
-  "qa.report.export": MethodContract100;
-  "qa.run": MethodContract94;
-  "qa.run.get": MethodContract96;
-  "qa.run.list": MethodContract95;
-  "qa.runDocument": MethodContract87;
+  "qa.gate.check": MethodContract112;
+  "qa.issue.list": MethodContract108;
+  "qa.issue.revoke": MethodContract110;
+  "qa.issue.waive": MethodContract109;
+  "qa.list": MethodContract99;
+  "qa.override.list": MethodContract113;
+  "qa.profile.clone": MethodContract102;
+  "qa.profile.create": MethodContract101;
+  "qa.profile.delete": MethodContract104;
+  "qa.profile.list": MethodContract100;
+  "qa.profile.update": MethodContract103;
+  "qa.report.export": MethodContract111;
+  "qa.run": MethodContract105;
+  "qa.run.get": MethodContract107;
+  "qa.run.list": MethodContract106;
+  "qa.runDocument": MethodContract98;
   "recycle.delete": MethodContract23;
   "recycle.list": MethodContract22;
   "recycle.purge": MethodContract24;
@@ -671,25 +1028,25 @@ export interface RpcMethodCatalog {
   "segment.tag.set": MethodContract34;
   "segment.updateTarget": MethodContract31;
   "segment.workflow.set": MethodContract43;
-  "term.search": MethodContract83;
-  "term.upsert": MethodContract84;
-  "termbase.create": MethodContract80;
-  "termbase.export": MethodContract86;
-  "termbase.import": MethodContract85;
-  "termbase.list": MethodContract79;
-  "termbase.mount": MethodContract81;
-  "termbase.unmount": MethodContract82;
-  "tm.concordance": MethodContract76;
-  "tm.export": MethodContract78;
-  "tm.import": MethodContract77;
-  "tm.library.create": MethodContract72;
-  "tm.library.list": MethodContract71;
-  "tm.library.mount": MethodContract73;
-  "tm.library.unmount": MethodContract74;
-  "tm.lookupExact": MethodContract70;
-  "tm.search": MethodContract75;
+  "term.search": MethodContract94;
+  "term.upsert": MethodContract95;
+  "termbase.create": MethodContract91;
+  "termbase.export": MethodContract97;
+  "termbase.import": MethodContract96;
+  "termbase.list": MethodContract90;
+  "termbase.mount": MethodContract92;
+  "termbase.unmount": MethodContract93;
+  "tm.concordance": MethodContract87;
+  "tm.export": MethodContract89;
+  "tm.import": MethodContract88;
+  "tm.library.create": MethodContract83;
+  "tm.library.list": MethodContract82;
+  "tm.library.mount": MethodContract84;
+  "tm.library.unmount": MethodContract85;
+  "tm.lookupExact": MethodContract81;
+  "tm.search": MethodContract86;
 }
-export interface MethodContract138 {
+export interface MethodContract149 {
   params: AiBatchRevisionParams;
   result: AiBatchRun;
   [k: string]: unknown;
@@ -746,7 +1103,7 @@ export interface AiUsage {
   reasoningTokens?: number | null;
   [k: string]: unknown;
 }
-export interface MethodContract135 {
+export interface MethodContract146 {
   params: AiBatchIdParams;
   result: AiBatchRun;
   [k: string]: unknown;
@@ -754,7 +1111,7 @@ export interface MethodContract135 {
 export interface AiBatchIdParams {
   batchId: string;
 }
-export interface MethodContract137 {
+export interface MethodContract148 {
   params: AiBatchItemsParams;
   result: AiBatchItemPage;
   [k: string]: unknown;
@@ -784,7 +1141,7 @@ export interface AiBatchItem {
   updatedAtMs: number;
   [k: string]: unknown;
 }
-export interface MethodContract136 {
+export interface MethodContract147 {
   params: AiBatchListParams;
   result: AiBatchPage;
   [k: string]: unknown;
@@ -801,7 +1158,7 @@ export interface AiBatchPage {
   total: number;
   [k: string]: unknown;
 }
-export interface MethodContract134 {
+export interface MethodContract145 {
   params: AiBatchStartParams;
   result: AiBatchRun;
   [k: string]: unknown;
@@ -830,7 +1187,7 @@ export interface GroundingOptions1 {
   tmTopN: number;
   [k: string]: unknown;
 }
-export interface MethodContract141 {
+export interface MethodContract152 {
   params: AiConversationCreateParams;
   result: AiConversation;
   [k: string]: unknown;
@@ -849,7 +1206,7 @@ export interface AiConversation {
   updatedAtMs: number;
   [k: string]: unknown;
 }
-export interface MethodContract140 {
+export interface MethodContract151 {
   params: AiConversationListParams;
   result: AiConversationPage;
   [k: string]: unknown;
@@ -867,7 +1224,7 @@ export interface AiConversationPage {
   total: number;
   [k: string]: unknown;
 }
-export interface MethodContract143 {
+export interface MethodContract154 {
   params: AiConversationMessagesParams;
   result: AiConversationMessagePage;
   [k: string]: unknown;
@@ -895,7 +1252,7 @@ export interface AiConversationMessage {
   text: string;
   [k: string]: unknown;
 }
-export interface MethodContract142 {
+export interface MethodContract153 {
   params: AiConversationUpdateParams;
   result: AiConversation;
   [k: string]: unknown;
@@ -906,7 +1263,7 @@ export interface AiConversationUpdateParams {
   expectedRevision: number;
   title: string;
 }
-export interface MethodContract124 {
+export interface MethodContract135 {
   params: AiProfileIdParams;
   result: AiCredentialStatus;
   [k: string]: unknown;
@@ -920,7 +1277,7 @@ export interface AiCredentialStatus {
   present: boolean;
   [k: string]: unknown;
 }
-export interface MethodContract127 {
+export interface MethodContract138 {
   params: AiGroundingPreviewParams;
   result: AiGroundingPreviewResult;
   [k: string]: unknown;
@@ -973,7 +1330,7 @@ export interface GroundingSection {
   truncated: boolean;
   [k: string]: unknown;
 }
-export interface MethodContract118 {
+export interface MethodContract129 {
   params: AiProviderCatalogParams;
   result: AiProviderCatalogResult;
   [k: string]: unknown;
@@ -994,7 +1351,7 @@ export interface AiProviderDescriptor {
   supportsStreaming: boolean;
   [k: string]: unknown;
 }
-export interface MethodContract120 {
+export interface MethodContract131 {
   params: AiProviderCreateParams;
   result: AiProviderProfile;
   [k: string]: unknown;
@@ -1023,7 +1380,7 @@ export interface AiProviderProfile {
   updatedAtMs: number;
   [k: string]: unknown;
 }
-export interface MethodContract122 {
+export interface MethodContract133 {
   params: AiProfileRevisionParams;
   result: EmptyResult;
   [k: string]: unknown;
@@ -1035,7 +1392,7 @@ export interface AiProfileRevisionParams {
 export interface EmptyResult {
   [k: string]: unknown;
 }
-export interface MethodContract119 {
+export interface MethodContract130 {
   params: AiProviderListParams;
   result: AiProviderPage;
   [k: string]: unknown;
@@ -1051,7 +1408,7 @@ export interface AiProviderPage {
   total: number;
   [k: string]: unknown;
 }
-export interface MethodContract123 {
+export interface MethodContract134 {
   params: AiProfileIdParams;
   result: AiProviderTestResult;
   [k: string]: unknown;
@@ -1108,7 +1465,7 @@ export interface AlignmentRefinementLinkRevision {
   linkId: string;
   [k: string]: unknown;
 }
-export interface MethodContract121 {
+export interface MethodContract132 {
   params: AiProviderUpdateParams;
   result: AiProviderProfile;
   [k: string]: unknown;
@@ -1124,7 +1481,7 @@ export interface AiProviderUpdateParams {
   profileId: string;
   timeoutMs: number;
 }
-export interface MethodContract133 {
+export interface MethodContract144 {
   params: AiResultApplyParams;
   result: EditorMutationResult;
   [k: string]: unknown;
@@ -1191,7 +1548,7 @@ export interface EditorTagIssue {
   tagId?: string | null;
   [k: string]: unknown;
 }
-export interface MethodContract132 {
+export interface MethodContract143 {
   params: AiRunRevisionParams;
   result: AiRun;
   [k: string]: unknown;
@@ -1200,7 +1557,7 @@ export interface AiRunRevisionParams {
   expectedRevision: number;
   runId: string;
 }
-export interface MethodContract131 {
+export interface MethodContract142 {
   params: AiRunEventsParams;
   result: AiRunEventPage;
   [k: string]: unknown;
@@ -1228,7 +1585,7 @@ export interface AiRunEvent {
   usage?: AiUsage | null;
   [k: string]: unknown;
 }
-export interface MethodContract129 {
+export interface MethodContract140 {
   params: AiRunIdParams;
   result: AiRun;
   [k: string]: unknown;
@@ -1236,7 +1593,7 @@ export interface MethodContract129 {
 export interface AiRunIdParams {
   runId: string;
 }
-export interface MethodContract130 {
+export interface MethodContract141 {
   params: AiRunListParams;
   result: AiRunPage;
   [k: string]: unknown;
@@ -1253,7 +1610,7 @@ export interface AiRunPage {
   total: number;
   [k: string]: unknown;
 }
-export interface MethodContract128 {
+export interface MethodContract139 {
   params: AiRunStartParams;
   result: AiRun;
   [k: string]: unknown;
@@ -1282,7 +1639,7 @@ export interface GroundingOptions3 {
   tmTopN: number;
   [k: string]: unknown;
 }
-export interface MethodContract125 {
+export interface MethodContract136 {
   params: AiSettingsGetParams;
   result: AiSettings;
   [k: string]: unknown;
@@ -1299,7 +1656,7 @@ export interface AiSettings {
   updatedAtMs: number;
   [k: string]: unknown;
 }
-export interface MethodContract126 {
+export interface MethodContract137 {
   params: AiSettingsUpdateParams;
   result: AiSettings;
   [k: string]: unknown;
@@ -1313,7 +1670,7 @@ export interface AiSettingsUpdateParams {
   expectedRevision: number;
   monthlyTokenBudget?: number | null;
 }
-export interface MethodContract139 {
+export interface MethodContract150 {
   params: AiUsageQueryParams;
   result: AiUsageQueryResult;
   [k: string]: unknown;
@@ -1358,6 +1715,45 @@ export interface AiUsageRecord {
   runId: string;
   status: string;
   usage: AiUsage;
+  [k: string]: unknown;
+}
+export interface MethodContract75 {
+  params: AlignmentSessionApplyParams;
+  result: AlignmentApplyResult;
+  [k: string]: unknown;
+}
+export interface MethodContract70 {
+  params: AlignmentSessionCreateParams;
+  result: AlignmentSessionCreateResult;
+  [k: string]: unknown;
+}
+export interface AlignmentSessionCreateResult {
+  linkCount: number;
+  operationId: string;
+  session: AlignmentSession;
+  sourceSegmentCount: number;
+  targetSegmentCount: number;
+  workUnits: number;
+  [k: string]: unknown;
+}
+export interface MethodContract71 {
+  params: AlignmentSessionGetParams;
+  result: AlignmentSessionGetResult;
+  [k: string]: unknown;
+}
+export interface MethodContract72 {
+  params: AlignmentSessionListParams;
+  result: AlignmentSessionPage;
+  [k: string]: unknown;
+}
+export interface MethodContract74 {
+  params: AlignmentSessionRefineParams;
+  result: AiRun;
+  [k: string]: unknown;
+}
+export interface MethodContract73 {
+  params: AlignmentSessionUpdateParams;
+  result: AlignmentMutationResult;
   [k: string]: unknown;
 }
 export interface MethodContract26 {
@@ -1463,12 +1859,50 @@ export interface AnalysisRunIdParams {
   runId: string;
   [k: string]: unknown;
 }
-export interface MethodContract107 {
+export interface MethodContract78 {
+  params: CorpusFromAlignmentParams;
+  result: ReferenceCorpusMutationResult;
+  [k: string]: unknown;
+}
+export interface ReferenceCorpusMutationResult {
+  affectedEntryCount: number;
+  corpus: ReferenceCorpus;
+  operationId: string;
+  [k: string]: unknown;
+}
+export interface MethodContract77 {
+  params: CorpusImportParams;
+  result: ReferenceCorpusMutationResult;
+  [k: string]: unknown;
+}
+export interface MethodContract76 {
+  params: CorpusListParams;
+  result: ReferenceCorpusPage;
+  [k: string]: unknown;
+}
+export interface ReferenceCorpusPage {
+  items: ReferenceCorpus[];
+  limit: number;
+  offset: number;
+  total: number;
+  [k: string]: unknown;
+}
+export interface MethodContract80 {
+  params: CorpusMutationParams;
+  result: ReferenceCorpusMutationResult;
+  [k: string]: unknown;
+}
+export interface MethodContract79 {
+  params: CorpusSearchParams;
+  result: CorpusSearchResult;
+  [k: string]: unknown;
+}
+export interface MethodContract118 {
   params: EmptyParams;
   result: DataHealthReport;
   [k: string]: unknown;
 }
-export interface MethodContract108 {
+export interface MethodContract119 {
   params: CreateBackupParams;
   result: BackupResult;
   [k: string]: unknown;
@@ -1497,12 +1931,12 @@ export interface DictionaryListParams {
   locale: string;
   [k: string]: unknown;
 }
-export interface MethodContract104 {
+export interface MethodContract115 {
   params: ExportDocumentParams;
   result: ExportDocumentResult;
   [k: string]: unknown;
 }
-export interface MethodContract103 {
+export interface MethodContract114 {
   params: ExportDocxParams;
   result: ExportDocxResult;
   [k: string]: unknown;
@@ -1658,12 +2092,12 @@ export interface MethodContract {
   result: InitializeResult;
   [k: string]: unknown;
 }
-export interface MethodContract105 {
+export interface MethodContract116 {
   params: EmptyParams;
   result: FilterListResult;
   [k: string]: unknown;
 }
-export interface MethodContract106 {
+export interface MethodContract117 {
   params: HistoryListParams;
   result: OperationPage;
   [k: string]: unknown;
@@ -1902,7 +2336,7 @@ export interface PdfPageSummary {
   width: number;
   [k: string]: unknown;
 }
-export interface MethodContract110 {
+export interface MethodContract121 {
   params: CreatePipelineParams;
   result: PipelineDefinition;
   [k: string]: unknown;
@@ -1918,7 +2352,7 @@ export interface PipelineDefinition {
   version: number;
   [k: string]: unknown;
 }
-export interface MethodContract112 {
+export interface MethodContract123 {
   params: PipelineIdParams;
   result: PipelineDefinition;
   [k: string]: unknown;
@@ -1927,7 +2361,7 @@ export interface PipelineIdParams {
   pipelineId: string;
   [k: string]: unknown;
 }
-export interface MethodContract111 {
+export interface MethodContract122 {
   params: PipelineListParams;
   result: PipelineDefinitionPage;
   [k: string]: unknown;
@@ -1945,7 +2379,7 @@ export interface PipelineDefinitionPage {
   total: number;
   [k: string]: unknown;
 }
-export interface MethodContract114 {
+export interface MethodContract125 {
   params: RunPipelineParams;
   result: PipelineRunSnapshot;
   [k: string]: unknown;
@@ -2019,7 +2453,7 @@ export interface PipelineStepRun {
   };
   [k: string]: unknown;
 }
-export interface MethodContract117 {
+export interface MethodContract128 {
   params: PipelineRunRevisionParams;
   result: PipelineRunSnapshot;
   [k: string]: unknown;
@@ -2029,7 +2463,7 @@ export interface PipelineRunRevisionParams {
   runId: string;
   [k: string]: unknown;
 }
-export interface MethodContract116 {
+export interface MethodContract127 {
   params: PipelineRunIdParams;
   result: PipelineRunSnapshot;
   [k: string]: unknown;
@@ -2038,7 +2472,7 @@ export interface PipelineRunIdParams {
   runId: string;
   [k: string]: unknown;
 }
-export interface MethodContract115 {
+export interface MethodContract126 {
   params: PipelineRunListParams;
   result: PipelineRunPage;
   [k: string]: unknown;
@@ -2056,7 +2490,7 @@ export interface PipelineRunPage {
   total: number;
   [k: string]: unknown;
 }
-export interface MethodContract109 {
+export interface MethodContract120 {
   params: EmptyParams;
   result: PipelineCapabilityResult;
   [k: string]: unknown;
@@ -2077,7 +2511,7 @@ export interface StepDescriptor {
   version: string;
   [k: string]: unknown;
 }
-export interface MethodContract113 {
+export interface MethodContract124 {
   params: ValidatePipelineParams;
   result: PipelineValidationResult;
   [k: string]: unknown;
@@ -2448,7 +2882,7 @@ export interface ProjectConfiguration1 {
   templateId?: string | null;
   [k: string]: unknown;
 }
-export interface MethodContract101 {
+export interface MethodContract112 {
   params: QaGateCheckParams;
   result: QaGateResult;
   [k: string]: unknown;
@@ -2489,7 +2923,7 @@ export interface QaRun {
   warnings: number;
   [k: string]: unknown;
 }
-export interface MethodContract97 {
+export interface MethodContract108 {
   params: QaIssueListParams;
   result: QaIssuePage;
   [k: string]: unknown;
@@ -2560,7 +2994,7 @@ export interface QaWaiver {
   revokedAtMs?: number | null;
   [k: string]: unknown;
 }
-export interface MethodContract99 {
+export interface MethodContract110 {
   params: QaIssueRevokeParams;
   result: QaIssueView;
   [k: string]: unknown;
@@ -2570,7 +3004,7 @@ export interface QaIssueRevokeParams {
   issueId: string;
   [k: string]: unknown;
 }
-export interface MethodContract98 {
+export interface MethodContract109 {
   params: QaIssueWaiveParams;
   result: QaIssueView;
   [k: string]: unknown;
@@ -2581,7 +3015,7 @@ export interface QaIssueWaiveParams {
   reason: string;
   [k: string]: unknown;
 }
-export interface MethodContract88 {
+export interface MethodContract99 {
   params: ListQaParams;
   result: QaListResult;
   [k: string]: unknown;
@@ -2590,7 +3024,7 @@ export interface QaListResult {
   issues: QaIssue[];
   [k: string]: unknown;
 }
-export interface MethodContract102 {
+export interface MethodContract113 {
   params: QaOverrideListParams;
   result: QaOverridePage;
   [k: string]: unknown;
@@ -2623,7 +3057,7 @@ export interface QaExportOverride {
   updatedAtMs: number;
   [k: string]: unknown;
 }
-export interface MethodContract91 {
+export interface MethodContract102 {
   params: QaProfileCloneParams;
   result: QaProfile;
   [k: string]: unknown;
@@ -2675,7 +3109,7 @@ export interface QaRuleSettings {
   requireSentenceFinalPunctuation: boolean;
   [k: string]: unknown;
 }
-export interface MethodContract90 {
+export interface MethodContract101 {
   params: QaProfileCreateParams;
   result: QaProfile;
   [k: string]: unknown;
@@ -2686,7 +3120,7 @@ export interface QaProfileCreateParams {
   ownerProjectId?: string | null;
   [k: string]: unknown;
 }
-export interface MethodContract93 {
+export interface MethodContract104 {
   params: QaProfileDeleteParams;
   result: EmptyResult;
   [k: string]: unknown;
@@ -2696,7 +3130,7 @@ export interface QaProfileDeleteParams {
   profileId: string;
   [k: string]: unknown;
 }
-export interface MethodContract89 {
+export interface MethodContract100 {
   params: QaProfileListParams;
   result: QaProfilePage;
   [k: string]: unknown;
@@ -2714,7 +3148,7 @@ export interface QaProfilePage {
   total: number;
   [k: string]: unknown;
 }
-export interface MethodContract92 {
+export interface MethodContract103 {
   params: QaProfileUpdateParams;
   result: QaProfile;
   [k: string]: unknown;
@@ -2726,7 +3160,7 @@ export interface QaProfileUpdateParams {
   profileId: string;
   [k: string]: unknown;
 }
-export interface MethodContract100 {
+export interface MethodContract111 {
   params: QaReportExportParams;
   result: QaReportRecord;
   [k: string]: unknown;
@@ -2745,7 +3179,7 @@ export interface QaReportRecord {
   runId: string;
   [k: string]: unknown;
 }
-export interface MethodContract94 {
+export interface MethodContract105 {
   params: QaRunParams;
   result: QaRun;
   [k: string]: unknown;
@@ -2756,7 +3190,7 @@ export interface QaRunParams {
   projectId: string;
   [k: string]: unknown;
 }
-export interface MethodContract96 {
+export interface MethodContract107 {
   params: QaRunIdParams;
   result: QaRun;
   [k: string]: unknown;
@@ -2765,7 +3199,7 @@ export interface QaRunIdParams {
   runId: string;
   [k: string]: unknown;
 }
-export interface MethodContract95 {
+export interface MethodContract106 {
   params: QaRunListParams;
   result: QaRunPage;
   [k: string]: unknown;
@@ -2784,7 +3218,7 @@ export interface QaRunPage {
   total: number;
   [k: string]: unknown;
 }
-export interface MethodContract87 {
+export interface MethodContract98 {
   params: DocumentIdParams;
   result: QaListResult;
   [k: string]: unknown;
@@ -3291,7 +3725,7 @@ export interface SetEditorWorkflowParams {
   state: EditorWorkflowState;
   [k: string]: unknown;
 }
-export interface MethodContract83 {
+export interface MethodContract94 {
   params: TermSearchParams;
   result: TermSearchResult;
   [k: string]: unknown;
@@ -3331,7 +3765,7 @@ export interface TermTranslation {
   updatedAtMs: number;
   [k: string]: unknown;
 }
-export interface MethodContract84 {
+export interface MethodContract95 {
   params: TermUpsertParams;
   result: TermEntry;
   [k: string]: unknown;
@@ -3371,7 +3805,7 @@ export interface TermEntry {
   updatedAtMs: number;
   [k: string]: unknown;
 }
-export interface MethodContract80 {
+export interface MethodContract91 {
   params: TermbaseCreateParams;
   result: Termbase;
   [k: string]: unknown;
@@ -3394,7 +3828,7 @@ export interface Termbase {
   writable: boolean;
   [k: string]: unknown;
 }
-export interface MethodContract86 {
+export interface MethodContract97 {
   params: TermbaseExportParams;
   result: TermbaseExportResult;
   [k: string]: unknown;
@@ -3412,7 +3846,7 @@ export interface TermbaseExportResult {
   termbaseId: string;
   [k: string]: unknown;
 }
-export interface MethodContract85 {
+export interface MethodContract96 {
   params: TermbaseImportParams;
   result: TermbaseImportResult;
   [k: string]: unknown;
@@ -3432,7 +3866,7 @@ export interface TermbaseImportResult {
   termbaseId: string;
   [k: string]: unknown;
 }
-export interface MethodContract79 {
+export interface MethodContract90 {
   params: TermbaseListParams;
   result: TermbasePage;
   [k: string]: unknown;
@@ -3462,7 +3896,7 @@ export interface TermbaseMount {
   writable: boolean;
   [k: string]: unknown;
 }
-export interface MethodContract81 {
+export interface MethodContract92 {
   params: TermbaseMountParams;
   result: TermbaseMount;
   [k: string]: unknown;
@@ -3476,7 +3910,7 @@ export interface TermbaseMountParams {
   writable?: boolean;
   [k: string]: unknown;
 }
-export interface MethodContract82 {
+export interface MethodContract93 {
   params: TermbaseUnmountParams;
   result: EmptyResult;
   [k: string]: unknown;
@@ -3487,12 +3921,12 @@ export interface TermbaseUnmountParams {
   termbaseId: string;
   [k: string]: unknown;
 }
-export interface MethodContract76 {
+export interface MethodContract87 {
   params: ConcordanceParams;
   result: ConcordanceResult;
   [k: string]: unknown;
 }
-export interface MethodContract78 {
+export interface MethodContract89 {
   params: TmExportParams;
   result: TmExportResult;
   [k: string]: unknown;
@@ -3509,7 +3943,7 @@ export interface TmExportResult {
   unitCount: number;
   [k: string]: unknown;
 }
-export interface MethodContract77 {
+export interface MethodContract88 {
   params: TmImportParams;
   result: TmImportResult;
   [k: string]: unknown;
@@ -3529,7 +3963,7 @@ export interface TmImportResult {
   skipped: number;
   [k: string]: unknown;
 }
-export interface MethodContract72 {
+export interface MethodContract83 {
   params: TmLibraryCreateParams;
   result: TmLibrary;
   [k: string]: unknown;
@@ -3555,7 +3989,7 @@ export interface TmLibrary {
   writable: boolean;
   [k: string]: unknown;
 }
-export interface MethodContract71 {
+export interface MethodContract82 {
   params: TmLibraryListParams;
   result: TmLibraryPage;
   [k: string]: unknown;
@@ -3585,7 +4019,7 @@ export interface TmLibraryMount {
   updatedAtMs: number;
   [k: string]: unknown;
 }
-export interface MethodContract73 {
+export interface MethodContract84 {
   params: TmLibraryMountParams;
   result: TmLibraryMount;
   [k: string]: unknown;
@@ -3599,7 +4033,7 @@ export interface TmLibraryMountParams {
   projectId: string;
   [k: string]: unknown;
 }
-export interface MethodContract74 {
+export interface MethodContract85 {
   params: TmLibraryUnmountParams;
   result: EmptyResult;
   [k: string]: unknown;
@@ -3610,12 +4044,12 @@ export interface TmLibraryUnmountParams {
   projectId: string;
   [k: string]: unknown;
 }
-export interface MethodContract70 {
+export interface MethodContract81 {
   params: ExactLookupParams;
   result: ExactLookupResult;
   [k: string]: unknown;
 }
-export interface MethodContract75 {
+export interface MethodContract86 {
   params: TmSearchParams;
   result: TmSearchResult;
   [k: string]: unknown;

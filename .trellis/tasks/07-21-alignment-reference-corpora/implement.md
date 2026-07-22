@@ -16,7 +16,7 @@
       provenance, deduplication, history, and stale/read-only/locale rollback.
 - [x] Implement filtered corpus import staging, alignment-to-corpus creation,
       list/search/reindex/remove, managed-source cleanup, provenance, and bounds.
-- [ ] Add protocol structs/catalog/dispatch/error mapping and regenerate JSON
+- [x] Add protocol structs/catalog/dispatch/error mapping and regenerate JSON
       Schema plus TypeScript contracts; keep concordance/grounding additive.
 - [ ] Extend AI grounding with bounded corpus matches and visible provenance;
       extend authoritative concordance with additive corpus results.

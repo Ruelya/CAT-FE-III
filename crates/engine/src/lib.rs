@@ -18,7 +18,10 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 use thiserror::Error;
-use translunar_ai_core::AiCoreError;
+use translunar_ai_core::{
+    AiCoreError, AlignmentRefinementLinkRevision, AlignmentRefinementRunContext,
+};
+use translunar_alignment_core::{AlignmentError, AlignmentEvidence as CoreAlignmentEvidence};
 use translunar_asset_core::{
     AssetError, TermExchangeEntry, TermExchangeTranslation, TermStatus, TmExchangeUnit, exact_key,
     normalize_match_key,
@@ -61,6 +64,7 @@ use translunar_pipeline::{
     ArtifactKind, PipelineDefinition, PipelineError, PipelineFailure, PipelineStep,
     PipelineStepDefinition, StepDescriptor, StepExecutionContext, StepOutcome, StepRegistry,
 };
+use translunar_protocol as protocol;
 use translunar_protocol::methods;
 use translunar_protocol::{
     AnalysisProfile, AnalysisProfileListResult, AnalysisRunIdParams, AnalysisRunParams,
@@ -108,6 +112,7 @@ use translunar_protocol::{
     UpdateEditorPreferencesParams, UpdateProjectParams, UpdateSegmentCommentParams,
     UpdateTargetParams, ValidatePipelineParams,
 };
+use translunar_storage as storage;
 use translunar_storage::{
     AnalysisProfileRecord as StorageAnalysisProfile, AnalysisRunRecord as StorageAnalysisRun,
     ConcordanceRequest as StorageConcordanceRequest, EditorFilter as StorageEditorFilter,
@@ -143,6 +148,12 @@ pub enum EngineError {
 
     #[error("document import failed: {0}")]
     Import(#[source] FilterError),
+
+    #[error("reference corpus import failed: {0}")]
+    CorpusImport(#[source] FilterError),
+
+    #[error("unsupported reference corpus input: {0}")]
+    CorpusInput(String),
 
     #[error("document export failed: {0}")]
     Export(#[source] FilterError),
@@ -240,6 +251,16 @@ fn engine_error_code(error: &EngineError) -> &'static str {
         EngineError::Storage(StorageError::Conflict { .. })
         | EngineError::Storage(StorageError::EntityConflict { .. }) => "conflict",
         EngineError::Import(_) => "unsupported_document",
+        EngineError::CorpusImport(FilterError::NotFound(_)) => "not_found",
+        EngineError::CorpusImport(_) | EngineError::CorpusInput(_) => "unsupported_corpus_input",
+        EngineError::Storage(StorageError::Alignment(AlignmentError::ResourceLimitExceeded {
+            ..
+        })) => "resource_limit_exceeded",
+        EngineError::Storage(StorageError::Alignment(
+            AlignmentError::InvalidRefinementResponse { .. }
+            | AlignmentError::InvalidRefinementConfidence { .. },
+        )) => "alignment_response_invalid",
+        EngineError::Storage(StorageError::Alignment(_)) => "alignment_invalid_partition",
         EngineError::InvalidRequest(_) => "invalid_request",
         EngineError::InvalidState(_) => "invalid_state",
         EngineError::Io(_) | EngineError::Storage(_) => "storage_error",
@@ -338,6 +359,405 @@ fn protocol_analysis_run(value: StorageAnalysisRun) -> AnalysisRunResult {
         document_summaries: value.document_summaries,
         created_at_ms: value.created_at_ms,
         completed_at_ms: value.completed_at_ms,
+    }
+}
+
+fn protocol_alignment_session_status(
+    value: storage::AlignmentSessionStatus,
+) -> protocol::AlignmentSessionStatus {
+    match value {
+        storage::AlignmentSessionStatus::Open => protocol::AlignmentSessionStatus::Open,
+        storage::AlignmentSessionStatus::Applied => protocol::AlignmentSessionStatus::Applied,
+        storage::AlignmentSessionStatus::Discarded => protocol::AlignmentSessionStatus::Discarded,
+    }
+}
+
+fn storage_alignment_session_status(
+    value: protocol::AlignmentSessionStatus,
+) -> storage::AlignmentSessionStatus {
+    match value {
+        protocol::AlignmentSessionStatus::Open => storage::AlignmentSessionStatus::Open,
+        protocol::AlignmentSessionStatus::Applied => storage::AlignmentSessionStatus::Applied,
+        protocol::AlignmentSessionStatus::Discarded => storage::AlignmentSessionStatus::Discarded,
+    }
+}
+
+fn protocol_alignment_apply_result(
+    value: storage::AlignmentApplyResult,
+) -> protocol::AlignmentApplyResult {
+    protocol::AlignmentApplyResult {
+        session_id: value.session_id,
+        library_id: value.library_id,
+        status: protocol_alignment_session_status(value.status),
+        selected_count: value.selected_count,
+        inserted_count: value.inserted_count,
+        duplicate_count: value.duplicate_count,
+        session_revision: value.session_revision,
+        library_revision: value.library_revision,
+        operation_id: value.operation_id,
+        tm_unit_ids: value.tm_unit_ids,
+        duplicates: value
+            .duplicates
+            .into_iter()
+            .map(|duplicate| protocol::AlignmentApplyDuplicate {
+                link_id: duplicate.link_id,
+                tm_unit_id: duplicate.tm_unit_id,
+            })
+            .collect(),
+    }
+}
+
+fn protocol_alignment_terminal_result(
+    value: Option<Value>,
+) -> Result<Option<protocol::AlignmentApplyResult>> {
+    value
+        .map(|terminal| {
+            let stored = terminal.get("result").cloned().ok_or_else(|| {
+                EngineError::Storage(StorageError::InvalidData(
+                    "alignment terminal result is missing its public result".to_string(),
+                ))
+            })?;
+            let result =
+                serde_json::from_value::<storage::AlignmentApplyResult>(stored).map_err(|_| {
+                    EngineError::Storage(StorageError::InvalidData(
+                        "alignment terminal result is invalid".to_string(),
+                    ))
+                })?;
+            Ok(protocol_alignment_apply_result(result))
+        })
+        .transpose()
+}
+
+fn protocol_alignment_session(
+    value: storage::AlignmentSessionRecord,
+) -> Result<protocol::AlignmentSession> {
+    let terminal_result = protocol_alignment_terminal_result(value.terminal_result)?;
+    Ok(protocol::AlignmentSession {
+        id: value.id,
+        project_id: value.project_id,
+        source_document_id: value.source_document_id,
+        target_document_id: value.target_document_id,
+        source_document_revision: value.source_document_revision,
+        target_document_revision: value.target_document_revision,
+        source_locale: value.source_locale,
+        target_locale: value.target_locale,
+        algorithm_version: value.algorithm_version,
+        status: protocol_alignment_session_status(value.status),
+        revision: value.revision,
+        terminal_result,
+        created_at_ms: value.created_at_ms,
+        updated_at_ms: value.updated_at_ms,
+        closed_at_ms: value.closed_at_ms,
+    })
+}
+
+fn protocol_alignment_link(value: storage::AlignmentLinkRecord) -> protocol::AlignmentLink {
+    protocol::AlignmentLink {
+        id: value.id,
+        session_id: value.session_id,
+        ordinal: value.ordinal,
+        source_segment_ids: value.source_segment_ids,
+        target_segment_ids: value.target_segment_ids,
+        source_text: value.source_text,
+        target_text: value.target_text,
+        confidence_basis_points: value.confidence_basis_points,
+        evidence: value
+            .evidence
+            .into_iter()
+            .map(protocol_alignment_evidence)
+            .collect(),
+        origin: value.origin,
+        status: value.status,
+        revision: value.revision,
+        created_at_ms: value.created_at_ms,
+        updated_at_ms: value.updated_at_ms,
+    }
+}
+
+fn protocol_alignment_evidence(value: CoreAlignmentEvidence) -> protocol::AlignmentEvidence {
+    match value {
+        CoreAlignmentEvidence::Length {
+            score_basis_points,
+            source_chars,
+            target_chars,
+            summary,
+        } => protocol::AlignmentEvidence::Length {
+            score_basis_points,
+            source_chars,
+            target_chars,
+            summary,
+        },
+        CoreAlignmentEvidence::Numbers {
+            score_basis_points,
+            source_values,
+            target_values,
+            source_value_count,
+            target_value_count,
+            summary,
+        } => protocol::AlignmentEvidence::Numbers {
+            score_basis_points,
+            source_values,
+            target_values,
+            source_value_count,
+            target_value_count,
+            summary,
+        },
+        CoreAlignmentEvidence::Punctuation {
+            score_basis_points,
+            source_signature,
+            target_signature,
+            summary,
+        } => protocol::AlignmentEvidence::Punctuation {
+            score_basis_points,
+            source_signature,
+            target_signature,
+            summary,
+        },
+        CoreAlignmentEvidence::Tags {
+            score_basis_points,
+            source_signature,
+            target_signature,
+            source_tag_count,
+            target_tag_count,
+            summary,
+        } => protocol::AlignmentEvidence::Tags {
+            score_basis_points,
+            source_signature,
+            target_signature,
+            source_tag_count,
+            target_tag_count,
+            summary,
+        },
+        CoreAlignmentEvidence::LexicalAnchors {
+            score_basis_points,
+            shared_anchors,
+            shared_anchor_count,
+            summary,
+        } => protocol::AlignmentEvidence::LexicalAnchors {
+            score_basis_points,
+            shared_anchors,
+            shared_anchor_count,
+            summary,
+        },
+        CoreAlignmentEvidence::Displacement {
+            penalty_basis_points,
+            source_position_basis_points,
+            target_position_basis_points,
+            summary,
+        } => protocol::AlignmentEvidence::Displacement {
+            penalty_basis_points,
+            source_position_basis_points,
+            target_position_basis_points,
+            summary,
+        },
+        CoreAlignmentEvidence::Unaligned {
+            side,
+            penalty_basis_points,
+            summary,
+        } => protocol::AlignmentEvidence::Unaligned {
+            side,
+            penalty_basis_points,
+            summary,
+        },
+        CoreAlignmentEvidence::AiRefinement { summary } => {
+            protocol::AlignmentEvidence::AiRefinement { summary }
+        }
+    }
+}
+
+fn protocol_alignment_session_create_result(
+    value: storage::AlignmentSessionCreateResult,
+) -> Result<protocol::AlignmentSessionCreateResult> {
+    Ok(protocol::AlignmentSessionCreateResult {
+        session: protocol_alignment_session(value.session)?,
+        work_units: value.work_units,
+        source_segment_count: value.source_segment_count,
+        target_segment_count: value.target_segment_count,
+        link_count: value.link_count,
+        operation_id: value.operation_id,
+    })
+}
+
+fn protocol_alignment_mutation_result(
+    value: storage::AlignmentMutationResult,
+) -> Result<protocol::AlignmentMutationResult> {
+    Ok(protocol::AlignmentMutationResult {
+        session: protocol_alignment_session(value.session)?,
+        links: value
+            .links
+            .into_iter()
+            .map(protocol_alignment_link)
+            .collect(),
+        operation_id: value.operation_id,
+    })
+}
+
+fn storage_expected_alignment_link_revision(
+    value: protocol::AlignmentExpectedLinkRevision,
+) -> storage::ExpectedAlignmentLinkRevision {
+    storage::ExpectedAlignmentLinkRevision {
+        link_id: value.link_id,
+        expected_revision: value.expected_revision,
+    }
+}
+
+fn protocol_reference_corpus_kind(
+    value: storage::ReferenceCorpusKind,
+) -> protocol::ReferenceCorpusKind {
+    match value {
+        storage::ReferenceCorpusKind::MonolingualSource => {
+            protocol::ReferenceCorpusKind::MonolingualSource
+        }
+        storage::ReferenceCorpusKind::MonolingualTarget => {
+            protocol::ReferenceCorpusKind::MonolingualTarget
+        }
+        storage::ReferenceCorpusKind::Bilingual => protocol::ReferenceCorpusKind::Bilingual,
+    }
+}
+
+fn storage_reference_corpus_kind(
+    value: protocol::ReferenceCorpusKind,
+) -> storage::ReferenceCorpusKind {
+    match value {
+        protocol::ReferenceCorpusKind::MonolingualSource => {
+            storage::ReferenceCorpusKind::MonolingualSource
+        }
+        protocol::ReferenceCorpusKind::MonolingualTarget => {
+            storage::ReferenceCorpusKind::MonolingualTarget
+        }
+        protocol::ReferenceCorpusKind::Bilingual => storage::ReferenceCorpusKind::Bilingual,
+    }
+}
+
+fn protocol_reference_corpus_source_kind(
+    value: storage::ReferenceCorpusSourceKind,
+) -> protocol::ReferenceCorpusSourceKind {
+    match value {
+        storage::ReferenceCorpusSourceKind::File => protocol::ReferenceCorpusSourceKind::File,
+        storage::ReferenceCorpusSourceKind::Alignment => {
+            protocol::ReferenceCorpusSourceKind::Alignment
+        }
+    }
+}
+
+fn protocol_reference_corpus_status(
+    value: storage::ReferenceCorpusStatus,
+) -> protocol::ReferenceCorpusStatus {
+    match value {
+        storage::ReferenceCorpusStatus::Active => protocol::ReferenceCorpusStatus::Active,
+        storage::ReferenceCorpusStatus::Removed => protocol::ReferenceCorpusStatus::Removed,
+    }
+}
+
+fn storage_reference_corpus_status(
+    value: protocol::ReferenceCorpusStatus,
+) -> storage::ReferenceCorpusStatus {
+    match value {
+        protocol::ReferenceCorpusStatus::Active => storage::ReferenceCorpusStatus::Active,
+        protocol::ReferenceCorpusStatus::Removed => storage::ReferenceCorpusStatus::Removed,
+    }
+}
+
+fn protocol_reference_corpus(value: storage::ReferenceCorpusRecord) -> protocol::ReferenceCorpus {
+    protocol::ReferenceCorpus {
+        id: value.id,
+        project_id: value.project_id,
+        name: value.name,
+        kind: protocol_reference_corpus_kind(value.kind),
+        source_locale: value.source_locale,
+        target_locale: value.target_locale,
+        source_kind: protocol_reference_corpus_source_kind(value.source_kind),
+        managed_source_path: value.managed_source_path,
+        input_filter_id: value.input_filter_id,
+        input_format: value.input_format,
+        input_sha256: value.input_sha256,
+        source_document_id: value.source_document_id,
+        target_document_id: value.target_document_id,
+        alignment_session_id: value.alignment_session_id,
+        status: protocol_reference_corpus_status(value.status),
+        revision: value.revision,
+        entry_count: value.entry_count,
+        diagnostic_count: value.diagnostic_count,
+        diagnostics: value.diagnostics,
+        created_at_ms: value.created_at_ms,
+        updated_at_ms: value.updated_at_ms,
+        removed_at_ms: value.removed_at_ms,
+    }
+}
+
+fn protocol_reference_corpus_entry(
+    value: storage::ReferenceCorpusEntryRecord,
+) -> protocol::ReferenceCorpusEntry {
+    protocol::ReferenceCorpusEntry {
+        id: value.id,
+        corpus_id: value.corpus_id,
+        ordinal: value.ordinal,
+        source_text: value.source_text,
+        target_text: value.target_text,
+        structural_path: value.structural_path,
+        provenance: value.provenance,
+        created_at_ms: value.created_at_ms,
+        updated_at_ms: value.updated_at_ms,
+    }
+}
+
+fn protocol_reference_corpus_mutation_result(
+    value: storage::ReferenceCorpusMutationResult,
+) -> protocol::ReferenceCorpusMutationResult {
+    protocol::ReferenceCorpusMutationResult {
+        corpus: protocol_reference_corpus(value.corpus),
+        affected_entry_count: value.affected_entry_count,
+        operation_id: value.operation_id,
+    }
+}
+
+fn storage_reference_corpus_search_side(
+    value: protocol::CorpusSearchSide,
+) -> storage::ReferenceCorpusSearchSide {
+    match value {
+        protocol::CorpusSearchSide::Source => storage::ReferenceCorpusSearchSide::Source,
+        protocol::CorpusSearchSide::Target => storage::ReferenceCorpusSearchSide::Target,
+        protocol::CorpusSearchSide::Both => storage::ReferenceCorpusSearchSide::Both,
+    }
+}
+
+fn protocol_reference_corpus_matched_side(
+    value: storage::ReferenceCorpusMatchedSide,
+) -> protocol::CorpusMatchedSide {
+    match value {
+        storage::ReferenceCorpusMatchedSide::Source => protocol::CorpusMatchedSide::Source,
+        storage::ReferenceCorpusMatchedSide::Target => protocol::CorpusMatchedSide::Target,
+        storage::ReferenceCorpusMatchedSide::Both => protocol::CorpusMatchedSide::Both,
+    }
+}
+
+fn protocol_reference_corpus_match_kind(
+    value: storage::ReferenceCorpusMatchKind,
+) -> protocol::CorpusMatchKind {
+    match value {
+        storage::ReferenceCorpusMatchKind::Exact => protocol::CorpusMatchKind::Exact,
+        storage::ReferenceCorpusMatchKind::Prefix => protocol::CorpusMatchKind::Prefix,
+        storage::ReferenceCorpusMatchKind::Contains => protocol::CorpusMatchKind::Contains,
+    }
+}
+
+fn protocol_reference_corpus_search_result(
+    value: storage::ReferenceCorpusSearchResult,
+) -> protocol::CorpusSearchResult {
+    protocol::CorpusSearchResult {
+        items: value
+            .items
+            .into_iter()
+            .map(|hit| protocol::CorpusSearchHit {
+                corpus: protocol_reference_corpus(hit.corpus),
+                entry: protocol_reference_corpus_entry(hit.entry),
+                matched_side: protocol_reference_corpus_matched_side(hit.matched_side),
+                match_kind: protocol_reference_corpus_match_kind(hit.match_kind),
+            })
+            .collect(),
+        total: value.total,
+        offset: value.offset,
+        limit: value.limit,
     }
 }
 
@@ -960,7 +1380,7 @@ fn validate_reference_corpus_import_request(
     if request.source_locale != project.source_locale
         || request.target_locale != project.target_locale
     {
-        return Err(EngineError::InvalidRequest(
+        return Err(EngineError::CorpusInput(
             "reference corpus locales do not match the project".to_string(),
         ));
     }
@@ -983,7 +1403,7 @@ fn validate_reference_corpus_filter_locales(
     target_locale: &str,
 ) -> Result<()> {
     if imported.metadata.format.trim().is_empty() {
-        return Err(EngineError::InvalidRequest(
+        return Err(EngineError::CorpusInput(
             "reference corpus filter returned an empty format".to_string(),
         ));
     }
@@ -993,7 +1413,7 @@ fn validate_reference_corpus_filter_locales(
         .as_deref()
         .is_some_and(|locale| locale != expected_filter_source_locale)
     {
-        return Err(EngineError::InvalidRequest(
+        return Err(EngineError::CorpusInput(
             "reference corpus input source locale does not match the selected corpus side"
                 .to_string(),
         ));
@@ -1005,7 +1425,7 @@ fn validate_reference_corpus_filter_locales(
             .get("targetLocale")
             .is_some_and(|locale| locale != target_locale)
     {
-        return Err(EngineError::InvalidRequest(
+        return Err(EngineError::CorpusInput(
             "reference corpus input target locale does not match the project".to_string(),
         ));
     }
@@ -1021,7 +1441,7 @@ fn reference_corpus_entries_from_import(
     options_sha256: &str,
 ) -> Result<Vec<NewReferenceCorpusEntry>> {
     if imported.units.is_empty() {
-        return Err(EngineError::InvalidRequest(
+        return Err(EngineError::CorpusInput(
             "reference corpus input contains no translatable units".to_string(),
         ));
     }
@@ -1043,7 +1463,7 @@ fn reference_corpus_entries_from_import(
                         .as_ref()
                         .filter(|target| !target.trim().is_empty())
                         .ok_or_else(|| {
-                            EngineError::InvalidRequest(format!(
+                            EngineError::CorpusInput(format!(
                                 "bilingual reference corpus unit {} has no authoritative target",
                                 unit.ordinal
                             ))
@@ -2313,6 +2733,266 @@ impl EngineService {
         )?)
     }
 
+    pub fn create_alignment_session(
+        &mut self,
+        params: protocol::AlignmentSessionCreateParams,
+    ) -> Result<protocol::AlignmentSessionCreateResult> {
+        let result = self
+            .store
+            .create_alignment_session(storage::NewAlignmentSession {
+                project_id: params.project_id,
+                source_document_id: params.source_document_id,
+                target_document_id: params.target_document_id,
+                expected_project_revision: params.expected_project_revision,
+                expected_source_document_revision: params.expected_source_document_revision,
+                expected_target_document_revision: params.expected_target_document_revision,
+                options: params.options,
+                actor: params.actor,
+                reason: params.reason,
+                correlation_id: params.correlation_id,
+            })?;
+        protocol_alignment_session_create_result(result)
+    }
+
+    pub fn get_alignment_session(
+        &self,
+        params: protocol::AlignmentSessionGetParams,
+    ) -> Result<protocol::AlignmentSessionGetResult> {
+        let limit = bounded_page_size(params.limit)?;
+        let session = self.store.get_alignment_session(&params.session_id)?;
+        let (links, total) = self.store.list_alignment_links(
+            &params.session_id,
+            params.link_status,
+            params.offset,
+            limit,
+        )?;
+        Ok(protocol::AlignmentSessionGetResult {
+            session: protocol_alignment_session(session)?,
+            links: links.into_iter().map(protocol_alignment_link).collect(),
+            total,
+            offset: params.offset,
+            limit,
+        })
+    }
+
+    pub fn list_alignment_sessions(
+        &self,
+        params: protocol::AlignmentSessionListParams,
+    ) -> Result<protocol::AlignmentSessionPage> {
+        let limit = bounded_page_size(params.limit)?;
+        self.store.get_project(&params.project_id)?;
+        let (items, total) = self.store.list_alignment_sessions(
+            &params.project_id,
+            params.status.map(storage_alignment_session_status),
+            params.offset,
+            limit,
+        )?;
+        Ok(protocol::AlignmentSessionPage {
+            items: items
+                .into_iter()
+                .map(protocol_alignment_session)
+                .collect::<Result<Vec<_>>>()?,
+            total,
+            offset: params.offset,
+            limit,
+        })
+    }
+
+    pub fn update_alignment_session(
+        &mut self,
+        params: protocol::AlignmentSessionUpdateParams,
+    ) -> Result<protocol::AlignmentMutationResult> {
+        let protocol::AlignmentSessionUpdateParams {
+            session_id,
+            expected_session_revision,
+            mutation,
+            actor,
+            reason,
+            correlation_id,
+        } = params;
+        let result = match mutation {
+            protocol::AlignmentSessionMutation::ReplaceLinks { links, replacement } => {
+                self.store
+                    .replace_alignment_partition(storage::ReplaceAlignmentPartition {
+                        session_id,
+                        expected_session_revision,
+                        links: links
+                            .into_iter()
+                            .map(storage_expected_alignment_link_revision)
+                            .collect(),
+                        replacement: replacement
+                            .into_iter()
+                            .map(|link| storage::ManualAlignmentPartitionLink {
+                                source_segment_ids: link.source_segment_ids,
+                                target_segment_ids: link.target_segment_ids,
+                            })
+                            .collect(),
+                        actor,
+                        reason,
+                        correlation_id,
+                    })?
+            }
+            protocol::AlignmentSessionMutation::SetStatus {
+                link_id,
+                expected_link_revision,
+                status,
+            } => self
+                .store
+                .update_alignment_link_status(storage::UpdateAlignmentLinkStatus {
+                    session_id,
+                    link_id,
+                    expected_session_revision,
+                    expected_link_revision,
+                    status,
+                    actor,
+                    reason,
+                    correlation_id,
+                })?,
+        };
+        protocol_alignment_mutation_result(result)
+    }
+
+    pub fn refine_alignment_session(
+        &mut self,
+        params: protocol::AlignmentSessionRefineParams,
+    ) -> Result<translunar_ai_core::AiRun> {
+        self.start_alignment_refinement(AlignmentRefinementStart {
+            profile_id: params.profile_id,
+            context: AlignmentRefinementRunContext {
+                session_id: params.session_id,
+                expected_session_revision: params.expected_session_revision,
+                links: params
+                    .links
+                    .into_iter()
+                    .map(|link| AlignmentRefinementLinkRevision {
+                        link_id: link.link_id,
+                        expected_revision: link.expected_revision,
+                    })
+                    .collect(),
+                actor: params.actor,
+                reason: params.reason,
+                correlation_id: params.correlation_id,
+            },
+            max_attempts: params.max_attempts,
+        })
+    }
+
+    pub fn apply_alignment_session(
+        &mut self,
+        params: protocol::AlignmentSessionApplyParams,
+    ) -> Result<protocol::AlignmentApplyResult> {
+        let result = self
+            .store
+            .apply_alignment_to_tm(storage::ApplyAlignmentToTm {
+                session_id: params.session_id,
+                library_id: params.library_id,
+                expected_session_revision: params.expected_session_revision,
+                expected_library_revision: params.expected_library_revision,
+                links: params
+                    .links
+                    .into_iter()
+                    .map(storage_expected_alignment_link_revision)
+                    .collect(),
+                actor: params.actor,
+                reason: params.reason,
+                correlation_id: params.correlation_id,
+            })?;
+        Ok(protocol_alignment_apply_result(result))
+    }
+
+    pub fn list_reference_corpora(
+        &self,
+        params: protocol::CorpusListParams,
+    ) -> Result<protocol::ReferenceCorpusPage> {
+        let limit = bounded_page_size(params.limit)?;
+        let (items, total) = self.store.list_reference_corpora(
+            &params.project_id,
+            params.status.map(storage_reference_corpus_status),
+            params.offset,
+            limit,
+        )?;
+        Ok(protocol::ReferenceCorpusPage {
+            items: items.into_iter().map(protocol_reference_corpus).collect(),
+            total,
+            offset: params.offset,
+            limit,
+        })
+    }
+
+    pub fn create_reference_corpus_from_alignment(
+        &mut self,
+        params: protocol::CorpusFromAlignmentParams,
+    ) -> Result<protocol::ReferenceCorpusMutationResult> {
+        let result = self.store.create_reference_corpus_from_alignment(
+            storage::CreateReferenceCorpusFromAlignment {
+                project_id: params.project_id,
+                expected_project_revision: params.expected_project_revision,
+                session_id: params.session_id,
+                expected_session_revision: params.expected_session_revision,
+                name: params.name,
+                links: params
+                    .links
+                    .into_iter()
+                    .map(storage_expected_alignment_link_revision)
+                    .collect(),
+                actor: params.actor,
+                reason: params.reason,
+                correlation_id: params.correlation_id,
+            },
+        )?;
+        Ok(protocol_reference_corpus_mutation_result(result))
+    }
+
+    pub fn search_reference_corpora(
+        &self,
+        params: protocol::CorpusSearchParams,
+    ) -> Result<protocol::CorpusSearchResult> {
+        let limit = bounded_page_size(params.limit)?;
+        let result =
+            self.store
+                .search_reference_corpora(&storage::ReferenceCorpusSearchRequest {
+                    project_id: params.project_id,
+                    query: params.query,
+                    side: storage_reference_corpus_search_side(params.side),
+                    corpus_ids: params.corpus_ids,
+                    offset: params.offset,
+                    limit,
+                })?;
+        Ok(protocol_reference_corpus_search_result(result))
+    }
+
+    pub fn reindex_reference_corpus(
+        &mut self,
+        params: protocol::CorpusMutationParams,
+    ) -> Result<protocol::ReferenceCorpusMutationResult> {
+        let result = self
+            .store
+            .reindex_reference_corpus(storage::ReindexReferenceCorpus {
+                corpus_id: params.corpus_id,
+                expected_revision: params.expected_revision,
+                actor: params.actor,
+                reason: params.reason,
+                correlation_id: params.correlation_id,
+            })?;
+        Ok(protocol_reference_corpus_mutation_result(result))
+    }
+
+    pub fn remove_reference_corpus(
+        &mut self,
+        params: protocol::CorpusMutationParams,
+    ) -> Result<protocol::ReferenceCorpusMutationResult> {
+        let result = self
+            .store
+            .remove_reference_corpus(storage::RemoveReferenceCorpus {
+                corpus_id: params.corpus_id,
+                expected_revision: params.expected_revision,
+                actor: params.actor,
+                reason: params.reason,
+                correlation_id: params.correlation_id,
+            })?;
+        Ok(protocol_reference_corpus_mutation_result(result))
+    }
+
     pub fn list_documents(&self, params: DocumentListParams) -> Result<DocumentPage> {
         let limit = bounded_page_size(params.limit)?;
         let (items, total) = self
@@ -2400,6 +3080,27 @@ impl EngineService {
         }
     }
 
+    pub fn import_reference_corpus_rpc(
+        &mut self,
+        params: protocol::CorpusImportParams,
+    ) -> Result<protocol::ReferenceCorpusMutationResult> {
+        let result = self.import_reference_corpus(ReferenceCorpusImportRequest {
+            project_id: params.project_id,
+            expected_project_revision: params.expected_project_revision,
+            source_path: PathBuf::from(params.source_path),
+            name: params.name,
+            kind: storage_reference_corpus_kind(params.kind),
+            source_locale: params.source_locale,
+            target_locale: params.target_locale,
+            filter_id: params.filter_id,
+            options: params.options,
+            actor: params.actor,
+            reason: params.reason,
+            correlation_id: params.correlation_id,
+        })?;
+        Ok(protocol_reference_corpus_mutation_result(result))
+    }
+
     fn prepare_reference_corpus_import(
         &self,
         project: &Project,
@@ -2407,7 +3108,7 @@ impl EngineService {
     ) -> Result<NewReferenceCorpus> {
         validate_filter_options(&request.options)?;
         if !request.source_path.is_file() {
-            return Err(EngineError::InvalidRequest(
+            return Err(EngineError::CorpusInput(
                 "reference corpus source file does not exist".to_string(),
             ));
         }
@@ -2417,7 +3118,7 @@ impl EngineService {
             .and_then(|value| value.to_str())
             .filter(|value| !value.trim().is_empty())
             .ok_or_else(|| {
-                EngineError::InvalidRequest(
+                EngineError::CorpusInput(
                     "reference corpus source path must name a file".to_string(),
                 )
             })?
@@ -2425,7 +3126,7 @@ impl EngineService {
         let filter = self
             .filters
             .select(&request.source_path, request.filter_id.as_deref())
-            .map_err(EngineError::Import)?;
+            .map_err(EngineError::CorpusImport)?;
         let descriptor = filter.descriptor();
         let staging_id = translunar_domain::new_id();
         let extension = request
@@ -2456,8 +3157,8 @@ impl EngineService {
                 source_locale: Some(filter_source_locale.clone()),
                 options: request.options.clone(),
             })
-            .map_err(EngineError::Import)?;
-        let imported = collect_imported_document(stream).map_err(EngineError::Import)?;
+            .map_err(EngineError::CorpusImport)?;
+        let imported = collect_imported_document(stream).map_err(EngineError::CorpusImport)?;
         validate_reference_corpus_filter_locales(
             &imported,
             request.kind,
@@ -4896,6 +5597,54 @@ impl RpcDispatcher {
             methods::PDF_CORRECT_OCR => {
                 serialize_result(self.service.correct_ocr(parse_params(request.params)?)?)
             }
+            methods::ALIGNMENT_SESSION_CREATE => serialize_result(
+                self.service
+                    .create_alignment_session(parse_params(request.params)?)?,
+            ),
+            methods::ALIGNMENT_SESSION_GET => serialize_result(
+                self.service
+                    .get_alignment_session(parse_params(request.params)?)?,
+            ),
+            methods::ALIGNMENT_SESSION_LIST => serialize_result(
+                self.service
+                    .list_alignment_sessions(parse_params(request.params)?)?,
+            ),
+            methods::ALIGNMENT_SESSION_UPDATE => serialize_result(
+                self.service
+                    .update_alignment_session(parse_params(request.params)?)?,
+            ),
+            methods::ALIGNMENT_SESSION_REFINE => serialize_result(
+                self.service
+                    .refine_alignment_session(parse_params(request.params)?)?,
+            ),
+            methods::ALIGNMENT_SESSION_APPLY => serialize_result(
+                self.service
+                    .apply_alignment_session(parse_params(request.params)?)?,
+            ),
+            methods::CORPUS_LIST => serialize_result(
+                self.service
+                    .list_reference_corpora(parse_params(request.params)?)?,
+            ),
+            methods::CORPUS_IMPORT => serialize_result(
+                self.service
+                    .import_reference_corpus_rpc(parse_params(request.params)?)?,
+            ),
+            methods::CORPUS_FROM_ALIGNMENT => serialize_result(
+                self.service
+                    .create_reference_corpus_from_alignment(parse_params(request.params)?)?,
+            ),
+            methods::CORPUS_SEARCH => serialize_result(
+                self.service
+                    .search_reference_corpora(parse_params(request.params)?)?,
+            ),
+            methods::CORPUS_REINDEX => serialize_result(
+                self.service
+                    .reindex_reference_corpus(parse_params(request.params)?)?,
+            ),
+            methods::CORPUS_REMOVE => serialize_result(
+                self.service
+                    .remove_reference_corpus(parse_params(request.params)?)?,
+            ),
             methods::TM_LOOKUP_EXACT => {
                 serialize_result(self.service.lookup_exact(parse_params(request.params)?)?)
             }
@@ -5219,6 +5968,10 @@ impl RpcDispatcher {
                 "search.global".to_string(),
                 "analysis.weighted-effort".to_string(),
                 "analysis.project-operational".to_string(),
+                "alignment.sessions".to_string(),
+                "alignment.ai-refinement".to_string(),
+                "alignment.tm-apply".to_string(),
+                "reference-corpus".to_string(),
                 "translation-memory.exact".to_string(),
                 "translation-memory.library".to_string(),
                 "translation-memory.fuzzy-cjk".to_string(),
@@ -5339,6 +6092,42 @@ fn rpc_error(error: EngineError) -> RpcError {
         ) => RpcError {
             code: ErrorCode::ProviderProtocol,
             message: "AI provider returned an invalid response".to_string(),
+            data: None,
+        },
+        EngineError::CorpusImport(FilterError::NotFound(id)) => RpcError {
+            code: ErrorCode::NotFound,
+            message: format!("filter not found: {id}"),
+            data: Some(json!({ "entity": "filter", "id": id })),
+        },
+        EngineError::CorpusImport(_) | EngineError::CorpusInput(_) => RpcError {
+            code: ErrorCode::UnsupportedCorpusInput,
+            message: "reference corpus input is unsupported or invalid".to_string(),
+            data: None,
+        },
+        EngineError::Storage(StorageError::Alignment(AlignmentError::ResourceLimitExceeded {
+            resource,
+            limit,
+            actual,
+        })) => RpcError {
+            code: ErrorCode::ResourceLimitExceeded,
+            message: "alignment request exceeds a configured resource limit".to_string(),
+            data: Some(json!({
+                "resource": resource,
+                "limit": limit,
+                "actual": actual,
+            })),
+        },
+        EngineError::Storage(StorageError::Alignment(
+            AlignmentError::InvalidRefinementResponse { .. }
+            | AlignmentError::InvalidRefinementConfidence { .. },
+        )) => RpcError {
+            code: ErrorCode::AlignmentResponseInvalid,
+            message: "alignment refinement response is invalid".to_string(),
+            data: None,
+        },
+        EngineError::Storage(StorageError::Alignment(_)) => RpcError {
+            code: ErrorCode::AlignmentInvalidPartition,
+            message: "alignment partition is invalid".to_string(),
             data: None,
         },
         EngineError::Storage(StorageError::NotFound { entity, id }) => RpcError {
@@ -6202,6 +6991,477 @@ mod tests {
         }
     }
 
+    #[test]
+    fn protocol_alignment_and_corpus_projections_hide_internal_fields() {
+        let apply = storage::AlignmentApplyResult {
+            session_id: "session-1".to_string(),
+            library_id: "library-1".to_string(),
+            status: storage::AlignmentSessionStatus::Applied,
+            selected_count: 1,
+            inserted_count: 1,
+            duplicate_count: 0,
+            session_revision: 3,
+            library_revision: 4,
+            operation_id: "operation-1".to_string(),
+            tm_unit_ids: vec!["unit-1".to_string()],
+            duplicates: Vec::new(),
+        };
+        let session = storage::AlignmentSessionRecord {
+            id: "session-1".to_string(),
+            project_id: "project-1".to_string(),
+            source_document_id: "source-1".to_string(),
+            target_document_id: "target-1".to_string(),
+            source_document_revision: 2,
+            target_document_revision: 5,
+            source_locale: "en-US".to_string(),
+            target_locale: "zh-CN".to_string(),
+            algorithm_version: "fixture".to_string(),
+            status: storage::AlignmentSessionStatus::Applied,
+            revision: 3,
+            terminal_result: Some(json!({
+                "requestFingerprint": "must-not-cross-the-wire",
+                "result": serde_json::to_value(&apply).expect("serialize terminal result")
+            })),
+            created_at_ms: 1,
+            updated_at_ms: 2,
+            closed_at_ms: Some(2),
+        };
+        let projected =
+            serde_json::to_value(protocol_alignment_session(session).expect("project session"))
+                .expect("serialize projected session");
+        assert_eq!(projected["terminalResult"]["sessionId"], "session-1");
+        assert!(
+            projected["terminalResult"]
+                .get("requestFingerprint")
+                .is_none()
+        );
+
+        let entry = storage::ReferenceCorpusEntryRecord {
+            id: "entry-1".to_string(),
+            corpus_id: "corpus-1".to_string(),
+            ordinal: 0,
+            source_text: "Invoice".to_string(),
+            target_text: "发票".to_string(),
+            normalized_source: "invoice".to_string(),
+            normalized_target: "发票".to_string(),
+            structural_path: "txt:0".to_string(),
+            provenance: json!({"mappedSide": "both"}),
+            created_at_ms: 1,
+            updated_at_ms: 1,
+        };
+        let projected_entry = serde_json::to_value(protocol_reference_corpus_entry(entry))
+            .expect("serialize projected corpus entry");
+        assert!(projected_entry.get("normalizedSource").is_none());
+        assert!(projected_entry.get("normalizedTarget").is_none());
+        assert_eq!(projected_entry["structuralPath"], "txt:0");
+    }
+
+    #[test]
+    fn alignment_and_corpus_errors_are_typed_and_redacted() {
+        let limit = rpc_error(EngineError::Storage(StorageError::Alignment(
+            AlignmentError::ResourceLimitExceeded {
+                resource: translunar_alignment_core::AlignmentResource::WorkUnits,
+                limit: 10,
+                actual: 11,
+            },
+        )));
+        assert_eq!(limit.code, ErrorCode::ResourceLimitExceeded);
+        assert_eq!(
+            limit.data.as_ref().and_then(|data| data.get("resource")),
+            Some(&json!("workUnits"))
+        );
+        assert_eq!(
+            limit.data.as_ref().and_then(|data| data.get("limit")),
+            Some(&json!(10))
+        );
+
+        let invalid_response = rpc_error(EngineError::Storage(StorageError::Alignment(
+            AlignmentError::InvalidRefinementResponse {
+                message: "provider echoed source text".to_string(),
+            },
+        )));
+        assert_eq!(invalid_response.code, ErrorCode::AlignmentResponseInvalid);
+        assert!(!invalid_response.message.contains("source text"));
+
+        let corpus = rpc_error(EngineError::CorpusImport(FilterError::NoMatch(
+            "secret corpus body".to_string(),
+        )));
+        assert_eq!(corpus.code, ErrorCode::UnsupportedCorpusInput);
+        assert!(!corpus.message.contains("secret corpus body"));
+
+        let missing_filter = rpc_error(EngineError::CorpusImport(FilterError::NotFound(
+            "builtin.missing".to_string(),
+        )));
+        assert_eq!(missing_filter.code, ErrorCode::NotFound);
+        assert_eq!(
+            missing_filter
+                .data
+                .as_ref()
+                .and_then(|data| data.get("entity")),
+            Some(&json!("filter"))
+        );
+    }
+
+    fn dispatcher_call<P: serde::Serialize>(
+        dispatcher: &mut RpcDispatcher,
+        id: u64,
+        method: &str,
+        params: P,
+    ) -> RpcResponse {
+        dispatcher.handle(RpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: json!(id),
+            method: method.to_string(),
+            params: serde_json::to_value(params).expect("serialize RPC params"),
+        })
+    }
+
+    fn dispatcher_result<T: serde::de::DeserializeOwned>(response: RpcResponse) -> T {
+        if let Some(error) = response.error {
+            panic!("unexpected RPC error: {error:?}");
+        }
+        serde_json::from_value(response.result.expect("RPC result")).expect("decode RPC result")
+    }
+
+    #[test]
+    fn dispatcher_exposes_alignment_and_reference_corpus_lifecycle() {
+        let context = TestContext::new();
+        let source_txt = context.root.path().join("alignment-source.txt");
+        let target_txt = context.root.path().join("alignment-target.txt");
+        fs::write(&source_txt, "Invoice 42.\n\nTotal 100.").expect("write source alignment input");
+        fs::write(&target_txt, "Invoice 42.\n\nTotal 100.").expect("write target alignment input");
+
+        let mut dispatcher = RpcDispatcher::open(context.root.path()).expect("open dispatcher");
+        let initialized: InitializeResult = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            1,
+            methods::INITIALIZE,
+            InitializeParams {
+                protocol_version: PROTOCOL_VERSION,
+                client: ClientInfo {
+                    name: "alignment-corpus-test".to_string(),
+                    version: "1".to_string(),
+                },
+            },
+        ));
+        assert!(
+            initialized
+                .capabilities
+                .iter()
+                .any(|capability| capability == "alignment.sessions")
+        );
+        assert!(
+            initialized
+                .capabilities
+                .iter()
+                .any(|capability| capability == "reference-corpus")
+        );
+
+        let project: Project = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            2,
+            methods::PROJECT_CREATE,
+            CreateProjectParams {
+                name: "Alignment protocol project".to_string(),
+                source_locale: "en-US".to_string(),
+                target_locale: "zh-CN".to_string(),
+                domain: "general".to_string(),
+            },
+        ));
+        let source_document: ImportDocumentResult = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            3,
+            methods::DOCUMENT_IMPORT,
+            ImportDocumentParams {
+                project_id: project.id.clone(),
+                source_path: source_txt.to_string_lossy().into_owned(),
+                relative_path: Some("alignment-source.txt".to_string()),
+                filter_id: Some("builtin.txt".to_string()),
+                options: BTreeMap::new(),
+            },
+        ));
+        let target_document: ImportDocumentResult = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            4,
+            methods::DOCUMENT_IMPORT,
+            ImportDocumentParams {
+                project_id: project.id.clone(),
+                source_path: target_txt.to_string_lossy().into_owned(),
+                relative_path: Some("alignment-target.txt".to_string()),
+                filter_id: Some("builtin.txt".to_string()),
+                options: BTreeMap::new(),
+            },
+        ));
+
+        let created: protocol::AlignmentSessionCreateResult = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            5,
+            methods::ALIGNMENT_SESSION_CREATE,
+            protocol::AlignmentSessionCreateParams {
+                project_id: project.id.clone(),
+                source_document_id: source_document.document.id.clone(),
+                target_document_id: target_document.document.id.clone(),
+                expected_project_revision: project.revision,
+                expected_source_document_revision: source_document.document.revision,
+                expected_target_document_revision: target_document.document.revision,
+                options: Default::default(),
+                actor: "protocol-test".to_string(),
+                reason: "create deterministic alignment".to_string(),
+                correlation_id: Some("alignment-correlation".to_string()),
+            },
+        ));
+        assert!(created.link_count > 0);
+
+        let listed: protocol::AlignmentSessionPage = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            6,
+            methods::ALIGNMENT_SESSION_LIST,
+            protocol::AlignmentSessionListParams {
+                project_id: project.id.clone(),
+                status: None,
+                offset: 0,
+                limit: 50,
+            },
+        ));
+        assert_eq!(listed.total, 1);
+
+        let initial: protocol::AlignmentSessionGetResult = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            7,
+            methods::ALIGNMENT_SESSION_GET,
+            protocol::AlignmentSessionGetParams {
+                session_id: created.session.id.clone(),
+                link_status: None,
+                offset: 0,
+                limit: 50,
+            },
+        ));
+        let candidate = initial.links.first().expect("alignment candidate").clone();
+
+        let refine_error = dispatcher_call(
+            &mut dispatcher,
+            8,
+            methods::ALIGNMENT_SESSION_REFINE,
+            protocol::AlignmentSessionRefineParams {
+                session_id: created.session.id.clone(),
+                expected_session_revision: initial.session.revision,
+                links: vec![protocol::AlignmentExpectedLinkRevision {
+                    link_id: candidate.id.clone(),
+                    expected_revision: candidate.revision,
+                }],
+                profile_id: "missing-profile".to_string(),
+                max_attempts: 1,
+                actor: "protocol-test".to_string(),
+                reason: "try optional refinement".to_string(),
+                correlation_id: None,
+            },
+        );
+        let refine_error = refine_error
+            .error
+            .expect("refinement should fail without profile");
+        assert_ne!(refine_error.code, ErrorCode::InvalidRequest);
+
+        let updated: protocol::AlignmentMutationResult = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            9,
+            methods::ALIGNMENT_SESSION_UPDATE,
+            protocol::AlignmentSessionUpdateParams {
+                session_id: created.session.id.clone(),
+                expected_session_revision: initial.session.revision,
+                mutation: protocol::AlignmentSessionMutation::SetStatus {
+                    link_id: candidate.id.clone(),
+                    expected_link_revision: candidate.revision,
+                    status: translunar_alignment_core::AlignmentLinkStatus::Confirmed,
+                },
+                actor: "protocol-test".to_string(),
+                reason: "confirm deterministic candidate".to_string(),
+                correlation_id: None,
+            },
+        ));
+        let confirmed = updated
+            .links
+            .iter()
+            .find(|link| link.id == candidate.id)
+            .expect("confirmed link");
+        assert_eq!(
+            confirmed.status,
+            translunar_alignment_core::AlignmentLinkStatus::Confirmed
+        );
+
+        let libraries: protocol::TmLibraryPage = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            10,
+            methods::TM_LIBRARY_LIST,
+            TmLibraryListParams {
+                project_id: Some(project.id.clone()),
+                offset: 0,
+                limit: 50,
+            },
+        ));
+        let library = libraries
+            .items
+            .iter()
+            .find(|library| library.writable)
+            .expect("default writable TM library")
+            .clone();
+        let applied: protocol::AlignmentApplyResult = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            11,
+            methods::ALIGNMENT_SESSION_APPLY,
+            protocol::AlignmentSessionApplyParams {
+                session_id: created.session.id.clone(),
+                library_id: library.id.clone(),
+                expected_session_revision: updated.session.revision,
+                expected_library_revision: library.revision,
+                links: vec![protocol::AlignmentExpectedLinkRevision {
+                    link_id: confirmed.id.clone(),
+                    expected_revision: confirmed.revision,
+                }],
+                actor: "protocol-test".to_string(),
+                reason: "apply selected alignment".to_string(),
+                correlation_id: None,
+            },
+        ));
+        assert_eq!(applied.status, protocol::AlignmentSessionStatus::Applied);
+
+        let terminal: protocol::AlignmentSessionGetResult = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            12,
+            methods::ALIGNMENT_SESSION_GET,
+            protocol::AlignmentSessionGetParams {
+                session_id: created.session.id.clone(),
+                link_status: None,
+                offset: 0,
+                limit: 50,
+            },
+        ));
+        let terminal_json =
+            serde_json::to_value(&terminal.session).expect("serialize terminal session");
+        assert!(
+            terminal_json["terminalResult"]
+                .get("requestFingerprint")
+                .is_none()
+        );
+
+        let from_alignment: protocol::ReferenceCorpusMutationResult =
+            dispatcher_result(dispatcher_call(
+                &mut dispatcher,
+                13,
+                methods::CORPUS_FROM_ALIGNMENT,
+                protocol::CorpusFromAlignmentParams {
+                    project_id: project.id.clone(),
+                    expected_project_revision: project.revision,
+                    session_id: created.session.id.clone(),
+                    expected_session_revision: applied.session_revision,
+                    name: "Applied alignment corpus".to_string(),
+                    links: vec![protocol::AlignmentExpectedLinkRevision {
+                        link_id: confirmed.id.clone(),
+                        expected_revision: confirmed.revision,
+                    }],
+                    actor: "protocol-test".to_string(),
+                    reason: "mount confirmed alignment as corpus".to_string(),
+                    correlation_id: None,
+                },
+            ));
+        let corpus_list: protocol::ReferenceCorpusPage = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            14,
+            methods::CORPUS_LIST,
+            protocol::CorpusListParams {
+                project_id: project.id.clone(),
+                status: Some(protocol::ReferenceCorpusStatus::Active),
+                offset: 0,
+                limit: 50,
+            },
+        ));
+        assert_eq!(corpus_list.total, 1);
+        let search: protocol::CorpusSearchResult = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            15,
+            methods::CORPUS_SEARCH,
+            protocol::CorpusSearchParams {
+                project_id: project.id.clone(),
+                query: "Invoice".to_string(),
+                side: protocol::CorpusSearchSide::Both,
+                corpus_ids: vec![from_alignment.corpus.id.clone()],
+                offset: 0,
+                limit: 50,
+            },
+        ));
+        assert_eq!(search.total, 1);
+        assert!(search.items[0].entry.provenance["alignmentSessionId"].is_string());
+        assert!(
+            serde_json::to_value(&search.items[0].entry)
+                .expect("serialize corpus hit")
+                .get("normalizedSource")
+                .is_none()
+        );
+
+        let reindexed: protocol::ReferenceCorpusMutationResult =
+            dispatcher_result(dispatcher_call(
+                &mut dispatcher,
+                16,
+                methods::CORPUS_REINDEX,
+                protocol::CorpusMutationParams {
+                    corpus_id: from_alignment.corpus.id.clone(),
+                    expected_revision: from_alignment.corpus.revision,
+                    actor: "protocol-test".to_string(),
+                    reason: "rebuild corpus index".to_string(),
+                    correlation_id: None,
+                },
+            ));
+        let removed: protocol::ReferenceCorpusMutationResult = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            17,
+            methods::CORPUS_REMOVE,
+            protocol::CorpusMutationParams {
+                corpus_id: reindexed.corpus.id.clone(),
+                expected_revision: reindexed.corpus.revision,
+                actor: "protocol-test".to_string(),
+                reason: "remove corpus mount".to_string(),
+                correlation_id: None,
+            },
+        ));
+        assert_eq!(
+            removed.corpus.status,
+            protocol::ReferenceCorpusStatus::Removed
+        );
+
+        let imported: protocol::ReferenceCorpusMutationResult = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            18,
+            methods::CORPUS_IMPORT,
+            protocol::CorpusImportParams {
+                project_id: project.id.clone(),
+                expected_project_revision: project.revision,
+                source_path: source_txt.to_string_lossy().into_owned(),
+                name: "File source corpus".to_string(),
+                kind: protocol::ReferenceCorpusKind::MonolingualSource,
+                source_locale: project.source_locale.clone(),
+                target_locale: project.target_locale.clone(),
+                filter_id: Some("builtin.txt".to_string()),
+                options: BTreeMap::new(),
+                actor: "protocol-test".to_string(),
+                reason: "import file corpus".to_string(),
+                correlation_id: None,
+            },
+        ));
+        assert_eq!(imported.corpus.entry_count, 2);
+        let active_after_remove: protocol::ReferenceCorpusPage =
+            dispatcher_result(dispatcher_call(
+                &mut dispatcher,
+                19,
+                methods::CORPUS_LIST,
+                protocol::CorpusListParams {
+                    project_id: project.id,
+                    status: Some(protocol::ReferenceCorpusStatus::Active),
+                    offset: 0,
+                    limit: 50,
+                },
+            ));
+        assert_eq!(active_after_remove.total, 1);
+    }
+
     fn rewrite_review_source(source: &Path, output: &Path, from: &str, to: &str) {
         let mut archive =
             ZipArchive::new(File::open(source).expect("open review ZIP")).expect("read review ZIP");
@@ -6535,7 +7795,7 @@ mod tests {
                 ReferenceCorpusKind::Bilingual,
                 "builtin.xliff",
             )),
-            Err(EngineError::InvalidRequest(_))
+            Err(EngineError::CorpusInput(_))
         ));
         assert_eq!(managed_source_names(context.root.path()), before);
         assert!(matches!(
@@ -6546,7 +7806,7 @@ mod tests {
                 ReferenceCorpusKind::Bilingual,
                 "builtin.xliff",
             )),
-            Err(EngineError::InvalidRequest(_))
+            Err(EngineError::CorpusInput(_))
         ));
         assert_eq!(managed_source_names(context.root.path()), before);
 
@@ -6607,7 +7867,7 @@ mod tests {
         locale_mismatch.source_locale = "fr-FR".to_string();
         assert!(matches!(
             service.import_reference_corpus(locale_mismatch),
-            Err(EngineError::InvalidRequest(_))
+            Err(EngineError::CorpusInput(_))
         ));
         assert_eq!(managed_source_names(context.root.path()), before);
 
@@ -6619,7 +7879,7 @@ mod tests {
                 ReferenceCorpusKind::MonolingualSource,
                 "missing.filter",
             )),
-            Err(EngineError::Import(FilterError::NotFound(_)))
+            Err(EngineError::CorpusImport(FilterError::NotFound(_)))
         ));
         assert_eq!(managed_source_names(context.root.path()), before);
         assert!(matches!(
@@ -6630,7 +7890,7 @@ mod tests {
                 ReferenceCorpusKind::MonolingualSource,
                 "builtin.txt",
             )),
-            Err(EngineError::Import(_))
+            Err(EngineError::CorpusImport(_))
         ));
         assert_eq!(managed_source_names(context.root.path()), before);
 

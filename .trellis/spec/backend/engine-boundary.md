@@ -1725,3 +1725,107 @@ if result.is_err() {
     let _ = fs::remove_file(managed_path); // only failed staging is cleaned
 }
 ```
+
+## Alignment And Corpus RPC Boundary
+
+### 1. Scope / Trigger
+
+Use this contract when exposing alignment sessions, alignment-to-TM apply, or
+reference-corpus lifecycle through protocol v1. `crates/protocol` owns the wire
+shape, Engine owns storage-to-wire projection and error redaction, and Store
+continues to own revisions and transactions.
+
+### 2. Signatures
+
+The additive generated method catalog is:
+
+```text
+alignment.session.create  AlignmentSessionCreateParams -> AlignmentSessionCreateResult
+alignment.session.get     AlignmentSessionGetParams    -> AlignmentSessionGetResult
+alignment.session.list    AlignmentSessionListParams   -> AlignmentSessionPage
+alignment.session.update  AlignmentSessionUpdateParams -> AlignmentMutationResult
+alignment.session.refine  AlignmentSessionRefineParams -> AiRun
+alignment.session.apply   AlignmentSessionApplyParams  -> AlignmentApplyResult
+corpus.list               CorpusListParams             -> ReferenceCorpusPage
+corpus.import             CorpusImportParams           -> ReferenceCorpusMutationResult
+corpus.fromAlignment      CorpusFromAlignmentParams    -> ReferenceCorpusMutationResult
+corpus.search             CorpusSearchParams           -> CorpusSearchResult
+corpus.reindex            CorpusMutationParams         -> ReferenceCorpusMutationResult
+corpus.remove             CorpusMutationParams         -> ReferenceCorpusMutationResult
+```
+
+Initialization advertises `alignment.sessions`, `alignment.ai-refinement`,
+`alignment.tm-apply`, and `reference-corpus`.
+
+### 3. Contracts
+
+- Session/corpus list and search/get-link pages accept only limits `1..500` and
+  return Engine-authoritative ordering, `offset`, `limit`, and `total`.
+- `alignment.session.update` uses the strict camel-case tagged mutation
+  `replaceLinks` or `setStatus`; every write carries the expected session and
+  applicable link/library/project/corpus revision plus actor and reason.
+- Engine projects storage records into protocol DTOs. It never serializes a
+  storage record directly: corpus entries omit `normalized_source` and
+  `normalized_target`, and an applied session exposes only
+  `terminal_result_json.result`, never the internal request fingerprint.
+- Protocol evidence is a camel-case projection distinct from the persisted
+  alignment-core evidence representation. For a struct-variant enum, Serde
+  `rename_all` renames variants only; wire fields require
+  `rename_all_fields = "camelCase"` or an explicit protocol DTO.
+- Refinement builds `AlignmentRefinementRunContext` from IDs/revisions only and
+  delegates to the existing bounded AI run service. Apply and corpus mutations
+  delegate to their existing Store transactions without duplicating rules.
+- Rust schema, generated TypeScript, `RpcMethodCatalog`, dispatcher branches,
+  and `ENGINE_METHODS` change together. `pnpm contracts:check` proves generated
+  files are byte-current.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Stale session/link/library/project/corpus revision | `conflict` with entity, ID, expected, and actual revision |
+| Alignment work/segment/refinement bound exceeded | `resource_limit_exceeded` with camel-case resource, limit, and actual counts |
+| Invalid provider refinement graph/response | `alignment_response_invalid`; no response body or echoed text |
+| Other alignment-core partition validation failure | `alignment_invalid_partition` with a generic message |
+| Explicit corpus filter ID is unknown | `not_found` with `entity=filter` and the filter ID |
+| No filter match, malformed/empty/locale-invalid corpus, or filter failure | Redacted `unsupported_corpus_input`; no input path/body in message/data |
+| Invalid page size or malformed tagged params | `invalid_request` before storage work |
+| Invalid stored terminal projection | `storage_error`; never fall back to exposing raw terminal JSON |
+
+### 5. Good / Base / Bad Cases
+
+- Good: create/page/confirm/apply a session, reopen it with the public terminal
+  result, materialize a corpus, search/reindex/remove it, and retain typed
+  provenance without any internal fingerprint or normalized key.
+- Base: call optional refinement without a configured profile. The typed AI
+  error returns while the deterministic session remains editable.
+- Bad: return `AlignmentSessionRecord` or `ReferenceCorpusEntryRecord` directly,
+  expose `FilterError::NoMatch` with its path, or hand-maintain TypeScript types.
+
+### 6. Tests Required
+
+- Protocol tests assert strict tagged mutations, camel-case evidence fields,
+  defaults, and stable snake-case error codes.
+- Engine tests drive all 12 dispatcher branches through create/get/list/update/
+  apply and corpus import/from-alignment/search/reindex/remove. They assert AI
+  refinement reaches its service boundary, capabilities are present, internal
+  fields are absent, and corpus/filter errors are redacted.
+- Focused gates are Rust format, protocol/Engine tests, strict Clippy, generated
+  contract drift, contracts TypeScript check, and full workspace typecheck.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+// Leaks requestFingerprint and relies on persisted snake_case evidence fields.
+serialize_result(store.get_alignment_session(session_id)?)
+```
+
+#### Correct
+
+```rust
+let session = protocol_alignment_session(store.get_alignment_session(session_id)?)?;
+// The projection decodes only terminal_result_json["result"] and maps evidence.
+serialize_result(session)
+```

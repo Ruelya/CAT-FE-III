@@ -10,6 +10,7 @@ schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 translunar-ai-core = { path = "../ai-core" }
+translunar-alignment-core = { path = "../alignment-core" }
 translunar-domain = { path = "../domain" }
 translunar-asset-core = { path = "../asset-core" }
 translunar-filter-core = { path = "../filter-core" }

@@ -2682,6 +2682,7 @@ dependencies = [
  "serde",
  "serde_json",
  "translunar-ai-core",
+ "translunar-alignment-core",
  "translunar-asset-core",
  "translunar-domain",
  "translunar-filter-core",

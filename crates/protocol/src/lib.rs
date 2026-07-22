@@ -21,6 +21,8 @@ use translunar_pipeline::{
 
 mod ai;
 pub use ai::*;
+mod alignment;
+pub use alignment::*;
 mod qa;
 pub use qa::*;
 mod lifecycle;
@@ -101,6 +103,18 @@ pub mod methods {
     pub const PDF_PAGE_LIST: &str = "pdf.page.list";
     pub const PDF_PAGE_GET: &str = "pdf.page.get";
     pub const PDF_CORRECT_OCR: &str = "pdf.correctOcr";
+    pub const ALIGNMENT_SESSION_CREATE: &str = "alignment.session.create";
+    pub const ALIGNMENT_SESSION_GET: &str = "alignment.session.get";
+    pub const ALIGNMENT_SESSION_LIST: &str = "alignment.session.list";
+    pub const ALIGNMENT_SESSION_UPDATE: &str = "alignment.session.update";
+    pub const ALIGNMENT_SESSION_REFINE: &str = "alignment.session.refine";
+    pub const ALIGNMENT_SESSION_APPLY: &str = "alignment.session.apply";
+    pub const CORPUS_LIST: &str = "corpus.list";
+    pub const CORPUS_IMPORT: &str = "corpus.import";
+    pub const CORPUS_FROM_ALIGNMENT: &str = "corpus.fromAlignment";
+    pub const CORPUS_SEARCH: &str = "corpus.search";
+    pub const CORPUS_REINDEX: &str = "corpus.reindex";
+    pub const CORPUS_REMOVE: &str = "corpus.remove";
     pub const TM_LOOKUP_EXACT: &str = "tm.lookupExact";
     pub const TM_LIBRARY_LIST: &str = "tm.library.list";
     pub const TM_LIBRARY_CREATE: &str = "tm.library.create";
@@ -251,6 +265,10 @@ pub enum ErrorCode {
     ProviderTimeout,
     ProviderProtocol,
     ProviderUnavailable,
+    AlignmentInvalidPartition,
+    AlignmentResponseInvalid,
+    UnsupportedCorpusInput,
+    ResourceLimitExceeded,
     InternalError,
 }
 
@@ -1801,6 +1819,34 @@ pub struct RpcMethodCatalog {
     pub pdf_page_get: MethodContract<PdfPageGetParams, PdfPageDetail>,
     #[serde(rename = "pdf.correctOcr")]
     pub pdf_correct_ocr: MethodContract<CorrectOcrParams, Segment>,
+    #[serde(rename = "alignment.session.create")]
+    pub alignment_session_create:
+        MethodContract<AlignmentSessionCreateParams, AlignmentSessionCreateResult>,
+    #[serde(rename = "alignment.session.get")]
+    pub alignment_session_get: MethodContract<AlignmentSessionGetParams, AlignmentSessionGetResult>,
+    #[serde(rename = "alignment.session.list")]
+    pub alignment_session_list: MethodContract<AlignmentSessionListParams, AlignmentSessionPage>,
+    #[serde(rename = "alignment.session.update")]
+    pub alignment_session_update:
+        MethodContract<AlignmentSessionUpdateParams, AlignmentMutationResult>,
+    #[serde(rename = "alignment.session.refine")]
+    pub alignment_session_refine:
+        MethodContract<AlignmentSessionRefineParams, translunar_ai_core::AiRun>,
+    #[serde(rename = "alignment.session.apply")]
+    pub alignment_session_apply: MethodContract<AlignmentSessionApplyParams, AlignmentApplyResult>,
+    #[serde(rename = "corpus.list")]
+    pub corpus_list: MethodContract<CorpusListParams, ReferenceCorpusPage>,
+    #[serde(rename = "corpus.import")]
+    pub corpus_import: MethodContract<CorpusImportParams, ReferenceCorpusMutationResult>,
+    #[serde(rename = "corpus.fromAlignment")]
+    pub corpus_from_alignment:
+        MethodContract<CorpusFromAlignmentParams, ReferenceCorpusMutationResult>,
+    #[serde(rename = "corpus.search")]
+    pub corpus_search: MethodContract<CorpusSearchParams, CorpusSearchResult>,
+    #[serde(rename = "corpus.reindex")]
+    pub corpus_reindex: MethodContract<CorpusMutationParams, ReferenceCorpusMutationResult>,
+    #[serde(rename = "corpus.remove")]
+    pub corpus_remove: MethodContract<CorpusMutationParams, ReferenceCorpusMutationResult>,
     #[serde(rename = "tm.lookupExact")]
     pub tm_lookup_exact: MethodContract<ExactLookupParams, ExactLookupResult>,
     #[serde(rename = "tm.library.list")]
@@ -1989,6 +2035,24 @@ pub struct ProtocolCatalog {
     pub update_target_params: UpdateTargetParams,
     pub confirm_segment_params: ConfirmSegmentParams,
     pub exact_lookup_params: ExactLookupParams,
+    pub alignment_session_create_params: AlignmentSessionCreateParams,
+    pub alignment_session_get_params: AlignmentSessionGetParams,
+    pub alignment_session_list_params: AlignmentSessionListParams,
+    pub alignment_session_update_params: AlignmentSessionUpdateParams,
+    pub alignment_session_refine_params: AlignmentSessionRefineParams,
+    pub alignment_session_apply_params: AlignmentSessionApplyParams,
+    pub alignment_session_get_result: AlignmentSessionGetResult,
+    pub alignment_session_page: AlignmentSessionPage,
+    pub alignment_mutation_result: AlignmentMutationResult,
+    pub alignment_apply_result: AlignmentApplyResult,
+    pub corpus_list_params: CorpusListParams,
+    pub corpus_import_params: CorpusImportParams,
+    pub corpus_from_alignment_params: CorpusFromAlignmentParams,
+    pub corpus_search_params: CorpusSearchParams,
+    pub corpus_mutation_params: CorpusMutationParams,
+    pub reference_corpus_page: ReferenceCorpusPage,
+    pub corpus_search_result: CorpusSearchResult,
+    pub reference_corpus_mutation_result: ReferenceCorpusMutationResult,
     pub asset_exchange_format: AssetExchangeFormat,
     pub tm_library_list_params: TmLibraryListParams,
     pub tm_library_create_params: TmLibraryCreateParams,
@@ -2124,6 +2188,21 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&ErrorCode::QaGateBlocked).expect("serialize QA gate code"),
             "\"qa_gate_blocked\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ErrorCode::AlignmentInvalidPartition)
+                .expect("serialize alignment error code"),
+            "\"alignment_invalid_partition\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ErrorCode::UnsupportedCorpusInput)
+                .expect("serialize corpus error code"),
+            "\"unsupported_corpus_input\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ErrorCode::ResourceLimitExceeded)
+                .expect("serialize resource limit error code"),
+            "\"resource_limit_exceeded\""
         );
     }
 
