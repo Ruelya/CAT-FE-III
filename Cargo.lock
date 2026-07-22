@@ -2437,6 +2437,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "translunar-alignment-core"
+version = "0.1.0"
+dependencies = [
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "translunar-domain",
+]
+
+[[package]]
 name = "translunar-asset-core"
 version = "0.1.0"
 dependencies = [
