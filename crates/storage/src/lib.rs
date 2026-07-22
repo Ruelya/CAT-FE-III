@@ -6,13 +6,14 @@ mod store;
 
 pub use error::{Result, StorageError};
 pub use store::{
-    AiProviderProfileUpdate, AiSettingsUpdate, AlignmentLinkRecord, AlignmentMutationResult,
-    AlignmentRefinementSelection, AlignmentSessionCreateResult, AlignmentSessionRecord,
-    AlignmentSessionSegmentRecord, AlignmentSessionStatus, AnalysisProfileRecord,
-    AnalysisRunRecord, ArchiveDocumentData, ArchiveSegmentData, ArchiveTermbaseData,
-    ArchiveTmLibraryData, ConcordanceRequest, Confirmation, DataPaths, EditorFilter,
-    EditorFindMatch, EditorListRequest, EditorMutation, EditorReviewDecision, EditorSearchField,
-    EditorSort, ExpectedAlignmentLinkRevision, GlobalSearchQuery, GlobalSearchResult,
+    AiProviderProfileUpdate, AiSettingsUpdate, AlignmentApplyDuplicate, AlignmentApplyResult,
+    AlignmentLinkRecord, AlignmentMutationResult, AlignmentRefinementSelection,
+    AlignmentSessionCreateResult, AlignmentSessionRecord, AlignmentSessionSegmentRecord,
+    AlignmentSessionStatus, AnalysisProfileRecord, AnalysisRunRecord, ApplyAlignmentToTm,
+    ArchiveDocumentData, ArchiveSegmentData, ArchiveTermbaseData, ArchiveTmLibraryData,
+    ConcordanceRequest, Confirmation, DataPaths, EditorFilter, EditorFindMatch, EditorListRequest,
+    EditorMutation, EditorReviewDecision, EditorSearchField, EditorSort,
+    ExpectedAlignmentLinkRevision, GlobalSearchQuery, GlobalSearchResult,
     INTEROP_STRUCTURAL_PATH_METADATA, InteropApplyResult, InteropPreviewKind, InteropPreviewRecord,
     InteropPreviewRowRecord, InteropPreviewStatus, ManagedDocument, ManualAlignmentPartitionLink,
     NewAiBatchItem, NewAiBatchRun, NewAiProviderProfile, NewAiRun, NewAlignmentSession,

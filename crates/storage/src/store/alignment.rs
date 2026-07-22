@@ -11,17 +11,18 @@ use translunar_alignment_core::{
     AlignmentCandidate, AlignmentError, AlignmentEvidence, AlignmentLinkStatus, AlignmentOptions,
     AlignmentOrigin, AlignmentPartitionLink, AlignmentPartitionSegment,
     AlignmentRefinementSuggestion, AlignmentResource, AlignmentSegment, AlignmentSide,
-    HARD_MAX_REFINEMENT_LINKS, PartitionLimits, parse_alignment_refinement_response,
-    validate_partition, validate_refinement_input,
+    HARD_MAX_REFINEMENT_LINKS, HARD_MAX_SEGMENTS_PER_SIDE, PartitionLimits,
+    parse_alignment_refinement_response, validate_partition, validate_refinement_input,
 };
+use translunar_asset_core::{exact_key, normalize_match_key};
 use translunar_domain::{
-    Document, DocumentStatus, Project, ProjectLifecycle, Segment, new_id, number_tokens,
+    Document, DocumentStatus, Project, ProjectLifecycle, Segment, new_id, number_tokens, sha256_hex,
 };
 
 use super::{
     Store, append_operation, conversion_error, ensure_entity_revision, find_document, find_project,
-    next_revision, not_found, now_ms, read_json, read_optional_json, read_u32, read_u64,
-    require_nonempty, row_to_segment, to_i64, to_u32,
+    find_tm_library, next_revision, not_found, now_ms, read_json, read_optional_json, read_u32,
+    read_u64, require_nonempty, row_to_segment, to_i64, to_u32,
 };
 use crate::{Result, StorageError};
 
@@ -29,6 +30,11 @@ use super::ai::complete_ai_run_tx;
 
 const MAX_MANUAL_REPLACEMENT_LINKS: usize = 256;
 const MAX_MANUAL_GROUP_SIZE: u32 = 64;
+const MAX_ALIGNMENT_APPLY_LINKS: usize = 100_000;
+const MAX_ALIGNMENT_ID_BYTES: usize = 256;
+const MAX_ALIGNMENT_ACTOR_BYTES: usize = 256;
+const MAX_ALIGNMENT_REASON_BYTES: usize = 4_096;
+const MAX_ALIGNMENT_CORRELATION_ID_BYTES: usize = 256;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -181,10 +187,78 @@ pub struct AlignmentSessionCreateResult {
     pub operation_id: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExpectedAlignmentLinkRevision {
     pub link_id: String,
     pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct ApplyAlignmentToTm {
+    pub session_id: String,
+    pub library_id: String,
+    pub expected_session_revision: u64,
+    pub expected_library_revision: u64,
+    pub links: Vec<ExpectedAlignmentLinkRevision>,
+    pub actor: String,
+    pub reason: String,
+    pub correlation_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlignmentApplyDuplicate {
+    pub link_id: String,
+    pub tm_unit_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlignmentApplyResult {
+    pub session_id: String,
+    pub library_id: String,
+    pub status: AlignmentSessionStatus,
+    pub selected_count: u32,
+    pub inserted_count: u32,
+    pub duplicate_count: u32,
+    pub session_revision: u64,
+    pub library_revision: u64,
+    pub operation_id: String,
+    pub tm_unit_ids: Vec<String>,
+    pub duplicates: Vec<AlignmentApplyDuplicate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredAlignmentApplyTerminal {
+    request_fingerprint: String,
+    result: AlignmentApplyResult,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AlignmentApplyRequestFingerprint<'a> {
+    session_id: &'a str,
+    library_id: &'a str,
+    expected_session_revision: u64,
+    expected_library_revision: u64,
+    links: &'a [ExpectedAlignmentLinkRevision],
+    actor: &'a str,
+    reason: &'a str,
+    correlation_id: Option<&'a str>,
+}
+
+struct AlignmentTmUnitPlan {
+    id: String,
+    source_text: String,
+    target_text: String,
+    source_hash: String,
+    source_key: String,
+    target_hash: String,
+    context_before_hash: Option<String>,
+    context_after_hash: Option<String>,
+    metadata_json: String,
 }
 
 #[derive(Debug, Clone)]
@@ -569,6 +643,296 @@ impl Store {
         )
     }
 
+    pub fn apply_alignment_to_tm(
+        &mut self,
+        input: ApplyAlignmentToTm,
+    ) -> Result<AlignmentApplyResult> {
+        let canonical_links = validate_alignment_apply_input(&input)?;
+        let request_fingerprint = alignment_apply_request_fingerprint(&input, &canonical_links)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let session = find_alignment_session(&transaction, &input.session_id)?;
+        if session.status == AlignmentSessionStatus::Applied {
+            return decode_alignment_apply_terminal(&session, &request_fingerprint);
+        }
+        ensure_entity_revision(
+            "alignment_session",
+            &session.id,
+            session.revision,
+            input.expected_session_revision,
+        )?;
+        ensure_alignment_session_open(&session)?;
+        validate_alignment_session_documents(&transaction, &session)?;
+        let project = find_project(&transaction, &session.project_id)?;
+        if project.source_locale != session.source_locale
+            || project.target_locale != session.target_locale
+        {
+            return Err(StorageError::InvalidState(
+                "alignment session locales no longer match the project".to_string(),
+            ));
+        }
+
+        let library = find_tm_library(&transaction, &input.library_id)?;
+        ensure_entity_revision(
+            "tm_library",
+            &library.id,
+            library.revision,
+            input.expected_library_revision,
+        )?;
+        if !library.writable {
+            return Err(StorageError::InvalidState(
+                "TM library is read-only".to_string(),
+            ));
+        }
+        if library.source_locale != project.source_locale
+            || library.target_locale != project.target_locale
+        {
+            return Err(StorageError::InvalidState(
+                "TM library locales do not match the alignment project".to_string(),
+            ));
+        }
+
+        let current_links = load_all_alignment_links(&transaction, &session.id)?;
+        let source_snapshots =
+            load_all_alignment_snapshots(&transaction, &session.id, AlignmentSide::Source)?;
+        let target_snapshots =
+            load_all_alignment_snapshots(&transaction, &session.id, AlignmentSide::Target)?;
+        validate_snapshot_partition(
+            &source_snapshots,
+            &target_snapshots,
+            &partition_links(&current_links),
+        )?;
+        validate_alignment_snapshots_current(
+            &transaction,
+            &session,
+            &source_snapshots,
+            &target_snapshots,
+        )?;
+        let selected_links = select_alignment_links_for_apply(&current_links, &canonical_links)?;
+        let source_by_id = source_snapshots
+            .iter()
+            .map(|snapshot| (snapshot.segment_id.as_str(), snapshot))
+            .collect::<BTreeMap<_, _>>();
+        let target_by_id = target_snapshots
+            .iter()
+            .map(|snapshot| (snapshot.segment_id.as_str(), snapshot))
+            .collect::<BTreeMap<_, _>>();
+        let source_by_ordinal = source_snapshots
+            .iter()
+            .map(|snapshot| (snapshot.ordinal, snapshot))
+            .collect::<BTreeMap<_, _>>();
+        let mut seen_content = BTreeMap::<(String, String), String>::new();
+        let mut plans = Vec::with_capacity(selected_links.len());
+        let mut duplicates = Vec::new();
+        for link in &selected_links {
+            let source_text = snapshot_text_for_ids(&link.source_segment_ids, &source_by_id)?;
+            let target_text = snapshot_text_for_ids(&link.target_segment_ids, &target_by_id)?;
+            if source_text != link.source_text || target_text != link.target_text {
+                return Err(StorageError::InvalidData(format!(
+                    "alignment link {} text does not match its immutable snapshots",
+                    link.id
+                )));
+            }
+            require_nonempty("TM source text", &source_text)?;
+            require_nonempty("TM target text", &target_text)?;
+            let source_key = exact_key(&source_text);
+            let source_hash = sha256_hex(normalize_match_key(&source_text).as_bytes());
+            let target_hash = sha256_hex(normalize_match_key(&target_text).as_bytes());
+            let content_key = (source_key.clone(), target_hash.clone());
+            if let Some(tm_unit_id) = seen_content.get(&content_key) {
+                duplicates.push(AlignmentApplyDuplicate {
+                    link_id: link.id.clone(),
+                    tm_unit_id: tm_unit_id.clone(),
+                });
+                continue;
+            }
+            if let Some(tm_unit_id) =
+                find_duplicate_tm_unit_id(&transaction, &library.id, &source_key, &target_hash)?
+            {
+                seen_content.insert(content_key, tm_unit_id.clone());
+                duplicates.push(AlignmentApplyDuplicate {
+                    link_id: link.id.clone(),
+                    tm_unit_id,
+                });
+                continue;
+            }
+
+            let first_source_id = link.source_segment_ids.first().ok_or_else(|| {
+                StorageError::InvalidState(format!(
+                    "alignment link {} has no source segments",
+                    link.id
+                ))
+            })?;
+            let last_source_id = link.source_segment_ids.last().ok_or_else(|| {
+                StorageError::InvalidState(format!(
+                    "alignment link {} has no source segments",
+                    link.id
+                ))
+            })?;
+            let first_source = source_by_id
+                .get(first_source_id.as_str())
+                .ok_or_else(|| not_found("alignment_session_segment", first_source_id))?;
+            let last_source = source_by_id
+                .get(last_source_id.as_str())
+                .ok_or_else(|| not_found("alignment_session_segment", last_source_id))?;
+            let context_before_hash = first_source
+                .ordinal
+                .checked_sub(1)
+                .and_then(|ordinal| source_by_ordinal.get(&ordinal).copied())
+                .map(|snapshot| {
+                    sha256_hex(normalize_match_key(&snapshot.text_snapshot).as_bytes())
+                });
+            let context_after_hash = last_source
+                .ordinal
+                .checked_add(1)
+                .and_then(|ordinal| source_by_ordinal.get(&ordinal).copied())
+                .map(|snapshot| {
+                    sha256_hex(normalize_match_key(&snapshot.text_snapshot).as_bytes())
+                });
+            let metadata_json = alignment_tm_metadata(
+                &session,
+                link,
+                &input.actor,
+                &input.reason,
+                input.correlation_id.as_deref(),
+            )?;
+            let unit_id = new_id();
+            seen_content.insert(content_key, unit_id.clone());
+            plans.push(AlignmentTmUnitPlan {
+                id: unit_id,
+                source_text,
+                target_text,
+                source_hash,
+                source_key,
+                target_hash,
+                context_before_hash,
+                context_after_hash,
+                metadata_json,
+            });
+        }
+
+        let now = now_ms();
+        for plan in &plans {
+            transaction.execute(
+                "INSERT INTO tm_units (
+                    id, library_id, source_locale, target_locale, source_text,
+                    target_text, source_hash, source_key, target_hash, domain,
+                    origin_project_id, origin_document_id, origin_segment_id,
+                    context_before_hash, context_after_hash, author, metadata_json,
+                    created_at_ms, updated_at_ms
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+                           ?11, ?12, NULL, ?13, ?14, ?15, ?16, ?17, ?17)",
+                params![
+                    plan.id,
+                    library.id,
+                    library.source_locale,
+                    library.target_locale,
+                    plan.source_text,
+                    plan.target_text,
+                    plan.source_hash,
+                    plan.source_key,
+                    plan.target_hash,
+                    library.domain,
+                    session.project_id,
+                    session.source_document_id,
+                    plan.context_before_hash,
+                    plan.context_after_hash,
+                    input.actor,
+                    plan.metadata_json,
+                    now,
+                ],
+            )?;
+        }
+
+        let result_library_revision = next_revision(library.revision)?;
+        let library_changed = transaction.execute(
+            "UPDATE tm_libraries SET revision = ?1, updated_at_ms = ?2
+             WHERE id = ?3 AND revision = ?4 AND writable = 1",
+            params![
+                to_i64(result_library_revision)?,
+                now,
+                library.id,
+                to_i64(library.revision)?,
+            ],
+        )?;
+        if library_changed != 1 {
+            let actual = find_tm_library(&transaction, &library.id)?.revision;
+            return Err(StorageError::EntityConflict {
+                entity: "tm_library",
+                id: library.id,
+                expected_revision: library.revision,
+                actual_revision: actual,
+            });
+        }
+        let result_session_revision = next_revision(session.revision)?;
+        let tm_unit_ids = plans.iter().map(|plan| plan.id.clone()).collect::<Vec<_>>();
+        let operation = append_operation(
+            &transaction,
+            &session.project_id,
+            "alignment_session",
+            &session.id,
+            "alignment.session.apply",
+            Some(session.revision),
+            Some(result_session_revision),
+            &input.actor,
+            input.correlation_id.as_deref(),
+            Some(json!({
+                "reason": input.reason,
+                "libraryId": library.id,
+                "libraryRevision": library.revision,
+                "linkIds": selected_links.iter().map(|link| &link.id).collect::<Vec<_>>(),
+            })),
+            Some(json!({
+                "status": "applied",
+                "libraryRevision": result_library_revision,
+                "tmUnitIds": tm_unit_ids,
+                "duplicates": duplicates,
+            })),
+        )?;
+        let result = AlignmentApplyResult {
+            session_id: session.id.clone(),
+            library_id: library.id.clone(),
+            status: AlignmentSessionStatus::Applied,
+            selected_count: to_u32(selected_links.len())?,
+            inserted_count: to_u32(plans.len())?,
+            duplicate_count: to_u32(duplicates.len())?,
+            session_revision: result_session_revision,
+            library_revision: result_library_revision,
+            operation_id: operation.id,
+            tm_unit_ids,
+            duplicates,
+        };
+        let terminal = StoredAlignmentApplyTerminal {
+            request_fingerprint,
+            result: result.clone(),
+        };
+        let session_changed = transaction.execute(
+            "UPDATE alignment_sessions
+             SET status = 'applied', revision = ?1, terminal_result_json = ?2,
+                 updated_at_ms = ?3, closed_at_ms = ?3
+             WHERE id = ?4 AND revision = ?5 AND status = 'open'",
+            params![
+                to_i64(result_session_revision)?,
+                serde_json::to_string(&terminal)?,
+                now,
+                session.id,
+                to_i64(session.revision)?,
+            ],
+        )?;
+        if session_changed != 1 {
+            let actual = find_alignment_session(&transaction, &session.id)?.revision;
+            return Err(StorageError::EntityConflict {
+                entity: "alignment_session",
+                id: session.id,
+                expected_revision: session.revision,
+                actual_revision: actual,
+            });
+        }
+        transaction.commit()?;
+        Ok(result)
+    }
+
     pub fn create_alignment_session(
         &mut self,
         input: NewAlignmentSession,
@@ -736,6 +1100,12 @@ impl Store {
             load_all_alignment_snapshots(&transaction, &session.id, AlignmentSide::Source)?;
         let target_snapshots =
             load_all_alignment_snapshots(&transaction, &session.id, AlignmentSide::Target)?;
+        validate_alignment_snapshots_current(
+            &transaction,
+            &session,
+            &source_snapshots,
+            &target_snapshots,
+        )?;
         validate_snapshot_partition(&source_snapshots, &target_snapshots, &current_partition)?;
         let selected_start = selected_link_range(&current_links, &input.links)?;
         let selected_end = selected_start + input.links.len();
@@ -994,6 +1364,16 @@ impl Store {
         )?;
         ensure_alignment_session_open(&session)?;
         validate_alignment_session_documents(&transaction, &session)?;
+        let source_snapshots =
+            load_all_alignment_snapshots(&transaction, &session.id, AlignmentSide::Source)?;
+        let target_snapshots =
+            load_all_alignment_snapshots(&transaction, &session.id, AlignmentSide::Target)?;
+        validate_alignment_snapshots_current(
+            &transaction,
+            &session,
+            &source_snapshots,
+            &target_snapshots,
+        )?;
         let link = find_alignment_link(&transaction, &input.link_id)?;
         if link.session_id != session.id {
             return Err(StorageError::InvalidState(
@@ -1070,6 +1450,276 @@ impl Store {
     }
 }
 
+fn validate_alignment_apply_input(
+    input: &ApplyAlignmentToTm,
+) -> Result<Vec<ExpectedAlignmentLinkRevision>> {
+    require_nonempty("alignment session id", &input.session_id)?;
+    require_nonempty("TM library id", &input.library_id)?;
+    require_nonempty("operation actor", &input.actor)?;
+    require_nonempty("operation reason", &input.reason)?;
+    if input.session_id.len() > MAX_ALIGNMENT_ID_BYTES
+        || input.library_id.len() > MAX_ALIGNMENT_ID_BYTES
+        || input.actor.len() > MAX_ALIGNMENT_ACTOR_BYTES
+        || input.reason.len() > MAX_ALIGNMENT_REASON_BYTES
+        || input.correlation_id.as_ref().is_some_and(|value| {
+            value.trim().is_empty() || value.len() > MAX_ALIGNMENT_CORRELATION_ID_BYTES
+        })
+    {
+        return Err(StorageError::InvalidState(
+            "alignment apply identities, actor, reason, or correlation exceed configured bounds"
+                .to_string(),
+        ));
+    }
+    if input.links.is_empty() || input.links.len() > MAX_ALIGNMENT_APPLY_LINKS {
+        return Err(StorageError::InvalidState(format!(
+            "alignment apply must select 1..{MAX_ALIGNMENT_APPLY_LINKS} links"
+        )));
+    }
+    let mut unique = BTreeSet::new();
+    let mut canonical = Vec::with_capacity(input.links.len());
+    for link in &input.links {
+        if link.link_id.trim().is_empty()
+            || link.link_id.len() > MAX_ALIGNMENT_ID_BYTES
+            || !unique.insert(link.link_id.as_str())
+        {
+            return Err(StorageError::InvalidState(
+                "alignment apply link IDs must be bounded and unique".to_string(),
+            ));
+        }
+        canonical.push(link.clone());
+    }
+    canonical.sort_by(|left, right| left.link_id.cmp(&right.link_id));
+    Ok(canonical)
+}
+
+fn alignment_apply_request_fingerprint(
+    input: &ApplyAlignmentToTm,
+    canonical_links: &[ExpectedAlignmentLinkRevision],
+) -> Result<String> {
+    let value = AlignmentApplyRequestFingerprint {
+        session_id: &input.session_id,
+        library_id: &input.library_id,
+        expected_session_revision: input.expected_session_revision,
+        expected_library_revision: input.expected_library_revision,
+        links: canonical_links,
+        actor: &input.actor,
+        reason: &input.reason,
+        correlation_id: input.correlation_id.as_deref(),
+    };
+    Ok(sha256_hex(&serde_json::to_vec(&value)?))
+}
+
+fn decode_alignment_apply_terminal(
+    session: &AlignmentSessionRecord,
+    request_fingerprint: &str,
+) -> Result<AlignmentApplyResult> {
+    let terminal = session.terminal_result.clone().ok_or_else(|| {
+        StorageError::InvalidData("applied alignment session has no terminal result".to_string())
+    })?;
+    let terminal: StoredAlignmentApplyTerminal = serde_json::from_value(terminal)?;
+    if terminal.request_fingerprint != request_fingerprint {
+        return Err(StorageError::InvalidState(
+            "alignment session was applied by a different request".to_string(),
+        ));
+    }
+    if terminal.result.session_id != session.id
+        || terminal.result.status != AlignmentSessionStatus::Applied
+        || terminal.result.session_revision != session.revision
+    {
+        return Err(StorageError::InvalidData(
+            "alignment terminal result does not match its session".to_string(),
+        ));
+    }
+    Ok(terminal.result)
+}
+
+fn select_alignment_links_for_apply(
+    current: &[AlignmentLinkRecord],
+    expected: &[ExpectedAlignmentLinkRevision],
+) -> Result<Vec<AlignmentLinkRecord>> {
+    let expected_by_id = expected
+        .iter()
+        .map(|link| (link.link_id.as_str(), link.expected_revision))
+        .collect::<BTreeMap<_, _>>();
+    let mut selected = Vec::with_capacity(expected.len());
+    for link in current {
+        let Some(expected_revision) = expected_by_id.get(link.id.as_str()).copied() else {
+            continue;
+        };
+        ensure_entity_revision("alignment_link", &link.id, link.revision, expected_revision)?;
+        if link.status != AlignmentLinkStatus::Confirmed {
+            return Err(StorageError::InvalidState(format!(
+                "alignment link {} is not confirmed",
+                link.id
+            )));
+        }
+        if link.source_segment_ids.is_empty() || link.target_segment_ids.is_empty() {
+            return Err(StorageError::InvalidState(format!(
+                "alignment link {} is not a non-empty bilingual link",
+                link.id
+            )));
+        }
+        selected.push(link.clone());
+    }
+    if selected.len() != expected.len() {
+        let current_ids = current
+            .iter()
+            .map(|link| link.id.as_str())
+            .collect::<BTreeSet<_>>();
+        let missing = expected
+            .iter()
+            .find(|link| !current_ids.contains(link.link_id.as_str()))
+            .map(|link| link.link_id.as_str())
+            .unwrap_or("unknown");
+        return Err(not_found("alignment_link", missing));
+    }
+    Ok(selected)
+}
+
+fn find_duplicate_tm_unit_id(
+    connection: &Connection,
+    library_id: &str,
+    source_key: &str,
+    target_hash: &str,
+) -> Result<Option<String>> {
+    connection
+        .query_row(
+            "SELECT id FROM tm_units
+             WHERE library_id = ?1 AND source_key = ?2 AND target_hash = ?3
+             ORDER BY created_at_ms, id LIMIT 1",
+            params![library_id, source_key, target_hash],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(Into::into)
+}
+
+fn alignment_tm_metadata(
+    session: &AlignmentSessionRecord,
+    link: &AlignmentLinkRecord,
+    actor: &str,
+    reason: &str,
+    correlation_id: Option<&str>,
+) -> Result<String> {
+    let mut metadata = BTreeMap::<String, String>::new();
+    metadata.insert("alignmentSessionId".to_string(), session.id.clone());
+    metadata.insert("alignmentLinkId".to_string(), link.id.clone());
+    metadata.insert(
+        "sourceDocumentId".to_string(),
+        session.source_document_id.clone(),
+    );
+    metadata.insert(
+        "targetDocumentId".to_string(),
+        session.target_document_id.clone(),
+    );
+    metadata.insert(
+        "sourceDocumentRevision".to_string(),
+        session.source_document_revision.to_string(),
+    );
+    metadata.insert(
+        "targetDocumentRevision".to_string(),
+        session.target_document_revision.to_string(),
+    );
+    metadata.insert(
+        "sourceSegmentIds".to_string(),
+        serde_json::to_string(&link.source_segment_ids)?,
+    );
+    metadata.insert(
+        "targetSegmentIds".to_string(),
+        serde_json::to_string(&link.target_segment_ids)?,
+    );
+    metadata.insert(
+        "confidenceBasisPoints".to_string(),
+        link.confidence_basis_points.to_string(),
+    );
+    metadata.insert(
+        "alignmentOrigin".to_string(),
+        alignment_origin_text(link.origin).to_string(),
+    );
+    metadata.insert(
+        "alignmentEvidence".to_string(),
+        serde_json::to_string(&link.evidence)?,
+    );
+    metadata.insert("sessionRevision".to_string(), session.revision.to_string());
+    metadata.insert("linkRevision".to_string(), link.revision.to_string());
+    metadata.insert(
+        "alignmentAlgorithmVersion".to_string(),
+        session.algorithm_version.clone(),
+    );
+    metadata.insert("actor".to_string(), actor.to_string());
+    metadata.insert("reason".to_string(), reason.to_string());
+    if let Some(correlation_id) = correlation_id {
+        metadata.insert("correlationId".to_string(), correlation_id.to_string());
+    }
+    serde_json::to_string(&metadata).map_err(Into::into)
+}
+
+fn validate_alignment_snapshots_current(
+    connection: &Connection,
+    session: &AlignmentSessionRecord,
+    source: &[AlignmentSessionSegmentRecord],
+    target: &[AlignmentSessionSegmentRecord],
+) -> Result<()> {
+    validate_alignment_snapshot_side_current(
+        connection,
+        &session.source_document_id,
+        source,
+        AlignmentSide::Source,
+    )?;
+    validate_alignment_snapshot_side_current(
+        connection,
+        &session.target_document_id,
+        target,
+        AlignmentSide::Target,
+    )
+}
+
+fn validate_alignment_snapshot_side_current(
+    connection: &Connection,
+    document_id: &str,
+    snapshots: &[AlignmentSessionSegmentRecord],
+    side: AlignmentSide,
+) -> Result<()> {
+    let document = find_document(connection, document_id)?;
+    let current = load_alignment_segments(connection, &document, HARD_MAX_SEGMENTS_PER_SIDE)?;
+    if current.len() != snapshots.len() {
+        return Err(StorageError::InvalidState(format!(
+            "alignment {side} segment membership changed"
+        )));
+    }
+    let current_by_id = current
+        .iter()
+        .map(|segment| (segment.id.as_str(), segment))
+        .collect::<BTreeMap<_, _>>();
+    for snapshot in snapshots {
+        let segment = current_by_id
+            .get(snapshot.segment_id.as_str())
+            .copied()
+            .ok_or_else(|| not_found("segment", &snapshot.segment_id))?;
+        if segment.ordinal != snapshot.ordinal {
+            return Err(StorageError::InvalidState(format!(
+                "alignment {side} segment order changed"
+            )));
+        }
+        if segment.revision != snapshot.segment_revision {
+            return Err(StorageError::Conflict {
+                segment_id: segment.id.clone(),
+                expected_revision: snapshot.segment_revision,
+                actual_revision: segment.revision,
+            });
+        }
+        if segment.source_hash != snapshot.source_hash
+            || segment.source_text != snapshot.text_snapshot
+        {
+            return Err(StorageError::InvalidData(format!(
+                "alignment {side} segment {} changed without a revision",
+                segment.id
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn load_alignment_refinement_selection(
     connection: &Connection,
     context: &AlignmentRefinementRunContext,
@@ -1105,6 +1755,12 @@ fn load_alignment_refinement_selection(
         load_all_alignment_snapshots(connection, &session.id, AlignmentSide::Source)?;
     let target_snapshots =
         load_all_alignment_snapshots(connection, &session.id, AlignmentSide::Target)?;
+    validate_alignment_snapshots_current(
+        connection,
+        &session,
+        &source_snapshots,
+        &target_snapshots,
+    )?;
     validate_snapshot_partition(
         &source_snapshots,
         &target_snapshots,
@@ -1848,9 +2504,10 @@ fn invalid_enum<T>(column: usize, label: &str, value: String) -> rusqlite::Resul
 mod tests {
     use tempfile::tempdir;
     use translunar_ai_core::{AiRunRequest, AlignmentRefinementLinkRevision, GroundingOptions};
+    use translunar_asset_core::{TmExchangeUnit, TmLibrary};
 
     use super::*;
-    use crate::{NewAiProviderProfile, NewAiRun};
+    use crate::{NewAiProviderProfile, NewAiRun, NewTmLibrary};
 
     fn seed_alignment_documents(store: &Store) {
         store
@@ -1985,6 +2642,731 @@ mod tests {
         store
             .start_ai_run_attempt(&run.id)
             .expect("start alignment refinement run")
+    }
+
+    fn create_alignment_tm_library(
+        store: &mut Store,
+        writable: bool,
+        source_locale: &str,
+        target_locale: &str,
+    ) -> TmLibrary {
+        store
+            .create_tm_library(NewTmLibrary {
+                name: format!("Alignment TM {source_locale}-{target_locale}"),
+                source_locale: source_locale.to_string(),
+                target_locale: target_locale.to_string(),
+                domain: Some("general".to_string()),
+                writable,
+                owner_project_id: Some("alignment-p".to_string()),
+            })
+            .expect("create alignment TM library")
+    }
+
+    fn confirm_alignment_links(
+        store: &mut Store,
+        session: &AlignmentSessionRecord,
+        links: &[AlignmentLinkRecord],
+    ) -> (AlignmentSessionRecord, Vec<AlignmentLinkRecord>) {
+        let link_ids = links.iter().map(|link| link.id.clone()).collect::<Vec<_>>();
+        let mut current_session = session.clone();
+        let mut current_links = links.to_vec();
+        for link_id in link_ids {
+            let link = current_links
+                .iter()
+                .find(|link| link.id == link_id)
+                .expect("find alignment link to confirm")
+                .clone();
+            let result = store
+                .update_alignment_link_status(UpdateAlignmentLinkStatus {
+                    session_id: current_session.id.clone(),
+                    link_id,
+                    expected_session_revision: current_session.revision,
+                    expected_link_revision: link.revision,
+                    status: AlignmentLinkStatus::Confirmed,
+                    actor: "alignment-apply-tester".to_string(),
+                    reason: "confirm link before TM apply".to_string(),
+                    correlation_id: None,
+                })
+                .expect("confirm alignment link");
+            current_session = result.session;
+            current_links = result.links;
+        }
+        (current_session, current_links)
+    }
+
+    fn alignment_apply_input(
+        session: &AlignmentSessionRecord,
+        library: &TmLibrary,
+        links: &[AlignmentLinkRecord],
+    ) -> ApplyAlignmentToTm {
+        ApplyAlignmentToTm {
+            session_id: session.id.clone(),
+            library_id: library.id.clone(),
+            expected_session_revision: session.revision,
+            expected_library_revision: library.revision,
+            links: links
+                .iter()
+                .map(|link| ExpectedAlignmentLinkRevision {
+                    link_id: link.id.clone(),
+                    expected_revision: link.revision,
+                })
+                .collect(),
+            actor: "alignment-apply-tester".to_string(),
+            reason: "apply confirmed alignment links".to_string(),
+            correlation_id: Some("alignment-apply-correlation".to_string()),
+        }
+    }
+
+    fn create_open_alignment(
+        store: &mut Store,
+    ) -> (AlignmentSessionRecord, Vec<AlignmentLinkRecord>) {
+        seed_alignment_documents(store);
+        let created = store
+            .create_alignment_session(new_alignment_session())
+            .expect("create alignment session");
+        let links = store
+            .list_alignment_links(&created.session.id, None, 0, 10)
+            .expect("list alignment links")
+            .0;
+        (created.session, links)
+    }
+
+    fn create_confirmed_alignment(
+        store: &mut Store,
+    ) -> (AlignmentSessionRecord, Vec<AlignmentLinkRecord>) {
+        let (session, links) = create_open_alignment(store);
+        confirm_alignment_links(store, &session, &links)
+    }
+
+    fn assert_no_alignment_apply_side_effects(
+        store: &Store,
+        session: &AlignmentSessionRecord,
+        library: &TmLibrary,
+        expected_library_revision: u64,
+        expected_tm_unit_count: usize,
+    ) {
+        let current_session = store
+            .get_alignment_session(&session.id)
+            .expect("reload alignment session");
+        assert_eq!(current_session.status, AlignmentSessionStatus::Open);
+        assert_eq!(current_session.revision, session.revision);
+        assert!(current_session.terminal_result.is_none());
+        assert!(current_session.closed_at_ms.is_none());
+        assert_eq!(
+            store
+                .get_tm_library(&library.id)
+                .expect("reload TM library")
+                .revision,
+            expected_library_revision
+        );
+        assert_eq!(
+            store
+                .export_tm_units(&library.id)
+                .expect("reload TM units")
+                .len(),
+            expected_tm_unit_count
+        );
+        let apply_operation_count = store
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM operations WHERE kind = 'alignment.session.apply'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("count alignment apply operations");
+        assert_eq!(apply_operation_count, 0);
+    }
+
+    #[test]
+    fn alignment_apply_is_provenance_complete_terminal_and_restart_idempotent() {
+        let temp = tempdir().expect("temporary storage directory");
+        let mut store = Store::open(temp.path()).expect("open store");
+        let (session, links) = create_confirmed_alignment(&mut store);
+        let library = create_alignment_tm_library(&mut store, true, "en", "zh");
+        let input = alignment_apply_input(&session, &library, &links);
+
+        let result = store
+            .apply_alignment_to_tm(input.clone())
+            .expect("apply confirmed alignment links to TM");
+
+        assert_eq!(result.session_id, session.id);
+        assert_eq!(result.library_id, library.id);
+        assert_eq!(result.status, AlignmentSessionStatus::Applied);
+        assert_eq!(result.selected_count, 2);
+        assert_eq!(result.inserted_count, 2);
+        assert_eq!(result.duplicate_count, 0);
+        assert_eq!(result.session_revision, session.revision + 1);
+        assert_eq!(result.library_revision, library.revision + 1);
+        assert_eq!(result.tm_unit_ids.len(), 2);
+        assert!(result.duplicates.is_empty());
+
+        let units = store
+            .export_tm_units(&library.id)
+            .expect("list alignment TM units");
+        assert_eq!(units.len(), 2);
+        assert_eq!(
+            units
+                .iter()
+                .map(|unit| unit.id.as_str())
+                .collect::<BTreeSet<_>>(),
+            result
+                .tm_unit_ids
+                .iter()
+                .map(String::as_str)
+                .collect::<BTreeSet<_>>()
+        );
+        for link in &links {
+            let unit = units
+                .iter()
+                .find(|unit| unit.metadata["alignmentLinkId"] == link.id)
+                .expect("find TM unit for alignment link");
+            assert_eq!(unit.source_text, link.source_text);
+            assert_eq!(unit.target_text, link.target_text);
+            assert_eq!(unit.origin_project_id.as_deref(), Some("alignment-p"));
+            assert_eq!(unit.origin_document_id.as_deref(), Some("alignment-source"));
+            assert!(unit.origin_segment_id.is_none());
+            assert_eq!(unit.author.as_deref(), Some(input.actor.as_str()));
+            assert_eq!(unit.metadata["alignmentSessionId"], session.id);
+            assert_eq!(unit.metadata["sourceDocumentId"], "alignment-source");
+            assert_eq!(unit.metadata["targetDocumentId"], "alignment-target");
+            assert_eq!(
+                unit.metadata["sourceSegmentIds"],
+                serde_json::to_string(&link.source_segment_ids)
+                    .expect("serialize expected source segment IDs")
+            );
+            assert_eq!(
+                unit.metadata["targetSegmentIds"],
+                serde_json::to_string(&link.target_segment_ids)
+                    .expect("serialize expected target segment IDs")
+            );
+            assert_eq!(
+                unit.metadata["confidenceBasisPoints"],
+                link.confidence_basis_points.to_string()
+            );
+            assert_eq!(
+                unit.metadata["alignmentEvidence"],
+                serde_json::to_string(&link.evidence).expect("serialize expected evidence")
+            );
+            assert_eq!(unit.metadata["actor"], input.actor);
+            assert_eq!(unit.metadata["reason"], input.reason);
+            assert_eq!(
+                unit.metadata["correlationId"],
+                input
+                    .correlation_id
+                    .as_deref()
+                    .expect("alignment apply correlation ID")
+            );
+            assert_eq!(
+                unit.metadata["sessionRevision"],
+                session.revision.to_string()
+            );
+            assert_eq!(unit.metadata["linkRevision"], link.revision.to_string());
+        }
+
+        let terminal = store
+            .get_alignment_session(&session.id)
+            .expect("reload terminal alignment session");
+        assert_eq!(terminal.status, AlignmentSessionStatus::Applied);
+        assert_eq!(terminal.revision, result.session_revision);
+        assert!(terminal.terminal_result.is_some());
+        assert!(terminal.closed_at_ms.is_some());
+        assert_eq!(
+            store
+                .get_tm_library(&library.id)
+                .expect("reload revised TM library")
+                .revision,
+            result.library_revision
+        );
+        let (operations, operation_total) = store
+            .list_operations("alignment-p", 0, 100, false)
+            .expect("list alignment operations");
+        let apply_operation = operations
+            .iter()
+            .find(|operation| operation.kind == "alignment.session.apply")
+            .expect("find alignment apply operation");
+        assert_eq!(operation_total, 4);
+        assert_eq!(apply_operation.id, result.operation_id);
+        assert_eq!(apply_operation.base_revision, Some(session.revision));
+        assert_eq!(
+            apply_operation.result_revision,
+            Some(result.session_revision)
+        );
+        assert_eq!(apply_operation.actor, input.actor);
+        assert_eq!(
+            apply_operation.correlation_id.as_deref(),
+            input.correlation_id.as_deref()
+        );
+        assert_eq!(
+            apply_operation
+                .before
+                .as_ref()
+                .and_then(|value| value["reason"].as_str()),
+            Some(input.reason.as_str())
+        );
+        assert_eq!(
+            apply_operation
+                .after
+                .as_ref()
+                .and_then(|value| value["status"].as_str()),
+            Some("applied")
+        );
+        drop(store);
+
+        let mut store = Store::open(temp.path()).expect("reopen store");
+        let mut replay_input = input.clone();
+        replay_input.links.reverse();
+        assert_eq!(
+            store
+                .apply_alignment_to_tm(replay_input)
+                .expect("replay identical alignment apply after restart"),
+            result
+        );
+        assert_eq!(
+            store
+                .export_tm_units(&library.id)
+                .expect("list TM units after replay")
+                .len(),
+            2
+        );
+        assert_eq!(
+            store
+                .list_operations("alignment-p", 0, 100, false)
+                .expect("list operations after replay")
+                .1,
+            operation_total
+        );
+        assert_eq!(
+            store
+                .get_tm_library(&library.id)
+                .expect("reload TM library after replay")
+                .revision,
+            result.library_revision
+        );
+
+        let mut different_request = input;
+        different_request.reason = "different terminal request".to_string();
+        assert!(matches!(
+            store.apply_alignment_to_tm(different_request),
+            Err(StorageError::InvalidState(message))
+                if message.contains("different request")
+        ));
+        assert_eq!(
+            store
+                .export_tm_units(&library.id)
+                .expect("list TM units after rejected terminal request")
+                .len(),
+            2
+        );
+        assert_eq!(
+            store
+                .list_operations("alignment-p", 0, 100, false)
+                .expect("list operations after rejected terminal request")
+                .1,
+            operation_total
+        );
+    }
+
+    #[test]
+    fn alignment_apply_deduplicates_existing_content_and_still_revises_library_once() {
+        let temp = tempdir().expect("temporary storage directory");
+        let mut store = Store::open(temp.path()).expect("open store");
+        let (session, links) = create_confirmed_alignment(&mut store);
+        let mut library = create_alignment_tm_library(&mut store, true, "en", "zh");
+        let existing_units = links
+            .iter()
+            .map(|link| TmExchangeUnit {
+                source_locale: "en".to_string(),
+                target_locale: "zh".to_string(),
+                source_text: link.source_text.clone(),
+                target_text: link.target_text.clone(),
+                domain: Some("general".to_string()),
+                author: Some("existing-unit-author".to_string()),
+                created_at_ms: None,
+                metadata: BTreeMap::new(),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            store
+                .import_tm_units(&library.id, &existing_units)
+                .expect("seed existing TM content"),
+            (2, 0)
+        );
+        library = store
+            .get_tm_library(&library.id)
+            .expect("reload seeded TM library");
+        let existing = store
+            .export_tm_units(&library.id)
+            .expect("list seeded TM units");
+        let input = alignment_apply_input(&session, &library, &links);
+
+        let result = store
+            .apply_alignment_to_tm(input)
+            .expect("apply fully duplicate alignment content");
+
+        assert_eq!(result.selected_count, 2);
+        assert_eq!(result.inserted_count, 0);
+        assert_eq!(result.duplicate_count, 2);
+        assert!(result.tm_unit_ids.is_empty());
+        assert_eq!(result.duplicates.len(), 2);
+        assert_eq!(result.library_revision, library.revision + 1);
+        assert_eq!(
+            result
+                .duplicates
+                .iter()
+                .map(|duplicate| duplicate.tm_unit_id.as_str())
+                .collect::<BTreeSet<_>>(),
+            existing
+                .iter()
+                .map(|unit| unit.id.as_str())
+                .collect::<BTreeSet<_>>()
+        );
+        assert_eq!(
+            store
+                .export_tm_units(&library.id)
+                .expect("list deduplicated TM units")
+                .len(),
+            2
+        );
+        assert_eq!(
+            store
+                .get_tm_library(&library.id)
+                .expect("reload library after duplicate-only apply")
+                .revision,
+            library.revision + 1
+        );
+        assert_eq!(
+            store
+                .get_alignment_session(&session.id)
+                .expect("reload applied duplicate-only session")
+                .status,
+            AlignmentSessionStatus::Applied
+        );
+    }
+
+    #[test]
+    fn alignment_apply_rejects_duplicate_selection_without_side_effects() {
+        let temp = tempdir().expect("temporary storage directory");
+        let mut store = Store::open(temp.path()).expect("open store");
+        let (session, links) = create_confirmed_alignment(&mut store);
+        let library = create_alignment_tm_library(&mut store, true, "en", "zh");
+        let mut input = alignment_apply_input(&session, &library, &links);
+        input.links = vec![input.links[0].clone(), input.links[0].clone()];
+
+        assert!(matches!(
+            store.apply_alignment_to_tm(input),
+            Err(StorageError::InvalidState(message)) if message.contains("unique")
+        ));
+        assert_no_alignment_apply_side_effects(&store, &session, &library, library.revision, 0);
+    }
+
+    #[test]
+    fn alignment_apply_rejects_mixed_confirmed_and_proposed_selection_atomically() {
+        let temp = tempdir().expect("temporary storage directory");
+        let mut store = Store::open(temp.path()).expect("open store");
+        let (session, links) = create_open_alignment(&mut store);
+        let (session, links) = confirm_alignment_links(&mut store, &session, &links[..1]);
+        assert!(
+            links
+                .iter()
+                .any(|link| link.status == AlignmentLinkStatus::Confirmed)
+        );
+        assert!(
+            links
+                .iter()
+                .any(|link| link.status == AlignmentLinkStatus::Proposed)
+        );
+        let library = create_alignment_tm_library(&mut store, true, "en", "zh");
+        let input = alignment_apply_input(&session, &library, &links);
+
+        assert!(matches!(
+            store.apply_alignment_to_tm(input),
+            Err(StorageError::InvalidState(message)) if message.contains("not confirmed")
+        ));
+        assert_no_alignment_apply_side_effects(&store, &session, &library, library.revision, 0);
+    }
+
+    #[test]
+    fn alignment_apply_rejects_stale_session_revision_without_side_effects() {
+        let temp = tempdir().expect("temporary storage directory");
+        let mut store = Store::open(temp.path()).expect("open store");
+        let (session, links) = create_confirmed_alignment(&mut store);
+        let library = create_alignment_tm_library(&mut store, true, "en", "zh");
+        let mut input = alignment_apply_input(&session, &library, &links);
+        input.expected_session_revision -= 1;
+
+        assert!(matches!(
+            store.apply_alignment_to_tm(input),
+            Err(StorageError::EntityConflict {
+                entity: "alignment_session",
+                expected_revision: 1,
+                actual_revision: 2,
+                ..
+            })
+        ));
+        assert_no_alignment_apply_side_effects(&store, &session, &library, library.revision, 0);
+    }
+
+    #[test]
+    fn alignment_apply_rejects_stale_link_revision_without_side_effects() {
+        let temp = tempdir().expect("temporary storage directory");
+        let mut store = Store::open(temp.path()).expect("open store");
+        let (session, links) = create_confirmed_alignment(&mut store);
+        let library = create_alignment_tm_library(&mut store, true, "en", "zh");
+        let mut input = alignment_apply_input(&session, &library, &links);
+        input.links[0].expected_revision -= 1;
+
+        assert!(matches!(
+            store.apply_alignment_to_tm(input),
+            Err(StorageError::EntityConflict {
+                entity: "alignment_link",
+                expected_revision: 0,
+                actual_revision: 1,
+                ..
+            })
+        ));
+        assert_no_alignment_apply_side_effects(&store, &session, &library, library.revision, 0);
+    }
+
+    #[test]
+    fn alignment_apply_rejects_stale_segment_revision_without_side_effects() {
+        let temp = tempdir().expect("temporary storage directory");
+        let mut store = Store::open(temp.path()).expect("open store");
+        let (session, links) = create_confirmed_alignment(&mut store);
+        let library = create_alignment_tm_library(&mut store, true, "en", "zh");
+        let input = alignment_apply_input(&session, &library, &links);
+        store
+            .connection
+            .execute(
+                "UPDATE segments SET revision = revision + 1 WHERE id = 'alignment-s1'",
+                [],
+            )
+            .expect("advance source segment revision");
+
+        assert!(matches!(
+            store.apply_alignment_to_tm(input),
+            Err(StorageError::Conflict {
+                segment_id,
+                expected_revision: 0,
+                actual_revision: 1,
+            }) if segment_id == "alignment-s1"
+        ));
+        assert_no_alignment_apply_side_effects(&store, &session, &library, library.revision, 0);
+    }
+
+    #[test]
+    fn stale_snapshot_blocks_manual_status_and_refinement_mutations() {
+        let temp = tempdir().expect("temporary storage directory");
+        let mut store = Store::open(temp.path()).expect("open store");
+        let (session, links) = create_open_alignment(&mut store);
+        store
+            .connection
+            .execute(
+                "UPDATE segments SET revision = revision + 1 WHERE id = 'alignment-s1'",
+                [],
+            )
+            .expect("advance source segment revision");
+
+        let status_error = store.update_alignment_link_status(UpdateAlignmentLinkStatus {
+            session_id: session.id.clone(),
+            link_id: links[0].id.clone(),
+            expected_session_revision: session.revision,
+            expected_link_revision: links[0].revision,
+            status: AlignmentLinkStatus::Confirmed,
+            actor: "alignment-stale-tester".to_string(),
+            reason: "reject stale status mutation".to_string(),
+            correlation_id: None,
+        });
+        assert!(matches!(
+            status_error,
+            Err(StorageError::Conflict {
+                segment_id,
+                expected_revision: 0,
+                actual_revision: 1,
+            }) if segment_id == "alignment-s1"
+        ));
+
+        let replacement_error = store.replace_alignment_partition(ReplaceAlignmentPartition {
+            session_id: session.id.clone(),
+            expected_session_revision: session.revision,
+            links: links
+                .iter()
+                .map(|link| ExpectedAlignmentLinkRevision {
+                    link_id: link.id.clone(),
+                    expected_revision: link.revision,
+                })
+                .collect(),
+            replacement: links
+                .iter()
+                .map(|link| ManualAlignmentPartitionLink {
+                    source_segment_ids: link.source_segment_ids.clone(),
+                    target_segment_ids: link.target_segment_ids.clone(),
+                })
+                .collect(),
+            actor: "alignment-stale-tester".to_string(),
+            reason: "reject stale manual replacement".to_string(),
+            correlation_id: None,
+        });
+        assert!(matches!(
+            replacement_error,
+            Err(StorageError::Conflict {
+                segment_id,
+                expected_revision: 0,
+                actual_revision: 1,
+            }) if segment_id == "alignment-s1"
+        ));
+
+        let refinement_error = store.prepare_alignment_refinement(&AlignmentRefinementRunContext {
+            session_id: session.id.clone(),
+            expected_session_revision: session.revision,
+            links: links
+                .iter()
+                .map(|link| AlignmentRefinementLinkRevision {
+                    link_id: link.id.clone(),
+                    expected_revision: link.revision,
+                })
+                .collect(),
+            actor: "alignment-stale-tester".to_string(),
+            reason: "reject stale AI refinement".to_string(),
+            correlation_id: None,
+        });
+        assert!(matches!(
+            refinement_error,
+            Err(StorageError::Conflict {
+                segment_id,
+                expected_revision: 0,
+                actual_revision: 1,
+            }) if segment_id == "alignment-s1"
+        ));
+
+        assert_eq!(
+            store
+                .get_alignment_session(&session.id)
+                .expect("reload unchanged stale session")
+                .revision,
+            session.revision
+        );
+        assert_eq!(
+            store
+                .list_alignment_links(&session.id, None, 0, 10)
+                .expect("reload unchanged stale links")
+                .0,
+            links
+        );
+        assert_eq!(
+            store
+                .list_operations("alignment-p", 0, 100, false)
+                .expect("list stale-rejected operations")
+                .1,
+            1
+        );
+    }
+
+    #[test]
+    fn alignment_apply_rejects_stale_document_revision_without_side_effects() {
+        let temp = tempdir().expect("temporary storage directory");
+        let mut store = Store::open(temp.path()).expect("open store");
+        let (session, links) = create_confirmed_alignment(&mut store);
+        let library = create_alignment_tm_library(&mut store, true, "en", "zh");
+        let input = alignment_apply_input(&session, &library, &links);
+        store
+            .connection
+            .execute(
+                "UPDATE documents SET revision = revision + 1 WHERE id = 'alignment-target'",
+                [],
+            )
+            .expect("advance target document revision");
+
+        assert!(matches!(
+            store.apply_alignment_to_tm(input),
+            Err(StorageError::EntityConflict {
+                entity: "document",
+                expected_revision: 0,
+                actual_revision: 1,
+                ..
+            })
+        ));
+        assert_no_alignment_apply_side_effects(&store, &session, &library, library.revision, 0);
+    }
+
+    #[test]
+    fn alignment_apply_rejects_stale_read_only_and_locale_mismatched_libraries() {
+        let temp = tempdir().expect("temporary storage directory");
+        let mut store = Store::open(temp.path()).expect("open store");
+        let (session, links) = create_confirmed_alignment(&mut store);
+
+        let read_only = create_alignment_tm_library(&mut store, false, "en", "zh");
+        assert!(matches!(
+            store.apply_alignment_to_tm(alignment_apply_input(
+                &session,
+                &read_only,
+                &links,
+            )),
+            Err(StorageError::InvalidState(message)) if message.contains("read-only")
+        ));
+        assert_no_alignment_apply_side_effects(&store, &session, &read_only, read_only.revision, 0);
+
+        let mismatched = create_alignment_tm_library(&mut store, true, "en", "fr");
+        assert!(matches!(
+            store.apply_alignment_to_tm(alignment_apply_input(
+                &session,
+                &mismatched,
+                &links,
+            )),
+            Err(StorageError::InvalidState(message)) if message.contains("locales")
+        ));
+        assert_no_alignment_apply_side_effects(
+            &store,
+            &session,
+            &mismatched,
+            mismatched.revision,
+            0,
+        );
+
+        let stale = create_alignment_tm_library(&mut store, true, "en", "zh");
+        let stale_input = alignment_apply_input(&session, &stale, &links);
+        store
+            .connection
+            .execute(
+                "UPDATE tm_libraries SET revision = revision + 1 WHERE id = ?1",
+                [&stale.id],
+            )
+            .expect("advance TM library revision");
+        assert!(matches!(
+            store.apply_alignment_to_tm(stale_input),
+            Err(StorageError::EntityConflict {
+                entity: "tm_library",
+                expected_revision: 0,
+                actual_revision: 1,
+                ..
+            })
+        ));
+        assert_no_alignment_apply_side_effects(&store, &session, &stale, 1, 0);
+    }
+
+    #[test]
+    fn alignment_apply_rolls_back_first_insert_when_second_insert_fails() {
+        let temp = tempdir().expect("temporary storage directory");
+        let mut store = Store::open(temp.path()).expect("open store");
+        let (session, links) = create_confirmed_alignment(&mut store);
+        let library = create_alignment_tm_library(&mut store, true, "en", "zh");
+        let input = alignment_apply_input(&session, &library, &links);
+        store
+            .connection
+            .execute_batch(
+                "CREATE TEMP TRIGGER fail_second_alignment_tm_insert
+                 BEFORE INSERT ON tm_units
+                 WHEN NEW.target_text = 'Beta remains active.'
+                 BEGIN
+                     SELECT RAISE(ABORT, 'forced second alignment TM insert failure');
+                 END;",
+            )
+            .expect("install forced second-insert failure trigger");
+
+        assert!(matches!(
+            store.apply_alignment_to_tm(input),
+            Err(StorageError::Database(_))
+        ));
+        assert_no_alignment_apply_side_effects(&store, &session, &library, library.revision, 0);
     }
 
     #[test]

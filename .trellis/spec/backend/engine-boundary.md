@@ -1480,3 +1480,115 @@ let response = execute_provider_without_persisted_deltas(...)?;
 let suggestions = parse_alignment_refinement_response(response.as_bytes(), &source, &target)?;
 store.complete_alignment_refinement_run(run_id, response, provider, &usage, elapsed_ms)?;
 ```
+
+## Alignment TM Apply Boundary
+
+### 1. Scope / Trigger
+
+Use this contract when sinking confirmed alignment links into a translation
+memory. Storage owns selection validation, current-snapshot checks,
+deduplication, provenance, terminal state, revision changes, and idempotent
+replay. Candidate creation, manual correction, and AI refinement cannot write
+TM units implicitly.
+
+### 2. Signatures
+
+The storage boundary is:
+
+```rust
+Store::apply_alignment_to_tm(ApplyAlignmentToTm) -> Result<AlignmentApplyResult>
+```
+
+`ApplyAlignmentToTm` contains `session_id`, `library_id`, expected session and
+library revisions, explicit `(link_id, expected_revision)` selections, actor,
+reason, and optional correlation ID. `AlignmentApplyResult` returns selected,
+inserted, and duplicate counts; resulting session/library revisions; one
+operation ID; inserted TM unit IDs; and duplicate link-to-unit mappings.
+
+### 3. Contracts
+
+- Apply accepts 1..100,000 unique bounded link IDs. Actor is at most 256 bytes,
+  reason at most 4,096 bytes, and IDs/correlation IDs at most 256 bytes. Link
+  selections are sorted canonically only for request fingerprinting; persisted
+  link order remains session order.
+- One `TransactionBehavior::Immediate` transaction revalidates the open
+  session, active project, both document revisions, every immutable snapshot
+  against the current segment ID/order/revision/hash/text, the complete link
+  partition, every selected link revision/status/side, and the TM library
+  revision/writability/locales before inserting a unit.
+- Only explicitly selected, confirmed, non-empty bilingual links apply.
+  Content deduplication uses `(exact_key(source), sha256(normalized target))`
+  against both existing library units and earlier links in the same request.
+- New TM units keep `origin_segment_id = NULL` so normal confirmation sinking
+  retains its provenance uniqueness. `metadata_json` carries the alignment
+  session/link, both documents and revisions, both complete segment groups,
+  confidence, evidence, origin, algorithm, pre-apply session/link revisions,
+  actor, reason, and optional correlation ID.
+- A success increments the TM library exactly once, including duplicate-only
+  applies; increments and terminally closes the session exactly once; appends
+  one `alignment.session.apply` operation; and stores the complete result plus
+  a canonical request fingerprint in `terminal_result_json`.
+- Replaying the same canonical request after restart returns the stored result
+  without a new transaction side effect. Any different request against an
+  applied session returns `InvalidState`.
+- Manual partition replacement, link-status updates, AI-refinement preparation,
+  and apply all use the same current-snapshot validation. A segment cannot
+  change independently of its document revision and remain silently usable.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Duplicate/empty/oversized selection or actor/reason/ID bound failure | `InvalidState` before persistence |
+| Stale session, document, link, or library revision | `EntityConflict`; no TM/revision/history/terminal write |
+| Stale segment revision | `Conflict` with segment ID and expected/actual revisions; no apply side effect |
+| Segment membership/order/hash/text differs from the snapshot | `InvalidState`/`InvalidData`; no apply side effect |
+| Proposed/rejected/unaligned/empty selected link | `InvalidState`; mixed valid/invalid selections roll back as one request |
+| Read-only or locale-mismatched library | `InvalidState`; library and session remain unchanged |
+| Existing or same-request duplicate content | Return the existing/planned TM unit ID in `duplicates`; do not insert another row |
+| SQLite failure on any later insert/revision/history/terminal statement | Roll back every earlier insert and keep the session retryable |
+| Applied session plus identical/different request | Return stored result / reject as a different terminal request |
+
+### 5. Good / Base / Bad Cases
+
+- Good: confirm two links, apply both, receive two provenance-complete units,
+  one library revision, one terminal session revision, and the same result
+  after reopening and replaying the selection in a different order.
+- Base: both selected contents already exist. Insert zero rows, map both links
+  to their existing unit IDs, increment the library once, and close the session.
+- Bad: insert the first selected row before discovering that the second link is
+  proposed, stale, or malformed; or use `origin_segment_id` for a multi-segment
+  group and collide with normal confirmation-sink uniqueness.
+
+### 6. Tests Required
+
+- Storage tests assert complete metadata and operation provenance, terminal
+  state, restart replay, different-request rejection, duplicate-only behavior,
+  and exact session/library/count results.
+- Regressions cover duplicate selection, mixed confirmed/proposed selection,
+  stale session/link/segment/document/library revisions, read-only and locale-
+  mismatched libraries, and current-snapshot rejection for manual/status/refine.
+- Install a temporary SQLite trigger that aborts the second `tm_units` insert;
+  assert zero TM units, no apply operation, unchanged library/session revisions,
+  no terminal result, and an open retryable session.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+for link in selected_links {
+    insert_tm_unit(link)?; // a later invalid link leaves earlier rows visible
+}
+mark_session_applied(session_id)?;
+```
+
+#### Correct
+
+```rust
+let transaction = connection
+    .transaction_with_behavior(TransactionBehavior::Immediate)?;
+let plans = validate_current_session_links_library_and_build_plans(&transaction, input)?;
+insert_deduplicated_units_and_terminal_result(&transaction, plans)?;
+transaction.commit()?;
+```

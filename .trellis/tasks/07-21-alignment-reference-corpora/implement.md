@@ -12,7 +12,7 @@
       replace/status mutations with one-owner/non-crossing/order invariants.
 - [x] Implement optional bounded provider-backed refinement with strict JSON
       parsing and whole-request validation; keep accepted output proposed.
-- [ ] Implement atomic/idempotent selected alignment-to-TM apply with complete
+- [x] Implement atomic/idempotent selected alignment-to-TM apply with complete
       provenance, deduplication, history, and stale/read-only/locale rollback.
 - [ ] Implement filtered corpus import staging, alignment-to-corpus creation,
       list/search/reindex/remove, managed-source cleanup, provenance, and bounds.
