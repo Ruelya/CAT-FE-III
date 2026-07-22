@@ -3,7 +3,7 @@
   "name": "interop-alignment-review",
   "title": "Interoperability, alignment, and offline review",
   "description": "Implement SDLXLIFF/MQXLIFF-compatible exchange, bilingual DOCX round-trip, offline task packages, document alignment, reference corpora, and discussion/history workflows.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,
@@ -18,7 +18,13 @@
   "commit": null,
   "pr_url": null,
   "subtasks": [],
-  "children": [],
+  "children": [
+    "07-21-interop-cat-formats",
+    "07-21-interop-bilingual-docx",
+    "07-21-alignment-reference-corpora",
+    "07-21-offline-task-packages",
+    "07-21-discussion-project-snapshots"
+  ],
   "parent": "07-19-complete-full-cat-prd",
   "relatedFiles": [],
   "notes": "",
