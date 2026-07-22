@@ -48,10 +48,10 @@ pub use ai::{
     NewAiRun,
 };
 pub use alignment::{
-    AlignmentLinkRecord, AlignmentMutationResult, AlignmentSessionCreateResult,
-    AlignmentSessionRecord, AlignmentSessionSegmentRecord, AlignmentSessionStatus,
-    ExpectedAlignmentLinkRevision, ManualAlignmentPartitionLink, NewAlignmentSession,
-    ReferenceCorpusEntryRecord, ReferenceCorpusKind, ReferenceCorpusRecord,
+    AlignmentLinkRecord, AlignmentMutationResult, AlignmentRefinementSelection,
+    AlignmentSessionCreateResult, AlignmentSessionRecord, AlignmentSessionSegmentRecord,
+    AlignmentSessionStatus, ExpectedAlignmentLinkRevision, ManualAlignmentPartitionLink,
+    NewAlignmentSession, ReferenceCorpusEntryRecord, ReferenceCorpusKind, ReferenceCorpusRecord,
     ReferenceCorpusSourceKind, ReferenceCorpusStatus, ReplaceAlignmentPartition,
     UpdateAlignmentLinkStatus,
 };

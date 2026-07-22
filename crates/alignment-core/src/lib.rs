@@ -17,6 +17,11 @@ pub const HARD_MAX_TAGS_PER_SEGMENT: u32 = 256;
 pub const HARD_MAX_EVIDENCE_VALUES: u32 = 64;
 pub const HARD_MAX_PARTITION_LINKS: u32 = 200_000;
 pub const HARD_MAX_PARTITION_GROUP_SIZE: u32 = 64;
+pub const HARD_MAX_REFINEMENT_SEGMENTS_PER_SIDE: u32 = 64;
+pub const HARD_MAX_REFINEMENT_LINKS: u32 = 64;
+pub const HARD_MAX_REFINEMENT_INPUT_BYTES: u64 = 256 * 1024;
+pub const HARD_MAX_REFINEMENT_RESPONSE_BYTES: u64 = 64 * 1024;
+pub const HARD_MAX_REFINEMENT_EVIDENCE_CHARS: u32 = 240;
 
 const MAX_LEXICAL_ANCHORS_PER_SEGMENT: usize = 256;
 const UNALIGNED_COST: u64 = 3_000;
@@ -50,6 +55,10 @@ pub enum AlignmentResource {
     EvidenceValues,
     PartitionLinks,
     PartitionGroup,
+    RefinementSegments,
+    RefinementInputBytes,
+    RefinementResponseBytes,
+    RefinementEvidenceCharacters,
 }
 
 impl fmt::Display for AlignmentResource {
@@ -62,6 +71,10 @@ impl fmt::Display for AlignmentResource {
             Self::EvidenceValues => "evidence values",
             Self::PartitionLinks => "partition links",
             Self::PartitionGroup => "partition group",
+            Self::RefinementSegments => "refinement segments",
+            Self::RefinementInputBytes => "refinement input bytes",
+            Self::RefinementResponseBytes => "refinement response bytes",
+            Self::RefinementEvidenceCharacters => "refinement evidence characters",
         })
     }
 }
@@ -120,6 +133,15 @@ pub enum AlignmentError {
     },
     #[error("partition does not own {side} segment `{id}`")]
     MissingPartitionMember { side: AlignmentSide, id: String },
+    #[error("invalid alignment refinement response: {message}")]
+    InvalidRefinementResponse { message: String },
+    #[error(
+        "alignment refinement link {link_index} confidence exceeds 10000 basis points: {confidence_basis_points}"
+    )]
+    InvalidRefinementConfidence {
+        link_index: usize,
+        confidence_basis_points: u16,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -232,6 +254,9 @@ pub enum AlignmentEvidence {
         penalty_basis_points: u16,
         summary: String,
     },
+    AiRefinement {
+        summary: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -312,6 +337,21 @@ pub struct PartitionValidation {
     pub link_count: u32,
     pub source_segment_count: u32,
     pub target_segment_count: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AlignmentRefinementSuggestion {
+    pub source_segment_ids: Vec<String>,
+    pub target_segment_ids: Vec<String>,
+    pub confidence_basis_points: u16,
+    pub evidence: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AlignmentRefinementResponse {
+    links: Vec<AlignmentRefinementSuggestion>,
 }
 
 /// Aligns two ordered segment streams with deterministic, bounded dynamic programming.
@@ -546,6 +586,119 @@ pub fn validate_partition(
         source_segment_count: u32::try_from(source.len()).unwrap_or(u32::MAX),
         target_segment_count: u32::try_from(target.len()).unwrap_or(u32::MAX),
     })
+}
+
+/// Parses a provider response and validates it as one complete selected partition.
+pub fn parse_alignment_refinement_response(
+    response: &[u8],
+    source: &[AlignmentSegment],
+    target: &[AlignmentSegment],
+) -> Result<Vec<AlignmentRefinementSuggestion>, AlignmentError> {
+    validate_refinement_input(source, target)?;
+    enforce_limit(
+        AlignmentResource::RefinementResponseBytes,
+        HARD_MAX_REFINEMENT_RESPONSE_BYTES,
+        usize_to_u64(response.len()),
+    )?;
+    let parsed = serde_json::from_slice::<AlignmentRefinementResponse>(response).map_err(|_| {
+        AlignmentError::InvalidRefinementResponse {
+            message: "expected one strict JSON object with an ID-only links array".to_string(),
+        }
+    })?;
+    if parsed.links.is_empty() {
+        return Err(AlignmentError::InvalidRefinementResponse {
+            message: "links must contain at least one suggestion".to_string(),
+        });
+    }
+    enforce_limit(
+        AlignmentResource::PartitionLinks,
+        u64::from(HARD_MAX_REFINEMENT_LINKS),
+        usize_to_u64(parsed.links.len()),
+    )?;
+    for (link_index, link) in parsed.links.iter().enumerate() {
+        if link.confidence_basis_points > 10_000 {
+            return Err(AlignmentError::InvalidRefinementConfidence {
+                link_index,
+                confidence_basis_points: link.confidence_basis_points,
+            });
+        }
+        let evidence_chars = link.evidence.chars().count();
+        enforce_limit(
+            AlignmentResource::RefinementEvidenceCharacters,
+            u64::from(HARD_MAX_REFINEMENT_EVIDENCE_CHARS),
+            usize_to_u64(evidence_chars),
+        )?;
+        if link.evidence.trim().is_empty() || link.evidence.chars().any(char::is_control) {
+            return Err(AlignmentError::InvalidRefinementResponse {
+                message: format!("link {link_index} evidence must be non-empty single-line text"),
+            });
+        }
+    }
+
+    let source_partition = source
+        .iter()
+        .map(AlignmentPartitionSegment::from)
+        .collect::<Vec<_>>();
+    let target_partition = target
+        .iter()
+        .map(AlignmentPartitionSegment::from)
+        .collect::<Vec<_>>();
+    let links = parsed
+        .links
+        .iter()
+        .map(|link| AlignmentPartitionLink {
+            source_segment_ids: link.source_segment_ids.clone(),
+            target_segment_ids: link.target_segment_ids.clone(),
+        })
+        .collect::<Vec<_>>();
+    validate_partition(
+        &source_partition,
+        &target_partition,
+        &links,
+        &PartitionLimits {
+            max_links: HARD_MAX_REFINEMENT_LINKS,
+            max_group_size: HARD_MAX_PARTITION_GROUP_SIZE,
+        },
+    )?;
+    Ok(parsed.links)
+}
+
+/// Applies the provider-request limits before any network request is created.
+pub fn validate_refinement_input(
+    source: &[AlignmentSegment],
+    target: &[AlignmentSegment],
+) -> Result<(), AlignmentError> {
+    enforce_limit(
+        AlignmentResource::RefinementSegments,
+        u64::from(HARD_MAX_REFINEMENT_SEGMENTS_PER_SIDE),
+        usize_to_u64(source.len()),
+    )?;
+    enforce_limit(
+        AlignmentResource::RefinementSegments,
+        u64::from(HARD_MAX_REFINEMENT_SEGMENTS_PER_SIDE),
+        usize_to_u64(target.len()),
+    )?;
+    validate_ids_and_ordinals(
+        source.iter().map(|segment| (&segment.id, segment.ordinal)),
+        AlignmentSide::Source,
+    )?;
+    validate_ids_and_ordinals(
+        target.iter().map(|segment| (&segment.id, segment.ordinal)),
+        AlignmentSide::Target,
+    )?;
+    let input_bytes = source.iter().chain(target).fold(0_u64, |total, segment| {
+        segment.tag_signature.iter().fold(
+            total
+                .saturating_add(usize_to_u64(segment.id.len()))
+                .saturating_add(usize_to_u64(segment.text.len())),
+            |tag_total, tag| tag_total.saturating_add(usize_to_u64(tag.len())),
+        )
+    });
+    enforce_limit(
+        AlignmentResource::RefinementInputBytes,
+        HARD_MAX_REFINEMENT_INPUT_BYTES,
+        input_bytes,
+    )
 }
 
 fn validate_options(options: &AlignmentOptions) -> Result<(), AlignmentError> {
@@ -1842,6 +1995,162 @@ mod tests {
                 &limits
             ),
             Err(AlignmentError::MissingPartitionMember { id, .. }) if id == "s2"
+        ));
+    }
+
+    #[test]
+    fn accepts_strict_complete_refinement_response() {
+        let source = [
+            segment("s1", 0, "First clause."),
+            segment("s2", 1, "Second clause."),
+        ];
+        let target = [
+            segment("t1", 0, "First clause."),
+            segment("t2", 1, "Second clause."),
+        ];
+        let response = serde_json::to_vec(&serde_json::json!({
+            "links": [{
+                "sourceSegmentIds": ["s1", "s2"],
+                "targetSegmentIds": ["t1", "t2"],
+                "confidenceBasisPoints": 9200,
+                "evidence": "The two adjacent clauses form one bilingual unit."
+            }]
+        }))
+        .unwrap();
+
+        let suggestions = parse_alignment_refinement_response(&response, &source, &target).unwrap();
+
+        assert_eq!(suggestions.len(), 1);
+        assert_eq!(suggestions[0].source_segment_ids, ["s1", "s2"]);
+        assert_eq!(suggestions[0].target_segment_ids, ["t1", "t2"]);
+        assert_eq!(suggestions[0].confidence_basis_points, 9_200);
+    }
+
+    #[test]
+    fn rejects_unknown_duplicate_and_crossing_refinement_members() {
+        let source = [segment("s1", 0, "First."), segment("s2", 1, "Second.")];
+        let target = [segment("t1", 0, "First."), segment("t2", 1, "Second.")];
+        let encode = |links: serde_json::Value| {
+            serde_json::to_vec(&serde_json::json!({ "links": links })).unwrap()
+        };
+
+        let unknown = encode(serde_json::json!([{
+            "sourceSegmentIds": ["s1", "s2"],
+            "targetSegmentIds": ["t1", "missing"],
+            "confidenceBasisPoints": 8000,
+            "evidence": "Suggested grouping"
+        }]));
+        assert!(matches!(
+            parse_alignment_refinement_response(&unknown, &source, &target),
+            Err(AlignmentError::UnknownPartitionMember { .. })
+        ));
+
+        let duplicate = encode(serde_json::json!([
+            {
+                "sourceSegmentIds": ["s1"],
+                "targetSegmentIds": ["t1"],
+                "confidenceBasisPoints": 8000,
+                "evidence": "First pairing"
+            },
+            {
+                "sourceSegmentIds": ["s1", "s2"],
+                "targetSegmentIds": ["t2"],
+                "confidenceBasisPoints": 8000,
+                "evidence": "Duplicate source membership"
+            }
+        ]));
+        assert!(matches!(
+            parse_alignment_refinement_response(&duplicate, &source, &target),
+            Err(AlignmentError::DuplicatePartitionMember { .. })
+        ));
+
+        let crossing = encode(serde_json::json!([
+            {
+                "sourceSegmentIds": ["s1"],
+                "targetSegmentIds": ["t2"],
+                "confidenceBasisPoints": 8000,
+                "evidence": "Crossed first pairing"
+            },
+            {
+                "sourceSegmentIds": ["s2"],
+                "targetSegmentIds": ["t1"],
+                "confidenceBasisPoints": 8000,
+                "evidence": "Crossed second pairing"
+            }
+        ]));
+        assert!(matches!(
+            parse_alignment_refinement_response(&crossing, &source, &target),
+            Err(AlignmentError::PartitionOrderViolation {
+                side: AlignmentSide::Target,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn rejects_malformed_text_echo_and_invalid_refinement_fields() {
+        let source = [segment("s1", 0, "Source body")];
+        let target = [segment("t1", 0, "Target body")];
+        assert!(matches!(
+            parse_alignment_refinement_response(b"```json\n{}\n```", &source, &target),
+            Err(AlignmentError::InvalidRefinementResponse { .. })
+        ));
+
+        let text_echo = serde_json::to_vec(&serde_json::json!({
+            "links": [{
+                "sourceSegmentIds": ["s1"],
+                "targetSegmentIds": ["t1"],
+                "sourceText": "Source body",
+                "confidenceBasisPoints": 8000,
+                "evidence": "Direct pairing"
+            }]
+        }))
+        .unwrap();
+        assert!(matches!(
+            parse_alignment_refinement_response(&text_echo, &source, &target),
+            Err(AlignmentError::InvalidRefinementResponse { .. })
+        ));
+
+        let invalid_confidence = serde_json::to_vec(&serde_json::json!({
+            "links": [{
+                "sourceSegmentIds": ["s1"],
+                "targetSegmentIds": ["t1"],
+                "confidenceBasisPoints": 10001,
+                "evidence": "Direct pairing"
+            }]
+        }))
+        .unwrap();
+        assert!(matches!(
+            parse_alignment_refinement_response(&invalid_confidence, &source, &target),
+            Err(AlignmentError::InvalidRefinementConfidence { .. })
+        ));
+    }
+
+    #[test]
+    fn enforces_refinement_input_and_response_bounds() {
+        let source = [segment("s1", 0, "Source")];
+        let target = [segment("t1", 0, "Target")];
+        let oversized_response =
+            vec![b' '; usize::try_from(HARD_MAX_REFINEMENT_RESPONSE_BYTES).unwrap() + 1];
+        assert!(matches!(
+            parse_alignment_refinement_response(&oversized_response, &source, &target),
+            Err(AlignmentError::ResourceLimitExceeded {
+                resource: AlignmentResource::RefinementResponseBytes,
+                ..
+            })
+        ));
+
+        let oversized_input = [segment(
+            "s1",
+            0,
+            &"x".repeat(usize::try_from(HARD_MAX_REFINEMENT_INPUT_BYTES).unwrap() + 1),
+        )];
+        assert!(matches!(
+            validate_refinement_input(&oversized_input, &target),
+            Err(AlignmentError::ResourceLimitExceeded {
+                resource: AlignmentResource::RefinementInputBytes,
+                ..
+            })
         ));
     }
 

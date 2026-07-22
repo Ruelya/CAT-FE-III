@@ -131,6 +131,8 @@ use zip::{CompressionMethod, ZipArchive};
 mod ai;
 mod qa;
 
+pub use ai::AlignmentRefinementStart;
+
 #[derive(Debug, Error)]
 pub enum EngineError {
     #[error(transparent)]

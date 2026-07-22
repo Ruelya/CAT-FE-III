@@ -26,6 +26,7 @@ pub const MAX_SSE_LINE_BYTES: usize = 256 * 1024;
 pub const MAX_PROFILE_NAME_CHARS: usize = 80;
 pub const MAX_MODEL_CHARS: usize = 200;
 pub const MAX_BASE_URL_CHARS: usize = 2_048;
+pub const ALIGNMENT_REFINEMENT_ACTION: &str = "alignment_refinement";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -178,6 +179,26 @@ pub struct AiRunRequest {
     pub grounding_options: GroundingOptions,
     pub freeform_prompt: String,
     pub conversation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alignment_refinement: Option<AlignmentRefinementRunContext>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AlignmentRefinementLinkRevision {
+    pub link_id: String,
+    pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AlignmentRefinementRunContext {
+    pub session_id: String,
+    pub expected_session_revision: u64,
+    pub links: Vec<AlignmentRefinementLinkRevision>,
+    pub actor: String,
+    pub reason: String,
+    pub correlation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

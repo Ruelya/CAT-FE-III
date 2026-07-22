@@ -10,7 +10,7 @@
       rollback/reopen behavior.
 - [x] Implement revisioned session create/list/get/page and atomic manual
       replace/status mutations with one-owner/non-crossing/order invariants.
-- [ ] Implement optional bounded provider-backed refinement with strict JSON
+- [x] Implement optional bounded provider-backed refinement with strict JSON
       parsing and whole-request validation; keep accepted output proposed.
 - [ ] Implement atomic/idempotent selected alignment-to-TM apply with complete
       provenance, deduplication, history, and stale/read-only/locale rollback.

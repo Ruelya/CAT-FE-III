@@ -2,9 +2,9 @@ use std::collections::BTreeSet;
 
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, TransactionBehavior, params};
 use translunar_ai_core::{
-    AiBatchItem, AiBatchItemStatus, AiBatchRun, AiBatchStatus, AiConversation,
-    AiConversationMessage, AiConversationRole, AiProviderKind, AiProviderProfile, AiRun,
-    AiRunEvent, AiRunEventKind, AiRunKind, AiRunRequest, AiRunStatus, AiSettings, AiUsage,
+    ALIGNMENT_REFINEMENT_ACTION, AiBatchItem, AiBatchItemStatus, AiBatchRun, AiBatchStatus,
+    AiConversation, AiConversationMessage, AiConversationRole, AiProviderKind, AiProviderProfile,
+    AiRun, AiRunEvent, AiRunEventKind, AiRunKind, AiRunRequest, AiRunStatus, AiSettings, AiUsage,
     AiUsageAggregate, AiUsageDimension, AiUsageRecord, GroundingOptions, validate_profile_fields,
 };
 use translunar_domain::new_id;
@@ -529,58 +529,16 @@ impl Store {
         usage: AiUsage,
         elapsed_ms: u64,
     ) -> Result<AiRun> {
-        if proposal_text.trim().is_empty() {
-            return Err(StorageError::InvalidState(
-                "AI proposal must not be empty".to_string(),
-            ));
-        }
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let run = find_ai_run(&transaction, run_id)?;
-        if run.status != AiRunStatus::Running || run.cancellation_requested {
-            return Err(StorageError::InvalidState(
-                "AI run cannot complete in its current state".to_string(),
-            ));
-        }
-        let now = now_ms();
-        transaction.execute(
-            "UPDATE ai_runs
-             SET status = 'succeeded', proposal_text = ?1,
-                 revision = revision + 1, error_code = NULL, error_message = NULL,
-                 error_retryable = 0, completed_at_ms = ?2, updated_at_ms = ?2
-             WHERE id = ?3 AND revision = ?4",
-            params![proposal_text, now, run_id, to_i64(run.revision)?],
-        )?;
-        append_ai_event_tx(
+        complete_ai_run_tx(
             &transaction,
             run_id,
-            AiEventInput {
-                kind: AiRunEventKind::Usage,
-                usage: Some(&usage),
-                attempt: Some(run.attempt),
-                created_at_ms: now,
-                ..AiEventInput::default()
-            },
-        )?;
-        append_ai_event_tx(
-            &transaction,
-            run_id,
-            AiEventInput {
-                kind: AiRunEventKind::Completed,
-                attempt: Some(run.attempt),
-                created_at_ms: now,
-                ..AiEventInput::default()
-            },
-        )?;
-        insert_ai_usage_tx(
-            &transaction,
-            &run,
+            proposal_text,
             provider,
-            "succeeded",
             &usage,
             elapsed_ms,
-            now,
         )?;
         transaction.commit()?;
         self.get_ai_run(run_id)
@@ -592,6 +550,25 @@ impl Store {
         error_code: &str,
         retryable: bool,
         provider: AiProviderKind,
+        elapsed_ms: u64,
+    ) -> Result<AiRun> {
+        self.fail_ai_run_with_usage(
+            run_id,
+            error_code,
+            retryable,
+            provider,
+            AiUsage::default(),
+            elapsed_ms,
+        )
+    }
+
+    pub fn fail_ai_run_with_usage(
+        &mut self,
+        run_id: &str,
+        error_code: &str,
+        retryable: bool,
+        provider: AiProviderKind,
+        usage: AiUsage,
         elapsed_ms: u64,
     ) -> Result<AiRun> {
         validate_error_code(error_code)?;
@@ -635,7 +612,7 @@ impl Store {
             &run,
             provider,
             "failed",
-            &AiUsage::default(),
+            &usage,
             elapsed_ms,
             now,
         )?;
@@ -1736,6 +1713,71 @@ fn append_ai_event_tx(
     })
 }
 
+pub(super) fn complete_ai_run_tx(
+    transaction: &Transaction<'_>,
+    run_id: &str,
+    proposal_text: &str,
+    provider: AiProviderKind,
+    usage: &AiUsage,
+    elapsed_ms: u64,
+) -> Result<()> {
+    if proposal_text.trim().is_empty() {
+        return Err(StorageError::InvalidState(
+            "AI proposal must not be empty".to_string(),
+        ));
+    }
+    let run = find_ai_run(transaction, run_id)?;
+    if run.status != AiRunStatus::Running || run.cancellation_requested {
+        return Err(StorageError::InvalidState(
+            "AI run cannot complete in its current state".to_string(),
+        ));
+    }
+    let now = now_ms();
+    let changed = transaction.execute(
+        "UPDATE ai_runs
+         SET status = 'succeeded', proposal_text = ?1,
+             revision = revision + 1, error_code = NULL, error_message = NULL,
+             error_retryable = 0, completed_at_ms = ?2, updated_at_ms = ?2
+         WHERE id = ?3 AND revision = ?4",
+        params![proposal_text, now, run_id, to_i64(run.revision)?],
+    )?;
+    if changed != 1 {
+        return Err(StorageError::InvalidState(
+            "AI run completion lost its revision".to_string(),
+        ));
+    }
+    append_ai_event_tx(
+        transaction,
+        run_id,
+        AiEventInput {
+            kind: AiRunEventKind::Usage,
+            usage: Some(usage),
+            attempt: Some(run.attempt),
+            created_at_ms: now,
+            ..AiEventInput::default()
+        },
+    )?;
+    append_ai_event_tx(
+        transaction,
+        run_id,
+        AiEventInput {
+            kind: AiRunEventKind::Completed,
+            attempt: Some(run.attempt),
+            created_at_ms: now,
+            ..AiEventInput::default()
+        },
+    )?;
+    insert_ai_usage_tx(
+        transaction,
+        &run,
+        provider,
+        "succeeded",
+        usage,
+        elapsed_ms,
+        now,
+    )
+}
+
 fn insert_ai_usage_tx(
     transaction: &Transaction<'_>,
     run: &AiRun,
@@ -2013,6 +2055,23 @@ fn validate_new_run(input: &NewAiRun) -> Result<()> {
     if !(1..=10).contains(&input.max_attempts) {
         return Err(StorageError::InvalidState(
             "AI run max attempts must be 1..10".to_string(),
+        ));
+    }
+    let is_alignment_refinement = input.action == ALIGNMENT_REFINEMENT_ACTION;
+    if is_alignment_refinement != input.request.alignment_refinement.is_some() {
+        return Err(StorageError::InvalidState(
+            "AI alignment refinement action and context must be provided together".to_string(),
+        ));
+    }
+    if is_alignment_refinement
+        && (input.kind != AiRunKind::Action
+            || input.project_id.is_none()
+            || input.profile_id.is_none()
+            || input.document_id.is_some()
+            || input.segment_id.is_some())
+    {
+        return Err(StorageError::InvalidState(
+            "AI alignment refinement run bindings are invalid".to_string(),
         ));
     }
     Ok(())
@@ -2336,6 +2395,7 @@ mod tests {
                         grounding_options: GroundingOptions::default(),
                         freeform_prompt: String::new(),
                         conversation_id: None,
+                        alignment_refinement: None,
                     },
                     base_segment_revision: None,
                     max_attempts: 3,

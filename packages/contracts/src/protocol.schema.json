@@ -1979,6 +1979,16 @@
     "AiRunRequest": {
       "type": "object",
       "properties": {
+        "alignmentRefinement": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AlignmentRefinementRunContext"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "conversationId": {
           "type": [
             "string",
@@ -2442,6 +2452,61 @@
         "usage",
         "elapsedMs",
         "createdAtMs"
+      ]
+    },
+    "AlignmentRefinementLinkRevision": {
+      "type": "object",
+      "properties": {
+        "expectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "linkId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "linkId",
+        "expectedRevision"
+      ]
+    },
+    "AlignmentRefinementRunContext": {
+      "type": "object",
+      "properties": {
+        "actor": {
+          "type": "string"
+        },
+        "correlationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expectedSessionRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AlignmentRefinementLinkRevision"
+          }
+        },
+        "reason": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "expectedSessionRevision",
+        "links",
+        "actor",
+        "reason"
       ]
     },
     "AnalysisProfile": {

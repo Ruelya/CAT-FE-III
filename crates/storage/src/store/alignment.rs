@@ -3,10 +3,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use translunar_ai_core::{
+    ALIGNMENT_REFINEMENT_ACTION, AiProviderKind, AiRunKind, AiRunStatus, AiUsage,
+    AlignmentRefinementRunContext,
+};
 use translunar_alignment_core::{
     AlignmentCandidate, AlignmentError, AlignmentEvidence, AlignmentLinkStatus, AlignmentOptions,
-    AlignmentOrigin, AlignmentPartitionLink, AlignmentPartitionSegment, AlignmentResource,
-    AlignmentSegment, AlignmentSide, PartitionLimits, validate_partition,
+    AlignmentOrigin, AlignmentPartitionLink, AlignmentPartitionSegment,
+    AlignmentRefinementSuggestion, AlignmentResource, AlignmentSegment, AlignmentSide,
+    HARD_MAX_REFINEMENT_LINKS, PartitionLimits, parse_alignment_refinement_response,
+    validate_partition, validate_refinement_input,
 };
 use translunar_domain::{
     Document, DocumentStatus, Project, ProjectLifecycle, Segment, new_id, number_tokens,
@@ -18,6 +24,8 @@ use super::{
     require_nonempty, row_to_segment, to_i64, to_u32,
 };
 use crate::{Result, StorageError};
+
+use super::ai::complete_ai_run_tx;
 
 const MAX_MANUAL_REPLACEMENT_LINKS: usize = 256;
 const MAX_MANUAL_GROUP_SIZE: u32 = 64;
@@ -214,6 +222,57 @@ pub struct AlignmentMutationResult {
     pub session: AlignmentSessionRecord,
     pub links: Vec<AlignmentLinkRecord>,
     pub operation_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AlignmentRefinementSelection {
+    pub session: AlignmentSessionRecord,
+    pub links: Vec<AlignmentLinkRecord>,
+    pub source_segments: Vec<AlignmentSessionSegmentRecord>,
+    pub target_segments: Vec<AlignmentSessionSegmentRecord>,
+}
+
+enum AlignmentReplacementMode<'a> {
+    Manual,
+    Ai {
+        run_id: &'a str,
+        profile_id: Option<&'a str>,
+        response: &'a str,
+        suggestions: &'a [AlignmentRefinementSuggestion],
+        provider: AiProviderKind,
+        usage: &'a AiUsage,
+        elapsed_ms: u64,
+    },
+}
+
+impl AlignmentReplacementMode<'_> {
+    fn origin(&self) -> AlignmentOrigin {
+        match self {
+            Self::Manual => AlignmentOrigin::Manual,
+            Self::Ai { .. } => AlignmentOrigin::Ai,
+        }
+    }
+
+    fn operation_kind(&self) -> &'static str {
+        match self {
+            Self::Manual => "alignment.partition.replace",
+            Self::Ai { .. } => "alignment.partition.refine",
+        }
+    }
+
+    fn run_id(&self) -> Option<&str> {
+        match self {
+            Self::Manual => None,
+            Self::Ai { run_id, .. } => Some(*run_id),
+        }
+    }
+
+    fn profile_id(&self) -> Option<&str> {
+        match self {
+            Self::Manual => None,
+            Self::Ai { profile_id, .. } => *profile_id,
+        }
+    }
 }
 
 impl Store {
@@ -437,6 +496,79 @@ impl Store {
         Ok((records, to_u32(total)?))
     }
 
+    pub fn prepare_alignment_refinement(
+        &self,
+        context: &AlignmentRefinementRunContext,
+    ) -> Result<AlignmentRefinementSelection> {
+        load_alignment_refinement_selection(&self.connection, context)
+    }
+
+    pub fn complete_alignment_refinement_run(
+        &mut self,
+        run_id: &str,
+        response: &str,
+        provider: AiProviderKind,
+        usage: &AiUsage,
+        elapsed_ms: u64,
+    ) -> Result<AlignmentMutationResult> {
+        let run = self.get_ai_run(run_id)?;
+        if run.kind != AiRunKind::Action || run.action != ALIGNMENT_REFINEMENT_ACTION {
+            return Err(StorageError::InvalidState(
+                "AI run is not an alignment refinement".to_string(),
+            ));
+        }
+        if run.status != AiRunStatus::Running || run.cancellation_requested {
+            return Err(StorageError::InvalidState(
+                "alignment refinement run is not active".to_string(),
+            ));
+        }
+        let context = run.request.alignment_refinement.clone().ok_or_else(|| {
+            StorageError::InvalidState(
+                "alignment refinement run is missing its context".to_string(),
+            )
+        })?;
+        let selection = self.prepare_alignment_refinement(&context)?;
+        let source = refinement_segments(&selection.source_segments);
+        let target = refinement_segments(&selection.target_segments);
+        let suggestions =
+            parse_alignment_refinement_response(response.as_bytes(), &source, &target)?;
+        let replacement = suggestions
+            .iter()
+            .map(|suggestion| ManualAlignmentPartitionLink {
+                source_segment_ids: suggestion.source_segment_ids.clone(),
+                target_segment_ids: suggestion.target_segment_ids.clone(),
+            })
+            .collect();
+        let input = ReplaceAlignmentPartition {
+            session_id: context.session_id,
+            expected_session_revision: context.expected_session_revision,
+            links: context
+                .links
+                .into_iter()
+                .map(|link| ExpectedAlignmentLinkRevision {
+                    link_id: link.link_id,
+                    expected_revision: link.expected_revision,
+                })
+                .collect(),
+            replacement,
+            actor: context.actor,
+            reason: context.reason,
+            correlation_id: context.correlation_id,
+        };
+        self.replace_alignment_partition_inner(
+            input,
+            AlignmentReplacementMode::Ai {
+                run_id,
+                profile_id: run.profile_id.as_deref(),
+                response,
+                suggestions: &suggestions,
+                provider,
+                usage,
+                elapsed_ms,
+            },
+        )
+    }
+
     pub fn create_alignment_session(
         &mut self,
         input: NewAlignmentSession,
@@ -563,6 +695,14 @@ impl Store {
         &mut self,
         input: ReplaceAlignmentPartition,
     ) -> Result<AlignmentMutationResult> {
+        self.replace_alignment_partition_inner(input, AlignmentReplacementMode::Manual)
+    }
+
+    fn replace_alignment_partition_inner(
+        &mut self,
+        input: ReplaceAlignmentPartition,
+        mode: AlignmentReplacementMode<'_>,
+    ) -> Result<AlignmentMutationResult> {
         require_nonempty("alignment session id", &input.session_id)?;
         require_nonempty("operation actor", &input.actor)?;
         require_nonempty("operation reason", &input.reason)?;
@@ -600,6 +740,15 @@ impl Store {
         let selected_start = selected_link_range(&current_links, &input.links)?;
         let selected_end = selected_start + input.links.len();
         let selected = &current_links[selected_start..selected_end];
+        if matches!(&mode, AlignmentReplacementMode::Ai { .. })
+            && selected
+                .iter()
+                .any(|link| link.status != AlignmentLinkStatus::Proposed)
+        {
+            return Err(StorageError::InvalidState(
+                "AI refinement accepts proposed links only".to_string(),
+            ));
+        }
         let source_ids = selected
             .iter()
             .flat_map(|link| link.source_segment_ids.iter().cloned())
@@ -637,23 +786,56 @@ impl Store {
             .map(|snapshot| (snapshot.segment_id.as_str(), snapshot))
             .collect::<BTreeMap<_, _>>();
         let mut replacement_records = Vec::with_capacity(input.replacement.len());
-        for link in &input.replacement {
+        let replacement_at = now_ms();
+        for (index, link) in input.replacement.iter().enumerate() {
             let source_text = snapshot_text_for_ids(&link.source_segment_ids, &source_by_id)?;
             let target_text = snapshot_text_for_ids(&link.target_segment_ids, &target_by_id)?;
-            let evidence = if link.source_segment_ids.is_empty() {
-                vec![AlignmentEvidence::Unaligned {
-                    side: AlignmentSide::Target,
-                    penalty_basis_points: 3_000,
-                    summary: "target group remains unaligned".to_string(),
-                }]
-            } else if link.target_segment_ids.is_empty() {
-                vec![AlignmentEvidence::Unaligned {
-                    side: AlignmentSide::Source,
-                    penalty_basis_points: 3_000,
-                    summary: "source group remains unaligned".to_string(),
-                }]
-            } else {
-                Vec::new()
+            let (confidence_basis_points, evidence) = match &mode {
+                AlignmentReplacementMode::Manual => {
+                    let evidence = if link.source_segment_ids.is_empty() {
+                        vec![AlignmentEvidence::Unaligned {
+                            side: AlignmentSide::Target,
+                            penalty_basis_points: 3_000,
+                            summary: "target group remains unaligned".to_string(),
+                        }]
+                    } else if link.target_segment_ids.is_empty() {
+                        vec![AlignmentEvidence::Unaligned {
+                            side: AlignmentSide::Source,
+                            penalty_basis_points: 3_000,
+                            summary: "source group remains unaligned".to_string(),
+                        }]
+                    } else {
+                        Vec::new()
+                    };
+                    let confidence = if link.source_segment_ids.is_empty()
+                        || link.target_segment_ids.is_empty()
+                    {
+                        0
+                    } else {
+                        10_000
+                    };
+                    (confidence, evidence)
+                }
+                AlignmentReplacementMode::Ai { suggestions, .. } => {
+                    let suggestion = suggestions.get(index).ok_or_else(|| {
+                        StorageError::InvalidState(
+                            "AI refinement suggestion count changed".to_string(),
+                        )
+                    })?;
+                    if suggestion.source_segment_ids != link.source_segment_ids
+                        || suggestion.target_segment_ids != link.target_segment_ids
+                    {
+                        return Err(StorageError::InvalidState(
+                            "AI refinement suggestion membership changed".to_string(),
+                        ));
+                    }
+                    (
+                        suggestion.confidence_basis_points,
+                        vec![AlignmentEvidence::AiRefinement {
+                            summary: suggestion.evidence.clone(),
+                        }],
+                    )
+                }
             };
             replacement_records.push(AlignmentLinkRecord {
                 id: new_id(),
@@ -663,19 +845,13 @@ impl Store {
                 target_segment_ids: link.target_segment_ids.clone(),
                 source_text,
                 target_text,
-                confidence_basis_points: if link.source_segment_ids.is_empty()
-                    || link.target_segment_ids.is_empty()
-                {
-                    0
-                } else {
-                    10_000
-                },
+                confidence_basis_points,
                 evidence,
-                origin: AlignmentOrigin::Manual,
+                origin: mode.origin(),
                 status: AlignmentLinkStatus::Proposed,
                 revision: 0,
-                created_at_ms: now_ms(),
-                updated_at_ms: now_ms(),
+                created_at_ms: replacement_at,
+                updated_at_ms: replacement_at,
             });
         }
 
@@ -746,13 +922,13 @@ impl Store {
             insert_alignment_link_record(&transaction, &link)?;
         }
         let result_revision = next_revision(session.revision)?;
-        update_alignment_session_revision(&transaction, &session, result_revision, now_ms())?;
+        update_alignment_session_revision(&transaction, &session, result_revision, replacement_at)?;
         let operation = append_operation(
             &transaction,
             &session.project_id,
             "alignment_session",
             &session.id,
-            "alignment.partition.replace",
+            mode.operation_kind(),
             Some(session.revision),
             Some(result_revision),
             &input.actor,
@@ -765,8 +941,29 @@ impl Store {
                 "replacementLinkIds": replacement_records.iter().map(|link| &link.id).collect::<Vec<_>>(),
                 "sourceGroups": replacement_records.iter().map(|link| &link.source_segment_ids).collect::<Vec<_>>(),
                 "targetGroups": replacement_records.iter().map(|link| &link.target_segment_ids).collect::<Vec<_>>(),
+                "origin": alignment_origin_text(mode.origin()),
+                "aiRunId": mode.run_id(),
+                "profileId": mode.profile_id(),
             })),
         )?;
+        if let AlignmentReplacementMode::Ai {
+            run_id,
+            response,
+            provider,
+            usage,
+            elapsed_ms,
+            ..
+        } = &mode
+        {
+            complete_ai_run_tx(
+                &transaction,
+                run_id,
+                response,
+                *provider,
+                usage,
+                *elapsed_ms,
+            )?;
+        }
         let updated_session = find_alignment_session(&transaction, &session.id)?;
         let updated_links = load_all_alignment_links(&transaction, &session.id)?;
         transaction.commit()?;
@@ -871,6 +1068,99 @@ impl Store {
             operation_id: Some(operation.id),
         })
     }
+}
+
+fn load_alignment_refinement_selection(
+    connection: &Connection,
+    context: &AlignmentRefinementRunContext,
+) -> Result<AlignmentRefinementSelection> {
+    require_nonempty("alignment session id", &context.session_id)?;
+    require_nonempty("operation actor", &context.actor)?;
+    require_nonempty("operation reason", &context.reason)?;
+    if context.links.is_empty() {
+        return Err(StorageError::InvalidState(
+            "AI refinement must select at least one link".to_string(),
+        ));
+    }
+    if context.links.len() > usize::try_from(HARD_MAX_REFINEMENT_LINKS).unwrap_or(usize::MAX) {
+        return Err(AlignmentError::ResourceLimitExceeded {
+            resource: AlignmentResource::PartitionLinks,
+            limit: u64::from(HARD_MAX_REFINEMENT_LINKS),
+            actual: u64::try_from(context.links.len()).unwrap_or(u64::MAX),
+        }
+        .into());
+    }
+
+    let session = find_alignment_session(connection, &context.session_id)?;
+    ensure_entity_revision(
+        "alignment_session",
+        &session.id,
+        session.revision,
+        context.expected_session_revision,
+    )?;
+    ensure_alignment_session_open(&session)?;
+    validate_alignment_session_documents(connection, &session)?;
+    let current_links = load_all_alignment_links(connection, &session.id)?;
+    let source_snapshots =
+        load_all_alignment_snapshots(connection, &session.id, AlignmentSide::Source)?;
+    let target_snapshots =
+        load_all_alignment_snapshots(connection, &session.id, AlignmentSide::Target)?;
+    validate_snapshot_partition(
+        &source_snapshots,
+        &target_snapshots,
+        &partition_links(&current_links),
+    )?;
+    let expected = context
+        .links
+        .iter()
+        .map(|link| ExpectedAlignmentLinkRevision {
+            link_id: link.link_id.clone(),
+            expected_revision: link.expected_revision,
+        })
+        .collect::<Vec<_>>();
+    let selected_start = selected_link_range(&current_links, &expected)?;
+    let selected_end = selected_start + expected.len();
+    let links = current_links[selected_start..selected_end].to_vec();
+    if links
+        .iter()
+        .any(|link| link.status != AlignmentLinkStatus::Proposed)
+    {
+        return Err(StorageError::InvalidState(
+            "AI refinement accepts proposed links only".to_string(),
+        ));
+    }
+    let source_ids = links
+        .iter()
+        .flat_map(|link| link.source_segment_ids.iter().cloned())
+        .collect::<BTreeSet<_>>();
+    let target_ids = links
+        .iter()
+        .flat_map(|link| link.target_segment_ids.iter().cloned())
+        .collect::<BTreeSet<_>>();
+    let source_segments = snapshots_for_ids(&source_snapshots, &source_ids);
+    let target_segments = snapshots_for_ids(&target_snapshots, &target_ids);
+    validate_refinement_input(
+        &refinement_segments(&source_segments),
+        &refinement_segments(&target_segments),
+    )?;
+    Ok(AlignmentRefinementSelection {
+        session,
+        links,
+        source_segments,
+        target_segments,
+    })
+}
+
+fn refinement_segments(snapshots: &[AlignmentSessionSegmentRecord]) -> Vec<AlignmentSegment> {
+    snapshots
+        .iter()
+        .map(|snapshot| AlignmentSegment {
+            id: snapshot.segment_id.clone(),
+            ordinal: snapshot.ordinal,
+            text: snapshot.text_snapshot.clone(),
+            tag_signature: snapshot.tag_signature.clone(),
+        })
+        .collect()
 }
 
 fn validate_alignment_documents(
@@ -1557,8 +1847,10 @@ fn invalid_enum<T>(column: usize, label: &str, value: String) -> rusqlite::Resul
 #[cfg(test)]
 mod tests {
     use tempfile::tempdir;
+    use translunar_ai_core::{AiRunRequest, AlignmentRefinementLinkRevision, GroundingOptions};
 
     use super::*;
+    use crate::{NewAiProviderProfile, NewAiRun};
 
     fn seed_alignment_documents(store: &Store) {
         store
@@ -1639,6 +1931,60 @@ mod tests {
             reason: "create deterministic alignment".to_string(),
             correlation_id: Some("alignment-correlation".to_string()),
         }
+    }
+
+    fn start_alignment_refinement_run(
+        store: &mut Store,
+        session: &AlignmentSessionRecord,
+        links: &[AlignmentLinkRecord],
+    ) -> translunar_ai_core::AiRun {
+        let profile = store
+            .create_ai_provider_profile(NewAiProviderProfile {
+                name: "Alignment fixture".to_string(),
+                kind: AiProviderKind::OpenaiCompatible,
+                base_url: "http://127.0.0.1:11434/v1".to_string(),
+                model: "alignment-fixture".to_string(),
+                timeout_ms: 5_000,
+                max_response_bytes: 1_048_576,
+                enabled: true,
+            })
+            .expect("create alignment AI profile");
+        let run = store
+            .create_ai_run(NewAiRun {
+                kind: AiRunKind::Action,
+                project_id: Some(session.project_id.clone()),
+                document_id: None,
+                segment_id: None,
+                profile_id: Some(profile.id),
+                model: profile.model,
+                action: ALIGNMENT_REFINEMENT_ACTION.to_string(),
+                prompt_hash: "a".repeat(64),
+                request: AiRunRequest {
+                    grounding_options: GroundingOptions::default(),
+                    freeform_prompt: String::new(),
+                    conversation_id: None,
+                    alignment_refinement: Some(AlignmentRefinementRunContext {
+                        session_id: session.id.clone(),
+                        expected_session_revision: session.revision,
+                        links: links
+                            .iter()
+                            .map(|link| AlignmentRefinementLinkRevision {
+                                link_id: link.id.clone(),
+                                expected_revision: link.revision,
+                            })
+                            .collect(),
+                        actor: "alignment-ai".to_string(),
+                        reason: "refine low-confidence links".to_string(),
+                        correlation_id: Some("alignment-ai-correlation".to_string()),
+                    }),
+                },
+                base_segment_revision: None,
+                max_attempts: 1,
+            })
+            .expect("create alignment refinement run");
+        store
+            .start_ai_run_attempt(&run.id)
+            .expect("start alignment refinement run")
     }
 
     #[test]
@@ -1841,6 +2187,175 @@ mod tests {
             })
             .expect("count alignment operations");
         assert_eq!((session_count, operation_count), (0, 0));
+    }
+
+    #[test]
+    fn valid_ai_refinement_completes_links_run_usage_and_audit_atomically() {
+        let temp = tempdir().expect("temporary storage directory");
+        let mut store = Store::open(temp.path()).expect("open store");
+        seed_alignment_documents(&store);
+        let created = store
+            .create_alignment_session(new_alignment_session())
+            .expect("create alignment session");
+        let links = store
+            .list_alignment_links(&created.session.id, None, 0, 10)
+            .expect("list deterministic links")
+            .0;
+        let run = start_alignment_refinement_run(&mut store, &created.session, &links);
+        let response = serde_json::json!({
+            "links": [{
+                "sourceSegmentIds": ["alignment-s1", "alignment-s2"],
+                "targetSegmentIds": ["alignment-t1", "alignment-t2"],
+                "confidenceBasisPoints": 9100,
+                "evidence": "Adjacent clauses form one bilingual unit."
+            }]
+        })
+        .to_string();
+        let usage = AiUsage {
+            input_tokens: Some(10),
+            output_tokens: Some(2),
+            ..AiUsage::default()
+        };
+
+        let result = store
+            .complete_alignment_refinement_run(
+                &run.id,
+                &response,
+                AiProviderKind::OpenaiCompatible,
+                &usage,
+                25,
+            )
+            .expect("complete alignment refinement");
+
+        assert_eq!(result.session.revision, 1);
+        assert_eq!(result.links.len(), 1);
+        assert_eq!(result.links[0].origin, AlignmentOrigin::Ai);
+        assert_eq!(result.links[0].status, AlignmentLinkStatus::Proposed);
+        assert_eq!(result.links[0].confidence_basis_points, 9_100);
+        assert!(matches!(
+            result.links[0].evidence.as_slice(),
+            [AlignmentEvidence::AiRefinement { summary }]
+                if summary == "Adjacent clauses form one bilingual unit."
+        ));
+        let completed_run = store
+            .get_ai_run(&run.id)
+            .expect("reload completed refinement run");
+        assert_eq!(completed_run.status, AiRunStatus::Succeeded);
+        assert_eq!(
+            completed_run.proposal_text.as_deref(),
+            Some(response.as_str())
+        );
+        assert_eq!(store.ai_token_usage_since(0).expect("AI usage"), 12);
+        let operation_kinds = {
+            let mut statement = store
+                .connection
+                .prepare("SELECT kind FROM operations ORDER BY sequence")
+                .expect("prepare operation query");
+            statement
+                .query_map([], |row| row.get::<_, String>(0))
+                .expect("query operations")
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .expect("collect operations")
+        };
+        assert_eq!(
+            operation_kinds,
+            ["alignment.session.create", "alignment.partition.refine"]
+        );
+        drop(store);
+
+        let store = Store::open(temp.path()).expect("reopen store");
+        assert_eq!(
+            store
+                .get_alignment_session(&created.session.id)
+                .expect("reload refined session")
+                .revision,
+            1
+        );
+        assert_eq!(
+            store
+                .get_ai_run(&run.id)
+                .expect("reload refinement run")
+                .status,
+            AiRunStatus::Succeeded
+        );
+    }
+
+    #[test]
+    fn invalid_ai_refinement_response_rolls_back_every_success_side_effect() {
+        let temp = tempdir().expect("temporary storage directory");
+        let mut store = Store::open(temp.path()).expect("open store");
+        seed_alignment_documents(&store);
+        let created = store
+            .create_alignment_session(new_alignment_session())
+            .expect("create alignment session");
+        let links = store
+            .list_alignment_links(&created.session.id, None, 0, 10)
+            .expect("list deterministic links")
+            .0;
+        let original_ids = links.iter().map(|link| link.id.clone()).collect::<Vec<_>>();
+        let run = start_alignment_refinement_run(&mut store, &created.session, &links);
+        let response = serde_json::json!({
+            "links": [{
+                "sourceSegmentIds": ["alignment-s1", "alignment-s2"],
+                "targetSegmentIds": ["alignment-t1", "alignment-t2"],
+                "sourceText": "Alpha 42. Beta remains active.",
+                "confidenceBasisPoints": 9100,
+                "evidence": "Echoed source text is forbidden."
+            }]
+        })
+        .to_string();
+        let usage = AiUsage {
+            input_tokens: Some(10),
+            output_tokens: Some(2),
+            ..AiUsage::default()
+        };
+
+        assert!(matches!(
+            store.complete_alignment_refinement_run(
+                &run.id,
+                &response,
+                AiProviderKind::OpenaiCompatible,
+                &usage,
+                25,
+            ),
+            Err(StorageError::Alignment(
+                AlignmentError::InvalidRefinementResponse { .. }
+            ))
+        ));
+        assert_eq!(
+            store
+                .get_alignment_session(&created.session.id)
+                .expect("reload unchanged session")
+                .revision,
+            0
+        );
+        assert_eq!(
+            store
+                .list_alignment_links(&created.session.id, None, 0, 10)
+                .expect("reload unchanged links")
+                .0
+                .into_iter()
+                .map(|link| link.id)
+                .collect::<Vec<_>>(),
+            original_ids
+        );
+        assert_eq!(
+            store.get_ai_run(&run.id).expect("reload active run").status,
+            AiRunStatus::Running
+        );
+        assert_eq!(store.ai_token_usage_since(0).expect("AI usage"), 0);
+        let failed = store
+            .fail_ai_run_with_usage(
+                &run.id,
+                "alignment_response_invalid",
+                false,
+                AiProviderKind::OpenaiCompatible,
+                usage,
+                25,
+            )
+            .expect("record rejected provider response");
+        assert_eq!(failed.status, AiRunStatus::Failed);
+        assert_eq!(store.ai_token_usage_since(0).expect("failed AI usage"), 12);
     }
 
     #[test]

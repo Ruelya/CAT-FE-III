@@ -1374,3 +1374,109 @@ const preview = await window.translunar.invoke("interop.table.preview", {
 });
 // Render preview.rows and apply only explicit Engine-classified valid row IDs.
 ```
+
+## Alignment Refinement Boundary
+
+### 1. Scope / Trigger
+
+Use this contract for optional provider-backed refinement of a persisted
+alignment session. The deterministic alignment plan and all link ownership
+rules remain usable without AI. Engine owns provider policy and I/O, while the
+alignment-core crate owns strict response parsing and partition validation.
+
+### 2. Signatures
+
+The persisted run request adds this additive field:
+
+```rust
+pub alignment_refinement: Option<AlignmentRefinementRunContext>;
+
+pub struct AlignmentRefinementRunContext {
+    pub session_id: String,
+    pub expected_session_revision: u64,
+    pub links: Vec<AlignmentRefinementLinkRevision>,
+    pub actor: String,
+    pub reason: String,
+    pub correlation_id: Option<String>,
+}
+```
+
+The storage boundary exposes `prepare_alignment_refinement` and
+`complete_alignment_refinement_run`; the pure validator exposes
+`parse_alignment_refinement_response(response, source, target)`.
+
+### 3. Contracts
+
+- A refinement selects at most 64 proposed links and at most 64 source and
+  target snapshot segments per side. Serialized selection input is bounded to
+  256 KiB; the provider response is bounded to 64 KiB and evidence to 240
+  Unicode scalar values.
+- The worker rebuilds source/target snapshots and the prompt hash from SQLite,
+  then verifies them before provider I/O. The persisted request contains IDs,
+  revisions, actor, reason, and correlation only; it never stores source or
+  target text.
+- The provider must return exactly one JSON object with `links`. Each link has
+  only `sourceSegmentIds`, `targetSegmentIds`, `confidenceBasisPoints`, and
+  single-line `evidence`. Unknown fields, text echoes, unknown IDs, duplicate
+  or crossing members, incomplete partitions, and confidence above 10000 are
+  rejected as one whole response.
+- Provider deltas are discarded for refinement. A valid response replaces the
+  selected partition in one immediate transaction, creates `origin=ai` and
+  `status=proposed` links, records the operation, completes the AI run, and
+  commits usage together. No refinement can confirm a link or write TM data.
+- Structured refinement is rejected before network I/O for DeepL-style
+  providers that do not expose a structured chat response.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Stale session, document, snapshot, or selected-link revision | `conflict`/`alignment_stale`; no provider call or link write |
+| Missing/unknown/duplicate/crossing member or incomplete partition | `alignment_response_invalid`; original links and session revision unchanged |
+| Unknown response field, text echo, malformed JSON, oversized response, or invalid confidence | `alignment_response_invalid`; no proposal text or delta is persisted |
+| Provider unavailable, credential/policy failure, or cancellation | Typed failed/canceled run; deterministic session remains usable |
+| SQLite failure while replacing links or completing the run | Transaction rollback; usage and audit are not partially committed |
+
+Errors and audit projections contain bounded IDs, counts, and error codes only;
+they never include provider response bodies, prompts, credentials, or segment
+text.
+
+### 5. Good / Base / Bad Cases
+
+- Good: a valid ID-only response produces proposed AI links and one session
+  revision, while the same run records usage and an audit operation atomically.
+- Base: an unavailable provider or malformed response leaves deterministic
+  links untouched; a later manual edit remains possible.
+- Bad: stream provider text into `ai_run_events`, trust a response's text
+  fields, or auto-confirm/apply a model suggestion.
+
+### 6. Tests Required
+
+- Alignment-core fixtures assert accepted output, strict unknown-field/text-
+  echo rejection, duplicate/crossing/unknown members, confidence and byte
+  limits, and complete partition validation.
+- Storage fixtures assert atomic accepted replacement, proposed/AI provenance,
+  usage and audit rows, rollback on invalid output, restart persistence, and
+  stale selection rejection.
+- Engine fixtures assert prompt-hash revalidation, no source text in the
+  persisted request, no delta events, unavailable and canceled runs, and
+  offline alignment behavior without a provider.
+- Contract drift must keep the generated JSON Schema and TypeScript projection
+  byte-equal for the additive run field.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+// A streaming delta becomes durable before the response is validated.
+store.append_ai_run_delta(run_id, provider_chunk)?;
+```
+
+#### Correct
+
+```rust
+let response = execute_provider_without_persisted_deltas(...)?;
+let suggestions = parse_alignment_refinement_response(response.as_bytes(), &source, &target)?;
+store.complete_alignment_refinement_run(run_id, response, provider, &usage, elapsed_ms)?;
+```

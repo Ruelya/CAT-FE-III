@@ -1088,9 +1088,24 @@ export interface AiRun {
   [k: string]: unknown;
 }
 export interface AiRunRequest {
+  alignmentRefinement?: AlignmentRefinementRunContext | null;
   conversationId?: string | null;
   freeformPrompt: string;
   groundingOptions: GroundingOptions;
+  [k: string]: unknown;
+}
+export interface AlignmentRefinementRunContext {
+  actor: string;
+  correlationId?: string | null;
+  expectedSessionRevision: number;
+  links: AlignmentRefinementLinkRevision[];
+  reason: string;
+  sessionId: string;
+  [k: string]: unknown;
+}
+export interface AlignmentRefinementLinkRevision {
+  expectedRevision: number;
+  linkId: string;
   [k: string]: unknown;
 }
 export interface MethodContract121 {
