@@ -12,9 +12,9 @@ use translunar_ai_core::{
     AiConversation, AiConversationRole, AiCoreError, AiCredentialStatus, AiEventSink, AiMessage,
     AiMessageRole, AiProviderKind, AiProviderProfile, AiProviderProtocol, AiRun, AiRunKind,
     AiRunRequest, AiRunStatus, AlignmentRefinementRunContext, GroundingContextSegment,
-    GroundingInput, GroundingOptions, GroundingTerm, GroundingTmMatch, PromptBundle,
-    ProviderRequest, SecretString, build_grounded_prompt, execute_provider, provider_catalog,
-    provider_descriptor,
+    GroundingCorpusMatch, GroundingCorpusMatchedSide, GroundingInput, GroundingOptions,
+    GroundingTerm, GroundingTmMatch, PromptBundle, ProviderRequest, SecretString,
+    build_grounded_prompt, execute_provider, provider_catalog, provider_descriptor,
 };
 use translunar_domain::{EditorWorkflowState, SegmentState, TagKind};
 use translunar_editor_core::validate_target_tags;
@@ -32,8 +32,9 @@ use translunar_protocol::{
 };
 use translunar_storage::{
     AiProviderProfileUpdate, AiSettingsUpdate, AlignmentRefinementSelection, NewAiBatchItem,
-    NewAiBatchRun, NewAiProviderProfile, NewAiRun, StorageError, Store, TermSearchRequest,
-    TmSearchRequest,
+    NewAiBatchRun, NewAiProviderProfile, NewAiRun, ReferenceCorpusMatchedSide,
+    ReferenceCorpusSearchHit, ReferenceCorpusSearchRequest, ReferenceCorpusSearchSide,
+    ReferenceCorpusSourceKind, StorageError, Store, TermSearchRequest, TmSearchRequest,
 };
 
 use crate::{EngineError, EngineService, Result};
@@ -1222,6 +1223,7 @@ fn build_grounding(
     options: &GroundingOptions,
     purpose: GroundingPurpose,
 ) -> Result<BuiltGrounding> {
+    options.validate()?;
     let project = store.get_project(project_id)?;
     let row = store.get_editor_row(segment_id)?;
     let document = store.get_document(&row.segment.document_id)?.document;
@@ -1293,6 +1295,39 @@ fn build_grounding(
     } else {
         Vec::new()
     };
+    let corpus_matches = if options.include_corpus && options.corpus_top_n > 0 {
+        store
+            .search_reference_corpora(&ReferenceCorpusSearchRequest {
+                project_id: project_id.to_string(),
+                query: row.segment.source_text.clone(),
+                side: ReferenceCorpusSearchSide::Both,
+                corpus_ids: Vec::new(),
+                offset: 0,
+                limit: u32::from(options.corpus_top_n),
+            })?
+            .items
+            .into_iter()
+            .map(|hit| {
+                let source_label = grounding_corpus_source_label(&hit);
+                let matched_side = match hit.matched_side {
+                    ReferenceCorpusMatchedSide::Source => GroundingCorpusMatchedSide::Source,
+                    ReferenceCorpusMatchedSide::Target => GroundingCorpusMatchedSide::Target,
+                    ReferenceCorpusMatchedSide::Both => GroundingCorpusMatchedSide::Both,
+                };
+                GroundingCorpusMatch {
+                    corpus_id: hit.corpus.id,
+                    corpus_name: hit.corpus.name,
+                    source_label,
+                    structural_path: hit.entry.structural_path,
+                    matched_side,
+                    source: hit.entry.source_text,
+                    target: (!hit.entry.target_text.is_empty()).then_some(hit.entry.target_text),
+                }
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     let context = if options.include_context {
         let before = u32::from(options.context_before);
         let after = u32::from(options.context_after);
@@ -1348,6 +1383,7 @@ fn build_grounding(
             tag_skeleton,
             terms,
             tm_matches,
+            corpus_matches,
             context,
         },
         options,
@@ -1358,6 +1394,53 @@ fn build_grounding(
         source_locale: project.project.source_locale,
         target_locale: project.project.target_locale,
     })
+}
+
+fn grounding_corpus_source_label(hit: &ReferenceCorpusSearchHit) -> String {
+    if hit.corpus.source_kind == ReferenceCorpusSourceKind::File
+        && let Some(file_name) = hit
+            .entry
+            .provenance
+            .get("inputFileName")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.trim().is_empty())
+    {
+        return file_name.to_string();
+    }
+
+    let source_document_id = hit
+        .corpus
+        .source_document_id
+        .as_deref()
+        .or_else(|| {
+            hit.entry
+                .provenance
+                .get("sourceDocumentId")
+                .and_then(|value| value.as_str())
+        })
+        .filter(|value| !value.trim().is_empty());
+    let target_document_id = hit
+        .corpus
+        .target_document_id
+        .as_deref()
+        .or_else(|| {
+            hit.entry
+                .provenance
+                .get("targetDocumentId")
+                .and_then(|value| value.as_str())
+        })
+        .filter(|value| !value.trim().is_empty());
+    match hit.matched_side {
+        ReferenceCorpusMatchedSide::Source => source_document_id.map(str::to_string),
+        ReferenceCorpusMatchedSide::Target => target_document_id.map(str::to_string),
+        ReferenceCorpusMatchedSide::Both => match (source_document_id, target_document_id) {
+            (Some(source), Some(target)) => Some(format!("{source} -> {target}")),
+            (Some(source), None) => Some(source.to_string()),
+            (None, Some(target)) => Some(target.to_string()),
+            (None, None) => None,
+        },
+    }
+    .unwrap_or_else(|| hit.corpus.name.clone())
 }
 
 #[derive(Serialize)]
@@ -1995,9 +2078,12 @@ mod tests {
         ImportDocumentParams, PipelineRunIdParams, ProjectAnalyticsParams, RunPipelineParams,
         UpdateTargetParams,
     };
-    use translunar_storage::{AlignmentLinkRecord, AlignmentSessionRecord, NewAlignmentSession};
+    use translunar_storage::{
+        AlignmentLinkRecord, AlignmentSessionRecord, NewAlignmentSession, ReferenceCorpusKind,
+    };
 
     use super::*;
+    use crate::ReferenceCorpusImportRequest;
 
     struct UnavailableCredentialStore;
 
@@ -2585,6 +2671,157 @@ mod tests {
                 .windows("test-secret".len())
                 .any(|value| value == b"test-secret")
         );
+    }
+
+    #[test]
+    fn grounding_projects_authoritative_corpus_matches_with_visible_provenance() {
+        let root = tempdir().expect("corpus grounding directory");
+        let mut service = EngineService::open(root.path()).expect("open corpus grounding engine");
+        let invalid_options = GroundingOptions {
+            corpus_top_n: 11,
+            ..GroundingOptions::default()
+        };
+        let invalid = build_grounding(
+            &service.store,
+            "missing-project",
+            "missing-segment",
+            AiAction::Translate,
+            "",
+            &invalid_options,
+            GroundingPurpose::Interactive,
+        )
+        .err()
+        .expect("invalid options should fail before storage reads");
+        assert!(matches!(
+            invalid,
+            EngineError::Ai(AiCoreError::InvalidGrounding(_))
+        ));
+
+        let project = service
+            .create_project(translunar_protocol::CreateProjectParams {
+                name: "Corpus grounding project".to_string(),
+                source_locale: "en-US".to_string(),
+                target_locale: "zh-CN".to_string(),
+                domain: "technical".to_string(),
+            })
+            .expect("create corpus grounding project");
+        let source_path = root.path().join("grounding-document.txt");
+        std::fs::write(&source_path, "Grounding reference phrase.")
+            .expect("write grounding document");
+        let document = service
+            .import_document(ImportDocumentParams {
+                project_id: project.id.clone(),
+                source_path: source_path.to_string_lossy().into_owned(),
+                relative_path: Some("grounding-document.txt".to_string()),
+                filter_id: Some("builtin.txt".to_string()),
+                options: Default::default(),
+            })
+            .expect("import grounding document")
+            .document;
+        let segment = service
+            .store
+            .list_segments(&document.id, 0, 10)
+            .expect("list grounding segment")
+            .0
+            .remove(0);
+        let project = service
+            .store
+            .get_project(&project.id)
+            .expect("reload corpus grounding project")
+            .project;
+
+        let source_corpus_path = root.path().join("source-reference.txt");
+        std::fs::write(&source_corpus_path, "Grounding reference phrase.")
+            .expect("write source corpus");
+        let source_corpus = service
+            .import_reference_corpus(ReferenceCorpusImportRequest {
+                project_id: project.id.clone(),
+                expected_project_revision: project.revision,
+                source_path: source_corpus_path,
+                name: "Source reference".to_string(),
+                kind: ReferenceCorpusKind::MonolingualSource,
+                source_locale: project.source_locale.clone(),
+                target_locale: project.target_locale.clone(),
+                filter_id: Some("builtin.txt".to_string()),
+                options: Default::default(),
+                actor: "grounding-test".to_string(),
+                reason: "import source grounding corpus".to_string(),
+                correlation_id: None,
+            })
+            .expect("import source grounding corpus")
+            .corpus;
+
+        let target_corpus_path = root.path().join("target-reference.txt");
+        std::fs::write(&target_corpus_path, "Grounding reference phrase.")
+            .expect("write target corpus");
+        let target_corpus = service
+            .import_reference_corpus(ReferenceCorpusImportRequest {
+                project_id: project.id.clone(),
+                expected_project_revision: project.revision,
+                source_path: target_corpus_path,
+                name: "Target expression reference".to_string(),
+                kind: ReferenceCorpusKind::MonolingualTarget,
+                source_locale: project.source_locale.clone(),
+                target_locale: project.target_locale.clone(),
+                filter_id: Some("builtin.txt".to_string()),
+                options: Default::default(),
+                actor: "grounding-test".to_string(),
+                reason: "import target grounding corpus".to_string(),
+                correlation_id: None,
+            })
+            .expect("import target grounding corpus")
+            .corpus;
+
+        let preview = service
+            .preview_ai_grounding(AiGroundingPreviewParams {
+                project_id: project.id,
+                segment_id: segment.id,
+                expected_revision: segment.revision,
+                action: AiAction::Translate,
+                prompt: String::new(),
+                options: GroundingOptions::default(),
+            })
+            .expect("preview corpus grounding");
+        let corpus_index = preview
+            .bundle
+            .sections
+            .iter()
+            .position(|section| section.id == "corpus")
+            .expect("corpus grounding section");
+        let context_index = preview
+            .bundle
+            .sections
+            .iter()
+            .position(|section| section.id == "context")
+            .expect("document context section");
+        assert!(corpus_index < context_index);
+        let matches: Vec<Value> = serde_json::from_str(&preview.bundle.sections[corpus_index].text)
+            .expect("decode corpus grounding section");
+        assert_eq!(matches.len(), 2);
+
+        let source_match = matches
+            .iter()
+            .find(|item| item["corpusId"] == source_corpus.id)
+            .expect("source corpus grounding match");
+        assert_eq!(source_match["corpusName"], "Source reference");
+        assert_eq!(source_match["sourceLabel"], "source-reference.txt");
+        assert_eq!(source_match["matchedSide"], "source");
+        assert_eq!(source_match["source"], "Grounding reference phrase.");
+        assert!(source_match.get("target").is_none());
+        assert!(
+            source_match["structuralPath"]
+                .as_str()
+                .is_some_and(|value| !value.is_empty())
+        );
+
+        let target_match = matches
+            .iter()
+            .find(|item| item["corpusId"] == target_corpus.id)
+            .expect("target corpus grounding match");
+        assert_eq!(target_match["sourceLabel"], "target-reference.txt");
+        assert_eq!(target_match["matchedSide"], "target");
+        assert_eq!(target_match["source"], "");
+        assert_eq!(target_match["target"], "Grounding reference phrase.");
     }
 
     #[test]

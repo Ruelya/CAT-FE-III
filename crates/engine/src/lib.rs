@@ -721,6 +721,20 @@ fn storage_reference_corpus_search_side(
     }
 }
 
+fn storage_reference_corpus_concordance_side(
+    value: translunar_asset_core::ConcordanceSide,
+) -> storage::ReferenceCorpusSearchSide {
+    match value {
+        translunar_asset_core::ConcordanceSide::Source => {
+            storage::ReferenceCorpusSearchSide::Source
+        }
+        translunar_asset_core::ConcordanceSide::Target => {
+            storage::ReferenceCorpusSearchSide::Target
+        }
+        translunar_asset_core::ConcordanceSide::Both => storage::ReferenceCorpusSearchSide::Both,
+    }
+}
+
 fn protocol_reference_corpus_matched_side(
     value: storage::ReferenceCorpusMatchedSide,
 ) -> protocol::CorpusMatchedSide {
@@ -4146,15 +4160,28 @@ impl EngineService {
     pub fn concordance(&self, params: ConcordanceParams) -> Result<ConcordanceResult> {
         let limit = bounded_page_size(params.limit)?;
         let (hits, total) = self.store.concordance(&StorageConcordanceRequest {
-            project_id: params.project_id,
-            query: params.query,
+            project_id: params.project_id.clone(),
+            query: params.query.clone(),
             side: params.side,
             offset: params.offset,
             limit,
         })?;
+        let corpus =
+            self.store
+                .search_reference_corpora(&storage::ReferenceCorpusSearchRequest {
+                    project_id: params.project_id,
+                    query: params.query,
+                    side: storage_reference_corpus_concordance_side(params.side),
+                    corpus_ids: Vec::new(),
+                    offset: params.offset,
+                    limit,
+                })?;
+        let corpus = protocol_reference_corpus_search_result(corpus);
         Ok(ConcordanceResult {
             hits,
             total,
+            corpus_hits: corpus.items,
+            corpus_total: corpus.total,
             offset: params.offset,
             limit,
         })
@@ -7760,6 +7787,96 @@ mod tests {
                 .expect("reload target entries")
                 .1,
             2
+        );
+    }
+
+    #[test]
+    fn concordance_adds_authoritative_corpus_results_without_changing_tm_totals() {
+        let context = TestContext::new();
+        let corpus_path = context.root.path().join("concordance-corpus.txt");
+        fs::write(
+            &corpus_path,
+            "Alpha corpus phrase\n\nAlpha corpus phrase extended",
+        )
+        .expect("write concordance corpus");
+        let mut service = EngineService::open(context.root.path()).expect("open engine");
+        let project = TestContext::project(&mut service);
+        let library = service
+            .store
+            .list_tm_libraries(Some(&project.id), 0, 10)
+            .expect("list default TM libraries")
+            .0
+            .into_iter()
+            .find(|library| library.writable)
+            .expect("default writable TM library");
+        service
+            .store
+            .import_tm_units(
+                &library.id,
+                &[TmExchangeUnit {
+                    source_locale: project.source_locale.clone(),
+                    target_locale: project.target_locale.clone(),
+                    source_text: "Alpha corpus phrase".to_string(),
+                    target_text: "阿尔法语料表达".to_string(),
+                    domain: Some(project.domain.clone()),
+                    author: Some("concordance-test".to_string()),
+                    created_at_ms: Some(1),
+                    metadata: BTreeMap::new(),
+                }],
+            )
+            .expect("seed concordance TM unit");
+        let request = ConcordanceParams {
+            project_id: project.id.clone(),
+            query: "Alpha corpus phrase".to_string(),
+            side: translunar_asset_core::ConcordanceSide::Both,
+            offset: 0,
+            limit: 50,
+        };
+        let baseline = service
+            .concordance(request.clone())
+            .expect("read TM-only concordance");
+        assert_eq!(baseline.total, 1);
+        assert_eq!(baseline.hits.len(), 1);
+        assert_eq!(baseline.corpus_total, 0);
+        assert!(baseline.corpus_hits.is_empty());
+
+        let corpus = service
+            .import_reference_corpus(reference_corpus_import_request(
+                &project,
+                &corpus_path,
+                "Concordance reference",
+                ReferenceCorpusKind::MonolingualSource,
+                "builtin.txt",
+            ))
+            .expect("import concordance corpus")
+            .corpus;
+        let direct = service
+            .search_reference_corpora(protocol::CorpusSearchParams {
+                project_id: project.id,
+                query: request.query.clone(),
+                side: protocol::CorpusSearchSide::Both,
+                corpus_ids: Vec::new(),
+                offset: request.offset,
+                limit: request.limit,
+            })
+            .expect("search authoritative corpus results");
+        let result = service
+            .concordance(request)
+            .expect("read additive concordance");
+
+        assert_eq!(result.total, baseline.total);
+        assert_eq!(result.hits.len(), baseline.hits.len());
+        assert_eq!(result.hits[0].unit.id, baseline.hits[0].unit.id);
+        assert_eq!(result.corpus_total, direct.total);
+        assert_eq!(result.corpus_total, 2);
+        assert_eq!(result.corpus_hits[0].corpus.id, corpus.id);
+        assert_eq!(
+            result.corpus_hits[0].match_kind,
+            protocol::CorpusMatchKind::Exact
+        );
+        assert_eq!(
+            serde_json::to_value(&result.corpus_hits).expect("serialize concordance corpus hits"),
+            serde_json::to_value(&direct.items).expect("serialize direct corpus hits")
         );
     }
 

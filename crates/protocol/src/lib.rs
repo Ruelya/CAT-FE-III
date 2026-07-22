@@ -1212,6 +1212,10 @@ fn default_concordance_side() -> ConcordanceSide {
 pub struct ConcordanceResult {
     pub hits: Vec<ConcordanceHit>,
     pub total: u32,
+    #[serde(default)]
+    pub corpus_hits: Vec<CorpusSearchHit>,
+    #[serde(default)]
+    pub corpus_total: u32,
     pub offset: u32,
     pub limit: u32,
 }
@@ -2177,6 +2181,19 @@ mod tests {
         })
         .expect("serialize options");
         assert_eq!(json["options"]["segmentationMode"], "sentence");
+    }
+
+    #[test]
+    fn concordance_corpus_results_are_additive_for_legacy_responses() {
+        let result: ConcordanceResult = serde_json::from_value(serde_json::json!({
+            "hits": [],
+            "total": 0,
+            "offset": 0,
+            "limit": 50
+        }))
+        .expect("deserialize legacy concordance response");
+        assert!(result.corpus_hits.is_empty());
+        assert_eq!(result.corpus_total, 0);
     }
 
     #[test]

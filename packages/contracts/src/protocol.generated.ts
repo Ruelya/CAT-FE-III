@@ -74,15 +74,15 @@ export type AlignmentSessionMutation =
       status: AlignmentLinkStatus;
     };
 export type AssetExchangeFormat = "tmx" | "csv" | "tsv" | "tbx";
+export type ReferenceCorpusKind = "monolingualSource" | "monolingualTarget" | "bilingual";
+export type ReferenceCorpusSourceKind = "file" | "alignment";
+export type ReferenceCorpusStatus = "active" | "removed";
+export type CorpusMatchKind = "exact" | "prefix" | "contains";
+export type CorpusMatchedSide = "source" | "target" | "both";
 export type ConcordanceSide = "source" | "target" | "both";
 export type SegmentState = "untranslated" | "draft" | "confirmed";
 export type QaSeverity = "error" | "warning" | "info";
 export type QaIssueStatus = "open" | "resolved";
-export type ReferenceCorpusKind = "monolingualSource" | "monolingualTarget" | "bilingual";
-export type ReferenceCorpusStatus = "active" | "removed";
-export type ReferenceCorpusSourceKind = "file" | "alignment";
-export type CorpusMatchKind = "exact" | "prefix" | "contains";
-export type CorpusMatchedSide = "source" | "target" | "both";
 export type HealthSeverity = "info" | "warning" | "error" | "fatal";
 export type DegradationSeverity = "warning" | "error";
 export type DocumentStatus = "active" | "failed" | "superseded";
@@ -492,10 +492,56 @@ export interface ConcordanceParams {
   [k: string]: unknown;
 }
 export interface ConcordanceResult {
+  corpusHits?: CorpusSearchHit[];
+  corpusTotal?: number;
   hits: ConcordanceHit[];
   limit: number;
   offset: number;
   total: number;
+  [k: string]: unknown;
+}
+export interface CorpusSearchHit {
+  corpus: ReferenceCorpus;
+  entry: ReferenceCorpusEntry;
+  matchKind: CorpusMatchKind;
+  matchedSide: CorpusMatchedSide;
+  [k: string]: unknown;
+}
+export interface ReferenceCorpus {
+  alignmentSessionId?: string | null;
+  createdAtMs: number;
+  diagnosticCount: number;
+  diagnostics: string[];
+  entryCount: number;
+  id: string;
+  inputFilterId?: string | null;
+  inputFormat?: string | null;
+  inputSha256?: string | null;
+  kind: ReferenceCorpusKind;
+  managedSourcePath?: string | null;
+  name: string;
+  projectId: string;
+  removedAtMs?: number | null;
+  revision: number;
+  sourceDocumentId?: string | null;
+  sourceKind: ReferenceCorpusSourceKind;
+  sourceLocale: string;
+  status: ReferenceCorpusStatus;
+  targetDocumentId?: string | null;
+  targetLocale: string;
+  updatedAtMs: number;
+  [k: string]: unknown;
+}
+export interface ReferenceCorpusEntry {
+  corpusId: string;
+  createdAtMs: number;
+  id: string;
+  ordinal: number;
+  provenance: unknown;
+  sourceText: string;
+  structuralPath: string;
+  targetText: string;
+  updatedAtMs: number;
   [k: string]: unknown;
 }
 export interface ConcordanceHit {
@@ -645,50 +691,6 @@ export interface CorpusSearchResult {
   limit: number;
   offset: number;
   total: number;
-  [k: string]: unknown;
-}
-export interface CorpusSearchHit {
-  corpus: ReferenceCorpus;
-  entry: ReferenceCorpusEntry;
-  matchKind: CorpusMatchKind;
-  matchedSide: CorpusMatchedSide;
-  [k: string]: unknown;
-}
-export interface ReferenceCorpus {
-  alignmentSessionId?: string | null;
-  createdAtMs: number;
-  diagnosticCount: number;
-  diagnostics: string[];
-  entryCount: number;
-  id: string;
-  inputFilterId?: string | null;
-  inputFormat?: string | null;
-  inputSha256?: string | null;
-  kind: ReferenceCorpusKind;
-  managedSourcePath?: string | null;
-  name: string;
-  projectId: string;
-  removedAtMs?: number | null;
-  revision: number;
-  sourceDocumentId?: string | null;
-  sourceKind: ReferenceCorpusSourceKind;
-  sourceLocale: string;
-  status: ReferenceCorpusStatus;
-  targetDocumentId?: string | null;
-  targetLocale: string;
-  updatedAtMs: number;
-  [k: string]: unknown;
-}
-export interface ReferenceCorpusEntry {
-  corpusId: string;
-  createdAtMs: number;
-  id: string;
-  ordinal: number;
-  provenance: unknown;
-  sourceText: string;
-  structuralPath: string;
-  targetText: string;
-  updatedAtMs: number;
   [k: string]: unknown;
 }
 export interface CreateBackupParams {
@@ -1085,7 +1087,9 @@ export interface AiBatchRun {
 export interface GroundingOptions {
   contextAfter: number;
   contextBefore: number;
+  corpusTopN?: number;
   includeContext: boolean;
+  includeCorpus?: boolean;
   includeStyle: boolean;
   includeTerms: boolean;
   includeTm: boolean;
@@ -1177,7 +1181,9 @@ export interface AiBatchStartParams {
 export interface GroundingOptions1 {
   contextAfter: number;
   contextBefore: number;
+  corpusTopN?: number;
   includeContext: boolean;
+  includeCorpus?: boolean;
   includeStyle: boolean;
   includeTerms: boolean;
   includeTm: boolean;
@@ -1293,7 +1299,9 @@ export interface AiGroundingPreviewParams {
 export interface GroundingOptions2 {
   contextAfter: number;
   contextBefore: number;
+  corpusTopN?: number;
   includeContext: boolean;
+  includeCorpus?: boolean;
   includeStyle: boolean;
   includeTerms: boolean;
   includeTm: boolean;
@@ -1629,7 +1637,9 @@ export interface AiRunStartParams {
 export interface GroundingOptions3 {
   contextAfter: number;
   contextBefore: number;
+  corpusTopN?: number;
   includeContext: boolean;
+  includeCorpus?: boolean;
   includeStyle: boolean;
   includeTerms: boolean;
   includeTm: boolean;

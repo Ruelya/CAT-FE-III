@@ -936,6 +936,34 @@ internal Engine dispatch operation reached only through the main/preload
 trusted credential channel; it is deliberately absent from the generated
 renderer method catalog.
 
+Grounding options and Engine-owned input include the additive corpus shape:
+
+```rust
+pub struct GroundingOptions {
+    #[serde(default = "default_include_corpus")] // true
+    pub include_corpus: bool,
+    #[serde(default = "default_corpus_top_n")] // 5, maximum 10
+    pub corpus_top_n: u8,
+    // existing term, TM, context, style, and character options
+}
+
+pub struct GroundingInput {
+    #[serde(default)]
+    pub corpus_matches: Vec<GroundingCorpusMatch>,
+    // existing active-segment and asset fields
+}
+
+pub struct GroundingCorpusMatch {
+    pub corpus_id: String,
+    pub corpus_name: String,
+    pub source_label: String,
+    pub structural_path: String,
+    pub matched_side: GroundingCorpusMatchedSide,
+    pub source: String,
+    pub target: Option<String>,
+}
+```
+
 ### 3. Contracts
 
 - Migration 8 stores revisioned non-secret profiles/settings, runs/events,
@@ -947,6 +975,17 @@ renderer method catalog.
 - Grounding is rebuilt from Engine-owned segment, tags, terms, TM, style, and
   bounded context. The stored prompt hash and active-segment revision must
   still match before network I/O.
+- Grounding options validate before any Store read. When corpus grounding is
+  enabled, Engine searches active project corpora with the active source text,
+  `side=both`, `offset=0`, and `limit=corpusTopN`; it preserves Store order and
+  emits a `corpus` section before document context.
+- Corpus matches expose corpus ID/name, file name or matched alignment-document
+  ID, structural path, matched side, and source/optional target. A target-only
+  monolingual row keeps an empty source plus populated target and is never
+  projected as a bilingual TM example.
+- Corpus JSON is untrusted data inside `<grounding-section>` delimiters. Literal
+  angle brackets are JSON Unicode-escaped before rendering so corpus text
+  cannot close the delimiter or inject an instruction.
 - Interactive completions remain proposals until `ai.result.apply` validates
   run/segment revisions, signed state, and protected tags, then delegates to
   the normal editor mutation/history path.
@@ -970,6 +1009,8 @@ renderer method catalog.
 | Stale or signed interactive target | Conflict/read-only error; proposal remains unapplied |
 | AI output with invalid protected tags | Typed rejection; no target write |
 | Restart with active run/batch item | Durable interrupted state that can resume within bounded attempts |
+| Missing additive corpus options in an older persisted request | Deserialize as `includeCorpus=true`, `corpusTopN=5` |
+| `corpusTopN > 10` | `InvalidGrounding` before project, segment, or corpus reads |
 
 ### 5. Good / Base / Bad Cases
 
@@ -978,9 +1019,13 @@ renderer method catalog.
   conversation and usage without any secret in SQLite.
 - Base: disable AI or omit a keyring capability; non-AI editing, filters, TM,
   QA, and export remain available while real AI requests fail explicitly.
+- Base: no active corpus matches, `includeCorpus=false`, or `corpusTopN=0`
+  omits the corpus section without changing the existing grounding sections.
 - Bad: persist a prompt/credential for later replay, let renderer code call a
   provider, or include neighboring batch targets in a prompt hash that another
   worker can change before execution.
+- Bad: let the renderer fetch/re-rank corpus rows, treat target-only content as
+  bilingual, or interpolate raw corpus text outside the delimited JSON section.
 
 ### 6. Tests Required
 
@@ -989,6 +1034,10 @@ renderer method catalog.
 - Storage and Engine tests cover keyring lifecycle, restart recovery, grounding,
   streaming, explicit resume, TM-first concurrent batches, protected tags,
   budget gates, and exactly-once usage.
+- AI-core tests assert legacy option defaults, the `0..=10` corpus bound,
+  deterministic top-N order, corpus-before-context placement, character bounds,
+  and delimiter escaping. Engine tests import source- and target-monolingual
+  corpora and assert file/path/side provenance in `ai.grounding.preview`.
 - Stdio smoke and Electron E2E use loopback fixtures only. They must prove the
   secret is absent from SQLite, protocol payloads, renderer state, and errors.
 
@@ -1008,6 +1057,14 @@ catalog.register("ai.credential.set");
 ```rust
 batch_context.target = String::new(); // stable source-only batch context
 // Main/preload trusted IPC calls EngineClient::callInternal instead.
+let corpus = store.search_reference_corpora(&ReferenceCorpusSearchRequest {
+    project_id,
+    query: active_source,
+    side: ReferenceCorpusSearchSide::Both,
+    offset: 0,
+    limit: u32::from(options.corpus_top_n),
+    corpus_ids: Vec::new(),
+})?; // Engine projects this authoritative order into delimited grounding data.
 ```
 
 ## Comprehensive QA, Review, And Delivery Gate
@@ -1632,6 +1689,21 @@ reason, and optional correlation ID. `ReferenceCorpusSearchRequest` carries
 project, query, side (`source`, `target`, `both`), optional corpus IDs, and
 bounded offset/limit.
 
+The additive concordance response is:
+
+```rust
+pub struct ConcordanceResult {
+    pub hits: Vec<ConcordanceHit>, // existing TM page
+    pub total: u32,                // existing TM total
+    #[serde(default)]
+    pub corpus_hits: Vec<CorpusSearchHit>,
+    #[serde(default)]
+    pub corpus_total: u32,
+    pub offset: u32,
+    pub limit: u32,
+}
+```
+
 ### 3. Contracts
 
 - The selected filter parses a bounded temporary copy. Source-monolingual
@@ -1658,6 +1730,10 @@ bounded offset/limit.
   then contains matches, followed by corpus recency, ordinal, and IDs. The
   returned `matchedSide` and complete corpus/file/path/link provenance are
   authoritative; clients must not re-rank or reconstruct it.
+- `tm.concordance` runs TM and corpus retrieval with the same project, query,
+  side, offset, and limit. Its original `hits` and `total` remain TM-only;
+  `corpusHits` and `corpusTotal` are an independent page projected through the
+  same Engine helper as `corpus.search`.
 - Reindex rebuilds normalized keys from stored entry text under an expected
   corpus revision, preserving entry IDs/text/provenance. All mutations append
   one bounded operation with actor/reason/correlation and commit as one
@@ -1674,6 +1750,7 @@ bounded offset/limit.
 | SQLite failure after managed publication | Storage error; every corpus/entry/operation row rolls back and managed copy is cleaned |
 | Search selects a foreign, removed, or unknown corpus | Typed not-found/invalid-state result; removed rows are never searchable |
 | Reindex/remove receives read/terminal or stale corpus | Conflict/invalid-state; existing projection and source remain unchanged |
+| Older concordance response omits corpus fields | Deserialize them as an empty page and zero total |
 
 Errors and operations expose bounded IDs, paths, counts, and codes only; they
 never include corpus bodies or full filter/provider payloads.
@@ -1686,9 +1763,13 @@ never include corpus bodies or full filter/provider payloads.
 - Base: materialize selected confirmed links from an open or applied alignment
   session and retain session/link/document/segment provenance without copying
   or rewriting the documents.
+- Base: a concordance query with no corpus matches returns unchanged TM
+  `hits/total` plus empty `corpusHits` and `corpusTotal=0`.
 - Bad: persist a corpus before validating all units, treat a target-monolingual
   row as bilingual TM evidence, delete the managed source on remove, or let a
   failed second entry leave the first row visible.
+- Bad: concatenate TM and corpus rows into one client-ranked list or reinterpret
+  `total` as a combined count.
 
 ### 6. Tests Required
 
@@ -1696,6 +1777,9 @@ never include corpus bodies or full filter/provider payloads.
   and locale rejection, filter/options provenance, restart, malformed/empty/
   unknown input cleanup, and a forced SQLite failure with no managed copy or
   corpus row.
+- Engine concordance fixtures seed TM and corpus matches, compare
+  `corpusHits` byte-for-byte with `corpus.search`, and prove adding corpus rows
+  does not change TM `hits`, IDs, or `total`.
 - Storage fixtures assert migration 12 fresh/upgrade/strict/rollback/reopen,
   path canonicalization/digest checks, dense shape/path/limit validation,
   alignment-corpus provenance, deterministic search/paging, reindex equality,
@@ -1723,6 +1807,17 @@ temporary_copy.persist_noclobber(&managed_path)?;
 let result = store.create_reference_corpus(NewReferenceCorpus { entries: parsed, ..input });
 if result.is_err() {
     let _ = fs::remove_file(managed_path); // only failed staging is cleaned
+}
+let corpus = protocol_reference_corpus_search_result(
+    store.search_reference_corpora(&corpus_request)?,
+);
+ConcordanceResult {
+    hits: tm_hits,
+    total: tm_total,
+    corpus_hits: corpus.items,
+    corpus_total: corpus.total,
+    offset,
+    limit,
 }
 ```
 

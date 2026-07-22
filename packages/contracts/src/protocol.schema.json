@@ -882,7 +882,9 @@
           "default": {
             "contextAfter": 2,
             "contextBefore": 2,
+            "corpusTopN": 5,
             "includeContext": true,
+            "includeCorpus": true,
             "includeStyle": true,
             "includeTerms": true,
             "includeTm": true,
@@ -1285,7 +1287,9 @@
           "default": {
             "contextAfter": 2,
             "contextBefore": 2,
+            "corpusTopN": 5,
             "includeContext": true,
+            "includeCorpus": true,
             "includeStyle": true,
             "includeTerms": true,
             "includeTm": true,
@@ -2125,7 +2129,9 @@
           "default": {
             "contextAfter": 2,
             "contextBefore": 2,
+            "corpusTopN": 5,
             "includeContext": true,
+            "includeCorpus": true,
             "includeStyle": true,
             "includeTerms": true,
             "includeTm": true,
@@ -4376,6 +4382,19 @@
     "ConcordanceResult": {
       "type": "object",
       "properties": {
+        "corpusHits": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/CorpusSearchHit"
+          }
+        },
+        "corpusTotal": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        },
         "hits": {
           "type": "array",
           "items": {
@@ -6074,8 +6093,19 @@
           "maximum": 255,
           "minimum": 0
         },
+        "corpusTopN": {
+          "type": "integer",
+          "format": "uint8",
+          "default": 5,
+          "maximum": 255,
+          "minimum": 0
+        },
         "includeContext": {
           "type": "boolean"
+        },
+        "includeCorpus": {
+          "type": "boolean",
+          "default": true
         },
         "includeStyle": {
           "type": "boolean"

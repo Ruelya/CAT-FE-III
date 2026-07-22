@@ -18,7 +18,7 @@
       list/search/reindex/remove, managed-source cleanup, provenance, and bounds.
 - [x] Add protocol structs/catalog/dispatch/error mapping and regenerate JSON
       Schema plus TypeScript contracts; keep concordance/grounding additive.
-- [ ] Extend AI grounding with bounded corpus matches and visible provenance;
+- [x] Extend AI grounding with bounded corpus matches and visible provenance;
       extend authoritative concordance with additive corpus results.
 - [ ] Build the Project Insights Alignment/Corpora workflow, trusted dialog,
       correction controls, terminal/stale/error states, corpus management/search,
