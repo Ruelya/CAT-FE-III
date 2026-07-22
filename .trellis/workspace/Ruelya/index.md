@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
-- **Last Active**: 2026-07-22
+- **Total Sessions**: 8
+- **Last Active**: 2026-07-23
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~273 | Active |
+| `journal-1.md` | ~306 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-07-23 | Complete alignment and corpus desktop qualification | `3ca0fe8` | `master` |
 | 7 | 2026-07-22 | Complete CAT and bilingual interoperability | `82ac86c`, `d92a1ee` | `master` |
 | 6 | 2026-07-21 | Complete project lifecycle acceptance | `c1688ba` | `master` |
 | 5 | 2026-07-20 | Project lifecycle and analytics | `775b706` | `master` |

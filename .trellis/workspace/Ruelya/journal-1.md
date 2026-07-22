@@ -271,3 +271,36 @@ Planned the remaining interoperability workstream; implemented, audited, and ver
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: Complete alignment and corpus desktop qualification
+
+**Date**: 2026-07-23
+**Task**: Complete alignment and corpus desktop qualification
+**Branch**: `master`
+
+### Summary
+
+Added real-Engine Electron alignment/corpus E2E with strict AI fixture, corpus input harness, responsive screenshots, accessibility and overflow assertions. Ran full desktop E2E, unit/type/lint checks, VPS contracts, Clippy, workspace tests, stdio smoke, and Linux/Windows GNU release builds; recorded evidence and archived the child task.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3ca0fe8` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
