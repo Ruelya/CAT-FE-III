@@ -1592,3 +1592,136 @@ let plans = validate_current_session_links_library_and_build_plans(&transaction,
 insert_deduplicated_units_and_terminal_result(&transaction, plans)?;
 transaction.commit()?;
 ```
+
+## Reference Corpus Boundary
+
+### 1. Scope / Trigger
+
+Use this contract for project-owned monolingual or bilingual reference
+corpora, corpus search, reindex/remove, and corpus materialized from confirmed
+alignment links. The Engine owns filter selection, parsing, locale mapping,
+and managed-file publication. Store owns corpus revisions, provenance,
+capacity checks, search projections, and all SQLite transactions. A corpus
+never mutates active documents or TM units implicitly.
+
+### 2. Signatures
+
+The Engine entry point is:
+
+```rust
+EngineService::import_reference_corpus(
+    ReferenceCorpusImportRequest,
+) -> Result<ReferenceCorpusMutationResult>
+```
+
+The Store boundary is:
+
+```rust
+Store::create_reference_corpus(NewReferenceCorpus)
+Store::create_reference_corpus_from_alignment(CreateReferenceCorpusFromAlignment)
+Store::list_reference_corpora(project_id, status, offset, limit)
+Store::search_reference_corpora(&ReferenceCorpusSearchRequest)
+Store::reindex_reference_corpus(ReindexReferenceCorpus)
+Store::remove_reference_corpus(RemoveReferenceCorpus)
+```
+
+`ReferenceCorpusImportRequest` carries project/expected project revision,
+source path, name, kind (`monolingualSource`, `monolingualTarget`, or
+`bilingual`), project locales, optional registered filter ID/options, actor,
+reason, and optional correlation ID. `ReferenceCorpusSearchRequest` carries
+project, query, side (`source`, `target`, `both`), optional corpus IDs, and
+bounded offset/limit.
+
+### 3. Contracts
+
+- The selected filter parses a bounded temporary copy. Source-monolingual
+  units map to `source_text`; target-monolingual units map the imported source
+  text to `target_text` only when the explicit target locale is selected.
+  Bilingual units require a non-empty authoritative target.
+- Filter metadata locale declarations are checked against the selected side
+  and project target locale. Provenance records file name, filter/format,
+  input SHA-256, options hash, mapped side, ordinal, structural path, and
+  inline-tag/note counts; alignment corpora additionally record session/link,
+  document/segment groups, confidence, evidence, origin, and algorithm.
+- File corpora publish an immutable `sources/reference-corpus-<id>.*` copy only
+  after parsing and mapping succeed. Store canonicalizes the path under
+  `sources/`, rejects symlink/path escapes, and verifies the digest before its
+  immediate insert transaction. If persistence fails, Engine removes that
+  staged managed copy; a terminal remove deletes searchable rows but retains
+  the managed copy for recoverability.
+- Entries have dense ordinals, unique structural paths, kind-specific text
+  shape, normalized source/target keys, and bounded provenance. Limits are
+  64 active corpora/project, 100,000 entries/corpus, 200,000 active entries/
+  project, 1 MiB per text side, 64 MiB total text, 1,000 diagnostics, and
+  500 results/page.
+- Search scans active corpora for the project and sorts exact, then prefix,
+  then contains matches, followed by corpus recency, ordinal, and IDs. The
+  returned `matchedSide` and complete corpus/file/path/link provenance are
+  authoritative; clients must not re-rank or reconstruct it.
+- Reindex rebuilds normalized keys from stored entry text under an expected
+  corpus revision, preserving entry IDs/text/provenance. All mutations append
+  one bounded operation with actor/reason/correlation and commit as one
+  transaction.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Unknown filter, missing/empty input, malformed/unsupported format | Typed import error; no corpus or managed copy |
+| Project revision, locale, corpus revision, or alignment snapshot is stale | `conflict`; no rows, index, operation, or file deletion |
+| Missing authoritative bilingual target or wrong filter locale | `invalid_request`; staged copy is removed |
+| Unsafe managed path, digest mismatch, duplicate path, invalid shape, or limit exceeded | `invalid_state`/typed import error; transaction is rolled back |
+| SQLite failure after managed publication | Storage error; every corpus/entry/operation row rolls back and managed copy is cleaned |
+| Search selects a foreign, removed, or unknown corpus | Typed not-found/invalid-state result; removed rows are never searchable |
+| Reindex/remove receives read/terminal or stale corpus | Conflict/invalid-state; existing projection and source remain unchanged |
+
+Errors and operations expose bounded IDs, paths, counts, and codes only; they
+never include corpus bodies or full filter/provider payloads.
+
+### 5. Good / Base / Bad Cases
+
+- Good: import source and target TXT plus a bilingual XLIFF, restart, search,
+  reindex to the same projection, and remove one corpus while its managed copy
+  and unrelated TM/document rows remain intact.
+- Base: materialize selected confirmed links from an open or applied alignment
+  session and retain session/link/document/segment provenance without copying
+  or rewriting the documents.
+- Bad: persist a corpus before validating all units, treat a target-monolingual
+  row as bilingual TM evidence, delete the managed source on remove, or let a
+  failed second entry leave the first row visible.
+
+### 6. Tests Required
+
+- Engine fixtures assert TXT source/target mapping, XLIFF authoritative-target
+  and locale rejection, filter/options provenance, restart, malformed/empty/
+  unknown input cleanup, and a forced SQLite failure with no managed copy or
+  corpus row.
+- Storage fixtures assert migration 12 fresh/upgrade/strict/rollback/reopen,
+  path canonicalization/digest checks, dense shape/path/limit validation,
+  alignment-corpus provenance, deterministic search/paging, reindex equality,
+  terminal removal isolation, and later-entry rollback.
+- Focused gates are `cargo fmt --all -- --check`, strict Clippy, and
+  `cargo test -p translunar-storage -p translunar-engine`; generated protocol
+  consumers must add contract drift coverage before exposing RPC methods.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+for entry in parsed_entries {
+    store.insert_entry(entry)?; // a later failure exposes a partial corpus
+}
+fs::remove_file(managed_source)?; // removal destroys recoverable provenance
+```
+
+#### Correct
+
+```rust
+let parsed = parse_and_validate_all_units(&temporary_copy)?;
+temporary_copy.persist_noclobber(&managed_path)?;
+let result = store.create_reference_corpus(NewReferenceCorpus { entries: parsed, ..input });
+if result.is_err() {
+    let _ = fs::remove_file(managed_path); // only failed staging is cleaned
+}
+```

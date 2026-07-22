@@ -1,4 +1,7 @@
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -20,9 +23,10 @@ use translunar_domain::{
 };
 
 use super::{
-    Store, append_operation, conversion_error, ensure_entity_revision, find_document, find_project,
-    find_tm_library, next_revision, not_found, now_ms, read_json, read_optional_json, read_u32,
-    read_u64, require_nonempty, row_to_segment, to_i64, to_u32,
+    DataPaths, Store, append_operation, conversion_error, ensure_entity_revision, find_document,
+    find_project, find_tm_library, next_revision, not_found, now_ms, read_json, read_optional_json,
+    read_u32, read_u64, require_nonempty, row_to_segment, sha256_file, stored_managed_source_path,
+    to_i64, to_u32,
 };
 use crate::{Result, StorageError};
 
@@ -35,6 +39,23 @@ const MAX_ALIGNMENT_ID_BYTES: usize = 256;
 const MAX_ALIGNMENT_ACTOR_BYTES: usize = 256;
 const MAX_ALIGNMENT_REASON_BYTES: usize = 4_096;
 const MAX_ALIGNMENT_CORRELATION_ID_BYTES: usize = 256;
+const MAX_REFERENCE_CORPORA_PER_PROJECT: usize = 64;
+const MAX_REFERENCE_CORPUS_ENTRIES: usize = 100_000;
+const MAX_REFERENCE_CORPUS_PROJECT_ENTRIES: usize = 200_000;
+const MAX_REFERENCE_CORPUS_NAME_BYTES: usize = 256;
+const MAX_REFERENCE_CORPUS_TEXT_BYTES: usize = 1_048_576;
+const MAX_REFERENCE_CORPUS_TOTAL_TEXT_BYTES: usize = 64 * 1_048_576;
+const MAX_REFERENCE_CORPUS_STRUCTURAL_PATH_BYTES: usize = 4_096;
+const MAX_REFERENCE_CORPUS_PROVENANCE_BYTES: usize = 16_384;
+const MAX_REFERENCE_CORPUS_DIAGNOSTICS: usize = 1_000;
+const MAX_REFERENCE_CORPUS_DIAGNOSTIC_BYTES: usize = 256;
+const MAX_REFERENCE_CORPUS_FILTER_ID_BYTES: usize = 256;
+const MAX_REFERENCE_CORPUS_FORMAT_BYTES: usize = 128;
+const MAX_REFERENCE_CORPUS_LOCALE_BYTES: usize = 64;
+const MAX_REFERENCE_CORPUS_ID_BYTES: usize = 256;
+const MAX_REFERENCE_CORPUS_MANAGED_PATH_BYTES: usize = 4_096;
+const MAX_REFERENCE_CORPUS_SEARCH_QUERY_BYTES: usize = 4_096;
+const MAX_REFERENCE_CORPUS_PAGE_SIZE: u32 = 500;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -163,6 +184,125 @@ pub struct ReferenceCorpusEntryRecord {
 }
 
 #[derive(Debug, Clone)]
+pub struct NewReferenceCorpusEntry {
+    pub ordinal: u32,
+    pub source_text: String,
+    pub target_text: String,
+    pub structural_path: String,
+    pub provenance: Value,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewReferenceCorpus {
+    pub project_id: String,
+    pub expected_project_revision: u64,
+    pub name: String,
+    pub kind: ReferenceCorpusKind,
+    pub source_locale: String,
+    pub target_locale: String,
+    pub managed_source_path: PathBuf,
+    pub input_filter_id: String,
+    pub input_format: String,
+    pub input_sha256: String,
+    pub entries: Vec<NewReferenceCorpusEntry>,
+    pub diagnostics: Vec<String>,
+    pub actor: String,
+    pub reason: String,
+    pub correlation_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateReferenceCorpusFromAlignment {
+    pub project_id: String,
+    pub expected_project_revision: u64,
+    pub session_id: String,
+    pub expected_session_revision: u64,
+    pub name: String,
+    pub links: Vec<ExpectedAlignmentLinkRevision>,
+    pub actor: String,
+    pub reason: String,
+    pub correlation_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReindexReferenceCorpus {
+    pub corpus_id: String,
+    pub expected_revision: u64,
+    pub actor: String,
+    pub reason: String,
+    pub correlation_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RemoveReferenceCorpus {
+    pub corpus_id: String,
+    pub expected_revision: u64,
+    pub actor: String,
+    pub reason: String,
+    pub correlation_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReferenceCorpusMutationResult {
+    pub corpus: ReferenceCorpusRecord,
+    pub affected_entry_count: u32,
+    pub operation_id: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ReferenceCorpusSearchSide {
+    Source,
+    Target,
+    Both,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ReferenceCorpusMatchedSide {
+    Source,
+    Target,
+    Both,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ReferenceCorpusMatchKind {
+    Exact,
+    Prefix,
+    Contains,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReferenceCorpusSearchRequest {
+    pub project_id: String,
+    pub query: String,
+    pub side: ReferenceCorpusSearchSide,
+    pub corpus_ids: Vec<String>,
+    pub offset: u32,
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReferenceCorpusSearchHit {
+    pub corpus: ReferenceCorpusRecord,
+    pub entry: ReferenceCorpusEntryRecord,
+    pub matched_side: ReferenceCorpusMatchedSide,
+    pub match_kind: ReferenceCorpusMatchKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReferenceCorpusSearchResult {
+    pub items: Vec<ReferenceCorpusSearchHit>,
+    pub total: u32,
+    pub offset: u32,
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone)]
 pub struct NewAlignmentSession {
     pub project_id: String,
     pub source_document_id: String,
@@ -259,6 +399,36 @@ struct AlignmentTmUnitPlan {
     context_before_hash: Option<String>,
     context_after_hash: Option<String>,
     metadata_json: String,
+}
+
+struct ReferenceCorpusEntryPlan {
+    id: String,
+    ordinal: u32,
+    source_text: String,
+    target_text: String,
+    normalized_source: String,
+    normalized_target: String,
+    structural_path: String,
+    provenance_json: String,
+}
+
+struct ReferenceCorpusInsertPlan {
+    id: String,
+    project_id: String,
+    name: String,
+    kind: ReferenceCorpusKind,
+    source_locale: String,
+    target_locale: String,
+    source_kind: ReferenceCorpusSourceKind,
+    managed_source_path: Option<String>,
+    input_filter_id: Option<String>,
+    input_format: Option<String>,
+    input_sha256: Option<String>,
+    source_document_id: Option<String>,
+    target_document_id: Option<String>,
+    alignment_session_id: Option<String>,
+    entries: Vec<ReferenceCorpusEntryPlan>,
+    diagnostics: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -500,6 +670,8 @@ impl Store {
         offset: u32,
         limit: u32,
     ) -> Result<(Vec<ReferenceCorpusRecord>, u32)> {
+        find_project(&self.connection, project_id)?;
+        validate_reference_corpus_page(limit)?;
         let status = status.map(reference_corpus_status_text);
         let total = self.connection.query_row(
             "SELECT COUNT(*) FROM reference_corpora
@@ -547,6 +719,8 @@ impl Store {
         offset: u32,
         limit: u32,
     ) -> Result<(Vec<ReferenceCorpusEntryRecord>, u32)> {
+        self.get_reference_corpus(corpus_id)?;
+        validate_reference_corpus_page(limit)?;
         let total = self.connection.query_row(
             "SELECT COUNT(*) FROM reference_corpus_entries WHERE corpus_id = ?1",
             [corpus_id],
@@ -568,6 +742,413 @@ impl Store {
             )?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok((records, to_u32(total)?))
+    }
+
+    pub fn create_reference_corpus(
+        &mut self,
+        input: NewReferenceCorpus,
+    ) -> Result<ReferenceCorpusMutationResult> {
+        validate_reference_corpus_create_fields(
+            &input.project_id,
+            &input.name,
+            &input.actor,
+            &input.reason,
+            input.correlation_id.as_deref(),
+        )?;
+        validate_reference_corpus_locales(&input.source_locale, &input.target_locale)?;
+        validate_reference_corpus_file_metadata(
+            &input.input_filter_id,
+            &input.input_format,
+            &input.input_sha256,
+            &input.diagnostics,
+        )?;
+        let managed_source_path = validate_reference_corpus_managed_source(
+            &self.paths,
+            &input.managed_source_path,
+            &input.input_sha256,
+        )?;
+        let entries = prepare_reference_corpus_entries(input.kind, &input.entries)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let project = find_project(&transaction, &input.project_id)?;
+        validate_reference_corpus_project(
+            &project,
+            input.expected_project_revision,
+            &input.source_locale,
+            &input.target_locale,
+        )?;
+        validate_reference_corpus_capacity(&transaction, &project.id, &input.name, entries.len())?;
+        let plan = ReferenceCorpusInsertPlan {
+            id: new_id(),
+            project_id: project.id,
+            name: input.name.trim().to_string(),
+            kind: input.kind,
+            source_locale: input.source_locale.trim().to_string(),
+            target_locale: input.target_locale.trim().to_string(),
+            source_kind: ReferenceCorpusSourceKind::File,
+            managed_source_path: Some(managed_source_path),
+            input_filter_id: Some(input.input_filter_id.trim().to_string()),
+            input_format: Some(input.input_format.trim().to_string()),
+            input_sha256: Some(input.input_sha256.to_ascii_lowercase()),
+            source_document_id: None,
+            target_document_id: None,
+            alignment_session_id: None,
+            entries,
+            diagnostics: input.diagnostics,
+        };
+        let result = insert_reference_corpus(
+            &transaction,
+            &plan,
+            &input.actor,
+            &input.reason,
+            input.correlation_id.as_deref(),
+            "reference_corpus.import",
+            json!({
+                "sourceKind": "file",
+                "filterId": plan.input_filter_id.as_deref(),
+                "format": plan.input_format.as_deref(),
+                "inputSha256": plan.input_sha256.as_deref(),
+            }),
+        )?;
+        transaction.commit()?;
+        Ok(result)
+    }
+
+    pub fn create_reference_corpus_from_alignment(
+        &mut self,
+        input: CreateReferenceCorpusFromAlignment,
+    ) -> Result<ReferenceCorpusMutationResult> {
+        validate_reference_corpus_create_fields(
+            &input.project_id,
+            &input.name,
+            &input.actor,
+            &input.reason,
+            input.correlation_id.as_deref(),
+        )?;
+        let canonical_links = validate_reference_corpus_link_selection(&input.links)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let project = find_project(&transaction, &input.project_id)?;
+        ensure_entity_revision(
+            "project",
+            &project.id,
+            project.revision,
+            input.expected_project_revision,
+        )?;
+        if project.lifecycle != ProjectLifecycle::Active {
+            return Err(StorageError::InvalidState(
+                "reference corpus requires an active project".to_string(),
+            ));
+        }
+        let session = find_alignment_session(&transaction, &input.session_id)?;
+        if session.project_id != project.id {
+            return Err(StorageError::InvalidState(
+                "alignment session does not belong to the corpus project".to_string(),
+            ));
+        }
+        ensure_entity_revision(
+            "alignment_session",
+            &session.id,
+            session.revision,
+            input.expected_session_revision,
+        )?;
+        if session.status == AlignmentSessionStatus::Discarded {
+            return Err(StorageError::InvalidState(
+                "discarded alignment session cannot create a corpus".to_string(),
+            ));
+        }
+        if project.source_locale != session.source_locale
+            || project.target_locale != session.target_locale
+        {
+            return Err(StorageError::InvalidState(
+                "alignment session locales no longer match the project".to_string(),
+            ));
+        }
+        validate_alignment_session_documents(&transaction, &session)?;
+        let current_links = load_all_alignment_links(&transaction, &session.id)?;
+        let source_snapshots =
+            load_all_alignment_snapshots(&transaction, &session.id, AlignmentSide::Source)?;
+        let target_snapshots =
+            load_all_alignment_snapshots(&transaction, &session.id, AlignmentSide::Target)?;
+        validate_snapshot_partition(
+            &source_snapshots,
+            &target_snapshots,
+            &partition_links(&current_links),
+        )?;
+        validate_alignment_snapshots_current(
+            &transaction,
+            &session,
+            &source_snapshots,
+            &target_snapshots,
+        )?;
+        let selected_links = select_alignment_links_for_apply(&current_links, &canonical_links)?;
+        let entries = prepare_reference_corpus_entries(
+            ReferenceCorpusKind::Bilingual,
+            &alignment_reference_corpus_entries(
+                &session,
+                &selected_links,
+                &source_snapshots,
+                &target_snapshots,
+            )?,
+        )?;
+        validate_reference_corpus_capacity(&transaction, &project.id, &input.name, entries.len())?;
+        let plan = ReferenceCorpusInsertPlan {
+            id: new_id(),
+            project_id: project.id,
+            name: input.name.trim().to_string(),
+            kind: ReferenceCorpusKind::Bilingual,
+            source_locale: session.source_locale.clone(),
+            target_locale: session.target_locale.clone(),
+            source_kind: ReferenceCorpusSourceKind::Alignment,
+            managed_source_path: None,
+            input_filter_id: None,
+            input_format: None,
+            input_sha256: None,
+            source_document_id: Some(session.source_document_id.clone()),
+            target_document_id: Some(session.target_document_id.clone()),
+            alignment_session_id: Some(session.id.clone()),
+            entries,
+            diagnostics: Vec::new(),
+        };
+        let result = insert_reference_corpus(
+            &transaction,
+            &plan,
+            &input.actor,
+            &input.reason,
+            input.correlation_id.as_deref(),
+            "reference_corpus.from_alignment",
+            json!({
+                "sourceKind": "alignment",
+                "sessionId": session.id,
+                "sessionRevision": session.revision,
+                "linkIds": selected_links.iter().map(|link| &link.id).collect::<Vec<_>>(),
+            }),
+        )?;
+        transaction.commit()?;
+        Ok(result)
+    }
+
+    pub fn search_reference_corpora(
+        &self,
+        input: &ReferenceCorpusSearchRequest,
+    ) -> Result<ReferenceCorpusSearchResult> {
+        require_nonempty("reference corpus project id", &input.project_id)?;
+        require_nonempty("reference corpus search query", &input.query)?;
+        validate_reference_corpus_page(input.limit)?;
+        if input.query.len() > MAX_REFERENCE_CORPUS_SEARCH_QUERY_BYTES {
+            return Err(StorageError::InvalidState(
+                "reference corpus search query exceeds the configured limit".to_string(),
+            ));
+        }
+        let query = normalize_match_key(&input.query);
+        if query.is_empty() {
+            return Err(StorageError::InvalidState(
+                "reference corpus search query normalizes to empty".to_string(),
+            ));
+        }
+        validate_reference_corpus_ids(&input.corpus_ids)?;
+        let project = find_project(&self.connection, &input.project_id)?;
+        if project.lifecycle != ProjectLifecycle::Active {
+            return Err(StorageError::InvalidState(
+                "reference corpus search requires an active project".to_string(),
+            ));
+        }
+        let corpora =
+            load_reference_corpora_for_search(&self.connection, &project.id, &input.corpus_ids)?;
+        let mut inspected = 0_usize;
+        let mut hits = Vec::new();
+        for corpus in corpora {
+            let entries = load_all_reference_corpus_entries(&self.connection, &corpus.id)?;
+            inspected = inspected.checked_add(entries.len()).ok_or_else(|| {
+                StorageError::InvalidData(
+                    "reference corpus search candidate count overflow".to_string(),
+                )
+            })?;
+            if inspected > MAX_REFERENCE_CORPUS_PROJECT_ENTRIES {
+                return Err(StorageError::InvalidState(
+                    "reference corpus search candidate limit exceeded".to_string(),
+                ));
+            }
+            for entry in entries {
+                let Some((matched_side, match_kind)) =
+                    reference_corpus_entry_match(&entry, &query, input.side)
+                else {
+                    continue;
+                };
+                hits.push(ReferenceCorpusSearchHit {
+                    corpus: corpus.clone(),
+                    entry,
+                    matched_side,
+                    match_kind,
+                });
+            }
+        }
+        hits.sort_by(reference_corpus_search_order);
+        let total = to_u32(hits.len())?;
+        let offset = usize::try_from(input.offset).map_err(|_| {
+            StorageError::InvalidData("reference corpus search offset overflow".to_string())
+        })?;
+        let limit = usize::try_from(input.limit).map_err(|_| {
+            StorageError::InvalidData("reference corpus search limit overflow".to_string())
+        })?;
+        let items = hits.into_iter().skip(offset).take(limit).collect();
+        Ok(ReferenceCorpusSearchResult {
+            items,
+            total,
+            offset: input.offset,
+            limit: input.limit,
+        })
+    }
+
+    pub fn reindex_reference_corpus(
+        &mut self,
+        input: ReindexReferenceCorpus,
+    ) -> Result<ReferenceCorpusMutationResult> {
+        validate_reference_corpus_mutation_fields(
+            &input.corpus_id,
+            &input.actor,
+            &input.reason,
+            input.correlation_id.as_deref(),
+        )?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let corpus = find_reference_corpus(&transaction, &input.corpus_id)?;
+        ensure_entity_revision(
+            "reference_corpus",
+            &corpus.id,
+            corpus.revision,
+            input.expected_revision,
+        )?;
+        ensure_reference_corpus_active(&transaction, &corpus)?;
+        let entries = load_all_reference_corpus_entries(&transaction, &corpus.id)?;
+        validate_reference_corpus_entry_count(&corpus, entries.len())?;
+        let source_entries = entries
+            .iter()
+            .map(|entry| NewReferenceCorpusEntry {
+                ordinal: entry.ordinal,
+                source_text: entry.source_text.clone(),
+                target_text: entry.target_text.clone(),
+                structural_path: entry.structural_path.clone(),
+                provenance: entry.provenance.clone(),
+            })
+            .collect::<Vec<_>>();
+        let rebuilt = prepare_reference_corpus_entries(corpus.kind, &source_entries)?;
+        let now = now_ms();
+        for (entry, projection) in entries.iter().zip(&rebuilt) {
+            transaction.execute(
+                "UPDATE reference_corpus_entries
+                 SET normalized_source = ?1, normalized_target = ?2, updated_at_ms = ?3
+                 WHERE id = ?4 AND corpus_id = ?5",
+                params![
+                    projection.normalized_source,
+                    projection.normalized_target,
+                    now,
+                    entry.id,
+                    corpus.id,
+                ],
+            )?;
+        }
+        let result_revision = next_revision(corpus.revision)?;
+        update_reference_corpus_revision(
+            &transaction,
+            &corpus,
+            result_revision,
+            ReferenceCorpusStatus::Active,
+            now,
+        )?;
+        let operation = append_operation(
+            &transaction,
+            &corpus.project_id,
+            "reference_corpus",
+            &corpus.id,
+            "reference_corpus.reindex",
+            Some(corpus.revision),
+            Some(result_revision),
+            &input.actor,
+            input.correlation_id.as_deref(),
+            Some(json!({
+                "reason": input.reason,
+                "entryCount": entries.len(),
+            })),
+            Some(json!({
+                "status": "active",
+                "entryCount": entries.len(),
+            })),
+        )?;
+        let corpus = find_reference_corpus(&transaction, &corpus.id)?;
+        transaction.commit()?;
+        Ok(ReferenceCorpusMutationResult {
+            corpus,
+            affected_entry_count: to_u32(entries.len())?,
+            operation_id: operation.id,
+        })
+    }
+
+    pub fn remove_reference_corpus(
+        &mut self,
+        input: RemoveReferenceCorpus,
+    ) -> Result<ReferenceCorpusMutationResult> {
+        validate_reference_corpus_mutation_fields(
+            &input.corpus_id,
+            &input.actor,
+            &input.reason,
+            input.correlation_id.as_deref(),
+        )?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let corpus = find_reference_corpus(&transaction, &input.corpus_id)?;
+        ensure_entity_revision(
+            "reference_corpus",
+            &corpus.id,
+            corpus.revision,
+            input.expected_revision,
+        )?;
+        ensure_reference_corpus_active(&transaction, &corpus)?;
+        let actual_entry_count = reference_corpus_entry_count(&transaction, &corpus.id)?;
+        validate_reference_corpus_entry_count(&corpus, actual_entry_count)?;
+        transaction.execute(
+            "DELETE FROM reference_corpus_entries WHERE corpus_id = ?1",
+            [&corpus.id],
+        )?;
+        let now = now_ms();
+        let result_revision = next_revision(corpus.revision)?;
+        update_reference_corpus_revision(
+            &transaction,
+            &corpus,
+            result_revision,
+            ReferenceCorpusStatus::Removed,
+            now,
+        )?;
+        let operation = append_operation(
+            &transaction,
+            &corpus.project_id,
+            "reference_corpus",
+            &corpus.id,
+            "reference_corpus.remove",
+            Some(corpus.revision),
+            Some(result_revision),
+            &input.actor,
+            input.correlation_id.as_deref(),
+            Some(json!({
+                "reason": input.reason,
+                "entryCount": actual_entry_count,
+            })),
+            Some(json!({
+                "status": "removed",
+                "entryCount": 0,
+            })),
+        )?;
+        let corpus = find_reference_corpus(&transaction, &corpus.id)?;
+        transaction.commit()?;
+        Ok(ReferenceCorpusMutationResult {
+            corpus,
+            affected_entry_count: to_u32(actual_entry_count)?,
+            operation_id: operation.id,
+        })
     }
 
     pub fn prepare_alignment_refinement(
@@ -2231,6 +2812,844 @@ fn snapshot_text_for_ids(
         .map(|texts| texts.join("\n"))
 }
 
+fn validate_reference_corpus_create_fields(
+    project_id: &str,
+    name: &str,
+    actor: &str,
+    reason: &str,
+    correlation_id: Option<&str>,
+) -> Result<()> {
+    require_nonempty("reference corpus project id", project_id)?;
+    require_nonempty("reference corpus name", name)?;
+    require_nonempty("operation actor", actor)?;
+    require_nonempty("operation reason", reason)?;
+    if project_id.len() > MAX_REFERENCE_CORPUS_ID_BYTES
+        || name.trim().len() > MAX_REFERENCE_CORPUS_NAME_BYTES
+        || actor.len() > MAX_ALIGNMENT_ACTOR_BYTES
+        || reason.len() > MAX_ALIGNMENT_REASON_BYTES
+        || correlation_id.is_some_and(|value| {
+            value.trim().is_empty() || value.len() > MAX_ALIGNMENT_CORRELATION_ID_BYTES
+        })
+    {
+        return Err(StorageError::InvalidState(
+            "reference corpus identity, name, actor, reason, or correlation exceeds configured bounds"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_reference_corpus_locales(source_locale: &str, target_locale: &str) -> Result<()> {
+    require_nonempty("reference corpus source locale", source_locale)?;
+    require_nonempty("reference corpus target locale", target_locale)?;
+    if source_locale.len() > MAX_REFERENCE_CORPUS_LOCALE_BYTES
+        || target_locale.len() > MAX_REFERENCE_CORPUS_LOCALE_BYTES
+    {
+        return Err(StorageError::InvalidState(
+            "reference corpus locale exceeds the configured limit".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_reference_corpus_file_metadata(
+    input_filter_id: &str,
+    input_format: &str,
+    input_sha256: &str,
+    diagnostics: &[String],
+) -> Result<()> {
+    require_nonempty("reference corpus filter id", input_filter_id)?;
+    require_nonempty("reference corpus input format", input_format)?;
+    require_nonempty("reference corpus input SHA-256", input_sha256)?;
+    if input_filter_id.len() > MAX_REFERENCE_CORPUS_FILTER_ID_BYTES
+        || input_format.len() > MAX_REFERENCE_CORPUS_FORMAT_BYTES
+    {
+        return Err(StorageError::InvalidState(
+            "reference corpus filter or format exceeds the configured limit".to_string(),
+        ));
+    }
+    if input_sha256.len() != 64 || !input_sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(StorageError::InvalidState(
+            "reference corpus input SHA-256 is malformed".to_string(),
+        ));
+    }
+    if diagnostics.len() > MAX_REFERENCE_CORPUS_DIAGNOSTICS {
+        return Err(StorageError::InvalidState(format!(
+            "reference corpus diagnostics exceed the {MAX_REFERENCE_CORPUS_DIAGNOSTICS} item limit"
+        )));
+    }
+    for diagnostic in diagnostics {
+        if diagnostic.trim().is_empty() || diagnostic.len() > MAX_REFERENCE_CORPUS_DIAGNOSTIC_BYTES
+        {
+            return Err(StorageError::InvalidState(
+                "reference corpus diagnostics must be non-empty and bounded".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_reference_corpus_managed_source(
+    paths: &DataPaths,
+    managed_source_path: &Path,
+    expected_sha256: &str,
+) -> Result<String> {
+    if managed_source_path.as_os_str().is_empty()
+        || managed_source_path.to_string_lossy().len() > MAX_REFERENCE_CORPUS_MANAGED_PATH_BYTES
+    {
+        return Err(StorageError::InvalidState(
+            "reference corpus managed source path is empty or exceeds the configured limit"
+                .to_string(),
+        ));
+    }
+    let candidate = if managed_source_path.is_absolute() {
+        managed_source_path.to_path_buf()
+    } else {
+        paths.root.join(managed_source_path)
+    };
+    let canonical_sources = fs::canonicalize(&paths.sources)?;
+    let canonical_candidate = fs::canonicalize(candidate)?;
+    let relative = canonical_candidate
+        .strip_prefix(&canonical_sources)
+        .map_err(|_| {
+            StorageError::InvalidState(
+                "reference corpus managed source escaped the workspace sources directory"
+                    .to_string(),
+            )
+        })?;
+    if relative.as_os_str().is_empty() || !fs::metadata(&canonical_candidate)?.is_file() {
+        return Err(StorageError::InvalidState(
+            "reference corpus managed source must be a file".to_string(),
+        ));
+    }
+    let actual_sha256 = sha256_file(&canonical_candidate)?;
+    if !actual_sha256.eq_ignore_ascii_case(expected_sha256) {
+        return Err(StorageError::InvalidState(
+            "reference corpus managed source digest does not match the staged input".to_string(),
+        ));
+    }
+    let stored_path = stored_managed_source_path(paths, &paths.sources.join(relative));
+    if stored_path.len() > MAX_REFERENCE_CORPUS_MANAGED_PATH_BYTES
+        || !(stored_path == "sources" || stored_path.starts_with("sources/"))
+    {
+        return Err(StorageError::InvalidState(
+            "reference corpus managed source could not be stored as a portable path".to_string(),
+        ));
+    }
+    Ok(stored_path)
+}
+
+fn prepare_reference_corpus_entries(
+    kind: ReferenceCorpusKind,
+    entries: &[NewReferenceCorpusEntry],
+) -> Result<Vec<ReferenceCorpusEntryPlan>> {
+    if entries.is_empty() || entries.len() > MAX_REFERENCE_CORPUS_ENTRIES {
+        return Err(StorageError::InvalidState(format!(
+            "reference corpus must contain 1..{MAX_REFERENCE_CORPUS_ENTRIES} entries"
+        )));
+    }
+    let mut structural_paths = BTreeSet::new();
+    let mut total_text_bytes = 0_usize;
+    let mut plans = Vec::with_capacity(entries.len());
+    for (index, entry) in entries.iter().enumerate() {
+        let expected_ordinal = to_u32(index)?;
+        if entry.ordinal != expected_ordinal {
+            return Err(StorageError::InvalidState(format!(
+                "reference corpus entry ordinal {index} is not dense"
+            )));
+        }
+        let source_present = !entry.source_text.trim().is_empty();
+        let target_present = !entry.target_text.trim().is_empty();
+        let valid_shape = match kind {
+            ReferenceCorpusKind::MonolingualSource => source_present && !target_present,
+            ReferenceCorpusKind::MonolingualTarget => !source_present && target_present,
+            ReferenceCorpusKind::Bilingual => source_present && target_present,
+        };
+        if !valid_shape {
+            return Err(StorageError::InvalidState(format!(
+                "reference corpus entry {index} does not match the corpus kind"
+            )));
+        }
+        if entry.source_text.len() > MAX_REFERENCE_CORPUS_TEXT_BYTES
+            || entry.target_text.len() > MAX_REFERENCE_CORPUS_TEXT_BYTES
+        {
+            return Err(StorageError::InvalidState(format!(
+                "reference corpus entry {index} text exceeds the configured limit"
+            )));
+        }
+        total_text_bytes = total_text_bytes
+            .checked_add(entry.source_text.len())
+            .and_then(|total| total.checked_add(entry.target_text.len()))
+            .ok_or_else(|| {
+                StorageError::InvalidData("reference corpus text byte count overflowed".to_string())
+            })?;
+        if total_text_bytes > MAX_REFERENCE_CORPUS_TOTAL_TEXT_BYTES {
+            return Err(StorageError::InvalidState(
+                "reference corpus total text exceeds the configured limit".to_string(),
+            ));
+        }
+        if entry.structural_path.trim().is_empty()
+            || entry.structural_path.len() > MAX_REFERENCE_CORPUS_STRUCTURAL_PATH_BYTES
+            || !structural_paths.insert(entry.structural_path.as_str())
+        {
+            return Err(StorageError::InvalidState(format!(
+                "reference corpus entry {index} structural path is empty, duplicate, or oversized"
+            )));
+        }
+        if !matches!(&entry.provenance, Value::Object(_)) {
+            return Err(StorageError::InvalidState(format!(
+                "reference corpus entry {index} provenance must be an object"
+            )));
+        }
+        let provenance_json = serde_json::to_string(&entry.provenance)?;
+        if provenance_json.len() > MAX_REFERENCE_CORPUS_PROVENANCE_BYTES {
+            return Err(StorageError::InvalidState(format!(
+                "reference corpus entry {index} provenance exceeds the configured limit"
+            )));
+        }
+        let normalized_source = if source_present {
+            normalize_match_key(&entry.source_text)
+        } else {
+            String::new()
+        };
+        let normalized_target = if target_present {
+            normalize_match_key(&entry.target_text)
+        } else {
+            String::new()
+        };
+        if (source_present && normalized_source.is_empty())
+            || (target_present && normalized_target.is_empty())
+        {
+            return Err(StorageError::InvalidState(format!(
+                "reference corpus entry {index} normalizes to empty"
+            )));
+        }
+        plans.push(ReferenceCorpusEntryPlan {
+            id: new_id(),
+            ordinal: entry.ordinal,
+            source_text: entry.source_text.clone(),
+            target_text: entry.target_text.clone(),
+            normalized_source,
+            normalized_target,
+            structural_path: entry.structural_path.clone(),
+            provenance_json,
+        });
+    }
+    Ok(plans)
+}
+
+fn validate_reference_corpus_project(
+    project: &Project,
+    expected_revision: u64,
+    source_locale: &str,
+    target_locale: &str,
+) -> Result<()> {
+    ensure_entity_revision("project", &project.id, project.revision, expected_revision)?;
+    if project.lifecycle != ProjectLifecycle::Active {
+        return Err(StorageError::InvalidState(
+            "reference corpus requires an active project".to_string(),
+        ));
+    }
+    if project.source_locale != source_locale || project.target_locale != target_locale {
+        return Err(StorageError::InvalidState(
+            "reference corpus locales do not match the project".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_reference_corpus_capacity(
+    connection: &Connection,
+    project_id: &str,
+    name: &str,
+    new_entry_count: usize,
+) -> Result<()> {
+    if new_entry_count == 0 || new_entry_count > MAX_REFERENCE_CORPUS_ENTRIES {
+        return Err(StorageError::InvalidState(
+            "reference corpus entry count exceeds the configured limit".to_string(),
+        ));
+    }
+    let duplicate = connection
+        .query_row(
+            "SELECT id FROM reference_corpora
+             WHERE project_id = ?1 AND name = ?2 AND status = 'active' LIMIT 1",
+            params![project_id, name.trim()],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    if duplicate.is_some() {
+        return Err(StorageError::InvalidState(
+            "an active reference corpus already uses this name".to_string(),
+        ));
+    }
+    let active_corpus_count = connection.query_row(
+        "SELECT COUNT(*) FROM reference_corpora
+         WHERE project_id = ?1 AND status = 'active'",
+        [project_id],
+        |row| row.get::<_, i64>(0),
+    )?;
+    let active_corpus_count = usize::try_from(active_corpus_count)
+        .map_err(|_| StorageError::InvalidData("negative reference corpus count".to_string()))?;
+    if active_corpus_count >= MAX_REFERENCE_CORPORA_PER_PROJECT {
+        return Err(StorageError::InvalidState(
+            "reference corpus project capacity has been reached".to_string(),
+        ));
+    }
+    let active_entry_count = connection.query_row(
+        "SELECT COUNT(*)
+         FROM reference_corpus_entries e
+         JOIN reference_corpora c ON c.id = e.corpus_id
+         WHERE c.project_id = ?1 AND c.status = 'active'",
+        [project_id],
+        |row| row.get::<_, i64>(0),
+    )?;
+    let active_entry_count = usize::try_from(active_entry_count).map_err(|_| {
+        StorageError::InvalidData("negative reference corpus entry count".to_string())
+    })?;
+    let resulting_entry_count =
+        active_entry_count
+            .checked_add(new_entry_count)
+            .ok_or_else(|| {
+                StorageError::InvalidData(
+                    "reference corpus project entry count overflowed".to_string(),
+                )
+            })?;
+    if resulting_entry_count > MAX_REFERENCE_CORPUS_PROJECT_ENTRIES {
+        return Err(StorageError::InvalidState(
+            "reference corpus project entry capacity would be exceeded".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn insert_reference_corpus(
+    transaction: &Transaction<'_>,
+    plan: &ReferenceCorpusInsertPlan,
+    actor: &str,
+    reason: &str,
+    correlation_id: Option<&str>,
+    operation_kind: &str,
+    source_details: Value,
+) -> Result<ReferenceCorpusMutationResult> {
+    let entry_count = to_u32(plan.entries.len())?;
+    let diagnostic_count = to_u32(plan.diagnostics.len())?;
+    let diagnostics_json = serde_json::to_string(&plan.diagnostics)?;
+    let now = now_ms();
+    transaction.execute(
+        "INSERT INTO reference_corpora (
+            id, project_id, name, kind, source_locale, target_locale, source_kind,
+            managed_source_path, input_filter_id, input_format, input_sha256,
+            source_document_id, target_document_id, alignment_session_id, status,
+            revision, entry_count, diagnostic_count, diagnostics_json,
+            created_at_ms, updated_at_ms, removed_at_ms
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+                   ?14, 'active', 0, ?15, ?16, ?17, ?18, ?18, NULL)",
+        params![
+            plan.id,
+            plan.project_id,
+            plan.name,
+            reference_corpus_kind_text(plan.kind),
+            plan.source_locale,
+            plan.target_locale,
+            reference_corpus_source_kind_text(plan.source_kind),
+            plan.managed_source_path,
+            plan.input_filter_id,
+            plan.input_format,
+            plan.input_sha256,
+            plan.source_document_id,
+            plan.target_document_id,
+            plan.alignment_session_id,
+            i64::from(entry_count),
+            i64::from(diagnostic_count),
+            diagnostics_json,
+            now,
+        ],
+    )?;
+    for entry in &plan.entries {
+        transaction.execute(
+            "INSERT INTO reference_corpus_entries (
+                id, corpus_id, ordinal, source_text, target_text, normalized_source,
+                normalized_target, structural_path, provenance_json,
+                created_at_ms, updated_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)",
+            params![
+                entry.id,
+                plan.id,
+                i64::from(entry.ordinal),
+                entry.source_text,
+                entry.target_text,
+                entry.normalized_source,
+                entry.normalized_target,
+                entry.structural_path,
+                entry.provenance_json,
+                now,
+            ],
+        )?;
+    }
+    let operation = append_operation(
+        transaction,
+        &plan.project_id,
+        "reference_corpus",
+        &plan.id,
+        operation_kind,
+        Some(0),
+        Some(0),
+        actor,
+        correlation_id,
+        None,
+        Some(json!({
+            "reason": reason,
+            "name": plan.name.as_str(),
+            "kind": reference_corpus_kind_text(plan.kind),
+            "sourceLocale": plan.source_locale.as_str(),
+            "targetLocale": plan.target_locale.as_str(),
+            "sourceKind": reference_corpus_source_kind_text(plan.source_kind),
+            "entryCount": entry_count,
+            "diagnosticCount": diagnostic_count,
+            "source": source_details,
+        })),
+    )?;
+    let corpus = find_reference_corpus(transaction, &plan.id)?;
+    Ok(ReferenceCorpusMutationResult {
+        corpus,
+        affected_entry_count: entry_count,
+        operation_id: operation.id,
+    })
+}
+
+fn validate_reference_corpus_link_selection(
+    links: &[ExpectedAlignmentLinkRevision],
+) -> Result<Vec<ExpectedAlignmentLinkRevision>> {
+    if links.is_empty() || links.len() > MAX_REFERENCE_CORPUS_ENTRIES {
+        return Err(StorageError::InvalidState(format!(
+            "alignment corpus must select 1..{MAX_REFERENCE_CORPUS_ENTRIES} links"
+        )));
+    }
+    let mut unique = BTreeSet::new();
+    let mut canonical = Vec::with_capacity(links.len());
+    for link in links {
+        if link.link_id.trim().is_empty()
+            || link.link_id.len() > MAX_REFERENCE_CORPUS_ID_BYTES
+            || !unique.insert(link.link_id.as_str())
+        {
+            return Err(StorageError::InvalidState(
+                "alignment corpus link IDs must be bounded and unique".to_string(),
+            ));
+        }
+        canonical.push(link.clone());
+    }
+    canonical.sort_by(|left, right| left.link_id.cmp(&right.link_id));
+    Ok(canonical)
+}
+
+fn alignment_reference_corpus_entries(
+    session: &AlignmentSessionRecord,
+    links: &[AlignmentLinkRecord],
+    source_snapshots: &[AlignmentSessionSegmentRecord],
+    target_snapshots: &[AlignmentSessionSegmentRecord],
+) -> Result<Vec<NewReferenceCorpusEntry>> {
+    let source_by_id = source_snapshots
+        .iter()
+        .map(|snapshot| (snapshot.segment_id.as_str(), snapshot))
+        .collect::<BTreeMap<_, _>>();
+    let target_by_id = target_snapshots
+        .iter()
+        .map(|snapshot| (snapshot.segment_id.as_str(), snapshot))
+        .collect::<BTreeMap<_, _>>();
+    links
+        .iter()
+        .enumerate()
+        .map(|(index, link)| {
+            let source_text = snapshot_text_for_ids(&link.source_segment_ids, &source_by_id)?;
+            let target_text = snapshot_text_for_ids(&link.target_segment_ids, &target_by_id)?;
+            if source_text != link.source_text || target_text != link.target_text {
+                return Err(StorageError::InvalidData(format!(
+                    "alignment link {} text does not match its immutable snapshots",
+                    link.id
+                )));
+            }
+            let source_ordinals = link
+                .source_segment_ids
+                .iter()
+                .map(|id| {
+                    source_by_id
+                        .get(id.as_str())
+                        .map(|snapshot| snapshot.ordinal)
+                        .ok_or_else(|| not_found("alignment_session_segment", id))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let target_ordinals = link
+                .target_segment_ids
+                .iter()
+                .map(|id| {
+                    target_by_id
+                        .get(id.as_str())
+                        .map(|snapshot| snapshot.ordinal)
+                        .ok_or_else(|| not_found("alignment_session_segment", id))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            Ok(NewReferenceCorpusEntry {
+                ordinal: to_u32(index)?,
+                source_text,
+                target_text,
+                structural_path: format!("alignment:{}:{}", link.ordinal, link.id),
+                provenance: json!({
+                    "sourceKind": "alignment",
+                    "alignmentSessionId": session.id.as_str(),
+                    "alignmentSessionRevision": session.revision,
+                    "alignmentLinkId": link.id.as_str(),
+                    "alignmentLinkRevision": link.revision,
+                    "sourceDocumentId": session.source_document_id.as_str(),
+                    "sourceDocumentRevision": session.source_document_revision,
+                    "targetDocumentId": session.target_document_id.as_str(),
+                    "targetDocumentRevision": session.target_document_revision,
+                    "sourceSegmentIds": &link.source_segment_ids,
+                    "targetSegmentIds": &link.target_segment_ids,
+                    "sourceSegmentOrdinals": source_ordinals,
+                    "targetSegmentOrdinals": target_ordinals,
+                    "confidenceBasisPoints": link.confidence_basis_points,
+                    "evidence": &link.evidence,
+                    "origin": alignment_origin_text(link.origin),
+                    "algorithmVersion": session.algorithm_version.as_str(),
+                }),
+            })
+        })
+        .collect()
+}
+
+fn validate_reference_corpus_page(limit: u32) -> Result<()> {
+    if limit == 0 || limit > MAX_REFERENCE_CORPUS_PAGE_SIZE {
+        Err(StorageError::InvalidState(format!(
+            "reference corpus page size must be between 1 and {MAX_REFERENCE_CORPUS_PAGE_SIZE}"
+        )))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_reference_corpus_ids(corpus_ids: &[String]) -> Result<()> {
+    if corpus_ids.len() > MAX_REFERENCE_CORPORA_PER_PROJECT {
+        return Err(StorageError::InvalidState(
+            "reference corpus search selected too many corpora".to_string(),
+        ));
+    }
+    let mut unique = BTreeSet::new();
+    for corpus_id in corpus_ids {
+        if corpus_id.trim().is_empty()
+            || corpus_id.len() > MAX_REFERENCE_CORPUS_ID_BYTES
+            || !unique.insert(corpus_id.as_str())
+        {
+            return Err(StorageError::InvalidState(
+                "reference corpus search IDs must be bounded and unique".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn load_reference_corpora_for_search(
+    connection: &Connection,
+    project_id: &str,
+    corpus_ids: &[String],
+) -> Result<Vec<ReferenceCorpusRecord>> {
+    let mut statement = connection.prepare(
+        "SELECT id, project_id, name, kind, source_locale, target_locale, source_kind,
+                managed_source_path, input_filter_id, input_format, input_sha256,
+                source_document_id, target_document_id, alignment_session_id, status,
+                revision, entry_count, diagnostic_count, diagnostics_json,
+                created_at_ms, updated_at_ms, removed_at_ms
+         FROM reference_corpora
+         WHERE project_id = ?1 AND status = 'active'
+         ORDER BY updated_at_ms DESC, id",
+    )?;
+    let active = statement
+        .query_map([project_id], row_to_reference_corpus)?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    if active.len() > MAX_REFERENCE_CORPORA_PER_PROJECT {
+        return Err(StorageError::InvalidData(
+            "active reference corpus count exceeds the configured limit".to_string(),
+        ));
+    }
+    if corpus_ids.is_empty() {
+        return Ok(active);
+    }
+    let selected = corpus_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    let records = active
+        .into_iter()
+        .filter(|corpus| selected.contains(corpus.id.as_str()))
+        .collect::<Vec<_>>();
+    if records.len() != corpus_ids.len() {
+        let active_ids = records
+            .iter()
+            .map(|corpus| corpus.id.as_str())
+            .collect::<BTreeSet<_>>();
+        let missing = corpus_ids
+            .iter()
+            .find(|corpus_id| !active_ids.contains(corpus_id.as_str()))
+            .map(String::as_str)
+            .unwrap_or("unknown");
+        let corpus = connection
+            .query_row(
+                "SELECT project_id, status FROM reference_corpora WHERE id = ?1",
+                [missing],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?;
+        return match corpus {
+            None => Err(not_found("reference_corpus", missing)),
+            Some((owner, _)) if owner != project_id => Err(StorageError::InvalidState(
+                "selected reference corpus does not belong to the project".to_string(),
+            )),
+            Some(_) => Err(StorageError::InvalidState(
+                "selected reference corpus is not active".to_string(),
+            )),
+        };
+    }
+    Ok(records)
+}
+
+fn load_all_reference_corpus_entries(
+    connection: &Connection,
+    corpus_id: &str,
+) -> Result<Vec<ReferenceCorpusEntryRecord>> {
+    let count = reference_corpus_entry_count(connection, corpus_id)?;
+    if count > MAX_REFERENCE_CORPUS_ENTRIES {
+        return Err(StorageError::InvalidData(
+            "reference corpus entry count exceeds the configured limit".to_string(),
+        ));
+    }
+    let mut statement = connection.prepare(
+        "SELECT id, corpus_id, ordinal, source_text, target_text, normalized_source,
+                normalized_target, structural_path, provenance_json,
+                created_at_ms, updated_at_ms
+         FROM reference_corpus_entries
+         WHERE corpus_id = ?1
+         ORDER BY ordinal, id",
+    )?;
+    let entries = statement
+        .query_map([corpus_id], row_to_reference_corpus_entry)?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    if entries.len() != count {
+        return Err(StorageError::InvalidData(
+            "reference corpus entry count changed while loading".to_string(),
+        ));
+    }
+    Ok(entries)
+}
+
+fn reference_corpus_entry_match(
+    entry: &ReferenceCorpusEntryRecord,
+    query: &str,
+    side: ReferenceCorpusSearchSide,
+) -> Option<(ReferenceCorpusMatchedSide, ReferenceCorpusMatchKind)> {
+    let source = matches!(
+        side,
+        ReferenceCorpusSearchSide::Source | ReferenceCorpusSearchSide::Both
+    )
+    .then(|| reference_corpus_text_match(&entry.normalized_source, query))
+    .flatten();
+    let target = matches!(
+        side,
+        ReferenceCorpusSearchSide::Target | ReferenceCorpusSearchSide::Both
+    )
+    .then(|| reference_corpus_text_match(&entry.normalized_target, query))
+    .flatten();
+    match (source, target) {
+        (Some(source), Some(target)) => {
+            match reference_corpus_match_rank(source).cmp(&reference_corpus_match_rank(target)) {
+                Ordering::Less => Some((ReferenceCorpusMatchedSide::Source, source)),
+                Ordering::Greater => Some((ReferenceCorpusMatchedSide::Target, target)),
+                Ordering::Equal => Some((ReferenceCorpusMatchedSide::Both, source)),
+            }
+        }
+        (Some(kind), None) => Some((ReferenceCorpusMatchedSide::Source, kind)),
+        (None, Some(kind)) => Some((ReferenceCorpusMatchedSide::Target, kind)),
+        (None, None) => None,
+    }
+}
+
+fn reference_corpus_text_match(candidate: &str, query: &str) -> Option<ReferenceCorpusMatchKind> {
+    if candidate.is_empty() {
+        None
+    } else if candidate == query {
+        Some(ReferenceCorpusMatchKind::Exact)
+    } else if candidate.starts_with(query) {
+        Some(ReferenceCorpusMatchKind::Prefix)
+    } else if candidate.contains(query) {
+        Some(ReferenceCorpusMatchKind::Contains)
+    } else {
+        None
+    }
+}
+
+fn reference_corpus_match_rank(kind: ReferenceCorpusMatchKind) -> u8 {
+    match kind {
+        ReferenceCorpusMatchKind::Exact => 0,
+        ReferenceCorpusMatchKind::Prefix => 1,
+        ReferenceCorpusMatchKind::Contains => 2,
+    }
+}
+
+fn reference_corpus_search_order(
+    left: &ReferenceCorpusSearchHit,
+    right: &ReferenceCorpusSearchHit,
+) -> Ordering {
+    reference_corpus_match_rank(left.match_kind)
+        .cmp(&reference_corpus_match_rank(right.match_kind))
+        .then_with(|| right.corpus.updated_at_ms.cmp(&left.corpus.updated_at_ms))
+        .then_with(|| left.entry.ordinal.cmp(&right.entry.ordinal))
+        .then_with(|| left.corpus.id.cmp(&right.corpus.id))
+        .then_with(|| left.entry.id.cmp(&right.entry.id))
+}
+
+fn validate_reference_corpus_mutation_fields(
+    corpus_id: &str,
+    actor: &str,
+    reason: &str,
+    correlation_id: Option<&str>,
+) -> Result<()> {
+    require_nonempty("reference corpus id", corpus_id)?;
+    require_nonempty("operation actor", actor)?;
+    require_nonempty("operation reason", reason)?;
+    if corpus_id.len() > MAX_REFERENCE_CORPUS_ID_BYTES
+        || actor.len() > MAX_ALIGNMENT_ACTOR_BYTES
+        || reason.len() > MAX_ALIGNMENT_REASON_BYTES
+        || correlation_id.is_some_and(|value| {
+            value.trim().is_empty() || value.len() > MAX_ALIGNMENT_CORRELATION_ID_BYTES
+        })
+    {
+        return Err(StorageError::InvalidState(
+            "reference corpus mutation fields exceed configured bounds".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn find_reference_corpus(
+    connection: &Connection,
+    corpus_id: &str,
+) -> Result<ReferenceCorpusRecord> {
+    connection
+        .query_row(
+            "SELECT id, project_id, name, kind, source_locale, target_locale, source_kind,
+                    managed_source_path, input_filter_id, input_format, input_sha256,
+                    source_document_id, target_document_id, alignment_session_id, status,
+                    revision, entry_count, diagnostic_count, diagnostics_json,
+                    created_at_ms, updated_at_ms, removed_at_ms
+             FROM reference_corpora WHERE id = ?1",
+            [corpus_id],
+            row_to_reference_corpus,
+        )
+        .optional()?
+        .ok_or_else(|| not_found("reference_corpus", corpus_id))
+}
+
+fn ensure_reference_corpus_active(
+    connection: &Connection,
+    corpus: &ReferenceCorpusRecord,
+) -> Result<()> {
+    if corpus.status != ReferenceCorpusStatus::Active {
+        return Err(StorageError::InvalidState(
+            "reference corpus is terminal".to_string(),
+        ));
+    }
+    let project = find_project(connection, &corpus.project_id)?;
+    if project.lifecycle != ProjectLifecycle::Active {
+        return Err(StorageError::InvalidState(
+            "reference corpus project is not active".to_string(),
+        ));
+    }
+    if project.source_locale != corpus.source_locale
+        || project.target_locale != corpus.target_locale
+    {
+        return Err(StorageError::InvalidState(
+            "reference corpus locales no longer match the project".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_reference_corpus_entry_count(
+    corpus: &ReferenceCorpusRecord,
+    actual_entry_count: usize,
+) -> Result<()> {
+    let expected_entry_count = usize::try_from(corpus.entry_count).map_err(|_| {
+        StorageError::InvalidData("reference corpus entry count does not fit usize".to_string())
+    })?;
+    if actual_entry_count != expected_entry_count {
+        return Err(StorageError::InvalidData(
+            "reference corpus stored entry count does not match its rows".to_string(),
+        ));
+    }
+    if actual_entry_count == 0 || actual_entry_count > MAX_REFERENCE_CORPUS_ENTRIES {
+        return Err(StorageError::InvalidData(
+            "active reference corpus entry count is outside configured bounds".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn update_reference_corpus_revision(
+    transaction: &Transaction<'_>,
+    corpus: &ReferenceCorpusRecord,
+    result_revision: u64,
+    result_status: ReferenceCorpusStatus,
+    now: i64,
+) -> Result<()> {
+    let result_entry_count = match result_status {
+        ReferenceCorpusStatus::Active => corpus.entry_count,
+        ReferenceCorpusStatus::Removed => 0,
+    };
+    let removed_at_ms = match result_status {
+        ReferenceCorpusStatus::Active => None,
+        ReferenceCorpusStatus::Removed => Some(now),
+    };
+    let changed = transaction.execute(
+        "UPDATE reference_corpora
+         SET status = ?1, revision = ?2, entry_count = ?3, updated_at_ms = ?4,
+             removed_at_ms = ?5
+         WHERE id = ?6 AND revision = ?7 AND status = 'active'",
+        params![
+            reference_corpus_status_text(result_status),
+            to_i64(result_revision)?,
+            i64::from(result_entry_count),
+            now,
+            removed_at_ms,
+            corpus.id,
+            to_i64(corpus.revision)?,
+        ],
+    )?;
+    if changed == 1 {
+        return Ok(());
+    }
+    let actual = find_reference_corpus(transaction, &corpus.id)?;
+    if actual.revision != corpus.revision {
+        Err(StorageError::EntityConflict {
+            entity: "reference_corpus",
+            id: corpus.id.clone(),
+            expected_revision: corpus.revision,
+            actual_revision: actual.revision,
+        })
+    } else {
+        Err(StorageError::InvalidState(
+            "reference corpus is no longer active".to_string(),
+        ))
+    }
+}
+
+fn reference_corpus_entry_count(connection: &Connection, corpus_id: &str) -> Result<usize> {
+    let count = connection.query_row(
+        "SELECT COUNT(*) FROM reference_corpus_entries WHERE corpus_id = ?1",
+        [corpus_id],
+        |row| row.get::<_, i64>(0),
+    )?;
+    usize::try_from(count)
+        .map_err(|_| StorageError::InvalidData("negative reference corpus entry count".to_string()))
+}
+
 fn update_alignment_session_revision(
     transaction: &Transaction<'_>,
     session: &AlignmentSessionRecord,
@@ -2435,7 +3854,6 @@ fn parse_alignment_link_status(
     }
 }
 
-#[cfg(test)]
 fn reference_corpus_kind_text(kind: ReferenceCorpusKind) -> &'static str {
     match kind {
         ReferenceCorpusKind::MonolingualSource => "monolingual_source",
@@ -2456,7 +3874,6 @@ fn parse_reference_corpus_kind(
     }
 }
 
-#[cfg(test)]
 fn reference_corpus_source_kind_text(kind: ReferenceCorpusSourceKind) -> &'static str {
     match kind {
         ReferenceCorpusSourceKind::File => "file",
@@ -2588,6 +4005,65 @@ mod tests {
             reason: "create deterministic alignment".to_string(),
             correlation_id: Some("alignment-correlation".to_string()),
         }
+    }
+
+    fn new_reference_entry(
+        ordinal: u32,
+        source_text: &str,
+        target_text: &str,
+        structural_path: &str,
+    ) -> NewReferenceCorpusEntry {
+        NewReferenceCorpusEntry {
+            ordinal,
+            source_text: source_text.to_string(),
+            target_text: target_text.to_string(),
+            structural_path: structural_path.to_string(),
+            provenance: json!({
+                "filterId": "builtin.txt",
+                "format": "txt",
+                "structuralPath": structural_path,
+                "row": ordinal + 1,
+            }),
+        }
+    }
+
+    fn staged_reference_source(store: &Store, contents: &str) -> (PathBuf, String) {
+        let source = store
+            .paths()
+            .managed_source(&format!("reference-corpus-{}", new_id()), "txt");
+        fs::write(&source, contents).expect("write managed reference source");
+        let sha256 = sha256_file(&source).expect("hash managed reference source");
+        (source, sha256)
+    }
+
+    fn create_file_reference_corpus(
+        store: &mut Store,
+        project: &Project,
+        name: &str,
+        kind: ReferenceCorpusKind,
+        entries: Vec<NewReferenceCorpusEntry>,
+    ) -> ReferenceCorpusMutationResult {
+        let (managed_source_path, input_sha256) =
+            staged_reference_source(store, &format!("managed source for {name}"));
+        store
+            .create_reference_corpus(NewReferenceCorpus {
+                project_id: project.id.clone(),
+                expected_project_revision: project.revision,
+                name: name.to_string(),
+                kind,
+                source_locale: project.source_locale.clone(),
+                target_locale: project.target_locale.clone(),
+                managed_source_path,
+                input_filter_id: "builtin.txt".to_string(),
+                input_format: "txt".to_string(),
+                input_sha256,
+                entries,
+                diagnostics: vec!["one bounded import diagnostic".to_string()],
+                actor: "corpus-tester".to_string(),
+                reason: "create reference corpus fixture".to_string(),
+                correlation_id: Some("corpus-correlation".to_string()),
+            })
+            .expect("create file reference corpus")
     }
 
     fn start_alignment_refinement_run(
@@ -3738,6 +5214,555 @@ mod tests {
             .expect("record rejected provider response");
         assert_eq!(failed.status, AiRunStatus::Failed);
         assert_eq!(store.ai_token_usage_since(0).expect("failed AI usage"), 12);
+    }
+
+    #[test]
+    fn file_reference_corpus_lifecycle_restarts_reindexes_and_removes_without_touching_tm() {
+        let temp = tempdir().expect("temporary storage directory");
+        let mut store = Store::open(temp.path()).expect("open store");
+        let project = store
+            .create_project("Corpus project", "en", "zh", "general")
+            .expect("create corpus project");
+        let library = store
+            .create_tm_library(NewTmLibrary {
+                name: "Unrelated TM".to_string(),
+                source_locale: "en".to_string(),
+                target_locale: "zh".to_string(),
+                domain: Some("general".to_string()),
+                writable: true,
+                owner_project_id: Some(project.id.clone()),
+            })
+            .expect("create unrelated TM");
+        store
+            .import_tm_units(
+                &library.id,
+                &[TmExchangeUnit {
+                    source_locale: "en".to_string(),
+                    target_locale: "zh".to_string(),
+                    source_text: "Unrelated TM source".to_string(),
+                    target_text: "无关 TM 源".to_string(),
+                    domain: Some("general".to_string()),
+                    author: Some("fixture".to_string()),
+                    created_at_ms: Some(10),
+                    metadata: BTreeMap::new(),
+                }],
+            )
+            .expect("insert unrelated TM unit");
+        let created = create_file_reference_corpus(
+            &mut store,
+            &project,
+            "Historical bilingual",
+            ReferenceCorpusKind::Bilingual,
+            vec![
+                new_reference_entry(0, "Alpha 42.", "阿尔法 42。", "unit:0"),
+                new_reference_entry(1, "Beta remains.", "贝塔仍在。", "unit:1"),
+            ],
+        );
+        let managed_relative = created
+            .corpus
+            .managed_source_path
+            .clone()
+            .expect("file corpus managed path");
+        let managed_absolute = temp.path().join(&managed_relative);
+        assert!(managed_absolute.is_file());
+        assert_eq!(created.corpus.entry_count, 2);
+        assert_eq!(created.corpus.diagnostic_count, 1);
+        let entries_before = store
+            .list_reference_corpus_entries(&created.corpus.id, 0, 10)
+            .expect("list created corpus entries")
+            .0;
+        let tm_before = store
+            .export_tm_units(&library.id)
+            .expect("export unrelated TM")
+            .into_iter()
+            .map(|unit| unit.id)
+            .collect::<Vec<_>>();
+        drop(store);
+
+        let mut store = Store::open(temp.path()).expect("reopen corpus store");
+        let reopened = store
+            .get_reference_corpus(&created.corpus.id)
+            .expect("reload file corpus");
+        assert_eq!(
+            reopened.managed_source_path.as_deref(),
+            Some(managed_relative.as_str())
+        );
+        assert_eq!(reopened.input_sha256.as_deref().map(str::len), Some(64));
+        assert!(temp.path().join(&managed_relative).is_file());
+        assert_eq!(
+            store
+                .search_reference_corpora(&ReferenceCorpusSearchRequest {
+                    project_id: project.id.clone(),
+                    query: "alpha".to_string(),
+                    side: ReferenceCorpusSearchSide::Both,
+                    corpus_ids: Vec::new(),
+                    offset: 0,
+                    limit: 10,
+                })
+                .expect("search reloaded corpus")
+                .total,
+            1
+        );
+
+        store
+            .connection
+            .execute(
+                "UPDATE reference_corpus_entries
+                 SET normalized_source = 'broken', normalized_target = 'broken'
+                 WHERE corpus_id = ?1",
+                [&created.corpus.id],
+            )
+            .expect("corrupt search projection for reindex fixture");
+        let reindexed = store
+            .reindex_reference_corpus(ReindexReferenceCorpus {
+                corpus_id: created.corpus.id.clone(),
+                expected_revision: reopened.revision,
+                actor: "corpus-tester".to_string(),
+                reason: "rebuild normalized projection".to_string(),
+                correlation_id: Some("reindex-correlation".to_string()),
+            })
+            .expect("reindex corpus");
+        assert_eq!(reindexed.corpus.revision, 1);
+        let entries_after_reindex = store
+            .list_reference_corpus_entries(&created.corpus.id, 0, 10)
+            .expect("list reindexed entries")
+            .0;
+        assert_eq!(entries_before.len(), entries_after_reindex.len());
+        for (before, after) in entries_before.iter().zip(&entries_after_reindex) {
+            assert_eq!(before.id, after.id);
+            assert_eq!(before.source_text, after.source_text);
+            assert_eq!(before.target_text, after.target_text);
+            assert_eq!(before.structural_path, after.structural_path);
+            assert_eq!(before.provenance, after.provenance);
+            assert_eq!(before.normalized_source, after.normalized_source);
+            assert_eq!(before.normalized_target, after.normalized_target);
+        }
+        assert_eq!(
+            store
+                .search_reference_corpora(&ReferenceCorpusSearchRequest {
+                    project_id: project.id.clone(),
+                    query: "ALPHA".to_string(),
+                    side: ReferenceCorpusSearchSide::Source,
+                    corpus_ids: vec![created.corpus.id.clone()],
+                    offset: 0,
+                    limit: 10,
+                })
+                .expect("search reindexed corpus")
+                .total,
+            1
+        );
+
+        let removed = store
+            .remove_reference_corpus(RemoveReferenceCorpus {
+                corpus_id: created.corpus.id.clone(),
+                expected_revision: reindexed.corpus.revision,
+                actor: "corpus-tester".to_string(),
+                reason: "remove obsolete corpus".to_string(),
+                correlation_id: Some("remove-correlation".to_string()),
+            })
+            .expect("remove corpus");
+        assert_eq!(removed.corpus.status, ReferenceCorpusStatus::Removed);
+        assert_eq!(removed.corpus.revision, 2);
+        assert_eq!(removed.corpus.entry_count, 0);
+        assert_eq!(removed.affected_entry_count, 2);
+        assert!(managed_absolute.is_file());
+        assert_eq!(
+            store
+                .list_reference_corpus_entries(&created.corpus.id, 0, 10)
+                .expect("list removed corpus entries")
+                .1,
+            0
+        );
+        assert_eq!(
+            store
+                .search_reference_corpora(&ReferenceCorpusSearchRequest {
+                    project_id: project.id.clone(),
+                    query: "alpha".to_string(),
+                    side: ReferenceCorpusSearchSide::Both,
+                    corpus_ids: Vec::new(),
+                    offset: 0,
+                    limit: 10,
+                })
+                .expect("search after corpus removal")
+                .total,
+            0
+        );
+        let tm_after = store
+            .export_tm_units(&library.id)
+            .expect("export TM after corpus removal")
+            .into_iter()
+            .map(|unit| unit.id)
+            .collect::<Vec<_>>();
+        assert_eq!(tm_before, tm_after);
+    }
+
+    #[test]
+    fn alignment_reference_corpus_accepts_confirmed_open_and_applied_sessions() {
+        let temp = tempdir().expect("temporary storage directory");
+        let mut store = Store::open(temp.path()).expect("open store");
+        let (session, links) = create_confirmed_alignment(&mut store);
+        let open_corpus = store
+            .create_reference_corpus_from_alignment(CreateReferenceCorpusFromAlignment {
+                project_id: session.project_id.clone(),
+                expected_project_revision: 0,
+                session_id: session.id.clone(),
+                expected_session_revision: session.revision,
+                name: "Confirmed alignment".to_string(),
+                links: links
+                    .iter()
+                    .map(|link| ExpectedAlignmentLinkRevision {
+                        link_id: link.id.clone(),
+                        expected_revision: link.revision,
+                    })
+                    .collect(),
+                actor: "corpus-tester".to_string(),
+                reason: "materialize confirmed alignment".to_string(),
+                correlation_id: Some("alignment-corpus-open".to_string()),
+            })
+            .expect("create corpus from open alignment");
+        assert_eq!(
+            open_corpus.corpus.source_kind,
+            ReferenceCorpusSourceKind::Alignment
+        );
+        assert_eq!(
+            open_corpus.corpus.alignment_session_id.as_deref(),
+            Some(session.id.as_str())
+        );
+        assert_eq!(
+            usize::try_from(open_corpus.corpus.entry_count).expect("entry count fits usize"),
+            links.len()
+        );
+        let open_entry = store
+            .list_reference_corpus_entries(&open_corpus.corpus.id, 0, 10)
+            .expect("list open alignment corpus")
+            .0
+            .into_iter()
+            .next()
+            .expect("alignment corpus entry");
+        assert_eq!(open_entry.provenance["alignmentSessionId"], session.id);
+        assert!(open_entry.provenance["sourceSegmentIds"].is_array());
+        assert!(open_entry.structural_path.starts_with("alignment:"));
+
+        let library = create_alignment_tm_library(&mut store, true, "en", "zh");
+        let applied = store
+            .apply_alignment_to_tm(alignment_apply_input(&session, &library, &links))
+            .expect("apply confirmed links before applied corpus");
+        assert_eq!(applied.status, AlignmentSessionStatus::Applied);
+        let applied_corpus = store
+            .create_reference_corpus_from_alignment(CreateReferenceCorpusFromAlignment {
+                project_id: session.project_id.clone(),
+                expected_project_revision: 0,
+                session_id: session.id.clone(),
+                expected_session_revision: applied.session_revision,
+                name: "Applied alignment".to_string(),
+                links: links
+                    .iter()
+                    .map(|link| ExpectedAlignmentLinkRevision {
+                        link_id: link.id.clone(),
+                        expected_revision: link.revision,
+                    })
+                    .collect(),
+                actor: "corpus-tester".to_string(),
+                reason: "materialize applied alignment".to_string(),
+                correlation_id: Some("alignment-corpus-applied".to_string()),
+            })
+            .expect("create corpus from applied alignment");
+        assert_eq!(
+            applied_corpus.corpus.source_kind,
+            ReferenceCorpusSourceKind::Alignment
+        );
+        assert_eq!(
+            usize::try_from(applied_corpus.corpus.entry_count).expect("entry count fits usize"),
+            links.len()
+        );
+        let applied_entry = store
+            .list_reference_corpus_entries(&applied_corpus.corpus.id, 0, 10)
+            .expect("list applied alignment corpus")
+            .0
+            .into_iter()
+            .next()
+            .expect("applied alignment corpus entry");
+        assert_eq!(
+            applied_entry.provenance["alignmentSessionRevision"],
+            applied.session_revision
+        );
+    }
+
+    #[test]
+    fn reference_corpus_search_is_ranked_and_paged_deterministically() {
+        let temp = tempdir().expect("temporary storage directory");
+        let mut store = Store::open(temp.path()).expect("open store");
+        let project = store
+            .create_project("Search corpus project", "en", "zh", "general")
+            .expect("create search project");
+        let old = create_file_reference_corpus(
+            &mut store,
+            &project,
+            "Older source",
+            ReferenceCorpusKind::MonolingualSource,
+            vec![
+                new_reference_entry(0, "needle prefix", "", "old:0"),
+                new_reference_entry(1, "needle", "", "old:1"),
+                new_reference_entry(2, "Contains needle here", "", "old:2"),
+            ],
+        );
+        let newer = create_file_reference_corpus(
+            &mut store,
+            &project,
+            "Newer source",
+            ReferenceCorpusKind::MonolingualSource,
+            vec![new_reference_entry(0, "needle", "", "new:0")],
+        );
+        let bilingual = create_file_reference_corpus(
+            &mut store,
+            &project,
+            "Newest bilingual",
+            ReferenceCorpusKind::Bilingual,
+            vec![new_reference_entry(0, "Contains needle", "needle", "bi:0")],
+        );
+        store
+            .connection
+            .execute(
+                "UPDATE reference_corpora SET updated_at_ms = CASE id
+                    WHEN ?1 THEN 100 WHEN ?2 THEN 200 WHEN ?3 THEN 300 END
+                 WHERE id IN (?1, ?2, ?3)",
+                params![old.corpus.id, newer.corpus.id, bilingual.corpus.id],
+            )
+            .expect("set deterministic corpus recency");
+
+        let result = store
+            .search_reference_corpora(&ReferenceCorpusSearchRequest {
+                project_id: project.id.clone(),
+                query: " NEEDLE ".to_string(),
+                side: ReferenceCorpusSearchSide::Both,
+                corpus_ids: Vec::new(),
+                offset: 0,
+                limit: 10,
+            })
+            .expect("search all corpora");
+        assert_eq!(result.total, 5);
+        assert_eq!(result.items[0].corpus.id, bilingual.corpus.id);
+        assert_eq!(
+            result.items[0].matched_side,
+            ReferenceCorpusMatchedSide::Target
+        );
+        assert_eq!(result.items[0].match_kind, ReferenceCorpusMatchKind::Exact);
+        assert_eq!(result.items[1].corpus.id, newer.corpus.id);
+        assert_eq!(result.items[2].corpus.id, old.corpus.id);
+        assert_eq!(result.items[2].match_kind, ReferenceCorpusMatchKind::Exact);
+        assert_eq!(result.items[3].match_kind, ReferenceCorpusMatchKind::Prefix);
+        assert_eq!(
+            result.items[4].match_kind,
+            ReferenceCorpusMatchKind::Contains
+        );
+
+        let page = store
+            .search_reference_corpora(&ReferenceCorpusSearchRequest {
+                project_id: project.id.clone(),
+                query: "needle".to_string(),
+                side: ReferenceCorpusSearchSide::Both,
+                corpus_ids: Vec::new(),
+                offset: 1,
+                limit: 2,
+            })
+            .expect("page corpus search");
+        assert_eq!(page.total, 5);
+        assert_eq!(page.items.len(), 2);
+        assert_eq!(page.items[0].corpus.id, newer.corpus.id);
+        assert_eq!(page.items[1].corpus.id, old.corpus.id);
+        let selected = store
+            .search_reference_corpora(&ReferenceCorpusSearchRequest {
+                project_id: project.id,
+                query: "needle".to_string(),
+                side: ReferenceCorpusSearchSide::Source,
+                corpus_ids: vec![old.corpus.id.clone()],
+                offset: 0,
+                limit: 10,
+            })
+            .expect("search selected corpus");
+        assert_eq!(selected.total, 3);
+        assert!(
+            selected
+                .items
+                .iter()
+                .all(|hit| hit.matched_side == ReferenceCorpusMatchedSide::Source)
+        );
+    }
+
+    #[test]
+    fn reference_corpus_rejects_invalid_shape_locale_duplicate_and_stale_inputs() {
+        let temp = tempdir().expect("temporary storage directory");
+        let mut store = Store::open(temp.path()).expect("open store");
+        let project = store
+            .create_project("Validation corpus project", "en", "zh", "general")
+            .expect("create validation project");
+        let valid = create_file_reference_corpus(
+            &mut store,
+            &project,
+            "Unique corpus",
+            ReferenceCorpusKind::MonolingualSource,
+            vec![new_reference_entry(0, "valid", "", "valid:0")],
+        );
+        let count = |store: &Store| {
+            store
+                .list_reference_corpora(&project.id, Some(ReferenceCorpusStatus::Active), 0, 10)
+                .expect("list validation corpora")
+                .1
+        };
+        let (duplicate_path, duplicate_sha) = staged_reference_source(&store, "duplicate");
+        assert!(matches!(
+            store.create_reference_corpus(NewReferenceCorpus {
+                project_id: project.id.clone(),
+                expected_project_revision: project.revision,
+                name: valid.corpus.name.clone(),
+                kind: ReferenceCorpusKind::MonolingualSource,
+                source_locale: "en".to_string(),
+                target_locale: "zh".to_string(),
+                managed_source_path: duplicate_path,
+                input_filter_id: "builtin.txt".to_string(),
+                input_format: "txt".to_string(),
+                input_sha256: duplicate_sha,
+                entries: vec![new_reference_entry(0, "duplicate", "", "duplicate:0")],
+                diagnostics: Vec::new(),
+                actor: "corpus-tester".to_string(),
+                reason: "duplicate name".to_string(),
+                correlation_id: None,
+            }),
+            Err(StorageError::InvalidState(_))
+        ));
+        assert_eq!(count(&store), 1);
+
+        let (wrong_locale_path, wrong_locale_sha) = staged_reference_source(&store, "locale");
+        assert!(matches!(
+            store.create_reference_corpus(NewReferenceCorpus {
+                project_id: project.id.clone(),
+                expected_project_revision: project.revision,
+                name: "Wrong locale".to_string(),
+                kind: ReferenceCorpusKind::MonolingualSource,
+                source_locale: "fr".to_string(),
+                target_locale: "zh".to_string(),
+                managed_source_path: wrong_locale_path,
+                input_filter_id: "builtin.txt".to_string(),
+                input_format: "txt".to_string(),
+                input_sha256: wrong_locale_sha,
+                entries: vec![new_reference_entry(0, "locale", "", "locale:0")],
+                diagnostics: Vec::new(),
+                actor: "corpus-tester".to_string(),
+                reason: "wrong locale".to_string(),
+                correlation_id: None,
+            }),
+            Err(StorageError::InvalidState(_))
+        ));
+        let (shape_path, shape_sha) = staged_reference_source(&store, "shape");
+        assert!(matches!(
+            store.create_reference_corpus(NewReferenceCorpus {
+                project_id: project.id.clone(),
+                expected_project_revision: project.revision,
+                name: "Wrong shape".to_string(),
+                kind: ReferenceCorpusKind::MonolingualSource,
+                source_locale: "en".to_string(),
+                target_locale: "zh".to_string(),
+                managed_source_path: shape_path,
+                input_filter_id: "builtin.txt".to_string(),
+                input_format: "txt".to_string(),
+                input_sha256: shape_sha,
+                entries: vec![new_reference_entry(0, "source", "target", "shape:0")],
+                diagnostics: Vec::new(),
+                actor: "corpus-tester".to_string(),
+                reason: "wrong shape".to_string(),
+                correlation_id: None,
+            }),
+            Err(StorageError::InvalidState(_))
+        ));
+        let (stale_path, stale_sha) = staged_reference_source(&store, "stale");
+        assert!(matches!(
+            store.create_reference_corpus(NewReferenceCorpus {
+                project_id: project.id.clone(),
+                expected_project_revision: 1,
+                name: "Stale project".to_string(),
+                kind: ReferenceCorpusKind::MonolingualSource,
+                source_locale: "en".to_string(),
+                target_locale: "zh".to_string(),
+                managed_source_path: stale_path,
+                input_filter_id: "builtin.txt".to_string(),
+                input_format: "txt".to_string(),
+                input_sha256: stale_sha,
+                entries: vec![new_reference_entry(0, "stale", "", "stale:0")],
+                diagnostics: Vec::new(),
+                actor: "corpus-tester".to_string(),
+                reason: "stale project".to_string(),
+                correlation_id: None,
+            }),
+            Err(StorageError::EntityConflict { .. })
+        ));
+        assert_eq!(count(&store), 1);
+    }
+
+    #[test]
+    fn later_reference_corpus_entry_failure_rolls_back_the_whole_insert() {
+        let temp = tempdir().expect("temporary storage directory");
+        let mut store = Store::open(temp.path()).expect("open store");
+        let project = store
+            .create_project("Rollback corpus project", "en", "zh", "general")
+            .expect("create rollback project");
+        let (managed_source_path, input_sha256) = staged_reference_source(&store, "rollback");
+        store
+            .connection
+            .execute_batch(
+                "CREATE TEMP TRIGGER reference_corpus_abort_second_entry
+                 BEFORE INSERT ON reference_corpus_entries
+                 WHEN (SELECT COUNT(*) FROM reference_corpus_entries
+                       WHERE corpus_id = NEW.corpus_id) >= 1
+                 BEGIN
+                     SELECT RAISE(ABORT, 'forced later reference corpus insert failure');
+                 END;",
+            )
+            .expect("install reference corpus rollback trigger");
+        let result = store.create_reference_corpus(NewReferenceCorpus {
+            project_id: project.id.clone(),
+            expected_project_revision: project.revision,
+            name: "Rollback corpus".to_string(),
+            kind: ReferenceCorpusKind::MonolingualSource,
+            source_locale: "en".to_string(),
+            target_locale: "zh".to_string(),
+            managed_source_path: managed_source_path.clone(),
+            input_filter_id: "builtin.txt".to_string(),
+            input_format: "txt".to_string(),
+            input_sha256,
+            entries: vec![
+                new_reference_entry(0, "first", "", "rollback:0"),
+                new_reference_entry(1, "second", "", "rollback:1"),
+            ],
+            diagnostics: Vec::new(),
+            actor: "corpus-tester".to_string(),
+            reason: "force rollback".to_string(),
+            correlation_id: None,
+        });
+        assert!(matches!(result, Err(StorageError::Database(_))));
+        assert_eq!(
+            store
+                .list_reference_corpora(&project.id, Some(ReferenceCorpusStatus::Active), 0, 10)
+                .expect("list corpora after rollback")
+                .1,
+            0
+        );
+        let entry_count = store
+            .connection
+            .query_row("SELECT COUNT(*) FROM reference_corpus_entries", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .expect("count entries after rollback");
+        assert_eq!(entry_count, 0);
+        let operation_count = store
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM operations WHERE kind = 'reference_corpus.import'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("count operations after rollback");
+        assert_eq!(operation_count, 0);
+        assert!(managed_source_path.is_file());
     }
 
     #[test]

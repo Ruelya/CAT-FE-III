@@ -38,3 +38,6 @@ translunar-protocol = { path = "../protocol" }
 translunar-qa-core = { path = "../qa-core" }
 translunar-storage = { path = "../storage" }
 zip.workspace = true
+
+[dev-dependencies]
+rusqlite.workspace = true

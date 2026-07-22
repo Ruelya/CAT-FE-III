@@ -24,15 +24,16 @@ use translunar_asset_core::{
     normalize_match_key,
 };
 use translunar_domain::{
-    DataHealthReport, Document, EditorPreferences, EditorWorkflowState, Project, Segment,
-    SegmentEditorRow, SegmentState, SpellFinding, state_for_target,
+    DataHealthReport, Document, EditorPreferences, EditorWorkflowState, Project, ProjectLifecycle,
+    Segment, SegmentEditorRow, SegmentState, SpellFinding, state_for_target,
 };
 use translunar_editor_core::{
     SearchOptions, TextMatch, check_user_dictionary, cjk_assistance, normalize_dictionary_word,
     spell_word_spans,
 };
 use translunar_filter_core::{
-    ExportRequest, FilterError, FilterRegistry, ImportRequest, collect_imported_document,
+    ExportRequest, FilterError, FilterRegistry, ImportRequest, ImportedDocument,
+    collect_imported_document,
 };
 use translunar_filter_docx::{
     BilingualDocxFilter, DocxError, DocxFilter,
@@ -116,14 +117,16 @@ use translunar_storage::{
     INTEROP_STRUCTURAL_PATH_METADATA, InteropApplyResult as StorageInteropApplyResult,
     InteropPreviewKind, InteropPreviewRecord, InteropPreviewRowRecord, ManagedDocument,
     NewDocument, NewInteropPreview, NewInteropPreviewRow, NewPipelineDefinition,
-    NewProjectArchiveRecord, NewReimportPreview, NewTermEntry, NewTermTranslation, NewTmLibrary,
-    ProjectArchiveData, ProjectFromTemplateResult as StorageProjectFromTemplateResult,
+    NewProjectArchiveRecord, NewReferenceCorpus, NewReferenceCorpusEntry, NewReimportPreview,
+    NewTermEntry, NewTermTranslation, NewTmLibrary, ProjectArchiveData,
+    ProjectFromTemplateResult as StorageProjectFromTemplateResult,
     ProjectTemplateRecord as StorageProjectTemplate, ProjectUpdate,
-    RecycleEntryRecord as StorageRecycleEntry, ReimportPreviewRecord as StorageReimportPreview,
-    ReplaceItem as StorageReplaceItem, ReplacePreview as StorageReplacePreview,
-    ReplaceRequest as StorageReplaceRequest, ReviewInteropApply, ReviewProposal, StorageError,
-    Store, TableInteropApply, TermSearchRequest as StorageTermSearchRequest,
-    TmSearchRequest as StorageTmSearchRequest, interop_comment_context,
+    RecycleEntryRecord as StorageRecycleEntry, ReferenceCorpusKind, ReferenceCorpusMutationResult,
+    ReimportPreviewRecord as StorageReimportPreview, ReplaceItem as StorageReplaceItem,
+    ReplacePreview as StorageReplacePreview, ReplaceRequest as StorageReplaceRequest,
+    ReviewInteropApply, ReviewProposal, StorageError, Store, TableInteropApply,
+    TermSearchRequest as StorageTermSearchRequest, TmSearchRequest as StorageTmSearchRequest,
+    interop_comment_context,
 };
 use zip::write::{SimpleFileOptions, ZipWriter};
 use zip::{CompressionMethod, ZipArchive};
@@ -347,6 +350,22 @@ fn protocol_reimport_preview(value: StorageReimportPreview) -> DocumentReimportP
         plan: value.plan,
         created_at_ms: value.created_at_ms,
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct ReferenceCorpusImportRequest {
+    pub project_id: String,
+    pub expected_project_revision: u64,
+    pub source_path: PathBuf,
+    pub name: String,
+    pub kind: ReferenceCorpusKind,
+    pub source_locale: String,
+    pub target_locale: String,
+    pub filter_id: Option<String>,
+    pub options: BTreeMap<String, String>,
+    pub actor: String,
+    pub reason: String,
+    pub correlation_id: Option<String>,
 }
 
 struct ValidatedProjectArchive {
@@ -910,6 +929,169 @@ fn validate_filter_options(options: &std::collections::BTreeMap<String, String>)
         }
     }
     Ok(())
+}
+
+fn validate_reference_corpus_import_request(
+    project: &Project,
+    request: &ReferenceCorpusImportRequest,
+) -> Result<()> {
+    if project.revision != request.expected_project_revision {
+        return Err(StorageError::EntityConflict {
+            entity: "project",
+            id: project.id.clone(),
+            expected_revision: request.expected_project_revision,
+            actual_revision: project.revision,
+        }
+        .into());
+    }
+    if project.lifecycle != ProjectLifecycle::Active {
+        return Err(EngineError::InvalidState(
+            "reference corpus import requires an active project".to_string(),
+        ));
+    }
+    if request.name.trim().is_empty()
+        || request.actor.trim().is_empty()
+        || request.reason.trim().is_empty()
+    {
+        return Err(EngineError::InvalidRequest(
+            "reference corpus name, actor, and reason are required".to_string(),
+        ));
+    }
+    if request.source_locale != project.source_locale
+        || request.target_locale != project.target_locale
+    {
+        return Err(EngineError::InvalidRequest(
+            "reference corpus locales do not match the project".to_string(),
+        ));
+    }
+    if request
+        .filter_id
+        .as_deref()
+        .is_some_and(|filter_id| filter_id.trim().is_empty())
+    {
+        return Err(EngineError::InvalidRequest(
+            "reference corpus filter ID must not be empty".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_reference_corpus_filter_locales(
+    imported: &ImportedDocument,
+    kind: ReferenceCorpusKind,
+    expected_filter_source_locale: &str,
+    target_locale: &str,
+) -> Result<()> {
+    if imported.metadata.format.trim().is_empty() {
+        return Err(EngineError::InvalidRequest(
+            "reference corpus filter returned an empty format".to_string(),
+        ));
+    }
+    if imported
+        .metadata
+        .source_locale
+        .as_deref()
+        .is_some_and(|locale| locale != expected_filter_source_locale)
+    {
+        return Err(EngineError::InvalidRequest(
+            "reference corpus input source locale does not match the selected corpus side"
+                .to_string(),
+        ));
+    }
+    if kind == ReferenceCorpusKind::Bilingual
+        && imported
+            .metadata
+            .properties
+            .get("targetLocale")
+            .is_some_and(|locale| locale != target_locale)
+    {
+        return Err(EngineError::InvalidRequest(
+            "reference corpus input target locale does not match the project".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn reference_corpus_entries_from_import(
+    imported: &ImportedDocument,
+    kind: ReferenceCorpusKind,
+    filter_id: &str,
+    input_sha256: &str,
+    input_file_name: &str,
+    options_sha256: &str,
+) -> Result<Vec<NewReferenceCorpusEntry>> {
+    if imported.units.is_empty() {
+        return Err(EngineError::InvalidRequest(
+            "reference corpus input contains no translatable units".to_string(),
+        ));
+    }
+    imported
+        .units
+        .iter()
+        .map(|unit| {
+            let target_authoritative = unit.target_text.is_some();
+            let (source_text, target_text, mapped_side) = match kind {
+                ReferenceCorpusKind::MonolingualSource => {
+                    (unit.source_text.clone(), String::new(), "source")
+                }
+                ReferenceCorpusKind::MonolingualTarget => {
+                    (String::new(), unit.source_text.clone(), "target")
+                }
+                ReferenceCorpusKind::Bilingual => {
+                    let target = unit
+                        .target_text
+                        .as_ref()
+                        .filter(|target| !target.trim().is_empty())
+                        .ok_or_else(|| {
+                            EngineError::InvalidRequest(format!(
+                                "bilingual reference corpus unit {} has no authoritative target",
+                                unit.ordinal
+                            ))
+                        })?;
+                    (unit.source_text.clone(), target.clone(), "bilingual")
+                }
+            };
+            Ok(NewReferenceCorpusEntry {
+                ordinal: unit.ordinal,
+                source_text,
+                target_text,
+                structural_path: unit.structural_path.clone(),
+                provenance: json!({
+                    "sourceKind": "file",
+                    "inputFileName": input_file_name,
+                    "inputFilterId": filter_id,
+                    "inputFormat": imported.metadata.format.as_str(),
+                    "inputSha256": input_sha256,
+                    "filterOptionsSha256": options_sha256,
+                    "mappedSide": mapped_side,
+                    "targetAuthoritative": target_authoritative,
+                    "ordinal": unit.ordinal,
+                    "structuralPath": unit.structural_path.as_str(),
+                    "inlineTagCount": unit.inline_tags.len(),
+                    "noteCount": unit.notes.len(),
+                }),
+            })
+        })
+        .collect()
+}
+
+fn reference_corpus_import_diagnostics(imported: &ImportedDocument) -> Vec<String> {
+    imported
+        .degradation
+        .iter()
+        .map(|finding| {
+            let severity = match finding.severity {
+                translunar_domain::DegradationSeverity::Warning => "warning",
+                translunar_domain::DegradationSeverity::Error => "error",
+            };
+            let code = if finding.code.trim().is_empty() {
+                "filter_degradation"
+            } else {
+                finding.code.as_str()
+            };
+            format!("{severity}:{code}")
+        })
+        .collect()
 }
 
 fn map_pdf_service_error(error: PdfError) -> EngineError {
@@ -2194,6 +2376,125 @@ impl EngineService {
                 Err(error.into())
             }
         }
+    }
+
+    pub fn import_reference_corpus(
+        &mut self,
+        request: ReferenceCorpusImportRequest,
+    ) -> Result<ReferenceCorpusMutationResult> {
+        let project = self.store.get_project(&request.project_id)?.project;
+        validate_reference_corpus_import_request(&project, &request)?;
+        let input = self.prepare_reference_corpus_import(&project, request)?;
+        let managed_source_path = input.managed_source_path.clone();
+        match self.store.create_reference_corpus(input) {
+            Ok(result) => Ok(result),
+            Err(error) => match fs::remove_file(&managed_source_path) {
+                Ok(()) => Err(error.into()),
+                Err(cleanup_error) if cleanup_error.kind() == std::io::ErrorKind::NotFound => {
+                    Err(error.into())
+                }
+                Err(cleanup_error) => Err(EngineError::InvalidState(format!(
+                    "reference corpus persistence failed and managed source cleanup failed: {cleanup_error}"
+                ))),
+            },
+        }
+    }
+
+    fn prepare_reference_corpus_import(
+        &self,
+        project: &Project,
+        request: ReferenceCorpusImportRequest,
+    ) -> Result<NewReferenceCorpus> {
+        validate_filter_options(&request.options)?;
+        if !request.source_path.is_file() {
+            return Err(EngineError::InvalidRequest(
+                "reference corpus source file does not exist".to_string(),
+            ));
+        }
+        let input_file_name = request
+            .source_path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| {
+                EngineError::InvalidRequest(
+                    "reference corpus source path must name a file".to_string(),
+                )
+            })?
+            .to_string();
+        let filter = self
+            .filters
+            .select(&request.source_path, request.filter_id.as_deref())
+            .map_err(EngineError::Import)?;
+        let descriptor = filter.descriptor();
+        let staging_id = translunar_domain::new_id();
+        let extension = request
+            .source_path
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("source");
+        let managed_source_path = self
+            .store
+            .paths()
+            .managed_source(&format!("reference-corpus-{staging_id}"), extension);
+        let mut temporary = tempfile::Builder::new()
+            .prefix("reference-corpus-import-")
+            .suffix(&format!(".{extension}"))
+            .tempfile_in(&self.store.paths().temporary)?;
+        let input_sha256 = copy_and_hash(&request.source_path, temporary.as_file_mut())?;
+        temporary.as_file().sync_all()?;
+        let filter_source_locale = match request.kind {
+            ReferenceCorpusKind::MonolingualTarget => request.target_locale.clone(),
+            ReferenceCorpusKind::MonolingualSource | ReferenceCorpusKind::Bilingual => {
+                request.source_locale.clone()
+            }
+        };
+        let stream = filter
+            .import(ImportRequest {
+                source: temporary.path().to_path_buf(),
+                document_id: Some(format!("reference-corpus-{staging_id}")),
+                source_locale: Some(filter_source_locale.clone()),
+                options: request.options.clone(),
+            })
+            .map_err(EngineError::Import)?;
+        let imported = collect_imported_document(stream).map_err(EngineError::Import)?;
+        validate_reference_corpus_filter_locales(
+            &imported,
+            request.kind,
+            &filter_source_locale,
+            &request.target_locale,
+        )?;
+        let options_sha256 = sha256_hex(&serde_json::to_vec(&request.options)?);
+        let entries = reference_corpus_entries_from_import(
+            &imported,
+            request.kind,
+            &descriptor.id,
+            &input_sha256,
+            &input_file_name,
+            &options_sha256,
+        )?;
+        let diagnostics = reference_corpus_import_diagnostics(&imported);
+        let input_format = imported.metadata.format;
+        temporary
+            .persist_noclobber(&managed_source_path)
+            .map_err(|error| EngineError::Io(error.error))?;
+        Ok(NewReferenceCorpus {
+            project_id: project.id.clone(),
+            expected_project_revision: request.expected_project_revision,
+            name: request.name,
+            kind: request.kind,
+            source_locale: request.source_locale,
+            target_locale: request.target_locale,
+            managed_source_path,
+            input_filter_id: descriptor.id,
+            input_format,
+            input_sha256,
+            entries,
+            diagnostics,
+            actor: request.actor,
+            reason: request.reason,
+            correlation_id: request.correlation_id,
+        })
     }
 
     fn prepare_document_import(
@@ -5857,6 +6158,42 @@ mod tests {
         }
     }
 
+    fn reference_corpus_import_request(
+        project: &Project,
+        source_path: &Path,
+        name: &str,
+        kind: ReferenceCorpusKind,
+        filter_id: &str,
+    ) -> ReferenceCorpusImportRequest {
+        ReferenceCorpusImportRequest {
+            project_id: project.id.clone(),
+            expected_project_revision: project.revision,
+            source_path: source_path.to_path_buf(),
+            name: name.to_string(),
+            kind,
+            source_locale: project.source_locale.clone(),
+            target_locale: project.target_locale.clone(),
+            filter_id: Some(filter_id.to_string()),
+            options: BTreeMap::new(),
+            actor: "corpus-engine-test".to_string(),
+            reason: "import filtered reference corpus fixture".to_string(),
+            correlation_id: Some("corpus-engine-correlation".to_string()),
+        }
+    }
+
+    fn managed_source_names(root: &Path) -> BTreeSet<String> {
+        fs::read_dir(root.join("sources"))
+            .expect("read managed sources")
+            .map(|entry| {
+                entry
+                    .expect("read managed source entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect()
+    }
+
     fn test_qa_override() -> translunar_protocol::QaOverrideInput {
         translunar_protocol::QaOverrideInput {
             actor: "integration-test".to_string(),
@@ -6045,6 +6382,292 @@ mod tests {
             exported_units[2].source_text,
             "This paragraph remains untranslated."
         );
+    }
+
+    #[test]
+    fn reference_corpus_import_maps_txt_source_and_target_and_survives_restart() {
+        let context = TestContext::new();
+        let source_txt = context.root.path().join("source-corpus.txt");
+        let target_txt = context.root.path().join("target-corpus.txt");
+        fs::write(&source_txt, "Alpha source.\n\nBeta source.").expect("write source corpus TXT");
+        fs::write(&target_txt, "阿尔法表达。\n\n贝塔表达。").expect("write target corpus TXT");
+        let project_id;
+        let source_corpus_id;
+        let target_corpus_id;
+        {
+            let mut service = EngineService::open(context.root.path()).expect("open engine");
+            let project = TestContext::project(&mut service);
+            project_id = project.id.clone();
+            let before = managed_source_names(context.root.path());
+            let mut source_request = reference_corpus_import_request(
+                &project,
+                &source_txt,
+                "Source expressions",
+                ReferenceCorpusKind::MonolingualSource,
+                "builtin.txt",
+            );
+            source_request
+                .options
+                .insert("segmentationMode".to_string(), "paragraph".to_string());
+            let source = service
+                .import_reference_corpus(source_request)
+                .expect("import source monolingual corpus");
+            source_corpus_id = source.corpus.id.clone();
+            assert_eq!(source.corpus.kind, ReferenceCorpusKind::MonolingualSource);
+            assert_eq!(
+                source.corpus.input_filter_id.as_deref(),
+                Some("builtin.txt")
+            );
+            assert_eq!(source.corpus.input_format.as_deref(), Some("txt"));
+            assert_eq!(source.corpus.entry_count, 2);
+            let source_entries = service
+                .store
+                .list_reference_corpus_entries(&source.corpus.id, 0, 10)
+                .expect("list source corpus entries")
+                .0;
+            assert!(
+                source_entries
+                    .iter()
+                    .all(|entry| !entry.source_text.is_empty() && entry.target_text.is_empty())
+            );
+            assert_eq!(source_entries[0].provenance["mappedSide"], "source");
+            assert_eq!(source_entries[0].provenance["inputFilterId"], "builtin.txt");
+
+            let mut target_request = reference_corpus_import_request(
+                &project,
+                &target_txt,
+                "Target expressions",
+                ReferenceCorpusKind::MonolingualTarget,
+                "builtin.txt",
+            );
+            target_request
+                .options
+                .insert("segmentationMode".to_string(), "paragraph".to_string());
+            let target = service
+                .import_reference_corpus(target_request)
+                .expect("import target monolingual corpus");
+            target_corpus_id = target.corpus.id.clone();
+            assert_eq!(target.corpus.kind, ReferenceCorpusKind::MonolingualTarget);
+            let target_entries = service
+                .store
+                .list_reference_corpus_entries(&target.corpus.id, 0, 10)
+                .expect("list target corpus entries")
+                .0;
+            assert!(
+                target_entries
+                    .iter()
+                    .all(|entry| entry.source_text.is_empty() && !entry.target_text.is_empty())
+            );
+            assert_eq!(target_entries[0].provenance["mappedSide"], "target");
+            let after = managed_source_names(context.root.path());
+            assert_eq!(after.len(), before.len() + 2);
+            assert!(
+                source
+                    .corpus
+                    .managed_source_path
+                    .as_deref()
+                    .is_some_and(|path| context.root.path().join(path).is_file())
+            );
+            assert!(
+                target
+                    .corpus
+                    .managed_source_path
+                    .as_deref()
+                    .is_some_and(|path| context.root.path().join(path).is_file())
+            );
+        }
+
+        let service = EngineService::open(context.root.path()).expect("restart engine");
+        let (corpora, total) = service
+            .store
+            .list_reference_corpora(&project_id, None, 0, 10)
+            .expect("list restarted corpora");
+        assert_eq!(total, 2);
+        assert!(corpora.iter().any(|corpus| corpus.id == source_corpus_id));
+        assert!(corpora.iter().any(|corpus| corpus.id == target_corpus_id));
+        assert_eq!(
+            service
+                .store
+                .list_reference_corpus_entries(&source_corpus_id, 0, 10)
+                .expect("reload source entries")
+                .1,
+            2
+        );
+        assert_eq!(
+            service
+                .store
+                .list_reference_corpus_entries(&target_corpus_id, 0, 10)
+                .expect("reload target entries")
+                .1,
+            2
+        );
+    }
+
+    #[test]
+    fn bilingual_reference_corpus_requires_authoritative_xliff_targets_and_locales() {
+        let context = TestContext::new();
+        let missing_target = context.root.path().join("missing-target.xliff");
+        let wrong_locale = context.root.path().join("wrong-locale.xliff");
+        let valid = context.root.path().join("valid-corpus.xliff");
+        fs::write(
+            &missing_target,
+            r#"<?xml version="1.0"?><xliff version="1.2"><file source-language="en-US" target-language="zh-CN"><body><trans-unit id="u1"><source>Hello</source><target>你好</target></trans-unit><trans-unit id="u2"><source>Bye</source></trans-unit></body></file></xliff>"#,
+        )
+        .expect("write missing-target XLIFF");
+        fs::write(
+            &wrong_locale,
+            r#"<?xml version="1.0"?><xliff version="1.2"><file source-language="en-US" target-language="fr-FR"><body><trans-unit id="u1"><source>Hello</source><target>Bonjour</target></trans-unit></body></file></xliff>"#,
+        )
+        .expect("write wrong-locale XLIFF");
+        fs::write(
+            &valid,
+            r#"<?xml version="1.0"?><xliff version="1.2"><file source-language="en-US" target-language="zh-CN"><body><trans-unit id="u1"><source>Hello</source><target>你好</target></trans-unit><trans-unit id="u2"><source>Bye</source><target>再见</target></trans-unit></body></file></xliff>"#,
+        )
+        .expect("write valid XLIFF");
+        let mut service = EngineService::open(context.root.path()).expect("open engine");
+        let project = TestContext::project(&mut service);
+        let before = managed_source_names(context.root.path());
+        assert!(matches!(
+            service.import_reference_corpus(reference_corpus_import_request(
+                &project,
+                &missing_target,
+                "Missing target",
+                ReferenceCorpusKind::Bilingual,
+                "builtin.xliff",
+            )),
+            Err(EngineError::InvalidRequest(_))
+        ));
+        assert_eq!(managed_source_names(context.root.path()), before);
+        assert!(matches!(
+            service.import_reference_corpus(reference_corpus_import_request(
+                &project,
+                &wrong_locale,
+                "Wrong target locale",
+                ReferenceCorpusKind::Bilingual,
+                "builtin.xliff",
+            )),
+            Err(EngineError::InvalidRequest(_))
+        ));
+        assert_eq!(managed_source_names(context.root.path()), before);
+
+        let corpus = service
+            .import_reference_corpus(reference_corpus_import_request(
+                &project,
+                &valid,
+                "Authoritative bilingual",
+                ReferenceCorpusKind::Bilingual,
+                "builtin.xliff",
+            ))
+            .expect("import authoritative bilingual corpus");
+        assert_eq!(corpus.corpus.entry_count, 2);
+        assert_eq!(
+            corpus.corpus.input_filter_id.as_deref(),
+            Some("builtin.xliff")
+        );
+        assert_eq!(corpus.corpus.input_format.as_deref(), Some("xliff-1.2"));
+        let entries = service
+            .store
+            .list_reference_corpus_entries(&corpus.corpus.id, 0, 10)
+            .expect("list bilingual corpus entries")
+            .0;
+        assert!(
+            entries
+                .iter()
+                .all(|entry| !entry.source_text.is_empty() && !entry.target_text.is_empty())
+        );
+        assert!(
+            entries
+                .iter()
+                .all(|entry| entry.provenance["targetAuthoritative"] == true)
+        );
+        assert_eq!(
+            managed_source_names(context.root.path()).len(),
+            before.len() + 1
+        );
+    }
+
+    #[test]
+    fn reference_corpus_import_failures_leave_no_managed_copy_or_corpus() {
+        let context = TestContext::new();
+        let valid = context.root.path().join("cleanup-valid.txt");
+        let empty = context.root.path().join("cleanup-empty.txt");
+        fs::write(&valid, "Valid corpus input.").expect("write valid cleanup fixture");
+        fs::write(&empty, "").expect("write empty cleanup fixture");
+        let mut service = EngineService::open(context.root.path()).expect("open engine");
+        let project = TestContext::project(&mut service);
+        let before = managed_source_names(context.root.path());
+
+        let mut locale_mismatch = reference_corpus_import_request(
+            &project,
+            &valid,
+            "Locale mismatch",
+            ReferenceCorpusKind::MonolingualSource,
+            "builtin.txt",
+        );
+        locale_mismatch.source_locale = "fr-FR".to_string();
+        assert!(matches!(
+            service.import_reference_corpus(locale_mismatch),
+            Err(EngineError::InvalidRequest(_))
+        ));
+        assert_eq!(managed_source_names(context.root.path()), before);
+
+        assert!(matches!(
+            service.import_reference_corpus(reference_corpus_import_request(
+                &project,
+                &valid,
+                "Unknown filter",
+                ReferenceCorpusKind::MonolingualSource,
+                "missing.filter",
+            )),
+            Err(EngineError::Import(FilterError::NotFound(_)))
+        ));
+        assert_eq!(managed_source_names(context.root.path()), before);
+        assert!(matches!(
+            service.import_reference_corpus(reference_corpus_import_request(
+                &project,
+                &empty,
+                "Empty input",
+                ReferenceCorpusKind::MonolingualSource,
+                "builtin.txt",
+            )),
+            Err(EngineError::Import(_))
+        ));
+        assert_eq!(managed_source_names(context.root.path()), before);
+
+        let failure_connection = rusqlite::Connection::open(&service.store.paths().database)
+            .expect("open failure-injection connection");
+        failure_connection
+            .execute_batch(
+                "CREATE TRIGGER reference_corpus_engine_insert_failure
+                 BEFORE INSERT ON reference_corpora
+                 BEGIN
+                     SELECT RAISE(ABORT, 'forced reference corpus persistence failure');
+                 END;",
+            )
+            .expect("install corpus persistence failure trigger");
+        assert!(
+            service
+                .import_reference_corpus(reference_corpus_import_request(
+                    &project,
+                    &valid,
+                    "Persistence failure",
+                    ReferenceCorpusKind::MonolingualSource,
+                    "builtin.txt",
+                ))
+                .is_err()
+        );
+        assert_eq!(managed_source_names(context.root.path()), before);
+        assert_eq!(
+            service
+                .store
+                .list_reference_corpora(&project.id, None, 0, 10)
+                .expect("list corpora after failures")
+                .1,
+            0
+        );
+        failure_connection
+            .execute_batch("DROP TRIGGER reference_corpus_engine_insert_failure")
+            .expect("remove corpus persistence failure trigger");
     }
 
     #[test]

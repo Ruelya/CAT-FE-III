@@ -14,7 +14,7 @@
       parsing and whole-request validation; keep accepted output proposed.
 - [x] Implement atomic/idempotent selected alignment-to-TM apply with complete
       provenance, deduplication, history, and stale/read-only/locale rollback.
-- [ ] Implement filtered corpus import staging, alignment-to-corpus creation,
+- [x] Implement filtered corpus import staging, alignment-to-corpus creation,
       list/search/reindex/remove, managed-source cleanup, provenance, and bounds.
 - [ ] Add protocol structs/catalog/dispatch/error mapping and regenerate JSON
       Schema plus TypeScript contracts; keep concordance/grounding additive.

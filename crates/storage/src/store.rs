@@ -51,9 +51,13 @@ pub use alignment::{
     AlignmentApplyDuplicate, AlignmentApplyResult, AlignmentLinkRecord, AlignmentMutationResult,
     AlignmentRefinementSelection, AlignmentSessionCreateResult, AlignmentSessionRecord,
     AlignmentSessionSegmentRecord, AlignmentSessionStatus, ApplyAlignmentToTm,
-    ExpectedAlignmentLinkRevision, ManualAlignmentPartitionLink, NewAlignmentSession,
-    ReferenceCorpusEntryRecord, ReferenceCorpusKind, ReferenceCorpusRecord,
-    ReferenceCorpusSourceKind, ReferenceCorpusStatus, ReplaceAlignmentPartition,
+    CreateReferenceCorpusFromAlignment, ExpectedAlignmentLinkRevision,
+    ManualAlignmentPartitionLink, NewAlignmentSession, NewReferenceCorpus, NewReferenceCorpusEntry,
+    ReferenceCorpusEntryRecord, ReferenceCorpusKind, ReferenceCorpusMatchKind,
+    ReferenceCorpusMatchedSide, ReferenceCorpusMutationResult, ReferenceCorpusRecord,
+    ReferenceCorpusSearchHit, ReferenceCorpusSearchRequest, ReferenceCorpusSearchResult,
+    ReferenceCorpusSearchSide, ReferenceCorpusSourceKind, ReferenceCorpusStatus,
+    ReindexReferenceCorpus, RemoveReferenceCorpus, ReplaceAlignmentPartition,
     UpdateAlignmentLinkStatus,
 };
 pub use lifecycle::{

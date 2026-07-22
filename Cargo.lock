@@ -2496,6 +2496,7 @@ dependencies = [
  "chrono",
  "clap",
  "keyring",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2",
