@@ -40,11 +40,17 @@ use crate::migrations::{LATEST_SCHEMA_VERSION, configure_connection, migrate};
 use crate::{Result, StorageError};
 
 mod ai;
+mod alignment;
 mod lifecycle;
 mod qa;
 pub use ai::{
     AiProviderProfileUpdate, AiSettingsUpdate, NewAiBatchItem, NewAiBatchRun, NewAiProviderProfile,
     NewAiRun,
+};
+pub use alignment::{
+    AlignmentLinkRecord, AlignmentSessionRecord, AlignmentSessionSegmentRecord,
+    AlignmentSessionStatus, ReferenceCorpusEntryRecord, ReferenceCorpusKind, ReferenceCorpusRecord,
+    ReferenceCorpusSourceKind, ReferenceCorpusStatus,
 };
 pub use lifecycle::{
     AnalysisProfileRecord, AnalysisRunRecord, ArchiveDocumentData, ArchiveSegmentData,

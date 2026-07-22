@@ -2724,6 +2724,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "translunar-ai-core",
+ "translunar-alignment-core",
  "translunar-asset-core",
  "translunar-domain",
  "translunar-editor-core",

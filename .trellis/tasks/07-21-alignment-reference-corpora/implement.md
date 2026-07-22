@@ -5,7 +5,7 @@
 - [x] Add `alignment-core` with bounded deterministic DP candidates, typed
       evidence, stable tie-breaking, partition validation, and quality/limit
       fixtures for `1:1`, `1:N`, `N:1`, and unaligned moves.
-- [ ] Add migration 12 plus storage models/queries for sessions, segment
+- [x] Add migration 12 plus storage models/queries for sessions, segment
       snapshots, links, corpora, and corpus entries; prove fresh/upgrade/strict/
       rollback/reopen behavior.
 - [ ] Implement revisioned session create/list/get/page and atomic manual

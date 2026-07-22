@@ -2,7 +2,7 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use crate::{Result, StorageError};
 
-pub(crate) const LATEST_SCHEMA_VERSION: u32 = 11;
+pub(crate) const LATEST_SCHEMA_VERSION: u32 = 12;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -1160,7 +1160,185 @@ CREATE INDEX interop_preview_rows_segment_idx
     ON interop_preview_rows(segment_id, preview_id);
 "#;
 
-const MIGRATIONS: [(u32, &str); 11] = [
+const MIGRATION_12: &str = r#"
+CREATE TABLE alignment_sessions (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    source_document_id TEXT NOT NULL REFERENCES documents(id),
+    target_document_id TEXT NOT NULL REFERENCES documents(id),
+    source_document_revision INTEGER NOT NULL CHECK (source_document_revision >= 0),
+    target_document_revision INTEGER NOT NULL CHECK (target_document_revision >= 0),
+    source_locale TEXT NOT NULL CHECK (length(trim(source_locale)) > 0),
+    target_locale TEXT NOT NULL CHECK (length(trim(target_locale)) > 0),
+    algorithm_version TEXT NOT NULL CHECK (length(trim(algorithm_version)) > 0),
+    status TEXT NOT NULL DEFAULT 'open'
+        CHECK (status IN ('open', 'applied', 'discarded')),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    terminal_result_json TEXT CHECK (
+        terminal_result_json IS NULL OR json_valid(terminal_result_json)
+    ),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    closed_at_ms INTEGER,
+    CHECK (source_document_id <> target_document_id),
+    CHECK (
+        (status = 'open' AND closed_at_ms IS NULL AND terminal_result_json IS NULL)
+        OR (status = 'applied' AND closed_at_ms IS NOT NULL
+            AND terminal_result_json IS NOT NULL)
+        OR (status = 'discarded' AND closed_at_ms IS NOT NULL)
+    )
+) STRICT;
+
+CREATE INDEX alignment_sessions_project_idx
+    ON alignment_sessions(project_id, status, updated_at_ms DESC, id);
+CREATE INDEX alignment_sessions_source_document_idx
+    ON alignment_sessions(source_document_id, updated_at_ms DESC, id);
+CREATE INDEX alignment_sessions_target_document_idx
+    ON alignment_sessions(target_document_id, updated_at_ms DESC, id);
+
+CREATE TABLE alignment_session_segments (
+    session_id TEXT NOT NULL REFERENCES alignment_sessions(id) ON DELETE CASCADE,
+    side TEXT NOT NULL CHECK (side IN ('source', 'target')),
+    segment_id TEXT NOT NULL CHECK (length(trim(segment_id)) > 0),
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    segment_revision INTEGER NOT NULL CHECK (segment_revision >= 0),
+    source_hash TEXT NOT NULL CHECK (length(trim(source_hash)) > 0),
+    text_snapshot TEXT NOT NULL,
+    number_signature_json TEXT NOT NULL DEFAULT '[]' CHECK (
+        json_valid(number_signature_json)
+        AND json_type(number_signature_json) = 'array'
+    ),
+    tag_signature_json TEXT NOT NULL DEFAULT '[]' CHECK (
+        json_valid(tag_signature_json)
+        AND json_type(tag_signature_json) = 'array'
+    ),
+    PRIMARY KEY(session_id, side, segment_id),
+    UNIQUE(session_id, side, ordinal)
+) STRICT;
+
+CREATE INDEX alignment_session_segments_order_idx
+    ON alignment_session_segments(session_id, side, ordinal, segment_id);
+
+CREATE TABLE alignment_links (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES alignment_sessions(id) ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    source_segment_ids_json TEXT NOT NULL CHECK (
+        json_valid(source_segment_ids_json)
+        AND json_type(source_segment_ids_json) = 'array'
+    ),
+    target_segment_ids_json TEXT NOT NULL CHECK (
+        json_valid(target_segment_ids_json)
+        AND json_type(target_segment_ids_json) = 'array'
+    ),
+    source_text TEXT NOT NULL,
+    target_text TEXT NOT NULL,
+    confidence_basis_points INTEGER NOT NULL
+        CHECK (confidence_basis_points BETWEEN 0 AND 10000),
+    evidence_json TEXT NOT NULL DEFAULT '[]' CHECK (
+        json_valid(evidence_json) AND json_type(evidence_json) = 'array'
+    ),
+    origin TEXT NOT NULL CHECK (origin IN ('deterministic', 'manual', 'ai')),
+    status TEXT NOT NULL DEFAULT 'proposed'
+        CHECK (status IN ('proposed', 'confirmed', 'rejected')),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    UNIQUE(session_id, ordinal),
+    CHECK (
+        json_array_length(source_segment_ids_json)
+        + json_array_length(target_segment_ids_json) > 0
+    )
+) STRICT;
+
+CREATE INDEX alignment_links_session_status_idx
+    ON alignment_links(session_id, status, ordinal, id);
+
+CREATE TABLE reference_corpora (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+    kind TEXT NOT NULL CHECK (
+        kind IN ('monolingual_source', 'monolingual_target', 'bilingual')
+    ),
+    source_locale TEXT NOT NULL CHECK (length(trim(source_locale)) > 0),
+    target_locale TEXT NOT NULL CHECK (length(trim(target_locale)) > 0),
+    source_kind TEXT NOT NULL CHECK (source_kind IN ('file', 'alignment')),
+    managed_source_path TEXT,
+    input_filter_id TEXT,
+    input_format TEXT,
+    input_sha256 TEXT,
+    source_document_id TEXT REFERENCES documents(id),
+    target_document_id TEXT REFERENCES documents(id),
+    alignment_session_id TEXT REFERENCES alignment_sessions(id),
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'removed')),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    entry_count INTEGER NOT NULL DEFAULT 0 CHECK (entry_count >= 0),
+    diagnostic_count INTEGER NOT NULL DEFAULT 0 CHECK (diagnostic_count >= 0),
+    diagnostics_json TEXT NOT NULL DEFAULT '[]' CHECK (
+        json_valid(diagnostics_json) AND json_type(diagnostics_json) = 'array'
+    ),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    removed_at_ms INTEGER,
+    CHECK (
+        (status = 'active' AND removed_at_ms IS NULL)
+        OR (status = 'removed' AND removed_at_ms IS NOT NULL)
+    ),
+    CHECK (
+        (source_kind = 'file'
+            AND managed_source_path IS NOT NULL
+            AND length(trim(managed_source_path)) > 0
+            AND input_filter_id IS NOT NULL
+            AND length(trim(input_filter_id)) > 0
+            AND input_format IS NOT NULL
+            AND length(trim(input_format)) > 0
+            AND input_sha256 IS NOT NULL
+            AND length(trim(input_sha256)) > 0
+            AND alignment_session_id IS NULL)
+        OR (source_kind = 'alignment'
+            AND managed_source_path IS NULL
+            AND input_filter_id IS NULL
+            AND input_format IS NULL
+            AND input_sha256 IS NULL
+            AND source_document_id IS NOT NULL
+            AND target_document_id IS NOT NULL
+            AND alignment_session_id IS NOT NULL)
+    )
+) STRICT;
+
+CREATE UNIQUE INDEX reference_corpora_active_name_idx
+    ON reference_corpora(project_id, name) WHERE status = 'active';
+CREATE INDEX reference_corpora_project_idx
+    ON reference_corpora(project_id, status, updated_at_ms DESC, id);
+CREATE INDEX reference_corpora_session_idx
+    ON reference_corpora(alignment_session_id, created_at_ms DESC, id);
+
+CREATE TABLE reference_corpus_entries (
+    id TEXT PRIMARY KEY,
+    corpus_id TEXT NOT NULL REFERENCES reference_corpora(id) ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    source_text TEXT NOT NULL DEFAULT '',
+    target_text TEXT NOT NULL DEFAULT '',
+    normalized_source TEXT NOT NULL DEFAULT '',
+    normalized_target TEXT NOT NULL DEFAULT '',
+    structural_path TEXT NOT NULL DEFAULT '',
+    provenance_json TEXT NOT NULL DEFAULT '{}' CHECK (
+        json_valid(provenance_json) AND json_type(provenance_json) = 'object'
+    ),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    UNIQUE(corpus_id, ordinal),
+    CHECK (length(trim(source_text)) > 0 OR length(trim(target_text)) > 0)
+) STRICT;
+
+CREATE INDEX reference_corpus_entries_source_idx
+    ON reference_corpus_entries(corpus_id, normalized_source, ordinal, id);
+CREATE INDEX reference_corpus_entries_target_idx
+    ON reference_corpus_entries(corpus_id, normalized_target, ordinal, id);
+"#;
+
+const MIGRATIONS: [(u32, &str); 12] = [
     (1_u32, MIGRATION_1),
     (2_u32, MIGRATION_2),
     (3_u32, MIGRATION_3),
@@ -1172,6 +1350,7 @@ const MIGRATIONS: [(u32, &str); 11] = [
     (9_u32, MIGRATION_9),
     (10_u32, MIGRATION_10),
     (11_u32, MIGRATION_11),
+    (12_u32, MIGRATION_12),
 ];
 
 pub(crate) fn configure_connection(connection: &Connection) -> Result<()> {
@@ -1231,6 +1410,10 @@ mod tests {
 
     fn create_v10(connection: &mut Connection) {
         migrate_from_to(connection, 0, 10).expect("create schema v10");
+    }
+
+    fn create_v11(connection: &mut Connection) {
+        migrate_from_to(connection, 0, 11).expect("create schema v11");
     }
 
     #[test]
@@ -1419,7 +1602,7 @@ mod tests {
     #[test]
     fn migration_11_creates_interop_preview_schema_on_fresh_database() {
         let mut connection = Connection::open_in_memory().expect("open migration database");
-        migrate(&mut connection).expect("create latest schema");
+        migrate_from_to(&mut connection, 0, 11).expect("create schema v11");
 
         let version = connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
@@ -1471,7 +1654,7 @@ mod tests {
             )
             .expect("insert migration segment");
 
-        migrate(&mut connection).expect("upgrade to schema v11");
+        migrate_from_to(&mut connection, 10, 11).expect("upgrade to schema v11");
         connection
             .execute(
                 "INSERT INTO interop_previews (
@@ -1526,7 +1709,7 @@ mod tests {
             )
             .expect("create conflicting late migration table");
 
-        assert!(migrate(&mut connection).is_err());
+        assert!(migrate_from_to(&mut connection, 10, 11).is_err());
         let version = connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
             .expect("read rolled-back version");
@@ -1540,5 +1723,297 @@ mod tests {
             )
             .expect("check rolled-back preview table");
         assert_eq!(preview_table_count, 0);
+    }
+
+    #[test]
+    fn migration_12_creates_alignment_and_corpus_schema_on_fresh_database() {
+        let mut connection = Connection::open_in_memory().expect("open migration database");
+        migrate(&mut connection).expect("create latest schema");
+
+        let version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read fresh schema version");
+        assert_eq!(version, 12);
+        let tables = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name IN (
+                    'alignment_sessions', 'alignment_session_segments', 'alignment_links',
+                    'reference_corpora', 'reference_corpus_entries'
+                 )",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("count fresh alignment and corpus tables");
+        assert_eq!(tables, 5);
+    }
+
+    #[test]
+    fn migration_12_upgrades_v11_data_and_survives_reopen() {
+        let temp = tempfile::tempdir().expect("temporary migration directory");
+        let database = temp.path().join("translunar.sqlite3");
+        let mut connection = Connection::open(&database).expect("open v11 database");
+        create_v11(&mut connection);
+        connection
+            .execute(
+                "INSERT INTO projects (
+                    id, name, source_locale, target_locale, domain, created_at_ms, updated_at_ms
+                 ) VALUES ('p12', 'Alignment', 'en', 'zh', 'general', 1, 1)",
+                [],
+            )
+            .expect("insert migration project");
+        for (document_id, name) in [("d12-source", "source.txt"), ("d12-target", "target.txt")] {
+            connection
+                .execute(
+                    "INSERT INTO documents (
+                        id, project_id, name, format, source_sha256, original_source_path,
+                        managed_source_path, segment_count, imported_at_ms
+                     ) VALUES (?1, 'p12', ?2, 'txt', 'digest', ?2, ?2, 1, 2)",
+                    (document_id, name),
+                )
+                .expect("insert migration document");
+        }
+        for (segment_id, document_id, text) in [
+            ("s12-source", "d12-source", "Source 12."),
+            ("s12-target", "d12-target", "Target 12."),
+        ] {
+            connection
+                .execute(
+                    "INSERT INTO segments (
+                        id, document_id, ordinal, structural_path, source_text, target_text,
+                        state, revision, source_hash, context_hash, updated_at_ms
+                     ) VALUES (?1, ?2, 0, 'txt:0', ?3, '', 'untranslated', 0,
+                               'source-hash', 'context-hash', 2)",
+                    (segment_id, document_id, text),
+                )
+                .expect("insert migration segment");
+        }
+
+        migrate(&mut connection).expect("upgrade to schema v12");
+        connection
+            .execute(
+                "INSERT INTO alignment_sessions (
+                    id, project_id, source_document_id, target_document_id,
+                    source_document_revision, target_document_revision, source_locale,
+                    target_locale, algorithm_version, created_at_ms, updated_at_ms
+                 ) VALUES ('alignment-12', 'p12', 'd12-source', 'd12-target', 0, 0,
+                           'en', 'zh', 'test-v1', 3, 3)",
+                [],
+            )
+            .expect("insert migrated alignment session");
+        for (side, segment_id, text) in [
+            ("source", "s12-source", "Source 12."),
+            ("target", "s12-target", "Target 12."),
+        ] {
+            connection
+                .execute(
+                    "INSERT INTO alignment_session_segments (
+                        session_id, side, segment_id, ordinal, segment_revision, source_hash,
+                        text_snapshot, number_signature_json, tag_signature_json
+                     ) VALUES ('alignment-12', ?1, ?2, 0, 0, 'source-hash', ?3,
+                               '[\"12\"]', '[]')",
+                    (side, segment_id, text),
+                )
+                .expect("insert alignment segment snapshot");
+        }
+        connection
+            .execute(
+                "INSERT INTO alignment_links (
+                    id, session_id, ordinal, source_segment_ids_json, target_segment_ids_json,
+                    source_text, target_text, confidence_basis_points, evidence_json, origin,
+                    status, created_at_ms, updated_at_ms
+                 ) VALUES ('link-12', 'alignment-12', 0, '[\"s12-source\"]',
+                           '[\"s12-target\"]', 'Source 12.', 'Target 12.', 9000, '[]',
+                           'deterministic', 'confirmed', 4, 4)",
+                [],
+            )
+            .expect("insert alignment link");
+        connection
+            .execute(
+                "INSERT INTO reference_corpora (
+                    id, project_id, name, kind, source_locale, target_locale, source_kind,
+                    source_document_id, target_document_id, alignment_session_id,
+                    entry_count, created_at_ms, updated_at_ms
+                 ) VALUES ('corpus-12', 'p12', 'Approved alignment', 'bilingual', 'en', 'zh',
+                           'alignment', 'd12-source', 'd12-target', 'alignment-12', 1, 5, 5)",
+                [],
+            )
+            .expect("insert alignment corpus");
+        connection
+            .execute(
+                "INSERT INTO reference_corpus_entries (
+                    id, corpus_id, ordinal, source_text, target_text, normalized_source,
+                    normalized_target, structural_path, provenance_json,
+                    created_at_ms, updated_at_ms
+                 ) VALUES ('entry-12', 'corpus-12', 0, 'Source 12.', 'Target 12.',
+                           'source 12.', 'target 12.', 'alignment:0',
+                           '{\"linkId\":\"link-12\"}', 5, 5)",
+                [],
+            )
+            .expect("insert corpus entry");
+        drop(connection);
+
+        let connection = Connection::open(database).expect("reopen upgraded database");
+        let version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read upgraded version");
+        assert_eq!(version, 12);
+        let reopened = connection
+            .query_row(
+                "SELECT p.name, l.status, c.status, e.source_text
+                 FROM projects p
+                 JOIN alignment_sessions s ON s.project_id = p.id
+                 JOIN alignment_links l ON l.session_id = s.id
+                 JOIN reference_corpora c ON c.alignment_session_id = s.id
+                 JOIN reference_corpus_entries e ON e.corpus_id = c.id
+                 WHERE s.id = 'alignment-12'",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .expect("read reopened alignment corpus");
+        assert_eq!(
+            reopened,
+            (
+                "Alignment".to_string(),
+                "confirmed".to_string(),
+                "active".to_string(),
+                "Source 12.".to_string(),
+            )
+        );
+    }
+
+    #[test]
+    fn migration_12_strict_constraints_reject_invalid_rows() {
+        let mut connection = Connection::open_in_memory().expect("open migration database");
+        migrate(&mut connection).expect("create latest schema");
+        connection
+            .execute(
+                "INSERT INTO projects (
+                    id, name, source_locale, target_locale, domain, created_at_ms, updated_at_ms
+                 ) VALUES ('strict-p12', 'Strict', 'en', 'zh', 'general', 1, 1)",
+                [],
+            )
+            .expect("insert strict project");
+        for document_id in ["strict-source", "strict-target"] {
+            connection
+                .execute(
+                    "INSERT INTO documents (
+                        id, project_id, name, format, source_sha256, original_source_path,
+                        managed_source_path, segment_count, imported_at_ms
+                     ) VALUES (?1, 'strict-p12', ?1, 'txt', 'digest', ?1, ?1, 0, 1)",
+                    [document_id],
+                )
+                .expect("insert strict document");
+        }
+        connection
+            .execute(
+                "INSERT INTO alignment_sessions (
+                    id, project_id, source_document_id, target_document_id,
+                    source_document_revision, target_document_revision, source_locale,
+                    target_locale, algorithm_version, created_at_ms, updated_at_ms
+                 ) VALUES ('strict-session', 'strict-p12', 'strict-source', 'strict-target',
+                           0, 0, 'en', 'zh', 'test-v1', 1, 1)",
+                [],
+            )
+            .expect("insert strict session");
+
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO alignment_links (
+                        id, session_id, ordinal, source_segment_ids_json,
+                        target_segment_ids_json, source_text, target_text,
+                        confidence_basis_points, evidence_json, origin, status,
+                        created_at_ms, updated_at_ms
+                     ) VALUES ('invalid-empty', 'strict-session', 0, '[]', '[]', '', '',
+                               0, '[]', 'deterministic', 'proposed', 1, 1)",
+                    [],
+                )
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO alignment_links (
+                        id, session_id, ordinal, source_segment_ids_json,
+                        target_segment_ids_json, source_text, target_text,
+                        confidence_basis_points, evidence_json, origin, status,
+                        created_at_ms, updated_at_ms
+                     ) VALUES ('invalid-confidence', 'strict-session', 0, '[\"s\"]', '[]',
+                               'Source', '', 10001, '[]', 'manual', 'proposed', 1, 1)",
+                    [],
+                )
+                .is_err()
+        );
+        connection
+            .execute(
+                "INSERT INTO reference_corpora (
+                    id, project_id, name, kind, source_locale, target_locale, source_kind,
+                    managed_source_path, input_filter_id, input_format, input_sha256,
+                    created_at_ms, updated_at_ms
+                 ) VALUES ('strict-corpus', 'strict-p12', 'Strict corpus',
+                           'monolingual_source', 'en', 'zh', 'file', 'corpora/strict.txt',
+                           'text', 'txt', 'digest', 1, 1)",
+                [],
+            )
+            .expect("insert strict corpus");
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO reference_corpus_entries (
+                        id, corpus_id, ordinal, source_text, target_text,
+                        normalized_source, normalized_target, provenance_json,
+                        created_at_ms, updated_at_ms
+                     ) VALUES ('invalid-entry', 'strict-corpus', 0, '  ', '', '', '',
+                               '{}', 1, 1)",
+                    [],
+                )
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute(
+                    "UPDATE reference_corpora SET status = 'removed' WHERE id = 'strict-corpus'",
+                    [],
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn migration_12_rolls_back_every_prior_statement_on_failure() {
+        let mut connection = Connection::open_in_memory().expect("open migration database");
+        create_v11(&mut connection);
+        connection
+            .execute(
+                "CREATE TABLE reference_corpus_entries (id TEXT PRIMARY KEY) STRICT",
+                [],
+            )
+            .expect("create conflicting late migration table");
+
+        assert!(migrate(&mut connection).is_err());
+        let version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read rolled-back version");
+        assert_eq!(version, 11);
+        let new_table_count = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name IN (
+                    'alignment_sessions', 'alignment_session_segments', 'alignment_links',
+                    'reference_corpora'
+                 )",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("check rolled-back migration tables");
+        assert_eq!(new_table_count, 0);
     }
 }
