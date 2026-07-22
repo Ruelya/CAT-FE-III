@@ -1,14 +1,26 @@
-use rusqlite::{OptionalExtension, Row, params};
+use std::collections::{BTreeMap, BTreeSet};
+
+use rusqlite::{Connection, OptionalExtension, Row, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use translunar_alignment_core::{
-    AlignmentEvidence, AlignmentLinkStatus, AlignmentOrigin, AlignmentSide,
+    AlignmentCandidate, AlignmentError, AlignmentEvidence, AlignmentLinkStatus, AlignmentOptions,
+    AlignmentOrigin, AlignmentPartitionLink, AlignmentPartitionSegment, AlignmentResource,
+    AlignmentSegment, AlignmentSide, PartitionLimits, validate_partition,
+};
+use translunar_domain::{
+    Document, DocumentStatus, Project, ProjectLifecycle, Segment, new_id, number_tokens,
 };
 
 use super::{
-    Store, conversion_error, not_found, read_json, read_optional_json, read_u32, read_u64, to_u32,
+    Store, append_operation, conversion_error, ensure_entity_revision, find_document, find_project,
+    next_revision, not_found, now_ms, read_json, read_optional_json, read_u32, read_u64,
+    require_nonempty, row_to_segment, to_i64, to_u32,
 };
 use crate::{Result, StorageError};
+
+const MAX_MANUAL_REPLACEMENT_LINKS: usize = 256;
+const MAX_MANUAL_GROUP_SIZE: u32 = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -134,6 +146,74 @@ pub struct ReferenceCorpusEntryRecord {
     pub provenance: Value,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewAlignmentSession {
+    pub project_id: String,
+    pub source_document_id: String,
+    pub target_document_id: String,
+    pub expected_project_revision: u64,
+    pub expected_source_document_revision: u64,
+    pub expected_target_document_revision: u64,
+    pub options: AlignmentOptions,
+    pub actor: String,
+    pub reason: String,
+    pub correlation_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlignmentSessionCreateResult {
+    pub session: AlignmentSessionRecord,
+    pub work_units: u64,
+    pub source_segment_count: u32,
+    pub target_segment_count: u32,
+    pub link_count: u32,
+    pub operation_id: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExpectedAlignmentLinkRevision {
+    pub link_id: String,
+    pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct ManualAlignmentPartitionLink {
+    pub source_segment_ids: Vec<String>,
+    pub target_segment_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReplaceAlignmentPartition {
+    pub session_id: String,
+    pub expected_session_revision: u64,
+    pub links: Vec<ExpectedAlignmentLinkRevision>,
+    pub replacement: Vec<ManualAlignmentPartitionLink>,
+    pub actor: String,
+    pub reason: String,
+    pub correlation_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdateAlignmentLinkStatus {
+    pub session_id: String,
+    pub link_id: String,
+    pub expected_session_revision: u64,
+    pub expected_link_revision: u64,
+    pub status: AlignmentLinkStatus,
+    pub actor: String,
+    pub reason: String,
+    pub correlation_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlignmentMutationResult {
+    pub session: AlignmentSessionRecord,
+    pub links: Vec<AlignmentLinkRecord>,
+    pub operation_id: Option<String>,
 }
 
 impl Store {
@@ -356,6 +436,882 @@ impl Store {
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok((records, to_u32(total)?))
     }
+
+    pub fn create_alignment_session(
+        &mut self,
+        input: NewAlignmentSession,
+    ) -> Result<AlignmentSessionCreateResult> {
+        require_nonempty("alignment project id", &input.project_id)?;
+        require_nonempty("alignment source document id", &input.source_document_id)?;
+        require_nonempty("alignment target document id", &input.target_document_id)?;
+        require_nonempty("operation actor", &input.actor)?;
+        require_nonempty("operation reason", &input.reason)?;
+
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let project = find_project(&transaction, &input.project_id)?;
+        ensure_entity_revision(
+            "project",
+            &project.id,
+            project.revision,
+            input.expected_project_revision,
+        )?;
+        if project.lifecycle != ProjectLifecycle::Active {
+            return Err(StorageError::InvalidState(
+                "alignment requires an active project".to_string(),
+            ));
+        }
+        let source_document = find_document(&transaction, &input.source_document_id)?;
+        let target_document = find_document(&transaction, &input.target_document_id)?;
+        validate_alignment_documents(
+            &project,
+            &source_document,
+            &target_document,
+            input.expected_source_document_revision,
+            input.expected_target_document_revision,
+        )?;
+
+        let source_segments = load_alignment_segments(
+            &transaction,
+            &source_document,
+            input.options.max_segments_per_side,
+        )?;
+        let target_segments = load_alignment_segments(
+            &transaction,
+            &target_document,
+            input.options.max_segments_per_side,
+        )?;
+        let source_tags = load_protected_tag_signatures(&transaction, &source_document.id)?;
+        let target_tags = load_protected_tag_signatures(&transaction, &target_document.id)?;
+        let source_input = alignment_segments(&source_segments, &source_tags);
+        let target_input = alignment_segments(&target_segments, &target_tags);
+        let plan = translunar_alignment_core::align(&source_input, &target_input, &input.options)?;
+        let session_id = new_id();
+        let now = now_ms();
+        transaction.execute(
+            "INSERT INTO alignment_sessions (
+                id, project_id, source_document_id, target_document_id,
+                source_document_revision, target_document_revision, source_locale,
+                target_locale, algorithm_version, status, revision, created_at_ms,
+                updated_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'open', 0, ?10, ?10)",
+            params![
+                session_id,
+                project.id,
+                source_document.id,
+                target_document.id,
+                to_i64(input.expected_source_document_revision)?,
+                to_i64(input.expected_target_document_revision)?,
+                project.source_locale,
+                project.target_locale,
+                translunar_alignment_core::ALGORITHM_VERSION,
+                now,
+            ],
+        )?;
+        insert_alignment_snapshots(
+            &transaction,
+            &session_id,
+            AlignmentSide::Source,
+            &source_segments,
+            &source_tags,
+        )?;
+        insert_alignment_snapshots(
+            &transaction,
+            &session_id,
+            AlignmentSide::Target,
+            &target_segments,
+            &target_tags,
+        )?;
+        for (ordinal, candidate) in plan.candidates.iter().enumerate() {
+            insert_alignment_candidate(&transaction, &session_id, ordinal, candidate, now)?;
+        }
+        let operation = append_operation(
+            &transaction,
+            &project.id,
+            "alignment_session",
+            &session_id,
+            "alignment.session.create",
+            Some(0),
+            Some(0),
+            &input.actor,
+            input.correlation_id.as_deref(),
+            None,
+            Some(json!({
+                "reason": input.reason,
+                "sourceDocumentId": source_document.id,
+                "targetDocumentId": target_document.id,
+                "sourceSegmentCount": source_segments.len(),
+                "targetSegmentCount": target_segments.len(),
+                "linkCount": plan.candidates.len(),
+                "workUnits": plan.work_units,
+            })),
+        )?;
+        let session = find_alignment_session(&transaction, &session_id)?;
+        transaction.commit()?;
+        Ok(AlignmentSessionCreateResult {
+            session,
+            work_units: plan.work_units,
+            source_segment_count: to_u32(source_segments.len())?,
+            target_segment_count: to_u32(target_segments.len())?,
+            link_count: to_u32(plan.candidates.len())?,
+            operation_id: operation.id,
+        })
+    }
+
+    pub fn replace_alignment_partition(
+        &mut self,
+        input: ReplaceAlignmentPartition,
+    ) -> Result<AlignmentMutationResult> {
+        require_nonempty("alignment session id", &input.session_id)?;
+        require_nonempty("operation actor", &input.actor)?;
+        require_nonempty("operation reason", &input.reason)?;
+        if input.links.is_empty() || input.links.len() > MAX_MANUAL_REPLACEMENT_LINKS {
+            return Err(StorageError::InvalidState(format!(
+                "alignment replacement selects 1..{MAX_MANUAL_REPLACEMENT_LINKS} links"
+            )));
+        }
+        if input.replacement.is_empty() || input.replacement.len() > MAX_MANUAL_REPLACEMENT_LINKS {
+            return Err(StorageError::InvalidState(format!(
+                "alignment replacement must contain 1..{MAX_MANUAL_REPLACEMENT_LINKS} links"
+            )));
+        }
+
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let session = find_alignment_session(&transaction, &input.session_id)?;
+        ensure_entity_revision(
+            "alignment_session",
+            &session.id,
+            session.revision,
+            input.expected_session_revision,
+        )?;
+        ensure_alignment_session_open(&session)?;
+        validate_alignment_session_documents(&transaction, &session)?;
+
+        let current_links = load_all_alignment_links(&transaction, &session.id)?;
+        let current_partition = partition_links(&current_links);
+        let source_snapshots =
+            load_all_alignment_snapshots(&transaction, &session.id, AlignmentSide::Source)?;
+        let target_snapshots =
+            load_all_alignment_snapshots(&transaction, &session.id, AlignmentSide::Target)?;
+        validate_snapshot_partition(&source_snapshots, &target_snapshots, &current_partition)?;
+        let selected_start = selected_link_range(&current_links, &input.links)?;
+        let selected_end = selected_start + input.links.len();
+        let selected = &current_links[selected_start..selected_end];
+        let source_ids = selected
+            .iter()
+            .flat_map(|link| link.source_segment_ids.iter().cloned())
+            .collect::<BTreeSet<_>>();
+        let target_ids = selected
+            .iter()
+            .flat_map(|link| link.target_segment_ids.iter().cloned())
+            .collect::<BTreeSet<_>>();
+        let source_partition = snapshots_for_ids(&source_snapshots, &source_ids);
+        let target_partition = snapshots_for_ids(&target_snapshots, &target_ids);
+        let replacement_partition = input
+            .replacement
+            .iter()
+            .map(|link| AlignmentPartitionLink {
+                source_segment_ids: link.source_segment_ids.clone(),
+                target_segment_ids: link.target_segment_ids.clone(),
+            })
+            .collect::<Vec<_>>();
+        validate_partition(
+            &partition_segments(&source_partition),
+            &partition_segments(&target_partition),
+            &replacement_partition,
+            &PartitionLimits {
+                max_links: translunar_alignment_core::HARD_MAX_PARTITION_LINKS,
+                max_group_size: MAX_MANUAL_GROUP_SIZE,
+            },
+        )?;
+
+        let source_by_id = source_snapshots
+            .iter()
+            .map(|snapshot| (snapshot.segment_id.as_str(), snapshot))
+            .collect::<BTreeMap<_, _>>();
+        let target_by_id = target_snapshots
+            .iter()
+            .map(|snapshot| (snapshot.segment_id.as_str(), snapshot))
+            .collect::<BTreeMap<_, _>>();
+        let mut replacement_records = Vec::with_capacity(input.replacement.len());
+        for link in &input.replacement {
+            let source_text = snapshot_text_for_ids(&link.source_segment_ids, &source_by_id)?;
+            let target_text = snapshot_text_for_ids(&link.target_segment_ids, &target_by_id)?;
+            let evidence = if link.source_segment_ids.is_empty() {
+                vec![AlignmentEvidence::Unaligned {
+                    side: AlignmentSide::Target,
+                    penalty_basis_points: 3_000,
+                    summary: "target group remains unaligned".to_string(),
+                }]
+            } else if link.target_segment_ids.is_empty() {
+                vec![AlignmentEvidence::Unaligned {
+                    side: AlignmentSide::Source,
+                    penalty_basis_points: 3_000,
+                    summary: "source group remains unaligned".to_string(),
+                }]
+            } else {
+                Vec::new()
+            };
+            replacement_records.push(AlignmentLinkRecord {
+                id: new_id(),
+                session_id: session.id.clone(),
+                ordinal: 0,
+                source_segment_ids: link.source_segment_ids.clone(),
+                target_segment_ids: link.target_segment_ids.clone(),
+                source_text,
+                target_text,
+                confidence_basis_points: if link.source_segment_ids.is_empty()
+                    || link.target_segment_ids.is_empty()
+                {
+                    0
+                } else {
+                    10_000
+                },
+                evidence,
+                origin: AlignmentOrigin::Manual,
+                status: AlignmentLinkStatus::Proposed,
+                revision: 0,
+                created_at_ms: now_ms(),
+                updated_at_ms: now_ms(),
+            });
+        }
+
+        let mut final_links = current_links.clone();
+        final_links.splice(selected_start..selected_end, replacement_records.clone());
+        for (ordinal, link) in final_links.iter_mut().enumerate() {
+            link.ordinal = to_u32(ordinal)?;
+        }
+        validate_snapshot_partition(
+            &source_snapshots,
+            &target_snapshots,
+            &partition_links(&final_links),
+        )?;
+
+        let offset = i64::try_from(
+            current_links
+                .len()
+                .saturating_add(final_links.len())
+                .saturating_add(1),
+        )
+        .map_err(|_| StorageError::InvalidData("alignment ordinal offset overflow".to_string()))?;
+        transaction.execute(
+            "UPDATE alignment_links SET ordinal = ordinal + ?1 WHERE session_id = ?2",
+            params![offset, session.id],
+        )?;
+        for selected_link in selected {
+            let changed = transaction.execute(
+                "DELETE FROM alignment_links WHERE id = ?1 AND session_id = ?2 AND revision = ?3",
+                params![
+                    selected_link.id,
+                    session.id,
+                    to_i64(
+                        input
+                            .links
+                            .iter()
+                            .find(|expected| expected.link_id == selected_link.id)
+                            .map(|expected| expected.expected_revision)
+                            .unwrap_or(selected_link.revision),
+                    )?,
+                ],
+            )?;
+            if changed != 1 {
+                return Err(StorageError::EntityConflict {
+                    entity: "alignment_link",
+                    id: selected_link.id.clone(),
+                    expected_revision: selected_link.revision,
+                    actual_revision: selected_link.revision.saturating_add(1),
+                });
+            }
+        }
+        for link in final_links.iter().filter(|link| {
+            current_links.iter().any(|current| current.id == link.id)
+                && !selected.iter().any(|selected| selected.id == link.id)
+        }) {
+            transaction.execute(
+                "UPDATE alignment_links SET ordinal = ?1
+                 WHERE id = ?2 AND session_id = ?3",
+                params![to_i64(u64::from(link.ordinal))?, link.id, session.id],
+            )?;
+        }
+        for link in &replacement_records {
+            let mut link = link.clone();
+            link.ordinal = final_links
+                .iter()
+                .find(|candidate| candidate.id == link.id)
+                .map(|candidate| candidate.ordinal)
+                .unwrap_or_default();
+            insert_alignment_link_record(&transaction, &link)?;
+        }
+        let result_revision = next_revision(session.revision)?;
+        update_alignment_session_revision(&transaction, &session, result_revision, now_ms())?;
+        let operation = append_operation(
+            &transaction,
+            &session.project_id,
+            "alignment_session",
+            &session.id,
+            "alignment.partition.replace",
+            Some(session.revision),
+            Some(result_revision),
+            &input.actor,
+            input.correlation_id.as_deref(),
+            Some(json!({
+                "reason": input.reason,
+                "linkIds": input.links.iter().map(|link| &link.link_id).collect::<Vec<_>>(),
+            })),
+            Some(json!({
+                "replacementLinkIds": replacement_records.iter().map(|link| &link.id).collect::<Vec<_>>(),
+                "sourceGroups": replacement_records.iter().map(|link| &link.source_segment_ids).collect::<Vec<_>>(),
+                "targetGroups": replacement_records.iter().map(|link| &link.target_segment_ids).collect::<Vec<_>>(),
+            })),
+        )?;
+        let updated_session = find_alignment_session(&transaction, &session.id)?;
+        let updated_links = load_all_alignment_links(&transaction, &session.id)?;
+        transaction.commit()?;
+        Ok(AlignmentMutationResult {
+            session: updated_session,
+            links: updated_links,
+            operation_id: Some(operation.id),
+        })
+    }
+
+    pub fn update_alignment_link_status(
+        &mut self,
+        input: UpdateAlignmentLinkStatus,
+    ) -> Result<AlignmentMutationResult> {
+        require_nonempty("alignment session id", &input.session_id)?;
+        require_nonempty("alignment link id", &input.link_id)?;
+        require_nonempty("operation actor", &input.actor)?;
+        require_nonempty("operation reason", &input.reason)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let session = find_alignment_session(&transaction, &input.session_id)?;
+        ensure_entity_revision(
+            "alignment_session",
+            &session.id,
+            session.revision,
+            input.expected_session_revision,
+        )?;
+        ensure_alignment_session_open(&session)?;
+        validate_alignment_session_documents(&transaction, &session)?;
+        let link = find_alignment_link(&transaction, &input.link_id)?;
+        if link.session_id != session.id {
+            return Err(StorageError::InvalidState(
+                "alignment link does not belong to session".to_string(),
+            ));
+        }
+        ensure_entity_revision(
+            "alignment_link",
+            &link.id,
+            link.revision,
+            input.expected_link_revision,
+        )?;
+        if link.status == input.status {
+            let links = load_all_alignment_links(&transaction, &session.id)?;
+            transaction.commit()?;
+            return Ok(AlignmentMutationResult {
+                session,
+                links,
+                operation_id: None,
+            });
+        }
+        let now = now_ms();
+        let link_revision = next_revision(link.revision)?;
+        let changed = transaction.execute(
+            "UPDATE alignment_links SET status = ?1, revision = ?2, updated_at_ms = ?3
+             WHERE id = ?4 AND session_id = ?5 AND revision = ?6",
+            params![
+                alignment_link_status_text(input.status),
+                to_i64(link_revision)?,
+                now,
+                link.id,
+                session.id,
+                to_i64(input.expected_link_revision)?,
+            ],
+        )?;
+        if changed != 1 {
+            return Err(StorageError::EntityConflict {
+                entity: "alignment_link",
+                id: input.link_id,
+                expected_revision: input.expected_link_revision,
+                actual_revision: link_revision,
+            });
+        }
+        let result_revision = next_revision(session.revision)?;
+        update_alignment_session_revision(&transaction, &session, result_revision, now)?;
+        let operation = append_operation(
+            &transaction,
+            &session.project_id,
+            "alignment_link",
+            &link.id,
+            "alignment.link.status",
+            Some(session.revision),
+            Some(result_revision),
+            &input.actor,
+            input.correlation_id.as_deref(),
+            Some(json!({
+                "reason": input.reason,
+                "status": alignment_link_status_text(link.status),
+                "linkRevision": link.revision,
+            })),
+            Some(json!({
+                "status": alignment_link_status_text(input.status),
+                "linkRevision": link_revision,
+            })),
+        )?;
+        let updated_session = find_alignment_session(&transaction, &session.id)?;
+        let links = load_all_alignment_links(&transaction, &session.id)?;
+        transaction.commit()?;
+        Ok(AlignmentMutationResult {
+            session: updated_session,
+            links,
+            operation_id: Some(operation.id),
+        })
+    }
+}
+
+fn validate_alignment_documents(
+    project: &Project,
+    source: &Document,
+    target: &Document,
+    expected_source_revision: u64,
+    expected_target_revision: u64,
+) -> Result<()> {
+    if source.id == target.id {
+        return Err(StorageError::InvalidState(
+            "alignment requires two different documents".to_string(),
+        ));
+    }
+    if source.project_id != project.id || target.project_id != project.id {
+        return Err(StorageError::InvalidState(
+            "alignment documents must belong to the selected project".to_string(),
+        ));
+    }
+    if source.status != DocumentStatus::Active || target.status != DocumentStatus::Active {
+        return Err(StorageError::InvalidState(
+            "alignment requires active documents".to_string(),
+        ));
+    }
+    ensure_entity_revision(
+        "document",
+        &source.id,
+        source.revision,
+        expected_source_revision,
+    )?;
+    ensure_entity_revision(
+        "document",
+        &target.id,
+        target.revision,
+        expected_target_revision,
+    )
+}
+
+fn validate_alignment_session_documents(
+    connection: &Connection,
+    session: &AlignmentSessionRecord,
+) -> Result<()> {
+    let project = find_project(connection, &session.project_id)?;
+    if project.lifecycle != ProjectLifecycle::Active {
+        return Err(StorageError::InvalidState(
+            "alignment session project is not active".to_string(),
+        ));
+    }
+    let source = find_document(connection, &session.source_document_id)?;
+    let target = find_document(connection, &session.target_document_id)?;
+    validate_alignment_documents(
+        &project,
+        &source,
+        &target,
+        session.source_document_revision,
+        session.target_document_revision,
+    )
+}
+
+fn load_alignment_segments(
+    connection: &Connection,
+    document: &Document,
+    maximum: u32,
+) -> Result<Vec<Segment>> {
+    let count = connection.query_row(
+        "SELECT COUNT(*) FROM segments WHERE document_id = ?1",
+        [&document.id],
+        |row| row.get::<_, i64>(0),
+    )?;
+    let count = u64::try_from(count)
+        .map_err(|_| StorageError::InvalidData("negative segment count".to_string()))?;
+    if count > u64::from(maximum) {
+        return Err(AlignmentError::ResourceLimitExceeded {
+            resource: AlignmentResource::Segments,
+            limit: u64::from(maximum),
+            actual: count,
+        }
+        .into());
+    }
+    let mut statement = connection.prepare(
+        "SELECT id, document_id, ordinal, structural_path, source_text, target_text,
+                state, revision, source_hash, context_hash, updated_at_ms
+         FROM segments WHERE document_id = ?1
+         ORDER BY ordinal, id",
+    )?;
+    statement
+        .query_map([&document.id], row_to_segment)?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(Into::into)
+}
+
+fn load_protected_tag_signatures(
+    connection: &Connection,
+    document_id: &str,
+) -> Result<BTreeMap<String, Vec<String>>> {
+    let mut statement = connection.prepare(
+        "SELECT t.segment_id, t.kind, t.pair_id
+         FROM inline_tags t
+         JOIN segments s ON s.id = t.segment_id
+         WHERE s.document_id = ?1 AND t.side = 'source' AND t.protected = 1
+         ORDER BY s.ordinal, t.position, t.id",
+    )?;
+    let rows = statement.query_map([document_id], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Option<String>>(2)?,
+        ))
+    })?;
+    let mut signatures = BTreeMap::<String, Vec<String>>::new();
+    for row in rows {
+        let (segment_id, kind, pair_id) = row?;
+        signatures.entry(segment_id).or_default().push(format!(
+            "{kind}:{}",
+            if pair_id.is_some() {
+                "paired"
+            } else {
+                "single"
+            }
+        ));
+    }
+    Ok(signatures)
+}
+
+fn alignment_segments(
+    segments: &[Segment],
+    tags: &BTreeMap<String, Vec<String>>,
+) -> Vec<AlignmentSegment> {
+    segments
+        .iter()
+        .map(|segment| AlignmentSegment {
+            id: segment.id.clone(),
+            ordinal: segment.ordinal,
+            text: segment.source_text.clone(),
+            tag_signature: tags.get(&segment.id).cloned().unwrap_or_default(),
+        })
+        .collect()
+}
+
+fn insert_alignment_snapshots(
+    transaction: &Transaction<'_>,
+    session_id: &str,
+    side: AlignmentSide,
+    segments: &[Segment],
+    tags: &BTreeMap<String, Vec<String>>,
+) -> Result<()> {
+    for segment in segments {
+        let number_signature = number_tokens(&segment.source_text);
+        let tag_signature = tags.get(&segment.id).cloned().unwrap_or_default();
+        transaction.execute(
+            "INSERT INTO alignment_session_segments (
+                session_id, side, segment_id, ordinal, segment_revision, source_hash,
+                text_snapshot, number_signature_json, tag_signature_json
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                session_id,
+                alignment_side_text(side),
+                segment.id,
+                i64::from(segment.ordinal),
+                to_i64(segment.revision)?,
+                segment.source_hash,
+                segment.source_text,
+                serde_json::to_string(&number_signature)?,
+                serde_json::to_string(&tag_signature)?,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+fn insert_alignment_candidate(
+    transaction: &Transaction<'_>,
+    session_id: &str,
+    ordinal: usize,
+    candidate: &AlignmentCandidate,
+    now: i64,
+) -> Result<()> {
+    insert_alignment_link_record(
+        transaction,
+        &AlignmentLinkRecord {
+            id: new_id(),
+            session_id: session_id.to_string(),
+            ordinal: to_u32(ordinal)?,
+            source_segment_ids: candidate.source_segment_ids.clone(),
+            target_segment_ids: candidate.target_segment_ids.clone(),
+            source_text: candidate.source_text.clone(),
+            target_text: candidate.target_text.clone(),
+            confidence_basis_points: candidate.confidence_basis_points,
+            evidence: candidate.evidence.clone(),
+            origin: candidate.origin,
+            status: candidate.status,
+            revision: 0,
+            created_at_ms: now,
+            updated_at_ms: now,
+        },
+    )
+}
+
+fn insert_alignment_link_record(
+    transaction: &Transaction<'_>,
+    link: &AlignmentLinkRecord,
+) -> Result<()> {
+    transaction.execute(
+        "INSERT INTO alignment_links (
+            id, session_id, ordinal, source_segment_ids_json, target_segment_ids_json,
+            source_text, target_text, confidence_basis_points, evidence_json, origin,
+            status, revision, created_at_ms, updated_at_ms
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        params![
+            link.id,
+            link.session_id,
+            i64::from(link.ordinal),
+            serde_json::to_string(&link.source_segment_ids)?,
+            serde_json::to_string(&link.target_segment_ids)?,
+            link.source_text,
+            link.target_text,
+            i64::from(link.confidence_basis_points),
+            serde_json::to_string(&link.evidence)?,
+            alignment_origin_text(link.origin),
+            alignment_link_status_text(link.status),
+            to_i64(link.revision)?,
+            link.created_at_ms,
+            link.updated_at_ms,
+        ],
+    )?;
+    Ok(())
+}
+
+fn find_alignment_session(
+    connection: &Connection,
+    session_id: &str,
+) -> Result<AlignmentSessionRecord> {
+    connection
+        .query_row(
+            "SELECT id, project_id, source_document_id, target_document_id,
+                    source_document_revision, target_document_revision, source_locale,
+                    target_locale, algorithm_version, status, revision,
+                    terminal_result_json, created_at_ms, updated_at_ms, closed_at_ms
+             FROM alignment_sessions WHERE id = ?1",
+            [session_id],
+            row_to_alignment_session,
+        )
+        .optional()?
+        .ok_or_else(|| not_found("alignment_session", session_id))
+}
+
+fn find_alignment_link(connection: &Connection, link_id: &str) -> Result<AlignmentLinkRecord> {
+    connection
+        .query_row(
+            "SELECT id, session_id, ordinal, source_segment_ids_json,
+                    target_segment_ids_json, source_text, target_text,
+                    confidence_basis_points, evidence_json, origin, status, revision,
+                    created_at_ms, updated_at_ms
+             FROM alignment_links WHERE id = ?1",
+            [link_id],
+            row_to_alignment_link,
+        )
+        .optional()?
+        .ok_or_else(|| not_found("alignment_link", link_id))
+}
+
+fn load_all_alignment_links(
+    connection: &Connection,
+    session_id: &str,
+) -> Result<Vec<AlignmentLinkRecord>> {
+    let mut statement = connection.prepare(
+        "SELECT id, session_id, ordinal, source_segment_ids_json,
+                target_segment_ids_json, source_text, target_text,
+                confidence_basis_points, evidence_json, origin, status, revision,
+                created_at_ms, updated_at_ms
+         FROM alignment_links WHERE session_id = ?1
+         ORDER BY ordinal, id",
+    )?;
+    statement
+        .query_map([session_id], row_to_alignment_link)?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(Into::into)
+}
+
+fn load_all_alignment_snapshots(
+    connection: &Connection,
+    session_id: &str,
+    side: AlignmentSide,
+) -> Result<Vec<AlignmentSessionSegmentRecord>> {
+    let mut statement = connection.prepare(
+        "SELECT session_id, side, segment_id, ordinal, segment_revision, source_hash,
+                text_snapshot, number_signature_json, tag_signature_json
+         FROM alignment_session_segments
+         WHERE session_id = ?1 AND side = ?2
+         ORDER BY ordinal, segment_id",
+    )?;
+    statement
+        .query_map(
+            params![session_id, alignment_side_text(side)],
+            row_to_alignment_session_segment,
+        )?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(Into::into)
+}
+
+fn ensure_alignment_session_open(session: &AlignmentSessionRecord) -> Result<()> {
+    if session.status == AlignmentSessionStatus::Open {
+        Ok(())
+    } else {
+        Err(StorageError::InvalidState(
+            "alignment session is terminal".to_string(),
+        ))
+    }
+}
+
+fn partition_segments(
+    snapshots: &[AlignmentSessionSegmentRecord],
+) -> Vec<AlignmentPartitionSegment> {
+    snapshots
+        .iter()
+        .map(|snapshot| AlignmentPartitionSegment {
+            id: snapshot.segment_id.clone(),
+            ordinal: snapshot.ordinal,
+        })
+        .collect()
+}
+
+fn partition_links(links: &[AlignmentLinkRecord]) -> Vec<AlignmentPartitionLink> {
+    links
+        .iter()
+        .map(|link| AlignmentPartitionLink {
+            source_segment_ids: link.source_segment_ids.clone(),
+            target_segment_ids: link.target_segment_ids.clone(),
+        })
+        .collect()
+}
+
+fn validate_snapshot_partition(
+    source: &[AlignmentSessionSegmentRecord],
+    target: &[AlignmentSessionSegmentRecord],
+    links: &[AlignmentPartitionLink],
+) -> Result<()> {
+    validate_partition(
+        &partition_segments(source),
+        &partition_segments(target),
+        links,
+        &PartitionLimits {
+            max_links: translunar_alignment_core::HARD_MAX_PARTITION_LINKS,
+            max_group_size: MAX_MANUAL_GROUP_SIZE,
+        },
+    )?;
+    Ok(())
+}
+
+fn selected_link_range(
+    current: &[AlignmentLinkRecord],
+    expected: &[ExpectedAlignmentLinkRevision],
+) -> Result<usize> {
+    let unique = expected
+        .iter()
+        .map(|link| link.link_id.as_str())
+        .collect::<BTreeSet<_>>();
+    if unique.len() != expected.len() {
+        return Err(StorageError::InvalidState(
+            "alignment replacement link IDs must be unique".to_string(),
+        ));
+    }
+    let start = current
+        .iter()
+        .position(|link| link.id == expected[0].link_id)
+        .ok_or_else(|| not_found("alignment_link", &expected[0].link_id))?;
+    let end = start.saturating_add(expected.len());
+    if end > current.len() {
+        return Err(StorageError::InvalidState(
+            "alignment replacement links are not contiguous".to_string(),
+        ));
+    }
+    for (current, expected) in current[start..end].iter().zip(expected) {
+        if current.id != expected.link_id {
+            return Err(StorageError::InvalidState(
+                "alignment replacement links are not contiguous and ordered".to_string(),
+            ));
+        }
+        ensure_entity_revision(
+            "alignment_link",
+            &current.id,
+            current.revision,
+            expected.expected_revision,
+        )?;
+    }
+    Ok(start)
+}
+
+fn snapshots_for_ids(
+    snapshots: &[AlignmentSessionSegmentRecord],
+    ids: &BTreeSet<String>,
+) -> Vec<AlignmentSessionSegmentRecord> {
+    snapshots
+        .iter()
+        .filter(|snapshot| ids.contains(&snapshot.segment_id))
+        .cloned()
+        .collect()
+}
+
+fn snapshot_text_for_ids(
+    ids: &[String],
+    snapshots: &BTreeMap<&str, &AlignmentSessionSegmentRecord>,
+) -> Result<String> {
+    ids.iter()
+        .map(|id| {
+            snapshots
+                .get(id.as_str())
+                .map(|snapshot| snapshot.text_snapshot.as_str())
+                .ok_or_else(|| not_found("alignment_session_segment", id))
+        })
+        .collect::<Result<Vec<_>>>()
+        .map(|texts| texts.join("\n"))
+}
+
+fn update_alignment_session_revision(
+    transaction: &Transaction<'_>,
+    session: &AlignmentSessionRecord,
+    result_revision: u64,
+    now: i64,
+) -> Result<()> {
+    let changed = transaction.execute(
+        "UPDATE alignment_sessions SET revision = ?1, updated_at_ms = ?2
+         WHERE id = ?3 AND revision = ?4 AND status = 'open'",
+        params![
+            to_i64(result_revision)?,
+            now,
+            session.id,
+            to_i64(session.revision)?,
+        ],
+    )?;
+    if changed == 1 {
+        Ok(())
+    } else {
+        let actual = find_alignment_session(transaction, &session.id)?.revision;
+        Err(StorageError::EntityConflict {
+            entity: "alignment_session",
+            id: session.id.clone(),
+            expected_revision: session.revision,
+            actual_revision: actual,
+        })
+    }
 }
 
 fn row_to_alignment_session(row: &Row<'_>) -> rusqlite::Result<AlignmentSessionRecord> {
@@ -496,7 +1452,6 @@ fn parse_alignment_session_status(
     }
 }
 
-#[cfg(test)]
 fn alignment_origin_text(origin: AlignmentOrigin) -> &'static str {
     match origin {
         AlignmentOrigin::Deterministic => "deterministic",
@@ -604,6 +1559,289 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    fn seed_alignment_documents(store: &Store) {
+        store
+            .connection
+            .execute(
+                "INSERT INTO projects (
+                    id, name, source_locale, target_locale, domain, created_at_ms, updated_at_ms
+                 ) VALUES ('alignment-p', 'Alignment project', 'en', 'zh', 'general', 1, 1)",
+                [],
+            )
+            .expect("insert alignment project");
+        for document_id in ["alignment-source", "alignment-target"] {
+            store
+                .connection
+                .execute(
+                    "INSERT INTO documents (
+                        id, project_id, name, format, source_sha256, original_source_path,
+                        managed_source_path, segment_count, imported_at_ms
+                     ) VALUES (?1, 'alignment-p', ?1, 'txt', 'digest', ?1, ?1, 2, 1)",
+                    [document_id],
+                )
+                .expect("insert alignment document");
+        }
+        for (segment_id, document_id, ordinal, text) in [
+            ("alignment-s1", "alignment-source", 0_i64, "Alpha 42."),
+            (
+                "alignment-s2",
+                "alignment-source",
+                1_i64,
+                "Beta remains active.",
+            ),
+            ("alignment-t1", "alignment-target", 0_i64, "Alpha 42."),
+            (
+                "alignment-t2",
+                "alignment-target",
+                1_i64,
+                "Beta remains active.",
+            ),
+        ] {
+            store
+                .connection
+                .execute(
+                    "INSERT INTO segments (
+                        id, document_id, ordinal, structural_path, source_text, target_text,
+                        state, revision, source_hash, context_hash, updated_at_ms
+                     ) VALUES (?1, ?2, ?3, ?1, ?4, '', 'untranslated', 0, ?1, ?1, 1)",
+                    params![segment_id, document_id, ordinal, text],
+                )
+                .expect("insert alignment segment");
+        }
+        for (tag_id, segment_id, pair_id) in [
+            ("alignment-tag-source", "alignment-s1", "source-pair"),
+            ("alignment-tag-target", "alignment-t1", "target-pair"),
+        ] {
+            store
+                .connection
+                .execute(
+                    "INSERT INTO inline_tags (
+                        id, segment_id, side, position, kind, pair_id, payload,
+                        display_text, protected
+                     ) VALUES (?1, ?2, 'source', 0, 'start', ?3, '<b>', '<b>', 1)",
+                    (tag_id, segment_id, pair_id),
+                )
+                .expect("insert protected alignment tag");
+        }
+    }
+
+    fn new_alignment_session() -> NewAlignmentSession {
+        NewAlignmentSession {
+            project_id: "alignment-p".to_string(),
+            source_document_id: "alignment-source".to_string(),
+            target_document_id: "alignment-target".to_string(),
+            expected_project_revision: 0,
+            expected_source_document_revision: 0,
+            expected_target_document_revision: 0,
+            options: AlignmentOptions::default(),
+            actor: "alignment-tester".to_string(),
+            reason: "create deterministic alignment".to_string(),
+            correlation_id: Some("alignment-correlation".to_string()),
+        }
+    }
+
+    #[test]
+    fn session_create_manual_partition_and_status_are_atomic_and_durable() {
+        let temp = tempdir().expect("temporary storage directory");
+        let mut store = Store::open(temp.path()).expect("open store");
+        seed_alignment_documents(&store);
+
+        let created = store
+            .create_alignment_session(new_alignment_session())
+            .expect("create alignment session");
+        assert_eq!(created.session.revision, 0);
+        assert_eq!(created.link_count, 2);
+        let (source_snapshots, source_total) = store
+            .list_alignment_session_segments(&created.session.id, AlignmentSide::Source, 0, 10)
+            .expect("list source snapshots");
+        assert_eq!(source_total, 2);
+        assert_eq!(source_snapshots[0].number_signature, ["42"]);
+        assert_eq!(source_snapshots[0].tag_signature, ["start:paired"]);
+        let (initial_links, initial_total) = store
+            .list_alignment_links(&created.session.id, None, 0, 10)
+            .expect("list deterministic links");
+        assert_eq!(initial_total, 2);
+
+        let replaced = store
+            .replace_alignment_partition(ReplaceAlignmentPartition {
+                session_id: created.session.id.clone(),
+                expected_session_revision: 0,
+                links: initial_links
+                    .iter()
+                    .map(|link| ExpectedAlignmentLinkRevision {
+                        link_id: link.id.clone(),
+                        expected_revision: link.revision,
+                    })
+                    .collect(),
+                replacement: vec![ManualAlignmentPartitionLink {
+                    source_segment_ids: vec![
+                        "alignment-s1".to_string(),
+                        "alignment-s2".to_string(),
+                    ],
+                    target_segment_ids: vec![
+                        "alignment-t1".to_string(),
+                        "alignment-t2".to_string(),
+                    ],
+                }],
+                actor: "alignment-tester".to_string(),
+                reason: "merge aligned clauses".to_string(),
+                correlation_id: Some("alignment-replace".to_string()),
+            })
+            .expect("replace alignment partition");
+        assert_eq!(replaced.session.revision, 1);
+        assert_eq!(replaced.links.len(), 1);
+        assert_eq!(replaced.links[0].origin, AlignmentOrigin::Manual);
+        assert_eq!(replaced.links[0].status, AlignmentLinkStatus::Proposed);
+        let manual_link = replaced.links[0].clone();
+
+        let malformed = store.replace_alignment_partition(ReplaceAlignmentPartition {
+            session_id: created.session.id.clone(),
+            expected_session_revision: 1,
+            links: vec![ExpectedAlignmentLinkRevision {
+                link_id: manual_link.id.clone(),
+                expected_revision: 0,
+            }],
+            replacement: vec![
+                ManualAlignmentPartitionLink {
+                    source_segment_ids: vec!["alignment-s1".to_string()],
+                    target_segment_ids: vec!["alignment-t1".to_string()],
+                },
+                ManualAlignmentPartitionLink {
+                    source_segment_ids: vec![
+                        "alignment-s1".to_string(),
+                        "alignment-s2".to_string(),
+                    ],
+                    target_segment_ids: vec!["alignment-t2".to_string()],
+                },
+            ],
+            actor: "alignment-tester".to_string(),
+            reason: "invalid duplicate member".to_string(),
+            correlation_id: None,
+        });
+        assert!(matches!(
+            malformed,
+            Err(StorageError::Alignment(
+                AlignmentError::DuplicatePartitionMember { .. }
+            ))
+        ));
+        assert_eq!(
+            store
+                .get_alignment_session(&created.session.id)
+                .expect("reload unchanged session")
+                .revision,
+            1
+        );
+        assert_eq!(
+            store
+                .list_alignment_links(&created.session.id, None, 0, 10)
+                .expect("reload unchanged links")
+                .1,
+            1
+        );
+
+        let confirmed = store
+            .update_alignment_link_status(UpdateAlignmentLinkStatus {
+                session_id: created.session.id.clone(),
+                link_id: manual_link.id.clone(),
+                expected_session_revision: 1,
+                expected_link_revision: 0,
+                status: AlignmentLinkStatus::Confirmed,
+                actor: "alignment-tester".to_string(),
+                reason: "confirm reviewed link".to_string(),
+                correlation_id: Some("alignment-confirm".to_string()),
+            })
+            .expect("confirm alignment link");
+        assert_eq!(confirmed.session.revision, 2);
+        assert_eq!(confirmed.links[0].revision, 1);
+        assert_eq!(confirmed.links[0].status, AlignmentLinkStatus::Confirmed);
+
+        let stale = store.update_alignment_link_status(UpdateAlignmentLinkStatus {
+            session_id: created.session.id.clone(),
+            link_id: manual_link.id.clone(),
+            expected_session_revision: 2,
+            expected_link_revision: 0,
+            status: AlignmentLinkStatus::Rejected,
+            actor: "alignment-tester".to_string(),
+            reason: "stale rejection".to_string(),
+            correlation_id: None,
+        });
+        assert!(matches!(
+            stale,
+            Err(StorageError::EntityConflict {
+                entity: "alignment_link",
+                expected_revision: 0,
+                actual_revision: 1,
+                ..
+            })
+        ));
+        drop(store);
+
+        let store = Store::open(temp.path()).expect("reopen store");
+        let session = store
+            .get_alignment_session(&created.session.id)
+            .expect("reload session after restart");
+        assert_eq!(session.revision, 2);
+        let link = store
+            .get_alignment_link(&manual_link.id)
+            .expect("reload confirmed link");
+        assert_eq!(link.status, AlignmentLinkStatus::Confirmed);
+        assert_eq!(link.revision, 1);
+        let operation_kinds = {
+            let mut statement = store
+                .connection
+                .prepare(
+                    "SELECT kind FROM operations
+                     WHERE project_id = 'alignment-p' ORDER BY sequence",
+                )
+                .expect("prepare alignment operation query");
+            statement
+                .query_map([], |row| row.get::<_, String>(0))
+                .expect("query alignment operations")
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .expect("collect alignment operations")
+        };
+        assert_eq!(
+            operation_kinds,
+            [
+                "alignment.session.create",
+                "alignment.partition.replace",
+                "alignment.link.status",
+            ]
+        );
+    }
+
+    #[test]
+    fn stale_session_create_writes_nothing() {
+        let temp = tempdir().expect("temporary storage directory");
+        let mut store = Store::open(temp.path()).expect("open store");
+        seed_alignment_documents(&store);
+        let mut input = new_alignment_session();
+        input.expected_source_document_revision = 9;
+
+        assert!(matches!(
+            store.create_alignment_session(input),
+            Err(StorageError::EntityConflict {
+                entity: "document",
+                expected_revision: 9,
+                actual_revision: 0,
+                ..
+            })
+        ));
+        let session_count = store
+            .connection
+            .query_row("SELECT COUNT(*) FROM alignment_sessions", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .expect("count alignment sessions");
+        let operation_count = store
+            .connection
+            .query_row("SELECT COUNT(*) FROM operations", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .expect("count alignment operations");
+        assert_eq!((session_count, operation_count), (0, 0));
+    }
 
     #[test]
     fn typed_alignment_and_corpus_queries_survive_reopen() {

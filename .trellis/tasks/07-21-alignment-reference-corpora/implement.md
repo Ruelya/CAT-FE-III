@@ -8,7 +8,7 @@
 - [x] Add migration 12 plus storage models/queries for sessions, segment
       snapshots, links, corpora, and corpus entries; prove fresh/upgrade/strict/
       rollback/reopen behavior.
-- [ ] Implement revisioned session create/list/get/page and atomic manual
+- [x] Implement revisioned session create/list/get/page and atomic manual
       replace/status mutations with one-owner/non-crossing/order invariants.
 - [ ] Implement optional bounded provider-backed refinement with strict JSON
       parsing and whole-request validation; keep accepted output proposed.

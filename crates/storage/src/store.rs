@@ -48,9 +48,12 @@ pub use ai::{
     NewAiRun,
 };
 pub use alignment::{
-    AlignmentLinkRecord, AlignmentSessionRecord, AlignmentSessionSegmentRecord,
-    AlignmentSessionStatus, ReferenceCorpusEntryRecord, ReferenceCorpusKind, ReferenceCorpusRecord,
-    ReferenceCorpusSourceKind, ReferenceCorpusStatus,
+    AlignmentLinkRecord, AlignmentMutationResult, AlignmentSessionCreateResult,
+    AlignmentSessionRecord, AlignmentSessionSegmentRecord, AlignmentSessionStatus,
+    ExpectedAlignmentLinkRevision, ManualAlignmentPartitionLink, NewAlignmentSession,
+    ReferenceCorpusEntryRecord, ReferenceCorpusKind, ReferenceCorpusRecord,
+    ReferenceCorpusSourceKind, ReferenceCorpusStatus, ReplaceAlignmentPartition,
+    UpdateAlignmentLinkStatus,
 };
 pub use lifecycle::{
     AnalysisProfileRecord, AnalysisRunRecord, ArchiveDocumentData, ArchiveSegmentData,

@@ -1,4 +1,5 @@
 use thiserror::Error;
+use translunar_alignment_core::AlignmentError;
 
 pub type Result<T> = std::result::Result<T, StorageError>;
 
@@ -12,6 +13,9 @@ pub enum StorageError {
 
     #[error("stored JSON is invalid: {0}")]
     Json(#[from] serde_json::Error),
+
+    #[error("alignment validation failed: {0}")]
+    Alignment(#[from] AlignmentError),
 
     #[error("{entity} not found: {id}")]
     NotFound { entity: &'static str, id: String },
