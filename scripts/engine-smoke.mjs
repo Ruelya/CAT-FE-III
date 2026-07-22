@@ -2,12 +2,14 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { rm } from "node:fs/promises";
 import { Buffer } from "node:buffer";
+import { inflateRawSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -48,9 +50,14 @@ async function main() {
   const markdownPath = join(dataDirectory, "sample.md");
   const htmlPath = join(dataDirectory, "sample.html");
   const xliffPath = join(dataDirectory, "sample.xlf");
+  const sdlxliffPath = join(dataDirectory, "sample.sdlxliff");
+  const mqxliffPath = join(dataDirectory, "sample.mqxliff");
+  const mqxlzPath = join(dataDirectory, "sample.mqxlz");
   const xlsxPath = join(dataDirectory, "sample.xlsx");
   const pptxPath = join(dataDirectory, "sample.pptx");
   const malformedXliffPath = join(dataDirectory, "malformed.xlf");
+  const malformedSdlxliffPath = join(dataDirectory, "malformed.sdlxliff");
+  const malformedMqxlzPath = join(dataDirectory, "malformed.mqxlz");
   const malformedXlsxPath = join(dataDirectory, "malformed.xlsx");
   const malformedPptxPath = join(dataDirectory, "malformed.pptx");
   const textOutputPath = join(dataDirectory, "translated.txt");
@@ -58,6 +65,9 @@ async function main() {
   const markdownOutputPath = join(dataDirectory, "translated.md");
   const htmlOutputPath = join(dataDirectory, "translated.html");
   const xliffOutputPath = join(dataDirectory, "translated.xlf");
+  const sdlxliffOutputPath = join(dataDirectory, "translated.sdlxliff");
+  const mqxliffOutputPath = join(dataDirectory, "translated.mqxliff");
+  const mqxlzOutputPath = join(dataDirectory, "translated.mqxlz");
   const xlsxOutputPath = join(dataDirectory, "translated.xlsx");
   const pptxOutputPath = join(dataDirectory, "translated.pptx");
   const pdfTextOutputPath = join(dataDirectory, "text-layout-translated.docx");
@@ -106,6 +116,26 @@ async function main() {
       xliffPath,
       '<xliff version="2.1" srcLang="en" trgLang="zh" xmlns="urn:oasis:names:tc:xliff:document:2.1"><file id="f"><unit id="u"><segment id="s"><source>Hello <ph id="p"/> world</source></segment></unit></file></xliff>',
       "utf8",
+    );
+    writeFileSync(
+      sdlxliffPath,
+      '<xliff version="1.2" xmlns:sdl="urn:sdl" xmlns:x="urn:opaque"><file id="f" source-language="en" target-language="zh"><body><trans-unit id="u" sdl:locked="true"><source>SDL <g id="1">source</g></source><target state="translated">SDL <g id="1">target</g></target><note from="reviewer">Keep SDL tone</note><x:meta keep="yes"/></trans-unit></body></file></xliff>',
+      "utf8",
+    );
+    writeFileSync(
+      mqxliffPath,
+      '<xliff version="2.0" srcLang="en" trgLang="zh" xmlns="urn:oasis:names:tc:xliff:document:2.0" xmlns:mq="urn:memoq"><file id="f"><unit id="u"><segment id="s" mq:status="Confirmed"><source>memoQ <ph id="1"/>source</source><target>memoQ <ph id="1"/>target</target><mq:metadata keep="yes"/></segment></unit></file></xliff>',
+      "utf8",
+    );
+    writeFileSync(
+      mqxlzPath,
+      makeZip([
+        [
+          "documents/main.mqxliff",
+          '<xliff version="1.2" xmlns:mq="urn:memoq"><file id="f" source-language="en" target-language="zh"><body><trans-unit id="u" mq:status="Translated"><source>Package source</source><target>Package target</target></trans-unit></body></file></xliff>',
+        ],
+        ["resources/opaque.bin", Buffer.from("opaque-mqxlz-payload")],
+      ]),
     );
     writeFileSync(
       xlsxPath,
@@ -163,6 +193,27 @@ async function main() {
         filterId: "builtin.xliff",
         targetText: "你好世界",
         outputPath: xliffOutputPath,
+        expectedSegments: 1,
+      },
+      {
+        sourcePath: sdlxliffPath,
+        filterId: "builtin.sdlxliff",
+        targetText: "SDL 新译文",
+        outputPath: sdlxliffOutputPath,
+        expectedSegments: 1,
+      },
+      {
+        sourcePath: mqxliffPath,
+        filterId: "builtin.mqxliff",
+        targetText: "memoQ 新译文",
+        outputPath: mqxliffOutputPath,
+        expectedSegments: 1,
+      },
+      {
+        sourcePath: mqxlzPath,
+        filterId: "builtin.mqxlz",
+        targetText: "包内新译文",
+        outputPath: mqxlzOutputPath,
         expectedSegments: 1,
       },
       {
@@ -247,8 +298,28 @@ async function main() {
       });
     }
     writeFileSync(malformedXliffPath, '<xliff version="2.1"><file>', "utf8");
+    writeFileSync(
+      malformedSdlxliffPath,
+      '<!DOCTYPE xliff SYSTEM "remote.dtd"><xliff version="1.2"/>',
+      "utf8",
+    );
+    writeFileSync(
+      malformedMqxlzPath,
+      makeZip([
+        [
+          "documents/main.mqxliff",
+          '<xliff version="1.2"><file id="f"><body><trans-unit id="u"><source>Unsafe</source></trans-unit></body></file></xliff>',
+        ],
+        ["../escape.bin", Buffer.from("escape")],
+      ]),
+    );
     writeFileSync(malformedXlsxPath, "not a zip", "utf8");
     writeFileSync(malformedPptxPath, "not a zip", "utf8");
+    const documentsBeforeMalformed = await processHandle.call("document.list", {
+      projectId: project.id,
+      offset: 0,
+      limit: 100,
+    });
     try {
       await processHandle.call("document.import", {
         projectId: project.id,
@@ -261,7 +332,12 @@ async function main() {
         "malformed XLIFF should return a typed import error",
       );
     }
-    for (const malformedPath of [malformedXlsxPath, malformedPptxPath]) {
+    for (const malformedPath of [
+      malformedSdlxliffPath,
+      malformedMqxlzPath,
+      malformedXlsxPath,
+      malformedPptxPath,
+    ]) {
       try {
         await processHandle.call("document.import", {
           projectId: project.id,
@@ -271,10 +347,19 @@ async function main() {
       } catch (error) {
         assert(
           error?.code === "unsupported_document",
-          "malformed Office package should return a typed import error",
+          "malformed format should return a typed import error",
         );
       }
     }
+    const documentsAfterMalformed = await processHandle.call("document.list", {
+      projectId: project.id,
+      offset: 0,
+      limit: 100,
+    });
+    assert(
+      documentsAfterMalformed.total === documentsBeforeMalformed.total,
+      "failed vendor imports must not persist partial documents",
+    );
     const libraries = await processHandle.call("tm.library.list", {
       projectId: project.id,
       offset: 0,
@@ -482,12 +567,13 @@ async function main() {
     });
     const filters = await processHandle.call("filter.list", {});
     assert(
-      filters.filters.length === 8,
+      filters.filters.length === 13,
       "all built-in filters should register",
     );
     assert(
       [
         "builtin.docx",
+        "builtin.bilingual-docx",
         "builtin.html",
         "builtin.markdown",
         "builtin.pdf",
@@ -495,6 +581,10 @@ async function main() {
         "builtin.txt",
         "builtin.xliff",
         "builtin.xlsx",
+        "builtin.bilingual-xlsx",
+        "builtin.sdlxliff",
+        "builtin.mqxliff",
+        "builtin.mqxlz",
       ].every((id) => filters.filters.some((filter) => filter.id === id)),
       "filter catalog should contain every P0 text filter",
     );
@@ -503,7 +593,10 @@ async function main() {
       offset: 0,
       limit: 50,
     });
-    assert(documents.total === 11, "eleven logical documents should be listed");
+    assert(
+      documents.total === 14,
+      "fourteen logical documents should be listed",
+    );
     const page = await processHandle.call("segment.list", {
       documentId: document.id,
       offset: 0,
@@ -938,12 +1031,19 @@ async function main() {
       "split TXT should collapse to its safe structural path on export",
     );
 
+    const interopEvidence = await exerciseInteropBeforeRestart(
+      processHandle,
+      dataDirectory,
+      project,
+    );
+
     await processHandle.stop();
     processHandle = await EngineProcess.start(binary, dataDirectory);
     await processHandle.call("engine.initialize", {
       protocolVersion: 1,
       client: { name: "engine-smoke", version: "0.1.0" },
     });
+    await verifyInteropAfterRestart(processHandle, interopEvidence);
     const persistedPreferences = await processHandle.call(
       "editor.preferences.get",
       {},
@@ -1500,6 +1600,22 @@ async function main() {
         "format export should be non-empty",
       );
     }
+    const mqxlzDocument = formatDocuments.find(
+      (item) => item.filterId === "builtin.mqxlz",
+    );
+    assert(mqxlzDocument, "MQXLZ smoke document should exist");
+    try {
+      await exportWithQaDecision(
+        processHandle,
+        project.id,
+        mqxlzDocument.documentId,
+        mqxlzDocument.outputPath,
+        "Reach the MQXLZ no-clobber publication check",
+      );
+      throw new Error("MQXLZ export unexpectedly replaced an existing file");
+    } catch (error) {
+      assert(error?.code === "export_error", "MQXLZ export should not clobber");
+    }
     try {
       const scannedGate = await processHandle.call("qa.gate.check", {
         projectId: project.id,
@@ -1567,6 +1683,53 @@ async function main() {
         xliffOutput.includes('id="s"'),
       "XLIFF export should insert a target and preserve IDs/inline code",
     );
+    const sdlxliffOutput = readFileSync(sdlxliffOutputPath, "utf8");
+    assert(
+      sdlxliffOutput.includes("SDL ") &&
+        sdlxliffOutput.includes("新译文") &&
+        sdlxliffOutput.includes('<x:meta keep="yes"/>') &&
+        sdlxliffOutput.includes('sdl:locked="true"') &&
+        sdlxliffOutput.includes('<g id="1">'),
+      "SDLXLIFF export should preserve vendor metadata and inline code",
+    );
+    const mqxliffOutput = readFileSync(mqxliffOutputPath, "utf8");
+    assert(
+      mqxliffOutput.includes("memoQ ") &&
+        mqxliffOutput.includes("新译文") &&
+        mqxliffOutput.includes('<mq:metadata keep="yes"/>') &&
+        mqxliffOutput.includes('mq:status="Confirmed"') &&
+        mqxliffOutput.includes('<ph id="1"/>'),
+      "MQXLIFF export should preserve memoQ state and inline code",
+    );
+    const mqxlzOutput = readFileSync(mqxlzOutputPath);
+    assert(
+      mqxlzOutput.includes(Buffer.from("包内新译文")) &&
+        mqxlzOutput.includes(Buffer.from("opaque-mqxlz-payload")),
+      "MQXLZ export should retain translated XML and opaque auxiliary bytes",
+    );
+    for (const [sourcePath, filterId, expectedTarget] of [
+      [sdlxliffOutputPath, "builtin.sdlxliff", "SDL 新译文"],
+      [mqxliffOutputPath, "builtin.mqxliff", "memoQ 新译文"],
+      [mqxlzOutputPath, "builtin.mqxlz", "包内新译文"],
+    ]) {
+      const roundTrip = await processHandle.call("document.import", {
+        projectId: project.id,
+        sourcePath,
+      });
+      assert(
+        roundTrip.filterId === filterId,
+        `${filterId} output should re-import`,
+      );
+      const roundTripSegments = await processHandle.call("segment.list", {
+        documentId: roundTrip.document.id,
+        offset: 0,
+        limit: 10,
+      });
+      assert(
+        roundTripSegments.items[0].targetText === expectedTarget,
+        `${filterId} output should retain its target text`,
+      );
+    }
     const xlsxOutput = readFileSync(xlsxOutputPath);
     assert(
       xlsxOutput.includes(Buffer.from("你好表格")) &&
@@ -1587,6 +1750,610 @@ async function main() {
     await rm(dataDirectory, { recursive: true, force: true });
     await rm(backupParent, { recursive: true, force: true });
   }
+}
+
+async function exerciseInteropBeforeRestart(
+  processHandle,
+  dataDirectory,
+  project,
+) {
+  const reviewSourcePath = join(dataDirectory, "interop-review-source.txt");
+  const reviewOutputPath = join(dataDirectory, "interop-review.docx");
+  const editedReviewPath = join(dataDirectory, "interop-review-edited.docx");
+  const tamperedReviewPath = join(
+    dataDirectory,
+    "interop-review-tampered.docx",
+  );
+  const malformedReviewPath = join(
+    dataDirectory,
+    "interop-review-malformed.docx",
+  );
+  const bilingualXlsxPath = join(dataDirectory, "interop-table.xlsx");
+  const bilingualDocxPath = join(dataDirectory, "interop-table.docx");
+  const malformedTablePath = join(dataDirectory, "interop-table-formula.xlsx");
+  const bilingualXlsxOutputPath = join(
+    dataDirectory,
+    "interop-table-export.xlsx",
+  );
+  const bilingualDocxOutputPath = join(
+    dataDirectory,
+    "interop-table-export.docx",
+  );
+
+  writeFileSync(
+    reviewSourcePath,
+    "Offline review source one.\n\nOffline review source two.",
+    "utf8",
+  );
+  writeFileSync(bilingualXlsxPath, makeBilingualXlsx(), "binary");
+  writeFileSync(bilingualDocxPath, makeBilingualDocx(), "binary");
+  writeFileSync(malformedTablePath, makeBilingualXlsx(true), "binary");
+  writeFileSync(malformedReviewPath, Buffer.from("not a DOCX package"));
+
+  const reviewImport = await processHandle.call("document.import", {
+    projectId: project.id,
+    sourcePath: reviewSourcePath,
+    filterId: "builtin.txt",
+    options: {},
+  });
+  const reviewDocument = reviewImport.document;
+  const reviewExport = await processHandle.call("interop.review.export", {
+    projectId: project.id,
+    documentId: reviewDocument.id,
+    expectedDocumentRevision: reviewDocument.revision,
+    outputPath: reviewOutputPath,
+  });
+  assert(
+    reviewExport.rowCount === 2 && statSync(reviewOutputPath).size > 0,
+    "review export should publish a deterministic DOCX",
+  );
+  const exportedBytes = readFileSync(reviewOutputPath);
+  await assertRpcError(
+    () =>
+      processHandle.call("interop.review.export", {
+        projectId: project.id,
+        documentId: reviewDocument.id,
+        expectedDocumentRevision: reviewDocument.revision,
+        outputPath: reviewOutputPath,
+      }),
+    "export_error",
+    "review export should not clobber an existing destination",
+  );
+  assert(
+    Buffer.compare(exportedBytes, readFileSync(reviewOutputPath)) === 0,
+    "review no-clobber failure should leave the destination unchanged",
+  );
+
+  rewriteReviewPackage(reviewOutputPath, editedReviewPath, {
+    target: "Offline review target.",
+    comments: "Please verify the legal tone.",
+  });
+  const editedPreview = await processHandle.call("interop.review.preview", {
+    projectId: project.id,
+    documentId: reviewDocument.id,
+    inputPath: editedReviewPath,
+    expectedDocumentRevision: reviewDocument.revision,
+    offset: 0,
+    limit: 100,
+  });
+  const changedReviewRows = editedPreview.rows.filter(
+    (row) => row.disposition === "changed",
+  );
+  assert(
+    editedPreview.total === 2 &&
+      changedReviewRows.length === 1 &&
+      editedPreview.rows.some((row) => row.disposition === "unchanged"),
+    "edited review preview should classify changed and unchanged rows",
+  );
+  await assertRpcError(
+    () =>
+      processHandle.call("interop.review.preview", {
+        projectId: project.id,
+        documentId: reviewDocument.id,
+        inputPath: editedReviewPath,
+        expectedDocumentRevision: reviewDocument.revision + 1,
+        offset: 0,
+        limit: 100,
+      }),
+    "conflict",
+    "review preview should reject a stale document revision",
+  );
+
+  rewriteReviewPackage(reviewOutputPath, tamperedReviewPath, {
+    source: "Tampered immutable source.",
+    target: "Offline review target.",
+  });
+  const tamperedPreview = await processHandle.call("interop.review.preview", {
+    projectId: project.id,
+    documentId: reviewDocument.id,
+    inputPath: tamperedReviewPath,
+    expectedDocumentRevision: reviewDocument.revision,
+    offset: 0,
+    limit: 100,
+  });
+  const invalidReviewRow = tamperedPreview.rows.find(
+    (row) => row.disposition === "invalid",
+  );
+  assert(
+    invalidReviewRow &&
+      invalidReviewRow.diagnostics.some((diagnostic) =>
+        diagnostic.toLocaleLowerCase().includes("source"),
+      ),
+    "source tamper should produce an invalid review row",
+  );
+  await assertRpcError(
+    () =>
+      processHandle.call("interop.review.apply", {
+        previewId: tamperedPreview.previewId,
+        expectedDocumentRevision: reviewDocument.revision,
+        selectedRowIds: [invalidReviewRow.rowId],
+        actor: "engine-smoke",
+        reason: "Reject tampered source",
+      }),
+    "invalid_state",
+    "tampered review rows should block apply",
+  );
+
+  const malformedTmpBefore = countFiles(join(dataDirectory, "tmp"));
+  await assertRpcError(
+    () =>
+      processHandle.call("interop.review.preview", {
+        projectId: project.id,
+        documentId: reviewDocument.id,
+        inputPath: malformedReviewPath,
+        expectedDocumentRevision: reviewDocument.revision,
+        offset: 0,
+        limit: 100,
+      }),
+    "unsupported_document",
+    "malformed review package should be rejected",
+  );
+  assert(
+    countFiles(join(dataDirectory, "tmp")) === malformedTmpBefore,
+    "malformed review package should clean its staging file",
+  );
+
+  const reviewApply = await processHandle.call("interop.review.apply", {
+    previewId: editedPreview.previewId,
+    expectedDocumentRevision: reviewDocument.revision,
+    selectedRowIds: [changedReviewRows[0].rowId],
+    actor: "engine-smoke",
+    reason: "Apply offline review changes",
+  });
+  const reviewRetry = await processHandle.call("interop.review.apply", {
+    previewId: editedPreview.previewId,
+    expectedDocumentRevision: reviewDocument.revision,
+    selectedRowIds: [changedReviewRows[0].rowId],
+    actor: "engine-smoke",
+    reason: "Retry offline review changes",
+  });
+  assert(
+    reviewApply.status === "applied" &&
+      reviewApply.appliedCount === 1 &&
+      reviewApply.reviewIds.length === 1 &&
+      JSON.stringify(reviewRetry) === JSON.stringify(reviewApply),
+    "review apply should be atomic and idempotent",
+  );
+
+  const libraries = await processHandle.call("tm.library.list", {
+    projectId: project.id,
+    offset: 0,
+    limit: 50,
+  });
+  const library = libraries.items.find((item) => item.writable);
+  assert(library, "interop table smoke needs a writable TM library");
+  const xlsxPreview = await processHandle.call("interop.table.preview", {
+    projectId: project.id,
+    libraryId: library.id,
+    sourceLocale: library.sourceLocale,
+    targetLocale: library.targetLocale,
+    expectedLibraryRevision: library.revision,
+    inputPath: bilingualXlsxPath,
+    format: "xlsx",
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    xlsxPreview.total === 2 &&
+      xlsxPreview.rows.every((row) => row.disposition === "valid") &&
+      xlsxPreview.rows[0].metadata.Context === "Legal",
+    "XLSX table preview should expose valid rows and metadata",
+  );
+  const xlsxApply = await processHandle.call("interop.table.apply", {
+    previewId: xlsxPreview.previewId,
+    expectedLibraryRevision: library.revision,
+    selectedRowIds: [xlsxPreview.rows[0].rowId],
+    actor: "engine-smoke",
+    reason: "Import XLSX bilingual row",
+  });
+  const xlsxRetry = await processHandle.call("interop.table.apply", {
+    previewId: xlsxPreview.previewId,
+    expectedLibraryRevision: library.revision,
+    selectedRowIds: [xlsxPreview.rows[0].rowId],
+    actor: "engine-smoke",
+    reason: "Retry XLSX bilingual row",
+  });
+  assert(
+    xlsxApply.tmUnitIds.length === 1 &&
+      JSON.stringify(xlsxRetry) === JSON.stringify(xlsxApply),
+    "XLSX table apply should be atomic and idempotent",
+  );
+
+  const bilingualXlsxImport = await processHandle.call("document.import", {
+    projectId: project.id,
+    sourcePath: bilingualXlsxPath,
+    filterId: "builtin.bilingual-xlsx",
+    options: {},
+  });
+  assert(
+    bilingualXlsxImport.filterId === "builtin.bilingual-xlsx",
+    "explicit bilingual XLSX mode should remain separate from builtin.xlsx",
+  );
+  await exportWithQaDecision(
+    processHandle,
+    project.id,
+    bilingualXlsxImport.document.id,
+    bilingualXlsxOutputPath,
+    "Export bilingual XLSX smoke fixture",
+  );
+
+  const currentLibraryRevision = xlsxApply.currentRevision;
+  const docxPreview = await processHandle.call("interop.table.preview", {
+    projectId: project.id,
+    libraryId: library.id,
+    sourceLocale: library.sourceLocale,
+    targetLocale: library.targetLocale,
+    expectedLibraryRevision: currentLibraryRevision,
+    inputPath: bilingualDocxPath,
+    format: "docx",
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    docxPreview.total === 2 &&
+      docxPreview.rows.every((row) => row.disposition === "valid") &&
+      docxPreview.rows[0].structuralPath.startsWith("bilingual-docx:"),
+    "DOCX table preview should expose bounded structural paths",
+  );
+  const docxApply = await processHandle.call("interop.table.apply", {
+    previewId: docxPreview.previewId,
+    expectedLibraryRevision: currentLibraryRevision,
+    selectedRowIds: [docxPreview.rows[1].rowId],
+    actor: "engine-smoke",
+    reason: "Import DOCX bilingual row",
+  });
+  assert(docxApply.tmUnitIds.length === 1, "DOCX table row should apply");
+  const bilingualDocxImport = await processHandle.call("document.import", {
+    projectId: project.id,
+    sourcePath: bilingualDocxPath,
+    filterId: "builtin.bilingual-docx",
+    options: {},
+  });
+  assert(
+    bilingualDocxImport.filterId === "builtin.bilingual-docx",
+    "explicit bilingual DOCX mode should remain separate from builtin.docx",
+  );
+  await exportWithQaDecision(
+    processHandle,
+    project.id,
+    bilingualDocxImport.document.id,
+    bilingualDocxOutputPath,
+    "Export bilingual DOCX smoke fixture",
+  );
+
+  const duplicatePreview = await processHandle.call("interop.table.preview", {
+    projectId: project.id,
+    libraryId: library.id,
+    sourceLocale: library.sourceLocale,
+    targetLocale: library.targetLocale,
+    expectedLibraryRevision: docxApply.currentRevision,
+    inputPath: bilingualXlsxPath,
+    format: "xlsx",
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    duplicatePreview.rows[0].disposition === "duplicate" &&
+      duplicatePreview.rows[1].disposition === "valid",
+    "table preview should detect persisted duplicates",
+  );
+  const malformedTableTmpBefore = countFiles(join(dataDirectory, "tmp"));
+  await assertRpcError(
+    () =>
+      processHandle.call("interop.table.preview", {
+        projectId: project.id,
+        libraryId: library.id,
+        sourceLocale: library.sourceLocale,
+        targetLocale: library.targetLocale,
+        expectedLibraryRevision: docxApply.currentRevision,
+        inputPath: malformedTablePath,
+        format: "xlsx",
+        offset: 0,
+        limit: 100,
+      }),
+    "unsupported_document",
+    "formula table input should be rejected",
+  );
+  assert(
+    countFiles(join(dataDirectory, "tmp")) === malformedTableTmpBefore,
+    "rejected table input should clean its staging file",
+  );
+
+  return {
+    reviewDocumentId: reviewDocument.id,
+    reviewSegmentId: changedReviewRows[0].segmentId,
+    reviewPreviewId: editedPreview.previewId,
+    reviewExpectedRevision: reviewDocument.revision,
+    reviewRowId: changedReviewRows[0].rowId,
+    reviewIds: reviewApply.reviewIds,
+    commentIds: reviewApply.commentIds,
+    xlsxPreviewId: xlsxPreview.previewId,
+    xlsxExpectedRevision: library.revision,
+    xlsxRowId: xlsxPreview.rows[0].rowId,
+    xlsxUnitId: xlsxApply.tmUnitIds[0],
+    docxPreviewId: docxPreview.previewId,
+    docxExpectedRevision: currentLibraryRevision,
+    docxRowId: docxPreview.rows[1].rowId,
+    docxUnitId: docxApply.tmUnitIds[0],
+    libraryId: library.id,
+    sourceLocale: library.sourceLocale,
+    targetLocale: library.targetLocale,
+    projectId: project.id,
+  };
+}
+
+async function verifyInteropAfterRestart(processHandle, evidence) {
+  const reviewPreview = await processHandle.call("interop.review.preview", {
+    projectId: evidence.projectId,
+    documentId: evidence.reviewDocumentId,
+    previewId: evidence.reviewPreviewId,
+    expectedDocumentRevision: evidence.reviewExpectedRevision,
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    reviewPreview.status === "applied" &&
+      reviewPreview.rows.some((row) => row.rowId === evidence.reviewRowId),
+    "applied review preview should reopen after restart",
+  );
+  const reviewRetry = await processHandle.call("interop.review.apply", {
+    previewId: evidence.reviewPreviewId,
+    expectedDocumentRevision: evidence.reviewExpectedRevision,
+    selectedRowIds: [evidence.reviewRowId],
+    actor: "engine-smoke",
+    reason: "Restart-safe review retry",
+  });
+  assert(
+    reviewRetry.reviewIds.length === 1 &&
+      reviewRetry.reviewIds[0] === evidence.reviewIds[0] &&
+      reviewRetry.commentIds[0] === evidence.commentIds[0],
+    "review retry after restart should return the terminal result",
+  );
+  const reviews = await processHandle.call("review.list", {
+    documentId: evidence.reviewDocumentId,
+    includeClosed: true,
+  });
+  assert(
+    reviews.revisions.filter((revision) =>
+      evidence.reviewIds.includes(revision.id),
+    ).length === 1,
+    "review apply should persist exactly one proposal",
+  );
+  const comments = await processHandle.call("segment.comment.list", {
+    segmentId: evidence.reviewSegmentId,
+    includeResolved: true,
+  });
+  assert(
+    comments.comments.filter((comment) =>
+      evidence.commentIds.includes(comment.id),
+    ).length === 1,
+    "review apply should persist exactly one comment",
+  );
+
+  const xlsxPreview = await processHandle.call("interop.table.preview", {
+    projectId: evidence.projectId,
+    libraryId: evidence.libraryId,
+    sourceLocale: evidence.sourceLocale,
+    targetLocale: evidence.targetLocale,
+    expectedLibraryRevision: evidence.xlsxExpectedRevision,
+    previewId: evidence.xlsxPreviewId,
+    offset: 0,
+    limit: 100,
+  });
+  const docxPreview = await processHandle.call("interop.table.preview", {
+    projectId: evidence.projectId,
+    libraryId: evidence.libraryId,
+    sourceLocale: evidence.sourceLocale,
+    targetLocale: evidence.targetLocale,
+    expectedLibraryRevision: evidence.docxExpectedRevision,
+    previewId: evidence.docxPreviewId,
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    xlsxPreview.status === "applied" &&
+      docxPreview.status === "applied" &&
+      xlsxPreview.rows.some((row) => row.rowId === evidence.xlsxRowId) &&
+      docxPreview.rows.some((row) => row.rowId === evidence.docxRowId),
+    "applied table previews should reopen after restart",
+  );
+  const xlsxRetry = await processHandle.call("interop.table.apply", {
+    previewId: evidence.xlsxPreviewId,
+    expectedLibraryRevision: evidence.xlsxExpectedRevision,
+    selectedRowIds: [evidence.xlsxRowId],
+    actor: "engine-smoke",
+    reason: "Restart-safe XLSX retry",
+  });
+  const docxRetry = await processHandle.call("interop.table.apply", {
+    previewId: evidence.docxPreviewId,
+    expectedLibraryRevision: evidence.docxExpectedRevision,
+    selectedRowIds: [evidence.docxRowId],
+    actor: "engine-smoke",
+    reason: "Restart-safe DOCX retry",
+  });
+  assert(
+    xlsxRetry.tmUnitIds[0] === evidence.xlsxUnitId &&
+      docxRetry.tmUnitIds[0] === evidence.docxUnitId,
+    "table retries after restart should not duplicate TM units",
+  );
+  const search = await processHandle.call("tm.search", {
+    projectId: evidence.projectId,
+    sourceLocale: evidence.sourceLocale,
+    targetLocale: evidence.targetLocale,
+    query: "InteropSheetAlpha",
+    libraryIds: [evidence.libraryId],
+    threshold: 100,
+    offset: 0,
+    limit: 20,
+  });
+  assert(
+    search.matches.some((match) => match.unit.id === evidence.xlsxUnitId),
+    "table provenance should survive restart and remain searchable",
+  );
+}
+
+function countFiles(directory) {
+  if (!existsSync(directory)) return 0;
+  return readdirSync(directory).length;
+}
+
+function rewriteReviewPackage(inputPath, outputPath, changes) {
+  const entries = readZipEntries(readFileSync(inputPath));
+  const documentEntry = entries.findIndex(
+    ([name]) => name === "word/document.xml",
+  );
+  assert(documentEntry >= 0, "review package should contain word/document.xml");
+  let xml = entries[documentEntry][1].toString("utf8");
+  for (const [field, value] of Object.entries(changes)) {
+    xml = replaceReviewBookmark(xml, field, value);
+  }
+  entries[documentEntry][1] = Buffer.from(xml, "utf8");
+  writeFileSync(outputPath, makeZip(entries));
+}
+
+function replaceReviewBookmark(xml, field, value) {
+  const pattern = new RegExp(
+    `(<w:bookmarkStart\\b[^>]*w:name="[^"]+_${field}"[^>]*/>\\s*<w:r><w:t\\b[^>]*>)[\\s\\S]*?(</w:t></w:r>\\s*<w:bookmarkEnd\\b[^>]*/>)`,
+    "u",
+  );
+  let replaced = false;
+  const result = xml.replace(pattern, (_match, prefix, suffix) => {
+    replaced = true;
+    return `${prefix}${escapeXml(String(value))}${suffix}`;
+  });
+  assert(replaced, `review package should contain a ${field} bookmark`);
+  return result;
+}
+
+function escapeXml(value) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+function readZipEntries(buffer) {
+  let end = -1;
+  for (
+    let index = buffer.length - 22;
+    index >= Math.max(0, buffer.length - 65_557);
+    index -= 1
+  ) {
+    if (buffer.readUInt32LE(index) === 0x06054b50) {
+      end = index;
+      break;
+    }
+  }
+  assert(end >= 0, "ZIP end-of-central-directory record is missing");
+  const count = buffer.readUInt16LE(end + 10);
+  let centralOffset = buffer.readUInt32LE(end + 16);
+  const entries = [];
+  for (let index = 0; index < count; index += 1) {
+    assert(
+      buffer.readUInt32LE(centralOffset) === 0x02014b50,
+      "ZIP central entry is invalid",
+    );
+    const compression = buffer.readUInt16LE(centralOffset + 10);
+    const compressedSize = buffer.readUInt32LE(centralOffset + 20);
+    const uncompressedSize = buffer.readUInt32LE(centralOffset + 24);
+    const nameLength = buffer.readUInt16LE(centralOffset + 28);
+    const extraLength = buffer.readUInt16LE(centralOffset + 30);
+    const commentLength = buffer.readUInt16LE(centralOffset + 32);
+    const localOffset = buffer.readUInt32LE(centralOffset + 42);
+    const name = buffer
+      .subarray(centralOffset + 46, centralOffset + 46 + nameLength)
+      .toString("utf8");
+    assert(
+      buffer.readUInt32LE(localOffset) === 0x04034b50,
+      "ZIP local entry is invalid",
+    );
+    const localNameLength = buffer.readUInt16LE(localOffset + 26);
+    const localExtraLength = buffer.readUInt16LE(localOffset + 28);
+    const dataStart = localOffset + 30 + localNameLength + localExtraLength;
+    const compressed = buffer.subarray(dataStart, dataStart + compressedSize);
+    const data =
+      compression === 0
+        ? Buffer.from(compressed)
+        : compression === 8
+          ? inflateRawSync(compressed)
+          : (() => {
+              throw new Error(
+                `Unsupported ZIP compression method: ${compression}`,
+              );
+            })();
+    assert(
+      data.length === uncompressedSize,
+      `ZIP entry size mismatch for ${name}`,
+    );
+    entries.push([name, data]);
+    centralOffset += 46 + nameLength + extraLength + commentLength;
+  }
+  return entries;
+}
+
+function makeBilingualXlsx(formula = false) {
+  const sheet = formula
+    ? `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Source</t></is></c><c r="B1" t="inlineStr"><is><t>Target</t></is></c></row><row r="2"><c r="A2"><f>SUM(1,2)</f><v>3</v></c><c r="B2" t="inlineStr"><is><t>Three</t></is></c></row></sheetData></worksheet>`
+    : `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Source</t></is></c><c r="B1" t="inlineStr"><is><t>Target</t></is></c><c r="C1" t="inlineStr"><is><t>Context</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>InteropSheetAlpha</t></is></c><c r="B2" t="inlineStr"><is><t>Alpha target</t></is></c><c r="C2" t="inlineStr"><is><t>Legal</t></is></c></row><row r="3"><c r="A3" t="inlineStr"><is><t>InteropSheetBeta</t></is></c><c r="B3" t="inlineStr"><is><t>Beta target</t></is></c><c r="C3" t="inlineStr"><is><t>Memo</t></is></c></row></sheetData></worksheet>`;
+  return makeZip([
+    [
+      "[Content_Types].xml",
+      `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`,
+    ],
+    [
+      "_rels/.rels",
+      `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+    ],
+    [
+      "xl/workbook.xml",
+      `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Main" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    ],
+    [
+      "xl/_rels/workbook.xml.rels",
+      `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
+    ],
+    ["xl/worksheets/sheet1.xml", sheet],
+  ]);
+}
+
+function makeBilingualDocx() {
+  const cell = (value) =>
+    `<w:tc><w:p><w:r><w:t>${escapeXml(value)}</w:t></w:r></w:p></w:tc>`;
+  const row = (values) => `<w:tr>${values.map(cell).join("")}</w:tr>`;
+  const document = `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:tbl>${row(["Source", "Target", "Context"])}${row(["InteropDocxAlpha", "Alpha DOCX target", "Contract"])}${row(["InteropDocxBeta", "Beta DOCX target", "Memo"])}</w:tbl><w:sectPr/></w:body></w:document>`;
+  return makeZip([
+    [
+      "[Content_Types].xml",
+      `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`,
+    ],
+    [
+      "_rels/.rels",
+      `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`,
+    ],
+    ["word/document.xml", document],
+  ]);
 }
 
 async function exerciseLifecycleBeforeRestart(processHandle, dataDirectory) {

@@ -50,6 +50,103 @@ pub struct ExportSummary {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DocxFilter;
 
+/// A bounded two-column bilingual table row. The byte ranges are retained so
+/// the explicit bilingual filter can update only the target cell on export.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BilingualTableRow {
+    pub table_index: u32,
+    pub row_number: u32,
+    pub structural_path: String,
+    pub cells: Vec<String>,
+    pub target_ranges: Vec<XmlTextRange>,
+    pub target_insert_at: Option<usize>,
+}
+
+/// Read logical table rows from the main document part without changing the
+/// ordinary paragraph-oriented DOCX filter.
+pub fn extract_bilingual_table_rows(source: &Path) -> Result<Vec<BilingualTableRow>, DocxError> {
+    let package = OfficePackage::open(source)?;
+    let main = discover_main_part(&package)?;
+    let bytes = package.require(&main)?;
+    parse_bilingual_table_rows(bytes, &main)
+}
+
+/// Rebuild a bilingual table DOCX, replacing only target-cell text ranges.
+pub fn export_bilingual_table(
+    source: &Path,
+    output: &Path,
+    segments: &[Segment],
+) -> Result<u32, DocxError> {
+    if source == output {
+        return Err(DocxError::InvalidPackage(
+            "export path must not replace the managed source".to_string(),
+        ));
+    }
+    DocxFilter.validate(source)?;
+    let package = OfficePackage::open(source)?;
+    let main = discover_main_part(&package)?;
+    let bytes = package.require(&main)?;
+    let rows = parse_bilingual_table_rows(bytes, &main)?;
+    let targets = segments
+        .iter()
+        .filter(|segment| !segment.target_text.trim().is_empty())
+        .map(|segment| {
+            (
+                segment.structural_path.as_str(),
+                segment.target_text.as_str(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut replacements = Vec::new();
+    let mut applied = BTreeSet::new();
+    for row in rows {
+        let Some(target) = targets.get(row.structural_path.as_str()) else {
+            continue;
+        };
+        if row.target_ranges.is_empty() {
+            let insert_at = row.target_insert_at.ok_or_else(|| {
+                DocxError::InvalidPackage(format!(
+                    "bilingual target cell is missing: {}",
+                    row.structural_path
+                ))
+            })?;
+            let mut bytes = b"<w:p><w:r><w:t>".to_vec();
+            bytes.extend_from_slice(&translunar_filter_office_core::escape_xml_text(target));
+            bytes.extend_from_slice(b"</w:t></w:r></w:p>");
+            replacements.push(ByteReplacement {
+                start: insert_at,
+                end: insert_at,
+                bytes,
+            });
+        } else {
+            for (index, range) in row.target_ranges.iter().enumerate() {
+                replacements.push(ByteReplacement {
+                    start: range.start,
+                    end: range.end,
+                    bytes: if index == 0 {
+                        translunar_filter_office_core::escape_xml_text(target)
+                    } else {
+                        Vec::new()
+                    },
+                });
+            }
+        }
+        applied.insert(row.structural_path);
+    }
+    if applied.len() != targets.len() {
+        return Err(DocxError::InvalidPackage(
+            "bilingual export contains an unknown structural path".to_string(),
+        ));
+    }
+    let changed = apply_replacements(bytes, &replacements)?;
+    let rebuilt = rebuild_package(source, &BTreeMap::from([(main, changed)]))?;
+    validate_bytes(&rebuilt)?;
+    publish_bytes_noclobber(output, &rebuilt).map_err(DocxError::Pipeline)?;
+    u32::try_from(applied.len()).map_err(|_| {
+        DocxError::InvalidPackage("bilingual translated row count overflow".to_string())
+    })
+}
+
 #[derive(Debug, Clone)]
 struct ParagraphUnit {
     index: u32,
@@ -264,6 +361,158 @@ impl DocumentFilter for DocxFilter {
     }
 }
 
+/// Explicit two-column bilingual DOCX mode. It never participates in
+/// automatic `.docx` probing because ordinary DOCX remains the default.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct BilingualDocxFilter;
+
+impl DocumentFilter for BilingualDocxFilter {
+    fn descriptor(&self) -> FilterDescriptor {
+        FilterDescriptor {
+            id: "builtin.bilingual-docx".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            display_name: "Bilingual review table DOCX".to_string(),
+            extensions: vec!["docx".to_string()],
+            capabilities: FilterCapabilities {
+                import: true,
+                export: true,
+                validate: true,
+                inline_tags: false,
+                notes: true,
+                degradation_report: true,
+            },
+        }
+    }
+
+    fn probe(&self, _source: &Path) -> Result<ProbeResult, FilterError> {
+        Ok(ProbeResult::no_match(
+            "bilingual DOCX mode requires an explicit filter id",
+        ))
+    }
+
+    fn import(&self, request: ImportRequest) -> Result<FilterEventStream, FilterError> {
+        let rows = extract_bilingual_table_rows(&request.source).map_err(map_docx_error)?;
+        let document_id = request.document_id.as_deref().unwrap_or("bilingual-docx");
+        let mut events = vec![FilterEvent::StartDocument {
+            metadata: DocumentMetadata {
+                format: "bilingual-docx".to_string(),
+                source_locale: request.source_locale,
+                properties: BTreeMap::from([(
+                    "filter".to_string(),
+                    "builtin.bilingual-docx".to_string(),
+                )]),
+            },
+        }];
+        let mut headers_by_table = BTreeMap::<u32, Vec<String>>::new();
+        let mut seen_tables = BTreeSet::new();
+        let mut ordinal = 0_u32;
+        for row in rows {
+            if seen_tables.insert(row.table_index) && is_bilingual_header(&row) {
+                headers_by_table.insert(row.table_index, row.cells);
+                continue;
+            }
+            if row.cells.len() < 2 {
+                return Err(FilterError::Invalid(format!(
+                    "bilingual row {} in table {} requires source and target cells",
+                    row.row_number, row.table_index
+                )));
+            }
+            let source = row.cells.first().cloned().unwrap_or_default();
+            let target = row.cells.get(1).cloned().unwrap_or_default();
+            if source.trim().is_empty() || target.trim().is_empty() {
+                return Err(FilterError::Invalid(format!(
+                    "bilingual row {} requires source and target cells",
+                    row.row_number
+                )));
+            }
+            let mut properties = BTreeMap::new();
+            if let Some(headers) = headers_by_table.get(&row.table_index) {
+                for (index, value) in row.cells.iter().enumerate().skip(2) {
+                    if let Some(name) = headers.get(index).filter(|name| !name.trim().is_empty()) {
+                        properties.insert(name.clone(), value.clone());
+                    }
+                }
+            }
+            events.push(FilterEvent::StartUnit {
+                ordinal,
+                structural_path: row.structural_path,
+            });
+            events.push(FilterEvent::Text(source));
+            events.push(FilterEvent::TargetText(target));
+            if !properties.is_empty() {
+                let metadata = serde_json::to_string(&properties).map_err(|error| {
+                    FilterError::Processing(format!("cannot encode bilingual metadata: {error}"))
+                })?;
+                if metadata.len() > 1024 * 1024 {
+                    return Err(FilterError::Invalid(format!(
+                        "bilingual metadata exceeds 1 MiB for row {}",
+                        row.row_number
+                    )));
+                }
+                events.push(FilterEvent::Note(DocumentNote {
+                    id: format!("{document_id}:bilingual-row:{ordinal}"),
+                    text: metadata,
+                    author: None,
+                }));
+            }
+            events.push(FilterEvent::EndUnit);
+            ordinal = ordinal
+                .checked_add(1)
+                .ok_or_else(|| FilterError::Invalid("bilingual row count overflow".to_string()))?;
+        }
+        if ordinal == 0 {
+            return Err(FilterError::Invalid(
+                "bilingual DOCX contains no data rows".to_string(),
+            ));
+        }
+        events.push(FilterEvent::EndDocument);
+        Ok(Box::new(events.into_iter().map(Ok)))
+    }
+
+    fn export(&self, request: ExportRequest<'_>) -> Result<ExportReport, FilterError> {
+        let translated_segments =
+            export_bilingual_table(request.source, request.output, request.segments)
+                .map_err(map_docx_error)?;
+        Ok(ExportReport {
+            output_path: request.output.display().to_string(),
+            translated_segments,
+            degradation: Vec::new(),
+        })
+    }
+
+    fn validate(&self, source: &Path) -> Result<ValidationReport, FilterError> {
+        DocxFilter.validate(source).map_err(map_docx_error)?;
+        let rows = extract_bilingual_table_rows(source).map_err(map_docx_error)?;
+        if rows.is_empty() {
+            return Err(FilterError::Invalid(
+                "bilingual DOCX contains no table rows".to_string(),
+            ));
+        }
+        Ok(ValidationReport {
+            valid: true,
+            findings: Vec::new(),
+        })
+    }
+}
+
+fn is_bilingual_header(row: &BilingualTableRow) -> bool {
+    let source = row
+        .cells
+        .first()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .unwrap_or_default();
+    let target = row
+        .cells
+        .get(1)
+        .map(|value| value.trim().to_ascii_lowercase())
+        .unwrap_or_default();
+    matches!(source.as_str(), "source" | "source text" | "原文")
+        && matches!(
+            target.as_str(),
+            "target" | "target text" | "translation" | "译文"
+        )
+}
+
 fn map_docx_error(error: DocxError) -> FilterError {
     match error {
         DocxError::Io(error) => FilterError::Io(error),
@@ -437,6 +686,208 @@ fn parse_paragraphs(bytes: &[u8], part: &str) -> Result<Vec<ParagraphUnit>, Docx
     }
     paragraphs.sort_by_key(|paragraph| paragraph.index);
     Ok(paragraphs)
+}
+
+fn parse_bilingual_table_rows(
+    bytes: &[u8],
+    part: &str,
+) -> Result<Vec<BilingualTableRow>, DocxError> {
+    validate_xml(bytes, part)?;
+    let mut reader = Reader::from_reader(bytes);
+    reader.config_mut().trim_text(false);
+    let mut buffer = Vec::new();
+    let mut table_depth = 0_u32;
+    let mut next_table_index = 0_u32;
+    let mut table_index = None;
+    let mut row: Option<TableRowBuilder> = None;
+    let mut cell: Option<TableCellBuilder> = None;
+    let mut text: Option<(usize, String)> = None;
+    let mut rows = Vec::new();
+    let mut row_number = 0_u32;
+    loop {
+        let before = usize::try_from(reader.buffer_position())
+            .map_err(|_| DocxError::InvalidPackage("DOCX XML offset overflow".to_string()))?;
+        match reader.read_event_into(&mut buffer) {
+            Ok(Event::Start(element)) => {
+                let local = element.name().local_name();
+                match local.as_ref() {
+                    b"tbl" => {
+                        if table_depth == 0 {
+                            table_index = Some(next_table_index);
+                            next_table_index =
+                                next_table_index.checked_add(1).ok_or_else(|| {
+                                    DocxError::InvalidPackage(
+                                        "bilingual table count overflow".to_string(),
+                                    )
+                                })?;
+                            row_number = 0;
+                        }
+                        table_depth = table_depth.saturating_add(1);
+                        if table_depth > 4 {
+                            return Err(DocxError::InvalidPackage(
+                                "bilingual table nesting exceeds the limit".to_string(),
+                            ));
+                        }
+                    }
+                    b"tr" if table_depth == 1 && row.is_none() => {
+                        row = Some(TableRowBuilder {
+                            row_number,
+                            cells: Vec::new(),
+                        });
+                        row_number = row_number.checked_add(1).ok_or_else(|| {
+                            DocxError::InvalidPackage("bilingual row count overflow".to_string())
+                        })?;
+                    }
+                    b"tc" if table_depth == 1 && row.is_some() && cell.is_none() => {
+                        cell = Some(TableCellBuilder {
+                            text: String::new(),
+                            ranges: Vec::new(),
+                            insert_at: None,
+                        });
+                    }
+                    b"t" if table_depth == 1 && cell.is_some() => {
+                        text = Some((
+                            usize::try_from(reader.buffer_position()).map_err(|_| {
+                                DocxError::InvalidPackage("DOCX text offset overflow".to_string())
+                            })?,
+                            String::new(),
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::Empty(element)) => {
+                if table_depth == 1
+                    && let Some(current) = cell.as_mut()
+                {
+                    match element.name().local_name().as_ref() {
+                        b"tab" => current.text.push('\t'),
+                        b"br" | b"cr" => current.text.push('\n'),
+                        _ => {}
+                    }
+                }
+            }
+            Ok(Event::Text(value)) => {
+                if let Some((_, text_value)) = text.as_mut() {
+                    text_value.push_str(&decode_text(&value)?);
+                }
+            }
+            Ok(Event::GeneralRef(reference)) => {
+                if let Some((_, text_value)) = text.as_mut() {
+                    text_value.push_str(&decode_reference(&reference)?);
+                }
+            }
+            Ok(Event::End(element)) => {
+                let local = element.name().local_name();
+                match local.as_ref() {
+                    b"t" => {
+                        if let Some((start, value)) = text.take()
+                            && let Some(current) = cell.as_mut()
+                        {
+                            current.text.push_str(&value);
+                            current.ranges.push(XmlTextRange {
+                                start,
+                                end: before,
+                                text: value,
+                            });
+                        }
+                    }
+                    b"tc" if table_depth == 1 => {
+                        if let Some(mut current) = cell.take()
+                            && let Some(current_row) = row.as_mut()
+                        {
+                            current.insert_at = Some(before);
+                            if current.text.len() > 1024 * 1024 {
+                                return Err(DocxError::InvalidPackage(format!(
+                                    "bilingual cell exceeds 1 MiB in table {} row {}",
+                                    table_index.unwrap_or_default(),
+                                    current_row.row_number
+                                )));
+                            }
+                            current_row.cells.push(current);
+                        }
+                    }
+                    b"tr" if table_depth == 1 => {
+                        if let Some(current_row) = row.take() {
+                            if current_row.cells.len() > 64 {
+                                return Err(DocxError::InvalidPackage(format!(
+                                    "bilingual row {} has more than 64 cells",
+                                    current_row.row_number
+                                )));
+                            }
+                            let current_table = table_index.ok_or_else(|| {
+                                DocxError::InvalidPackage(
+                                    "bilingual row is outside a table".to_string(),
+                                )
+                            })?;
+                            let cells = current_row
+                                .cells
+                                .iter()
+                                .map(|cell| cell.text.clone())
+                                .collect::<Vec<_>>();
+                            rows.push(BilingualTableRow {
+                                table_index: current_table,
+                                row_number: current_row.row_number,
+                                structural_path: format!(
+                                    "bilingual-docx:{part}#table:{current_table}/row:{}",
+                                    current_row.row_number
+                                ),
+                                target_ranges: current_row
+                                    .cells
+                                    .get(1)
+                                    .map(|cell| cell.ranges.clone())
+                                    .unwrap_or_default(),
+                                target_insert_at: current_row
+                                    .cells
+                                    .get(1)
+                                    .and_then(|cell| cell.insert_at),
+                                cells,
+                            });
+                            if rows.len() > 100_000 {
+                                return Err(DocxError::InvalidPackage(
+                                    "bilingual table exceeds 100000 rows".to_string(),
+                                ));
+                            }
+                        }
+                    }
+                    b"tbl" => {
+                        table_depth = table_depth.saturating_sub(1);
+                        if table_depth == 0 {
+                            table_index = None;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::Eof) => break,
+            Ok(_) => {}
+            Err(error) => {
+                return Err(DocxError::InvalidPackage(format!(
+                    "cannot parse bilingual table {part}: {error}"
+                )));
+            }
+        }
+        buffer.clear();
+    }
+    if table_depth != 0 || row.is_some() || cell.is_some() || text.is_some() {
+        return Err(DocxError::InvalidPackage(
+            "unclosed bilingual table structure".to_string(),
+        ));
+    }
+    Ok(rows)
+}
+
+#[derive(Debug)]
+struct TableRowBuilder {
+    row_number: u32,
+    cells: Vec<TableCellBuilder>,
+}
+
+#[derive(Debug)]
+struct TableCellBuilder {
+    text: String,
+    ranges: Vec<XmlTextRange>,
+    insert_at: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -740,5 +1191,84 @@ mod tests {
             .expect("export fixture");
         let exported = DocxFilter.extract_units(&output).expect("reopen fixture");
         assert!(exported.iter().any(|unit| unit.source_text == "页脚文本"));
+    }
+
+    #[test]
+    fn bilingual_filter_uses_per_table_headers_and_ignores_nested_table_text() {
+        let temp = tempfile::tempdir().expect("temporary directory");
+        let source = temp.path().join("bilingual.docx");
+        fixture::write_bilingual_fixture(&source).expect("write bilingual fixture");
+        let request = ImportRequest {
+            source,
+            document_id: Some("bilingual-document".to_string()),
+            source_locale: Some("en".to_string()),
+            options: BTreeMap::new(),
+        };
+        let document = collect_imported_document(
+            BilingualDocxFilter
+                .import(request)
+                .expect("import bilingual fixture"),
+        )
+        .expect("collect bilingual fixture");
+
+        assert_eq!(document.units.len(), 2);
+        assert_eq!(document.units[0].source_text, "Hello world");
+        assert_eq!(
+            document.units[0].target_text.as_deref(),
+            Some("Existing target")
+        );
+        assert_eq!(
+            document.units[0].structural_path,
+            "bilingual-docx:word/document.xml#table:0/row:1"
+        );
+        assert_eq!(document.units[1].source_text, "Second source");
+        assert!(!document.units[1].source_text.contains("Nested text"));
+        assert_eq!(
+            document.units[1].structural_path,
+            "bilingual-docx:word/document.xml#table:1/row:1"
+        );
+        let metadata: BTreeMap<String, String> =
+            serde_json::from_str(&document.units[0].notes[0].text).expect("decode row metadata");
+        assert_eq!(metadata.get("Context").map(String::as_str), Some("Legal"));
+    }
+
+    #[test]
+    fn bilingual_export_inserts_an_empty_target_without_clobbering() {
+        let temp = tempfile::tempdir().expect("temporary directory");
+        let source = temp.path().join("empty-target.docx");
+        let output = temp.path().join("translated.docx");
+        fixture::write_bilingual_empty_target_fixture(&source).expect("write empty-target fixture");
+        let rows = extract_bilingual_table_rows(&source).expect("extract bilingual rows");
+        let data = rows
+            .iter()
+            .find(|row| row.table_index == 0 && row.row_number == 1)
+            .expect("first data row");
+        assert!(data.target_ranges.is_empty());
+        assert!(data.target_insert_at.is_some());
+        let units = vec![ImportedUnit::plain(
+            0,
+            data.structural_path.clone(),
+            data.cells[0].clone(),
+        )];
+        let mut segments = segments_for(&units);
+        segments[0].target_text = "新译文 & more".to_string();
+
+        assert_eq!(
+            export_bilingual_table(&source, &output, &segments).expect("export bilingual table"),
+            1
+        );
+        let exported = extract_bilingual_table_rows(&output).expect("reparse bilingual output");
+        let translated = exported
+            .iter()
+            .find(|row| row.structural_path == data.structural_path)
+            .expect("translated row");
+        assert_eq!(translated.cells[1], "新译文 & more");
+        let source_package = OfficePackage::open(&source).expect("source package");
+        let output_package = OfficePackage::open(&output).expect("output package");
+        assert_eq!(
+            source_package.get(fixture::UNRELATED_PART),
+            output_package.get(fixture::UNRELATED_PART)
+        );
+        assert!(export_bilingual_table(&source, &output, &segments).is_err());
     }
 }

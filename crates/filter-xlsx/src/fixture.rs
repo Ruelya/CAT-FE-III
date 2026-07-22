@@ -84,3 +84,41 @@ pub fn write_fixture(path: &Path) -> Result<(), XlsxError> {
     writer.finish()?;
     Ok(())
 }
+
+pub fn write_bilingual_fixture(path: &Path) -> Result<(), XlsxError> {
+    write_bilingual_package(path, false)
+}
+
+pub fn write_bilingual_invalid_formula_fixture(path: &Path) -> Result<(), XlsxError> {
+    write_bilingual_package(path, true)
+}
+
+fn write_bilingual_package(path: &Path, formula: bool) -> Result<(), XlsxError> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let sheet = if formula {
+        r#"<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Source</t></is></c><c r="B1" t="inlineStr"><is><t>Target</t></is></c></row><row r="2"><c r="A2"><f>SUM(1,2)</f><v>3</v></c><c r="B2" t="inlineStr"><is><t>Three</t></is></c></row></sheetData></worksheet>"#
+    } else {
+        r#"<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Source</t></is></c><c r="B1" t="inlineStr"><is><t>Target</t></is></c><c r="C1" t="inlineStr"><is><t>Context</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>Hello</t></is></c><c r="B2" t="inlineStr"><is><t>Existing</t></is></c><c r="C2" t="inlineStr"><is><t>Legal</t></is></c></row><row r="3"><c r="A3" t="inlineStr"><is><t>Second</t></is></c><c r="B3" t="inlineStr"><is><t>第二</t></is></c><c r="C3" t="inlineStr"><is><t>Memo</t></is></c></row></sheetData></worksheet>"#
+    };
+    let workbook = r#"<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Main" sheetId="1" r:id="rId1"/></sheets></workbook>"#;
+    let workbook_rels = r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>"#;
+    let content_types = r#"<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>"#;
+    let root_rels = r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#;
+    let file = File::create(path)?;
+    let mut writer = ZipWriter::new(file);
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    for (name, content) in [
+        ("[Content_Types].xml", content_types),
+        ("_rels/.rels", root_rels),
+        ("xl/workbook.xml", workbook),
+        ("xl/_rels/workbook.xml.rels", workbook_rels),
+        ("xl/worksheets/sheet1.xml", sheet),
+    ] {
+        writer.start_file(name, options)?;
+        writer.write_all(content.as_bytes())?;
+    }
+    writer.finish()?;
+    Ok(())
+}

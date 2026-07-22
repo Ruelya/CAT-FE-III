@@ -25,6 +25,7 @@ const IPC_CHANNELS = {
   selectProjectArchiveDestination:
     "translunar:dialog:project-archive-destination",
   selectExport: "translunar:dialog:export-docx",
+  selectInteropInput: "translunar:dialog:interop-input",
   restartEngine: "translunar:engine:restart",
   setAiCredential: "translunar:ai:credential:set",
   editorCommand: "translunar:editor:command",
@@ -250,6 +251,34 @@ function registerIpc(): void {
       return result.canceled ? null : (result.filePath ?? null);
     },
   );
+  ipcMain.handle(
+    IPC_CHANNELS.selectInteropInput,
+    async (event, kind: unknown) => {
+      assertTrustedSender(event);
+      if (kind !== "review" && kind !== "table") {
+        throw new Error("Invalid interop input type.");
+      }
+      const testPath =
+        kind === "review"
+          ? process.env.TRANSLUNAR_TEST_REVIEW_INPUT
+          : process.env.TRANSLUNAR_TEST_TABLE_INPUT;
+      if (testPath) return testPath;
+      const result = await dialog.showOpenDialog(requireWindow(), {
+        title:
+          kind === "review"
+            ? "Open bilingual review package"
+            : "Open bilingual table",
+        properties: ["openFile"],
+        filters: [
+          {
+            name: kind === "review" ? "Review DOCX" : "Bilingual tables",
+            extensions: kind === "review" ? ["docx"] : ["docx", "xlsx"],
+          },
+        ],
+      });
+      return result.canceled ? null : (result.filePaths[0] ?? null);
+    },
+  );
   ipcMain.handle(IPC_CHANNELS.restartEngine, async (event) => {
     assertTrustedSender(event);
     await requireEngine().restart();
@@ -291,6 +320,9 @@ function supportedDocumentFilter(): Electron.FileFilter {
       "xhtml",
       "xlf",
       "xliff",
+      "sdlxliff",
+      "mqxliff",
+      "mqxlz",
     ],
   };
 }

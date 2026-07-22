@@ -1,0 +1,3 @@
+{"file":".trellis/spec/backend/engine-boundary.md","reason":"Generic filter, atomic publication, external CAT XML/ZIP safety, and Engine integration contracts."}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"Format-crate ownership and dependency direction for filter-interop."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Trusted main-process source picker and renderer boundary for the new extensions."}

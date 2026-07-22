@@ -12,6 +12,7 @@ members = [
   "crates/filter-text",
   "crates/filter-html",
   "crates/filter-xliff",
+  "crates/filter-interop",
   "crates/filter-office-core",
   "crates/filter-xlsx",
   "crates/filter-pptx",

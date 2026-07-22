@@ -182,9 +182,18 @@ pub fn validate_xml(bytes: &[u8], part_name: &str) -> Result<(), OfficeError> {
     reader.config_mut().trim_text(false);
     let mut buffer = Vec::new();
     let mut depth = 0_usize;
+    let mut saw_root = false;
     loop {
         match reader.read_event_into(&mut buffer) {
             Ok(Event::Start(_)) => {
+                if depth == 0 {
+                    if saw_root {
+                        return Err(OfficeError::Invalid(format!(
+                            "Office XML part has multiple root elements: {part_name}"
+                        )));
+                    }
+                    saw_root = true;
+                }
                 depth = depth.checked_add(1).ok_or_else(|| {
                     OfficeError::Invalid(format!("XML depth overflow in {part_name}"))
                 })?;
@@ -194,13 +203,57 @@ pub fn validate_xml(bytes: &[u8], part_name: &str) -> Result<(), OfficeError> {
                     )));
                 }
             }
-            Ok(Event::End(_)) => depth = depth.saturating_sub(1),
+            Ok(Event::Empty(_)) if depth == 0 => {
+                if saw_root {
+                    return Err(OfficeError::Invalid(format!(
+                        "Office XML part has multiple root elements: {part_name}"
+                    )));
+                }
+                saw_root = true;
+            }
+            Ok(Event::End(_)) => {
+                if depth == 0 {
+                    return Err(OfficeError::Invalid(format!(
+                        "Office XML part has an unexpected closing element: {part_name}"
+                    )));
+                }
+                depth -= 1;
+            }
             Ok(Event::DocType(_)) => {
                 return Err(OfficeError::Invalid(format!(
                     "DOCTYPE is unsupported in Office XML part {part_name}"
                 )));
             }
-            Ok(Event::Eof) => return Ok(()),
+            Ok(Event::Text(value)) if depth == 0 => {
+                let text = value.decode().map_err(|error| {
+                    OfficeError::Invalid(format!(
+                        "cannot decode XML text outside the root in {part_name}: {error}"
+                    ))
+                })?;
+                if !text.trim().is_empty() {
+                    return Err(OfficeError::Invalid(format!(
+                        "Office XML part has text outside its root: {part_name}"
+                    )));
+                }
+            }
+            Ok(Event::CData(_)) | Ok(Event::GeneralRef(_)) if depth == 0 => {
+                return Err(OfficeError::Invalid(format!(
+                    "Office XML part has character data outside its root: {part_name}"
+                )));
+            }
+            Ok(Event::Eof) => {
+                if depth != 0 {
+                    return Err(OfficeError::Invalid(format!(
+                        "Office XML part ends with {depth} unclosed element(s): {part_name}"
+                    )));
+                }
+                if !saw_root {
+                    return Err(OfficeError::Invalid(format!(
+                        "Office XML part has no root element: {part_name}"
+                    )));
+                }
+                return Ok(());
+            }
             Ok(_) => {}
             Err(error) => {
                 return Err(OfficeError::Invalid(format!(
@@ -413,6 +466,16 @@ pub fn rebuild_package(
     source: &Path,
     replacements: &BTreeMap<String, Vec<u8>>,
 ) -> Result<Vec<u8>, OfficeError> {
+    rebuild_zip(source, replacements)
+}
+
+/// Rebuild a validated ZIP envelope while raw-copying every entry that is not
+/// explicitly replaced. Callers remain responsible for format-specific entry
+/// count, size, encryption, and compression-ratio validation before this step.
+pub fn rebuild_zip(
+    source: &Path,
+    replacements: &BTreeMap<String, Vec<u8>>,
+) -> Result<Vec<u8>, OfficeError> {
     let input = File::open(source)?;
     let mut archive = ZipArchive::new(input)?;
     let cursor = Cursor::new(Vec::new());
@@ -526,6 +589,25 @@ mod tests {
         )
         .expect_err("overlap must fail");
         assert!(error.to_string().contains("overlap"));
+    }
+
+    #[test]
+    fn rejects_unclosed_missing_and_multiple_xml_roots() {
+        for xml in [
+            &b"<root><child/>"[..],
+            &b"<?xml version=\"1.0\"?>"[..],
+            &b"<first/><second/>"[..],
+        ] {
+            assert!(
+                validate_xml(xml, "fixture.xml").is_err(),
+                "malformed XML must fail: {xml:?}"
+            );
+        }
+        validate_xml(
+            b"<?xml version=\"1.0\"?><root><child/></root>",
+            "fixture.xml",
+        )
+        .expect("well-formed XML");
     }
 
     #[test]

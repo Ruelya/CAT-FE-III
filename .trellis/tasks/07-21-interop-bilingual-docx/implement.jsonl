@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/engine-boundary.md","reason":"Rust owns DOCX/XLSX parsing, generated RPC dispatch, revision checks, atomic publication, and typed errors."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"The child adds an append-only migration and immediate transactions for durable previews and TM row apply."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Cross-layer contract, migration, format, restart, rollback, and VPS gates are required before activation and commit."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Review/table dialogs, generated invoke methods, save-before-navigation, accessibility, and no renderer parsing follow this boundary."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Preview/apply payloads must come from generated contracts without handwritten renderer mirrors."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"The feature crosses file dialog, RPC, codec, Store, and React projection boundaries; the data-flow checklist is required."}

@@ -20,11 +20,12 @@ use tempfile::NamedTempFile;
 use thiserror::Error;
 use translunar_ai_core::AiCoreError;
 use translunar_asset_core::{
-    AssetError, TermExchangeEntry, TermExchangeTranslation, TermStatus, TmExchangeUnit,
+    AssetError, TermExchangeEntry, TermExchangeTranslation, TermStatus, TmExchangeUnit, exact_key,
+    normalize_match_key,
 };
 use translunar_domain::{
-    DataHealthReport, Document, EditorPreferences, Project, Segment, SegmentState, SpellFinding,
-    state_for_target,
+    DataHealthReport, Document, EditorPreferences, EditorWorkflowState, Project, Segment,
+    SegmentEditorRow, SegmentState, SpellFinding, state_for_target,
 };
 use translunar_editor_core::{
     SearchOptions, TextMatch, check_user_dictionary, cjk_assistance, normalize_dictionary_word,
@@ -33,13 +34,24 @@ use translunar_editor_core::{
 use translunar_filter_core::{
     ExportRequest, FilterError, FilterRegistry, ImportRequest, collect_imported_document,
 };
-use translunar_filter_docx::DocxFilter;
+use translunar_filter_docx::{
+    BilingualDocxFilter, DocxError, DocxFilter,
+    extract_bilingual_table_rows as extract_bilingual_docx_rows,
+};
 use translunar_filter_html::HtmlFilter;
+use translunar_filter_interop::{
+    MqxliffFilter, MqxlzFilter, ParsedReviewPackage, ReviewExportInput, ReviewExportRow,
+    ReviewPackageError, SdlxliffFilter, export_review_docx, parse_review_docx,
+    source_hash as review_source_hash,
+};
 use translunar_filter_pdf::{PdfError, PdfFilter, PdfPath};
 use translunar_filter_pptx::PptxFilter;
 use translunar_filter_text::{MarkdownFilter, TxtFilter};
 use translunar_filter_xliff::XliffFilter;
-use translunar_filter_xlsx::XlsxFilter;
+use translunar_filter_xlsx::{
+    BilingualTableRow as BilingualXlsxTableRow, BilingualXlsxFilter, XlsxError, XlsxFilter,
+    extract_bilingual_table_rows as extract_bilingual_xlsx_rows,
+};
 use translunar_lifecycle_core::{
     ArchiveEntry, MAX_ARCHIVE_ENTRIES, MAX_ARCHIVE_ENTRY_BYTES, MAX_ARCHIVE_TOTAL_BYTES,
     PROJECT_ARCHIVE_FORMAT_VERSION, ProjectArchiveManifest, sha256_hex,
@@ -52,43 +64,46 @@ use translunar_protocol::methods;
 use translunar_protocol::{
     AnalysisProfile, AnalysisProfileListResult, AnalysisRunIdParams, AnalysisRunParams,
     AnalysisRunResult, AssetExchangeFormat, BackupResult, BatchImportAtomicity,
-    BatchImportDiagnostic, ConcordanceParams, ConcordanceResult, ConfirmSegmentParams,
-    ConfirmSegmentResult, ConvertSegmentChineseParams, CorrectOcrParams, CorrectSourceParams,
-    CreateBackupParams, CreatePipelineParams, CreateProjectParams, CreateSegmentCommentParams,
-    DeleteSegmentCommentParams, DictionaryListParams, DictionaryListResult, DictionaryWordParams,
-    DocumentIdParams, DocumentListParams, DocumentPage, DocumentReimportApplyParams,
-    DocumentReimportPreviewParams, DocumentReimportPreviewResult, EditorHistoryParams,
-    EditorHistoryResult, EditorMutationResult, EditorSearchField, EditorSegmentFilter,
-    EditorSegmentListParams, EditorSegmentPage, EditorSegmentSort, EditorUndoRedoParams,
-    EmptyParams, EmptyResult, ErrorCode, ExactLookupParams, ExactLookupResult,
-    ExportDocumentParams, ExportDocumentResult, ExportDocxParams, ExportDocxResult,
-    FilterListResult, FindSegmentsParams, GlobalSearchHit, GlobalSearchPage, GlobalSearchParams,
-    HistoryListParams, ImportDocumentParams, ImportDocumentResult, ImportDocxParams,
-    InitializeParams, InitializeResult, ListQaParams, MergeSegmentsParams, OperationPage,
-    PROTOCOL_VERSION, PdfBoundingBox, PdfPageBlock, PdfPageDetail, PdfPageGetParams,
-    PdfPageListParams, PdfPageListResult, PdfPageSummary, PipelineCapabilityResult,
-    PipelineDefinitionPage, PipelineIdParams, PipelineListParams, PipelineRunIdParams,
-    PipelineRunListParams, PipelineRunPage, PipelineRunRevisionParams,
-    PipelineRunSnapshot as ProtocolPipelineRunSnapshot, PipelineValidationResult,
-    ProjectAnalyticsParams, ProjectAnalyticsResult, ProjectArchiveExportParams,
-    ProjectArchiveRestoreParams, ProjectArchiveResult, ProjectBatchImportParams,
-    ProjectBatchImportResult, ProjectCreateFromTemplateParams, ProjectCreateFromTemplateResult,
-    ProjectIdParams, ProjectListParams, ProjectPage, ProjectSnapshot, ProjectTemplate,
-    ProjectTemplateCreateParams, ProjectTemplateDeleteParams, ProjectTemplateGetParams,
-    ProjectTemplateListParams, ProjectTemplatePage, ProjectTemplateUpdateParams,
-    PropagateSegmentParams, QaListResult, RecycleDeleteParams, RecycleEntry,
-    RecycleEntryActionParams, RecycleListParams, RecyclePage, ReplaceApplyParams,
+    BatchImportDiagnostic, BilingualTableFormat, ConcordanceParams, ConcordanceResult,
+    ConfirmSegmentParams, ConfirmSegmentResult, ConvertSegmentChineseParams, CorrectOcrParams,
+    CorrectSourceParams, CreateBackupParams, CreatePipelineParams, CreateProjectParams,
+    CreateSegmentCommentParams, DeleteSegmentCommentParams, DictionaryListParams,
+    DictionaryListResult, DictionaryWordParams, DocumentIdParams, DocumentListParams, DocumentPage,
+    DocumentReimportApplyParams, DocumentReimportPreviewParams, DocumentReimportPreviewResult,
+    EditorHistoryParams, EditorHistoryResult, EditorMutationResult, EditorSearchField,
+    EditorSegmentFilter, EditorSegmentListParams, EditorSegmentPage, EditorSegmentSort,
+    EditorUndoRedoParams, EmptyParams, EmptyResult, ErrorCode, ExactLookupParams,
+    ExactLookupResult, ExportDocumentParams, ExportDocumentResult, ExportDocxParams,
+    ExportDocxResult, FilterListResult, FindSegmentsParams, GlobalSearchHit, GlobalSearchPage,
+    GlobalSearchParams, HistoryListParams, ImportDocumentParams, ImportDocumentResult,
+    ImportDocxParams, InitializeParams, InitializeResult, InteropApplyResult, InteropPreviewStatus,
+    ListQaParams, MergeSegmentsParams, OperationPage, PROTOCOL_VERSION, PdfBoundingBox,
+    PdfPageBlock, PdfPageDetail, PdfPageGetParams, PdfPageListParams, PdfPageListResult,
+    PdfPageSummary, PipelineCapabilityResult, PipelineDefinitionPage, PipelineIdParams,
+    PipelineListParams, PipelineRunIdParams, PipelineRunListParams, PipelineRunPage,
+    PipelineRunRevisionParams, PipelineRunSnapshot as ProtocolPipelineRunSnapshot,
+    PipelineValidationResult, ProjectAnalyticsParams, ProjectAnalyticsResult,
+    ProjectArchiveExportParams, ProjectArchiveRestoreParams, ProjectArchiveResult,
+    ProjectBatchImportParams, ProjectBatchImportResult, ProjectCreateFromTemplateParams,
+    ProjectCreateFromTemplateResult, ProjectIdParams, ProjectListParams, ProjectPage,
+    ProjectSnapshot, ProjectTemplate, ProjectTemplateCreateParams, ProjectTemplateDeleteParams,
+    ProjectTemplateGetParams, ProjectTemplateListParams, ProjectTemplatePage,
+    ProjectTemplateUpdateParams, PropagateSegmentParams, QaListResult, RecycleDeleteParams,
+    RecycleEntry, RecycleEntryActionParams, RecycleListParams, RecyclePage, ReplaceApplyParams,
     ReplacePreviewItem, ReplacePreviewParams, ReplacePreviewResult, ResolveSegmentCommentParams,
-    ReviewCreateParams, ReviewDecisionParams, ReviewListParams, ReviewListResult, RpcError,
-    RpcRequest, RpcResponse, RunPipelineParams, SegmentCommentListParams, SegmentCommentListResult,
-    SegmentFindMatch, SegmentFindResult, SegmentListParams, SegmentPage, SetEditorWorkflowParams,
+    ReviewApplyParams, ReviewCreateParams, ReviewDecisionParams, ReviewExportParams,
+    ReviewExportResult, ReviewInteropDisposition, ReviewListParams, ReviewListResult,
+    ReviewPreviewParams, ReviewPreviewResult, ReviewPreviewRow, RpcError, RpcRequest, RpcResponse,
+    RunPipelineParams, SegmentCommentListParams, SegmentCommentListResult, SegmentFindMatch,
+    SegmentFindResult, SegmentListParams, SegmentPage, SetEditorWorkflowParams,
     SetProjectLifecycleParams, SetSegmentTagsParams, SpellCheckParams, SpellCheckResult,
-    SplitSegmentParams, TemplateDependencyDiagnostic, TermSearchParams, TermSearchResult,
-    TermUpsertParams, TermbaseCreateParams, TermbaseExportParams, TermbaseExportResult,
-    TermbaseImportParams, TermbaseImportResult, TermbaseListParams, TermbaseMountParams,
-    TermbasePage, TermbaseUnmountParams, TmExportParams, TmExportResult, TmImportParams,
-    TmImportResult, TmLibraryCreateParams, TmLibraryListParams, TmLibraryMountParams,
-    TmLibraryPage, TmLibraryUnmountParams, TmSearchParams, TmSearchResult,
+    SplitSegmentParams, TableApplyParams, TableInteropDisposition, TablePreviewParams,
+    TablePreviewResult, TablePreviewRow, TemplateDependencyDiagnostic, TermSearchParams,
+    TermSearchResult, TermUpsertParams, TermbaseCreateParams, TermbaseExportParams,
+    TermbaseExportResult, TermbaseImportParams, TermbaseImportResult, TermbaseListParams,
+    TermbaseMountParams, TermbasePage, TermbaseUnmountParams, TmExportParams, TmExportResult,
+    TmImportParams, TmImportResult, TmLibraryCreateParams, TmLibraryListParams,
+    TmLibraryMountParams, TmLibraryPage, TmLibraryUnmountParams, TmSearchParams, TmSearchResult,
     UpdateEditorPreferencesParams, UpdateProjectParams, UpdateSegmentCommentParams,
     UpdateTargetParams, ValidatePipelineParams,
 };
@@ -98,14 +113,17 @@ use translunar_storage::{
     EditorListRequest as StorageEditorListRequest, EditorMutation as StorageEditorMutation,
     EditorSearchField as StorageEditorSearchField, EditorSort as StorageEditorSort,
     GlobalSearchQuery as StorageGlobalSearchQuery, GlobalSearchResult as StorageGlobalSearchResult,
-    NewDocument, NewPipelineDefinition, NewProjectArchiveRecord, NewReimportPreview, NewTermEntry,
-    NewTermTranslation, NewTmLibrary, ProjectArchiveData,
-    ProjectFromTemplateResult as StorageProjectFromTemplateResult,
+    INTEROP_STRUCTURAL_PATH_METADATA, InteropApplyResult as StorageInteropApplyResult,
+    InteropPreviewKind, InteropPreviewRecord, InteropPreviewRowRecord, ManagedDocument,
+    NewDocument, NewInteropPreview, NewInteropPreviewRow, NewPipelineDefinition,
+    NewProjectArchiveRecord, NewReimportPreview, NewTermEntry, NewTermTranslation, NewTmLibrary,
+    ProjectArchiveData, ProjectFromTemplateResult as StorageProjectFromTemplateResult,
     ProjectTemplateRecord as StorageProjectTemplate, ProjectUpdate,
     RecycleEntryRecord as StorageRecycleEntry, ReimportPreviewRecord as StorageReimportPreview,
     ReplaceItem as StorageReplaceItem, ReplacePreview as StorageReplacePreview,
-    ReplaceRequest as StorageReplaceRequest, ReviewProposal, StorageError, Store,
-    TermSearchRequest as StorageTermSearchRequest, TmSearchRequest as StorageTmSearchRequest,
+    ReplaceRequest as StorageReplaceRequest, ReviewInteropApply, ReviewProposal, StorageError,
+    Store, TableInteropApply, TermSearchRequest as StorageTermSearchRequest,
+    TmSearchRequest as StorageTmSearchRequest, interop_comment_context,
 };
 use zip::write::{SimpleFileOptions, ZipWriter};
 use zip::{CompressionMethod, ZipArchive};
@@ -338,6 +356,21 @@ struct ValidatedProjectArchive {
 struct PreparedDocumentImport {
     input: NewDocument,
     units: Vec<translunar_filter_core::ImportedUnit>,
+}
+
+#[derive(Debug, Clone)]
+struct StagedInteropInput {
+    path: PathBuf,
+    relative_path: String,
+    sha256: String,
+}
+
+#[derive(Debug, Clone)]
+struct BilingualInteropRow {
+    group: u32,
+    source_row: u32,
+    structural_path: String,
+    cells: Vec<String>,
 }
 
 enum BatchSelection {
@@ -1400,7 +1433,13 @@ impl EngineService {
             .register(Arc::new(DocxFilter))
             .map_err(|error| EngineError::InvalidState(error.to_string()))?;
         filters
+            .register(Arc::new(BilingualDocxFilter))
+            .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+        filters
             .register(Arc::new(XlsxFilter))
+            .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+        filters
+            .register(Arc::new(BilingualXlsxFilter))
             .map_err(|error| EngineError::InvalidState(error.to_string()))?;
         filters
             .register(Arc::new(PptxFilter))
@@ -1419,6 +1458,15 @@ impl EngineService {
             .map_err(|error| EngineError::InvalidState(error.to_string()))?;
         filters
             .register(Arc::new(XliffFilter))
+            .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+        filters
+            .register(Arc::new(SdlxliffFilter))
+            .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+        filters
+            .register(Arc::new(MqxliffFilter))
+            .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+        filters
+            .register(Arc::new(MqxlzFilter))
             .map_err(|error| EngineError::InvalidState(error.to_string()))?;
         Ok(Self {
             store: Store::open(&data_dir)?,
@@ -3455,6 +3503,425 @@ impl EngineService {
         })
     }
 
+    pub fn export_review(&self, params: ReviewExportParams) -> Result<ReviewExportResult> {
+        let document = self.review_document_binding(
+            &params.project_id,
+            &params.document_id,
+            params.expected_document_revision,
+        )?;
+        let rows = self.load_all_editor_rows(&params.document_id)?;
+        if rows.is_empty() {
+            return Err(EngineError::InvalidRequest(
+                "review export requires at least one segment".to_string(),
+            ));
+        }
+        let export_rows = rows
+            .iter()
+            .map(|row| ReviewExportRow {
+                row_id: translunar_domain::new_id(),
+                segment_id: row.segment.id.clone(),
+                segment_revision: row.segment.revision,
+                ordinal: row.segment.ordinal,
+                source_text: row.segment.source_text.clone(),
+                target_text: row.segment.target_text.clone(),
+                status: workflow_state_text(row.workflow_state).to_string(),
+                comments: interop_comment_context(&row.comments),
+            })
+            .collect::<Vec<_>>();
+        let result = export_review_docx(
+            &ReviewExportInput {
+                project_id: params.project_id,
+                document_id: document.document.id,
+                base_document_revision: params.expected_document_revision,
+                rows: export_rows,
+            },
+            Path::new(&params.output_path),
+        )
+        .map_err(map_review_export_error)?;
+        Ok(ReviewExportResult {
+            output_path: result.output_path,
+            row_count: result.row_count,
+            manifest_hash: result.manifest_hash,
+        })
+    }
+
+    pub fn preview_review(&mut self, params: ReviewPreviewParams) -> Result<ReviewPreviewResult> {
+        let limit = bounded_page_size(params.limit)?;
+        match (params.input_path.as_deref(), params.preview_id.as_deref()) {
+            (Some(_), Some(_)) | (None, None) => Err(EngineError::InvalidRequest(
+                "exactly one of inputPath or previewId is required".to_string(),
+            )),
+            (None, Some(preview_id)) => {
+                let preview = self.store.get_interop_preview(preview_id)?;
+                if preview.kind != InteropPreviewKind::Review
+                    || preview.project_id != params.project_id
+                    || preview.document_id.as_deref() != Some(params.document_id.as_str())
+                {
+                    return Err(EngineError::InvalidState(
+                        "review preview does not match the requested project and document"
+                            .to_string(),
+                    ));
+                }
+                if preview.expected_revision != params.expected_document_revision {
+                    return Err(StorageError::EntityConflict {
+                        entity: "document",
+                        id: params.document_id,
+                        expected_revision: params.expected_document_revision,
+                        actual_revision: preview.expected_revision,
+                    }
+                    .into());
+                }
+                protocol_review_preview_result(&self.store, preview, params.offset, limit)
+            }
+            (Some(input_path), None) => {
+                let document = self.review_document_binding(
+                    &params.project_id,
+                    &params.document_id,
+                    params.expected_document_revision,
+                )?;
+                let source_path = PathBuf::from(input_path);
+                let extension = source_path
+                    .extension()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("docx")
+                    .to_ascii_lowercase();
+                if extension != "docx" {
+                    return Err(EngineError::InvalidRequest(
+                        "review preview input must be a DOCX file".to_string(),
+                    ));
+                }
+                let preview_id = translunar_domain::new_id();
+                let staged = self.stage_interop_input(&source_path, &preview_id, &extension)?;
+                let parsed = match parse_review_docx(&staged.path) {
+                    Ok(parsed) => parsed,
+                    Err(error) => {
+                        let _ = fs::remove_file(&staged.path);
+                        return Err(map_review_import_error(error));
+                    }
+                };
+                if parsed.manifest.project_id != params.project_id
+                    || parsed.manifest.document_id != params.document_id
+                {
+                    let _ = fs::remove_file(&staged.path);
+                    return Err(EngineError::InvalidRequest(
+                        "review manifest project or document binding is invalid".to_string(),
+                    ));
+                }
+                if parsed.manifest.base_document_revision != params.expected_document_revision {
+                    let _ = fs::remove_file(&staged.path);
+                    return Err(StorageError::EntityConflict {
+                        entity: "document",
+                        id: params.document_id,
+                        expected_revision: parsed.manifest.base_document_revision,
+                        actual_revision: params.expected_document_revision,
+                    }
+                    .into());
+                }
+                let rows = match classify_review_rows(
+                    &document.document,
+                    &self.load_all_editor_rows(&document.document.id)?,
+                    &parsed,
+                ) {
+                    Ok(rows) => rows,
+                    Err(error) => {
+                        let _ = fs::remove_file(&staged.path);
+                        return Err(error);
+                    }
+                };
+                let preview = self.store.create_interop_preview(NewInteropPreview {
+                    id: preview_id,
+                    kind: InteropPreviewKind::Review,
+                    project_id: params.project_id,
+                    document_id: Some(params.document_id),
+                    library_id: None,
+                    expected_revision: params.expected_document_revision,
+                    input_sha256: staged.sha256,
+                    input_format: "review-docx".to_string(),
+                    staged_input_path: staged.relative_path,
+                    source_locale: None,
+                    target_locale: None,
+                    manifest_hash: Some(parsed.manifest.manifest_hash),
+                    rows,
+                });
+                let preview = match preview {
+                    Ok(preview) => preview,
+                    Err(error) => {
+                        let _ = fs::remove_file(&staged.path);
+                        return Err(error.into());
+                    }
+                };
+                protocol_review_preview_result(&self.store, preview, params.offset, limit)
+            }
+        }
+    }
+
+    pub fn apply_review(&mut self, params: ReviewApplyParams) -> Result<InteropApplyResult> {
+        let preview = self.store.get_interop_preview(&params.preview_id)?;
+        let staged_path = self.resolve_staged_interop_path(&preview.staged_input_path)?;
+        let result = self.store.apply_review_interop(ReviewInteropApply {
+            preview_id: params.preview_id,
+            expected_document_revision: params.expected_document_revision,
+            selected_row_ids: params.selected_row_ids,
+            actor: params.actor,
+            reason: params.reason,
+        })?;
+        if result.status == "applied" {
+            let _ = fs::remove_file(staged_path);
+        }
+        protocol_interop_apply_result(result)
+    }
+
+    pub fn preview_table(&mut self, params: TablePreviewParams) -> Result<TablePreviewResult> {
+        let limit = bounded_page_size(params.limit)?;
+        match (params.input_path.as_deref(), params.preview_id.as_deref()) {
+            (Some(_), Some(_)) | (None, None) => Err(EngineError::InvalidRequest(
+                "exactly one of inputPath or previewId is required".to_string(),
+            )),
+            (None, Some(preview_id)) => {
+                let preview = self.store.get_interop_preview(preview_id)?;
+                if preview.kind != InteropPreviewKind::Table
+                    || preview.project_id != params.project_id
+                    || preview.library_id.as_deref() != Some(params.library_id.as_str())
+                {
+                    return Err(EngineError::InvalidState(
+                        "table preview does not match the requested project and library"
+                            .to_string(),
+                    ));
+                }
+                if preview.expected_revision != params.expected_library_revision {
+                    return Err(StorageError::EntityConflict {
+                        entity: "tm_library",
+                        id: params.library_id,
+                        expected_revision: params.expected_library_revision,
+                        actual_revision: preview.expected_revision,
+                    }
+                    .into());
+                }
+                if preview.source_locale.as_deref() != Some(params.source_locale.as_str())
+                    || preview.target_locale.as_deref() != Some(params.target_locale.as_str())
+                {
+                    return Err(EngineError::InvalidState(
+                        "table preview locale binding does not match the request".to_string(),
+                    ));
+                }
+                if let Some(format) = params.format
+                    && table_format_id(format) != preview.input_format
+                {
+                    return Err(EngineError::InvalidRequest(
+                        "table preview format does not match the staged input".to_string(),
+                    ));
+                }
+                protocol_table_preview_result(&self.store, preview, params.offset, limit)
+            }
+            (Some(input_path), None) => {
+                self.store.get_project(&params.project_id)?;
+                let library = self.store.get_tm_library(&params.library_id)?;
+                if library.revision != params.expected_library_revision {
+                    return Err(StorageError::EntityConflict {
+                        entity: "tm_library",
+                        id: params.library_id,
+                        expected_revision: params.expected_library_revision,
+                        actual_revision: library.revision,
+                    }
+                    .into());
+                }
+                if !library.writable {
+                    return Err(EngineError::InvalidState(
+                        "table preview requires a writable TM library".to_string(),
+                    ));
+                }
+                if library.source_locale != params.source_locale
+                    || library.target_locale != params.target_locale
+                {
+                    return Err(EngineError::InvalidState(
+                        "table preview locales do not match the TM library".to_string(),
+                    ));
+                }
+                let source_path = PathBuf::from(input_path);
+                let format = table_format_from_path(params.format, &source_path)?;
+                let extension = match format {
+                    BilingualTableFormat::Docx => "docx",
+                    BilingualTableFormat::Xlsx => "xlsx",
+                };
+                let preview_id = translunar_domain::new_id();
+                let staged = self.stage_interop_input(&source_path, &preview_id, extension)?;
+                let table_rows = match extract_bilingual_rows(format, &staged.path) {
+                    Ok(rows) => rows,
+                    Err(error) => {
+                        let _ = fs::remove_file(&staged.path);
+                        return Err(error);
+                    }
+                };
+                let rows = match classify_table_rows(
+                    &self.store,
+                    &library.id,
+                    &params.project_id,
+                    &staged.sha256,
+                    format,
+                    table_rows,
+                ) {
+                    Ok(rows) => rows,
+                    Err(error) => {
+                        let _ = fs::remove_file(&staged.path);
+                        return Err(error);
+                    }
+                };
+                let preview = self.store.create_interop_preview(NewInteropPreview {
+                    id: preview_id,
+                    kind: InteropPreviewKind::Table,
+                    project_id: params.project_id,
+                    document_id: None,
+                    library_id: Some(params.library_id),
+                    expected_revision: params.expected_library_revision,
+                    input_sha256: staged.sha256,
+                    input_format: table_format_id(format).to_string(),
+                    staged_input_path: staged.relative_path,
+                    source_locale: Some(params.source_locale),
+                    target_locale: Some(params.target_locale),
+                    manifest_hash: None,
+                    rows,
+                });
+                let preview = match preview {
+                    Ok(preview) => preview,
+                    Err(error) => {
+                        let _ = fs::remove_file(&staged.path);
+                        return Err(error.into());
+                    }
+                };
+                protocol_table_preview_result(&self.store, preview, params.offset, limit)
+            }
+        }
+    }
+
+    pub fn apply_table(&mut self, params: TableApplyParams) -> Result<InteropApplyResult> {
+        let preview = self.store.get_interop_preview(&params.preview_id)?;
+        let staged_path = self.resolve_staged_interop_path(&preview.staged_input_path)?;
+        let result = self.store.apply_table_interop(TableInteropApply {
+            preview_id: params.preview_id,
+            expected_library_revision: params.expected_library_revision,
+            selected_row_ids: params.selected_row_ids,
+            actor: params.actor,
+            reason: params.reason,
+        })?;
+        if result.status == "applied" {
+            let _ = fs::remove_file(staged_path);
+        }
+        protocol_interop_apply_result(result)
+    }
+
+    fn review_document_binding(
+        &self,
+        project_id: &str,
+        document_id: &str,
+        expected_revision: u64,
+    ) -> Result<ManagedDocument> {
+        self.store.get_project(project_id)?;
+        let document = self.store.get_document(document_id)?;
+        if document.document.project_id != project_id {
+            return Err(EngineError::InvalidState(
+                "document does not belong to the requested project".to_string(),
+            ));
+        }
+        if document.document.revision != expected_revision {
+            return Err(StorageError::EntityConflict {
+                entity: "document",
+                id: document_id.to_string(),
+                expected_revision,
+                actual_revision: document.document.revision,
+            }
+            .into());
+        }
+        Ok(document)
+    }
+
+    fn load_all_editor_rows(&self, document_id: &str) -> Result<Vec<SegmentEditorRow>> {
+        let (rows, total) = self.store.list_editor_rows(&StorageEditorListRequest {
+            document_id: document_id.to_string(),
+            query: String::new(),
+            field: StorageEditorSearchField::Both,
+            filter: StorageEditorFilter::All,
+            sort: StorageEditorSort::Ordinal,
+            descending: false,
+            offset: 0,
+            limit: 100_000,
+            include_context: false,
+        })?;
+        let returned = u32::try_from(rows.len()).map_err(|_| {
+            EngineError::InvalidState("interop editor row count overflow".to_string())
+        })?;
+        if total > returned {
+            return Err(EngineError::InvalidState(
+                "document exceeds the supported interop row limit".to_string(),
+            ));
+        }
+        Ok(rows)
+    }
+
+    fn stage_interop_input(
+        &self,
+        source: &Path,
+        preview_id: &str,
+        extension: &str,
+    ) -> Result<StagedInteropInput> {
+        if !source.is_file() {
+            return Err(EngineError::InvalidRequest(format!(
+                "interop input does not exist: {}",
+                source.display()
+            )));
+        }
+        let extension = extension
+            .trim()
+            .trim_start_matches('.')
+            .chars()
+            .filter(|value| value.is_ascii_alphanumeric())
+            .collect::<String>();
+        let extension = if extension.is_empty() {
+            "source".to_string()
+        } else {
+            extension
+        };
+        let destination = self
+            .store
+            .paths()
+            .temporary
+            .join(format!("interop-{preview_id}.{extension}"));
+        let mut temporary = tempfile::Builder::new()
+            .prefix("interop-stage-")
+            .suffix(&format!(".{extension}"))
+            .tempfile_in(&self.store.paths().temporary)?;
+        let sha256 = copy_and_hash(source, temporary.as_file_mut())?;
+        temporary.as_file().sync_all()?;
+        temporary
+            .persist_noclobber(&destination)
+            .map_err(|error| EngineError::Io(error.error))?;
+        let relative_path = destination
+            .strip_prefix(&self.store.paths().root)
+            .map_err(|_| {
+                EngineError::InvalidState("interop staging path escaped the workspace".to_string())
+            })?
+            .to_string_lossy()
+            .replace('\\', "/");
+        Ok(StagedInteropInput {
+            path: destination,
+            relative_path,
+            sha256,
+        })
+    }
+
+    fn resolve_staged_interop_path(&self, relative_path: &str) -> Result<PathBuf> {
+        let path = Path::new(relative_path);
+        if path.is_absolute()
+            || path
+                .components()
+                .any(|component| !matches!(component, Component::Normal(_)))
+        {
+            return Err(EngineError::InvalidState(
+                "stored interop staging path is invalid".to_string(),
+            ));
+        }
+        Ok(self.store.paths().root.join(path))
+    }
+
     pub fn export_document(
         &mut self,
         params: ExportDocumentParams,
@@ -4094,6 +4561,21 @@ impl RpcDispatcher {
                 self.service
                     .review_statistics(parse_params(request.params)?)?,
             ),
+            methods::INTEROP_REVIEW_EXPORT => {
+                serialize_result(self.service.export_review(parse_params(request.params)?)?)
+            }
+            methods::INTEROP_REVIEW_PREVIEW => {
+                serialize_result(self.service.preview_review(parse_params(request.params)?)?)
+            }
+            methods::INTEROP_REVIEW_APPLY => {
+                serialize_result(self.service.apply_review(parse_params(request.params)?)?)
+            }
+            methods::INTEROP_TABLE_PREVIEW => {
+                serialize_result(self.service.preview_table(parse_params(request.params)?)?)
+            }
+            methods::INTEROP_TABLE_APPLY => {
+                serialize_result(self.service.apply_table(parse_params(request.params)?)?)
+            }
             methods::EDITOR_PREFERENCES_GET => serialize_result(
                 self.service
                     .get_editor_preferences(parse_params(request.params)?)?,
@@ -4463,6 +4945,8 @@ impl RpcDispatcher {
                 "editor.workflow".to_string(),
                 "editor.workflow-direct-signoff".to_string(),
                 "editor.preferences".to_string(),
+                "interop.review-docx".to_string(),
+                "interop.bilingual-table".to_string(),
                 "ai.provider.byok".to_string(),
                 "ai.provider.openai-compatible".to_string(),
                 "ai.grounding".to_string(),
@@ -4685,6 +5169,639 @@ fn rpc_error(error: EngineError) -> RpcError {
     }
 }
 
+fn workflow_state_text(state: EditorWorkflowState) -> &'static str {
+    match state {
+        EditorWorkflowState::Translation => "translation",
+        EditorWorkflowState::Review => "review",
+        EditorWorkflowState::Signed => "signed",
+    }
+}
+
+fn map_review_import_error(error: ReviewPackageError) -> EngineError {
+    match error {
+        ReviewPackageError::Io(error) => EngineError::Io(error),
+        ReviewPackageError::Publish(error) => EngineError::Import(error),
+        other => EngineError::Import(FilterError::Invalid(other.to_string())),
+    }
+}
+
+fn map_review_export_error(error: ReviewPackageError) -> EngineError {
+    match error {
+        ReviewPackageError::Io(error) => EngineError::Io(error),
+        ReviewPackageError::Publish(error) => EngineError::Export(error),
+        other => EngineError::Export(FilterError::Processing(other.to_string())),
+    }
+}
+
+fn map_bilingual_docx_error(error: DocxError) -> EngineError {
+    match error {
+        DocxError::Io(error) => EngineError::Io(error),
+        other => EngineError::Import(FilterError::Invalid(other.to_string())),
+    }
+}
+
+fn map_bilingual_xlsx_error(error: XlsxError) -> EngineError {
+    match error {
+        XlsxError::Io(error) => EngineError::Io(error),
+        other => EngineError::Import(FilterError::Invalid(other.to_string())),
+    }
+}
+
+fn extract_bilingual_rows(
+    format: BilingualTableFormat,
+    source: &Path,
+) -> Result<Vec<BilingualInteropRow>> {
+    match format {
+        BilingualTableFormat::Docx => extract_bilingual_docx_rows(source)
+            .map_err(map_bilingual_docx_error)
+            .map(|rows| {
+                rows.into_iter()
+                    .map(|row| BilingualInteropRow {
+                        group: row.table_index,
+                        source_row: row.row_number,
+                        structural_path: row.structural_path,
+                        cells: row.cells,
+                    })
+                    .collect()
+            }),
+        BilingualTableFormat::Xlsx => extract_bilingual_xlsx_rows(source)
+            .map_err(map_bilingual_xlsx_error)
+            .and_then(|rows| {
+                rows.into_iter()
+                    .map(|row: BilingualXlsxTableRow| {
+                        Ok(BilingualInteropRow {
+                            group: u32::try_from(row.sheet_index).map_err(|_| {
+                                EngineError::InvalidState(
+                                    "XLSX sheet index exceeds the supported range".to_string(),
+                                )
+                            })?,
+                            source_row: row.row_number,
+                            structural_path: row.structural_path,
+                            cells: row.cells,
+                        })
+                    })
+                    .collect()
+            }),
+    }
+}
+
+fn table_format_id(format: BilingualTableFormat) -> &'static str {
+    match format {
+        BilingualTableFormat::Docx => "bilingual-docx",
+        BilingualTableFormat::Xlsx => "bilingual-xlsx",
+    }
+}
+
+fn table_format_from_path(
+    requested: Option<BilingualTableFormat>,
+    source: &Path,
+) -> Result<BilingualTableFormat> {
+    let inferred = match source
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("docx") => Some(BilingualTableFormat::Docx),
+        Some("xlsx") => Some(BilingualTableFormat::Xlsx),
+        _ => None,
+    };
+    let format = requested.or(inferred).ok_or_else(|| {
+        EngineError::InvalidRequest(
+            "table preview requires a DOCX or XLSX input (or an explicit format)".to_string(),
+        )
+    })?;
+    if let Some(inferred) = inferred
+        && inferred != format
+    {
+        return Err(EngineError::InvalidRequest(
+            "table preview format does not match the input extension".to_string(),
+        ));
+    }
+    Ok(format)
+}
+
+fn is_bilingual_header_cells(cells: &[String]) -> bool {
+    let source = cells
+        .first()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .unwrap_or_default();
+    let target = cells
+        .get(1)
+        .map(|value| value.trim().to_ascii_lowercase())
+        .unwrap_or_default();
+    matches!(source.as_str(), "source" | "source text" | "原文")
+        && matches!(
+            target.as_str(),
+            "target" | "target text" | "translation" | "译文"
+        )
+}
+
+fn table_row_id(
+    input_sha256: &str,
+    source_row: u32,
+    source_hash: &str,
+    target_hash: &str,
+) -> String {
+    let mut identity =
+        Vec::with_capacity(input_sha256.len() + source_hash.len() + target_hash.len() + 16);
+    identity.extend_from_slice(input_sha256.as_bytes());
+    identity.extend_from_slice(source_row.to_string().as_bytes());
+    identity.extend_from_slice(source_hash.as_bytes());
+    identity.extend_from_slice(target_hash.as_bytes());
+    sha256_hex(&identity)
+}
+
+fn classify_table_rows(
+    store: &Store,
+    library_id: &str,
+    _project_id: &str,
+    input_sha256: &str,
+    _format: BilingualTableFormat,
+    rows: Vec<BilingualInteropRow>,
+) -> Result<Vec<NewInteropPreviewRow>> {
+    let existing = store.export_tm_units(library_id)?;
+    let mut existing_keys = BTreeSet::new();
+    for unit in existing {
+        existing_keys.insert((
+            exact_key(&unit.source_text),
+            sha256_hex(normalize_match_key(&unit.target_text).as_bytes()),
+        ));
+    }
+    let mut seen_groups = BTreeSet::new();
+    let mut headers = BTreeMap::<u32, Vec<String>>::new();
+    let mut seen_keys = BTreeSet::new();
+    let mut seen_row_ids = BTreeSet::new();
+    let mut output = Vec::new();
+    let mut ordinal = 0_u32;
+    for row in rows {
+        if seen_groups.insert(row.group) && is_bilingual_header_cells(&row.cells) {
+            headers.insert(row.group, row.cells);
+            continue;
+        }
+        let source = row.cells.first().cloned().unwrap_or_default();
+        let target = row.cells.get(1).cloned().unwrap_or_default();
+        let source_hash = review_source_hash(&source);
+        let target_hash = sha256_hex(normalize_match_key(&target).as_bytes());
+        let row_id = table_row_id(input_sha256, row.source_row, &source_hash, &target_hash);
+        if !seen_row_ids.insert(row_id.clone()) {
+            return Err(EngineError::Import(FilterError::Invalid(
+                "bilingual table contains an ambiguous stable row identity".to_string(),
+            )));
+        }
+        let mut diagnostics = Vec::new();
+        let mut metadata = BTreeMap::new();
+        if let Some(header) = headers.get(&row.group) {
+            for (index, value) in row.cells.iter().enumerate().skip(2) {
+                if let Some(name) = header.get(index).filter(|name| !name.trim().is_empty()) {
+                    metadata.insert(name.clone(), value.clone());
+                }
+            }
+        }
+        metadata.insert(
+            INTEROP_STRUCTURAL_PATH_METADATA.to_string(),
+            row.structural_path.clone(),
+        );
+        let metadata_json = match serde_json::to_string(&metadata) {
+            Ok(value) if value.len() <= 1024 * 1024 => value,
+            Ok(_) => {
+                diagnostics.push("row metadata exceeds 1 MiB".to_string());
+                "{}".to_string()
+            }
+            Err(error) => {
+                diagnostics.push(format!("row metadata is invalid: {error}"));
+                "{}".to_string()
+            }
+        };
+        let key = (exact_key(&source), target_hash);
+        let duplicate_existing = existing_keys.contains(&key);
+        let duplicate_input = !seen_keys.insert(key);
+        let disposition = if source.trim().is_empty() || target.trim().is_empty() {
+            diagnostics.push("source and target cells are required".to_string());
+            "invalid"
+        } else if duplicate_existing || duplicate_input {
+            diagnostics.push(if duplicate_existing {
+                "row duplicates an existing TM unit".to_string()
+            } else {
+                "row duplicates an earlier input row".to_string()
+            });
+            "duplicate"
+        } else if !diagnostics.is_empty() {
+            "invalid"
+        } else {
+            "valid"
+        };
+        output.push(NewInteropPreviewRow {
+            row_id,
+            ordinal,
+            source_row: row.source_row,
+            segment_id: None,
+            expected_segment_revision: None,
+            source_hash,
+            source_text: source,
+            target_text: target,
+            current_target: String::new(),
+            comments: String::new(),
+            current_comments: String::new(),
+            status_context: String::new(),
+            current_status: String::new(),
+            metadata_json,
+            source_path_hash: sha256_hex(row.structural_path.as_bytes()),
+            disposition: disposition.to_string(),
+            diagnostics_json: serde_json::to_string(&diagnostics)?,
+        });
+        ordinal = ordinal
+            .checked_add(1)
+            .ok_or_else(|| EngineError::InvalidState("table row ordinal overflow".to_string()))?;
+    }
+    if output.is_empty() {
+        return Err(EngineError::Import(FilterError::Invalid(
+            "bilingual table contains no data rows".to_string(),
+        )));
+    }
+    Ok(output)
+}
+
+fn classify_review_rows(
+    _document: &Document,
+    current_rows: &[SegmentEditorRow],
+    parsed: &ParsedReviewPackage,
+) -> Result<Vec<NewInteropPreviewRow>> {
+    let mut current_by_segment = BTreeMap::<String, &SegmentEditorRow>::new();
+    for row in current_rows {
+        current_by_segment.insert(row.segment.id.clone(), row);
+    }
+    let mut bindings = BTreeMap::new();
+    let mut bound_segments = BTreeSet::new();
+    for binding in &parsed.manifest.rows {
+        if !bound_segments.insert(binding.segment_id.clone()) {
+            return Err(EngineError::InvalidRequest(
+                "review manifest contains an ambiguous segment identity".to_string(),
+            ));
+        }
+        if let Some(current) = current_by_segment.get(&binding.segment_id)
+            && current.segment.revision != binding.segment_revision
+        {
+            return Err(StorageError::Conflict {
+                segment_id: binding.segment_id.clone(),
+                expected_revision: binding.segment_revision,
+                actual_revision: current.segment.revision,
+            }
+            .into());
+        }
+        bindings.insert(binding.row_id.clone(), binding);
+    }
+    let mut seen_rows = BTreeSet::new();
+    let mut output = Vec::new();
+    let mut next_added_ordinal = parsed
+        .manifest
+        .rows
+        .iter()
+        .map(|row| row.ordinal)
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1);
+    for (index, parsed_row) in parsed.rows.iter().enumerate() {
+        let source_row = u32::try_from(index.saturating_add(1)).map_err(|_| {
+            EngineError::InvalidState("review source row number overflow".to_string())
+        })?;
+        let Some(binding) = bindings.get(&parsed_row.row_id).copied() else {
+            let mut diagnostics = parsed_row.diagnostics.clone();
+            diagnostics.push("row identity is not bound by the review manifest".to_string());
+            output.push(NewInteropPreviewRow {
+                row_id: parsed_row.row_id.clone(),
+                ordinal: next_added_ordinal,
+                source_row,
+                segment_id: None,
+                expected_segment_revision: None,
+                source_hash: review_source_hash(&parsed_row.source_text),
+                source_text: parsed_row.source_text.clone(),
+                target_text: parsed_row.target_text.clone(),
+                current_target: String::new(),
+                comments: parsed_row.comments.clone(),
+                current_comments: String::new(),
+                status_context: parsed_row.status.clone(),
+                current_status: String::new(),
+                metadata_json: "{}".to_string(),
+                source_path_hash: String::new(),
+                disposition: "added".to_string(),
+                diagnostics_json: serde_json::to_string(&diagnostics)?,
+            });
+            next_added_ordinal = next_added_ordinal.saturating_add(1);
+            continue;
+        };
+        seen_rows.insert(parsed_row.row_id.clone());
+        let current = current_by_segment.get(&binding.segment_id).copied();
+        let Some(current) = current else {
+            let mut diagnostics = parsed_row.diagnostics.clone();
+            diagnostics.push("bound segment is no longer present in the document".to_string());
+            output.push(NewInteropPreviewRow {
+                row_id: binding.row_id.clone(),
+                ordinal: binding.ordinal,
+                source_row,
+                segment_id: None,
+                expected_segment_revision: None,
+                source_hash: binding.source_hash.clone(),
+                source_text: parsed_row.source_text.clone(),
+                target_text: parsed_row.target_text.clone(),
+                current_target: String::new(),
+                comments: parsed_row.comments.clone(),
+                current_comments: String::new(),
+                status_context: parsed_row.status.clone(),
+                current_status: String::new(),
+                metadata_json: "{}".to_string(),
+                source_path_hash: String::new(),
+                disposition: "missing".to_string(),
+                diagnostics_json: serde_json::to_string(&diagnostics)?,
+            });
+            continue;
+        };
+        let current_status = workflow_state_text(current.workflow_state).to_string();
+        let current_comments = interop_comment_context(&current.comments);
+        let mut diagnostics = parsed_row.diagnostics.clone();
+        if !parsed_row.source_hash_valid
+            || review_source_hash(&parsed_row.source_text) != binding.source_hash
+            || current.segment.source_hash != binding.source_hash
+            || current.segment.ordinal != binding.ordinal
+        {
+            diagnostics
+                .push("immutable source or row binding does not match the manifest".to_string());
+        }
+        if !matches!(
+            parsed_row.status.as_str(),
+            "translation" | "review" | "signed"
+        ) {
+            diagnostics.push("workflow status is unsupported".to_string());
+        }
+        if current_comments != parsed_row.comments
+            && !current_comments.is_empty()
+            && parsed_row.comments.trim().is_empty()
+        {
+            diagnostics
+                .push("existing comments cannot be deleted by an offline review".to_string());
+        }
+        let target_changed = parsed_row.target_text != current.segment.target_text;
+        if target_changed && (!current.source_tags.is_empty() || !current.target_tags.is_empty()) {
+            diagnostics.push(
+                "offline target edits are unsupported for protected-tag segments".to_string(),
+            );
+        }
+        if target_changed && parsed_row.status == "signed" {
+            diagnostics.push("a target change cannot be signed in the same apply".to_string());
+        }
+        let disposition = if !diagnostics.is_empty() {
+            "invalid"
+        } else if target_changed
+            || parsed_row.comments != current_comments
+            || parsed_row.status != current_status
+        {
+            "changed"
+        } else {
+            "unchanged"
+        };
+        output.push(NewInteropPreviewRow {
+            row_id: binding.row_id.clone(),
+            ordinal: binding.ordinal,
+            source_row,
+            segment_id: Some(binding.segment_id.clone()),
+            expected_segment_revision: Some(binding.segment_revision),
+            source_hash: binding.source_hash.clone(),
+            source_text: parsed_row.source_text.clone(),
+            target_text: parsed_row.target_text.clone(),
+            current_target: current.segment.target_text.clone(),
+            comments: parsed_row.comments.clone(),
+            current_comments,
+            status_context: parsed_row.status.clone(),
+            current_status,
+            metadata_json: "{}".to_string(),
+            source_path_hash: String::new(),
+            disposition: disposition.to_string(),
+            diagnostics_json: serde_json::to_string(&diagnostics)?,
+        });
+    }
+    for binding in &parsed.manifest.rows {
+        if seen_rows.contains(&binding.row_id) {
+            continue;
+        }
+        let current = current_by_segment.get(&binding.segment_id).copied();
+        let (segment_id, expected_revision, source_text, current_target, comments, status) =
+            current
+                .map(|row| {
+                    (
+                        Some(binding.segment_id.clone()),
+                        Some(binding.segment_revision),
+                        row.segment.source_text.clone(),
+                        row.segment.target_text.clone(),
+                        interop_comment_context(&row.comments),
+                        workflow_state_text(row.workflow_state).to_string(),
+                    )
+                })
+                .unwrap_or_else(|| {
+                    (
+                        None,
+                        None,
+                        String::new(),
+                        String::new(),
+                        String::new(),
+                        String::new(),
+                    )
+                });
+        output.push(NewInteropPreviewRow {
+            row_id: binding.row_id.clone(),
+            ordinal: binding.ordinal,
+            source_row: binding.ordinal.saturating_add(1),
+            segment_id,
+            expected_segment_revision: expected_revision,
+            source_hash: binding.source_hash.clone(),
+            source_text,
+            target_text: current_target.clone(),
+            current_target,
+            comments: comments.clone(),
+            current_comments: comments,
+            status_context: status.clone(),
+            current_status: status,
+            metadata_json: "{}".to_string(),
+            source_path_hash: String::new(),
+            disposition: "missing".to_string(),
+            diagnostics_json: serde_json::to_string(&vec![
+                "review row is missing from the package".to_string(),
+            ])?,
+        });
+    }
+    output.sort_by_key(|row| (row.ordinal, row.row_id.clone()));
+    if output.is_empty() {
+        return Err(EngineError::Import(FilterError::Invalid(
+            "review package contains no rows".to_string(),
+        )));
+    }
+    Ok(output)
+}
+
+fn protocol_review_preview_result(
+    store: &Store,
+    preview: InteropPreviewRecord,
+    offset: u32,
+    limit: u32,
+) -> Result<ReviewPreviewResult> {
+    let (rows, total) = store.list_interop_preview_rows(&preview.id, offset, limit)?;
+    let document_id = preview.document_id.clone().ok_or_else(|| {
+        EngineError::InvalidState("review preview has no document identity".to_string())
+    })?;
+    Ok(ReviewPreviewResult {
+        preview_id: preview.id,
+        project_id: preview.project_id,
+        document_id,
+        expected_document_revision: preview.expected_revision,
+        input_sha256: preview.input_sha256,
+        input_format: preview.input_format,
+        manifest_hash: preview.manifest_hash,
+        status: protocol_interop_preview_status(preview.status),
+        rows: rows
+            .into_iter()
+            .map(protocol_review_preview_row)
+            .collect::<Result<Vec<_>>>()?,
+        total,
+        offset,
+        limit,
+    })
+}
+
+fn protocol_review_preview_row(row: InteropPreviewRowRecord) -> Result<ReviewPreviewRow> {
+    let diagnostics = serde_json::from_str::<Vec<String>>(&row.diagnostics_json)?;
+    let disposition = match row.disposition.as_str() {
+        "changed" => ReviewInteropDisposition::Changed,
+        "unchanged" => ReviewInteropDisposition::Unchanged,
+        "missing" => ReviewInteropDisposition::Missing,
+        "added" => ReviewInteropDisposition::Added,
+        "invalid" => ReviewInteropDisposition::Invalid,
+        value => {
+            return Err(EngineError::InvalidState(format!(
+                "stored review preview has unknown disposition {value}"
+            )));
+        }
+    };
+    Ok(ReviewPreviewRow {
+        row_id: row.row_id,
+        ordinal: row.ordinal,
+        source_row: row.source_row,
+        segment_id: row.segment_id,
+        expected_segment_revision: row.expected_segment_revision,
+        source_hash: row.source_hash,
+        source_text: row.source_text,
+        target_text: row.target_text,
+        current_target: row.current_target,
+        comments: row.comments,
+        current_comments: row.current_comments,
+        status_context: row.status_context,
+        current_status: row.current_status,
+        disposition,
+        diagnostics,
+    })
+}
+
+fn protocol_table_preview_result(
+    store: &Store,
+    preview: InteropPreviewRecord,
+    offset: u32,
+    limit: u32,
+) -> Result<TablePreviewResult> {
+    let (rows, total) = store.list_interop_preview_rows(&preview.id, offset, limit)?;
+    let library_id = preview.library_id.clone().ok_or_else(|| {
+        EngineError::InvalidState("table preview has no TM library identity".to_string())
+    })?;
+    let source_locale = preview.source_locale.clone().ok_or_else(|| {
+        EngineError::InvalidState("table preview has no source locale".to_string())
+    })?;
+    let target_locale = preview.target_locale.clone().ok_or_else(|| {
+        EngineError::InvalidState("table preview has no target locale".to_string())
+    })?;
+    Ok(TablePreviewResult {
+        preview_id: preview.id,
+        project_id: preview.project_id,
+        library_id,
+        expected_library_revision: preview.expected_revision,
+        input_sha256: preview.input_sha256,
+        input_format: preview.input_format,
+        source_locale,
+        target_locale,
+        status: protocol_interop_preview_status(preview.status),
+        rows: rows
+            .into_iter()
+            .map(protocol_table_preview_row)
+            .collect::<Result<Vec<_>>>()?,
+        total,
+        offset,
+        limit,
+    })
+}
+
+fn protocol_table_preview_row(row: InteropPreviewRowRecord) -> Result<TablePreviewRow> {
+    let mut metadata = serde_json::from_str::<BTreeMap<String, String>>(&row.metadata_json)?;
+    let structural_path = metadata
+        .remove(INTEROP_STRUCTURAL_PATH_METADATA)
+        .ok_or_else(|| {
+            EngineError::InvalidState("stored table preview has no structural path".to_string())
+        })?;
+    let diagnostics = serde_json::from_str::<Vec<String>>(&row.diagnostics_json)?;
+    let disposition = match row.disposition.as_str() {
+        "valid" => TableInteropDisposition::Valid,
+        "duplicate" => TableInteropDisposition::Duplicate,
+        "invalid" => TableInteropDisposition::Invalid,
+        value => {
+            return Err(EngineError::InvalidState(format!(
+                "stored table preview has unknown disposition {value}"
+            )));
+        }
+    };
+    Ok(TablePreviewRow {
+        row_id: row.row_id,
+        ordinal: row.ordinal,
+        source_row: row.source_row,
+        structural_path,
+        source_hash: row.source_hash,
+        source_path_hash: row.source_path_hash,
+        source_text: row.source_text,
+        target_text: row.target_text,
+        metadata,
+        disposition,
+        diagnostics,
+    })
+}
+
+fn protocol_interop_preview_status(
+    status: translunar_storage::InteropPreviewStatus,
+) -> InteropPreviewStatus {
+    match status {
+        translunar_storage::InteropPreviewStatus::Open => InteropPreviewStatus::Open,
+        translunar_storage::InteropPreviewStatus::Applied => InteropPreviewStatus::Applied,
+        translunar_storage::InteropPreviewStatus::Discarded => InteropPreviewStatus::Discarded,
+    }
+}
+
+fn protocol_interop_apply_result(result: StorageInteropApplyResult) -> Result<InteropApplyResult> {
+    let status = match result.status.as_str() {
+        "applied" => InteropPreviewStatus::Applied,
+        "open" => InteropPreviewStatus::Open,
+        "discarded" => InteropPreviewStatus::Discarded,
+        value => {
+            return Err(EngineError::InvalidState(format!(
+                "stored interop apply result has unknown status {value}"
+            )));
+        }
+    };
+    Ok(InteropApplyResult {
+        preview_id: result.preview_id,
+        status,
+        applied_count: result.applied_count,
+        skipped_count: result.skipped_count,
+        current_revision: result.current_revision,
+        operation_id: result.operation_id,
+        review_ids: result.review_ids,
+        comment_ids: result.comment_ids,
+        tm_unit_ids: result.tm_unit_ids,
+    })
+}
+
 fn copy_and_hash(source: &Path, destination: &mut File) -> Result<String> {
     let mut reader = BufReader::new(File::open(source)?);
     let mut hasher = Sha256::new();
@@ -4705,6 +5822,7 @@ mod tests {
     use serde_json::json;
     use tempfile::TempDir;
     use translunar_domain::{ChineseConversionProfile, QaIssueStatus, SegmentState};
+    use translunar_filter_core::DocumentFilter;
     use translunar_filter_docx::fixture;
     use translunar_filter_pptx::fixture as pptx_fixture;
     use translunar_filter_xlsx::fixture as xlsx_fixture;
@@ -4743,6 +5861,49 @@ mod tests {
             reason: "Fixture intentionally preserves untranslated or mechanically dirty rows"
                 .to_string(),
         }
+    }
+
+    fn rewrite_review_source(source: &Path, output: &Path, from: &str, to: &str) {
+        let mut archive =
+            ZipArchive::new(File::open(source).expect("open review ZIP")).expect("read review ZIP");
+        let mut writer = ZipWriter::new(File::create(output).expect("create tampered review"));
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index).expect("read review entry");
+            let name = entry.name().to_string();
+            let options = SimpleFileOptions::default().compression_method(entry.compression());
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes).expect("read review part");
+            if name == "word/document.xml" {
+                let xml = String::from_utf8(bytes).expect("review document XML is UTF-8");
+                let changed = xml.replacen(from, to, 1);
+                assert_ne!(changed, xml, "source fixture text must be present");
+                bytes = changed.into_bytes();
+            }
+            writer.start_file(name, options).expect("start review part");
+            writer.write_all(&bytes).expect("write review part");
+        }
+        writer.finish().expect("finish tampered review");
+    }
+
+    fn replace_review_part(bytes: &[u8], part: &str, replacement: &[u8]) -> Vec<u8> {
+        let mut archive = ZipArchive::new(std::io::Cursor::new(bytes)).expect("read review ZIP");
+        let mut writer = ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let mut replaced = false;
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index).expect("read review entry");
+            let name = entry.name().to_string();
+            let options = SimpleFileOptions::default().compression_method(entry.compression());
+            let mut content = Vec::new();
+            entry.read_to_end(&mut content).expect("read review part");
+            if name == part {
+                content = replacement.to_vec();
+                replaced = true;
+            }
+            writer.start_file(name, options).expect("start review part");
+            writer.write_all(&content).expect("write review part");
+        }
+        assert!(replaced, "review part must exist");
+        writer.finish().expect("finish review ZIP").into_inner()
     }
 
     struct NonResumableStep;
@@ -5248,11 +6409,16 @@ mod tests {
         assert_eq!(
             filter_ids,
             [
+                "builtin.bilingual-docx",
+                "builtin.bilingual-xlsx",
                 "builtin.docx",
                 "builtin.html",
                 "builtin.markdown",
+                "builtin.mqxliff",
+                "builtin.mqxlz",
                 "builtin.pdf",
                 "builtin.pptx",
+                "builtin.sdlxliff",
                 "builtin.txt",
                 "builtin.xliff",
                 "builtin.xlsx",
@@ -5628,6 +6794,187 @@ mod tests {
     }
 
     #[test]
+    fn external_cat_formats_round_trip_through_engine_restart() {
+        let context = TestContext::new();
+        let sdl = context.root.path().join("handoff.sdlxliff");
+        let mq = context.root.path().join("handoff.mqxliff");
+        let mqxlz = context.root.path().join("handoff.mqxlz");
+        std::fs::write(
+            &sdl,
+            r#"<xliff version="1.2" xmlns:sdl="urn:sdl" xmlns:x="urn:opaque"><file id="f" source-language="en" target-language="zh"><body><trans-unit id="u" sdl:locked="true"><source>Hello <g id="1">world</g></source><target state="translated">旧译文</target><note from="reviewer">Keep tone</note><x:meta keep="yes"/></trans-unit></body></file></xliff>"#,
+        )
+        .expect("write SDLXLIFF fixture");
+        std::fs::write(
+            &mq,
+            r#"<xliff version="2.0" srcLang="en" trgLang="zh" xmlns="urn:oasis:names:tc:xliff:document:2.0" xmlns:mq="urn:memoq"><file id="f"><unit id="u"><segment id="s" mq:status="Confirmed"><source>Open <ph id="1"/>file</source><target>旧文件</target><mq:metadata keep="yes"/></segment></unit></file></xliff>"#,
+        )
+        .expect("write MQXLIFF fixture");
+        let mut writer = ZipWriter::new(std::fs::File::create(&mqxlz).expect("create MQXLZ"));
+        let options = SimpleFileOptions::default();
+        writer
+            .start_file("documents/main.mqxliff", options)
+            .expect("start MQXLIFF part");
+        writer.write_all(r#"<xliff version="1.2" xmlns:mq="urn:memoq"><file id="f" source-language="en" target-language="zh"><body><trans-unit id="u" mq:status="Translated"><source>Package text</source><target>旧包译文</target></trans-unit></body></file></xliff>"#.as_bytes()).expect("write MQXLIFF part");
+        writer
+            .start_file("resources/opaque.bin", options)
+            .expect("start opaque part");
+        writer
+            .write_all(b"opaque auxiliary bytes")
+            .expect("write opaque part");
+        writer.finish().expect("finish MQXLZ fixture");
+
+        let mut service = EngineService::open(context.root.path()).expect("open engine");
+        let project = TestContext::project(&mut service);
+        let cases = [
+            (&sdl, "builtin.sdlxliff", "SDL 新译文", "returned.sdlxliff"),
+            (&mq, "builtin.mqxliff", "memoQ 新译文", "returned.mqxliff"),
+            (&mqxlz, "builtin.mqxlz", "包内新译文", "returned.mqxlz"),
+        ];
+        let mut imported_documents = Vec::new();
+        for (source, filter_id, target, output_name) in cases {
+            let imported = service
+                .import_document(ImportDocumentParams {
+                    project_id: project.id.clone(),
+                    source_path: source.to_string_lossy().into_owned(),
+                    relative_path: None,
+                    filter_id: None,
+                    options: BTreeMap::new(),
+                })
+                .expect("import external CAT format");
+            assert_eq!(imported.filter_id, filter_id);
+            let segment = service
+                .list_segments(SegmentListParams {
+                    document_id: imported.document.id.clone(),
+                    offset: 0,
+                    limit: 10,
+                })
+                .expect("list imported vendor segment")
+                .items
+                .remove(0);
+            let notes = service
+                .store
+                .list_segment_notes(&segment.id)
+                .expect("list imported vendor notes");
+            assert!(!notes.is_empty());
+            service
+                .update_target(UpdateTargetParams {
+                    segment_id: segment.id,
+                    target_text: target.to_string(),
+                    expected_revision: segment.revision,
+                })
+                .expect("edit vendor target");
+            imported_documents.push((
+                imported.document.id,
+                target.to_string(),
+                context.root.path().join(output_name),
+            ));
+        }
+
+        drop(service);
+        let mut service = EngineService::open(context.root.path()).expect("restart engine");
+        for (document_id, expected_target, output) in &imported_documents {
+            let segment = service
+                .list_segments(SegmentListParams {
+                    document_id: document_id.clone(),
+                    offset: 0,
+                    limit: 10,
+                })
+                .expect("reload vendor segment")
+                .items
+                .remove(0);
+            assert_eq!(&segment.target_text, expected_target);
+            assert!(
+                !service
+                    .store
+                    .list_segment_notes(&segment.id)
+                    .expect("reload vendor notes")
+                    .is_empty()
+            );
+            let export = service.export_document(ExportDocumentParams {
+                document_id: document_id.clone(),
+                output_path: output.to_string_lossy().into_owned(),
+                qa_override: None,
+            });
+            match export {
+                Ok(_) => {}
+                Err(EngineError::QaGateBlocked { .. }) => {
+                    service
+                        .export_document(ExportDocumentParams {
+                            document_id: document_id.clone(),
+                            output_path: output.to_string_lossy().into_owned(),
+                            qa_override: Some(test_qa_override()),
+                        })
+                        .expect("override vendor tag QA gate");
+                }
+                Err(error) => panic!("export vendor format after restart: {error}"),
+            }
+        }
+
+        let sdl_round_trip = collect_imported_document(
+            SdlxliffFilter
+                .import(ImportRequest::new(imported_documents[0].2.clone()))
+                .expect("reimport SDL output"),
+        )
+        .expect("collect SDL output");
+        assert_eq!(
+            sdl_round_trip.units[0].target_text.as_deref(),
+            Some("SDL 新译文")
+        );
+        assert!(
+            std::fs::read_to_string(&imported_documents[0].2)
+                .expect("read SDL output")
+                .contains("<x:meta keep=\"yes\"/>")
+        );
+        let mq_round_trip = collect_imported_document(
+            MqxliffFilter
+                .import(ImportRequest::new(imported_documents[1].2.clone()))
+                .expect("reimport memoQ output"),
+        )
+        .expect("collect memoQ output");
+        assert_eq!(
+            mq_round_trip.units[0].target_text.as_deref(),
+            Some("memoQ 新译文")
+        );
+        let mqxlz_round_trip = collect_imported_document(
+            MqxlzFilter
+                .import(ImportRequest::new(imported_documents[2].2.clone()))
+                .expect("reimport MQXLZ output"),
+        )
+        .expect("collect MQXLZ output");
+        assert_eq!(
+            mqxlz_round_trip.units[0].target_text.as_deref(),
+            Some("包内新译文")
+        );
+        let mut archive = ZipArchive::new(
+            std::fs::File::open(&imported_documents[2].2).expect("open MQXLZ output"),
+        )
+        .expect("read MQXLZ output");
+        let mut opaque = Vec::new();
+        archive
+            .by_name("resources/opaque.bin")
+            .expect("find opaque MQXLZ part")
+            .read_to_end(&mut opaque)
+            .expect("read opaque MQXLZ part");
+        assert_eq!(opaque, b"opaque auxiliary bytes");
+
+        let existing = &imported_documents[2].2;
+        let before = std::fs::read(existing).expect("read first MQXLZ output");
+        assert!(
+            service
+                .export_document(ExportDocumentParams {
+                    document_id: imported_documents[2].0.clone(),
+                    output_path: existing.to_string_lossy().into_owned(),
+                    qa_override: None,
+                })
+                .is_err()
+        );
+        assert_eq!(
+            std::fs::read(existing).expect("reread MQXLZ output"),
+            before
+        );
+    }
+
+    #[test]
     fn health_and_backup_round_trip_authoritative_workspace() {
         let context = TestContext::new();
         let mut service = EngineService::open(context.root.path()).expect("open engine");
@@ -5868,6 +7215,18 @@ mod tests {
                 .capabilities
                 .iter()
                 .any(|value| value == "analysis.project-operational")
+        );
+        assert!(
+            initialize_result
+                .capabilities
+                .iter()
+                .any(|value| value == "interop.review-docx")
+        );
+        assert!(
+            initialize_result
+                .capabilities
+                .iter()
+                .any(|value| value == "interop.bilingual-table")
         );
 
         let created_template = dispatcher.handle(RpcRequest {
@@ -7070,5 +8429,692 @@ mod tests {
             })
             .expect("list restored segments");
         assert_eq!(restored_segments.items[0].target_text, "归档译文");
+    }
+
+    #[test]
+    fn interop_review_round_trip_is_durable_and_idempotent() {
+        let context = TestContext::new();
+        let mut service = EngineService::open(context.root.path()).expect("open engine");
+        let project = TestContext::project(&mut service);
+        let review_source = context.root.path().join("review-source.txt");
+        fs::write(&review_source, "First source\n\nSecond source").expect("write review source");
+        let document = service
+            .import_document(ImportDocumentParams {
+                project_id: project.id.clone(),
+                source_path: review_source.to_string_lossy().into_owned(),
+                relative_path: None,
+                filter_id: Some("builtin.txt".to_string()),
+                options: BTreeMap::new(),
+            })
+            .expect("import review source")
+            .document;
+        let output = context.root.path().join("offline-review.docx");
+        let exported = service
+            .export_review(ReviewExportParams {
+                project_id: project.id.clone(),
+                document_id: document.id.clone(),
+                expected_document_revision: document.revision,
+                output_path: output.to_string_lossy().into_owned(),
+            })
+            .expect("export review DOCX");
+        let existing_bytes = fs::read(&output).expect("read exported review");
+        let no_clobber = service
+            .export_review(ReviewExportParams {
+                project_id: project.id.clone(),
+                document_id: document.id.clone(),
+                expected_document_revision: document.revision,
+                output_path: output.to_string_lossy().into_owned(),
+            })
+            .expect_err("review export must not overwrite an existing destination");
+        assert!(matches!(no_clobber, EngineError::Export(_)));
+        assert_eq!(
+            fs::read(&output).expect("reread exported review"),
+            existing_bytes
+        );
+        assert_eq!(exported.row_count, document.segment_count);
+        let parsed = parse_review_docx(&output).expect("parse exported review");
+        assert_eq!(parsed.manifest.manifest_hash, exported.manifest_hash);
+        assert!(
+            parsed
+                .manifest
+                .rows
+                .iter()
+                .all(|row| row.row_id != row.segment_id)
+        );
+        let segments = service
+            .list_segments(SegmentListParams {
+                document_id: document.id.clone(),
+                offset: 0,
+                limit: 100,
+            })
+            .expect("list review segments")
+            .items;
+        let edited_rows = parsed
+            .manifest
+            .rows
+            .iter()
+            .map(|binding| {
+                let segment = segments
+                    .iter()
+                    .find(|segment| segment.id == binding.segment_id)
+                    .expect("bound segment");
+                ReviewExportRow {
+                    row_id: binding.row_id.clone(),
+                    segment_id: binding.segment_id.clone(),
+                    segment_revision: binding.segment_revision,
+                    ordinal: binding.ordinal,
+                    source_text: segment.source_text.clone(),
+                    target_text: if binding.ordinal == 0 {
+                        "离线审校译文".to_string()
+                    } else {
+                        segment.target_text.clone()
+                    },
+                    status: "translation".to_string(),
+                    comments: if binding.ordinal == 0 {
+                        "Reviewed offline".to_string()
+                    } else {
+                        String::new()
+                    },
+                }
+            })
+            .collect();
+        let edited = context.root.path().join("offline-review-edited.docx");
+        let (bytes, edited_manifest) =
+            translunar_filter_interop::build_review_docx(&ReviewExportInput {
+                project_id: project.id.clone(),
+                document_id: document.id.clone(),
+                base_document_revision: document.revision,
+                rows: edited_rows,
+            })
+            .expect("build edited review");
+        assert_eq!(edited_manifest.manifest_hash, exported.manifest_hash);
+        fs::write(&edited, bytes).expect("write edited review");
+
+        let preview = service
+            .preview_review(ReviewPreviewParams {
+                project_id: project.id.clone(),
+                document_id: document.id.clone(),
+                input_path: Some(edited.to_string_lossy().into_owned()),
+                preview_id: None,
+                expected_document_revision: document.revision,
+                offset: 0,
+                limit: 100,
+            })
+            .expect("preview edited review");
+        assert_eq!(preview.total, document.segment_count);
+        let changed = preview
+            .rows
+            .iter()
+            .find(|row| row.disposition == ReviewInteropDisposition::Changed)
+            .cloned()
+            .expect("changed review row");
+        assert_eq!(changed.target_text, "离线审校译文");
+        assert_eq!(changed.comments, "Reviewed offline");
+        assert_eq!(
+            preview
+                .rows
+                .iter()
+                .filter(|row| row.disposition == ReviewInteropDisposition::Unchanged)
+                .count(),
+            usize::try_from(document.segment_count.saturating_sub(1)).expect("row count")
+        );
+        let reopened_page = service
+            .preview_review(ReviewPreviewParams {
+                project_id: project.id.clone(),
+                document_id: document.id.clone(),
+                input_path: None,
+                preview_id: Some(preview.preview_id.clone()),
+                expected_document_revision: document.revision,
+                offset: 0,
+                limit: 1,
+            })
+            .expect("page durable review preview");
+        assert_eq!(reopened_page.total, preview.total);
+        assert_eq!(reopened_page.rows.len(), 1);
+        let staged = service
+            .store
+            .get_interop_preview(&preview.preview_id)
+            .expect("stored review preview")
+            .staged_input_path;
+        let staged = context.root.path().join(staged);
+        assert!(staged.is_file());
+        let applied = service
+            .apply_review(ReviewApplyParams {
+                preview_id: preview.preview_id.clone(),
+                expected_document_revision: document.revision,
+                selected_row_ids: vec![changed.row_id.clone()],
+                actor: "reviewer".to_string(),
+                reason: "offline review".to_string(),
+            })
+            .expect("apply review preview");
+        assert_eq!(applied.status, InteropPreviewStatus::Applied);
+        assert_eq!(applied.review_ids.len(), 1);
+        assert_eq!(applied.comment_ids.len(), 1);
+        assert!(!staged.exists());
+
+        drop(service);
+        let mut service = EngineService::open(context.root.path()).expect("restart engine");
+        let repeated = service
+            .apply_review(ReviewApplyParams {
+                preview_id: preview.preview_id,
+                expected_document_revision: document.revision,
+                selected_row_ids: vec![changed.row_id.clone()],
+                actor: "reviewer".to_string(),
+                reason: "retry".to_string(),
+            })
+            .expect("terminal review apply replay");
+        assert_eq!(repeated.operation_id, applied.operation_id);
+        assert_eq!(repeated.review_ids, applied.review_ids);
+        assert_eq!(repeated.comment_ids, applied.comment_ids);
+        assert_eq!(
+            service
+                .store
+                .list_review_revisions(&document.id, false)
+                .expect("durable review revisions")
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn interop_review_classifies_missing_and_added_rows() {
+        let context = TestContext::new();
+        let mut service = EngineService::open(context.root.path()).expect("open engine");
+        let project = TestContext::project(&mut service);
+        let source = context.root.path().join("classification-source.txt");
+        fs::write(&source, "First source\n\nSecond source").expect("write review source");
+        let document = service
+            .import_document(ImportDocumentParams {
+                project_id: project.id.clone(),
+                source_path: source.to_string_lossy().into_owned(),
+                relative_path: None,
+                filter_id: Some("builtin.txt".to_string()),
+                options: BTreeMap::new(),
+            })
+            .expect("import review source")
+            .document;
+        let original = context.root.path().join("classification-review.docx");
+        service
+            .export_review(ReviewExportParams {
+                project_id: project.id.clone(),
+                document_id: document.id.clone(),
+                expected_document_revision: document.revision,
+                output_path: original.to_string_lossy().into_owned(),
+            })
+            .expect("export review DOCX");
+        let parsed = parse_review_docx(&original).expect("parse original review");
+        assert_eq!(parsed.manifest.rows.len(), 2);
+        let retained = parsed.manifest.rows[1].clone();
+        let current_rows = service
+            .load_all_editor_rows(&document.id)
+            .expect("load current editor rows");
+        let current = current_rows
+            .iter()
+            .find(|row| row.segment.id == retained.segment_id)
+            .expect("retained segment");
+        let (altered, _) = translunar_filter_interop::build_review_docx(&ReviewExportInput {
+            project_id: project.id.clone(),
+            document_id: document.id.clone(),
+            base_document_revision: document.revision,
+            rows: vec![
+                ReviewExportRow {
+                    row_id: retained.row_id,
+                    segment_id: retained.segment_id,
+                    segment_revision: retained.segment_revision,
+                    ordinal: retained.ordinal,
+                    source_text: current.segment.source_text.clone(),
+                    target_text: current.segment.target_text.clone(),
+                    status: workflow_state_text(current.workflow_state).to_string(),
+                    comments: interop_comment_context(&current.comments),
+                },
+                ReviewExportRow {
+                    row_id: "added-review-row".to_string(),
+                    segment_id: "unbound-added-segment".to_string(),
+                    segment_revision: 0,
+                    ordinal: 99,
+                    source_text: "Reviewer-added source".to_string(),
+                    target_text: "Reviewer-added target".to_string(),
+                    status: "translation".to_string(),
+                    comments: String::new(),
+                },
+            ],
+        })
+        .expect("build altered review");
+        let original_manifest = serde_json::to_vec(&parsed.manifest).expect("serialize manifest");
+        let altered = replace_review_part(
+            &altered,
+            translunar_filter_interop::REVIEW_MANIFEST_PART,
+            &original_manifest,
+        );
+        let returned = context.root.path().join("classification-returned.docx");
+        fs::write(&returned, altered).expect("write returned review");
+
+        let preview = service
+            .preview_review(ReviewPreviewParams {
+                project_id: project.id,
+                document_id: document.id.clone(),
+                input_path: Some(returned.to_string_lossy().into_owned()),
+                preview_id: None,
+                expected_document_revision: document.revision,
+                offset: 0,
+                limit: 100,
+            })
+            .expect("preview missing and added rows");
+        assert_eq!(preview.total, 3);
+        assert_eq!(
+            preview
+                .rows
+                .iter()
+                .filter(|row| row.disposition == ReviewInteropDisposition::Missing)
+                .count(),
+            1
+        );
+        assert_eq!(
+            preview
+                .rows
+                .iter()
+                .filter(|row| row.disposition == ReviewInteropDisposition::Added)
+                .count(),
+            1
+        );
+        assert_eq!(
+            preview
+                .rows
+                .iter()
+                .filter(|row| row.disposition == ReviewInteropDisposition::Unchanged)
+                .count(),
+            1
+        );
+        let added = preview
+            .rows
+            .iter()
+            .find(|row| row.disposition == ReviewInteropDisposition::Added)
+            .expect("added row");
+        let error = service
+            .apply_review(ReviewApplyParams {
+                preview_id: preview.preview_id,
+                expected_document_revision: document.revision,
+                selected_row_ids: vec![added.row_id.clone()],
+                actor: "reviewer".to_string(),
+                reason: "reject unbound row".to_string(),
+            })
+            .expect_err("added row must not apply");
+        assert!(matches!(
+            error,
+            EngineError::Storage(StorageError::InvalidState(_))
+        ));
+        assert!(
+            service
+                .store
+                .list_review_revisions(&document.id, true)
+                .expect("no added-row review proposals")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn interop_review_rejects_stale_revisions_and_classifies_source_tamper() {
+        let context = TestContext::new();
+        let mut service = EngineService::open(context.root.path()).expect("open engine");
+        let project = TestContext::project(&mut service);
+        let document = service
+            .import_docx(ImportDocxParams {
+                project_id: project.id.clone(),
+                source_path: context.source.to_string_lossy().into_owned(),
+            })
+            .expect("import DOCX");
+        let first_review = context.root.path().join("stale-review.docx");
+        service
+            .export_review(ReviewExportParams {
+                project_id: project.id.clone(),
+                document_id: document.id.clone(),
+                expected_document_revision: document.revision,
+                output_path: first_review.to_string_lossy().into_owned(),
+            })
+            .expect("export stale review base");
+        let first_segment = service
+            .list_segments(SegmentListParams {
+                document_id: document.id.clone(),
+                offset: 0,
+                limit: 1,
+            })
+            .expect("list first segment")
+            .items
+            .remove(0);
+        service
+            .update_target(UpdateTargetParams {
+                segment_id: first_segment.id.clone(),
+                target_text: "newer live target".to_string(),
+                expected_revision: first_segment.revision,
+            })
+            .expect("advance segment revision");
+        let stale = service
+            .preview_review(ReviewPreviewParams {
+                project_id: project.id.clone(),
+                document_id: document.id.clone(),
+                input_path: Some(first_review.to_string_lossy().into_owned()),
+                preview_id: None,
+                expected_document_revision: document.revision,
+                offset: 0,
+                limit: 100,
+            })
+            .expect_err("stale segment binding must fail");
+        assert!(matches!(
+            stale,
+            EngineError::Storage(StorageError::Conflict { .. })
+        ));
+        assert_eq!(
+            service
+                .store
+                .list_interop_previews(&project.id, Some(InteropPreviewKind::Review), 0, 20)
+                .expect("list review previews after stale input")
+                .1,
+            0
+        );
+
+        let fresh_review = context.root.path().join("fresh-review.docx");
+        service
+            .export_review(ReviewExportParams {
+                project_id: project.id.clone(),
+                document_id: document.id.clone(),
+                expected_document_revision: document.revision,
+                output_path: fresh_review.to_string_lossy().into_owned(),
+            })
+            .expect("export current review");
+        let current_first = service
+            .store
+            .get_segment(&first_segment.id)
+            .expect("current first segment");
+        let tampered = context.root.path().join("tampered-review.docx");
+        rewrite_review_source(
+            &fresh_review,
+            &tampered,
+            &current_first.source_text,
+            "Tampered source text",
+        );
+        let preview = service
+            .preview_review(ReviewPreviewParams {
+                project_id: project.id,
+                document_id: document.id.clone(),
+                input_path: Some(tampered.to_string_lossy().into_owned()),
+                preview_id: None,
+                expected_document_revision: document.revision,
+                offset: 0,
+                limit: 100,
+            })
+            .expect("classify tampered review");
+        let invalid = preview
+            .rows
+            .iter()
+            .find(|row| row.disposition == ReviewInteropDisposition::Invalid)
+            .cloned()
+            .expect("invalid tampered row");
+        assert!(
+            invalid
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("source"))
+        );
+        let apply_error = service
+            .apply_review(ReviewApplyParams {
+                preview_id: preview.preview_id,
+                expected_document_revision: document.revision,
+                selected_row_ids: vec![invalid.row_id.clone()],
+                actor: "reviewer".to_string(),
+                reason: "tampered row".to_string(),
+            })
+            .expect_err("invalid row must not apply");
+        assert!(matches!(
+            apply_error,
+            EngineError::Storage(StorageError::InvalidState(_))
+        ));
+        assert!(
+            service
+                .store
+                .list_review_revisions(&document.id, true)
+                .expect("no tampered review proposals")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn interop_table_preview_applies_metadata_and_detects_duplicates() {
+        let context = TestContext::new();
+        let source = context.root.path().join("bilingual.xlsx");
+        xlsx_fixture::write_bilingual_fixture(&source).expect("write bilingual XLSX");
+        let mut service = EngineService::open(context.root.path()).expect("open engine");
+        let project = TestContext::project(&mut service);
+        let library = service
+            .store
+            .list_tm_libraries(Some(&project.id), 0, 20)
+            .expect("list TM libraries")
+            .0
+            .into_iter()
+            .find(|library| library.writable)
+            .expect("writable library");
+        let preview = service
+            .preview_table(TablePreviewParams {
+                project_id: project.id.clone(),
+                library_id: library.id.clone(),
+                input_path: Some(source.to_string_lossy().into_owned()),
+                preview_id: None,
+                format: Some(BilingualTableFormat::Xlsx),
+                source_locale: library.source_locale.clone(),
+                target_locale: library.target_locale.clone(),
+                expected_library_revision: library.revision,
+                offset: 0,
+                limit: 100,
+            })
+            .expect("preview bilingual XLSX");
+        assert_eq!(preview.total, 2);
+        assert!(preview.rows.iter().all(|row| {
+            row.disposition == TableInteropDisposition::Valid
+                && row.structural_path.starts_with("bilingual-xlsx:")
+                && row.source_path_hash.len() == 64
+        }));
+        assert_eq!(
+            preview.rows[0].metadata.get("Context").map(String::as_str),
+            Some("Legal")
+        );
+        assert!(
+            !preview.rows[0]
+                .metadata
+                .contains_key(INTEROP_STRUCTURAL_PATH_METADATA)
+        );
+        let reopened = service
+            .preview_table(TablePreviewParams {
+                project_id: project.id.clone(),
+                library_id: library.id.clone(),
+                input_path: None,
+                preview_id: Some(preview.preview_id.clone()),
+                format: Some(BilingualTableFormat::Xlsx),
+                source_locale: library.source_locale.clone(),
+                target_locale: library.target_locale.clone(),
+                expected_library_revision: library.revision,
+                offset: 0,
+                limit: 100,
+            })
+            .expect("reopen table preview");
+        assert_eq!(reopened.rows[0].row_id, preview.rows[0].row_id);
+        let selected_row_id = preview.rows[0].row_id.clone();
+        let applied = service
+            .apply_table(TableApplyParams {
+                preview_id: preview.preview_id,
+                expected_library_revision: library.revision,
+                selected_row_ids: vec![selected_row_id],
+                actor: "importer".to_string(),
+                reason: "bilingual table import".to_string(),
+            })
+            .expect("apply table row");
+        assert_eq!(applied.tm_unit_ids.len(), 1);
+        let imported = service
+            .store
+            .export_tm_units(&library.id)
+            .expect("list imported TM units")
+            .into_iter()
+            .find(|unit| unit.id == applied.tm_unit_ids[0])
+            .expect("imported table unit");
+        assert_eq!(
+            imported.metadata.get("Context").map(String::as_str),
+            Some("Legal")
+        );
+        assert!(
+            !imported
+                .metadata
+                .contains_key(INTEROP_STRUCTURAL_PATH_METADATA)
+        );
+
+        let current_library = service
+            .store
+            .get_tm_library(&library.id)
+            .expect("current library");
+        let duplicate_preview = service
+            .preview_table(TablePreviewParams {
+                project_id: project.id,
+                library_id: library.id,
+                input_path: Some(source.to_string_lossy().into_owned()),
+                preview_id: None,
+                format: Some(BilingualTableFormat::Xlsx),
+                source_locale: current_library.source_locale.clone(),
+                target_locale: current_library.target_locale.clone(),
+                expected_library_revision: current_library.revision,
+                offset: 0,
+                limit: 100,
+            })
+            .expect("preview duplicate table");
+        assert_eq!(
+            duplicate_preview.rows[0].disposition,
+            TableInteropDisposition::Duplicate
+        );
+        assert_eq!(
+            duplicate_preview.rows[1].disposition,
+            TableInteropDisposition::Valid
+        );
+    }
+
+    #[test]
+    fn interop_table_preview_requires_writable_locale_matching_library() {
+        let context = TestContext::new();
+        let source = context.root.path().join("bilingual.xlsx");
+        xlsx_fixture::write_bilingual_fixture(&source).expect("write bilingual XLSX");
+        let mut service = EngineService::open(context.root.path()).expect("open engine");
+        let project = TestContext::project(&mut service);
+        let library = service
+            .store
+            .list_tm_libraries(Some(&project.id), 0, 20)
+            .expect("list TM libraries")
+            .0
+            .into_iter()
+            .find(|library| library.writable)
+            .expect("writable library");
+        let before = fs::read_dir(&service.store.paths().temporary)
+            .expect("list staging before")
+            .count();
+        let locale_error = service
+            .preview_table(TablePreviewParams {
+                project_id: project.id.clone(),
+                library_id: library.id.clone(),
+                input_path: Some(source.to_string_lossy().into_owned()),
+                preview_id: None,
+                format: Some(BilingualTableFormat::Xlsx),
+                source_locale: "fr-FR".to_string(),
+                target_locale: library.target_locale.clone(),
+                expected_library_revision: library.revision,
+                offset: 0,
+                limit: 100,
+            })
+            .expect_err("locale mismatch must fail before staging");
+        assert!(matches!(locale_error, EngineError::InvalidState(_)));
+
+        let read_only = service
+            .store
+            .create_tm_library(NewTmLibrary {
+                name: "Read-only interop library".to_string(),
+                source_locale: library.source_locale.clone(),
+                target_locale: library.target_locale.clone(),
+                domain: None,
+                writable: false,
+                owner_project_id: Some(project.id.clone()),
+            })
+            .expect("create read-only library");
+        let read_only_error = service
+            .preview_table(TablePreviewParams {
+                project_id: project.id.clone(),
+                library_id: read_only.id,
+                input_path: Some(source.to_string_lossy().into_owned()),
+                preview_id: None,
+                format: Some(BilingualTableFormat::Xlsx),
+                source_locale: read_only.source_locale,
+                target_locale: read_only.target_locale,
+                expected_library_revision: read_only.revision,
+                offset: 0,
+                limit: 100,
+            })
+            .expect_err("read-only library must fail before staging");
+        assert!(matches!(read_only_error, EngineError::InvalidState(_)));
+        assert_eq!(
+            fs::read_dir(&service.store.paths().temporary)
+                .expect("list staging after")
+                .count(),
+            before
+        );
+        assert_eq!(
+            service
+                .store
+                .list_interop_previews(&project.id, Some(InteropPreviewKind::Table), 0, 20)
+                .expect("list table previews")
+                .1,
+            0
+        );
+    }
+
+    #[test]
+    fn malformed_table_preview_cleans_staging_without_persistence() {
+        let context = TestContext::new();
+        let source = context.root.path().join("formula.xlsx");
+        xlsx_fixture::write_bilingual_invalid_formula_fixture(&source)
+            .expect("write formula fixture");
+        let mut service = EngineService::open(context.root.path()).expect("open engine");
+        let project = TestContext::project(&mut service);
+        let library = service
+            .store
+            .list_tm_libraries(Some(&project.id), 0, 20)
+            .expect("list TM libraries")
+            .0
+            .into_iter()
+            .find(|library| library.writable)
+            .expect("writable library");
+        let before = fs::read_dir(&service.store.paths().temporary)
+            .expect("list staging before")
+            .count();
+        let error = service
+            .preview_table(TablePreviewParams {
+                project_id: project.id.clone(),
+                library_id: library.id,
+                input_path: Some(source.to_string_lossy().into_owned()),
+                preview_id: None,
+                format: Some(BilingualTableFormat::Xlsx),
+                source_locale: library.source_locale,
+                target_locale: library.target_locale,
+                expected_library_revision: library.revision,
+                offset: 0,
+                limit: 100,
+            })
+            .expect_err("formula input must fail");
+        assert!(matches!(error, EngineError::Import(_)));
+        assert_eq!(
+            fs::read_dir(&service.store.paths().temporary)
+                .expect("list staging after")
+                .count(),
+            before
+        );
+        assert_eq!(
+            service
+                .store
+                .list_interop_previews(&project.id, Some(InteropPreviewKind::Table), 0, 20)
+                .expect("list table previews")
+                .1,
+            0
+        );
     }
 }

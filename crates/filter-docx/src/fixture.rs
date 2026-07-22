@@ -115,6 +115,55 @@ pub fn write_extended_fixture(path: &Path) -> Result<(), DocxError> {
     Ok(())
 }
 
+pub fn write_bilingual_fixture(path: &Path) -> Result<(), DocxError> {
+    write_bilingual_package(path, "Existing target")
+}
+
+pub fn write_bilingual_empty_target_fixture(path: &Path) -> Result<(), DocxError> {
+    write_bilingual_package(path, "")
+}
+
+fn write_bilingual_package(path: &Path, first_target: &str) -> Result<(), DocxError> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let first_target_cell = if first_target.is_empty() {
+        "<w:tc><w:p/></w:tc>".to_string()
+    } else {
+        format!("<w:tc><w:p><w:r><w:t>{first_target}</w:t></w:r></w:p></w:tc>")
+    };
+    let document = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:tbl>
+      <w:tr><w:tc><w:p><w:r><w:t>Source</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Target</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Context</w:t></w:r></w:p></w:tc></w:tr>
+      <w:tr><w:tc><w:p><w:r><w:t>Hello </w:t></w:r><w:r><w:t>world</w:t></w:r></w:p></w:tc>{first_target_cell}<w:tc><w:p><w:r><w:t>Legal</w:t></w:r></w:p></w:tc></w:tr>
+    </w:tbl>
+    <w:tbl>
+      <w:tr><w:tc><w:p><w:r><w:t>原文</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>译文</w:t></w:r></w:p></w:tc></w:tr>
+      <w:tr><w:tc><w:p><w:r><w:t>Second source</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>Nested text</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:tc><w:tc><w:p><w:r><w:t>第二译文</w:t></w:r></w:p></w:tc></w:tr>
+    </w:tbl>
+    <w:sectPr/>
+  </w:body>
+</w:document>"#
+    );
+    let file = File::create(path)?;
+    let mut writer = ZipWriter::new(file);
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    for (name, content) in [
+        ("[Content_Types].xml", CONTENT_TYPES),
+        ("_rels/.rels", ROOT_RELS),
+        ("word/document.xml", document.as_str()),
+        ("word/styles.xml", STYLES_XML),
+        (UNRELATED_PART, UNRELATED_XML),
+    ] {
+        write_part(&mut writer, name, content, options)?;
+    }
+    writer.finish()?;
+    Ok(())
+}
+
 fn write_package(path: &Path, include_document: bool) -> Result<(), DocxError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;

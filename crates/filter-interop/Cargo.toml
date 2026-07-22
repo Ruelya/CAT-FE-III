@@ -1,5 +1,5 @@
 [package]
-name = "translunar-filter-docx"
+name = "translunar-filter-interop"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,15 +7,13 @@ license.workspace = true
 
 [dependencies]
 quick-xml.workspace = true
+serde.workspace = true
 serde_json.workspace = true
-sha2.workspace = true
-tempfile.workspace = true
 thiserror.workspace = true
 translunar-domain = { path = "../domain" }
 translunar-filter-core = { path = "../filter-core" }
 translunar-filter-office-core = { path = "../filter-office-core" }
 zip.workspace = true
 
-[[bin]]
-name = "generate-docx-fixture"
-path = "src/bin/generate_fixture.rs"
+[dev-dependencies]
+tempfile.workspace = true

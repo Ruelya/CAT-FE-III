@@ -2499,6 +2499,7 @@ dependencies = [
  "translunar-filter-core",
  "translunar-filter-docx",
  "translunar-filter-html",
+ "translunar-filter-interop",
  "translunar-filter-pdf",
  "translunar-filter-pptx",
  "translunar-filter-text",
@@ -2529,6 +2530,7 @@ name = "translunar-filter-docx"
 version = "0.1.0"
 dependencies = [
  "quick-xml",
+ "serde_json",
  "sha2",
  "tempfile",
  "thiserror",
@@ -2548,6 +2550,21 @@ dependencies = [
  "translunar-domain",
  "translunar-filter-core",
  "translunar-segmentation-srx",
+]
+
+[[package]]
+name = "translunar-filter-interop"
+version = "0.1.0"
+dependencies = [
+ "quick-xml",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "translunar-domain",
+ "translunar-filter-core",
+ "translunar-filter-office-core",
+ "zip",
 ]
 
 [[package]]
@@ -2614,6 +2631,7 @@ name = "translunar-filter-xlsx"
 version = "0.1.0"
 dependencies = [
  "quick-xml",
+ "serde_json",
  "tempfile",
  "thiserror",
  "translunar-domain",

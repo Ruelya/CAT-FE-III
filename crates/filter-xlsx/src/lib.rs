@@ -2,14 +2,14 @@
 
 pub mod fixture;
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
 use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
 use thiserror::Error;
 use translunar_domain::{
-    DegradationFinding, DegradationSeverity, InlineTag, Segment, TagKind, TagSide,
+    DegradationFinding, DegradationSeverity, DocumentNote, InlineTag, Segment, TagKind, TagSide,
 };
 use translunar_filter_core::{
     DocumentFilter, DocumentMetadata, ExportReport, ExportRequest, FilterCapabilities,
@@ -42,6 +42,25 @@ pub enum XlsxError {
 
 #[derive(Debug, Clone)]
 pub struct XlsxFilter;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BilingualTableRow {
+    pub sheet_name: String,
+    pub sheet_index: usize,
+    pub row_number: u32,
+    pub structural_path: String,
+    pub cells: Vec<String>,
+    pub target_cell_path: String,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct BilingualXlsxFilter;
+
+impl Default for BilingualXlsxFilter {
+    fn default() -> Self {
+        Self
+    }
+}
 
 impl Default for XlsxFilter {
     fn default() -> Self {
@@ -80,6 +99,15 @@ struct CellInfo {
     text: String,
     ranges: Vec<XmlTextRange>,
     value_range: Option<(usize, usize)>,
+}
+
+#[derive(Debug, Clone)]
+struct SheetCellEntry {
+    reference: String,
+    row: u32,
+    column: u32,
+    cell: Option<CellInfo>,
+    unsupported_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -362,6 +390,284 @@ impl XlsxFilter {
     }
 }
 
+pub fn extract_bilingual_table_rows(source: &Path) -> Result<Vec<BilingualTableRow>, XlsxError> {
+    extract_bilingual_table_rows_with_options(source, &BTreeMap::new())
+}
+
+fn extract_bilingual_table_rows_with_options(
+    source: &Path,
+    options: &BTreeMap<String, String>,
+) -> Result<Vec<BilingualTableRow>, XlsxError> {
+    let selection = Selection::parse(options)?;
+    if selection.column_range.is_some() {
+        return Err(XlsxError::Invalid(
+            "columnRange is unsupported in bilingual XLSX mode".to_string(),
+        ));
+    }
+    let package = OfficePackage::open(source)?;
+    let workbook = discover_workbook(&package)?;
+    let shared = if let Some(part) = workbook.shared_strings.as_deref() {
+        Some(parse_shared_strings(package.require(part)?, part)?)
+    } else {
+        None
+    };
+    let mut rows = Vec::new();
+    for sheet in &workbook.sheets {
+        if !selection.includes_sheet(sheet) {
+            continue;
+        }
+        let mut by_row = BTreeMap::<u32, BTreeMap<u32, SheetCellEntry>>::new();
+        for entry in parse_sheet_cell_entries(package.require(&sheet.part)?, &sheet.part)? {
+            if selection
+                .row_range
+                .is_some_and(|(start, end)| !(start..=end).contains(&entry.row))
+            {
+                continue;
+            }
+            if entry.column > 64 {
+                return Err(XlsxError::Invalid(format!(
+                    "bilingual row {} in {} has more than 64 columns",
+                    entry.row, sheet.name
+                )));
+            }
+            by_row
+                .entry(entry.row)
+                .or_default()
+                .insert(entry.column, entry);
+        }
+        for (row_number, entries) in by_row {
+            let width = entries.keys().next_back().copied().unwrap_or_default();
+            if width == 0 {
+                continue;
+            }
+            let mut cells = vec![
+                String::new();
+                usize::try_from(width).map_err(|_| {
+                    XlsxError::Invalid("bilingual column count overflow".to_string())
+                })?
+            ];
+            for (column, entry) in entries {
+                if let Some(reason) = entry.unsupported_reason {
+                    return Err(XlsxError::Invalid(format!(
+                        "bilingual cell {} is unsupported: {reason}",
+                        entry.reference
+                    )));
+                }
+                let Some(cell) = entry.cell.as_ref() else {
+                    continue;
+                };
+                let value = resolve_cell_text(cell, shared.as_deref(), &sheet.part)?;
+                if value.len() > 1024 * 1024 {
+                    return Err(XlsxError::Invalid(format!(
+                        "bilingual cell {} exceeds 1 MiB",
+                        entry.reference
+                    )));
+                }
+                let index = usize::try_from(column.saturating_sub(1)).map_err(|_| {
+                    XlsxError::Invalid("bilingual column index overflow".to_string())
+                })?;
+                cells[index] = value;
+            }
+            let source = cells.first().map(String::as_str).unwrap_or_default();
+            let target = cells.get(1).map(String::as_str).unwrap_or_default();
+            if source.trim().is_empty() || target.trim().is_empty() {
+                return Err(XlsxError::Invalid(format!(
+                    "bilingual row {row_number} in {} requires source and target text cells",
+                    sheet.name
+                )));
+            }
+            rows.push(BilingualTableRow {
+                sheet_name: sheet.name.clone(),
+                sheet_index: sheet.index,
+                row_number,
+                structural_path: format!("bilingual-xlsx:{}#row:{row_number}", sheet.part),
+                target_cell_path: cell_path(&sheet.part, &format!("B{row_number}")),
+                cells,
+            });
+            if rows.len() > 100_000 {
+                return Err(XlsxError::Invalid(
+                    "bilingual workbook exceeds 100000 rows".to_string(),
+                ));
+            }
+        }
+    }
+    Ok(rows)
+}
+
+pub fn export_bilingual_table(
+    source: &Path,
+    output: &Path,
+    segments: &[Segment],
+) -> Result<u32, XlsxError> {
+    let rows = extract_bilingual_table_rows(source)?;
+    let by_path = rows
+        .into_iter()
+        .map(|row| (row.structural_path.clone(), row))
+        .collect::<BTreeMap<_, _>>();
+    let mut seen = BTreeSet::new();
+    let mut cell_segments = Vec::new();
+    for segment in segments {
+        if segment.target_text.trim().is_empty() {
+            continue;
+        }
+        if !seen.insert(segment.structural_path.clone()) {
+            return Err(XlsxError::Invalid(format!(
+                "duplicate bilingual XLSX structural path {}",
+                segment.structural_path
+            )));
+        }
+        let row = by_path.get(&segment.structural_path).ok_or_else(|| {
+            XlsxError::Invalid(format!(
+                "bilingual XLSX structural path does not exist: {}",
+                segment.structural_path
+            ))
+        })?;
+        let mut cell_segment = segment.clone();
+        cell_segment.structural_path = row.target_cell_path.clone();
+        cell_segments.push(cell_segment);
+    }
+    XlsxFilter.export(source, output, &cell_segments)
+}
+
+impl DocumentFilter for BilingualXlsxFilter {
+    fn descriptor(&self) -> FilterDescriptor {
+        FilterDescriptor {
+            id: "builtin.bilingual-xlsx".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            display_name: "Bilingual table XLSX".to_string(),
+            extensions: vec!["xlsx".to_string()],
+            capabilities: FilterCapabilities {
+                import: true,
+                export: true,
+                validate: true,
+                inline_tags: false,
+                notes: true,
+                degradation_report: true,
+            },
+        }
+    }
+
+    fn probe(&self, _source: &Path) -> Result<ProbeResult, FilterError> {
+        Ok(ProbeResult::no_match(
+            "bilingual XLSX mode requires an explicit filter id",
+        ))
+    }
+
+    fn import(&self, request: ImportRequest) -> Result<FilterEventStream, FilterError> {
+        let rows = extract_bilingual_table_rows_with_options(&request.source, &request.options)
+            .map_err(map_error)?;
+        let document_id = request.document_id.as_deref().unwrap_or("bilingual-xlsx");
+        let mut events = vec![FilterEvent::StartDocument {
+            metadata: DocumentMetadata {
+                format: "bilingual-xlsx".to_string(),
+                source_locale: request.source_locale,
+                properties: BTreeMap::from([(
+                    "filter".to_string(),
+                    "builtin.bilingual-xlsx".to_string(),
+                )]),
+            },
+        }];
+        let mut headers_by_sheet = BTreeMap::<usize, Vec<String>>::new();
+        let mut seen_sheets = BTreeSet::new();
+        let mut ordinal = 0_u32;
+        for row in rows {
+            if seen_sheets.insert(row.sheet_index) && is_bilingual_header(&row.cells) {
+                headers_by_sheet.insert(row.sheet_index, row.cells);
+                continue;
+            }
+            let mut metadata = BTreeMap::new();
+            if let Some(headers) = headers_by_sheet.get(&row.sheet_index) {
+                for (index, value) in row.cells.iter().enumerate().skip(2) {
+                    if let Some(name) = headers.get(index).filter(|name| !name.trim().is_empty()) {
+                        metadata.insert(name.clone(), value.clone());
+                    }
+                }
+            }
+            events.push(FilterEvent::StartUnit {
+                ordinal,
+                structural_path: row.structural_path,
+            });
+            events.push(FilterEvent::Text(row.cells[0].clone()));
+            events.push(FilterEvent::TargetText(row.cells[1].clone()));
+            if !metadata.is_empty() {
+                let metadata = serde_json::to_string(&metadata).map_err(|error| {
+                    FilterError::Processing(format!("cannot encode bilingual metadata: {error}"))
+                })?;
+                if metadata.len() > 1024 * 1024 {
+                    return Err(FilterError::Invalid(format!(
+                        "bilingual metadata exceeds 1 MiB for row {}",
+                        row.row_number
+                    )));
+                }
+                events.push(FilterEvent::Note(DocumentNote {
+                    id: format!("{document_id}:bilingual-row:{ordinal}"),
+                    text: metadata,
+                    author: None,
+                }));
+            }
+            events.push(FilterEvent::EndUnit);
+            ordinal = ordinal
+                .checked_add(1)
+                .ok_or_else(|| FilterError::Invalid("bilingual row count overflow".to_string()))?;
+        }
+        if ordinal == 0 {
+            return Err(FilterError::Invalid(
+                "bilingual XLSX contains no data rows".to_string(),
+            ));
+        }
+        events.push(FilterEvent::EndDocument);
+        Ok(Box::new(events.into_iter().map(Ok)))
+    }
+
+    fn export(&self, request: ExportRequest<'_>) -> Result<ExportReport, FilterError> {
+        let package = OfficePackage::open(request.source)
+            .map_err(XlsxError::from)
+            .map_err(map_error)?;
+        let translated_segments =
+            export_bilingual_table(request.source, request.output, request.segments)
+                .map_err(map_error)?;
+        Ok(ExportReport {
+            output_path: request.output.display().to_string(),
+            translated_segments,
+            degradation: xlsx_degradations(&package),
+        })
+    }
+
+    fn validate(&self, source: &Path) -> Result<ValidationReport, FilterError> {
+        let rows = extract_bilingual_table_rows(source).map_err(map_error)?;
+        let mut seen_sheets = BTreeSet::new();
+        let data_rows = rows
+            .iter()
+            .filter(|row| !(seen_sheets.insert(row.sheet_index) && is_bilingual_header(&row.cells)))
+            .count();
+        if data_rows == 0 {
+            return Err(FilterError::Invalid(
+                "bilingual XLSX contains no data rows".to_string(),
+            ));
+        }
+        Ok(ValidationReport {
+            valid: true,
+            findings: Vec::new(),
+        })
+    }
+}
+
+fn is_bilingual_header(cells: &[String]) -> bool {
+    let source = cells
+        .first()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .unwrap_or_default();
+    let target = cells
+        .get(1)
+        .map(|value| value.trim().to_ascii_lowercase())
+        .unwrap_or_default();
+    matches!(source.as_str(), "source" | "source text" | "原文")
+        && matches!(
+            target.as_str(),
+            "target" | "target text" | "translation" | "译文"
+        )
+}
+
 impl DocumentFilter for XlsxFilter {
     fn descriptor(&self) -> FilterDescriptor {
         FilterDescriptor {
@@ -608,6 +914,13 @@ fn parse_shared_strings(bytes: &[u8], part: &str) -> Result<Vec<SharedString>, X
 }
 
 fn parse_sheet_cells(bytes: &[u8], part: &str) -> Result<Vec<CellInfo>, XlsxError> {
+    Ok(parse_sheet_cell_entries(bytes, part)?
+        .into_iter()
+        .filter_map(|entry| entry.cell)
+        .collect())
+}
+
+fn parse_sheet_cell_entries(bytes: &[u8], part: &str) -> Result<Vec<SheetCellEntry>, XlsxError> {
     validate_xml(bytes, part)?;
     let mut reader = Reader::from_reader(bytes);
     reader.config_mut().trim_text(false);
@@ -615,6 +928,7 @@ fn parse_sheet_cells(bytes: &[u8], part: &str) -> Result<Vec<CellInfo>, XlsxErro
     let mut current: Option<CellBuilder> = None;
     let mut current_text: Option<TextBuilder> = None;
     let mut cells = Vec::new();
+    let mut references = BTreeSet::new();
     loop {
         let before = usize::try_from(reader.buffer_position())
             .map_err(|_| XlsxError::Invalid("worksheet offset overflow".to_string()))?;
@@ -642,7 +956,25 @@ fn parse_sheet_cells(bytes: &[u8], part: &str) -> Result<Vec<CellInfo>, XlsxErro
                     in_inline: false,
                 });
             }
-            Ok(Event::Empty(element)) if element.name().local_name().as_ref() == b"c" => {}
+            Ok(Event::Empty(element)) if element.name().local_name().as_ref() == b"c" => {
+                let reference =
+                    attribute_value(&element, b"r", reader.decoder())?.ok_or_else(|| {
+                        XlsxError::Invalid(format!("cell without reference in {part}"))
+                    })?;
+                let (row, column) = parse_cell_reference(&reference)?;
+                if !references.insert(reference.clone()) {
+                    return Err(XlsxError::Invalid(format!(
+                        "duplicate cell reference {reference} in {part}"
+                    )));
+                }
+                cells.push(SheetCellEntry {
+                    reference,
+                    row,
+                    column,
+                    cell: None,
+                    unsupported_reason: None,
+                });
+            }
             Ok(Event::Start(element)) if element.name().local_name().as_ref() == b"v" => {
                 if let Some(cell) = current.as_mut() {
                     cell.in_value = true;
@@ -724,27 +1056,57 @@ fn parse_sheet_cells(bytes: &[u8], part: &str) -> Result<Vec<CellInfo>, XlsxErro
                 let builder = current.take().ok_or_else(|| {
                     XlsxError::Invalid(format!("cell end without start in {part}"))
                 })?;
-                if builder.formula || builder.text.trim().is_empty() {
-                    continue;
+                if !references.insert(builder.reference.clone()) {
+                    return Err(XlsxError::Invalid(format!(
+                        "duplicate cell reference {} in {part}",
+                        builder.reference
+                    )));
                 }
-                let kind = if builder.cell_type.as_deref() == Some("s") {
-                    let index = builder.text.parse::<usize>().map_err(|_| {
-                        XlsxError::Invalid(format!("invalid shared string index in {part}"))
-                    })?;
-                    CellKind::Shared { index }
-                } else if builder.cell_type.as_deref() == Some("inlineStr") {
-                    CellKind::Inline
+                let (cell, unsupported_reason) = if builder.formula {
+                    (None, Some("formula cells are not editable".to_string()))
                 } else {
-                    continue;
+                    match builder.cell_type.as_deref() {
+                        Some("s") => {
+                            let index = builder.text.parse::<usize>().map_err(|_| {
+                                XlsxError::Invalid(format!("invalid shared string index in {part}"))
+                            })?;
+                            (
+                                Some(CellInfo {
+                                    reference: builder.reference.clone(),
+                                    row: builder.row,
+                                    column: builder.column,
+                                    kind: CellKind::Shared { index },
+                                    text: builder.text.clone(),
+                                    ranges: builder.ranges.clone(),
+                                    value_range: builder.value_range,
+                                }),
+                                None,
+                            )
+                        }
+                        Some("inlineStr") if !builder.text.trim().is_empty() => (
+                            Some(CellInfo {
+                                reference: builder.reference.clone(),
+                                row: builder.row,
+                                column: builder.column,
+                                kind: CellKind::Inline,
+                                text: builder.text.clone(),
+                                ranges: builder.ranges.clone(),
+                                value_range: builder.value_range,
+                            }),
+                            None,
+                        ),
+                        Some("inlineStr") => (None, None),
+                        None if builder.text.trim().is_empty() => (None, None),
+                        Some(kind) => (None, Some(format!("cell type {kind} is not supported"))),
+                        None => (None, Some("numeric cells are not editable".to_string())),
+                    }
                 };
-                cells.push(CellInfo {
+                cells.push(SheetCellEntry {
                     reference: builder.reference,
                     row: builder.row,
                     column: builder.column,
-                    kind,
-                    text: builder.text,
-                    ranges: builder.ranges,
-                    value_range: builder.value_range,
+                    cell,
+                    unsupported_reason,
                 });
             }
             Ok(Event::Eof) => break,
@@ -952,6 +1314,20 @@ fn clone_shared_string(
 
 fn cell_path(part: &str, reference: &str) -> String {
     format!("xlsx:{part}#cell:{reference}")
+}
+
+fn resolve_cell_text(
+    cell: &CellInfo,
+    shared: Option<&[SharedString]>,
+    part: &str,
+) -> Result<String, XlsxError> {
+    match cell.kind {
+        CellKind::Inline => Ok(cell.text.clone()),
+        CellKind::Shared { index } => shared
+            .and_then(|items| items.get(index))
+            .map(|item| item.text.clone())
+            .ok_or_else(|| XlsxError::Invalid(format!("missing shared string for {part}"))),
+    }
 }
 
 fn target_map(segments: &[Segment]) -> Result<HashMap<String, String>, XlsxError> {
@@ -1353,5 +1729,82 @@ mod tests {
                 .any(|window| window == b"uniqueCount=\"4\"")
         );
         assert!(XlsxFilter.export(&source, &output, &segments).is_err());
+    }
+
+    #[test]
+    fn bilingual_filter_imports_headers_targets_and_named_metadata() {
+        let temp = tempfile::tempdir().expect("temporary directory");
+        let source = temp.path().join("bilingual.xlsx");
+        fixture::write_bilingual_fixture(&source).expect("write bilingual fixture");
+        let request = ImportRequest {
+            source,
+            document_id: Some("bilingual-xlsx-document".to_string()),
+            source_locale: Some("en".to_string()),
+            options: BTreeMap::new(),
+        };
+        let document = collect_imported_document(
+            BilingualXlsxFilter
+                .import(request)
+                .expect("import bilingual workbook"),
+        )
+        .expect("collect bilingual workbook");
+
+        assert_eq!(document.units.len(), 2);
+        assert_eq!(document.units[0].source_text, "Hello");
+        assert_eq!(document.units[0].target_text.as_deref(), Some("Existing"));
+        assert_eq!(
+            document.units[0].structural_path,
+            "bilingual-xlsx:xl/worksheets/sheet1.xml#row:2"
+        );
+        let metadata: BTreeMap<String, String> =
+            serde_json::from_str(&document.units[0].notes[0].text).expect("decode row metadata");
+        assert_eq!(metadata.get("Context").map(String::as_str), Some("Legal"));
+    }
+
+    #[test]
+    fn bilingual_export_rewrites_only_the_target_cell_and_no_clobbers() {
+        let temp = tempfile::tempdir().expect("temporary directory");
+        let source = temp.path().join("bilingual.xlsx");
+        let output = temp.path().join("translated.xlsx");
+        fixture::write_bilingual_fixture(&source).expect("write bilingual fixture");
+        let rows = extract_bilingual_table_rows(&source).expect("extract bilingual rows");
+        let row = rows
+            .iter()
+            .find(|row| row.row_number == 2)
+            .expect("data row");
+        let units = vec![translunar_filter_core::ImportedUnit::plain(
+            0,
+            row.structural_path.clone(),
+            row.cells[0].clone(),
+        )];
+        let mut segments = segments_for(&units);
+        segments[0].target_text = "新目标 & more".to_string();
+
+        assert_eq!(
+            export_bilingual_table(&source, &output, &segments).expect("export bilingual workbook"),
+            1
+        );
+        let exported = extract_bilingual_table_rows(&output).expect("reparse workbook");
+        let first = exported
+            .iter()
+            .find(|item| item.row_number == 2)
+            .expect("translated row");
+        assert_eq!(first.cells[0], "Hello");
+        assert_eq!(first.cells[1], "新目标 & more");
+        let second = exported
+            .iter()
+            .find(|item| item.row_number == 3)
+            .expect("unchanged row");
+        assert_eq!(second.cells[1], "第二");
+        assert!(export_bilingual_table(&source, &output, &segments).is_err());
+    }
+
+    #[test]
+    fn bilingual_filter_rejects_formula_rows() {
+        let temp = tempfile::tempdir().expect("temporary directory");
+        let source = temp.path().join("formula.xlsx");
+        fixture::write_bilingual_invalid_formula_fixture(&source).expect("write formula fixture");
+        let error = extract_bilingual_table_rows(&source).expect_err("reject formula");
+        assert!(error.to_string().contains("formula"));
     }
 }

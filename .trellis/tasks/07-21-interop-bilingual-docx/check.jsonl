@@ -1,0 +1,5 @@
+{"file":".trellis/spec/backend/engine-boundary.md","reason":"Check protocol-to-Engine ownership, typed conflicts, no sensitive payloads, and no partial file/database side effects."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Check migration ordering, foreign keys, deterministic paging, expected revisions, and rollback/reopen evidence."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Check focused format tests, workspace tests, generated contract drift, stdio smoke, and release/VPS gates."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Check trusted dialogs, generated invoke boundary, accessibility, save flushing, real-engine E2E, and viewport overflow."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Check keyboard selection, typed busy/error states, console/page errors, production build, and supported screenshots."}

@@ -460,6 +460,151 @@ transaction.execute(
 )?;
 ```
 
+## External CAT Interchange Boundary
+
+### 1. Scope / Trigger
+
+Use this contract when changing SDLXLIFF, memoQ XLIFF/MQXLZ, another private
+CAT dialect, or the vendor-package validation used by those filters. The
+Engine and generic filter event stream remain authoritative; Electron never
+parses vendor XML or opens a CAT ZIP package.
+
+### 2. Signatures
+
+The wire surface remains the existing generic boundary:
+
+```text
+document.import ImportDocumentParams -> ImportDocumentResult
+document.export ExportDocumentParams -> ExportDocumentResult
+filter.list EmptyParams -> FilterListResult
+```
+
+The registered descriptors are:
+
+```text
+builtin.sdlxliff  .sdlxliff
+builtin.mqxliff   .mqxliff
+builtin.mqxlz     .mqxlz
+```
+
+Plain XML paths are
+`<vendor>:<hex-file-id>:<hex-unit-id>[:<hex-segment-id>]`. MQXLZ paths insert
+the hex-encoded package entry name after the vendor prefix. No private-format
+RPC or renderer-side model is added.
+
+### 3. Contracts
+
+- `filter-interop` accepts UTF-8 XLIFF 1.2 and bounded 2.x dialects only when
+  file, unit, and segment identity is unambiguous. SDL `seg-source` markers,
+  memoQ segments, states, locks, comments, and inline codes normalize to the
+  existing event, note, and protected-tag model.
+- When a segmented unit has explicit source marker IDs, target markers must
+  match those IDs one-to-one; a positional fallback is allowed only when the
+  corresponding target marker is itself unidentified. Duplicate or mismatched
+  explicit IDs are rejected as ambiguous rather than silently re-paired.
+- Parsed documents build direct-child and exact-ID indexes once. A unit-level
+  note applies to every logical segment in that unit, while a note or unmapped
+  vendor field nested under a logical segment belongs only to that segment's
+  structural path; exact-ID comment references remain ambiguity checked.
+- Import keeps the managed source immutable. Export rewrites only owned target
+  content, rejects missing or duplicate structural paths, reparses the result,
+  and proves that every source/path identity is unchanged before publication.
+  Vendor state/comments and unknown namespaces remain opaque source bytes.
+- An unmapped vendor-qualified field inside a supported unit is preserved and
+  emits `unsupported_vendor_field`; it is never silently reconstructed or
+  dropped, including attributes on nested inline elements. Errors contain
+  bounded paths/counts, never source or target text.
+- XML has exactly one root element; only whitespace, well-formed comments, and
+  terminated processing instructions may occur outside it. Comments cannot
+  contain `--` or end in `-`, processing instructions end in `?>`, attributes
+  cannot contain an unescaped `<`, and character data cannot contain `]]>`.
+- XML text and attribute values must contain only predefined or numeric entity
+  references. CDATA is treated as literal text; unknown, unterminated, or
+  invalid entity references are rejected as malformed XML.
+- XML limits are 64 MiB, depth 256, and 100,000 translatable units. DOCTYPE,
+  external declarations, invalid UTF-8, duplicate attributes, duplicate stable
+  paths, and ambiguous/missing identities are rejected.
+- MQXLZ is single-disk non-ZIP64, contains exactly one `.mqxliff`, `.xlf`, or
+  `.xliff` entry, and allows at most 4,096 entries. ZIP64 EOCD/entry sentinels
+  and the ZIP64 central-directory extra-field ID are rejected before archive
+  construction. Entry names are at most 4,096 bytes; one uncompressed entry is
+  at most 256 MiB; total uncompressed size is at most 1 GiB; compression ratio
+  is at most 200:1.
+- Validate the raw central directory before constructing `ZipArchive`. The
+  `zip` crate indexes entries by raw filename and otherwise collapses exact
+  duplicate names. Also reject normalized duplicates, traversal/absolute
+  names, encryption, overlapping payload ranges, inconsistent directory
+  counts/sizes, and more than one candidate XLIFF entry.
+- Read each ZIP entry through a limit of its declared uncompressed size and
+  reject a decompressed byte count that differs from that declaration.
+- MQXLZ export replaces only the selected XML entry through
+  `filter-office-core::rebuild_zip`; every auxiliary entry is raw-copied. The
+  rebuilt ZIP and vendor XML are re-read before `publish_bytes_noclobber`.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Malformed/oversized/deep XML, DTD, invalid UTF-8, missing stable identity | `unsupported_document`; no managed source or document row |
+| Duplicate import path or duplicate/unknown export path | Typed import/export failure; source and destination unchanged |
+| Unsupported vendor-qualified field in a valid unit | Warning degradation with structural path; bytes preserved |
+| Traversal, exact/normalized duplicate, encrypted, overlapping, ZIP64, multi-disk, oversized, or ratio-bomb entry | `unsupported_document`; no partial persistence |
+| Zero or multiple candidate XLIFF entries | `unsupported_document`; package is not treated as generic XLIFF |
+| Rebuilt source/path identity differs | `export_error`; staged bytes are not published |
+| Existing output path | `export_error`; existing bytes are unchanged |
+
+### 5. Good / Base / Bad Cases
+
+- Good: import segmented SDLXLIFF with paired inline codes, state, lock, and a
+  referenced comment; edit, restart, export, and re-import while opaque vendor
+  metadata remains byte-preserved.
+- Base: import memoQ 2.x XML or a one-XLIFF MQXLZ, report an unmapped field as a
+  degradation, and raw-copy an auxiliary binary entry during export.
+- Bad: let `ZipArchive` collapse duplicate central-directory names, fall back
+  to `builtin.xliff` while claiming native fidelity, flatten inline markup, or
+  publish before the rebuilt package reparses.
+
+### 6. Tests Required
+
+- `filter-interop` tests assert XLIFF 1.2/2.x SDL/memoQ fixtures, segmented
+  markers, states/comments, paired/standalone tags, unknown metadata, target
+  insertion/replacement, source identity, and no-clobber behavior.
+- Adversarial fixtures must contain real duplicate central-directory names and
+  encryption flags plus forged oversized metadata, ZIP64 extra/sentinels, a
+  ratio bomb, traversal, multiple XLIFF entries, DTD, excessive depth/size,
+  text outside the root, invalid comments/processing instructions/attributes,
+  forbidden character data, and duplicate paths.
+- Engine tests register all three descriptors and prove generic import, note/
+  target persistence across restart, QA-gated export, native re-import, opaque
+  MQXLZ auxiliary preservation, and stale-destination rejection.
+- The real stdio smoke covers XML and ZIP import/edit/restart/export, malformed
+  no-partial-persistence behavior, metadata/tag preservation, and no-clobber.
+  Contract drift and Electron E2E run with a synchronized current Engine.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+// zip 8.x may collapse duplicate central-directory names before len() is read.
+let archive = ZipArchive::new(file)?;
+for index in 0..archive.len() {
+    validate(archive.by_index(index)?)?;
+}
+```
+
+#### Correct
+
+```rust
+let declared = validate_central_directory(&mut file)?;
+file.seek(SeekFrom::Start(0))?;
+let archive = ZipArchive::new(file)?;
+ensure_entry_count_and_ranges(archive, declared)?;
+let rebuilt = rebuild_zip(source, &changed_xml)?;
+reparse_vendor_package(&rebuilt)?;
+publish_bytes_noclobber(output, &rebuilt)?;
+```
+
 ## Office OOXML Filter Boundary
 
 ### 1. Scope / Trigger
@@ -1073,4 +1218,159 @@ SELECT id FROM projects WHERE lifecycle != 'trash';
 // Rebuild the complete projection; normal/admin visibility is query policy.
 SELECT id FROM projects ORDER BY id;
 // search_global adds lifecycle predicates unless include_recycled is true.
+```
+
+## Bilingual Review And Table Interop
+
+### 1. Scope / Trigger
+
+Use this contract for signed bilingual review DOCX export/import, explicit
+two-column DOCX/XLSX filters, durable interop previews, or table-to-TM writes.
+Rust owns package parsing, canonical hashes, row classification, revisions,
+review/comment/workflow effects, TM provenance, and persistence. Electron owns
+only trusted file selection and presentation of generated protocol results.
+
+### 2. Signatures
+
+Protocol v1 exposes these additive methods:
+
+```text
+interop.review.export  ReviewExportParams  -> ReviewExportResult
+interop.review.preview ReviewPreviewParams -> ReviewPreviewResult
+interop.review.apply   ReviewApplyParams   -> InteropApplyResult
+interop.table.preview  TablePreviewParams  -> TablePreviewResult
+interop.table.apply    TableApplyParams    -> InteropApplyResult
+```
+
+Review and table previews accept exactly one of `inputPath` or `previewId`,
+plus a project/document or project/library binding, expected revision, and
+bounded `offset`/`limit`. Apply requests contain the preview ID, the matching
+expected revision, explicit row IDs, actor, and reason. Migration 11 backs
+`Store::create_interop_preview`, `Store::apply_review_interop`, and
+`Store::apply_table_interop` with `interop_previews` and
+`interop_preview_rows`.
+
+Generic filter registration is additive:
+
+```text
+builtin.bilingual-docx .docx
+builtin.bilingual-xlsx .xlsx
+```
+
+Ordinary `builtin.docx` and `builtin.xlsx` probe and export behavior remains
+unchanged.
+
+### 3. Contracts
+
+- A review artifact is a newly generated three-visible-column DOCX. Its custom
+  JSON manifest contains `formatVersion`, project/document IDs, base document
+  revision, and rows of `rowId`, `segmentId`, `segmentRevision`, `ordinal`, and
+  normalized `sourceHash`. `manifestHash` is SHA-256 over that canonical shape
+  with the hash field omitted; editable target/comment/status text is excluded.
+  This is tamper evidence, not a cryptographic reviewer identity signature.
+- Review row IDs are opaque and distinct from segment IDs. Duplicate manifest
+  bindings or table identities fail parsing. Missing source/target bookmarks,
+  source/hash tamper, unsupported status/tag edits, or ambiguous bindings make
+  the affected row `invalid`; package rows absent from the manifest are
+  `added`, and manifest rows absent from the table are `missing`.
+- Review preview classifies every row as `changed`, `unchanged`, `missing`,
+  `added`, or `invalid`, stages the input under `tmp/`, and persists only the
+  preview projection. It writes no target, review, comment, workflow, or TM
+  state. A staged preview can be paged after restart.
+- Review apply accepts only selected `changed` rows. One immediate transaction
+  revalidates document and segment revisions/source hashes, creates review and
+  additive comment/workflow context, increments the document revision once,
+  appends one operation, and marks the preview terminal. Replaying an applied
+  preview returns its stored terminal result without duplicate side effects.
+- Bilingual DOCX/XLSX modes treat the first two logical columns as source and
+  target, detect an optional per-group header, retain extra named columns as
+  bounded metadata, and report deterministic one-based source rows and
+  structural paths. Formulas and unsupported typed cells are rejected.
+- Table preview derives a stable row ID from input SHA-256, source row, source
+  hash, and target hash. It rejects a read-only or locale-mismatched library
+  before staging; dispositions are `valid`, `duplicate`, or `invalid`. Apply
+  revalidates writability, locales, revision, selected rows, and duplicates
+  before inserting any unit. Provenance metadata includes
+  `previewId`, `rowId`, `sourcePathHash`, `sourceRow`, and `sourceFormat`.
+- `filter-office-core::validate_xml` requires exactly one closed root element,
+  rejects character data outside it, and rejects DTD/depth/size violations.
+  Review export reparses the complete generated package before no-clobber
+  publication. Inputs remain subject to Office package limits, 100,000 rows,
+  1 MiB source/target cells, and bounded comments/metadata.
+- Renderer and main code consume generated method payloads and never open ZIPs,
+  parse XML, compute manifest/row hashes, classify rows, or mutate SQLite/TM.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Existing review/export destination | `export_error`; existing bytes are unchanged |
+| Invalid manifest digest/binding, duplicate identity/bookmark, malformed or unclosed XML/ZIP | `unsupported_document`; staging is removed and no preview is stored |
+| Source tamper, missing marker, unsupported status/tag edit | Persist an `invalid` preview row; selecting it returns `invalid_state` with no writes |
+| Stale document/segment/library revision | `conflict` before persistence/apply; preview remains open where applicable |
+| Formula, unsupported cell type, empty table, wrong explicit format | Typed import failure; staging and document/TM state are unchanged |
+| Duplicate/invalid/unselected row | Visible in the preview and never silently applied |
+| Read-only library or locale mismatch at preview/apply | `invalid_state`; no staging, TM unit, revision, or operation change |
+| Malformed accepted row or later SQLite failure | Roll back every selected TM/review side effect and keep the preview retryable |
+
+Errors and operations may contain IDs, hashes, row numbers, and counts. They
+must not contain source/target bodies, comments, credentials, or package bytes.
+
+### 5. Good / Base / Bad Cases
+
+- Good: export a review, edit one target/comment, preview one `changed` and the
+  remaining `unchanged` rows, apply the selected row, restart, and replay the
+  same terminal result without duplicate reviews/comments.
+- Good: preview a two-column XLSX with named metadata, select valid rows, and
+  persist one library-revision increment plus complete row provenance.
+- Base: a returned review omits one bound row and adds an unbound row; both stay
+  visible as `missing`/`added` and neither is selectable for apply.
+- Bad: parse DOCX/XLSX in TypeScript, infer a table mode from an ordinary
+  Office probe, trust a manifest instead of current SQLite revisions, or insert
+  TM rows before validating the complete selection.
+
+### 6. Tests Required
+
+- Office/interchange unit tests assert canonical manifest hashes, editable
+  target/comment digest stability, duplicate/missing/malformed bookmarks,
+  source tamper, unclosed/multiple XML roots, limits, no-clobber, table headers,
+  multi-run/shared/inline strings, formulas, structural paths, and opaque parts.
+- Storage tests assert migration 11 fresh/upgrade/rollback/reopen, durable
+  paging, atomic review/comment/TM writes, provenance, idempotent restart,
+  malformed accepted-row rollback, and stale/read-only library no-write paths.
+- Engine tests assert all five review dispositions, invalid-row blocking,
+  stale conflicts with no preview, generic filter compatibility, table
+  duplicate/invalid diagnostics, staging cleanup, and restart behavior.
+- The real stdio smoke covers review export/edit/preview/apply, stale/tamper/
+  malformed/no-clobber, table preview/apply/duplicate, restart/idempotence, and
+  cleanup. Generated schema and TypeScript must remain byte-equal.
+- Real-Engine Electron E2E covers trusted dialogs, changed/valid selection,
+  proposal/TM results, pagination/terminal states, three supported viewports,
+  horizontal overflow, and console/page errors.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```typescript
+// Renderer opens the package, trusts its revision, and writes selected rows.
+const rows = parseDocxZip(await readFile(path));
+await importTmRows(rows.filter((row) => row.target));
+```
+
+#### Correct
+
+```typescript
+const preview = await window.translunar.invoke("interop.table.preview", {
+  projectId,
+  libraryId,
+  inputPath,
+  format: "xlsx",
+  sourceLocale,
+  targetLocale,
+  expectedLibraryRevision: library.revision,
+  offset: 0,
+  limit: 50,
+});
+// Render preview.rows and apply only explicit Engine-classified valid row IDs.
 ```

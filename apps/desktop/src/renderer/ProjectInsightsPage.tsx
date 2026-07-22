@@ -27,6 +27,7 @@ import {
   FileText,
   FolderOpen,
   History,
+  Languages,
   LoaderCircle,
   RefreshCw,
   RotateCcw,
@@ -36,9 +37,16 @@ import {
 } from "lucide-react";
 
 import { fileName, formatError } from "./workbench-utils";
+import { InteropPanel } from "./InteropPanel";
 
 type InsightsTab =
-  "overview" | "files" | "reimport" | "archive" | "history" | "analysis";
+  | "overview"
+  | "files"
+  | "reimport"
+  | "interop"
+  | "archive"
+  | "history"
+  | "analysis";
 
 interface ProjectInsightsPageProps {
   snapshot: ProjectSnapshot;
@@ -64,6 +72,7 @@ const TABS: Array<{
   { id: "overview", label: "Overview", icon: <BarChart3 size={15} /> },
   { id: "files", label: "Files", icon: <FileText size={15} /> },
   { id: "reimport", label: "Re-import", icon: <RotateCcw size={15} /> },
+  { id: "interop", label: "Interop", icon: <Languages size={15} /> },
   { id: "archive", label: "Archive", icon: <Archive size={15} /> },
   { id: "history", label: "History", icon: <History size={15} /> },
   { id: "analysis", label: "Analysis", icon: <FileClock size={15} /> },
@@ -471,6 +480,12 @@ export function ProjectInsightsPage({
             onChoose={() => void chooseReplacement()}
             onPreview={() => void previewReimport()}
             onApply={requestApplyReimport}
+          />
+        ) : tab === "interop" ? (
+          <InteropPanel
+            snapshot={snapshot}
+            document={document}
+            onRefresh={onRefresh}
           />
         ) : tab === "archive" ? (
           <ArchivePanel

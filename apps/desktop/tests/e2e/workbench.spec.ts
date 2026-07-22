@@ -2,6 +2,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   readdirSync,
   statSync,
   writeFileSync,
@@ -10,6 +11,7 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
+import { inflateRawSync } from "node:zlib";
 
 import {
   _electron as electron,
@@ -38,6 +40,9 @@ interface HarnessOptions {
   sourceFiles?: string[];
   sourceFolder?: string;
   replacementSource?: string;
+  interopExportPath?: string;
+  interopReviewInput?: string;
+  interopTableInput?: string;
 }
 
 async function launchHarness(
@@ -49,11 +54,12 @@ async function launchHarness(
   const dataDirectory = mkdtempSync(
     join(tmpdir(), `translunar-desktop-${label}-`),
   );
-  const exportPath = join(dataDirectory, "translated.docx");
   const options: HarnessOptions =
     typeof sourceOverride === "string"
       ? { source: sourceOverride }
       : (sourceOverride ?? {});
+  const exportPath =
+    options.interopExportPath ?? join(dataDirectory, "translated.docx");
   const fixture =
     options.source ?? join(workspaceRoot, "fixtures", "docx", "m0-source.docx");
   const engine =
@@ -92,6 +98,12 @@ async function launchHarness(
         : {}),
       TRANSLUNAR_TEST_PROJECT_ARCHIVE: archivePath,
       TRANSLUNAR_TEST_PROJECT_ARCHIVE_DESTINATION: archivePath,
+      ...(options.interopReviewInput
+        ? { TRANSLUNAR_TEST_REVIEW_INPUT: options.interopReviewInput }
+        : {}),
+      ...(options.interopTableInput
+        ? { TRANSLUNAR_TEST_TABLE_INPUT: options.interopTableInput }
+        : {}),
       TRANSLUNAR_AI_TEST_MODE: "1",
       TRANSLUNAR_AI_TEST_CREDENTIAL: "desktop-ai-secret",
     },
@@ -237,6 +249,177 @@ async function captureResponsiveSurface(
       ),
     });
   }
+}
+
+function writeBilingualXlsxFixture(path: string): void {
+  const contentTypes = `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`;
+  const rootRelationships = `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
+  const workbook = `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Main" sheetId="1" r:id="rId1"/></sheets></workbook>`;
+  const workbookRelationships = `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`;
+  const sheet = `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Source</t></is></c><c r="B1" t="inlineStr"><is><t>Target</t></is></c><c r="C1" t="inlineStr"><is><t>Context</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>DesktopInteropAlpha</t></is></c><c r="B2" t="inlineStr"><is><t>Desktop target alpha</t></is></c><c r="C2" t="inlineStr"><is><t>Legal</t></is></c></row><row r="3"><c r="A3" t="inlineStr"><is><t>DesktopInteropBeta</t></is></c><c r="B3" t="inlineStr"><is><t>Desktop target beta</t></is></c><c r="C3" t="inlineStr"><is><t>Memo</t></is></c></row></sheetData></worksheet>`;
+  writeFileSync(
+    path,
+    makeStoredZip([
+      ["[Content_Types].xml", contentTypes],
+      ["_rels/.rels", rootRelationships],
+      ["xl/workbook.xml", workbook],
+      ["xl/_rels/workbook.xml.rels", workbookRelationships],
+      ["xl/worksheets/sheet1.xml", sheet],
+    ]),
+  );
+}
+
+function editReviewDocx(
+  path: string,
+  changes: Readonly<Record<"target" | "comments", string>>,
+  rowIndex = 2,
+): void {
+  const entries = readZipEntries(readFileSync(path));
+  const documentIndex = entries.findIndex(
+    ([name]) => name === "word/document.xml",
+  );
+  if (documentIndex < 0) {
+    throw new Error("Review package has no word/document.xml part.");
+  }
+  const documentEntry = entries[documentIndex];
+  if (!documentEntry) {
+    throw new Error("Review package document entry is unavailable.");
+  }
+  let document = documentEntry[1].toString("utf8");
+  for (const [field, value] of Object.entries(changes)) {
+    const pattern = new RegExp(
+      `(<w:bookmarkStart\\b[^>]*w:name="[^"]+_${field}"[^>]*/>\\s*<w:r><w:t\\b[^>]*>)[\\s\\S]*?(</w:t></w:r>\\s*<w:bookmarkEnd\\b[^>]*/>)`,
+      "gu",
+    );
+    let replaced = false;
+    let occurrence = 0;
+    document = document.replace(pattern, (_match, prefix, suffix) => {
+      const currentOccurrence = occurrence;
+      occurrence += 1;
+      if (currentOccurrence !== rowIndex) return _match;
+      replaced = true;
+      return `${prefix}${escapeXml(value)}${suffix}`;
+    });
+    if (!replaced) {
+      throw new Error(`Review package has no ${field} bookmark.`);
+    }
+  }
+  entries[documentIndex] = [documentEntry[0], Buffer.from(document, "utf8")];
+  writeFileSync(path, makeStoredZip(entries));
+}
+
+function readZipEntries(buffer: Buffer): Array<[string, Buffer]> {
+  let end = -1;
+  for (
+    let index = buffer.length - 22;
+    index >= Math.max(0, buffer.length - 65_557);
+    index -= 1
+  ) {
+    if (buffer.readUInt32LE(index) === 0x06054b50) {
+      end = index;
+      break;
+    }
+  }
+  if (end < 0) throw new Error("ZIP end record is missing.");
+  const count = buffer.readUInt16LE(end + 10);
+  let centralOffset = buffer.readUInt32LE(end + 16);
+  const entries: Array<[string, Buffer]> = [];
+  for (let index = 0; index < count; index += 1) {
+    if (buffer.readUInt32LE(centralOffset) !== 0x02014b50) {
+      throw new Error("ZIP central entry is invalid.");
+    }
+    const compression = buffer.readUInt16LE(centralOffset + 10);
+    const compressedSize = buffer.readUInt32LE(centralOffset + 20);
+    const uncompressedSize = buffer.readUInt32LE(centralOffset + 24);
+    const nameLength = buffer.readUInt16LE(centralOffset + 28);
+    const extraLength = buffer.readUInt16LE(centralOffset + 30);
+    const commentLength = buffer.readUInt16LE(centralOffset + 32);
+    const localOffset = buffer.readUInt32LE(centralOffset + 42);
+    const name = buffer
+      .subarray(centralOffset + 46, centralOffset + 46 + nameLength)
+      .toString("utf8");
+    if (buffer.readUInt32LE(localOffset) !== 0x04034b50) {
+      throw new Error("ZIP local entry is invalid.");
+    }
+    const localNameLength = buffer.readUInt16LE(localOffset + 26);
+    const localExtraLength = buffer.readUInt16LE(localOffset + 28);
+    const dataStart = localOffset + 30 + localNameLength + localExtraLength;
+    const compressed = buffer.subarray(dataStart, dataStart + compressedSize);
+    const data =
+      compression === 0
+        ? Buffer.from(compressed)
+        : compression === 8
+          ? inflateRawSync(compressed)
+          : null;
+    if (!data || data.length !== uncompressedSize) {
+      throw new Error(`ZIP entry ${name} has unsupported or invalid data.`);
+    }
+    entries.push([name, data]);
+    centralOffset += 46 + nameLength + extraLength + commentLength;
+  }
+  return entries;
+}
+
+function makeStoredZip(
+  entries: ReadonlyArray<readonly [string, string | Buffer]>,
+): Buffer {
+  const localParts: Buffer[] = [];
+  const centralParts: Buffer[] = [];
+  let offset = 0;
+  for (const [name, value] of entries) {
+    const nameBytes = Buffer.from(name);
+    const data = Buffer.isBuffer(value) ? value : Buffer.from(value, "utf8");
+    const crc = crc32(data);
+    const local = Buffer.alloc(30 + nameBytes.length);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(nameBytes.length, 26);
+    nameBytes.copy(local, 30);
+    localParts.push(local, data);
+    const central = Buffer.alloc(46 + nameBytes.length);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt32LE(crc, 16);
+    central.writeUInt32LE(data.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(nameBytes.length, 28);
+    central.writeUInt32LE(offset, 42);
+    nameBytes.copy(central, 46);
+    centralParts.push(central);
+    offset += local.length + data.length;
+  }
+  const centralDirectory = Buffer.concat(centralParts);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(centralDirectory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...localParts, centralDirectory, end]);
+}
+
+function crc32(data: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of data) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
 }
 
 interface AiFixture {
@@ -1461,6 +1644,121 @@ test("manages the complete project lifecycle through the real Engine", async ({
     await expect(
       page.locator(".project-card").filter({ hasText: projectName }),
     ).toHaveCount(1);
+    expect(consoleErrors).toEqual([]);
+  } finally {
+    await closeHarness(harness);
+    await rm(fixtureDirectory, { recursive: true, force: true });
+  }
+});
+
+test("applies review DOCX and a bilingual table through Project Insights", async ({
+  browserName,
+}, testInfo) => {
+  expect(browserName).toBe("chromium");
+  const fixtureDirectory = mkdtempSync(
+    join(tmpdir(), "translunar-interop-ui-"),
+  );
+  const sourcePath = join(fixtureDirectory, "interop-source.txt");
+  const tablePath = join(fixtureDirectory, "bilingual-table.xlsx");
+  const reviewPath = join(fixtureDirectory, "offline-review.docx");
+  writeFileSync(
+    sourcePath,
+    "Desktop source alpha.\n\nDesktop source beta.\n\nDesktop source gamma.\n",
+  );
+  writeBilingualXlsxFixture(tablePath);
+  const harness = await launchHarness("interop-ui", {
+    source: sourcePath,
+    interopExportPath: reviewPath,
+    interopReviewInput: reviewPath,
+    interopTableInput: tablePath,
+  });
+  const { page, consoleErrors } = harness;
+  try {
+    await importFixture(page, "interop-source.txt");
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "Project insights" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Project insights" }),
+    ).toBeVisible();
+    await page.getByRole("tab", { name: "Interop" }).click();
+
+    await page
+      .getByRole("button", { name: "Review export destination" })
+      .click();
+    await expect(
+      page.getByText("offline-review.docx", { exact: true }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Export review" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Review DOCX exported",
+    );
+    expect(statSync(reviewPath).size).toBeGreaterThan(0);
+    editReviewDocx(reviewPath, {
+      target: "Desktop review target",
+      comments: "Verified through the desktop interop flow",
+    });
+
+    await page.getByRole("button", { name: "Select review DOCX" }).click();
+    await page.getByRole("button", { name: "Preview" }).click();
+    const reviewPreview = page.getByRole("region", { name: "Review preview" });
+    await expect(reviewPreview).toBeVisible();
+    await expect(reviewPreview).toContainText("Desktop review target");
+    await expect(reviewPreview.locator(".interop-disposition")).toHaveText([
+      "unchanged",
+      "unchanged",
+      "changed",
+    ]);
+    await expect(
+      reviewPreview.locator('input[type="checkbox"]:checked'),
+    ).toHaveCount(1);
+    await expect(page.locator(".interop-empty")).toHaveCount(0);
+    await reviewPreview.getByRole("button", { name: "Apply 1" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Applied 1 review row(s).",
+    );
+    await expect(reviewPreview.locator(".interop-status")).toHaveText(
+      "applied",
+    );
+    const proposals = await page.evaluate(async () => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      const projects = await api.invoke("project.list", {
+        offset: 0,
+        limit: 10,
+      });
+      const project = projects.items[0];
+      if (!project) throw new Error("Interop project is missing.");
+      return api.invoke("review.queue", {
+        projectId: project.id,
+        status: "pending",
+        offset: 0,
+        limit: 10,
+      });
+    });
+    expect(proposals.items).toHaveLength(1);
+    expect(proposals.items[0]?.revision.proposedTarget).toBe(
+      "Desktop review target",
+    );
+    await captureResponsiveSurface(harness, testInfo, "interop-review");
+
+    await page.getByRole("tab", { name: "Table to TM" }).click();
+    await page.getByRole("button", { name: "Select table" }).click();
+    await expect(
+      page.getByText("bilingual-table.xlsx", { exact: true }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Preview" }).click();
+    const tablePreview = page.getByRole("region", { name: "Table preview" });
+    await expect(tablePreview).toBeVisible();
+    await expect(page.locator(".interop-empty")).toHaveCount(0);
+    await expect(tablePreview).toContainText("DesktopInteropAlpha");
+    await expect(
+      tablePreview.locator('input[type="checkbox"]:checked'),
+    ).toHaveCount(2);
+    await tablePreview.getByRole("button", { name: "Apply 2" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Imported 2 table row(s) into the TM.",
+    );
+    await expect(tablePreview.locator(".interop-status")).toHaveText("applied");
+    await captureResponsiveSurface(harness, testInfo, "interop-table");
     expect(consoleErrors).toEqual([]);
   } finally {
     await closeHarness(harness);

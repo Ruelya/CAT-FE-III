@@ -26,6 +26,7 @@ export interface DesktopApi {
     suggestedName: string,
   ): Promise<string | null>;
   selectExportPath(suggestedName: string): Promise<string | null>;
+  selectInteropInput(kind: "review" | "table"): Promise<string | null>;
   resolveDroppedPaths(files: readonly File[]): string[];
   restartEngine(): Promise<void>;
   setAiCredential(profileId: string, secret: string): Promise<void>;
@@ -437,8 +438,8 @@ and generic document.export method contracts.
 ### 3. Contracts
 
 - Main owns the file dialog and accepts DOCX/XLSX/PPTX/PDF/TXT/Markdown/
-  HTML/XHTML/XLIFF extensions. Setup creates the project, then imports through
-  document.import; legacy DOCX RPCs remain compatible.
+  HTML/XHTML/XLIFF/SDLXLIFF/MQXLIFF/MQXLZ extensions. Setup creates the project,
+  then imports through document.import; legacy DOCX RPCs remain compatible.
 - DocumentPreview loads page summaries first and lazily requests one PNG when
   visible. segmentIds map the active segment to its page; React does not parse
   the PDF structural path.
@@ -674,4 +675,115 @@ setSegments(mutation.rows.map((row) => row.segment)); // drops the page
 const conversation = activeConversationId ?? (await createConversation()).id;
 const bundle = await previewGrounding(action, prompt, conversation);
 applyEditorMutation(mutation); // merges returned rows into the current page
+```
+
+## Bilingual Review And Table Interop Surface
+
+### 1. Scope / Trigger
+
+Use this contract for the Project Insights Interop panel, trusted review/table
+file dialogs, review DOCX export, authoritative row previews, and selected
+review/TM apply. Electron owns OS dialogs and presentation state only; Rust
+owns every package, classification, revision, and persistence rule.
+
+### 2. Signatures
+
+The trusted bridge adds one file-selection operation:
+
+```typescript
+selectInteropInput(kind: "review" | "table"): Promise<string | null>;
+```
+
+`review` accepts DOCX; `table` accepts DOCX/XLSX. Main validates the active
+sender and the literal kind before opening the dialog. Renderer orchestration
+uses generated `DesktopApi.invoke` contracts for `tm.library.list` and the five
+`interop.review.*`/`interop.table.*` methods; it defines no local payload type.
+
+### 3. Contracts
+
+- Interop is an Insights work surface with explicit `Review DOCX` and
+  `Table to TM` tabs. Switching mode clears paths, previews, selected rows,
+  feedback, and the mode-specific default apply reason.
+- Main owns open/save dialogs. Cancel returns `null` and triggers no RPC.
+  Review export reuses `selectExportPath` and sends the current authoritative
+  document revision.
+- Table mode lists only writable TM libraries whose source/target locales match
+  the project. It sends the selected library's returned revision and locales;
+  React never guesses writability or increments a revision.
+- Preview rows are rendered exactly from generated Engine results. Review
+  checkboxes enable only `changed`; table checkboxes enable only `valid`.
+  Initial selection includes those eligible rows, and apply sends explicit row
+  IDs plus bounded actor/reason fields.
+- Paging reuses `previewId` and the returned expected revision/locales/limit.
+  Source provenance displays raw `sourceRow`; it must not add another header
+  offset. Structural paths and diagnostics are display-only strings.
+- Busy, typed error, notice, empty, preview, and terminal states are mutually
+  coherent. A rendered preview replaces the empty state. Applied previews show
+  `Applied`, clear selection, disable apply, and never render `Apply 0`.
+- Review apply refreshes authoritative project/document projections. Table
+  apply reloads the library page. A failed apply retains the preview and shows
+  the Engine error without optimistic mutation.
+- Rows, paths, diagnostics, controls, and pagination must remain keyboard
+  accessible and horizontally contained at 1250x744, 1680x942, and 1920x1080.
+  Renderer code must not import filesystem/ZIP/XML/XLSX parsing APIs.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Unknown sender or interop kind | Reject in main before opening a dialog |
+| Input/output dialog canceled | Keep the panel usable; make no preview/export RPC |
+| No locale-matching writable library | Show the empty library option and disable table preview |
+| Preview returns `missing`/`added`/`invalid` or `duplicate`/`invalid` | Render disposition/diagnostics; checkbox stays disabled |
+| Preview/apply revision conflict or typed parse error | Keep current preview/path and show the Engine error; no local success state |
+| Preview status is `applied` | Clear selection, disable apply, and label the terminal action `Applied` |
+| Page request is pending | Keep stable control/row dimensions and prevent duplicate actions |
+| Supported viewport | No horizontal document overflow, overlapping controls, or clipped button text |
+
+### 5. Good / Base / Bad Cases
+
+- Good: export a review, select the returned DOCX, preview one changed row,
+  apply it, refresh, and see the durable review proposal after Engine restart.
+- Good: select XLSX, preview raw input row 2 with metadata/provenance, apply two
+  valid rows, and reload the incremented writable library revision.
+- Base: canceled selection or an all-unchanged review leaves the panel usable
+  with no enabled apply command.
+- Bad: parse a DOCX in React, add one to `sourceRow`, enable every disposition,
+  render an empty card beneath a real preview, or show `Apply 0` after success.
+
+### 6. Tests Required
+
+- Typecheck and generated-contract drift checks cover all five invoke payloads
+  plus the exact `selectInteropInput` Desktop API shape.
+- Real-Engine Electron E2E exports and rewrites a review DOCX, verifies
+  unchanged/changed rows, applies one proposal, previews/applies XLSX rows, and
+  asserts raw source-row provenance and terminal UI.
+- E2E must exercise dialog cancel/test-path handling, typed failures,
+  inaccessible dispositions, pagination where present, and absence of a
+  duplicate empty state.
+- Capture 1250x744, 1680x942, and 1920x1080 Insights screenshots; fail on
+  horizontal overflow, renderer console errors, page errors, overlap, or text
+  escaping its controls.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+const rows = await parseXlsx(inputPath);
+setRows(rows.map((row, index) => ({ ...row, sourceRow: index + 2 })));
+```
+
+#### Correct
+
+```tsx
+const preview = await window.translunar.invoke("interop.table.preview", params);
+setTablePreview(preview);
+setSelectedRows(
+  new Set(
+    preview.rows
+      .filter((row) => row.disposition === "valid")
+      .map((row) => row.rowId),
+  ),
+);
 ```

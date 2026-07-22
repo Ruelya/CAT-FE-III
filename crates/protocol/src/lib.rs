@@ -91,6 +91,11 @@ pub mod methods {
     pub const REVIEW_REJECT: &str = "review.reject";
     pub const REVIEW_QUEUE: &str = "review.queue";
     pub const REVIEW_STATS: &str = "review.stats";
+    pub const INTEROP_REVIEW_EXPORT: &str = "interop.review.export";
+    pub const INTEROP_REVIEW_PREVIEW: &str = "interop.review.preview";
+    pub const INTEROP_REVIEW_APPLY: &str = "interop.review.apply";
+    pub const INTEROP_TABLE_PREVIEW: &str = "interop.table.preview";
+    pub const INTEROP_TABLE_APPLY: &str = "interop.table.apply";
     pub const EDITOR_PREFERENCES_GET: &str = "editor.preferences.get";
     pub const EDITOR_PREFERENCES_UPDATE: &str = "editor.preferences.update";
     pub const PDF_PAGE_LIST: &str = "pdf.page.list";
@@ -732,6 +737,201 @@ pub struct ReviewListResult {
 pub struct ReviewDecisionParams {
     pub review_id: String,
     pub expected_segment_revision: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum InteropPreviewStatus {
+    Open,
+    Applied,
+    Discarded,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ReviewInteropDisposition {
+    Changed,
+    Unchanged,
+    Missing,
+    Added,
+    Invalid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum TableInteropDisposition {
+    Valid,
+    Duplicate,
+    Invalid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum BilingualTableFormat {
+    Docx,
+    Xlsx,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewExportParams {
+    pub project_id: String,
+    pub document_id: String,
+    pub expected_document_revision: u64,
+    pub output_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewExportResult {
+    pub output_path: String,
+    pub row_count: u32,
+    pub manifest_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewPreviewParams {
+    pub project_id: String,
+    pub document_id: String,
+    #[serde(default)]
+    pub input_path: Option<String>,
+    #[serde(default)]
+    pub preview_id: Option<String>,
+    pub expected_document_revision: u64,
+    #[serde(default)]
+    pub offset: u32,
+    #[serde(default = "default_page_size")]
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewPreviewRow {
+    pub row_id: String,
+    pub ordinal: u32,
+    pub source_row: u32,
+    #[serde(default)]
+    pub segment_id: Option<String>,
+    #[serde(default)]
+    pub expected_segment_revision: Option<u64>,
+    pub source_hash: String,
+    pub source_text: String,
+    pub target_text: String,
+    pub current_target: String,
+    pub comments: String,
+    pub current_comments: String,
+    pub status_context: String,
+    pub current_status: String,
+    pub disposition: ReviewInteropDisposition,
+    pub diagnostics: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewPreviewResult {
+    pub preview_id: String,
+    pub project_id: String,
+    pub document_id: String,
+    pub expected_document_revision: u64,
+    pub input_sha256: String,
+    pub input_format: String,
+    #[serde(default)]
+    pub manifest_hash: Option<String>,
+    pub status: InteropPreviewStatus,
+    pub rows: Vec<ReviewPreviewRow>,
+    pub total: u32,
+    pub offset: u32,
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewApplyParams {
+    pub preview_id: String,
+    pub expected_document_revision: u64,
+    pub selected_row_ids: Vec<String>,
+    pub actor: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TablePreviewParams {
+    pub project_id: String,
+    pub library_id: String,
+    #[serde(default)]
+    pub input_path: Option<String>,
+    #[serde(default)]
+    pub preview_id: Option<String>,
+    #[serde(default)]
+    pub format: Option<BilingualTableFormat>,
+    pub source_locale: String,
+    pub target_locale: String,
+    pub expected_library_revision: u64,
+    #[serde(default)]
+    pub offset: u32,
+    #[serde(default = "default_page_size")]
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TablePreviewRow {
+    pub row_id: String,
+    pub ordinal: u32,
+    pub source_row: u32,
+    pub structural_path: String,
+    pub source_hash: String,
+    pub source_path_hash: String,
+    pub source_text: String,
+    pub target_text: String,
+    pub metadata: BTreeMap<String, String>,
+    pub disposition: TableInteropDisposition,
+    pub diagnostics: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TablePreviewResult {
+    pub preview_id: String,
+    pub project_id: String,
+    pub library_id: String,
+    pub expected_library_revision: u64,
+    pub input_sha256: String,
+    pub input_format: String,
+    pub source_locale: String,
+    pub target_locale: String,
+    pub status: InteropPreviewStatus,
+    pub rows: Vec<TablePreviewRow>,
+    pub total: u32,
+    pub offset: u32,
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TableApplyParams {
+    pub preview_id: String,
+    pub expected_library_revision: u64,
+    pub selected_row_ids: Vec<String>,
+    pub actor: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InteropApplyResult {
+    pub preview_id: String,
+    pub status: InteropPreviewStatus,
+    pub applied_count: u32,
+    pub skipped_count: u32,
+    pub current_revision: u64,
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    pub review_ids: Vec<String>,
+    pub comment_ids: Vec<String>,
+    pub tm_unit_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -1581,6 +1781,16 @@ pub struct RpcMethodCatalog {
     pub review_queue: MethodContract<ReviewQueueParams, ReviewQueuePage>,
     #[serde(rename = "review.stats")]
     pub review_stats: MethodContract<ReviewStatisticsParams, ReviewStatisticsResult>,
+    #[serde(rename = "interop.review.export")]
+    pub interop_review_export: MethodContract<ReviewExportParams, ReviewExportResult>,
+    #[serde(rename = "interop.review.preview")]
+    pub interop_review_preview: MethodContract<ReviewPreviewParams, ReviewPreviewResult>,
+    #[serde(rename = "interop.review.apply")]
+    pub interop_review_apply: MethodContract<ReviewApplyParams, InteropApplyResult>,
+    #[serde(rename = "interop.table.preview")]
+    pub interop_table_preview: MethodContract<TablePreviewParams, TablePreviewResult>,
+    #[serde(rename = "interop.table.apply")]
+    pub interop_table_apply: MethodContract<TableApplyParams, InteropApplyResult>,
     #[serde(rename = "editor.preferences.get")]
     pub editor_preferences_get: MethodContract<EmptyParams, EditorPreferences>,
     #[serde(rename = "editor.preferences.update")]

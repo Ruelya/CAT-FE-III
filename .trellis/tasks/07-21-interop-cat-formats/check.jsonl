@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/engine-boundary.md","reason":"Verify native round-trip ownership, limits, degradation, and no-clobber behavior."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Verify Rust, process-smoke, contract, and synchronized desktop gates."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Verify trusted file-dialog extensions and real-Engine Electron behavior."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Verify Node 22 format, lint, typecheck, unit, build, and E2E requirements."}

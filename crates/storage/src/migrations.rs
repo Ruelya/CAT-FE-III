@@ -2,7 +2,7 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use crate::{Result, StorageError};
 
-pub(crate) const LATEST_SCHEMA_VERSION: u32 = 10;
+pub(crate) const LATEST_SCHEMA_VERSION: u32 = 11;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -1097,7 +1097,70 @@ INSERT INTO analysis_profiles (
 );
 "#;
 
-const MIGRATIONS: [(u32, &str); 10] = [
+const MIGRATION_11: &str = r#"
+CREATE TABLE interop_previews (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('review', 'table')),
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
+    library_id TEXT REFERENCES tm_libraries(id) ON DELETE CASCADE,
+    expected_revision INTEGER NOT NULL CHECK (expected_revision >= 0),
+    input_sha256 TEXT NOT NULL,
+    input_format TEXT NOT NULL,
+    staged_input_path TEXT NOT NULL,
+    source_locale TEXT,
+    target_locale TEXT,
+    manifest_hash TEXT,
+    status TEXT NOT NULL DEFAULT 'open'
+        CHECK (status IN ('open', 'applied', 'discarded')),
+    applied_result_json TEXT,
+    created_at_ms INTEGER NOT NULL,
+    applied_at_ms INTEGER,
+    CHECK (
+        (kind = 'review' AND document_id IS NOT NULL AND library_id IS NULL)
+        OR (kind = 'table' AND document_id IS NULL AND library_id IS NOT NULL)
+    )
+) STRICT;
+
+CREATE INDEX interop_previews_project_idx
+    ON interop_previews(project_id, created_at_ms DESC, id);
+CREATE INDEX interop_previews_document_idx
+    ON interop_previews(document_id, created_at_ms DESC, id);
+CREATE INDEX interop_previews_library_idx
+    ON interop_previews(library_id, created_at_ms DESC, id);
+
+CREATE TABLE interop_preview_rows (
+    preview_id TEXT NOT NULL REFERENCES interop_previews(id) ON DELETE CASCADE,
+    row_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    source_row INTEGER NOT NULL CHECK (source_row >= 0),
+    segment_id TEXT REFERENCES segments(id) ON DELETE SET NULL,
+    expected_segment_revision INTEGER CHECK (expected_segment_revision >= 0),
+    source_hash TEXT NOT NULL,
+    source_text TEXT NOT NULL,
+    target_text TEXT NOT NULL,
+    current_target TEXT NOT NULL DEFAULT '',
+    comments TEXT NOT NULL DEFAULT '',
+    current_comments TEXT NOT NULL DEFAULT '',
+    status_context TEXT NOT NULL DEFAULT '',
+    current_status TEXT NOT NULL DEFAULT '',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    source_path_hash TEXT NOT NULL DEFAULT '',
+    disposition TEXT NOT NULL CHECK (disposition IN (
+        'changed', 'unchanged', 'missing', 'added', 'invalid',
+        'valid', 'duplicate'
+    )),
+    diagnostics_json TEXT NOT NULL DEFAULT '[]',
+    PRIMARY KEY(preview_id, row_id)
+) STRICT;
+
+CREATE INDEX interop_preview_rows_order_idx
+    ON interop_preview_rows(preview_id, ordinal, row_id);
+CREATE INDEX interop_preview_rows_segment_idx
+    ON interop_preview_rows(segment_id, preview_id);
+"#;
+
+const MIGRATIONS: [(u32, &str); 11] = [
     (1_u32, MIGRATION_1),
     (2_u32, MIGRATION_2),
     (3_u32, MIGRATION_3),
@@ -1108,6 +1171,7 @@ const MIGRATIONS: [(u32, &str); 10] = [
     (8_u32, MIGRATION_8),
     (9_u32, MIGRATION_9),
     (10_u32, MIGRATION_10),
+    (11_u32, MIGRATION_11),
 ];
 
 pub(crate) fn configure_connection(connection: &Connection) -> Result<()> {
@@ -1163,6 +1227,10 @@ mod tests {
 
     fn create_v9(connection: &mut Connection) {
         migrate_from_to(connection, 0, 9).expect("create schema v9");
+    }
+
+    fn create_v10(connection: &mut Connection) {
+        migrate_from_to(connection, 0, 10).expect("create schema v10");
     }
 
     #[test]
@@ -1275,7 +1343,7 @@ mod tests {
         let mut connection = Connection::open(&database).expect("open v9 database");
         create_v9(&mut connection);
 
-        migrate(&mut connection).expect("upgrade to schema v10");
+        migrate_from_to(&mut connection, 9, 10).expect("upgrade to schema v10");
         connection
             .execute(
                 "INSERT INTO projects (
@@ -1346,5 +1414,131 @@ mod tests {
             )
             .expect("check rolled-back table");
         assert_eq!(template_table_count, 0);
+    }
+
+    #[test]
+    fn migration_11_creates_interop_preview_schema_on_fresh_database() {
+        let mut connection = Connection::open_in_memory().expect("open migration database");
+        migrate(&mut connection).expect("create latest schema");
+
+        let version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read fresh schema version");
+        assert_eq!(version, 11);
+        let tables = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name IN ('interop_previews', 'interop_preview_rows')",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("count fresh interop tables");
+        assert_eq!(tables, 2);
+    }
+
+    #[test]
+    fn migration_11_upgrades_preview_bindings_and_survives_reopen() {
+        let temp = tempfile::tempdir().expect("temporary migration directory");
+        let database = temp.path().join("translunar.sqlite3");
+        let mut connection = Connection::open(&database).expect("open v10 database");
+        create_v10(&mut connection);
+        connection
+            .execute(
+                "INSERT INTO projects (
+                    id, name, source_locale, target_locale, domain, created_at_ms, updated_at_ms
+                 ) VALUES ('p11', 'Interop', 'en', 'zh', 'general', 1, 1)",
+                [],
+            )
+            .expect("insert migration project");
+        connection
+            .execute(
+                "INSERT INTO documents (
+                    id, project_id, name, format, source_sha256, original_source_path,
+                    managed_source_path, segment_count, imported_at_ms
+                 ) VALUES ('d11', 'p11', 'review.docx', 'docx', 'digest',
+                           'review.docx', 'sources/d11.docx', 1, 2)",
+                [],
+            )
+            .expect("insert migration document");
+        connection
+            .execute(
+                "INSERT INTO segments (
+                    id, document_id, ordinal, structural_path, source_text, target_text,
+                    state, revision, source_hash, context_hash, updated_at_ms
+                 ) VALUES ('s11', 'd11', 0, 'p:0', 'Source', 'Target', 'draft',
+                           0, 'source-hash', 'context-hash', 2)",
+                [],
+            )
+            .expect("insert migration segment");
+
+        migrate(&mut connection).expect("upgrade to schema v11");
+        connection
+            .execute(
+                "INSERT INTO interop_previews (
+                    id, kind, project_id, document_id, expected_revision, input_sha256,
+                    input_format, staged_input_path, manifest_hash, created_at_ms
+                 ) VALUES ('preview-11', 'review', 'p11', 'd11', 0,
+                           'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                           'review-docx', 'tmp/review.docx',
+                           'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 3)",
+                [],
+            )
+            .expect("insert migrated preview");
+        connection
+            .execute(
+                "INSERT INTO interop_preview_rows (
+                    preview_id, row_id, ordinal, source_row, segment_id,
+                    expected_segment_revision, source_hash, source_text, target_text,
+                    disposition
+                 ) VALUES ('preview-11', 'row-11', 0, 1, 's11', 0,
+                           'source-hash', 'Source', 'Edited target', 'changed')",
+                [],
+            )
+            .expect("insert migrated preview row");
+        drop(connection);
+
+        let connection = Connection::open(database).expect("reopen upgraded database");
+        let version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read upgraded version");
+        assert_eq!(version, 11);
+        let binding = connection
+            .query_row(
+                "SELECT p.kind, r.segment_id
+                 FROM interop_previews p
+                 JOIN interop_preview_rows r ON r.preview_id = p.id
+                 WHERE p.id = 'preview-11'",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .expect("read reopened preview binding");
+        assert_eq!(binding, ("review".to_string(), "s11".to_string()));
+    }
+
+    #[test]
+    fn migration_11_rolls_back_every_prior_statement_on_failure() {
+        let mut connection = Connection::open_in_memory().expect("open migration database");
+        create_v10(&mut connection);
+        connection
+            .execute(
+                "CREATE TABLE interop_preview_rows (id TEXT PRIMARY KEY) STRICT",
+                [],
+            )
+            .expect("create conflicting late migration table");
+
+        assert!(migrate(&mut connection).is_err());
+        let version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read rolled-back version");
+        assert_eq!(version, 10);
+        let preview_table_count = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name = 'interop_previews'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("check rolled-back preview table");
+        assert_eq!(preview_table_count, 0);
     }
 }

@@ -3,7 +3,7 @@ use std::fs;
 use std::fs::File;
 use std::io::Read;
 use std::num::TryFromIntError;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use chrono::Utc;
 use rusqlite::types::Type;
@@ -57,6 +57,7 @@ pub use qa::{NewQaProfile, QaIssueFilter, QaProfileUpdate};
 const NUMBER_RULE_ID: &str = "number-mismatch";
 const NUMBER_RULE_MESSAGE: &str = "Source and target numbers do not match.";
 const LEGACY_DESKTOP_ACTOR: &str = "desktop";
+pub const INTEROP_STRUCTURAL_PATH_METADATA: &str = "__translunarStructuralPath";
 const EDITOR_COMMAND_IDS: &[&str] = &[
     "editor.save",
     "editor.confirm",
@@ -241,6 +242,140 @@ pub struct ReviewProposal<'a> {
     pub author: &'a str,
     pub reason: &'a str,
     pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum InteropPreviewKind {
+    Review,
+    Table,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum InteropPreviewStatus {
+    Open,
+    Applied,
+    Discarded,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewInteropPreviewRow {
+    pub row_id: String,
+    pub ordinal: u32,
+    pub source_row: u32,
+    pub segment_id: Option<String>,
+    pub expected_segment_revision: Option<u64>,
+    pub source_hash: String,
+    pub source_text: String,
+    pub target_text: String,
+    pub current_target: String,
+    pub comments: String,
+    pub current_comments: String,
+    pub status_context: String,
+    pub current_status: String,
+    pub metadata_json: String,
+    pub source_path_hash: String,
+    pub disposition: String,
+    pub diagnostics_json: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewInteropPreview {
+    pub id: String,
+    pub kind: InteropPreviewKind,
+    pub project_id: String,
+    pub document_id: Option<String>,
+    pub library_id: Option<String>,
+    pub expected_revision: u64,
+    pub input_sha256: String,
+    pub input_format: String,
+    pub staged_input_path: String,
+    pub source_locale: Option<String>,
+    pub target_locale: Option<String>,
+    pub manifest_hash: Option<String>,
+    pub rows: Vec<NewInteropPreviewRow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InteropPreviewRecord {
+    pub id: String,
+    pub kind: InteropPreviewKind,
+    pub project_id: String,
+    pub document_id: Option<String>,
+    pub library_id: Option<String>,
+    pub expected_revision: u64,
+    pub input_sha256: String,
+    pub input_format: String,
+    pub staged_input_path: String,
+    pub source_locale: Option<String>,
+    pub target_locale: Option<String>,
+    pub manifest_hash: Option<String>,
+    pub status: InteropPreviewStatus,
+    pub applied_result_json: Option<String>,
+    pub created_at_ms: i64,
+    pub applied_at_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InteropPreviewRowRecord {
+    pub preview_id: String,
+    pub row_id: String,
+    pub ordinal: u32,
+    pub source_row: u32,
+    pub segment_id: Option<String>,
+    pub expected_segment_revision: Option<u64>,
+    pub source_hash: String,
+    pub source_text: String,
+    pub target_text: String,
+    pub current_target: String,
+    pub comments: String,
+    pub current_comments: String,
+    pub status_context: String,
+    pub current_status: String,
+    pub metadata_json: String,
+    pub source_path_hash: String,
+    pub disposition: String,
+    pub diagnostics_json: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReviewInteropApply {
+    pub preview_id: String,
+    pub expected_document_revision: u64,
+    pub selected_row_ids: Vec<String>,
+    pub actor: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TableInteropApply {
+    pub preview_id: String,
+    pub expected_library_revision: u64,
+    pub selected_row_ids: Vec<String>,
+    pub actor: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InteropApplyResult {
+    pub preview_id: String,
+    pub status: String,
+    pub applied_count: u32,
+    pub skipped_count: u32,
+    pub current_revision: u64,
+    pub operation_id: Option<String>,
+    pub review_ids: Vec<String>,
+    pub comment_ids: Vec<String>,
+    pub tm_unit_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ValidatedReviewInteropRow {
+    row: InteropPreviewRowRecord,
+    segment: Segment,
+    current_status: String,
+    comment_delta: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1042,6 +1177,633 @@ impl Store {
         create_data_backup(&self.connection, &self.paths, destination)
     }
 
+    pub fn create_interop_preview(
+        &mut self,
+        input: NewInteropPreview,
+    ) -> Result<InteropPreviewRecord> {
+        validate_new_interop_preview(&input)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        ensure_exists(&transaction, "projects", "project", &input.project_id)?;
+        match input.kind {
+            InteropPreviewKind::Review => {
+                let document_id = input.document_id.as_deref().ok_or_else(|| {
+                    StorageError::InvalidState(
+                        "review preview requires a document identity".to_string(),
+                    )
+                })?;
+                let document = find_document(&transaction, document_id)?;
+                if document.project_id != input.project_id {
+                    return Err(StorageError::InvalidState(
+                        "review preview document does not belong to the project".to_string(),
+                    ));
+                }
+                ensure_entity_revision(
+                    "document",
+                    document_id,
+                    document.revision,
+                    input.expected_revision,
+                )?;
+            }
+            InteropPreviewKind::Table => {
+                let library_id = input.library_id.as_deref().ok_or_else(|| {
+                    StorageError::InvalidState(
+                        "table preview requires a TM library identity".to_string(),
+                    )
+                })?;
+                let library = find_tm_library(&transaction, library_id)?;
+                if !library.writable {
+                    return Err(StorageError::InvalidState(
+                        "TM library is read-only".to_string(),
+                    ));
+                }
+                ensure_entity_revision(
+                    "tm_library",
+                    library_id,
+                    library.revision,
+                    input.expected_revision,
+                )?;
+                if input.source_locale.as_deref() != Some(library.source_locale.as_str())
+                    || input.target_locale.as_deref() != Some(library.target_locale.as_str())
+                {
+                    return Err(StorageError::InvalidState(
+                        "table preview locales do not match the TM library".to_string(),
+                    ));
+                }
+            }
+        }
+
+        let created_at_ms = now_ms();
+        transaction.execute(
+            "INSERT INTO interop_previews (
+                id, kind, project_id, document_id, library_id, expected_revision,
+                input_sha256, input_format, staged_input_path, source_locale,
+                target_locale, manifest_hash, status, applied_result_json,
+                created_at_ms, applied_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+                       'open', NULL, ?13, NULL)",
+            params![
+                &input.id,
+                interop_preview_kind_text(input.kind),
+                &input.project_id,
+                input.document_id.as_deref(),
+                input.library_id.as_deref(),
+                to_i64(input.expected_revision)?,
+                &input.input_sha256,
+                &input.input_format,
+                &input.staged_input_path,
+                input.source_locale.as_deref(),
+                input.target_locale.as_deref(),
+                input.manifest_hash.as_deref(),
+                created_at_ms,
+            ],
+        )?;
+        for row in &input.rows {
+            transaction.execute(
+                "INSERT INTO interop_preview_rows (
+                    preview_id, row_id, ordinal, source_row, segment_id,
+                    expected_segment_revision, source_hash, source_text, target_text,
+                    current_target, comments, current_comments, status_context,
+                    current_status, metadata_json, source_path_hash, disposition,
+                    diagnostics_json
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+                           ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+                params![
+                    &input.id,
+                    &row.row_id,
+                    i64::from(row.ordinal),
+                    i64::from(row.source_row),
+                    row.segment_id.as_deref(),
+                    row.expected_segment_revision.map(to_i64).transpose()?,
+                    &row.source_hash,
+                    &row.source_text,
+                    &row.target_text,
+                    &row.current_target,
+                    &row.comments,
+                    &row.current_comments,
+                    &row.status_context,
+                    &row.current_status,
+                    &row.metadata_json,
+                    &row.source_path_hash,
+                    &row.disposition,
+                    &row.diagnostics_json,
+                ],
+            )?;
+        }
+        let preview = find_interop_preview(&transaction, &input.id)?;
+        transaction.commit()?;
+        Ok(preview)
+    }
+
+    pub fn get_interop_preview(&self, preview_id: &str) -> Result<InteropPreviewRecord> {
+        find_interop_preview(&self.connection, preview_id)
+    }
+
+    pub fn list_interop_previews(
+        &self,
+        project_id: &str,
+        kind: Option<InteropPreviewKind>,
+        offset: u32,
+        limit: u32,
+    ) -> Result<(Vec<InteropPreviewRecord>, u32)> {
+        ensure_exists(&self.connection, "projects", "project", project_id)?;
+        let kind = kind.map(interop_preview_kind_text);
+        let total = self.connection.query_row(
+            "SELECT COUNT(*) FROM interop_previews
+             WHERE project_id = ?1 AND (?2 IS NULL OR kind = ?2)",
+            params![project_id, kind],
+            |row| row.get::<_, i64>(0),
+        )?;
+        let mut statement = self.connection.prepare(
+            "SELECT id, kind, project_id, document_id, library_id, expected_revision,
+                    input_sha256, input_format, staged_input_path, source_locale,
+                    target_locale, manifest_hash, status, applied_result_json,
+                    created_at_ms, applied_at_ms
+             FROM interop_previews
+             WHERE project_id = ?1 AND (?2 IS NULL OR kind = ?2)
+             ORDER BY created_at_ms DESC, id
+             LIMIT ?3 OFFSET ?4",
+        )?;
+        let items = statement
+            .query_map(
+                params![project_id, kind, i64::from(limit), i64::from(offset)],
+                row_to_interop_preview,
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok((items, to_u32(total)?))
+    }
+
+    pub fn list_interop_preview_rows(
+        &self,
+        preview_id: &str,
+        offset: u32,
+        limit: u32,
+    ) -> Result<(Vec<InteropPreviewRowRecord>, u32)> {
+        find_interop_preview(&self.connection, preview_id)?;
+        let total = self.connection.query_row(
+            "SELECT COUNT(*) FROM interop_preview_rows WHERE preview_id = ?1",
+            [preview_id],
+            |row| row.get::<_, i64>(0),
+        )?;
+        let mut statement = self.connection.prepare(
+            "SELECT preview_id, row_id, ordinal, source_row, segment_id,
+                    expected_segment_revision, source_hash, source_text, target_text,
+                    current_target, comments, current_comments, status_context,
+                    current_status, metadata_json, source_path_hash, disposition,
+                    diagnostics_json
+             FROM interop_preview_rows WHERE preview_id = ?1
+             ORDER BY ordinal, row_id LIMIT ?2 OFFSET ?3",
+        )?;
+        let items = statement
+            .query_map(
+                params![preview_id, i64::from(limit), i64::from(offset)],
+                row_to_interop_preview_row,
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok((items, to_u32(total)?))
+    }
+
+    pub fn apply_review_interop(
+        &mut self,
+        input: ReviewInteropApply,
+    ) -> Result<InteropApplyResult> {
+        require_nonempty("interop preview id", &input.preview_id)?;
+        validate_interop_actor_reason(&input.actor, &input.reason)?;
+        let selected = unique_interop_row_ids(&input.selected_row_ids)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let preview = find_interop_preview(&transaction, &input.preview_id)?;
+        if preview.status == InteropPreviewStatus::Applied {
+            return decode_applied_interop_result(&preview);
+        }
+        if preview.status != InteropPreviewStatus::Open {
+            return Err(StorageError::InvalidState(
+                "interop preview is no longer open".to_string(),
+            ));
+        }
+        if preview.kind != InteropPreviewKind::Review {
+            return Err(StorageError::InvalidState(
+                "table preview cannot be applied as a review".to_string(),
+            ));
+        }
+        let document_id = preview.document_id.as_deref().ok_or_else(|| {
+            StorageError::InvalidData("review preview has no document identity".to_string())
+        })?;
+        if input.expected_document_revision != preview.expected_revision {
+            return Err(StorageError::EntityConflict {
+                entity: "document",
+                id: document_id.to_string(),
+                expected_revision: input.expected_document_revision,
+                actual_revision: preview.expected_revision,
+            });
+        }
+        let document = find_document(&transaction, document_id)?;
+        if document.project_id != preview.project_id {
+            return Err(StorageError::InvalidData(
+                "review preview project/document binding is invalid".to_string(),
+            ));
+        }
+        ensure_entity_revision(
+            "document",
+            document_id,
+            document.revision,
+            preview.expected_revision,
+        )?;
+        let all_rows = query_interop_preview_rows(&transaction, &preview.id)?;
+        let row_map = all_rows
+            .iter()
+            .map(|row| (row.row_id.as_str(), row))
+            .collect::<BTreeMap<_, _>>();
+        let mut plans = Vec::with_capacity(selected.len());
+        for row_id in &selected {
+            let row = row_map
+                .get(row_id.as_str())
+                .copied()
+                .ok_or_else(|| not_found("interop_preview_row", row_id))?;
+            if row.disposition != "changed" {
+                return Err(StorageError::InvalidState(format!(
+                    "review row {row_id} is not a valid changed row"
+                )));
+            }
+            let segment_id = row.segment_id.as_deref().ok_or_else(|| {
+                StorageError::InvalidData(format!("review row {row_id} has no segment identity"))
+            })?;
+            let expected_segment_revision = row.expected_segment_revision.ok_or_else(|| {
+                StorageError::InvalidData(format!(
+                    "review row {row_id} has no captured segment revision"
+                ))
+            })?;
+            let segment = find_segment(&transaction, segment_id)?;
+            if segment.document_id != document_id {
+                return Err(StorageError::InvalidState(format!(
+                    "review row {row_id} does not belong to the preview document"
+                )));
+            }
+            ensure_revision(&segment, expected_segment_revision)?;
+            if segment.source_hash != row.source_hash || segment.target_text != row.current_target {
+                return Err(StorageError::InvalidState(format!(
+                    "review row {row_id} no longer matches its captured content"
+                )));
+            }
+            let comments = list_editor_comments(&transaction, segment_id, false)?;
+            let current_comments = interop_comment_context(&comments);
+            if current_comments != row.current_comments {
+                return Err(StorageError::InvalidState(format!(
+                    "review row {row_id} comment context is stale"
+                )));
+            }
+            let current_status = transaction.query_row(
+                "SELECT workflow_state FROM segment_editor_meta WHERE segment_id = ?1",
+                [segment_id],
+                |value| value.get::<_, String>(0),
+            )?;
+            if current_status != row.current_status {
+                return Err(StorageError::InvalidState(format!(
+                    "review row {row_id} workflow context is stale"
+                )));
+            }
+            let comment_delta = interop_comment_delta(&current_comments, &row.comments)?;
+            validate_interop_workflow_transition(
+                &transaction,
+                &preview.project_id,
+                &segment,
+                &current_status,
+                &row.status_context,
+                row.target_text != segment.target_text,
+                &input.reason,
+            )?;
+            plans.push(ValidatedReviewInteropRow {
+                row: row.clone(),
+                segment,
+                current_status,
+                comment_delta,
+            });
+        }
+
+        let now = now_ms();
+        let mut review_ids = Vec::new();
+        let mut comment_ids = Vec::new();
+        for plan in plans {
+            let mut current = plan.segment;
+            if plan.row.status_context != plan.current_status {
+                let next_revision = next_revision(current.revision)?;
+                let changed = transaction.execute(
+                    "UPDATE segments SET revision = ?1, updated_at_ms = ?2
+                     WHERE id = ?3 AND revision = ?4",
+                    params![
+                        to_i64(next_revision)?,
+                        now,
+                        &current.id,
+                        to_i64(current.revision)?,
+                    ],
+                )?;
+                if changed != 1 {
+                    let actual = find_segment(&transaction, &current.id)?.revision;
+                    return Err(StorageError::Conflict {
+                        segment_id: current.id,
+                        expected_revision: current.revision,
+                        actual_revision: actual,
+                    });
+                }
+                transaction.execute(
+                    "UPDATE segment_editor_meta SET workflow_state = ?1, updated_at_ms = ?2
+                     WHERE segment_id = ?3",
+                    params![&plan.row.status_context, now, &current.id],
+                )?;
+                current = find_segment(&transaction, &current.id)?;
+            }
+            if plan.row.target_text != current.target_text {
+                let review_id = new_id();
+                let before_target_tags =
+                    list_inline_tags(&transaction, &current.id, TagSide::Target)?;
+                transaction.execute(
+                    "INSERT INTO review_revisions (
+                        id, segment_id, base_revision, before_target, proposed_target,
+                        author, reason, status, created_at_ms, updated_at_ms,
+                        before_source, proposed_source, before_target_tags_json,
+                        proposed_target_tags_json
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', ?8, ?8,
+                               ?9, NULL, ?10, NULL)",
+                    params![
+                        &review_id,
+                        &current.id,
+                        to_i64(current.revision)?,
+                        &current.target_text,
+                        &plan.row.target_text,
+                        &input.actor,
+                        &input.reason,
+                        now,
+                        &current.source_text,
+                        serde_json::to_string(&before_target_tags)?,
+                    ],
+                )?;
+                review_ids.push(review_id);
+            }
+            if let Some(comment) = plan.comment_delta {
+                let comment_id = new_id();
+                transaction.execute(
+                    "INSERT INTO segment_comments (
+                        id, segment_id, author, text, created_at_ms, updated_at_ms,
+                        revision, resolved, immutable
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?5, 0, 0, 0)",
+                    params![&comment_id, &current.id, &input.actor, comment, now],
+                )?;
+                comment_ids.push(comment_id);
+            }
+        }
+
+        let result_revision = next_revision(document.revision)?;
+        let changed = transaction.execute(
+            "UPDATE documents SET revision = ?1, updated_at_ms = ?2
+             WHERE id = ?3 AND revision = ?4",
+            params![
+                to_i64(result_revision)?,
+                now,
+                document_id,
+                to_i64(document.revision)?,
+            ],
+        )?;
+        if changed != 1 {
+            let actual = find_document(&transaction, document_id)?.revision;
+            return Err(StorageError::EntityConflict {
+                entity: "document",
+                id: document_id.to_string(),
+                expected_revision: document.revision,
+                actual_revision: actual,
+            });
+        }
+        let operation = append_operation(
+            &transaction,
+            &preview.project_id,
+            "interop_preview",
+            &preview.id,
+            "interop.review.apply",
+            Some(document.revision),
+            Some(result_revision),
+            &input.actor,
+            Some(&preview.id),
+            None,
+            Some(serde_json::json!({
+                "previewId": preview.id.clone(),
+                "rowIds": selected.clone(),
+                "reviewIds": review_ids.clone(),
+                "commentIds": comment_ids.clone(),
+                "reason": input.reason,
+            })),
+        )?;
+        let applied_count = u32::try_from(selected.len())
+            .map_err(|_| StorageError::InvalidData("interop applied count overflow".to_string()))?;
+        let total = u32::try_from(all_rows.len())
+            .map_err(|_| StorageError::InvalidData("interop row count overflow".to_string()))?;
+        let result = InteropApplyResult {
+            preview_id: preview.id.clone(),
+            status: "applied".to_string(),
+            applied_count,
+            skipped_count: total.saturating_sub(applied_count),
+            current_revision: result_revision,
+            operation_id: Some(operation.id),
+            review_ids,
+            comment_ids,
+            tm_unit_ids: Vec::new(),
+        };
+        mark_interop_preview_applied(&transaction, &preview.id, &result, now)?;
+        transaction.commit()?;
+        Ok(result)
+    }
+
+    pub fn apply_table_interop(&mut self, input: TableInteropApply) -> Result<InteropApplyResult> {
+        require_nonempty("interop preview id", &input.preview_id)?;
+        validate_interop_actor_reason(&input.actor, &input.reason)?;
+        let selected = unique_interop_row_ids(&input.selected_row_ids)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let preview = find_interop_preview(&transaction, &input.preview_id)?;
+        if preview.status == InteropPreviewStatus::Applied {
+            return decode_applied_interop_result(&preview);
+        }
+        if preview.status != InteropPreviewStatus::Open {
+            return Err(StorageError::InvalidState(
+                "interop preview is no longer open".to_string(),
+            ));
+        }
+        if preview.kind != InteropPreviewKind::Table {
+            return Err(StorageError::InvalidState(
+                "review preview cannot be applied to a TM library".to_string(),
+            ));
+        }
+        let library_id = preview.library_id.as_deref().ok_or_else(|| {
+            StorageError::InvalidData("table preview has no TM library identity".to_string())
+        })?;
+        if input.expected_library_revision != preview.expected_revision {
+            return Err(StorageError::EntityConflict {
+                entity: "tm_library",
+                id: library_id.to_string(),
+                expected_revision: input.expected_library_revision,
+                actual_revision: preview.expected_revision,
+            });
+        }
+        ensure_exists(&transaction, "projects", "project", &preview.project_id)?;
+        let library = find_tm_library(&transaction, library_id)?;
+        ensure_entity_revision(
+            "tm_library",
+            library_id,
+            library.revision,
+            preview.expected_revision,
+        )?;
+        if !library.writable {
+            return Err(StorageError::InvalidState(
+                "TM library is read-only".to_string(),
+            ));
+        }
+        if preview.source_locale.as_deref() != Some(library.source_locale.as_str())
+            || preview.target_locale.as_deref() != Some(library.target_locale.as_str())
+        {
+            return Err(StorageError::InvalidState(
+                "table preview locales do not match the TM library".to_string(),
+            ));
+        }
+        let all_rows = query_interop_preview_rows(&transaction, &preview.id)?;
+        let row_map = all_rows
+            .iter()
+            .map(|row| (row.row_id.as_str(), row))
+            .collect::<BTreeMap<_, _>>();
+        let mut rows = Vec::with_capacity(selected.len());
+        for row_id in &selected {
+            let row = row_map
+                .get(row_id.as_str())
+                .copied()
+                .ok_or_else(|| not_found("interop_preview_row", row_id))?;
+            if row.disposition != "valid" {
+                return Err(StorageError::InvalidState(format!(
+                    "table row {row_id} is not valid for apply"
+                )));
+            }
+            require_nonempty("TM source text", &row.source_text)?;
+            require_nonempty("TM target text", &row.target_text)?;
+            let mut metadata: BTreeMap<String, String> = serde_json::from_str(&row.metadata_json)
+                .map_err(|error| {
+                StorageError::InvalidData(format!(
+                    "table row {row_id} metadata is invalid: {error}"
+                ))
+            })?;
+            metadata.remove(INTEROP_STRUCTURAL_PATH_METADATA);
+            if tm_unit_duplicate_exists(
+                &transaction,
+                library_id,
+                &row.source_text,
+                &row.target_text,
+            )? {
+                return Err(StorageError::InvalidState(format!(
+                    "table row {row_id} became a duplicate after preview"
+                )));
+            }
+            rows.push((row.clone(), metadata));
+        }
+
+        let now = now_ms();
+        let mut tm_unit_ids = Vec::with_capacity(rows.len());
+        for (row, mut metadata) in rows {
+            metadata.insert("previewId".to_string(), preview.id.clone());
+            metadata.insert("rowId".to_string(), row.row_id.clone());
+            metadata.insert("sourcePathHash".to_string(), row.source_path_hash.clone());
+            metadata.insert("sourceRow".to_string(), row.source_row.to_string());
+            metadata.insert("sourceFormat".to_string(), preview.input_format.clone());
+            let source_key = exact_key(&row.source_text);
+            let source_hash =
+                translunar_domain::sha256_hex(normalize_match_key(&row.source_text).as_bytes());
+            let target_hash =
+                translunar_domain::sha256_hex(normalize_match_key(&row.target_text).as_bytes());
+            let unit_id = new_id();
+            transaction.execute(
+                "INSERT INTO tm_units (
+                    id, library_id, source_locale, target_locale, source_text,
+                    target_text, source_hash, source_key, target_hash, domain,
+                    origin_project_id, origin_document_id, origin_segment_id,
+                    context_before_hash, context_after_hash, author, metadata_json,
+                    created_at_ms, updated_at_ms
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+                           NULL, NULL, NULL, NULL, ?12, ?13, ?14, ?14)",
+                params![
+                    &unit_id,
+                    library_id,
+                    &library.source_locale,
+                    &library.target_locale,
+                    &row.source_text,
+                    &row.target_text,
+                    source_hash,
+                    source_key,
+                    target_hash,
+                    library.domain.as_deref(),
+                    &preview.project_id,
+                    &input.actor,
+                    serde_json::to_string(&metadata)?,
+                    now,
+                ],
+            )?;
+            tm_unit_ids.push(unit_id);
+        }
+        let result_revision = next_revision(library.revision)?;
+        let changed = transaction.execute(
+            "UPDATE tm_libraries SET revision = ?1, updated_at_ms = ?2
+             WHERE id = ?3 AND revision = ?4",
+            params![
+                to_i64(result_revision)?,
+                now,
+                library_id,
+                to_i64(library.revision)?,
+            ],
+        )?;
+        if changed != 1 {
+            let actual = find_tm_library(&transaction, library_id)?.revision;
+            return Err(StorageError::EntityConflict {
+                entity: "tm_library",
+                id: library_id.to_string(),
+                expected_revision: library.revision,
+                actual_revision: actual,
+            });
+        }
+        let operation = append_operation(
+            &transaction,
+            &preview.project_id,
+            "interop_preview",
+            &preview.id,
+            "interop.table.apply",
+            Some(library.revision),
+            Some(result_revision),
+            &input.actor,
+            Some(&preview.id),
+            None,
+            Some(serde_json::json!({
+                "previewId": preview.id.clone(),
+                "libraryId": library_id,
+                "rowIds": selected.clone(),
+                "tmUnitIds": tm_unit_ids.clone(),
+                "reason": input.reason,
+            })),
+        )?;
+        let applied_count = u32::try_from(selected.len())
+            .map_err(|_| StorageError::InvalidData("interop applied count overflow".to_string()))?;
+        let total = u32::try_from(all_rows.len())
+            .map_err(|_| StorageError::InvalidData("interop row count overflow".to_string()))?;
+        let result = InteropApplyResult {
+            preview_id: preview.id.clone(),
+            status: "applied".to_string(),
+            applied_count,
+            skipped_count: total.saturating_sub(applied_count),
+            current_revision: result_revision,
+            operation_id: Some(operation.id),
+            review_ids: Vec::new(),
+            comment_ids: Vec::new(),
+            tm_unit_ids,
+        };
+        mark_interop_preview_applied(&transaction, &preview.id, &result, now)?;
+        transaction.commit()?;
+        Ok(result)
+    }
+
     pub fn create_tm_library(&mut self, input: NewTmLibrary) -> Result<TmLibrary> {
         require_nonempty("TM library name", &input.name)?;
         require_nonempty("TM source locale", &input.source_locale)?;
@@ -1322,6 +2084,19 @@ impl Store {
             inserted = inserted.checked_add(1).ok_or_else(|| {
                 StorageError::InvalidData("TM inserted count overflow".to_string())
             })?;
+        }
+        if inserted > 0 {
+            let next_library_revision = next_revision(library.revision)?;
+            transaction.execute(
+                "UPDATE tm_libraries SET revision = ?1, updated_at_ms = ?2
+                 WHERE id = ?3 AND revision = ?4",
+                params![
+                    to_i64(next_library_revision)?,
+                    now_ms(),
+                    library_id,
+                    to_i64(library.revision)?,
+                ],
+            )?;
         }
         transaction.commit()?;
         Ok((inserted, skipped))
@@ -5005,6 +5780,325 @@ impl Store {
     }
 }
 
+pub fn interop_comment_context(comments: &[EditorComment]) -> String {
+    comments
+        .iter()
+        .filter(|comment| !comment.resolved)
+        .map(|comment| comment.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn validate_new_interop_preview(input: &NewInteropPreview) -> Result<()> {
+    require_nonempty("interop preview id", &input.id)?;
+    require_nonempty("interop project id", &input.project_id)?;
+    require_nonempty("interop input digest", &input.input_sha256)?;
+    require_nonempty("interop input format", &input.input_format)?;
+    require_nonempty("interop staged input path", &input.staged_input_path)?;
+    if input.id.len() > 256
+        || input.input_format.len() > 64
+        || input.staged_input_path.len() > 4_096
+        || input.input_sha256.len() != 64
+        || !input
+            .input_sha256
+            .bytes()
+            .all(|value| value.is_ascii_hexdigit())
+    {
+        return Err(StorageError::InvalidState(
+            "interop preview identity, format, path, or digest is invalid".to_string(),
+        ));
+    }
+    let staged_path = Path::new(&input.staged_input_path);
+    if staged_path.is_absolute()
+        || staged_path
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return Err(StorageError::InvalidState(
+            "interop staged input path must be workspace-relative".to_string(),
+        ));
+    }
+    if input.rows.is_empty() || input.rows.len() > 100_000 {
+        return Err(StorageError::InvalidState(
+            "interop preview row count is outside the supported range".to_string(),
+        ));
+    }
+    match input.kind {
+        InteropPreviewKind::Review => {
+            if input.document_id.is_none() || input.library_id.is_some() {
+                return Err(StorageError::InvalidState(
+                    "review preview must bind one document and no TM library".to_string(),
+                ));
+            }
+        }
+        InteropPreviewKind::Table => {
+            if input.library_id.is_none() || input.document_id.is_some() {
+                return Err(StorageError::InvalidState(
+                    "table preview must bind one TM library and no document".to_string(),
+                ));
+            }
+        }
+    }
+    if input
+        .source_locale
+        .as_ref()
+        .is_some_and(|value| value.is_empty() || value.len() > 128)
+        || input
+            .target_locale
+            .as_ref()
+            .is_some_and(|value| value.is_empty() || value.len() > 128)
+        || input.manifest_hash.as_ref().is_some_and(|value| {
+            value.len() != 64 || !value.bytes().all(|item| item.is_ascii_hexdigit())
+        })
+    {
+        return Err(StorageError::InvalidState(
+            "interop locale or manifest digest is invalid".to_string(),
+        ));
+    }
+    let mut row_ids = BTreeSet::new();
+    for row in &input.rows {
+        if row.row_id.trim().is_empty()
+            || row.row_id.len() > 256
+            || !row_ids.insert(row.row_id.as_str())
+        {
+            return Err(StorageError::InvalidState(
+                "interop preview row identities must be bounded and unique".to_string(),
+            ));
+        }
+        if row.source_hash.len() > 128
+            || row.source_text.len() > 1024 * 1024
+            || row.target_text.len() > 1024 * 1024
+            || row.current_target.len() > 1024 * 1024
+            || row.comments.len() > 64 * 1024
+            || row.current_comments.len() > 64 * 1024
+            || row.status_context.len() > 128
+            || row.current_status.len() > 128
+            || row.metadata_json.len() > 1024 * 1024
+            || row.source_path_hash.len() > 128
+            || row.diagnostics_json.len() > 64 * 1024
+        {
+            return Err(StorageError::InvalidState(format!(
+                "interop row {} exceeds a configured field limit",
+                row.row_id
+            )));
+        }
+        serde_json::from_str::<BTreeMap<String, String>>(&row.metadata_json).map_err(|_| {
+            StorageError::InvalidState(format!(
+                "interop row {} metadata must be a string map",
+                row.row_id
+            ))
+        })?;
+        serde_json::from_str::<Vec<String>>(&row.diagnostics_json).map_err(|_| {
+            StorageError::InvalidState(format!(
+                "interop row {} diagnostics must be a string list",
+                row.row_id
+            ))
+        })?;
+        let disposition_valid = match input.kind {
+            InteropPreviewKind::Review => matches!(
+                row.disposition.as_str(),
+                "changed" | "unchanged" | "missing" | "added" | "invalid"
+            ),
+            InteropPreviewKind::Table => {
+                matches!(row.disposition.as_str(), "valid" | "duplicate" | "invalid")
+            }
+        };
+        if !disposition_valid {
+            return Err(StorageError::InvalidState(format!(
+                "interop row {} has an invalid disposition",
+                row.row_id
+            )));
+        }
+        if input.kind == InteropPreviewKind::Table
+            && row.disposition != "invalid"
+            && (row.source_text.trim().is_empty()
+                || row.target_text.trim().is_empty()
+                || row.source_path_hash.is_empty())
+        {
+            return Err(StorageError::InvalidState(format!(
+                "interop table row {} is missing required content or provenance",
+                row.row_id
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_interop_actor_reason(actor: &str, reason: &str) -> Result<()> {
+    require_nonempty("interop actor", actor)?;
+    require_nonempty("interop reason", reason)?;
+    if actor.len() > 256 || reason.len() > 4_096 {
+        return Err(StorageError::InvalidState(
+            "interop actor or reason exceeds the configured limit".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn unique_interop_row_ids(row_ids: &[String]) -> Result<Vec<String>> {
+    if row_ids.is_empty() || row_ids.len() > 100_000 {
+        return Err(StorageError::InvalidState(
+            "interop apply selection is outside the supported range".to_string(),
+        ));
+    }
+    let mut selected = BTreeSet::new();
+    for row_id in row_ids {
+        if row_id.trim().is_empty() || row_id.len() > 256 || !selected.insert(row_id.clone()) {
+            return Err(StorageError::InvalidState(
+                "interop apply row identities must be bounded and unique".to_string(),
+            ));
+        }
+    }
+    Ok(selected.into_iter().collect())
+}
+
+fn interop_comment_delta(current: &str, edited: &str) -> Result<Option<String>> {
+    if current == edited {
+        return Ok(None);
+    }
+    if edited.trim().is_empty() {
+        return Err(StorageError::InvalidState(
+            "offline review comments can be added but not delete existing context".to_string(),
+        ));
+    }
+    let delta = edited
+        .strip_prefix(current)
+        .filter(|_| !current.is_empty())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| edited.trim());
+    Ok(Some(delta.to_string()))
+}
+
+fn validate_interop_workflow_transition(
+    transaction: &Transaction<'_>,
+    project_id: &str,
+    segment: &Segment,
+    current: &str,
+    next: &str,
+    creates_review: bool,
+    reason: &str,
+) -> Result<()> {
+    if !matches!(next, "translation" | "review" | "signed") {
+        return Err(StorageError::InvalidState(
+            "offline review workflow status is unsupported".to_string(),
+        ));
+    }
+    if current == next {
+        return Ok(());
+    }
+    if matches!(next, "review" | "signed") && segment.state != SegmentState::Confirmed {
+        return Err(StorageError::InvalidState(
+            "review and signed workflow states require a confirmed segment".to_string(),
+        ));
+    }
+    if next != "signed" {
+        return Ok(());
+    }
+    if creates_review {
+        return Err(StorageError::InvalidState(
+            "a row with a target proposal cannot be signed in the same apply".to_string(),
+        ));
+    }
+    let pending = transaction.query_row(
+        "SELECT COUNT(*) FROM review_revisions
+         WHERE segment_id = ?1 AND status = 'pending'",
+        [&segment.id],
+        |row| row.get::<_, i64>(0),
+    )?;
+    if pending != 0 {
+        return Err(StorageError::InvalidState(
+            "pending review proposals must be resolved before signing".to_string(),
+        ));
+    }
+    if current != "review" {
+        let configuration_json = transaction.query_row(
+            "SELECT configuration_json FROM projects WHERE id = ?1",
+            [project_id],
+            |row| row.get::<_, String>(0),
+        )?;
+        let configuration: ProjectConfiguration = serde_json::from_str(&configuration_json)?;
+        if configuration.review_required {
+            return Err(StorageError::InvalidState(
+                "a segment must pass through review before it can be signed".to_string(),
+            ));
+        }
+        if reason.trim().is_empty() || reason.chars().count() > 1_000 {
+            return Err(StorageError::InvalidState(
+                "direct sign-off requires a bounded non-empty reason".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn query_interop_preview_rows(
+    connection: &Connection,
+    preview_id: &str,
+) -> Result<Vec<InteropPreviewRowRecord>> {
+    let mut statement = connection.prepare(
+        "SELECT preview_id, row_id, ordinal, source_row, segment_id,
+                expected_segment_revision, source_hash, source_text, target_text,
+                current_target, comments, current_comments, status_context,
+                current_status, metadata_json, source_path_hash, disposition,
+                diagnostics_json
+         FROM interop_preview_rows WHERE preview_id = ?1
+         ORDER BY ordinal, row_id",
+    )?;
+    statement
+        .query_map([preview_id], row_to_interop_preview_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
+fn mark_interop_preview_applied(
+    transaction: &Transaction<'_>,
+    preview_id: &str,
+    result: &InteropApplyResult,
+    applied_at_ms: i64,
+) -> Result<()> {
+    let changed = transaction.execute(
+        "UPDATE interop_previews
+         SET status = 'applied', applied_result_json = ?1, applied_at_ms = ?2
+         WHERE id = ?3 AND status = 'open'",
+        params![serde_json::to_string(result)?, applied_at_ms, preview_id],
+    )?;
+    if changed != 1 {
+        return Err(StorageError::InvalidState(
+            "interop preview is no longer open".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn decode_applied_interop_result(preview: &InteropPreviewRecord) -> Result<InteropApplyResult> {
+    let result = preview.applied_result_json.as_deref().ok_or_else(|| {
+        StorageError::InvalidData("applied interop preview has no terminal result".to_string())
+    })?;
+    serde_json::from_str(result).map_err(Into::into)
+}
+
+fn tm_unit_duplicate_exists(
+    connection: &Connection,
+    library_id: &str,
+    source_text: &str,
+    target_text: &str,
+) -> Result<bool> {
+    let source_key = exact_key(source_text);
+    let target_hash = translunar_domain::sha256_hex(normalize_match_key(target_text).as_bytes());
+    connection
+        .query_row(
+            "SELECT 1 FROM tm_units
+             WHERE library_id = ?1 AND source_key = ?2 AND target_hash = ?3
+             LIMIT 1",
+            params![library_id, source_key, target_hash],
+            |_| Ok(()),
+        )
+        .optional()
+        .map(|value| value.is_some())
+        .map_err(Into::into)
+}
+
 fn require_nonempty(label: &str, value: &str) -> Result<()> {
     if value.trim().is_empty() {
         Err(StorageError::InvalidState(format!(
@@ -5911,6 +7005,35 @@ fn find_project(connection: &Connection, project_id: &str) -> Result<Project> {
         )
         .optional()?
         .ok_or_else(|| not_found("project", project_id))
+}
+
+fn find_document(connection: &Connection, document_id: &str) -> Result<Document> {
+    connection
+        .query_row(
+            "SELECT id, project_id, name, relative_path, format, filter_id, source_sha256,
+                    current_version, status, revision, segment_count, degradation_json,
+                    imported_at_ms, updated_at_ms
+             FROM documents WHERE id = ?1",
+            [document_id],
+            row_to_document,
+        )
+        .optional()?
+        .ok_or_else(|| not_found("document", document_id))
+}
+
+fn find_interop_preview(connection: &Connection, preview_id: &str) -> Result<InteropPreviewRecord> {
+    connection
+        .query_row(
+            "SELECT id, kind, project_id, document_id, library_id, expected_revision,
+                    input_sha256, input_format, staged_input_path, source_locale,
+                    target_locale, manifest_hash, status, applied_result_json,
+                    created_at_ms, applied_at_ms
+             FROM interop_previews WHERE id = ?1",
+            [preview_id],
+            row_to_interop_preview,
+        )
+        .optional()?
+        .ok_or_else(|| not_found("interop_preview", preview_id))
 }
 
 fn find_tm_library(connection: &Connection, library_id: &str) -> Result<TmLibrary> {
@@ -7003,6 +8126,7 @@ fn sink_segment_to_asset_libraries(
         translunar_domain::sha256_hex(normalize_match_key(&segment.target_text).as_bytes());
     let mut metadata = BTreeMap::new();
     metadata.insert("segmentState".to_string(), format!("{:?}", segment.state));
+    let mut changed_libraries = BTreeSet::new();
     for (library_id, source_locale, target_locale, domain) in mounts {
         let existing_id = transaction
             .query_row(
@@ -7038,6 +8162,7 @@ fn sink_segment_to_asset_libraries(
                     existing_id,
                 ],
             )?;
+            changed_libraries.insert(library_id);
         } else {
             transaction.execute(
                 "INSERT INTO tm_units (
@@ -7068,7 +8193,15 @@ fn sink_segment_to_asset_libraries(
                     now,
                 ],
             )?;
+            changed_libraries.insert(library_id);
         }
+    }
+    for library_id in changed_libraries {
+        transaction.execute(
+            "UPDATE tm_libraries SET revision = revision + 1, updated_at_ms = ?1
+             WHERE id = ?2",
+            params![now, library_id],
+        )?;
     }
     Ok(())
 }
@@ -7784,6 +8917,50 @@ fn row_to_operation(row: &Row<'_>) -> rusqlite::Result<Operation> {
     })
 }
 
+fn row_to_interop_preview(row: &Row<'_>) -> rusqlite::Result<InteropPreviewRecord> {
+    Ok(InteropPreviewRecord {
+        id: row.get(0)?,
+        kind: parse_interop_preview_kind(row.get::<_, String>(1)?, 1)?,
+        project_id: row.get(2)?,
+        document_id: row.get(3)?,
+        library_id: row.get(4)?,
+        expected_revision: read_u64(row, 5)?,
+        input_sha256: row.get(6)?,
+        input_format: row.get(7)?,
+        staged_input_path: row.get(8)?,
+        source_locale: row.get(9)?,
+        target_locale: row.get(10)?,
+        manifest_hash: row.get(11)?,
+        status: parse_interop_preview_status(row.get::<_, String>(12)?, 12)?,
+        applied_result_json: row.get(13)?,
+        created_at_ms: row.get(14)?,
+        applied_at_ms: row.get(15)?,
+    })
+}
+
+fn row_to_interop_preview_row(row: &Row<'_>) -> rusqlite::Result<InteropPreviewRowRecord> {
+    Ok(InteropPreviewRowRecord {
+        preview_id: row.get(0)?,
+        row_id: row.get(1)?,
+        ordinal: read_u32(row, 2)?,
+        source_row: read_u32(row, 3)?,
+        segment_id: row.get(4)?,
+        expected_segment_revision: read_optional_u64(row, 5)?,
+        source_hash: row.get(6)?,
+        source_text: row.get(7)?,
+        target_text: row.get(8)?,
+        current_target: row.get(9)?,
+        comments: row.get(10)?,
+        current_comments: row.get(11)?,
+        status_context: row.get(12)?,
+        current_status: row.get(13)?,
+        metadata_json: row.get(14)?,
+        source_path_hash: row.get(15)?,
+        disposition: row.get(16)?,
+        diagnostics_json: row.get(17)?,
+    })
+}
+
 fn row_to_project(row: &Row<'_>) -> rusqlite::Result<Project> {
     Ok(Project {
         id: row.get(0)?,
@@ -8109,6 +9286,42 @@ fn editor_workflow_state_text(state: EditorWorkflowState) -> &'static str {
         EditorWorkflowState::Translation => "translation",
         EditorWorkflowState::Review => "review",
         EditorWorkflowState::Signed => "signed",
+    }
+}
+
+fn interop_preview_kind_text(kind: InteropPreviewKind) -> &'static str {
+    match kind {
+        InteropPreviewKind::Review => "review",
+        InteropPreviewKind::Table => "table",
+    }
+}
+
+fn parse_interop_preview_kind(
+    value: String,
+    column: usize,
+) -> rusqlite::Result<InteropPreviewKind> {
+    match value.as_str() {
+        "review" => Ok(InteropPreviewKind::Review),
+        "table" => Ok(InteropPreviewKind::Table),
+        _ => Err(conversion_error(
+            column,
+            StorageError::InvalidData(format!("unknown interop preview kind {value}")),
+        )),
+    }
+}
+
+fn parse_interop_preview_status(
+    value: String,
+    column: usize,
+) -> rusqlite::Result<InteropPreviewStatus> {
+    match value.as_str() {
+        "open" => Ok(InteropPreviewStatus::Open),
+        "applied" => Ok(InteropPreviewStatus::Applied),
+        "discarded" => Ok(InteropPreviewStatus::Discarded),
+        _ => Err(conversion_error(
+            column,
+            StorageError::InvalidData(format!("unknown interop preview status {value}")),
+        )),
     }
 }
 
@@ -9194,6 +10407,570 @@ mod tests {
                 .expect("reloaded writable units")
                 .len(),
             writable_count
+        );
+    }
+
+    #[test]
+    fn interop_review_preview_apply_is_atomic_restartable_and_idempotent() {
+        let mut fixture = Fixture::new();
+        let segment = fixture.segments[0].clone();
+        let preview_id = new_id();
+        fixture
+            .store
+            .create_interop_preview(NewInteropPreview {
+                id: preview_id.clone(),
+                kind: InteropPreviewKind::Review,
+                project_id: fixture.project.id.clone(),
+                document_id: Some(fixture.document.id.clone()),
+                library_id: None,
+                expected_revision: fixture.document.revision,
+                input_sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    .to_string(),
+                input_format: "review-docx".to_string(),
+                staged_input_path: "tmp/review.docx".to_string(),
+                source_locale: Some("en-US".to_string()),
+                target_locale: Some("zh-CN".to_string()),
+                manifest_hash: Some(
+                    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
+                ),
+                rows: vec![
+                    NewInteropPreviewRow {
+                        row_id: "row-changed".to_string(),
+                        ordinal: 0,
+                        source_row: 1,
+                        segment_id: Some(segment.id.clone()),
+                        expected_segment_revision: Some(segment.revision),
+                        source_hash: segment.source_hash.clone(),
+                        source_text: segment.source_text.clone(),
+                        target_text: "保留期为 30 天。".to_string(),
+                        current_target: segment.target_text.clone(),
+                        comments: "Please keep the legal tone.".to_string(),
+                        current_comments: String::new(),
+                        status_context: "translation".to_string(),
+                        current_status: "translation".to_string(),
+                        metadata_json: "{}".to_string(),
+                        source_path_hash: String::new(),
+                        disposition: "changed".to_string(),
+                        diagnostics_json: "[]".to_string(),
+                    },
+                    NewInteropPreviewRow {
+                        row_id: "row-unchanged".to_string(),
+                        ordinal: 1,
+                        source_row: 2,
+                        segment_id: Some(fixture.segments[1].id.clone()),
+                        expected_segment_revision: Some(fixture.segments[1].revision),
+                        source_hash: fixture.segments[1].source_hash.clone(),
+                        source_text: fixture.segments[1].source_text.clone(),
+                        target_text: fixture.segments[1].target_text.clone(),
+                        current_target: fixture.segments[1].target_text.clone(),
+                        comments: String::new(),
+                        current_comments: String::new(),
+                        status_context: "translation".to_string(),
+                        current_status: "translation".to_string(),
+                        metadata_json: "{}".to_string(),
+                        source_path_hash: String::new(),
+                        disposition: "unchanged".to_string(),
+                        diagnostics_json: "[]".to_string(),
+                    },
+                ],
+            })
+            .expect("create review preview");
+
+        let (page, total) = fixture
+            .store
+            .list_interop_preview_rows(&preview_id, 0, 1)
+            .expect("page review rows");
+        assert_eq!(total, 2);
+        assert_eq!(page[0].row_id, "row-changed");
+        let applied = fixture
+            .store
+            .apply_review_interop(ReviewInteropApply {
+                preview_id: preview_id.clone(),
+                expected_document_revision: fixture.document.revision,
+                selected_row_ids: vec!["row-changed".to_string()],
+                actor: "reviewer".to_string(),
+                reason: "offline review handoff".to_string(),
+            })
+            .expect("apply review preview");
+        assert_eq!(applied.applied_count, 1);
+        assert_eq!(applied.skipped_count, 1);
+        assert_eq!(applied.review_ids.len(), 1);
+        assert_eq!(applied.comment_ids.len(), 1);
+        assert_eq!(
+            fixture
+                .store
+                .get_document(&fixture.document.id)
+                .expect("document")
+                .document
+                .revision,
+            1
+        );
+        assert_eq!(
+            fixture
+                .store
+                .list_review_revisions(&fixture.document.id, false)
+                .expect("reviews")
+                .len(),
+            1
+        );
+        assert_eq!(
+            fixture
+                .store
+                .list_editor_comments(&segment.id, false)
+                .expect("comments")
+                .len(),
+            1
+        );
+        let history = fixture
+            .store
+            .list_operations(&fixture.project.id, 0, 100, true)
+            .expect("history")
+            .0;
+        assert!(
+            history
+                .iter()
+                .any(|operation| operation.kind == "interop.review.apply")
+        );
+
+        let repeated = fixture
+            .store
+            .apply_review_interop(ReviewInteropApply {
+                preview_id: preview_id.clone(),
+                expected_document_revision: 0,
+                selected_row_ids: vec!["row-changed".to_string()],
+                actor: "reviewer".to_string(),
+                reason: "retry".to_string(),
+            })
+            .expect("repeat review apply returns terminal result");
+        assert_eq!(repeated, applied);
+        let root = fixture.store.paths().root.clone();
+        let reopened = Store::open(root).expect("reopen after review apply");
+        assert_eq!(
+            reopened
+                .get_interop_preview(&preview_id)
+                .expect("reopen preview")
+                .status,
+            InteropPreviewStatus::Applied
+        );
+        assert_eq!(
+            reopened
+                .list_review_revisions(&fixture.document.id, false)
+                .expect("reopen reviews")
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn interop_review_stale_segment_fails_without_persistence() {
+        let mut fixture = Fixture::new();
+        let segment = fixture.segments[0].clone();
+        let preview_id = new_id();
+        fixture
+            .store
+            .create_interop_preview(NewInteropPreview {
+                id: preview_id.clone(),
+                kind: InteropPreviewKind::Review,
+                project_id: fixture.project.id.clone(),
+                document_id: Some(fixture.document.id.clone()),
+                library_id: None,
+                expected_revision: 0,
+                input_sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    .to_string(),
+                input_format: "review-docx".to_string(),
+                staged_input_path: "tmp/stale.docx".to_string(),
+                source_locale: None,
+                target_locale: None,
+                manifest_hash: None,
+                rows: vec![NewInteropPreviewRow {
+                    row_id: "stale-row".to_string(),
+                    ordinal: 0,
+                    source_row: 1,
+                    segment_id: Some(segment.id.clone()),
+                    expected_segment_revision: Some(0),
+                    source_hash: segment.source_hash.clone(),
+                    source_text: segment.source_text.clone(),
+                    target_text: "stale preview target".to_string(),
+                    current_target: String::new(),
+                    comments: "comment".to_string(),
+                    current_comments: String::new(),
+                    status_context: "translation".to_string(),
+                    current_status: "translation".to_string(),
+                    metadata_json: "{}".to_string(),
+                    source_path_hash: String::new(),
+                    disposition: "changed".to_string(),
+                    diagnostics_json: "[]".to_string(),
+                }],
+            })
+            .expect("create stale preview");
+        fixture
+            .store
+            .update_target(&segment.id, "newer target", 0)
+            .expect("advance segment revision");
+        let error = fixture
+            .store
+            .apply_review_interop(ReviewInteropApply {
+                preview_id: preview_id.clone(),
+                expected_document_revision: 0,
+                selected_row_ids: vec!["stale-row".to_string()],
+                actor: "reviewer".to_string(),
+                reason: "stale".to_string(),
+            })
+            .expect_err("stale review must fail");
+        assert!(matches!(error, StorageError::Conflict { .. }));
+        assert!(
+            fixture
+                .store
+                .list_review_revisions(&fixture.document.id, true)
+                .expect("reviews")
+                .is_empty()
+        );
+        assert!(
+            fixture
+                .store
+                .list_editor_comments(&segment.id, true)
+                .expect("comments")
+                .is_empty()
+        );
+        assert_eq!(
+            fixture
+                .store
+                .get_interop_preview(&preview_id)
+                .expect("preview remains open")
+                .status,
+            InteropPreviewStatus::Open
+        );
+    }
+
+    #[test]
+    fn interop_table_apply_persists_provenance_and_rolls_back_bad_rows() {
+        let mut fixture = Fixture::new();
+        let library = fixture
+            .store
+            .list_tm_libraries(Some(&fixture.project.id), 0, 20)
+            .expect("list libraries")
+            .0
+            .into_iter()
+            .find(|library| library.writable)
+            .expect("writable library");
+        let make_row = |id: &str, source: &str, target: &str| NewInteropPreviewRow {
+            row_id: id.to_string(),
+            ordinal: if id == "row-a" { 0 } else { 1 },
+            source_row: if id == "row-a" { 2 } else { 3 },
+            segment_id: None,
+            expected_segment_revision: None,
+            source_hash: "source-hash".to_string(),
+            source_text: source.to_string(),
+            target_text: target.to_string(),
+            current_target: String::new(),
+            comments: String::new(),
+            current_comments: String::new(),
+            status_context: String::new(),
+            current_status: String::new(),
+            metadata_json: "{\"Context\":\"Legal\"}".to_string(),
+            source_path_hash: "path-hash".to_string(),
+            disposition: "valid".to_string(),
+            diagnostics_json: "[]".to_string(),
+        };
+        let preview_id = new_id();
+        fixture
+            .store
+            .create_interop_preview(NewInteropPreview {
+                id: preview_id.clone(),
+                kind: InteropPreviewKind::Table,
+                project_id: fixture.project.id.clone(),
+                document_id: None,
+                library_id: Some(library.id.clone()),
+                expected_revision: library.revision,
+                input_sha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                    .to_string(),
+                input_format: "bilingual-xlsx".to_string(),
+                staged_input_path: "tmp/table.xlsx".to_string(),
+                source_locale: Some(library.source_locale.clone()),
+                target_locale: Some(library.target_locale.clone()),
+                manifest_hash: None,
+                rows: vec![make_row("row-a", "Source A", "Target A")],
+            })
+            .expect("create table preview");
+        let applied = fixture
+            .store
+            .apply_table_interop(TableInteropApply {
+                preview_id: preview_id.clone(),
+                expected_library_revision: library.revision,
+                selected_row_ids: vec!["row-a".to_string()],
+                actor: "importer".to_string(),
+                reason: "table handoff".to_string(),
+            })
+            .expect("apply table preview");
+        assert_eq!(applied.tm_unit_ids.len(), 1);
+        let units = fixture
+            .store
+            .export_tm_units(&library.id)
+            .expect("list imported units");
+        let imported = units
+            .iter()
+            .find(|unit| unit.id == applied.tm_unit_ids[0])
+            .expect("imported unit");
+        assert_eq!(imported.metadata.get("previewId"), Some(&preview_id));
+        assert_eq!(imported.metadata.get("rowId"), Some(&"row-a".to_string()));
+        assert_eq!(imported.metadata.get("sourceRow"), Some(&"2".to_string()));
+        assert_eq!(
+            fixture
+                .store
+                .get_tm_library(&library.id)
+                .expect("library")
+                .revision,
+            library.revision + 1
+        );
+        assert_eq!(
+            fixture
+                .store
+                .apply_table_interop(TableInteropApply {
+                    preview_id: preview_id.clone(),
+                    expected_library_revision: 0,
+                    selected_row_ids: vec!["row-a".to_string()],
+                    actor: "retry".to_string(),
+                    reason: "retry".to_string(),
+                })
+                .expect("idempotent table retry"),
+            applied
+        );
+
+        let bad_preview = new_id();
+        let current_library = fixture
+            .store
+            .get_tm_library(&library.id)
+            .expect("current library");
+        fixture
+            .store
+            .create_interop_preview(NewInteropPreview {
+                id: bad_preview.clone(),
+                kind: InteropPreviewKind::Table,
+                project_id: fixture.project.id.clone(),
+                document_id: None,
+                library_id: Some(library.id.clone()),
+                expected_revision: current_library.revision,
+                input_sha256: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+                    .to_string(),
+                input_format: "bilingual-docx".to_string(),
+                staged_input_path: "tmp/bad.docx".to_string(),
+                source_locale: Some(library.source_locale.clone()),
+                target_locale: Some(library.target_locale.clone()),
+                manifest_hash: None,
+                rows: vec![
+                    make_row("row-a2", "Source B", "Target B"),
+                    make_row("row-bad", "Source C", "Target C"),
+                ],
+            })
+            .expect("create rollback preview");
+        fixture
+            .store
+            .connection()
+            .execute(
+                "UPDATE interop_preview_rows SET metadata_json = '[]'
+                 WHERE preview_id = ?1 AND row_id = 'row-bad'",
+                [&bad_preview],
+            )
+            .expect("corrupt accepted row metadata");
+        let before_count = fixture
+            .store
+            .export_tm_units(&library.id)
+            .expect("units before rollback")
+            .len();
+        assert!(
+            fixture
+                .store
+                .apply_table_interop(TableInteropApply {
+                    preview_id: bad_preview,
+                    expected_library_revision: current_library.revision,
+                    selected_row_ids: vec!["row-a2".to_string(), "row-bad".to_string()],
+                    actor: "importer".to_string(),
+                    reason: "rollback".to_string(),
+                })
+                .is_err()
+        );
+        assert_eq!(
+            fixture
+                .store
+                .export_tm_units(&library.id)
+                .expect("units after rollback")
+                .len(),
+            before_count
+        );
+        assert_eq!(
+            fixture
+                .store
+                .get_tm_library(&library.id)
+                .expect("library after rollback")
+                .revision,
+            current_library.revision
+        );
+    }
+
+    #[test]
+    fn interop_table_apply_rejects_stale_and_read_only_libraries_without_writes() {
+        let mut fixture = Fixture::new();
+        let library = fixture
+            .store
+            .list_tm_libraries(Some(&fixture.project.id), 0, 20)
+            .expect("list libraries")
+            .0
+            .into_iter()
+            .find(|library| library.writable)
+            .expect("writable library");
+        let make_preview =
+            |id: String, row_id: &str, expected_revision: u64, input_sha256: &str| {
+                NewInteropPreview {
+                    id,
+                    kind: InteropPreviewKind::Table,
+                    project_id: fixture.project.id.clone(),
+                    document_id: None,
+                    library_id: Some(library.id.clone()),
+                    expected_revision,
+                    input_sha256: input_sha256.to_string(),
+                    input_format: "bilingual-xlsx".to_string(),
+                    staged_input_path: "tmp/table.xlsx".to_string(),
+                    source_locale: Some(library.source_locale.clone()),
+                    target_locale: Some(library.target_locale.clone()),
+                    manifest_hash: None,
+                    rows: vec![NewInteropPreviewRow {
+                        row_id: row_id.to_string(),
+                        ordinal: 0,
+                        source_row: 2,
+                        segment_id: None,
+                        expected_segment_revision: None,
+                        source_hash: "source-hash".to_string(),
+                        source_text: format!("Source {row_id}"),
+                        target_text: format!("Target {row_id}"),
+                        current_target: String::new(),
+                        comments: String::new(),
+                        current_comments: String::new(),
+                        status_context: String::new(),
+                        current_status: String::new(),
+                        metadata_json: "{}".to_string(),
+                        source_path_hash: "path-hash".to_string(),
+                        disposition: "valid".to_string(),
+                        diagnostics_json: "[]".to_string(),
+                    }],
+                }
+            };
+        let before_count = fixture
+            .store
+            .export_tm_units(&library.id)
+            .expect("units before conflicts")
+            .len();
+
+        let stale_preview = new_id();
+        fixture
+            .store
+            .create_interop_preview(make_preview(
+                stale_preview.clone(),
+                "stale-row",
+                library.revision,
+                "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            ))
+            .expect("create stale table preview");
+        fixture
+            .store
+            .connection()
+            .execute(
+                "UPDATE tm_libraries SET revision = revision + 1 WHERE id = ?1",
+                [&library.id],
+            )
+            .expect("advance library revision");
+        let stale_error = fixture
+            .store
+            .apply_table_interop(TableInteropApply {
+                preview_id: stale_preview.clone(),
+                expected_library_revision: library.revision,
+                selected_row_ids: vec!["stale-row".to_string()],
+                actor: "importer".to_string(),
+                reason: "stale library".to_string(),
+            })
+            .expect_err("stale library must fail");
+        assert!(matches!(
+            stale_error,
+            StorageError::EntityConflict {
+                entity: "tm_library",
+                ..
+            }
+        ));
+        assert_eq!(
+            fixture
+                .store
+                .export_tm_units(&library.id)
+                .expect("units after stale conflict")
+                .len(),
+            before_count
+        );
+        assert_eq!(
+            fixture
+                .store
+                .get_interop_preview(&stale_preview)
+                .expect("stale preview remains open")
+                .status,
+            InteropPreviewStatus::Open
+        );
+
+        let current_library = fixture
+            .store
+            .get_tm_library(&library.id)
+            .expect("current library");
+        let read_only_preview = new_id();
+        fixture
+            .store
+            .create_interop_preview(make_preview(
+                read_only_preview.clone(),
+                "read-only-row",
+                current_library.revision,
+                "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            ))
+            .expect("create read-only table preview");
+        fixture
+            .store
+            .connection()
+            .execute(
+                "UPDATE tm_libraries SET writable = 0 WHERE id = ?1",
+                [&library.id],
+            )
+            .expect("make library read-only");
+        let read_only_error = fixture
+            .store
+            .apply_table_interop(TableInteropApply {
+                preview_id: read_only_preview.clone(),
+                expected_library_revision: current_library.revision,
+                selected_row_ids: vec!["read-only-row".to_string()],
+                actor: "importer".to_string(),
+                reason: "read-only library".to_string(),
+            })
+            .expect_err("read-only library must fail");
+        assert!(matches!(
+            read_only_error,
+            StorageError::InvalidState(message) if message == "TM library is read-only"
+        ));
+        assert_eq!(
+            fixture
+                .store
+                .export_tm_units(&library.id)
+                .expect("units after read-only failure")
+                .len(),
+            before_count
+        );
+        assert_eq!(
+            fixture
+                .store
+                .get_tm_library(&library.id)
+                .expect("library after read-only failure")
+                .revision,
+            current_library.revision
+        );
+        assert_eq!(
+            fixture
+                .store
+                .get_interop_preview(&read_only_preview)
+                .expect("read-only preview remains open")
+                .status,
+            InteropPreviewStatus::Open
         );
     }
 
