@@ -40,6 +40,7 @@ interface HarnessOptions {
   sourceFiles?: string[];
   sourceFolder?: string;
   replacementSource?: string;
+  corpusInput?: string;
   interopExportPath?: string;
   interopReviewInput?: string;
   interopTableInput?: string;
@@ -95,6 +96,9 @@ async function launchHarness(
       ),
       ...(options.sourceFolder
         ? { TRANSLUNAR_TEST_SOURCE_FOLDER: options.sourceFolder }
+        : {}),
+      ...(options.corpusInput
+        ? { TRANSLUNAR_TEST_CORPUS_INPUT: options.corpusInput }
         : {}),
       TRANSLUNAR_TEST_PROJECT_ARCHIVE: archivePath,
       TRANSLUNAR_TEST_PROJECT_ARCHIVE_DESTINATION: archivePath,
@@ -428,6 +432,11 @@ interface AiFixture {
   close(): Promise<void>;
 }
 
+interface AlignmentFixturePayload {
+  sourceSegments: Array<{ id: string }>;
+  targetSegments: Array<{ id: string }>;
+}
+
 async function startAiFixture(): Promise<AiFixture> {
   let requestCount = 0;
   const server: Server = createServer((request, response) => {
@@ -439,10 +448,38 @@ async function startAiFixture(): Promise<AiFixture> {
     });
     request.on("end", () => {
       expect(body).not.toContain("desktop-ai-secret");
+      const alignmentPayload = extractAlignmentFixturePayload(body);
+      const completionChunks = alignmentPayload
+        ? [
+            JSON.stringify({
+              links: [
+                {
+                  sourceSegmentIds: alignmentPayload.sourceSegments.map(
+                    (segment) => segment.id,
+                  ),
+                  targetSegmentIds: alignmentPayload.targetSegments.map(
+                    (segment) => segment.id,
+                  ),
+                  confidenceBasisPoints: 9_300,
+                  evidence:
+                    "The fixture preserves the ordered bilingual partition.",
+                },
+              ],
+            }),
+          ]
+        : ["Desktop fixture ", "translation"];
       const events = [
-        'data: {"choices":[{"delta":{"content":"Desktop fixture "}}]}',
-        'data: {"choices":[{"delta":{"content":"translation"}}]}',
-        'data: {"choices":[],"usage":{"prompt_tokens":20,"completion_tokens":4}}',
+        ...completionChunks.map(
+          (content) =>
+            `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}`,
+        ),
+        `data: ${JSON.stringify({
+          choices: [],
+          usage: {
+            prompt_tokens: alignmentPayload ? 24 : 20,
+            completion_tokens: alignmentPayload ? 18 : 4,
+          },
+        })}`,
         "data: [DONE]",
         "",
       ].join("\n\n");
@@ -475,6 +512,76 @@ async function startAiFixture(): Promise<AiFixture> {
         });
       }),
   };
+}
+
+function extractAlignmentFixturePayload(
+  body: string,
+): AlignmentFixturePayload | null {
+  let request: unknown;
+  try {
+    request = JSON.parse(body) as unknown;
+  } catch {
+    return null;
+  }
+  const message = findAlignmentFixtureMessage(request);
+  const match = message?.match(
+    /<alignment-refinement-data>\s*([\s\S]*?)\s*<\/alignment-refinement-data>/u,
+  );
+  if (!match?.[1]) return null;
+  try {
+    const payload = JSON.parse(match[1]) as {
+      sourceSegments?: unknown;
+      targetSegments?: unknown;
+    };
+    if (
+      !isAlignmentFixtureSegments(payload.sourceSegments) ||
+      !isAlignmentFixtureSegments(payload.targetSegments)
+    ) {
+      return null;
+    }
+    return {
+      sourceSegments: payload.sourceSegments,
+      targetSegments: payload.targetSegments,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function findAlignmentFixtureMessage(value: unknown): string | null {
+  if (typeof value === "string") {
+    return value.includes("<alignment-refinement-data>") ? value : null;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const message = findAlignmentFixtureMessage(item);
+      if (message) return message;
+    }
+    return null;
+  }
+  if (value && typeof value === "object") {
+    for (const item of Object.values(value as Record<string, unknown>)) {
+      const message = findAlignmentFixtureMessage(item);
+      if (message) return message;
+    }
+  }
+  return null;
+}
+
+function isAlignmentFixtureSegments(
+  value: unknown,
+): value is Array<{ id: string }> {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every(
+      (item) =>
+        !!item &&
+        typeof item === "object" &&
+        typeof (item as { id?: unknown }).id === "string" &&
+        (item as { id: string }).id.length > 0,
+    )
+  );
 }
 
 test("runs the local-first CAT workflow through Electron", async () => {
@@ -1762,6 +1869,308 @@ test("applies review DOCX and a bilingual table through Project Insights", async
     expect(consoleErrors).toEqual([]);
   } finally {
     await closeHarness(harness);
+    await rm(fixtureDirectory, { recursive: true, force: true });
+  }
+});
+
+test("runs real-Engine alignment and reference-corpus workflows", async ({
+  browserName,
+}, testInfo) => {
+  expect(browserName).toBe("chromium");
+  test.setTimeout(120_000);
+  const fixtureDirectory = mkdtempSync(
+    join(tmpdir(), "translunar-alignment-ui-"),
+  );
+  const sourcePath = join(fixtureDirectory, "source.txt");
+  const targetPath = join(fixtureDirectory, "target.txt");
+  const corpusPath = join(fixtureDirectory, "corpus.txt");
+  writeFileSync(sourcePath, "Invoice 2026 is due.\n\nPay within 30 days.\n");
+  writeFileSync(targetPath, "2026 年发票已到期。\n\n请在 30 天内付款。\n");
+  writeFileSync(
+    corpusPath,
+    "Invoice 2026 is due.\n\nPayment remains due in 30 days.\n",
+  );
+  const aiFixture = await startAiFixture();
+  const harness = await launchHarness("alignment-corpus-ui", {
+    sourceFiles: [sourcePath, targetPath],
+    corpusInput: corpusPath,
+  });
+  const { page, consoleErrors } = harness;
+  const alignmentCorpusName = "Desktop alignment corpus";
+  const fileCorpusName = "Desktop source corpus";
+
+  try {
+    await importFixture(page, "source.txt");
+
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "AI control" }).click();
+    await expect(
+      page.getByRole("heading", { name: "AI control" }),
+    ).toBeVisible();
+    await page.getByLabel("Connector").selectOption("openaiCompatible");
+    await page.getByLabel("Profile name").fill("Desktop fixture");
+    await page.getByLabel("Base URL").fill(aiFixture.url);
+    await page.getByLabel("Model").fill("fixture-model");
+    await page.getByRole("button", { name: "Add provider" }).click();
+    const profile = page.locator(".ai-profile-row", {
+      hasText: "Desktop fixture",
+    });
+    await expect(profile).toBeVisible();
+    await profile.getByRole("button", { name: "Edit Desktop fixture" }).click();
+    await page
+      .locator(".ai-profile-edit")
+      .getByRole("button", { name: "Save" })
+      .click();
+    await profile
+      .getByRole("textbox", {
+        name: "Credential for Desktop fixture",
+        exact: true,
+      })
+      .fill("desktop-ai-secret");
+    await profile.locator(".ai-credential-entry button").click();
+    await expect(profile).toContainText("Stored");
+    await page.getByLabel("AI enabled").check();
+    await page
+      .getByLabel("Default profile")
+      .selectOption({ label: "Desktop fixture" });
+    await page.getByRole("button", { name: "Save policy" }).click();
+    await expect(page.getByText("AI workspace policy saved.")).toBeVisible();
+    await page.getByRole("button", { name: "Back to workbench" }).click();
+
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "Project insights" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Project insights" }),
+    ).toBeVisible();
+    await page.getByRole("tab", { name: "Alignment / corpora" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Document alignment" }),
+    ).toBeVisible();
+
+    const sourceSelect = page.getByLabel("Source document");
+    const targetSelect = page.getByLabel("Target document");
+    const sourceValue = await sourceSelect
+      .locator("option")
+      .filter({ hasText: "source.txt" })
+      .first()
+      .getAttribute("value");
+    const targetValue = await targetSelect
+      .locator("option")
+      .filter({ hasText: "target.txt" })
+      .first()
+      .getAttribute("value");
+    if (!sourceValue || !targetValue) {
+      throw new Error("Alignment document options were not loaded.");
+    }
+    await sourceSelect.selectOption(sourceValue);
+    await targetSelect.selectOption(targetValue);
+    await page
+      .getByRole("button", { name: "Create session", exact: true })
+      .click();
+    await expect(page.locator(".surface-success")).toContainText(
+      "Created 2 candidates",
+      { timeout: 20_000 },
+    );
+
+    const linkRows = page.locator(".alignment-link-row");
+    await expect(linkRows).toHaveCount(2);
+    for (const row of [linkRows.nth(0), linkRows.nth(1)]) {
+      await row.getByRole("checkbox").check();
+    }
+    await page.getByRole("button", { name: "Merge", exact: true }).click();
+    await expect(page.locator(".surface-success")).toContainText(
+      "Merge correction saved",
+    );
+    await expect(linkRows).toHaveCount(1);
+    await linkRows.first().getByRole("checkbox").check();
+    await page.getByRole("button", { name: "Split", exact: true }).click();
+    await expect(page.locator(".surface-success")).toContainText(
+      "Split correction saved",
+    );
+    await expect(linkRows).toHaveCount(2);
+
+    const refinementProfile = page.getByLabel("AI refinement profile");
+    await expect(refinementProfile.locator("option")).toContainText(
+      "Desktop fixture",
+    );
+    await refinementProfile.selectOption({
+      label: "Desktop fixture · fixture-model",
+    });
+    await linkRows.first().getByRole("checkbox").check();
+    await page.getByRole("button", { name: /^Refine/u }).click();
+    await expect(page.locator(".surface-success")).toContainText(
+      "AI suggestions are ready",
+      { timeout: 30_000 },
+    );
+    await expect(
+      page.locator('.alignment-link-row[data-origin="ai"]'),
+    ).toHaveCount(1);
+
+    for (let index = 0; index < 2; index += 1) {
+      const row = linkRows.nth(index);
+      if ((await row.getAttribute("data-status")) !== "confirmed") {
+        await row.getByRole("button", { name: "Confirm", exact: true }).click();
+        await expect(page.locator(".surface-success")).toContainText(
+          "marked confirmed",
+        );
+      }
+    }
+    await expect(
+      page.locator('.alignment-link-row[data-status="confirmed"]'),
+    ).toHaveCount(2);
+    await page.locator(".alignment-select-page input").check();
+    await page.getByLabel("Bilingual corpus name").fill(alignmentCorpusName);
+    await page
+      .getByRole("button", { name: "Create corpus", exact: true })
+      .click();
+    await expect(page.locator(".surface-success")).toContainText(
+      `Created ${alignmentCorpusName} with 2 bilingual entries.`,
+    );
+    await captureResponsiveSurface(harness, testInfo, "alignment-workflow");
+
+    await page.getByRole("button", { name: /^Apply \d+$/u }).click();
+    await expect(page.locator(".surface-success")).toContainText(
+      "Applied 2 TM units",
+    );
+    await expect(page.locator(".alignment-terminal")).toContainText(
+      "Session applied",
+    );
+
+    await page
+      .getByRole("tab", { name: "Reference corpora", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Import reference corpus" }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Select file", exact: true })
+      .click();
+    await expect(page.getByText("corpus.txt", { exact: true })).toBeVisible();
+    await page.getByLabel("Corpus name").fill(fileCorpusName);
+    await page
+      .getByRole("button", { name: "Import corpus", exact: true })
+      .click();
+    await expect(page.locator(".surface-success")).toContainText(
+      `Imported ${fileCorpusName}: 2 entries`,
+      { timeout: 20_000 },
+    );
+    const fileCorpusRow = page
+      .locator(".corpus-list-row")
+      .filter({ hasText: fileCorpusName });
+    const alignmentCorpusRow = page
+      .locator(".corpus-list-row")
+      .filter({ hasText: alignmentCorpusName });
+    await expect(fileCorpusRow).toHaveCount(1);
+    await expect(alignmentCorpusRow).toHaveCount(1);
+
+    const corpusSearchForm = page.locator(".corpus-search-form");
+    await corpusSearchForm.getByLabel("Query").fill("Invoice 2026");
+    await corpusSearchForm.getByLabel("Side").selectOption("source");
+    await corpusSearchForm
+      .getByRole("button", { name: "Search", exact: true })
+      .click();
+    await expect(page.locator(".corpus-search-results article")).toHaveCount(2);
+    await expect(page.locator(".corpus-search-results")).toContainText(
+      alignmentCorpusName,
+    );
+    await expect(page.locator(".corpus-search-results")).toContainText(
+      fileCorpusName,
+    );
+
+    await fileCorpusRow
+      .getByRole("button", { name: "Reindex", exact: true })
+      .click();
+    await expect(page.locator(".surface-success")).toContainText(
+      `Reindexed ${fileCorpusName}`,
+    );
+    await captureResponsiveSurface(harness, testInfo, "corpus-workflow");
+
+    await page.getByRole("button", { name: "Back to workbench" }).click();
+    await expect(
+      page.getByRole("region", { name: "Translation segments" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Open command palette" }).click();
+    const commandPalette = page.getByRole("dialog", {
+      name: "Command palette",
+    });
+    await commandPalette
+      .getByRole("option")
+      .filter({ hasText: "Concordance" })
+      .click();
+    const concordance = page.getByRole("dialog", { name: "Concordance" });
+    await concordance.getByLabel("Concordance query").fill("Invoice 2026");
+    await concordance
+      .getByLabel("Concordance direction")
+      .selectOption("source");
+    await concordance
+      .getByRole("button", { name: "Search", exact: true })
+      .click();
+    await expect(concordance.locator(".concordance-corpus-result")).toHaveCount(
+      2,
+    );
+    const sourceCorpusHit = concordance
+      .locator(".concordance-corpus-result")
+      .filter({ hasText: fileCorpusName });
+    const alignmentCorpusHit = concordance
+      .locator(".concordance-corpus-result")
+      .filter({ hasText: alignmentCorpusName });
+    await expect(sourceCorpusHit).toHaveCount(1);
+    await expect(
+      sourceCorpusHit.getByRole("button", { name: "Insert target" }),
+    ).toHaveCount(0);
+    await expect(alignmentCorpusHit).toHaveCount(1);
+    await alignmentCorpusHit
+      .getByRole("button", { name: "Insert target" })
+      .click();
+    await expect(
+      page.locator(".segment-row").first().locator("textarea"),
+    ).toHaveValue("2026 年发票已到期。");
+
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "Project insights" }).click();
+    await page.getByRole("tab", { name: "Alignment / corpora" }).click();
+    await page
+      .getByRole("tab", { name: "Reference corpora", exact: true })
+      .click();
+    const removableCorpusRow = page
+      .locator(".corpus-list-row")
+      .filter({ hasText: fileCorpusName });
+    await removableCorpusRow
+      .getByRole("button", { name: `Remove ${fileCorpusName}` })
+      .click();
+    const removeDialog = page.getByRole("dialog", {
+      name: `Remove ${fileCorpusName}`,
+    });
+    await expect(removeDialog).toBeVisible();
+    await expect(
+      removeDialog.getByRole("button", { name: "Cancel" }),
+    ).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(removeDialog).toHaveCount(0);
+    await removableCorpusRow
+      .getByRole("button", { name: `Remove ${fileCorpusName}` })
+      .click();
+    await page
+      .getByRole("dialog", { name: `Remove ${fileCorpusName}` })
+      .getByRole("button", { name: "Remove corpus", exact: true })
+      .click();
+    await expect(page.locator(".surface-success")).toContainText(
+      `${fileCorpusName} was removed from retrieval`,
+    );
+    await page.getByLabel("Status").selectOption("removed");
+    await expect(
+      page.locator(".corpus-list-row").filter({ hasText: fileCorpusName }),
+    ).toContainText("removed");
+    await page.getByLabel("Status").selectOption("active");
+    await expect(
+      page.locator(".corpus-list-row").filter({ hasText: alignmentCorpusName }),
+    ).toHaveCount(1);
+
+    expect(aiFixture.requestCount).toBeGreaterThan(0);
+    expect(consoleErrors).toEqual([]);
+  } finally {
+    await closeHarness(harness);
+    await aiFixture.close();
     await rm(fixtureDirectory, { recursive: true, force: true });
   }
 });

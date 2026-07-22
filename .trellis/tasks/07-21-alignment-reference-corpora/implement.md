@@ -25,23 +25,23 @@
       Workbench concordance corpus results, and supported responsive layouts.
 - [x] Extend stdio smoke through create/edit/restart/refine/apply, corpus import/
       search/reindex/remove, grounding, stale/rollback/idempotence, and cleanup.
-- [ ] Add real-Engine Electron E2E and screenshots at 1250x744, 1680x942, and
+- [x] Add real-Engine Electron E2E and screenshots at 1250x744, 1680x942, and
       1920x1080 with keyboard labels, no overlap/overflow, and no console errors.
-- [ ] Run focused and full local/VPS/release gates, update backend/frontend
+- [x] Run focused and full local/VPS/release gates, update backend/frontend
       executable specs, and record exact acceptance evidence before commit.
 
 ## Data-Flow Review Checklist
 
-- [ ] Document selectors -> generated RPC -> Engine snapshots -> alignment-core
+- [x] Document selectors -> generated RPC -> Engine snapshots -> alignment-core
       -> Store transaction is mapped without renderer scoring.
-- [ ] Every link member resolves to one immutable session snapshot and at most
+- [x] Every link member resolves to one immutable session snapshot and at most
       one active link; all mutations revalidate expected revisions.
-- [ ] AI provider output is bounded, strict, ID-only, and cannot confirm/apply.
-- [ ] TM apply and corpus mutations have explicit atomic and idempotent owners.
-- [ ] Corpus filters and managed copies reuse existing safety/publication helpers.
-- [ ] Concordance and grounding preserve source/file/path provenance and treat
+- [x] AI provider output is bounded, strict, ID-only, and cannot confirm/apply.
+- [x] TM apply and corpus mutations have explicit atomic and idempotent owners.
+- [x] Corpus filters and managed copies reuse existing safety/publication helpers.
+- [x] Concordance and grounding preserve source/file/path provenance and treat
       corpus content as data.
-- [ ] Every failure path leaves document, TM, corpus, operation, revision, and
+- [x] Every failure path leaves document, TM, corpus, operation, revision, and
       managed-source state unchanged or deliberately recoverable.
 
 ## Risk Files
@@ -92,18 +92,35 @@ cargo build -p translunar-engine --release --target x86_64-pc-windows-gnu
 
 ## Acceptance Evidence To Record
 
-- Alignment golden fixtures, deterministic hashes, transition/evidence scores,
-  large-input work bounds, and manual partition invariant matrices.
-- Strict AI response fixtures for accepted, unknown, duplicate, crossing,
-  oversized, malformed, unavailable, and canceled refinement.
-- TM apply row/revision/history/provenance counts across success, duplicate,
-  stale document/segment/link/library, read-only, locale mismatch, rollback,
-  restart, and retry.
-- Corpus managed-source digest, bilingual/monolingual projection, provenance,
-  search ranking, reindex equality, removal isolation, malformed import cleanup,
-  concordance, and grounding section assertions.
-- Contract/schema byte equality, stdio output, desktop screenshots/E2E, release
-  binary path/hash, and any unrelated dirty-tree caveat.
+- VPS `cargo test --workspace` passed every crate, including 14 alignment-core,
+  43 Engine, 65 storage, and 8 protocol tests. These cover golden transitions,
+  deterministic bounds, strict refinement graphs, atomic/idempotent TM apply,
+  stale/rollback matrices, corpus lifecycle, concordance, and grounding.
+- VPS `cargo fmt --all -- --check`, strict workspace Clippy, and
+  `pnpm contracts:check` passed; the latter reported `Protocol contracts are
+  current.` Backend and frontend executable contracts are recorded in
+  `.trellis/spec/backend/engine-boundary.md` and
+  `.trellis/spec/frontend/electron-workbench.md`.
+- VPS `pnpm test:e2e:engine` passed the real stdio process, including restart,
+  refinement, apply, import/search/reindex/remove, concordance, grounding,
+  malformed cleanup, stale rollback, and retry/idempotence assertions.
+- Local focused Electron E2E passed in 6.4 seconds. The full real-Engine suite
+  passed 10 tests with one platform-gated PDF test skipped in 2.0 minutes.
+  Alignment and corpus screenshots passed document overflow checks and visual
+  inspection at 1250x744, 1680x942, and 1920x1080; console/page errors were
+  empty. Unit tests passed 21/21 across six Vitest files; ESLint, desktop
+  typecheck, desktop build, and scoped Prettier checks passed.
+- VPS optimized Linux and Windows GNU Engine builds passed. The Windows binary
+  is `/home/ubuntu/workspaces/cat-alignment-core-20260722-a/target/x86_64-pc-windows-gnu/release/translunar-engine.exe`, 37,947,204 bytes,
+  SHA-256 `161441dd06cebb5a70de169900b38b815db472fb1eebb06200528d5773c10cc7`.
+  The synchronized local E2E binary has the same size and hash.
+- Local Node 24 emits the existing Node-22 engine warning. Local Rust contract
+  generation remains blocked because `link.exe` resolves to GNU `link`; the
+  same contract gate passed on VPS. Local stdio smoke reaches the Windows PDF
+  import and stops because that release binary has no local PDF toolchain; the
+  complete Linux stdio smoke passed on VPS. Full-repository Prettier also sees
+  unrelated untracked `.devin` files, so project/task paths were checked
+  directly. Approximately 125 unrelated dirty files were left untouched.
 
 ## Rollback Points
 
