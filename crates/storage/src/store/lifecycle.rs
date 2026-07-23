@@ -1454,6 +1454,7 @@ impl Store {
             ai_profile_ids,
             analysis_profile_id,
             editor_defaults: definition.editor_defaults,
+            task_package: None,
             review_required: definition.review_required.unwrap_or(true),
         };
         let project = create_project_in_transaction(

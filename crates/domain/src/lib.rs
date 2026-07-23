@@ -46,8 +46,21 @@ pub struct ProjectConfiguration {
     pub analysis_profile_id: Option<String>,
     #[serde(default)]
     pub editor_defaults: Option<EditorPreferences>,
+    #[serde(default)]
+    pub task_package: Option<TaskPackageProjectReference>,
     #[serde(default = "default_review_required")]
     pub review_required: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskPackageProjectReference {
+    pub package_id: String,
+    pub origin_project_id: String,
+    #[serde(default)]
+    pub parent_package_id: Option<String>,
+    #[serde(default)]
+    pub instructions: String,
 }
 
 impl Default for ProjectConfiguration {
@@ -60,6 +73,7 @@ impl Default for ProjectConfiguration {
             ai_profile_ids: Vec::new(),
             analysis_profile_id: None,
             editor_defaults: None,
+            task_package: None,
             review_required: true,
         }
     }

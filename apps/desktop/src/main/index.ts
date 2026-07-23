@@ -26,6 +26,7 @@ const IPC_CHANNELS = {
     "translunar:dialog:project-archive-destination",
   selectExport: "translunar:dialog:export-docx",
   selectInteropInput: "translunar:dialog:interop-input",
+  selectTaskPackageInput: "translunar:dialog:task-package-input",
   selectCorpusInput: "translunar:dialog:corpus-input",
   restartEngine: "translunar:engine:restart",
   setAiCredential: "translunar:ai:credential:set",
@@ -234,6 +235,12 @@ function registerIpc(): void {
       ) {
         return join(process.env.TRANSLUNAR_TEST_EXPORT_DIRECTORY, safeName);
       }
+      if (
+        safeName.toLocaleLowerCase().endsWith(".tltask") &&
+        process.env.TRANSLUNAR_TEST_TASK_PACKAGE_DESTINATION
+      ) {
+        return process.env.TRANSLUNAR_TEST_TASK_PACKAGE_DESTINATION;
+      }
       if (process.env.TRANSLUNAR_TEST_EXPORT_DOCX) {
         return process.env.TRANSLUNAR_TEST_EXPORT_DOCX;
       }
@@ -243,9 +250,14 @@ function registerIpc(): void {
           ? [{ name: "HTML reports", extensions: ["html"] }]
           : extension === "xlsx"
             ? [{ name: "Excel workbooks", extensions: ["xlsx"] }]
+            : extension === "tltask"
+              ? [{ name: "Offline task packages", extensions: ["tltask"] }]
             : [{ name: "Source format", extensions: [extension ?? "docx"] }];
       const result = await dialog.showSaveDialog(requireWindow(), {
-        title: "Export Translunar file",
+        title:
+          extension === "tltask"
+            ? "Export offline task package"
+            : "Export Translunar file",
         defaultPath: join(app.getPath("documents"), safeName),
         filters,
       });
@@ -280,6 +292,23 @@ function registerIpc(): void {
       return result.canceled ? null : (result.filePaths[0] ?? null);
     },
   );
+  ipcMain.handle(IPC_CHANNELS.selectTaskPackageInput, async (event) => {
+    assertTrustedSender(event);
+    if (process.env.TRANSLUNAR_TEST_TASK_PACKAGE_INPUT) {
+      return process.env.TRANSLUNAR_TEST_TASK_PACKAGE_INPUT;
+    }
+    const result = await dialog.showOpenDialog(requireWindow(), {
+      title: "Open offline task package",
+      properties: ["openFile"],
+      filters: [
+        {
+          name: "Offline task packages",
+          extensions: ["tltask"],
+        },
+      ],
+    });
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
   ipcMain.handle(IPC_CHANNELS.selectCorpusInput, async (event) => {
     assertTrustedSender(event);
     if (process.env.TRANSLUNAR_TEST_CORPUS_INPUT) {

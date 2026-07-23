@@ -32,6 +32,7 @@ export interface WorkspacePageProps {
   onRefresh(): Promise<void>;
   onOpenSegment(segmentId: string): void;
   onOpenDocument(documentId: string): Promise<void>;
+  onOpenProject(projectId: string, documentId?: string): Promise<void>;
   onReturnHome(): void;
 }
 
@@ -63,6 +64,7 @@ export function WorkspacePage(props: WorkspacePageProps) {
           document={props.document}
           onRefresh={props.onRefresh}
           onOpenDocument={props.onOpenDocument}
+          onOpenProject={props.onOpenProject}
           onReturnHome={props.onReturnHome}
         />
       ) : null}

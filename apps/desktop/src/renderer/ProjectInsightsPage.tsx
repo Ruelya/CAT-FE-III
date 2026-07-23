@@ -40,6 +40,7 @@ import {
 import { fileName, formatError } from "./workbench-utils";
 import { AlignmentCorpusPanel } from "./AlignmentCorpusPanel";
 import { InteropPanel } from "./InteropPanel";
+import { TaskPackagePanel } from "./TaskPackagePanel";
 
 type InsightsTab =
   | "overview"
@@ -47,6 +48,7 @@ type InsightsTab =
   | "reimport"
   | "alignment"
   | "interop"
+  | "task-packages"
   | "archive"
   | "history"
   | "analysis";
@@ -56,6 +58,7 @@ interface ProjectInsightsPageProps {
   document: Document;
   onRefresh(): Promise<void>;
   onOpenDocument(documentId: string): Promise<void>;
+  onOpenProject(projectId: string, documentId?: string): Promise<void>;
   onReturnHome(): void;
 }
 
@@ -81,6 +84,7 @@ const TABS: Array<{
     icon: <GitCompareArrows size={15} />,
   },
   { id: "interop", label: "Interop", icon: <Languages size={15} /> },
+  { id: "task-packages", label: "Task packages", icon: <Archive size={15} /> },
   { id: "archive", label: "Archive", icon: <Archive size={15} /> },
   { id: "history", label: "History", icon: <History size={15} /> },
   { id: "analysis", label: "Analysis", icon: <FileClock size={15} /> },
@@ -91,6 +95,7 @@ export function ProjectInsightsPage({
   document,
   onRefresh,
   onOpenDocument,
+  onOpenProject,
   onReturnHome,
 }: ProjectInsightsPageProps) {
   const projectId = snapshot.project.id;
@@ -504,6 +509,14 @@ export function ProjectInsightsPage({
             snapshot={snapshot}
             document={document}
             onRefresh={onRefresh}
+          />
+        ) : tab === "task-packages" ? (
+          <TaskPackagePanel
+            snapshot={snapshot}
+            document={document}
+            documents={documents}
+            onRefresh={onRefresh}
+            onOpenProject={onOpenProject}
           />
         ) : tab === "archive" ? (
           <ArchivePanel

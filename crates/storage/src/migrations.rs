@@ -2,7 +2,7 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use crate::{Result, StorageError};
 
-pub(crate) const LATEST_SCHEMA_VERSION: u32 = 12;
+pub(crate) const LATEST_SCHEMA_VERSION: u32 = 13;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -1338,7 +1338,133 @@ CREATE INDEX reference_corpus_entries_target_idx
     ON reference_corpus_entries(corpus_id, normalized_target, ordinal, id);
 "#;
 
-const MIGRATIONS: [(u32, &str); 12] = [
+const MIGRATION_13: &str = r#"
+CREATE TABLE task_packages (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('assignment', 'return')),
+    origin_project_id TEXT NOT NULL CHECK (length(trim(origin_project_id)) > 0),
+    working_project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+    parent_package_id TEXT REFERENCES task_packages(id) ON DELETE RESTRICT,
+    base_project_revision INTEGER NOT NULL CHECK (base_project_revision >= 0),
+    manifest_json TEXT NOT NULL CHECK (json_valid(manifest_json)),
+    manifest_hash TEXT NOT NULL CHECK (
+        length(manifest_hash) = 64
+        AND manifest_hash NOT GLOB '*[^0-9A-Fa-f]*'
+    ),
+    staged_path TEXT NOT NULL CHECK (length(trim(staged_path)) > 0),
+    status TEXT NOT NULL DEFAULT 'staged'
+        CHECK (status IN ('staged', 'imported', 'open', 'applied', 'discarded')),
+    actor TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    request_digest TEXT,
+    result_json TEXT CHECK (result_json IS NULL OR json_valid(result_json)),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    applied_at_ms INTEGER,
+    CHECK (
+        (kind = 'assignment' AND parent_package_id IS NULL)
+        OR (kind = 'return' AND parent_package_id IS NOT NULL)
+    )
+) STRICT;
+
+CREATE INDEX task_packages_origin_idx
+    ON task_packages(origin_project_id, created_at_ms DESC, id);
+CREATE INDEX task_packages_working_idx
+    ON task_packages(working_project_id, created_at_ms DESC, id);
+CREATE INDEX task_packages_parent_idx
+    ON task_packages(parent_package_id, created_at_ms DESC, id);
+
+CREATE TABLE task_package_bindings (
+    id TEXT PRIMARY KEY,
+    package_id TEXT NOT NULL REFERENCES task_packages(id) ON DELETE CASCADE,
+    local_project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    local_document_id TEXT REFERENCES documents(id) ON DELETE SET NULL,
+    local_segment_id TEXT REFERENCES segments(id) ON DELETE SET NULL,
+    origin_project_id TEXT NOT NULL CHECK (length(trim(origin_project_id)) > 0),
+    origin_document_id TEXT NOT NULL CHECK (length(trim(origin_document_id)) > 0),
+    origin_segment_id TEXT NOT NULL CHECK (length(trim(origin_segment_id)) > 0),
+    base_document_revision INTEGER NOT NULL CHECK (base_document_revision >= 0),
+    base_segment_revision INTEGER NOT NULL CHECK (base_segment_revision >= 0),
+    base_source_hash TEXT NOT NULL CHECK (length(trim(base_source_hash)) > 0),
+    base_projection_json TEXT NOT NULL CHECK (json_valid(base_projection_json)),
+    source_entry TEXT NOT NULL CHECK (length(trim(source_entry)) > 0),
+    tag_id_map_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(tag_id_map_json)),
+    comment_id_map_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(comment_id_map_json)),
+    created_at_ms INTEGER NOT NULL,
+    UNIQUE(package_id, origin_segment_id),
+    UNIQUE(local_segment_id)
+) STRICT;
+
+CREATE INDEX task_package_bindings_origin_idx
+    ON task_package_bindings(origin_project_id, origin_document_id, origin_segment_id);
+CREATE INDEX task_package_bindings_local_project_idx
+    ON task_package_bindings(local_project_id, local_document_id, local_segment_id);
+
+CREATE TABLE task_package_previews (
+    id TEXT PRIMARY KEY,
+    package_id TEXT NOT NULL REFERENCES task_packages(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('assignment', 'return')),
+    origin_project_id TEXT NOT NULL CHECK (length(trim(origin_project_id)) > 0),
+    expected_project_revision INTEGER NOT NULL CHECK (expected_project_revision >= 0),
+    status TEXT NOT NULL DEFAULT 'open'
+        CHECK (status IN ('open', 'applied', 'discarded')),
+    counts_json TEXT NOT NULL CHECK (json_valid(counts_json)),
+    diagnostics_json TEXT NOT NULL DEFAULT '[]' CHECK (
+        json_valid(diagnostics_json) AND json_type(diagnostics_json) = 'array'
+    ),
+    staged_path TEXT NOT NULL CHECK (length(trim(staged_path)) > 0),
+    request_digest TEXT,
+    result_json TEXT CHECK (result_json IS NULL OR json_valid(result_json)),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    applied_at_ms INTEGER
+) STRICT;
+
+CREATE INDEX task_package_previews_package_idx
+    ON task_package_previews(package_id, created_at_ms DESC, id);
+CREATE INDEX task_package_previews_origin_idx
+    ON task_package_previews(origin_project_id, status, updated_at_ms DESC, id);
+
+CREATE TABLE task_package_preview_rows (
+    preview_id TEXT NOT NULL REFERENCES task_package_previews(id) ON DELETE CASCADE,
+    row_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    origin_document_id TEXT NOT NULL CHECK (length(trim(origin_document_id)) > 0),
+    origin_segment_id TEXT NOT NULL CHECK (length(trim(origin_segment_id)) > 0),
+    disposition TEXT NOT NULL CHECK (disposition IN (
+        'unchanged', 'remoteChanged', 'localChanged', 'bothChanged',
+        'deleted', 'added', 'tagInvalid', 'missingDependency'
+    )),
+    reason TEXT NOT NULL,
+    safe_to_apply INTEGER NOT NULL CHECK (safe_to_apply IN (0, 1)),
+    identical_change INTEGER NOT NULL CHECK (identical_change IN (0, 1)),
+    selected INTEGER NOT NULL DEFAULT 0 CHECK (selected IN (0, 1)),
+    base_hash TEXT,
+    current_hash TEXT,
+    remote_hash TEXT,
+    current_revision INTEGER CHECK (current_revision IS NULL OR current_revision >= 0),
+    remote_revision INTEGER CHECK (remote_revision IS NULL OR remote_revision >= 0),
+    base_projection_json TEXT CHECK (
+        base_projection_json IS NULL OR json_valid(base_projection_json)
+    ),
+    current_projection_json TEXT CHECK (
+        current_projection_json IS NULL OR json_valid(current_projection_json)
+    ),
+    remote_projection_json TEXT CHECK (
+        remote_projection_json IS NULL OR json_valid(remote_projection_json)
+    ),
+    diagnostic_code TEXT,
+    PRIMARY KEY(preview_id, row_id),
+    UNIQUE(preview_id, origin_segment_id)
+) STRICT;
+
+CREATE INDEX task_package_preview_rows_order_idx
+    ON task_package_preview_rows(preview_id, ordinal, row_id);
+CREATE INDEX task_package_preview_rows_disposition_idx
+    ON task_package_preview_rows(preview_id, disposition, selected, ordinal, row_id);
+"#;
+
+const MIGRATIONS: [(u32, &str); 13] = [
     (1_u32, MIGRATION_1),
     (2_u32, MIGRATION_2),
     (3_u32, MIGRATION_3),
@@ -1351,6 +1477,7 @@ const MIGRATIONS: [(u32, &str); 12] = [
     (10_u32, MIGRATION_10),
     (11_u32, MIGRATION_11),
     (12_u32, MIGRATION_12),
+    (13_u32, MIGRATION_13),
 ];
 
 pub(crate) fn configure_connection(connection: &Connection) -> Result<()> {
@@ -1414,6 +1541,10 @@ mod tests {
 
     fn create_v11(connection: &mut Connection) {
         migrate_from_to(connection, 0, 11).expect("create schema v11");
+    }
+
+    fn create_v12(connection: &mut Connection) {
+        migrate_from_to(connection, 0, 12).expect("create schema v12");
     }
 
     #[test]
@@ -1728,7 +1859,7 @@ mod tests {
     #[test]
     fn migration_12_creates_alignment_and_corpus_schema_on_fresh_database() {
         let mut connection = Connection::open_in_memory().expect("open migration database");
-        migrate(&mut connection).expect("create latest schema");
+        migrate_from_to(&mut connection, 0, 12).expect("create schema v12");
 
         let version = connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
@@ -1789,7 +1920,7 @@ mod tests {
                 .expect("insert migration segment");
         }
 
-        migrate(&mut connection).expect("upgrade to schema v12");
+        migrate_from_to(&mut connection, 11, 12).expect("upgrade to schema v12");
         connection
             .execute(
                 "INSERT INTO alignment_sessions (
@@ -1892,7 +2023,7 @@ mod tests {
     #[test]
     fn migration_12_strict_constraints_reject_invalid_rows() {
         let mut connection = Connection::open_in_memory().expect("open migration database");
-        migrate(&mut connection).expect("create latest schema");
+        migrate_from_to(&mut connection, 0, 12).expect("create schema v12");
         connection
             .execute(
                 "INSERT INTO projects (
@@ -1998,7 +2129,7 @@ mod tests {
             )
             .expect("create conflicting late migration table");
 
-        assert!(migrate(&mut connection).is_err());
+        assert!(migrate_from_to(&mut connection, 11, 12).is_err());
         let version = connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
             .expect("read rolled-back version");
@@ -2014,6 +2145,240 @@ mod tests {
                 |row| row.get::<_, i64>(0),
             )
             .expect("check rolled-back migration tables");
+        assert_eq!(new_table_count, 0);
+    }
+
+    #[test]
+    fn migration_13_creates_task_package_schema_on_fresh_database() {
+        let mut connection = Connection::open_in_memory().expect("open migration database");
+        migrate(&mut connection).expect("create latest schema");
+
+        let version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read fresh schema version");
+        assert_eq!(version, 13);
+        let tables = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name IN (
+                    'task_packages', 'task_package_bindings',
+                    'task_package_previews', 'task_package_preview_rows'
+                 )",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("count fresh task-package tables");
+        assert_eq!(tables, 4);
+    }
+
+    #[test]
+    fn migration_13_upgrades_v12_bindings_and_survives_reopen() {
+        let temp = tempfile::tempdir().expect("temporary migration directory");
+        let database = temp.path().join("translunar.sqlite3");
+        let mut connection = Connection::open(&database).expect("open v12 database");
+        create_v12(&mut connection);
+        connection
+            .execute(
+                "INSERT INTO projects (
+                    id, name, source_locale, target_locale, domain, created_at_ms, updated_at_ms
+                 ) VALUES ('task-p13', 'Task project', 'en', 'zh', 'general', 1, 1)",
+                [],
+            )
+            .expect("insert task project");
+        connection
+            .execute(
+                "INSERT INTO documents (
+                    id, project_id, name, format, source_sha256, original_source_path,
+                    managed_source_path, segment_count, imported_at_ms
+                 ) VALUES ('task-d13', 'task-p13', 'task.txt', 'txt', 'source-digest',
+                           'task.txt', 'sources/task-d13.txt', 1, 2)",
+                [],
+            )
+            .expect("insert task document");
+        connection
+            .execute(
+                "INSERT INTO segments (
+                    id, document_id, ordinal, structural_path, source_text, target_text,
+                    state, revision, source_hash, context_hash, updated_at_ms
+                 ) VALUES ('task-s13', 'task-d13', 0, 'txt:0', 'Source', 'Target',
+                           'draft', 0, 'source-hash', 'context-hash', 2)",
+                [],
+            )
+            .expect("insert task segment");
+
+        migrate(&mut connection).expect("upgrade to schema v13");
+        connection
+            .execute(
+                "INSERT INTO task_packages (
+                    id, kind, origin_project_id, working_project_id,
+                    base_project_revision, manifest_json, manifest_hash, staged_path,
+                    status, actor, reason, created_at_ms, updated_at_ms
+                 ) VALUES ('pkg-13', 'assignment', 'origin-p13', 'task-p13', 4, '{}',
+                           'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                           'tmp/pkg-13.tltask', 'imported', 'tester', 'handoff', 3, 3)",
+                [],
+            )
+            .expect("insert migrated task package");
+        connection
+            .execute(
+                "INSERT INTO task_package_bindings (
+                    id, package_id, local_project_id, local_document_id, local_segment_id,
+                    origin_project_id, origin_document_id, origin_segment_id,
+                    base_document_revision, base_segment_revision, base_source_hash,
+                    base_projection_json, source_entry, created_at_ms
+                 ) VALUES ('binding-13', 'pkg-13', 'task-p13', 'task-d13', 'task-s13',
+                           'origin-p13', 'origin-d13', 'origin-s13', 2, 7, 'source-hash',
+                           '{}', 'documents/origin-d13/source.txt', 3)",
+                [],
+            )
+            .expect("insert migrated task binding");
+        connection
+            .execute(
+                "INSERT INTO task_package_previews (
+                    id, package_id, kind, origin_project_id, expected_project_revision,
+                    counts_json, staged_path, created_at_ms, updated_at_ms
+                 ) VALUES ('preview-13', 'pkg-13', 'assignment', 'origin-p13', 4,
+                           '{\"unchanged\":1}', 'tmp/pkg-13.tltask', 3, 3)",
+                [],
+            )
+            .expect("insert migrated task preview");
+        connection
+            .execute(
+                "INSERT INTO task_package_preview_rows (
+                    preview_id, row_id, ordinal, origin_document_id, origin_segment_id,
+                    disposition, reason, safe_to_apply, identical_change, selected,
+                    base_hash, current_hash, remote_hash, current_revision, remote_revision,
+                    base_projection_json, current_projection_json, remote_projection_json
+                 ) VALUES ('preview-13', 'row-13', 0, 'origin-d13', 'origin-s13',
+                           'unchanged', 'same', 0, 0, 0, 'base', 'base', 'base', 7, 7,
+                           '{}', '{}', '{}')",
+                [],
+            )
+            .expect("insert migrated task preview row");
+        drop(connection);
+
+        let connection = Connection::open(database).expect("reopen upgraded database");
+        let version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read upgraded version");
+        assert_eq!(version, 13);
+        let binding = connection
+            .query_row(
+                "SELECT p.status, b.origin_segment_id, r.disposition
+                 FROM task_packages p
+                 JOIN task_package_bindings b ON b.package_id = p.id
+                 JOIN task_package_preview_rows r ON r.origin_segment_id = b.origin_segment_id
+                 WHERE p.id = 'pkg-13'",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .expect("read reopened task binding");
+        assert_eq!(
+            binding,
+            (
+                "imported".to_string(),
+                "origin-s13".to_string(),
+                "unchanged".to_string(),
+            )
+        );
+    }
+
+    #[test]
+    fn migration_13_strict_constraints_reject_invalid_rows() {
+        let mut connection = Connection::open_in_memory().expect("open migration database");
+        migrate(&mut connection).expect("create latest schema");
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO task_packages (
+                        id, kind, origin_project_id, base_project_revision, manifest_json,
+                        manifest_hash, staged_path, actor, reason, created_at_ms, updated_at_ms
+                     ) VALUES ('invalid-kind', 'other', 'origin', 0, '{}',
+                               'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                               'tmp/x.tltask', '', '', 1, 1)",
+                    [],
+                )
+                .is_err()
+        );
+        connection
+            .execute(
+                "INSERT INTO task_packages (
+                    id, kind, origin_project_id, base_project_revision, manifest_json,
+                    manifest_hash, staged_path, actor, reason, created_at_ms, updated_at_ms
+                 ) VALUES ('valid-13', 'assignment', 'origin', 0, '{}',
+                           'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                           'tmp/x.tltask', '', '', 1, 1)",
+                [],
+            )
+            .expect("insert valid task package");
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO task_package_previews (
+                        id, package_id, kind, origin_project_id, expected_project_revision,
+                        counts_json, staged_path, created_at_ms, updated_at_ms
+                     ) VALUES ('invalid-json', 'valid-13', 'assignment', 'origin', 0,
+                               'not-json', 'tmp/x.tltask', 1, 1)",
+                    [],
+                )
+                .is_err()
+        );
+        connection
+            .execute(
+                "INSERT INTO task_package_previews (
+                    id, package_id, kind, origin_project_id, expected_project_revision,
+                    counts_json, staged_path, created_at_ms, updated_at_ms
+                 ) VALUES ('valid-preview', 'valid-13', 'assignment', 'origin', 0,
+                           '{}', 'tmp/x.tltask', 1, 1)",
+                [],
+            )
+            .expect("insert valid task preview");
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO task_package_preview_rows (
+                        preview_id, row_id, ordinal, origin_document_id, origin_segment_id,
+                        disposition, reason, safe_to_apply, identical_change, selected
+                     ) VALUES ('valid-preview', 'invalid-row', 0, 'doc', 'segment',
+                               'conflicted', '', 0, 0, 0)",
+                    [],
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn migration_13_rolls_back_every_prior_statement_on_failure() {
+        let mut connection = Connection::open_in_memory().expect("open migration database");
+        create_v12(&mut connection);
+        connection
+            .execute(
+                "CREATE TABLE task_package_preview_rows (id TEXT PRIMARY KEY) STRICT",
+                [],
+            )
+            .expect("create conflicting late migration table");
+
+        assert!(migrate(&mut connection).is_err());
+        let version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read rolled-back version");
+        assert_eq!(version, 12);
+        let new_table_count = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name IN (
+                    'task_packages', 'task_package_bindings', 'task_package_previews'
+                 )",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("check rolled-back task-package tables");
         assert_eq!(new_table_count, 0);
     }
 }

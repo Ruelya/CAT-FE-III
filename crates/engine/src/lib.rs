@@ -133,11 +133,13 @@ use translunar_storage::{
     TermSearchRequest as StorageTermSearchRequest, TmSearchRequest as StorageTmSearchRequest,
     interop_comment_context,
 };
+use translunar_task_package_core::TaskPackageError;
 use zip::write::{SimpleFileOptions, ZipWriter};
 use zip::{CompressionMethod, ZipArchive};
 
 mod ai;
 mod qa;
+mod task_package;
 
 pub use ai::AlignmentRefinementStart;
 
@@ -166,6 +168,12 @@ pub enum EngineError {
 
     #[error("engine JSON processing failed: {0}")]
     Json(#[from] serde_json::Error),
+
+    #[error("task package validation failed: {0}")]
+    TaskPackage(#[from] TaskPackageError),
+
+    #[error("task package export failed: {0}")]
+    TaskPackageExport(String),
 
     #[error("invalid request: {0}")]
     InvalidRequest(String),
@@ -261,6 +269,14 @@ fn engine_error_code(error: &EngineError) -> &'static str {
             | AlignmentError::InvalidRefinementConfidence { .. },
         )) => "alignment_response_invalid",
         EngineError::Storage(StorageError::Alignment(_)) => "alignment_invalid_partition",
+        EngineError::TaskPackage(TaskPackageError::ResourceLimit { .. })
+        | EngineError::Storage(StorageError::TaskPackage(TaskPackageError::ResourceLimit {
+            ..
+        })) => "resource_limit",
+        EngineError::TaskPackageExport(_) => "export_error",
+        EngineError::TaskPackage(_) | EngineError::Storage(StorageError::TaskPackage(_)) => {
+            "invalid_request"
+        }
         EngineError::InvalidRequest(_) => "invalid_request",
         EngineError::InvalidState(_) => "invalid_state",
         EngineError::Io(_) | EngineError::Storage(_) => "storage_error",
@@ -5426,6 +5442,26 @@ impl RpcDispatcher {
                 self.service
                     .restore_project_archive(parse_params(request.params)?)?,
             ),
+            methods::TASK_PACKAGE_EXPORT => serialize_result(
+                self.service
+                    .export_task_package(parse_params(request.params)?)?,
+            ),
+            methods::TASK_PACKAGE_PREVIEW => serialize_result(
+                self.service
+                    .preview_task_package(parse_params(request.params)?)?,
+            ),
+            methods::TASK_PACKAGE_APPLY => serialize_result(
+                self.service
+                    .apply_task_package(parse_params(request.params)?)?,
+            ),
+            methods::TASK_PACKAGE_IMPORT => serialize_result(
+                self.service
+                    .import_task_package(parse_params(request.params)?)?,
+            ),
+            methods::TASK_PACKAGE_DISCARD => serialize_result(
+                self.service
+                    .discard_task_package(parse_params(request.params)?)?,
+            ),
             methods::DOCUMENT_LIST => {
                 serialize_result(self.service.list_documents(parse_params(request.params)?)?)
             }
@@ -5990,6 +6026,7 @@ impl RpcDispatcher {
                 "project.create-from-template".to_string(),
                 "project.batch-import".to_string(),
                 "project.archive-portable".to_string(),
+                "task-package.offline-handoff".to_string(),
                 "document.reimport".to_string(),
                 "project.recycle".to_string(),
                 "search.global".to_string(),
@@ -6155,6 +6192,40 @@ fn rpc_error(error: EngineError) -> RpcError {
         EngineError::Storage(StorageError::Alignment(_)) => RpcError {
             code: ErrorCode::AlignmentInvalidPartition,
             message: "alignment partition is invalid".to_string(),
+            data: None,
+        },
+        EngineError::TaskPackage(TaskPackageError::ResourceLimit {
+            resource,
+            limit,
+            actual,
+        })
+        | EngineError::Storage(StorageError::TaskPackage(TaskPackageError::ResourceLimit {
+            resource,
+            limit,
+            actual,
+        })) => RpcError {
+            code: ErrorCode::ResourceLimit,
+            message: "task package exceeds a configured resource limit".to_string(),
+            data: Some(json!({
+                "resource": resource,
+                "limit": limit,
+                "actual": actual,
+            })),
+        },
+        EngineError::TaskPackage(TaskPackageError::InvalidInput(message))
+        | EngineError::TaskPackage(TaskPackageError::InvalidPackage(message)) => RpcError {
+            code: ErrorCode::InvalidRequest,
+            message,
+            data: None,
+        },
+        EngineError::Storage(StorageError::TaskPackage(error)) => RpcError {
+            code: ErrorCode::InvalidRequest,
+            message: error.to_string(),
+            data: None,
+        },
+        EngineError::TaskPackageExport(message) => RpcError {
+            code: ErrorCode::ExportError,
+            message,
             data: None,
         },
         EngineError::Storage(StorageError::NotFound { entity, id }) => RpcError {

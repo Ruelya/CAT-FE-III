@@ -43,6 +43,7 @@ mod ai;
 mod alignment;
 mod lifecycle;
 mod qa;
+mod task_package;
 pub use ai::{
     AiProviderProfileUpdate, AiSettingsUpdate, NewAiBatchItem, NewAiBatchRun, NewAiProviderProfile,
     NewAiRun,
@@ -67,6 +68,7 @@ pub use lifecycle::{
     ProjectTemplateRecord, RecycleEntryRecord, ReimportPreviewRecord,
 };
 pub use qa::{NewQaProfile, QaIssueFilter, QaProfileUpdate};
+pub use task_package::*;
 
 const NUMBER_RULE_ID: &str = "number-mismatch";
 const NUMBER_RULE_MESSAGE: &str = "Source and target numbers do not match.";
@@ -6232,12 +6234,33 @@ pub(super) fn create_project_in_transaction(
     domain: &str,
     configuration: ProjectConfiguration,
 ) -> Result<Project> {
+    create_project_with_id_in_transaction(
+        transaction,
+        &new_id(),
+        name,
+        source_locale,
+        target_locale,
+        domain,
+        configuration,
+    )
+}
+
+pub(super) fn create_project_with_id_in_transaction(
+    transaction: &Transaction<'_>,
+    project_id: &str,
+    name: &str,
+    source_locale: &str,
+    target_locale: &str,
+    domain: &str,
+    configuration: ProjectConfiguration,
+) -> Result<Project> {
+    require_nonempty("project id", project_id)?;
     require_nonempty("project name", name)?;
     require_nonempty("source locale", source_locale)?;
     require_nonempty("target locale", target_locale)?;
     let now = now_ms();
     let project = Project {
-        id: new_id(),
+        id: project_id.to_string(),
         name: name.trim().to_string(),
         source_locale: source_locale.trim().to_string(),
         target_locale: target_locale.trim().to_string(),

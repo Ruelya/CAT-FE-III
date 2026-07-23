@@ -1924,3 +1924,194 @@ let session = protocol_alignment_session(store.get_alignment_session(session_id)
 // The projection decodes only terminal_result_json["result"] and maps evidence.
 serialize_result(session)
 ```
+
+## Offline Task Package Boundary
+
+### 1. Scope / Trigger
+
+Use this contract for offline `.tltask` assignment export, detached task
+import, return export, three-way preview, selected merge, or discard. The ZIP
+is a bounded transport artifact, never a live database. Rust owns ZIP parsing,
+canonical JSON and hashes, identity binding, classifications, revision checks,
+transactions, and history. Electron owns trusted dialogs and presentation.
+
+### 2. Signatures
+
+Protocol v1 exposes five additive methods:
+
+```text
+taskPackage.export  TaskPackageExportParams  -> TaskPackageResult
+taskPackage.preview TaskPackagePreviewParams -> TaskPackagePreviewResult
+taskPackage.import  TaskPackageImportParams  -> TaskPackageImportResult
+taskPackage.apply   TaskPackageApplyParams   -> TaskPackageApplyResult
+taskPackage.discard TaskPackageDiscardParams -> TaskPackageDiscardResult
+```
+
+Assignment export requires `projectId`, `expectedProjectRevision`, one to 50
+`documents` with optional explicit `segmentIds`, optional explicit TM/termbase
+`assetSlices`, `destinationPath`, `actor`, and `reason`. Return export instead
+requires `workingProjectId` and `parentPackageId`; assignment-only fields are
+rejected. Preview requires exactly one of `packagePath` or `previewId` plus a
+bounded `offset`/`limit`. Import requires an assignment `previewId`. Apply is:
+
+```text
+TaskPackageApplyParams {
+  previewId,
+  expectedProjectRevision,
+  selectedRowIds,
+  actor,
+  reason
+}
+```
+
+There is deliberately no public `requestDigest`. Storage derives and persists
+the apply fingerprint inside the same write boundary from the preview ID,
+expected project revision, sorted unique row IDs, actor, and reason.
+
+Migration 13 adds `task_packages`, `task_package_bindings`,
+`task_package_previews`, and `task_package_preview_rows`. The Store entry points
+are `snapshot_task_package_assignment`, `snapshot_task_package_return`,
+`create_task_package_assignment_preview`,
+`create_task_package_return_preview`, `import_task_package_assignment`,
+`list_task_package_preview_rows`, `apply_task_package`, and
+`discard_task_package`.
+
+### 3. Contracts
+
+- Format version 1 uses canonical `manifest.json`. `manifestHash` is SHA-256
+  over the manifest with that field cleared. Every payload entry has a safe
+  slash-separated relative path, byte count, and SHA-256. Projection hashes
+  cover editable content and stable origin identity but intentionally ignore
+  revision metadata; revisions are checked independently.
+- Assignment packages contain immutable managed source bytes, selected base
+  projections, instructions, and only explicitly requested asset rows. Return
+  packages resolve origin identities exclusively through immutable bindings
+  and contain only changed bound projections plus their durable base.
+- Readers reject traversal/absolute/Windows paths, duplicate names, ZIP64,
+  encryption, unsupported compression, more than 2,048 entries, path depth
+  over 8, compression ratio over 1,000, missing/unlisted payloads, and hash or
+  manifest mismatch before Store mutation. Publication uses a temporary file,
+  full revalidation, fsync, and no-clobber persistence.
+- Limits are 50 documents, 100,000 segments, 100 MiB per entry, 500 MiB total
+  uncompressed payload, 64 MiB manifest, 10,000 asset rows, 1,000 comments per
+  projection, 1 MiB per text field, and 256 KiB instructions.
+- Assignment import generates new local project/document/segment IDs and one
+  immutable binding per selected origin segment. Managed sources are staged
+  under `sources/`; the project stores a non-secret task-package reference and
+  imported asset slices are local read-only snapshots.
+- Return preview persists all rows, counts, hashes, projections, diagnostics,
+  and expected project/document/segment revisions. Dispositions are
+  `unchanged`, `remoteChanged`, `localChanged`, `bothChanged`, `deleted`,
+  `added`, `tagInvalid`, and `missingDependency`. Only `remoteChanged` and an
+  identical `bothChanged` row have `safeToApply=true`.
+- Apply accepts one to 100,000 unique explicit row IDs. One Immediate
+  transaction rechecks preview/package state, project and document revisions,
+  each current segment revision/hash, immutable source/path identity, and
+  protected tags before any row write. It then applies target/tags/workflow/
+  comments through existing rules, sinks confirmed targets through existing TM
+  semantics, updates revisions, records operation/editor history, marks the
+  preview/package terminal, and stores the result and internal digest.
+- A byte-identical retry of an applied import or merge returns its stored
+  result after restart. A retry whose internally derived digest differs is
+  `invalid_state`. Failed preview/import/apply leaves authoritative content
+  unchanged and keeps open staging retryable. Explicit discard first marks the
+  package and all open previews discarded, commits audit state, then removes
+  their workspace-local staged files.
+- Logs, errors, and history may contain bounded IDs, hashes, counts, paths, and
+  reason metadata. They must not contain credentials, provider configuration,
+  full libraries, package bytes, or unbounded document text.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Wrong assignment/return field combination, empty actor/reason, or both/neither preview locator | `invalid_request`; no file or database write |
+| Existing `.tltask` destination | `invalid_state`/`export_error`; existing bytes remain unchanged |
+| Unsafe/duplicate/encrypted/unsupported ZIP entry, malformed canonical JSON, missing entry, or hash mismatch | `invalid_request`; preview staging is removed and no preview is stored |
+| Configured document/segment/entry/manifest/asset/comment limit exceeded | `resource_limit` with bounded `resource`, `limit`, and `actual` data |
+| Unknown package, preview, project, document, segment, or selected row | `not_found`; no write |
+| Stale project/document/segment revision | `conflict` (or `invalid_state` for a refreshed hash mismatch); preview remains retryable |
+| Selected `localChanged`, divergent `bothChanged`, deleted, added, tag-invalid, or missing-dependency row | `invalid_state`; no selected row is applied |
+| Import source/binding mismatch or source identity changed in a detached task | `invalid_state`; no partial project/source/binding residue |
+| Late SQLite/editor/comment/TM failure | Entire Immediate transaction rolls back; preview/package stays open |
+| Replay of terminal preview with same/different internal digest | Return stored result / `invalid_state`, respectively; never duplicate history, comments, or TM |
+| Discard of imported/applied package or mismatched preview/package | `invalid_state`; terminal state and files remain intact |
+
+### 5. Good / Base / Bad Cases
+
+- Good: export a bounded assignment, import it as a detached project, edit a
+  bound target, export a return, preview one `remoteChanged` row, apply it,
+  restart, and replay the same terminal result with the same operation ID.
+- Good: page a return whose safe rows span pages, select explicit row IDs,
+  preserve an unselected local edit, and apply only the selected safe rows.
+- Base: an unchanged assignment or all-conflict return remains inspectable and
+  pageable with no enabled merge; explicit discard removes its staging.
+- Bad: mount the ZIP as SQLite, use local IDs in a return, trust a renderer
+  hash, infer conflicts in TypeScript, apply rows one transaction at a time, or
+  overwrite an existing destination.
+
+### 6. Tests Required
+
+- `task-package-core` unit tests assert canonical key ordering, manifest/path/
+  limit validation, revision-independent projection hashes, and every
+  disposition including identical and divergent dual edits.
+- Migration/storage tests assert schema 13 fresh/upgrade/reopen/STRICT/late-
+  failure rollback, binding uniqueness, assignment import atomicity, durable
+  paging, every classification, selected atomic merge, comment/tag/workflow/TM
+  invariants, unselected local-edit preservation, discard, and restart
+  idempotence.
+- Engine tests assert assignment and return payload shapes, explicit asset
+  slices, ZIP path/encryption/compression/ratio/size/count failures, tamper,
+  missing/duplicate entries, no-clobber publication, staging cleanup, and
+  dispatch/error mapping. Generated schema and TypeScript must be byte-equal.
+- The real stdio smoke covers export/preview/import/return, the conflict matrix,
+  stale/tamper/no-clobber/rollback, restart, and idempotent terminal replay.
+- Real-Engine Electron E2E covers trusted dialogs, paging, cross-page safe
+  selection, audit/export guards, retry after stale apply, terminal states,
+  accessibility, no console/page errors, and horizontal containment at
+  1250x744, 1680x942, and 1920x1080.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```typescript
+const requestDigest = await hash({ previewId, selectedRowIds });
+await window.translunar.invoke("taskPackage.apply", {
+  previewId,
+  selectedRowIds,
+  requestDigest,
+});
+```
+
+#### Correct
+
+```typescript
+await window.translunar.invoke("taskPackage.apply", {
+  previewId: preview.previewId,
+  expectedProjectRevision: preview.expectedProjectRevision,
+  selectedRowIds: [...selectedRows],
+  actor: actor.trim(),
+  reason: reason.trim(),
+});
+// Storage canonicalizes this request and derives the idempotency digest.
+```
+
+#### Wrong
+
+```rust
+for row in selected_rows {
+    store.apply_one_task_package_row(row)?;
+}
+```
+
+#### Correct
+
+```rust
+let transaction = connection.transaction_with_behavior(
+    rusqlite::TransactionBehavior::Immediate,
+)?;
+validate_complete_task_package_selection(&transaction, &selected_rows)?;
+apply_complete_task_package_selection(&transaction, &selected_rows)?;
+transaction.commit()?;
+```

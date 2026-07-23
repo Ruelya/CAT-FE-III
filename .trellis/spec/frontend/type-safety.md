@@ -51,3 +51,17 @@ components.
 - No non-null assertion for user/engine data; handle the absent case.
 - No duplicate `Segment`/`QaIssue` declarations in renderer code.
 - No converting errors to `String` until the display boundary.
+
+## Task Package Contracts
+
+Use `TaskPackagePreviewResult`, `TaskPackagePreviewRow`,
+`TaskPackageDisposition`, and the generated method map for every package
+surface. `TaskPackageApplyParams` contains only the preview ID, expected
+project revision, selected row IDs, actor, and reason; do not add a local
+`requestDigest` field or hash helper. `selectTaskPackageInput` returns
+`string | null` and is the only renderer path for selecting a package file.
+
+Keep `TaskPackageMode` and busy/terminal state as finite unions. Render
+optional projections with explicit fallback branches and pass Engine row IDs
+unchanged; do not duplicate protocol interfaces or reinterpret disposition
+strings in a second decoder.

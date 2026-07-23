@@ -12,6 +12,7 @@ const IPC_CHANNELS = {
     "translunar:dialog:project-archive-destination",
   selectExport: "translunar:dialog:export-docx",
   selectInteropInput: "translunar:dialog:interop-input",
+  selectTaskPackageInput: "translunar:dialog:task-package-input",
   selectCorpusInput: "translunar:dialog:corpus-input",
   restartEngine: "translunar:engine:restart",
   setAiCredential: "translunar:ai:credential:set",
@@ -38,6 +39,8 @@ const api: DesktopApi = {
     electron.ipcRenderer.invoke(IPC_CHANNELS.selectExport, suggestedName),
   selectInteropInput: (kind) =>
     electron.ipcRenderer.invoke(IPC_CHANNELS.selectInteropInput, kind),
+  selectTaskPackageInput: () =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.selectTaskPackageInput),
   selectCorpusInput: () =>
     electron.ipcRenderer.invoke(IPC_CHANNELS.selectCorpusInput),
   resolveDroppedPaths: (files) =>

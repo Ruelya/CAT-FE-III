@@ -44,6 +44,8 @@ interface HarnessOptions {
   interopExportPath?: string;
   interopReviewInput?: string;
   interopTableInput?: string;
+  taskPackageInput?: string;
+  taskPackageDestination?: string;
 }
 
 async function launchHarness(
@@ -107,6 +109,15 @@ async function launchHarness(
         : {}),
       ...(options.interopTableInput
         ? { TRANSLUNAR_TEST_TABLE_INPUT: options.interopTableInput }
+        : {}),
+      ...(options.taskPackageInput
+        ? { TRANSLUNAR_TEST_TASK_PACKAGE_INPUT: options.taskPackageInput }
+        : {}),
+      ...(options.taskPackageDestination
+        ? {
+            TRANSLUNAR_TEST_TASK_PACKAGE_DESTINATION:
+              options.taskPackageDestination,
+          }
         : {}),
       TRANSLUNAR_AI_TEST_MODE: "1",
       TRANSLUNAR_AI_TEST_CREDENTIAL: "desktop-ai-secret",
@@ -252,6 +263,18 @@ async function captureResponsiveSurface(
         `${label}-${viewport.width}x${viewport.height}.png`,
       ),
     });
+  }
+}
+
+async function expectNamedControls(page: Page, selector: string): Promise<void> {
+  const controls = page.locator(
+    `${selector} button, ${selector} input, ${selector} textarea, ${selector} select`,
+  );
+  for (let index = 0; index < (await controls.count()); index += 1) {
+    const control = controls.nth(index);
+    if (await control.isVisible()) {
+      await expect(control).toHaveAccessibleName(/\S/u);
+    }
   }
 }
 
@@ -1869,6 +1892,336 @@ test("applies review DOCX and a bilingual table through Project Insights", async
     expect(consoleErrors).toEqual([]);
   } finally {
     await closeHarness(harness);
+    await rm(fixtureDirectory, { recursive: true, force: true });
+  }
+});
+
+test("hands off an offline task package between real Engine workspaces", async ({
+  browserName,
+}, testInfo) => {
+  expect(browserName).toBe("chromium");
+  test.setTimeout(120_000);
+  const fixtureDirectory = mkdtempSync(
+    join(tmpdir(), "translunar-task-package-ui-"),
+  );
+  const sourcePath = join(fixtureDirectory, "task-owner.txt");
+  const assignmentPath = join(fixtureDirectory, "desktop-assignment.tltask");
+  const returnPath = join(fixtureDirectory, "desktop-return.tltask");
+  writeFileSync(
+    sourcePath,
+    `${Array.from(
+      { length: 26 },
+      (_, index) => `Desktop task source ${index + 1}.`,
+    ).join("\n\n")}\n`,
+    "utf8",
+  );
+  const owner = await launchHarness("task-package-owner", {
+    source: sourcePath,
+    taskPackageInput: returnPath,
+    taskPackageDestination: assignmentPath,
+  });
+  let recipient: ElectronHarness | null = null;
+  try {
+    await importFixture(owner.page, "task-owner.txt");
+    const ownerIds = await owner.page.evaluate(async () => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      const projects = await api.invoke("project.list", {
+        lifecycle: "active",
+        offset: 0,
+        limit: 20,
+      });
+      const project = projects.items[0];
+      if (!project) throw new Error("Task package owner project is missing.");
+      const snapshot = await api.invoke("project.get", {
+        projectId: project.id,
+      });
+      const document = snapshot.documents[0];
+      if (!document) throw new Error("Task package owner document is missing.");
+      const segments = await api.invoke("segment.list", {
+        documentId: document.id,
+        offset: 0,
+        limit: 20,
+      });
+      const first = segments.items[0];
+      const second = segments.items[1];
+      if (!first || !second) {
+        throw new Error("Task package owner segments are missing.");
+      }
+      return {
+        projectId: project.id,
+        documentId: document.id,
+        firstSegmentId: first.id,
+        secondSegmentId: second.id,
+        secondSegmentRevision: second.revision,
+      };
+    });
+
+    await openApplicationMenu(owner.page);
+    await owner.page.getByRole("button", { name: "Project insights" }).click();
+    await owner.page.getByRole("tab", { name: "Task packages" }).click();
+    await expect(
+      owner.page.getByRole("heading", { name: "Create an assignment package" }),
+    ).toBeVisible();
+    await owner.page
+      .getByLabel("Instructions for recipient")
+      .fill("Translate this assignment without the owner workspace.");
+    await owner.page
+      .getByRole("button", { name: "Choose .tltask destination" })
+      .click();
+    await expect(
+      owner.page.getByText("desktop-assignment.tltask", { exact: true }),
+    ).toBeVisible();
+    const assignmentExport = owner.page.getByRole("button", {
+      name: "Export assignment",
+    });
+    const actorInput = owner.page.getByLabel("Actor");
+    const reasonInput = owner.page.getByLabel("Reason");
+    await actorInput.fill("");
+    await expect(assignmentExport).toBeDisabled();
+    await actorInput.fill("Desktop task owner");
+    await reasonInput.fill("");
+    await expect(assignmentExport).toBeDisabled();
+    await reasonInput.fill("Delegate the bounded desktop assignment");
+    const addSlice = owner.page.getByRole("button", { name: "Add slice" });
+    await expect(addSlice).toBeEnabled();
+    await addSlice.click();
+    await expect(assignmentExport).toBeDisabled();
+    await expect(owner.page.getByRole("alert")).toContainText(
+      "Every added asset slice",
+    );
+    await owner.page.getByLabel("Asset slice 1 row IDs").fill("fixture-row-id");
+    await expect(assignmentExport).toBeEnabled();
+    await owner.page
+      .getByRole("button", { name: "Remove asset slice 1" })
+      .click();
+    await expectNamedControls(owner.page, ".task-package-layout");
+    await assignmentExport.click();
+    await expect(owner.page.locator(".task-package-feedback")).toContainText(
+      "Assignment package",
+    );
+    expect(statSync(assignmentPath).size).toBeGreaterThan(0);
+
+    recipient = await launchHarness("task-package-recipient", {
+      taskPackageInput: assignmentPath,
+      taskPackageDestination: returnPath,
+    });
+    await importFixture(recipient.page);
+    await openApplicationMenu(recipient.page);
+    await recipient.page
+      .getByRole("button", { name: "Project insights" })
+      .click();
+    await recipient.page.getByRole("tab", { name: "Task packages" }).click();
+    await recipient.page.getByRole("tab", { name: "Open package" }).click();
+    await recipient.page.getByRole("button", { name: "Open .tltask" }).click();
+    await expect(
+      recipient.page.getByText("desktop-assignment.tltask", { exact: true }),
+    ).toBeVisible();
+    await recipient.page
+      .getByRole("button", { name: "Preview package" })
+      .click();
+    await expect(
+      recipient.page.getByRole("heading", { name: "Engine classifications" }),
+    ).toBeVisible();
+    await expect(recipient.page.locator(".task-package-row")).toHaveCount(25);
+    await expect(recipient.page.locator(".task-package-pagination")).toContainText(
+      "1-25 of 26",
+    );
+    await expectNamedControls(recipient.page, ".task-package-layout");
+    await captureResponsiveSurface(
+      recipient,
+      testInfo,
+      "task-package-assignment",
+    );
+    await recipient.page.getByRole("button", { name: "Next" }).click();
+    await expect(recipient.page.locator(".task-package-row")).toHaveCount(1);
+    await expect(recipient.page.locator(".task-package-pagination")).toContainText(
+      "26-26 of 26",
+    );
+    await recipient.page.getByRole("button", { name: "Previous" }).click();
+    await recipient.page
+      .getByLabel("Detached project name")
+      .fill("Desktop detached task");
+    await recipient.page
+      .getByRole("button", { name: "Import detached task" })
+      .click();
+    await expect(
+      recipient.page.getByText("Detached task project is ready"),
+    ).toBeVisible();
+    await expect(
+      recipient.page.getByRole("button", { name: "Import detached task" }),
+    ).toBeDisabled();
+    await expect(
+      recipient.page.getByRole("button", { name: "Discard staged package" }),
+    ).toBeDisabled();
+    await recipient.page
+      .getByRole("button", { name: "Open task project" })
+      .click();
+    await expect(
+      recipient.page.getByRole("region", { name: "Translation segments" }),
+    ).toBeVisible();
+    const returnedTarget = "Returned through the desktop task package flow.";
+    await recipient.page.evaluate(async (targetText) => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      const projects = await api.invoke("project.list", {
+        lifecycle: "active",
+        offset: 0,
+        limit: 20,
+      });
+      const taskProject = projects.items.find(
+        (project) => project.configuration.taskPackage !== null && project.configuration.taskPackage !== undefined,
+      );
+      if (!taskProject) throw new Error("Detached task project is missing.");
+      const snapshot = await api.invoke("project.get", {
+        projectId: taskProject.id,
+      });
+      const document = snapshot.documents[0];
+      if (!document) throw new Error("Detached task document is missing.");
+      const page = await api.invoke("segment.list", {
+        documentId: document.id,
+        offset: 0,
+        limit: 20,
+      });
+      const segment = page.items[0];
+      if (!segment) throw new Error("Detached task segment is missing.");
+      await api.invoke("segment.updateTarget", {
+        segmentId: segment.id,
+        targetText,
+        expectedRevision: segment.revision,
+      });
+    }, returnedTarget);
+    await openApplicationMenu(recipient.page);
+    await recipient.page
+      .getByRole("button", { name: "Project insights" })
+      .click();
+    await recipient.page.getByRole("tab", { name: "Task packages" }).click();
+    await recipient.page.getByRole("tab", { name: "Export return" }).click();
+    await expect(
+      recipient.page.getByRole("heading", { name: "Export a return package" }),
+    ).toBeVisible();
+    await recipient.page
+      .getByRole("button", { name: "Choose .tltask destination" })
+      .click();
+    await recipient.page
+      .getByRole("button", { name: "Export return" })
+      .click();
+    await expect(recipient.page.locator(".task-package-feedback")).toContainText(
+      "Return package",
+    );
+    expect(statSync(returnPath).size).toBeGreaterThan(0);
+
+    await owner.page.getByRole("tab", { name: "Open package" }).click();
+    await owner.page.getByRole("button", { name: "Open .tltask" }).click();
+    await owner.page.getByRole("button", { name: "Preview package" }).click();
+    const ownerPreview = owner.page.locator(".task-package-preview");
+    await expect(ownerPreview).toContainText("Remote changed");
+    await expect(ownerPreview.locator(".task-package-row")).toHaveCount(25);
+    await expect(ownerPreview.locator(".task-package-pagination")).toContainText(
+      "1-25 of 26",
+    );
+    await ownerPreview
+      .getByRole("button", { name: "Select safe on page" })
+      .click();
+    await ownerPreview.getByRole("button", { name: "Next" }).click();
+    await expect(ownerPreview.locator(".task-package-row")).toHaveCount(1);
+    await expect(
+      ownerPreview.getByRole("button", { name: "Apply 1" }),
+    ).toBeEnabled();
+
+    const localTarget = "Owner edit retained while retrying the return merge.";
+    await owner.page.evaluate(
+      async ({ projectId, segmentId, expectedRevision, targetText }) => {
+        const api = (window as unknown as { translunar: DesktopApi }).translunar;
+        const snapshot = await api.invoke("project.get", { projectId });
+        await api.invoke("project.update", {
+          projectId,
+          name: snapshot.project.name,
+          sourceLocale: snapshot.project.sourceLocale,
+          targetLocale: snapshot.project.targetLocale,
+          domain: `${snapshot.project.domain}-updated`,
+          configuration: snapshot.project.configuration,
+          expectedRevision: snapshot.project.revision,
+          actor: "Desktop stale-state fixture",
+        });
+        await api.invoke("segment.updateTarget", {
+          segmentId,
+          targetText,
+          expectedRevision,
+        });
+      },
+      {
+        projectId: ownerIds.projectId,
+        segmentId: ownerIds.secondSegmentId,
+        expectedRevision: ownerIds.secondSegmentRevision,
+        targetText: localTarget,
+      },
+    );
+
+    await ownerPreview.getByRole("button", { name: "Apply 1" }).click();
+    let applyDialog = owner.page.getByRole("dialog", {
+      name: "Apply selected rows?",
+    });
+    await applyDialog.getByRole("button", { name: "Apply merge" }).click();
+    await expect(owner.page.getByRole("alert")).toContainText(
+      /revision|conflict|modified/iu,
+    );
+    await expect(
+      ownerPreview.getByRole("button", { name: "Apply 1" }),
+    ).toBeEnabled();
+
+    await owner.page.getByRole("button", { name: "Preview package" }).click();
+    await expect(ownerPreview).toContainText("Remote changed");
+    await expect(ownerPreview).toContainText("Local changed");
+    await ownerPreview
+      .getByRole("button", { name: "Select safe on page" })
+      .click();
+    await ownerPreview.getByRole("button", { name: "Next" }).click();
+    await expect(
+      ownerPreview.getByRole("button", { name: "Apply 1" }),
+    ).toBeEnabled();
+    await ownerPreview.getByRole("button", { name: "Apply 1" }).click();
+    applyDialog = owner.page.getByRole("dialog", {
+      name: "Apply selected rows?",
+    });
+    await expect(applyDialog).toHaveAttribute("aria-modal", "true");
+    await applyDialog.getByRole("button", { name: "Apply merge" }).click();
+    await expect(owner.page.locator(".task-package-feedback")).toContainText(
+      "Applied 1 selected row",
+    );
+    await expect(
+      ownerPreview.getByRole("button", { name: "Apply 1" }),
+    ).toBeDisabled();
+    await expect(
+      ownerPreview.getByRole("button", { name: "Discard staged package" }),
+    ).toBeDisabled();
+    await ownerPreview.getByRole("button", { name: "Previous" }).click();
+    await expect(ownerPreview.locator(".task-package-row")).toHaveCount(25);
+    await expectNamedControls(owner.page, ".task-package-layout");
+    await captureResponsiveSurface(owner, testInfo, "task-package-return");
+
+    const ownerTargets = await owner.page.evaluate(
+      async ({ documentId, firstSegmentId, secondSegmentId }) => {
+        const api = (window as unknown as { translunar: DesktopApi }).translunar;
+        const page = await api.invoke("segment.list", {
+          documentId,
+          offset: 0,
+          limit: 30,
+        });
+        return {
+          first: page.items.find((segment) => segment.id === firstSegmentId)
+            ?.targetText,
+          second: page.items.find((segment) => segment.id === secondSegmentId)
+            ?.targetText,
+        };
+      },
+      ownerIds,
+    );
+    expect(ownerTargets.first).toBe(returnedTarget);
+    expect(ownerTargets.second).toBe(localTarget);
+    expect(owner.consoleErrors).toEqual([]);
+    expect(recipient.consoleErrors).toEqual([]);
+  } finally {
+    if (recipient) await closeHarness(recipient);
+    await closeHarness(owner);
     await rm(fixtureDirectory, { recursive: true, force: true });
   }
 });

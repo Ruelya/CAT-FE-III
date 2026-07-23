@@ -55,3 +55,17 @@ translation state, or revision numbers from only the visible/filtered rows.
 - No state update after an unmounted async request without an owner guard.
 - No duplicate reducer logic in rendering branches; action transitions belong
   in one reducer or explicit callback.
+
+## Task Package State
+
+`TaskPackagePanel` owns only transient mode, paths, actor/reason fields, busy
+state, page-local row selection, and confirmation visibility. Engine results
+own package identity, status, counts, diagnostics, projections, hashes, and
+revisions. Keep selected row IDs in a set across page requests; merge the
+returned page's `selected` flags without dropping selections from other pages.
+
+Treat every preview status other than `open` as terminal. A failed apply keeps
+the current preview and selection; a successful apply replaces the status from
+the result and reloads the project snapshot. Never persist package bytes,
+source/target projections, or an apply digest in `localStorage`, and never
+optimistically change a project/document revision.

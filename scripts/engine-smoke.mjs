@@ -1776,6 +1776,7 @@ async function main() {
         pptxOutput.includes(Buffer.from("fixture-png")),
       "PPTX export should translate text and preserve SmartArt/media",
     );
+    await exerciseTaskPackageWorkflow(processHandle, binary, dataDirectory);
     console.log(`Engine smoke passed: ${outputPath}; backup: ${backupPath}`);
   } finally {
     await processHandle?.stop();
@@ -3730,6 +3731,296 @@ async function verifyLifecycleAfterRestart(processHandle, evidence) {
   );
 }
 
+async function exerciseTaskPackageWorkflow(owner, binary, ownerDataDirectory) {
+  const recipientDataDirectory = mkdtempSync(
+    join(tmpdir(), "translunar-task-recipient-"),
+  );
+  const transferDirectory = mkdtempSync(
+    join(tmpdir(), "translunar-task-transfer-"),
+  );
+  const sourcePath = join(ownerDataDirectory, "task-package-source.txt");
+  const assignmentPath = join(transferDirectory, "assignment.tltask");
+  const tamperedPath = join(transferDirectory, "assignment-tampered.tltask");
+  const returnPath = join(transferDirectory, "return.tltask");
+  let recipient;
+  try {
+    writeFileSync(
+      sourcePath,
+      "One base row.\n\nTwo base row.\n\nThree base row.\n\nFour base row.\n\nFive base row.",
+      "utf8",
+    );
+    const ownerProject = await owner.call("project.create", {
+      name: "Offline task owner",
+      sourceLocale: "en-US",
+      targetLocale: "zh-CN",
+      domain: "offline-task-smoke",
+    });
+    const ownerDocument = await owner.call("document.import", {
+      projectId: ownerProject.id,
+      sourcePath,
+      relativePath: "task-package/source.txt",
+      filterId: "builtin.txt",
+      options: { segmentationMode: "paragraph" },
+    });
+    const ownerSegments = await owner.call("segment.list", {
+      documentId: ownerDocument.document.id,
+      offset: 0,
+      limit: 50,
+    });
+    assert(ownerSegments.items.length === 5, "task package fixture should have five rows");
+    const ownerSnapshot = await owner.call("project.get", {
+      projectId: ownerProject.id,
+    });
+    const assignment = await owner.call("taskPackage.export", {
+      kind: "assignment",
+      projectId: ownerProject.id,
+      expectedProjectRevision: ownerSnapshot.project.revision,
+      documents: [
+        {
+          documentId: ownerDocument.document.id,
+          segmentIds: ownerSegments.items.map((segment) => segment.id),
+        },
+      ],
+      assetSlices: [],
+      instructions: "Translate the bounded offline task.",
+      destinationPath: assignmentPath,
+      actor: "engine-smoke-owner",
+      reason: "Create task package smoke assignment",
+    });
+    assert(assignment.kind === "assignment", "assignment package kind should be stable");
+    assert(existsSync(assignmentPath), "assignment package should be published");
+    await assertRpcError(
+      () =>
+        owner.call("taskPackage.export", {
+          kind: "assignment",
+          projectId: ownerProject.id,
+          expectedProjectRevision: ownerSnapshot.project.revision,
+          documents: [
+            {
+              documentId: ownerDocument.document.id,
+              segmentIds: ownerSegments.items.map((segment) => segment.id),
+            },
+          ],
+          destinationPath: assignmentPath,
+          actor: "engine-smoke-owner",
+          reason: "Reject destination overwrite",
+        }),
+      "invalid_state",
+      "task package export should be no-clobber",
+    );
+
+    const assignmentEntries = readZipEntries(readFileSync(assignmentPath));
+    const instructionsEntry = assignmentEntries.findIndex(
+      ([name]) => name === "instructions.txt",
+    );
+    assert(instructionsEntry >= 0, "assignment should contain instructions");
+    assignmentEntries[instructionsEntry][1] = Buffer.from(
+      "tampered instructions",
+      "utf8",
+    );
+    writeFileSync(tamperedPath, makeZip(assignmentEntries));
+
+    recipient = await EngineProcess.start(binary, recipientDataDirectory);
+    await recipient.call("engine.initialize", {
+      protocolVersion: 1,
+      client: { name: "engine-smoke-recipient", version: "0.1.0" },
+    });
+    await assertRpcError(
+      () =>
+        recipient.call("taskPackage.preview", {
+          packagePath: tamperedPath,
+          offset: 0,
+          limit: 25,
+          actor: "engine-smoke-recipient",
+          reason: "Reject tampered task package",
+        }),
+      "invalid_request",
+      "tampered task package preview",
+    );
+    const assignmentPreview = await recipient.call("taskPackage.preview", {
+      packagePath: assignmentPath,
+      offset: 0,
+      limit: 25,
+      actor: "engine-smoke-recipient",
+      reason: "Preview valid task package",
+    });
+    assert(
+        assignmentPreview.kind === "assignment" &&
+        assignmentPreview.total === 5 &&
+        assignmentPreview.rows.length === 5,
+      "assignment preview should persist all selected rows",
+    );
+    const importedTask = await recipient.call("taskPackage.import", {
+      previewId: assignmentPreview.previewId,
+      projectName: "Offline recipient task",
+      domain: "offline-task-smoke",
+      actor: "engine-smoke-recipient",
+      reason: "Import task package",
+    });
+    assert(
+      importedTask.bindingCount === 5 && importedTask.documents.length === 1,
+      "assignment import should create all origin bindings",
+    );
+    const importedAgain = await recipient.call("taskPackage.import", {
+      previewId: assignmentPreview.previewId,
+      projectName: "Offline recipient task",
+      domain: "offline-task-smoke",
+      actor: "engine-smoke-recipient",
+      reason: "Retry task package import",
+    });
+    assert(
+      importedAgain.project.id === importedTask.project.id,
+      "assignment import should be idempotent before and after restart",
+    );
+    await recipient.restart();
+    await recipient.call("engine.initialize", {
+      protocolVersion: 1,
+      client: { name: "engine-smoke-recipient", version: "0.1.0" },
+    });
+    const importedAfterRestart = await recipient.call("taskPackage.import", {
+      previewId: assignmentPreview.previewId,
+      projectName: "Offline recipient task",
+      domain: "offline-task-smoke",
+      actor: "engine-smoke-recipient",
+      reason: "Retry task package import after restart",
+    });
+    assert(
+      importedAfterRestart.project.id === importedTask.project.id,
+      "assignment import should replay the durable result after restart",
+    );
+
+    let recipientSegments = await recipient.call("segment.list", {
+      documentId: importedTask.documents[0].id,
+      offset: 0,
+      limit: 50,
+    });
+    const recipientEdit = async (index, targetText) => {
+      const current = recipientSegments.items[index];
+      const updated = await recipient.call("segment.updateTarget", {
+        segmentId: current.id,
+        targetText,
+        expectedRevision: current.revision,
+      });
+      recipientSegments.items[index] = updated;
+    };
+    await recipientEdit(0, "Remote only");
+    await recipientEdit(2, "Same change");
+    await recipientEdit(3, "Second same change");
+    const returnResult = await recipient.call("taskPackage.export", {
+      kind: "return",
+      workingProjectId: importedTask.project.id,
+      parentPackageId: assignment.packageId,
+      instructions: "Return the completed offline task.",
+      destinationPath: returnPath,
+      actor: "engine-smoke-recipient",
+      reason: "Export task return",
+    });
+    assert(returnResult.kind === "return" && existsSync(returnPath), "return package should be published");
+
+    let ownerCurrent = await owner.call("segment.list", {
+      documentId: ownerDocument.document.id,
+      offset: 0,
+      limit: 50,
+    });
+    const ownerEdit = async (index, targetText) => {
+      const current = ownerCurrent.items[index];
+      const updated = await owner.call("segment.updateTarget", {
+        segmentId: current.id,
+        targetText,
+        expectedRevision: current.revision,
+      });
+      ownerCurrent.items[index] = updated;
+    };
+    await ownerEdit(1, "Local only");
+    await ownerEdit(2, "Same change");
+    await ownerEdit(3, "Second same change");
+    const returnPreview = await owner.call("taskPackage.preview", {
+      packagePath: returnPath,
+      offset: 0,
+      limit: 25,
+      actor: "engine-smoke-owner",
+      reason: "Preview task return",
+    });
+    const dispositionCounts = returnPreview.counts;
+    assert(
+      dispositionCounts.unchanged >= 1 &&
+        dispositionCounts.remoteChanged >= 1 &&
+        dispositionCounts.localChanged >= 1 &&
+        dispositionCounts.bothChanged >= 1,
+      "return preview should classify unchanged, remote-only, local-only, and both edits",
+    );
+    const safeRows = returnPreview.rows.filter(
+      (row) => row.disposition === "bothChanged" && row.identicalChange,
+    );
+    const remoteRow = returnPreview.rows.find(
+      (row) => row.disposition === "remoteChanged",
+    );
+    assert(
+      safeRows.length === 2 && remoteRow,
+      "return preview should expose selectable safe rows",
+    );
+
+    await ownerEdit(2, "Owner changed after preview");
+    await assertRpcError(
+      () =>
+        owner.call("taskPackage.apply", {
+          previewId: returnPreview.previewId,
+          expectedProjectRevision: returnPreview.expectedProjectRevision,
+          selectedRowIds: [safeRows[0].rowId],
+          actor: "engine-smoke-owner",
+          reason: "Reject stale task merge",
+        }),
+      "conflict",
+      "stale task package apply",
+    );
+    const refreshedPreview = await owner.call("taskPackage.preview", {
+      packagePath: returnPath,
+      offset: 0,
+      limit: 25,
+      actor: "engine-smoke-owner",
+      reason: "Retry task return preview",
+    });
+    const refreshedSafeRow = refreshedPreview.rows.find(
+      (row) => row.disposition === "bothChanged" && row.identicalChange,
+    );
+    assert(refreshedSafeRow, "a safe identical row should remain retryable after stale apply");
+    const applyParams = {
+      previewId: refreshedPreview.previewId,
+      expectedProjectRevision: refreshedPreview.expectedProjectRevision,
+      selectedRowIds: [refreshedSafeRow.rowId],
+      actor: "engine-smoke-owner",
+      reason: "Apply safe task merge",
+    };
+    const applied = await owner.call("taskPackage.apply", applyParams);
+    assert(applied.appliedCount === 1, "safe task row should apply atomically");
+    await owner.restart();
+    await owner.call("engine.initialize", {
+      protocolVersion: 1,
+      client: { name: "engine-smoke", version: "0.1.0" },
+    });
+    const replay = await owner.call("taskPackage.apply", applyParams);
+    assert(
+      replay.operationId === applied.operationId &&
+        replay.projectRevision === applied.projectRevision,
+      "task package apply should replay the terminal result after restart",
+    );
+    const finalOwnerSegments = await owner.call("segment.list", {
+      documentId: ownerDocument.document.id,
+      offset: 0,
+      limit: 50,
+    });
+    assert(
+      finalOwnerSegments.items[2].targetText === "Owner changed after preview" &&
+        finalOwnerSegments.items[3].targetText === "Second same change",
+      "task merge should preserve the stale local edit and apply the selected identical edit",
+    );
+  } finally {
+    await recipient?.stop();
+    await rm(recipientDataDirectory, { recursive: true, force: true });
+    await rm(transferDirectory, { recursive: true, force: true });
+  }
+}
+
 async function assertRpcError(call, expectedCode, label) {
   try {
     await call();
@@ -4063,6 +4354,13 @@ class EngineProcess {
         resolvePromise();
       });
     });
+  }
+
+  async restart() {
+    await this.stop();
+    this.#buffer = "";
+    this.#waiters = [];
+    await this.#start();
   }
 
   #consume(chunk) {

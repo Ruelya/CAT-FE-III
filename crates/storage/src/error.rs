@@ -1,5 +1,6 @@
 use thiserror::Error;
 use translunar_alignment_core::AlignmentError;
+use translunar_task_package_core::TaskPackageError;
 
 pub type Result<T> = std::result::Result<T, StorageError>;
 
@@ -16,6 +17,9 @@ pub enum StorageError {
 
     #[error("alignment validation failed: {0}")]
     Alignment(#[from] AlignmentError),
+
+    #[error("task package validation failed: {0}")]
+    TaskPackage(#[from] TaskPackageError),
 
     #[error("{entity} not found: {id}")]
     NotFound { entity: &'static str, id: String },

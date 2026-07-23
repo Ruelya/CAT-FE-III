@@ -2523,6 +2523,7 @@ dependencies = [
  "translunar-protocol",
  "translunar-qa-core",
  "translunar-storage",
+ "translunar-task-package-core",
  "zip",
 ]
 
@@ -2689,6 +2690,7 @@ dependencies = [
  "translunar-lifecycle-core",
  "translunar-pipeline",
  "translunar-qa-core",
+ "translunar-task-package-core",
 ]
 
 [[package]]
@@ -2736,6 +2738,18 @@ dependencies = [
  "translunar-lifecycle-core",
  "translunar-pipeline",
  "translunar-qa-core",
+ "translunar-task-package-core",
+]
+
+[[package]]
+name = "translunar-task-package-core"
+version = "0.1.0"
+dependencies = [
+ "schemars",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
 ]
 
 [[package]]

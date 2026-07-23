@@ -1,1 +1,7 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"type":"spec","file":".trellis/spec/backend/engine-boundary.md","reason":"Keep package parsing, identity binding, conflict classification, revisions, and merge transactions in the Rust Engine."}
+{"type":"spec","file":".trellis/spec/backend/database-guidelines.md","reason":"Apply migration 13, bounded pages, immediate transactions, restart recovery, and atomic rollback for package previews and merges."}
+{"type":"spec","file":".trellis/spec/backend/directory-structure.md","reason":"Place pure package rules, protocol contracts, storage, codecs, and Engine orchestration in their existing ownership layers."}
+{"type":"spec","file":".trellis/spec/frontend/electron-workbench.md","reason":"Route trusted package file dialogs and task-package RPC orchestration through the existing Electron bridge."}
+{"type":"spec","file":".trellis/spec/frontend/state-management.md","reason":"Keep package revisions, classifications, and merge results Engine-authoritative while React owns only transient selection and dialog state."}
+{"type":"research","file":".trellis/tasks/07-19-interop-alignment-review/design.md","reason":"Parent design establishes bounded ZIP manifests, staged files, protocol ownership, and cross-child compatibility boundaries."}
+{"type":"research","file":".trellis/tasks/07-19-interop-alignment-review/prd.md","reason":"Parent acceptance AC5 defines offline export/import/merge, conflict classes, atomicity, secrets exclusion, and restart requirements."}

@@ -60,3 +60,17 @@ font rendering, panel seams, focus order, and horizontal transcript overflow.
 - No disabled button that hides a save or engine error.
 - No animation implemented by unmounting the animated subtree.
 - No broad `eslint-disable` or TypeScript suppression in production code.
+
+## Task Package Quality Gate
+
+The real-Engine task-package E2E must cover trusted `.tltask` dialogs,
+assignment export, assignment preview/import, return export, all Engine
+dispositions, paging, cross-page selection, stale retry, terminal applied and
+discarded states, and no-clobber/error paths. Assert accessible names for tabs,
+checkboxes, pagination, dialog actions, and icon-only discard. Capture
+1250x744, 1680x942, and 1920x1080 screenshots and fail on console/page errors,
+horizontal overflow, overlapping controls, or text escaping its container.
+
+The renderer must not parse package files or compute hashes/conflicts. A
+failed apply must leave the preview visible and retryable; a terminal preview
+must not expose another mutation command.

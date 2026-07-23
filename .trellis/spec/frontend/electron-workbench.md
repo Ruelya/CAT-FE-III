@@ -928,3 +928,115 @@ const result = await window.translunar.invoke("corpus.search", params);
 setSearchResults(result); // Preserve Engine order and provenance.
 if (isTerminalAiRunStatus(run.status)) stopPolling();
 ```
+
+## Offline Task Package Surface
+
+### 1. Scope / Trigger
+
+Use this contract for Project Insights task-package assignment export,
+assignment/return preview, detached import, return export, row selection, and
+merge confirmation. Main owns the trusted `.tltask` open dialog and preload
+owns the typed bridge. Rust/Engine remains authoritative for package parsing,
+hashes, revisions, classifications, identity binding, and persistence.
+
+### 2. Signatures
+
+The bridge adds exactly:
+
+```typescript
+selectTaskPackageInput(): Promise<string | null>;
+```
+
+Renderer calls generated methods only:
+`taskPackage.export`, `taskPackage.preview`, `taskPackage.import`,
+`taskPackage.apply`, and `taskPackage.discard`. The apply payload contains
+`previewId`, `expectedProjectRevision`, explicit `selectedRowIds`, `actor`, and
+`reason`; it does not contain a request digest. Preview paging reuses the
+returned `previewId`, `offset`, and `limit`.
+
+### 3. Contracts
+
+- Assignment export requires at least one active document and a destination;
+  optional segment IDs and asset row IDs are explicit strings. Return export is
+  enabled only for a project carrying the Engine-provided task-package
+  reference.
+- The panel renders Engine `counts`, `diagnostics`, `rows`, `disposition`,
+  `safeToApply`, `identicalChange`, hashes, revisions, and projections as
+  received. It never opens a ZIP, parses JSON, computes a hash, or ranks a
+  conflict locally.
+- Selection is a presentation concern only. It is retained by row ID across
+  pages, can add safe rows from multiple pages, and sends the complete explicit
+  set at confirmation. Only safe Engine rows can have an enabled checkbox.
+- Busy operations disable duplicate commands. Empty, error, notice, preview,
+  and terminal states are mutually coherent. Any preview status other than
+  `open` is terminal: import/apply/discard controls become read-only, and a
+  failed apply keeps the open preview and selection for retry.
+- A successful import exposes the returned detached project and opens it only
+  after the Engine response. A successful apply refreshes the authoritative
+  project snapshot; it does not increment revisions optimistically.
+- The task-package tab, fields, row labels, pagination, dialog, and icon-only
+  discard control remain keyboard accessible and contained at 1250x744,
+  1680x942, and 1920x1080. Main rejects an untrusted sender and filters the
+  open dialog to `.tltask`.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Dialog canceled | Keep the current path/preview and make no package RPC |
+| Actor or reason empty | Disable export, preview, import, apply, and discard while keeping read-only rows visible |
+| No active document or incomplete asset slice | Disable assignment export; do not send a partial selection |
+| Preview page pending | Keep row/control dimensions stable and prevent duplicate page requests |
+| `safeToApply=false` disposition | Checkbox stays disabled and row remains visible with Engine reason |
+| Stale/typed Engine error | Preserve path, preview, and selection; show the normalized error and no success notice |
+| Apply succeeds | Show terminal status, clear/disable merge actions, refresh project, and retain audit notice |
+| Import succeeds | Show binding count and an accessible open-project action |
+| Supported viewport | No document horizontal overflow, clipped labels, or overlapping controls |
+
+### 5. Good / Base / Bad Cases
+
+- Good: choose an assignment destination, export, open the package through the
+  trusted dialog, page first/next/previous, select safe rows on two pages, and
+  confirm one merge with a named accessible dialog.
+- Good: a stale apply keeps the rows and selected IDs, a fresh preview can be
+  loaded, and terminal applied/discarded states disable all mutation controls.
+- Base: cancel a dialog or preview a package with no safe rows; the panel stays
+  usable and does not show an enabled `Apply 0` command.
+- Bad: parse package bytes in React, derive a digest, replace the whole
+  selection on every page, treat `applied` as retryable, or hide a typed Engine
+  error behind a generic success state.
+
+### 6. Tests Required
+
+- Typecheck and contract drift assert the generated method/parameter/result
+  relationship and the exact `selectTaskPackageInput` bridge shape.
+- Desktop unit/E2E fixtures cover assignment export guards, asset/document
+  selection, assignment/import/return modes, first/next/previous paging,
+  cross-page selection, stale retry, terminal controls, and accessible names.
+- Real-Engine Electron E2E records assignment and return screenshots at
+  1250x744, 1680x942, and 1920x1080 and fails on console/page errors,
+  inaccessible controls, text escaping, or document-level horizontal overflow.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+const rows = JSON.parse(await readFile(packagePath, "utf8"));
+const digest = hash(selectedRows);
+setRows(sortConflicts(rows));
+```
+
+#### Correct
+
+```tsx
+const result = await window.translunar.invoke("taskPackage.preview", {
+  packagePath,
+  offset: 0,
+  limit: 50,
+  actor: actor.trim(),
+  reason: reason.trim(),
+});
+setPreview(result);
+setSelectedRows(new Set(result.rows.filter((row) => row.selected).map((row) => row.rowId)));
+```

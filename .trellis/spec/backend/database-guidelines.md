@@ -98,3 +98,53 @@ Large collections are verified with bounded SQL pages, not `all_segments`.
 The `storage-benchmark` binary streams a deterministic 100,000-segment fixture,
 measures aggregate/first-middle-last/history pages and peak RSS, and deletes the
 generated directory unless `--keep` is supplied.
+
+## Offline Task Package Storage
+
+### Schema contract
+
+Migration 13 is append-only and creates four STRICT tables: `task_packages`,
+`task_package_bindings`, `task_package_previews`, and
+`task_package_preview_rows`. Package and preview status values are constrained
+to their finite sets; package kind and row disposition are constrained in SQL;
+`UNIQUE(package_id, origin_segment_id)` prevents duplicate origin bindings and
+`UNIQUE(local_segment_id)` prevents a local segment from being rebound. Preview
+rows cascade only with their owning preview. The migration must pass fresh,
+v12-upgrade, reopen, constraint, and late-statement rollback tests.
+
+### Transaction contract
+
+`taskPackage.preview` validates the complete staged transport and persists the
+package, counts, diagnostics, hashes, projections, and expected revisions in an
+Immediate transaction. It does not update segments, documents, TM/TB, or
+operations. `taskPackage.import` creates the detached project, managed sources,
+read-only asset snapshots, and immutable bindings in one transaction; a failed
+row or source publication leaves no project or source residue.
+
+`Store::apply_task_package` performs all selected-row validation and writes in
+one Immediate transaction. It checks project/document/segment revisions,
+current projection hashes, immutable source identity, protected tags, and row
+dispositions before applying target, tags, workflow, comments, document and
+project revisions, TM confirmation, and operation/editor history. Any later
+failure rolls back every side effect and leaves the open preview and staged
+package retryable.
+
+### Idempotency and files
+
+The apply fingerprint is derived internally with canonical JSON from
+`preview_id`, expected project revision, sorted unique selected row IDs, actor,
+and reason. It is stored with the terminal preview/package result; the wire
+request has no digest field. A matching terminal retry returns the stored result
+without another operation, comment, TM row, or revision increment. A different
+fingerprint is `InvalidState`. Discard marks open previews/package discarded in
+SQLite, commits the audit operation, then removes only validated workspace-local
+staged paths.
+
+### Storage checks
+
+- Good: reopen an applied preview and replay the same selection; assert the
+  operation ID and all revisions remain unchanged.
+- Base: page durable rows after restart and apply only safe explicit IDs while
+  an unselected local segment remains unchanged.
+- Bad: write selected rows in separate transactions, calculate the digest in
+  React, or delete staging before the status transaction commits.

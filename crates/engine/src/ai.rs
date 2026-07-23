@@ -1956,7 +1956,8 @@ fn alignment_refinement_error_code(error: &StorageError) -> &'static str {
         | StorageError::Json(_)
         | StorageError::QaProfileInvalid(_)
         | StorageError::InvalidData(_)
-        | StorageError::SchemaTooNew { .. } => "alignment_persistence",
+        | StorageError::SchemaTooNew { .. }
+        | StorageError::TaskPackage(_) => "alignment_persistence",
     }
 }
 

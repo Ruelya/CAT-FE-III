@@ -27,6 +27,8 @@ mod qa;
 pub use qa::*;
 mod lifecycle;
 pub use lifecycle::*;
+mod task_package;
+pub use task_package::*;
 
 pub const PROTOCOL_VERSION: u32 = 1;
 
@@ -46,6 +48,11 @@ pub mod methods {
     pub const PROJECT_BATCH_IMPORT: &str = "project.batchImport";
     pub const PROJECT_ARCHIVE_EXPORT: &str = "project.archive.export";
     pub const PROJECT_ARCHIVE_RESTORE: &str = "project.archive.restore";
+    pub const TASK_PACKAGE_EXPORT: &str = "taskPackage.export";
+    pub const TASK_PACKAGE_PREVIEW: &str = "taskPackage.preview";
+    pub const TASK_PACKAGE_APPLY: &str = "taskPackage.apply";
+    pub const TASK_PACKAGE_IMPORT: &str = "taskPackage.import";
+    pub const TASK_PACKAGE_DISCARD: &str = "taskPackage.discard";
     pub const DOCUMENT_LIST: &str = "document.list";
     pub const DOCUMENT_GET: &str = "document.get";
     pub const DOCUMENT_IMPORT: &str = "document.import";
@@ -269,6 +276,7 @@ pub enum ErrorCode {
     AlignmentResponseInvalid,
     UnsupportedCorpusInput,
     ResourceLimitExceeded,
+    ResourceLimit,
     InternalError,
 }
 
@@ -1708,6 +1716,16 @@ pub struct RpcMethodCatalog {
     pub project_archive_export: MethodContract<ProjectArchiveExportParams, ProjectArchiveResult>,
     #[serde(rename = "project.archive.restore")]
     pub project_archive_restore: MethodContract<ProjectArchiveRestoreParams, ProjectArchiveResult>,
+    #[serde(rename = "taskPackage.export")]
+    pub task_package_export: MethodContract<TaskPackageExportParams, TaskPackageResult>,
+    #[serde(rename = "taskPackage.preview")]
+    pub task_package_preview: MethodContract<TaskPackagePreviewParams, TaskPackagePreviewResult>,
+    #[serde(rename = "taskPackage.apply")]
+    pub task_package_apply: MethodContract<TaskPackageApplyParams, TaskPackageApplyResult>,
+    #[serde(rename = "taskPackage.import")]
+    pub task_package_import: MethodContract<TaskPackageImportParams, TaskPackageImportResult>,
+    #[serde(rename = "taskPackage.discard")]
+    pub task_package_discard: MethodContract<TaskPackageDiscardParams, TaskPackageDiscardResult>,
     #[serde(rename = "document.list")]
     pub document_list: MethodContract<DocumentListParams, DocumentPage>,
     #[serde(rename = "document.get")]

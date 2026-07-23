@@ -148,6 +148,7 @@ export function App() {
         onOpenDocument={(documentId) =>
           openWorkspace(workspace.snapshot.project.id, documentId)
         }
+        onOpenProject={openWorkspace}
         onReturnHome={returnHome}
       />
     );

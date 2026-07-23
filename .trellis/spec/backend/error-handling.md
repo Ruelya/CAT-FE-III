@@ -69,3 +69,33 @@ causal error in local logs when diagnostic detail is needed.
 - No duplicated error-code mapping in Electron or individual service methods.
 - No success response after a partial side effect.
 - No client logic that branches on message text.
+
+## Offline Task Package Errors
+
+Task-package validation errors from `task-package-core` map to
+`invalid_request`; bounded limit failures map to `resource_limit` with only
+`resource`, `limit`, and `actual` data. ZIP staging/publication failures map to
+`export_error` where publication failed and preserve the existing destination.
+Storage entity revision failures map to `conflict`; package/preview/row state
+failures map to `invalid_state` or `not_found` as appropriate.
+
+Preview row diagnostics are data, not thrown exceptions: persist a bounded
+`code`, `message`, and optional row ID, and expose classifications without
+including package bytes or unbounded source text. A selected unsafe row must
+fail the whole apply before the Immediate transaction commits. A late storage,
+comment, workflow, or TM failure must return an error and leave the preview,
+package staging, revisions, operations, comments, and TM rows unchanged.
+
+The apply idempotency fingerprint is an internal canonical digest. The
+Renderer does not send it and errors must not reveal it. A terminal retry with
+the same derived fingerprint returns the stored result; a different selection,
+revision, actor, or reason returns `invalid_state` without side effects.
+
+```rust
+// Correct: keep details bounded and map once at rpc_error.
+TaskPackageError::ResourceLimit { resource, limit, actual } => RpcError {
+    code: ErrorCode::ResourceLimit,
+    message: "task package exceeds a configured resource limit".to_string(),
+    data: Some(json!({ "resource": resource, "limit": limit, "actual": actual })),
+}
+```

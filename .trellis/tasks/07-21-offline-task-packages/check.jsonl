@@ -1,1 +1,6 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"type":"spec","file":".trellis/spec/backend/quality-guidelines.md","reason":"Run Rust formatting, tests, Clippy, and typed error/logging checks for the new package core, storage, and Engine paths."}
+{"type":"spec","file":".trellis/spec/backend/error-handling.md","reason":"Verify typed validation/conflict/resource-limit errors and bounded diagnostics without leaking package contents or credentials."}
+{"type":"spec","file":".trellis/spec/frontend/quality-guidelines.md","reason":"Verify generated contracts, accessibility, responsive screenshots, console/page errors, and real-Engine Electron coverage."}
+{"type":"spec","file":".trellis/spec/frontend/type-safety.md","reason":"Ensure the task-package UI consumes generated method maps and keeps external package payloads narrowed at the bridge."}
+{"type":"research","file":".trellis/tasks/archive/2026-07/07-21-alignment-reference-corpora/implement.md","reason":"Reuse the completed child’s real stdio/Electron evidence pattern, restart/stale/rollback matrix, and viewport checks."}
+{"type":"research","file":".trellis/tasks/archive/2026-07/07-20-project-lifecycle-acceptance/implement.md","reason":"Reuse project lifecycle archive/no-clobber and cross-layer acceptance gate structure."}

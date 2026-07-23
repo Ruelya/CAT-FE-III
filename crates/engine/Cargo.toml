@@ -37,6 +37,7 @@ translunar-pipeline = { path = "../pipeline" }
 translunar-protocol = { path = "../protocol" }
 translunar-qa-core = { path = "../qa-core" }
 translunar-storage = { path = "../storage" }
+translunar-task-package-core = { path = "../task-package-core" }
 zip.workspace = true
 
 [dev-dependencies]
