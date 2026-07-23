@@ -102,27 +102,27 @@ offline task packages, and preserve discussion and restorable project history.
 
 ## Acceptance Criteria
 
-- [ ] AC1: Representative SDLXLIFF, MQXLIFF, MQXLZ, and dialect-XLIFF fixtures
+- [x] AC1: Representative SDLXLIFF, MQXLIFF, MQXLZ, and dialect-XLIFF fixtures
       import, edit, restart, and return to their native format with stable IDs,
       valid tags, preserved opaque metadata, typed degradation, and no-clobber.
-- [ ] AC2: A reviewer can export a bilingual DOCX, edit targets/comments,
+- [x] AC2: A reviewer can export a bilingual DOCX, edit targets/comments,
       preview a diff, reject stale/tampered input, apply selected proposals, and
       observe durable review/history state after restart.
-- [ ] AC3: Two-column DOCX/XLSX import previews and atomically sinks accepted
+- [x] AC3: Two-column DOCX/XLSX import previews and atomically sinks accepted
       pairs into a selected writable TM with row provenance and rollback tests.
-- [ ] AC4: A user can align two documents, manually correct proposed links,
+- [x] AC4: A user can align two documents, manually correct proposed links,
       confirm selected pairs into TM, mount reference corpora, and retrieve
       corpus evidence through concordance and AI grounding.
-- [ ] AC5: Offline task export/import/merge validates hashes and revisions,
+- [x] AC5: Offline task export/import/merge validates hashes and revisions,
       previews every conflict class, commits selected safe changes atomically,
       excludes secrets, and survives process restart.
-- [ ] AC6: Threaded discussions and named snapshots are pageable, reasoned,
+- [x] AC6: Threaded discussions and named snapshots are pageable, reasoned,
       restart-safe, restorable, and visible in desktop history without implying
       network notification or multi-user synchronization.
-- [ ] AC7: Real stdio smoke and real-Engine Electron E2E cover all five child
+- [x] AC7: Real stdio smoke and real-Engine Electron E2E cover all five child
       workflows, cancellation/error/no-clobber/stale paths, console/page errors,
       accessibility labels, and horizontal overflow at all supported viewports.
-- [ ] AC8: Local Node 22 and isolated VPS gates pass for format, lint,
+- [x] AC8: Local Node 22 and isolated VPS gates pass for format, lint,
       typecheck, unit/workspace tests, contracts, smoke, release build, Windows
       GNU build, and desktop production/Electron checks.
 

@@ -1,1 +1,11 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"type":"spec","file":".trellis/spec/backend/engine-boundary.md","reason":"Preserve the generated protocol, Engine dispatch, format, transaction, history, and restart boundaries shared by all five children."}
+{"type":"spec","file":".trellis/spec/backend/quality-guidelines.md","reason":"Require synchronized Engine hashes and a current-RPC focused smoke before trusting cross-platform Electron evidence."}
+{"type":"spec","file":".trellis/spec/backend/database-guidelines.md","reason":"Keep migrations 11 through 14 append-only and every review, alignment, package, discussion, and snapshot apply atomic."}
+{"type":"spec","file":".trellis/spec/backend/error-handling.md","reason":"Use stable typed failures for malformed input, stale revisions, no-clobber, missing dependencies, and terminal states."}
+{"type":"spec","file":".trellis/spec/frontend/electron-workbench.md","reason":"Keep Project Insights orchestration on generated Engine contracts with trusted dialogs and accessible terminal states."}
+{"type":"spec","file":".trellis/spec/frontend/state-management.md","reason":"Keep manifests, scores, hashes, revisions, diffs, and persistence Engine-owned while React owns presentation state only."}
+{"type":"research","file":".trellis/tasks/archive/2026-07/07-21-interop-cat-formats/implement.md","reason":"Use the archived native CAT round-trip, adversarial fixture, no-clobber, and release evidence for parent AC1."}
+{"type":"research","file":".trellis/tasks/archive/2026-07/07-21-interop-bilingual-docx/implement.md","reason":"Use the archived bilingual review and table preview/apply evidence for parent AC2 and AC3."}
+{"type":"research","file":".trellis/tasks/archive/2026-07/07-21-alignment-reference-corpora/implement.md","reason":"Use the archived alignment, TM provenance, corpus search, concordance, grounding, and E2E evidence for parent AC4."}
+{"type":"research","file":".trellis/tasks/archive/2026-07/07-21-offline-task-packages/implement.md","reason":"Use the archived package validation, conflict, atomic merge, restart, and E2E evidence for parent AC5."}
+{"type":"research","file":".trellis/tasks/archive/2026-07/07-21-discussion-project-snapshots/implement.md","reason":"Use the archived discussion, snapshot, history, rollback, restart, and responsive E2E evidence for parent AC6."}

@@ -79,3 +79,14 @@ generated TypeScript to the committed files; do not claim a local
 `contracts:check` pass from static inspection. Use `TRANSLUNAR_ENGINE_PATH` in
 the Electron E2E harness to test a synchronized binary without replacing an
 engine process currently in use.
+
+Before counting that Electron run, compare the copied Engine SHA-256 with the
+cross-build output and run one focused test that calls a method added by the
+current task. An older binary can still initialize successfully and then
+return `unknown method`, which otherwise looks like a renderer action failure.
+
+```text
+sha256sum target/x86_64-pc-windows-gnu/release/translunar-engine.exe
+(Get-FileHash target/e2e/translunar-engine-current.exe -Algorithm SHA256).Hash
+pnpm --filter @translunar/desktop exec playwright test <spec> -g <current-flow>
+```
