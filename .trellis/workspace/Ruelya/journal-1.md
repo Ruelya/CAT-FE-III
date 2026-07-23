@@ -337,3 +337,36 @@ Implemented and qualified offline .tltask export/import handoff across core, Eng
 ### Next Steps
 
 - None - task complete
+
+
+## Session 10: Discussion threads and project snapshots
+
+**Date**: 2026-07-23
+**Task**: Discussion threads and project snapshots
+**Branch**: `master`
+
+### Summary
+
+Implemented revision-bound local discussions and immutable project snapshot preview/restore; validated Rust, contracts, stdio smoke, and real-Engine Electron E2E.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2513f72` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
