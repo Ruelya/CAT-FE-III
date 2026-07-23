@@ -304,3 +304,36 @@ Added real-Engine Electron alignment/corpus E2E with strict AI fixture, corpus i
 ### Next Steps
 
 - None - task complete
+
+
+## Session 9: Offline task package handoff
+
+**Date**: 2026-07-23
+**Task**: Offline task package handoff
+**Branch**: `master`
+
+### Summary
+
+Implemented and qualified offline .tltask export/import handoff across core, Engine, Storage, protocol, and desktop, with executable specs, smoke coverage, and real-Engine E2E.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cc78aa8` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
