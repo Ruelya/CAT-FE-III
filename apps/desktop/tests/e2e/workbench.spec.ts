@@ -1781,6 +1781,215 @@ test("manages the complete project lifecycle through the real Engine", async ({
   }
 });
 
+test("manages revision-bound discussions and project snapshots through Insights", async ({
+  browserName,
+}, testInfo) => {
+  expect(browserName).toBe("chromium");
+  test.setTimeout(120_000);
+  const harness = await launchHarness("discussion-snapshot");
+  const { page, consoleErrors } = harness;
+  const successNotice = page.locator('p.surface-success[role="status"]');
+
+  try {
+    await importFixture(page);
+    const ids = await page.evaluate(async () => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      const projects = await api.invoke("project.list", {
+        lifecycle: "active",
+        offset: 0,
+        limit: 20,
+      });
+      const project = projects.items[0];
+      if (!project) throw new Error("Discussion project is missing.");
+      const snapshot = await api.invoke("project.get", {
+        projectId: project.id,
+      });
+      const document = snapshot.documents[0];
+      if (!document) throw new Error("Discussion document is missing.");
+      const segments = await api.invoke("segment.list", {
+        documentId: document.id,
+        offset: 0,
+        limit: 20,
+      });
+      const segment = segments.items[0];
+      if (!segment) throw new Error("Discussion segment is missing.");
+      return {
+        projectId: project.id,
+        documentId: document.id,
+        segmentId: segment.id,
+      };
+    });
+
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "Project insights" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Project insights" }),
+    ).toBeVisible();
+    await page.getByRole("tab", { name: /Discussions \/ snapshots/u }).click();
+    await expect(
+      page.getByRole("tab", { name: "Discussions", exact: true }),
+    ).toBeVisible();
+
+    await page.getByLabel("Title (optional)").fill("Terminology review");
+    await page
+      .getByLabel("First message")
+      .fill("Please check this phrase with @Reviewer.");
+    await page.getByRole("button", { name: "Create discussion" }).click();
+    await expect(successNotice).toContainText("Discussion created");
+    await expect(page.locator(".discussion-thread-row")).toHaveCount(1);
+    await expect(page.locator(".discussion-mentions")).toContainText(
+      "@reviewer",
+    );
+
+    await page.getByLabel("Reply").fill("Confirmed with @Owner.");
+    await page.getByRole("button", { name: "Reply", exact: true }).click();
+    await expect(successNotice).toContainText("Reply added");
+    await expect(page.locator(".discussion-message")).toHaveCount(2);
+
+    await page
+      .locator(".discussion-message")
+      .nth(1)
+      .getByRole("button", { name: "Edit message 2" })
+      .click();
+    await page
+      .locator(".discussion-message-edit textarea")
+      .fill("Confirmed with @Owner and @Reviewer.");
+    await page
+      .locator(".discussion-message-edit")
+      .getByRole("button", { name: "Save" })
+      .click();
+    await expect(successNotice).toContainText("Message 2 updated");
+
+    await page
+      .locator(".discussion-message")
+      .nth(1)
+      .getByRole("button", { name: "Delete message 2" })
+      .click();
+    const deleteDialog = page.getByRole("dialog", {
+      name: "Delete message 2",
+    });
+    await deleteDialog.getByRole("button", { name: "Delete message" }).click();
+    await expect(successNotice).toContainText(
+      "deleted as a tombstone",
+    );
+
+    await page.getByRole("button", { name: "Resolve" }).click();
+    await expect(successNotice).toContainText("Discussion resolved");
+    await page.getByLabel("Include resolved").check();
+    await page.getByRole("button", { name: "Reopen" }).click();
+    await expect(successNotice).toContainText("Discussion reopened");
+
+    await page.getByRole("button", { name: "Document", exact: true }).click();
+    await page.getByLabel("First message").fill("Document-level note.");
+    await page.getByRole("button", { name: "Create discussion" }).click();
+    await expect(successNotice).toContainText("Discussion created");
+
+    await page.getByRole("button", { name: "Segment", exact: true }).click();
+    await page.getByLabel("Segment").selectOption(ids.segmentId);
+    await page.getByLabel("First message").fill("Segment note for @QA.");
+    await page.getByRole("button", { name: "Create discussion" }).click();
+    await expect(successNotice).toContainText("Discussion created");
+
+    await page.getByRole("tab", { name: "Project snapshots" }).click();
+    await page.getByLabel("Snapshot name").fill("Before review");
+    await page.getByRole("button", { name: "Create snapshot" }).click();
+    await expect(successNotice).toContainText(
+      "Snapshot Before review created",
+    );
+    await expect(page.locator(".snapshot-row")).toHaveCount(1);
+
+    await page.getByLabel("Snapshot name").fill("Before review");
+    await page.getByRole("button", { name: "Create snapshot" }).click();
+    await expect(page.getByRole("alert")).toContainText(
+      /already exists|duplicate/u,
+    );
+
+    await page.getByRole("button", { name: "Preview restore" }).click();
+    await expect(
+      page.getByRole("region", { name: "Restore preview" }),
+    ).toBeVisible();
+
+    await page.evaluate(async (projectId) => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      const current = await api.invoke("project.get", { projectId });
+      await api.invoke("project.update", {
+        projectId,
+        name: `${current.project.name} changed after preview`,
+        sourceLocale: current.project.sourceLocale,
+        targetLocale: current.project.targetLocale,
+        domain: current.project.domain,
+        configuration: current.project.configuration,
+        expectedRevision: current.project.revision,
+        actor: "desktop-e2e",
+        correlationId: "discussion-snapshot-stale",
+      });
+    }, ids.projectId);
+    await page.getByRole("button", { name: "Restore snapshot" }).click();
+    const restoreDialog = page.getByRole("dialog", {
+      name: "Restore Before review",
+    });
+    await restoreDialog
+      .getByRole("button", { name: "Restore snapshot" })
+      .click();
+    await expect(restoreDialog.getByRole("alert")).toContainText(
+      /modified by another writer/u,
+    );
+    await restoreDialog.getByRole("button", { name: "Cancel" }).click();
+
+    await page.getByRole("button", { name: "Refresh preview" }).click();
+    await expect(successNotice).toContainText("preview is ready");
+    await page.getByRole("button", { name: "Restore snapshot" }).click();
+    await page
+      .getByRole("dialog", { name: "Restore Before review" })
+      .getByRole("button", { name: "Restore snapshot" })
+      .click();
+    await expect(successNotice).toContainText("Snapshot restored");
+    await expect(page.locator(".snapshot-preview-status")).toHaveText(
+      "applied",
+    );
+
+    await page.evaluate("window.translunar.restartEngine()");
+    await page.reload();
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "Project insights" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Project insights" }),
+    ).toBeVisible();
+    await page.getByRole("tab", { name: /Discussions \/ snapshots/u }).click();
+    await page.getByRole("tab", { name: "Project snapshots" }).click();
+    await expect(
+      page.locator(".snapshot-row").filter({ hasText: "Before review" }),
+    ).toHaveCount(1);
+    await expectNamedControls(page, ".snapshot-workflow");
+    await captureResponsiveSurface(harness, testInfo, "project-snapshots");
+    await page.getByRole("tab", { name: "Discussions", exact: true }).click();
+    await page.getByLabel("Include resolved").check();
+    await expect(page.locator(".discussion-thread-row")).toHaveCount(1);
+    const recoveredThreadCounts = await page.evaluate(async (projectId) => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      const counts = [];
+      for (const scope of ["project", "document", "segment"] as const) {
+        const page = await api.invoke("discussion.thread.list", {
+          projectId,
+          scope,
+          includeResolved: true,
+          offset: 0,
+          limit: 20,
+        });
+        counts.push(page.total);
+      }
+      return counts;
+    }, ids.projectId);
+    expect(recoveredThreadCounts).toEqual([1, 1, 1]);
+
+    await expectNamedControls(page, ".discussion-workflow");
+    await captureResponsiveSurface(harness, testInfo, "project-discussions");
+    expect(consoleErrors).toEqual([]);
+  } finally {
+    await closeHarness(harness);
+  }
+});
+
 test("applies review DOCX and a bilingual table through Project Insights", async ({
   browserName,
 }, testInfo) => {

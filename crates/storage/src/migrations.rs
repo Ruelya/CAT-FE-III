@@ -2,7 +2,7 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use crate::{Result, StorageError};
 
-pub(crate) const LATEST_SCHEMA_VERSION: u32 = 13;
+pub(crate) const LATEST_SCHEMA_VERSION: u32 = 14;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -1464,7 +1464,109 @@ CREATE INDEX task_package_preview_rows_disposition_idx
     ON task_package_preview_rows(preview_id, disposition, selected, ordinal, row_id);
 "#;
 
-const MIGRATIONS: [(u32, &str); 13] = [
+const MIGRATION_14: &str = r#"
+CREATE TABLE discussion_threads (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    scope TEXT NOT NULL CHECK (scope IN ('project', 'document', 'segment')),
+    document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
+    segment_id TEXT REFERENCES segments(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open'
+        CHECK (status IN ('open', 'resolved')),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    resolved_at_ms INTEGER,
+    resolved_by TEXT,
+    CHECK (
+        (scope = 'project' AND document_id IS NULL AND segment_id IS NULL)
+        OR (scope = 'document' AND document_id IS NOT NULL AND segment_id IS NULL)
+        OR (scope = 'segment' AND segment_id IS NOT NULL)
+    ),
+    CHECK (
+        (status = 'open' AND resolved_at_ms IS NULL AND resolved_by IS NULL)
+        OR (status = 'resolved' AND resolved_at_ms IS NOT NULL
+            AND resolved_by IS NOT NULL AND length(trim(resolved_by)) > 0)
+    )
+) STRICT;
+
+CREATE INDEX discussion_threads_project_idx
+    ON discussion_threads(project_id, status, updated_at_ms DESC, id);
+CREATE INDEX discussion_threads_document_idx
+    ON discussion_threads(document_id, status, updated_at_ms DESC, id);
+CREATE INDEX discussion_threads_segment_idx
+    ON discussion_threads(segment_id, status, updated_at_ms DESC, id);
+
+CREATE TABLE discussion_messages (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL REFERENCES discussion_threads(id) ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    actor TEXT NOT NULL CHECK (length(trim(actor)) > 0),
+    body TEXT NOT NULL CHECK (length(trim(body)) > 0),
+    mentions_json TEXT NOT NULL DEFAULT '[]' CHECK (
+        json_valid(mentions_json) AND json_type(mentions_json) = 'array'
+    ),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    deleted INTEGER NOT NULL DEFAULT 0 CHECK (deleted IN (0, 1)),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    UNIQUE(thread_id, ordinal)
+) STRICT;
+
+CREATE INDEX discussion_messages_thread_idx
+    ON discussion_messages(thread_id, ordinal, id);
+
+CREATE TABLE project_snapshots (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+    base_project_revision INTEGER NOT NULL CHECK (base_project_revision >= 0),
+    state_hash TEXT NOT NULL CHECK (
+        length(state_hash) = 64 AND state_hash NOT GLOB '*[^0-9A-Fa-f]*'
+    ),
+    payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+    document_count INTEGER NOT NULL CHECK (document_count >= 0),
+    segment_count INTEGER NOT NULL CHECK (segment_count >= 0),
+    thread_count INTEGER NOT NULL CHECK (thread_count >= 0),
+    actor TEXT NOT NULL CHECK (length(trim(actor)) > 0),
+    reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+    created_at_ms INTEGER NOT NULL,
+    UNIQUE(project_id, name)
+) STRICT;
+
+CREATE INDEX project_snapshots_project_idx
+    ON project_snapshots(project_id, created_at_ms DESC, id);
+
+CREATE TABLE project_snapshot_previews (
+    id TEXT PRIMARY KEY,
+    snapshot_id TEXT NOT NULL REFERENCES project_snapshots(id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    expected_project_revision INTEGER NOT NULL CHECK (expected_project_revision >= 0),
+    current_state_hash TEXT NOT NULL CHECK (
+        length(current_state_hash) = 64
+        AND current_state_hash NOT GLOB '*[^0-9A-Fa-f]*'
+    ),
+    summary_json TEXT NOT NULL CHECK (json_valid(summary_json)),
+    missing_dependencies_json TEXT NOT NULL DEFAULT '[]' CHECK (
+        json_valid(missing_dependencies_json)
+        AND json_type(missing_dependencies_json) = 'array'
+    ),
+    status TEXT NOT NULL DEFAULT 'open'
+        CHECK (status IN ('open', 'applied')),
+    result_json TEXT CHECK (result_json IS NULL OR json_valid(result_json)),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    applied_at_ms INTEGER
+) STRICT;
+
+CREATE INDEX project_snapshot_previews_snapshot_idx
+    ON project_snapshot_previews(snapshot_id, created_at_ms DESC, id);
+CREATE INDEX project_snapshot_previews_project_idx
+    ON project_snapshot_previews(project_id, status, updated_at_ms DESC, id);
+"#;
+
+const MIGRATIONS: [(u32, &str); 14] = [
     (1_u32, MIGRATION_1),
     (2_u32, MIGRATION_2),
     (3_u32, MIGRATION_3),
@@ -1478,6 +1580,7 @@ const MIGRATIONS: [(u32, &str); 13] = [
     (11_u32, MIGRATION_11),
     (12_u32, MIGRATION_12),
     (13_u32, MIGRATION_13),
+    (14_u32, MIGRATION_14),
 ];
 
 pub(crate) fn configure_connection(connection: &Connection) -> Result<()> {
@@ -2156,7 +2259,7 @@ mod tests {
         let version = connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
             .expect("read fresh schema version");
-        assert_eq!(version, 13);
+        assert_eq!(version, LATEST_SCHEMA_VERSION);
         let tables = connection
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master
@@ -2206,7 +2309,7 @@ mod tests {
             )
             .expect("insert task segment");
 
-        migrate(&mut connection).expect("upgrade to schema v13");
+        migrate(&mut connection).expect("upgrade to latest schema");
         connection
             .execute(
                 "INSERT INTO task_packages (
@@ -2261,7 +2364,7 @@ mod tests {
         let version = connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
             .expect("read upgraded version");
-        assert_eq!(version, 13);
+        assert_eq!(version, LATEST_SCHEMA_VERSION);
         let binding = connection
             .query_row(
                 "SELECT p.status, b.origin_segment_id, r.disposition

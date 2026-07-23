@@ -1040,3 +1040,108 @@ const result = await window.translunar.invoke("taskPackage.preview", {
 setPreview(result);
 setSelectedRows(new Set(result.rows.filter((row) => row.selected).map((row) => row.rowId)));
 ```
+
+## Discussion And Snapshot Insights Surface
+
+### 1. Scope / Trigger
+
+Use this contract for the Project Insights discussions/snapshots tab and its
+desktop E2E coverage. The renderer is a presentation client of generated
+Engine contracts; it does not parse snapshot JSON, calculate hashes/revisions,
+open files, or add a preload capability.
+
+### 2. Signatures
+
+The existing generic `DesktopApi.invoke` is sufficient. The panel calls only:
+
+```text
+discussion.thread.list/create/resolve
+discussion.message.list/create/update/delete
+project.snapshot.list/create/get/previewRestore/restore
+```
+
+React state stores typed Engine pages, selected IDs, busy/error/notice state,
+and controlled actor/reason/title/body fields. Page requests use bounded
+`offset`/`limit`; mutation payloads pass Engine revisions and audit fields
+unchanged.
+
+### 3. Contracts
+
+- Scope controls are explicit `Project`, `Document`, and `Segment` modes. The
+  panel renders Engine ordering, ordinals, mentions, status, counts, hashes,
+  summaries, missing dependencies, and terminal preview status without local
+  derivation.
+- Successful RPC responses replace the affected thread/message/snapshot or
+  preview projection. No optimistic revision/count update is allowed. Busy
+  controls disable duplicate mutations; typed failures preserve the current
+  selection and retryable preview.
+- Message deletion remains visible as an accessible tombstone. Snapshot
+  restore uses an in-app confirmation dialog, never `window.confirm`; an
+  `applied` preview exposes no second restore command.
+- The preview wrapper is a named semantic region:
+  `<section className="snapshot-preview" aria-label="Restore preview">`.
+  Success notifications use `p.surface-success[role="status"]`; loading
+  indicators may also use `role="status"`, so E2E assertions must scope the
+  success locator rather than call an unqualified `getByRole("status")`.
+- All controls have labels/names, pagination is keyboard reachable, and the
+  surface remains contained at 1250x744, 1680x942, and 1920x1080.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Initial load or page request | Show bounded loading state with stable control dimensions; prevent duplicate page requests |
+| Empty project/thread/snapshot page | Show an actionable empty state without inventing counts |
+| Typed Engine conflict/not-found/invalid-state | Show an in-surface error; retain authoritative selection/input and do not show success |
+| Preview stale or missing dependency | Keep preview/dialog available for refresh; do not mark restored |
+| Restore succeeds | Show terminal `applied`, disable further restore, refresh authoritative project data, retain audit notice |
+| Any supported viewport | No document horizontal overflow, clipped labels, overlapping controls, or text escaping fields |
+| Renderer/Engine console or page error | E2E fails and captures the diagnostic; no silent catch-all success |
+
+### 5. Good / Base / Bad Cases
+
+- Good: create a project thread, add/edit/tombstone a reply, resolve/reopen,
+  switch scopes, page results, preview a snapshot, handle stale restore, and
+  restore after a fresh preview.
+- Good: after Engine restart, the panel reloads all three scope totals and
+  the terminal snapshot row while preserving accessible labels and layout.
+- Base: empty, loading, error, stale, and terminal states are mutually
+  coherent; a canceled dialog leaves the current preview untouched.
+- Bad: parse payload JSON in React, calculate a digest, branch on error
+  message text, use browser-native confirm, or assert the first arbitrary
+  `role=status` when loading and success statuses coexist.
+
+### 6. Tests Required
+
+- Typecheck and contract drift must cover the generated method/result mapping;
+  renderer source must contain no filesystem or Electron imports.
+- Focused Vitest tests cover pure pagination/mention/display helpers. The
+  real-Engine E2E covers all scopes, message CRUD/tombstone, resolve/reopen,
+  duplicate snapshot, stale preview, fresh restore, terminal retry, restart,
+  and history recovery.
+- E2E asserts named controls, semantic restore region, scoped success/error
+  states, no console/page errors, no horizontal overflow, and screenshots at
+  1250x744, 1680x942, and 1920x1080. Run on Windows with the real Engine; an
+  Xvfb run is supplementary and may quantize rAF timing.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+await expect(page.getByRole("status")).toContainText("Discussion created");
+const preview = JSON.parse(snapshotPayload);
+window.confirm("Restore?");
+```
+
+#### Correct
+
+```tsx
+await expect(
+  page.locator('p.surface-success[role="status"]'),
+).toContainText("Discussion created");
+await expect(
+  page.getByRole("region", { name: "Restore preview" }),
+).toBeVisible();
+await window.translunar.invoke("project.snapshot.restore", params);
+```

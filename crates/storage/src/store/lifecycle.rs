@@ -2919,7 +2919,10 @@ fn delete_search_projection(
     Ok(())
 }
 
-fn rebuild_project_search(transaction: &Transaction<'_>, project_id: &str) -> Result<()> {
+pub(super) fn rebuild_project_search(
+    transaction: &Transaction<'_>,
+    project_id: &str,
+) -> Result<()> {
     transaction.execute(
         "DELETE FROM global_search_entries WHERE project_id = ?1",
         [project_id],

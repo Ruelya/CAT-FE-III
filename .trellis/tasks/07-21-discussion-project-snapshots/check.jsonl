@@ -1,1 +1,6 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"type":"spec","file":".trellis/spec/backend/quality-guidelines.md","reason":"Run Rust format, Clippy, migration/restart tests, storage rollback tests, and real stdio coverage."}
+{"type":"spec","file":".trellis/spec/backend/error-handling.md","reason":"Verify stale, duplicate, missing-dependency, invalid-scope, and resource-limit failures are typed and side-effect free."}
+{"type":"spec","file":".trellis/spec/frontend/quality-guidelines.md","reason":"Verify generated contracts, accessibility, coherent UI states, viewport screenshots, and console/page error gates."}
+{"type":"spec","file":".trellis/spec/frontend/type-safety.md","reason":"Ensure every discussion/snapshot invoke payload and result is generated from the Rust protocol catalog."}
+{"type":"research","file":".trellis/tasks/archive/2026-07/07-21-offline-task-packages/implement.md","reason":"Reuse the completed child evidence format for local/VPS Rust gates, stdio smoke, real-Engine Electron E2E, and viewport checks."}
+{"type":"research","file":".trellis/tasks/archive/2026-07/07-20-project-lifecycle-acceptance/implement.md","reason":"Reuse project revision, archive, restart, no-clobber, and history acceptance coverage where snapshot restore overlaps lifecycle behavior."}

@@ -1776,6 +1776,11 @@ async function main() {
         pptxOutput.includes(Buffer.from("fixture-png")),
       "PPTX export should translate text and preserve SmartArt/media",
     );
+    await exerciseDiscussionAndSnapshotWorkflow(
+      processHandle,
+      project.id,
+      document.id,
+    );
     await exerciseTaskPackageWorkflow(processHandle, binary, dataDirectory);
     console.log(`Engine smoke passed: ${outputPath}; backup: ${backupPath}`);
   } finally {
@@ -1784,6 +1789,308 @@ async function main() {
     await rm(dataDirectory, { recursive: true, force: true });
     await rm(backupParent, { recursive: true, force: true });
   }
+}
+
+async function exerciseDiscussionAndSnapshotWorkflow(
+  processHandle,
+  projectId,
+  documentId,
+) {
+  const projectSnapshot = await processHandle.call("project.get", {
+    projectId,
+  });
+  const segments = await processHandle.call("segment.list", {
+    documentId,
+    offset: 0,
+    limit: 20,
+  });
+  const segment = segments.items[0];
+  assert(segment, "discussion smoke requires one document segment");
+
+  const scopes = [
+    {
+      scope: "project",
+      title: "Project handoff",
+      body: "Confirm the project handoff with @Owner.",
+    },
+    {
+      scope: "document",
+      documentId,
+      title: "Document review",
+      body: "Review this document with @Reviewer.",
+    },
+    {
+      scope: "segment",
+      documentId,
+      segmentId: segment.id,
+      title: "Segment terminology",
+      body: "Check this segment with @Terminology.",
+    },
+  ];
+  const threads = [];
+  for (const scope of scopes) {
+    threads.push(
+      await processHandle.call("discussion.thread.create", {
+        projectId,
+        ...scope,
+        actor: "engine-smoke",
+        reason: `Create ${scope.scope} discussion`,
+        expectedProjectRevision: projectSnapshot.project.revision,
+      }),
+    );
+  }
+
+  const segmentThread = threads[2];
+  const segmentPage = await processHandle.call("discussion.thread.list", {
+    projectId,
+    scope: "segment",
+    documentId,
+    segmentId: segment.id,
+    includeResolved: false,
+    offset: 0,
+    limit: 1,
+  });
+  assert(
+    segmentPage.total === 1 && segmentPage.items[0].id === segmentThread.id,
+    "segment discussion should be deterministically pageable",
+  );
+  const firstMessages = await processHandle.call("discussion.message.list", {
+    threadId: segmentThread.id,
+    includeDeleted: true,
+    offset: 0,
+    limit: 1,
+  });
+  assert(
+    firstMessages.total === 1 &&
+      firstMessages.items[0].ordinal === 0 &&
+      firstMessages.items[0].mentions[0] === "@terminology",
+    "discussion creation should retain stable ordinals and literal mentions",
+  );
+  await assertRpcError(
+    () =>
+      processHandle.call("discussion.message.create", {
+        threadId: segmentThread.id,
+        body: "Stale reply",
+        actor: "engine-smoke",
+        reason: "Prove stale discussion rejection",
+        expectedThreadRevision: segmentThread.revision + 1,
+      }),
+    "conflict",
+    "stale discussion reply",
+  );
+  const reply = await processHandle.call("discussion.message.create", {
+    threadId: segmentThread.id,
+    body: "Agreed with @Owner.",
+    actor: "engine-smoke-reviewer",
+    reason: "Answer segment discussion",
+    expectedThreadRevision: segmentThread.revision,
+  });
+  const edited = await processHandle.call("discussion.message.update", {
+    messageId: reply.id,
+    body: "Agreed with @Owner and @Reviewer.",
+    actor: "engine-smoke-reviewer",
+    reason: "Clarify segment discussion answer",
+    expectedRevision: reply.revision,
+  });
+  const deleted = await processHandle.call("discussion.message.delete", {
+    messageId: edited.id,
+    actor: "engine-smoke-reviewer",
+    reason: "Retain an auditable tombstone",
+    expectedRevision: edited.revision,
+  });
+  const tombstonePage = await processHandle.call("discussion.message.list", {
+    threadId: segmentThread.id,
+    includeDeleted: true,
+    offset: 0,
+    limit: 1,
+  });
+  const secondMessagePage = await processHandle.call(
+    "discussion.message.list",
+    {
+      threadId: segmentThread.id,
+      includeDeleted: true,
+      offset: 1,
+      limit: 1,
+    },
+  );
+  assert(
+    tombstonePage.total === 2 &&
+      tombstonePage.items[0].ordinal === 0 &&
+      secondMessagePage.items[0].ordinal === 1 &&
+      secondMessagePage.items[0].deleted,
+    "message paging should preserve ordinals and durable tombstones",
+  );
+  const resolved = await processHandle.call("discussion.thread.resolve", {
+    threadId: segmentThread.id,
+    resolved: true,
+    expectedRevision: deleted.threadRevision,
+    actor: "engine-smoke",
+    reason: "Resolve segment discussion",
+  });
+  const hiddenResolved = await processHandle.call("discussion.thread.list", {
+    projectId,
+    scope: "segment",
+    documentId,
+    segmentId: segment.id,
+    includeResolved: false,
+    offset: 0,
+    limit: 20,
+  });
+  assert(
+    resolved.status === "resolved" && hiddenResolved.total === 0,
+    "resolved discussion should leave the default open page",
+  );
+  const reopened = await processHandle.call("discussion.thread.resolve", {
+    threadId: segmentThread.id,
+    resolved: false,
+    expectedRevision: resolved.revision,
+    actor: "engine-smoke",
+    reason: "Reopen segment discussion",
+  });
+  assert(reopened.status === "open", "discussion should reopen by revision");
+
+  const beforeSnapshot = await processHandle.call("project.get", { projectId });
+  const namedSnapshot = await processHandle.call("project.snapshot.create", {
+    projectId,
+    name: "Engine smoke checkpoint",
+    expectedProjectRevision: beforeSnapshot.project.revision,
+    actor: "engine-smoke",
+    reason: "Capture discussion and project state",
+  });
+  assert(
+    namedSnapshot.threadCount === 3 && namedSnapshot.stateHash.length === 64,
+    "named snapshot should capture discussions and a SHA-256 state hash",
+  );
+  await assertRpcError(
+    () =>
+      processHandle.call("project.snapshot.create", {
+        projectId,
+        name: namedSnapshot.name,
+        expectedProjectRevision: beforeSnapshot.project.revision,
+        actor: "engine-smoke",
+        reason: "Prove duplicate snapshot rejection",
+      }),
+    "invalid_state",
+    "duplicate project snapshot name",
+  );
+
+  const stalePreview = await processHandle.call(
+    "project.snapshot.previewRestore",
+    {
+      snapshotId: namedSnapshot.id,
+      expectedProjectRevision: beforeSnapshot.project.revision,
+    },
+  );
+  const changedProject = await processHandle.call("project.update", {
+    projectId,
+    name: `${beforeSnapshot.project.name} after snapshot`,
+    sourceLocale: beforeSnapshot.project.sourceLocale,
+    targetLocale: beforeSnapshot.project.targetLocale,
+    domain: beforeSnapshot.project.domain,
+    configuration: beforeSnapshot.project.configuration,
+    expectedRevision: beforeSnapshot.project.revision,
+    actor: "engine-smoke",
+    correlationId: "engine-smoke-snapshot-stale",
+  });
+  await assertRpcError(
+    () =>
+      processHandle.call("project.snapshot.restore", {
+        previewId: stalePreview.previewId,
+        expectedProjectRevision: stalePreview.expectedProjectRevision,
+        actor: "engine-smoke",
+        reason: "Prove stale preview rejection",
+      }),
+    "conflict",
+    "stale project snapshot preview",
+  );
+
+  const freshPreview = await processHandle.call(
+    "project.snapshot.previewRestore",
+    {
+      snapshotId: namedSnapshot.id,
+      expectedProjectRevision: changedProject.revision,
+    },
+  );
+  assert(
+    freshPreview.status === "open" &&
+      freshPreview.missingDependencyIds.length === 0,
+    "fresh snapshot preview should be open with available dependencies",
+  );
+  const restored = await processHandle.call("project.snapshot.restore", {
+    previewId: freshPreview.previewId,
+    expectedProjectRevision: freshPreview.expectedProjectRevision,
+    actor: "engine-smoke",
+    reason: "Restore named project state",
+  });
+  assert(
+    restored.status === "applied" &&
+      restored.projectRevision === changedProject.revision + 1 &&
+      restored.operationId,
+    "snapshot restore should increment the project once and append history",
+  );
+  await assertRpcError(
+    () =>
+      processHandle.call("project.snapshot.restore", {
+        previewId: freshPreview.previewId,
+        expectedProjectRevision: freshPreview.expectedProjectRevision,
+        actor: "engine-smoke",
+        reason: "Prove terminal preview rejection",
+      }),
+    "invalid_state",
+    "terminal project snapshot preview",
+  );
+
+  await processHandle.restart();
+  await processHandle.call("engine.initialize", {
+    protocolVersion: 1,
+    client: { name: "engine-smoke", version: "0.1.0" },
+  });
+  const recoveredThreads = await processHandle.call("discussion.thread.list", {
+    projectId,
+    includeResolved: true,
+    offset: 0,
+    limit: 20,
+  });
+  const recoveredMessages = await processHandle.call(
+    "discussion.message.list",
+    {
+      threadId: segmentThread.id,
+      includeDeleted: true,
+      offset: 0,
+      limit: 20,
+    },
+  );
+  const recoveredSnapshots = await processHandle.call("project.snapshot.list", {
+    projectId,
+    offset: 0,
+    limit: 20,
+  });
+  const recoveredSnapshot = await processHandle.call("project.snapshot.get", {
+    snapshotId: namedSnapshot.id,
+  });
+  const history = await processHandle.call("history.list", {
+    projectId,
+    descending: false,
+    offset: 0,
+    limit: 500,
+  });
+  assert(
+    recoveredThreads.total === 3 &&
+      recoveredMessages.total === 2 &&
+      recoveredMessages.items[1].deleted &&
+      recoveredSnapshots.total === 1 &&
+      recoveredSnapshot.stateHash === namedSnapshot.stateHash,
+    "discussions, tombstones, and snapshots should survive Engine restart",
+  );
+  assert(
+    history.items.some(
+      (operation) => operation.kind === "project.snapshot.restore",
+    ) &&
+      history.items.some(
+        (operation) => operation.kind === "discussion.thread.reopen",
+      ),
+    "discussion and snapshot mutations should remain in project history",
+  );
 }
 
 async function exerciseAlignmentBeforeRestart(

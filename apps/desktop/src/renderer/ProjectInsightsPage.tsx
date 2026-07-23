@@ -30,6 +30,7 @@ import {
   History,
   Languages,
   LoaderCircle,
+  MessageSquareText,
   RefreshCw,
   RotateCcw,
   ShieldAlert,
@@ -39,6 +40,7 @@ import {
 
 import { fileName, formatError } from "./workbench-utils";
 import { AlignmentCorpusPanel } from "./AlignmentCorpusPanel";
+import { DiscussionSnapshotPanel } from "./DiscussionSnapshotPanel";
 import { InteropPanel } from "./InteropPanel";
 import { TaskPackagePanel } from "./TaskPackagePanel";
 
@@ -46,6 +48,7 @@ type InsightsTab =
   | "overview"
   | "files"
   | "reimport"
+  | "discussions"
   | "alignment"
   | "interop"
   | "task-packages"
@@ -78,6 +81,11 @@ const TABS: Array<{
   { id: "overview", label: "Overview", icon: <BarChart3 size={15} /> },
   { id: "files", label: "Files", icon: <FileText size={15} /> },
   { id: "reimport", label: "Re-import", icon: <RotateCcw size={15} /> },
+  {
+    id: "discussions",
+    label: "Discussions / snapshots",
+    icon: <MessageSquareText size={15} />,
+  },
   {
     id: "alignment",
     label: "Alignment / corpora",
@@ -497,6 +505,13 @@ export function ProjectInsightsPage({
             onChoose={() => void chooseReplacement()}
             onPreview={() => void previewReimport()}
             onApply={requestApplyReimport}
+          />
+        ) : tab === "discussions" ? (
+          <DiscussionSnapshotPanel
+            snapshot={snapshot}
+            document={document}
+            documents={documents}
+            onRefresh={onRefresh}
           />
         ) : tab === "alignment" ? (
           <AlignmentCorpusPanel

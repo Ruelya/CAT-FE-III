@@ -21,7 +21,8 @@ const committedTypes = join(
   "src",
   "protocol.generated.ts",
 );
-const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+const pnpm = process.platform === "win32" ? "cmd.exe" : "pnpm";
+const pnpmPrefix = process.platform === "win32" ? ["/d", "/s", "/c", "pnpm.cmd"] : [];
 
 try {
   run("cargo", [
@@ -35,6 +36,7 @@ try {
     schema,
   ]);
   run(pnpm, [
+    ...pnpmPrefix,
     "--filter",
     "@translunar/contracts",
     "exec",

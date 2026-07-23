@@ -73,7 +73,11 @@ use translunar_protocol::{
     ConfirmSegmentParams, ConfirmSegmentResult, ConvertSegmentChineseParams, CorrectOcrParams,
     CorrectSourceParams, CreateBackupParams, CreatePipelineParams, CreateProjectParams,
     CreateSegmentCommentParams, DeleteSegmentCommentParams, DictionaryListParams,
-    DictionaryListResult, DictionaryWordParams, DocumentIdParams, DocumentListParams, DocumentPage,
+    DictionaryListResult, DictionaryWordParams, DiscussionMessage, DiscussionMessageCreateParams,
+    DiscussionMessageDeleteParams, DiscussionMessageListParams, DiscussionMessagePage,
+    DiscussionMessageUpdateParams, DiscussionScope, DiscussionStatus, DiscussionThread,
+    DiscussionThreadCreateParams, DiscussionThreadListParams, DiscussionThreadPage,
+    DiscussionThreadResolveParams, DocumentIdParams, DocumentListParams, DocumentPage,
     DocumentReimportApplyParams, DocumentReimportPreviewParams, DocumentReimportPreviewResult,
     EditorHistoryParams, EditorHistoryResult, EditorMutationResult, EditorSearchField,
     EditorSegmentFilter, EditorSegmentListParams, EditorSegmentPage, EditorSegmentSort,
@@ -82,19 +86,23 @@ use translunar_protocol::{
     ExportDocxResult, FilterListResult, FindSegmentsParams, GlobalSearchHit, GlobalSearchPage,
     GlobalSearchParams, HistoryListParams, ImportDocumentParams, ImportDocumentResult,
     ImportDocxParams, InitializeParams, InitializeResult, InteropApplyResult, InteropPreviewStatus,
-    ListQaParams, MergeSegmentsParams, OperationPage, PROTOCOL_VERSION, PdfBoundingBox,
-    PdfPageBlock, PdfPageDetail, PdfPageGetParams, PdfPageListParams, PdfPageListResult,
-    PdfPageSummary, PipelineCapabilityResult, PipelineDefinitionPage, PipelineIdParams,
-    PipelineListParams, PipelineRunIdParams, PipelineRunListParams, PipelineRunPage,
-    PipelineRunRevisionParams, PipelineRunSnapshot as ProtocolPipelineRunSnapshot,
+    ListQaParams, MergeSegmentsParams, NamedProjectSnapshot, OperationPage, PROTOCOL_VERSION,
+    PdfBoundingBox, PdfPageBlock, PdfPageDetail, PdfPageGetParams, PdfPageListParams,
+    PdfPageListResult, PdfPageSummary, PipelineCapabilityResult, PipelineDefinitionPage,
+    PipelineIdParams, PipelineListParams, PipelineRunIdParams, PipelineRunListParams,
+    PipelineRunPage, PipelineRunRevisionParams, PipelineRunSnapshot as ProtocolPipelineRunSnapshot,
     PipelineValidationResult, ProjectAnalyticsParams, ProjectAnalyticsResult,
     ProjectArchiveExportParams, ProjectArchiveRestoreParams, ProjectArchiveResult,
     ProjectBatchImportParams, ProjectBatchImportResult, ProjectCreateFromTemplateParams,
     ProjectCreateFromTemplateResult, ProjectIdParams, ProjectListParams, ProjectPage,
-    ProjectSnapshot, ProjectTemplate, ProjectTemplateCreateParams, ProjectTemplateDeleteParams,
-    ProjectTemplateGetParams, ProjectTemplateListParams, ProjectTemplatePage,
-    ProjectTemplateUpdateParams, PropagateSegmentParams, QaListResult, RecycleDeleteParams,
-    RecycleEntry, RecycleEntryActionParams, RecycleListParams, RecyclePage, ReplaceApplyParams,
+    ProjectSnapshot, ProjectSnapshotChangeSummary, ProjectSnapshotCreateParams,
+    ProjectSnapshotGetParams, ProjectSnapshotListParams, ProjectSnapshotPage,
+    ProjectSnapshotPreview, ProjectSnapshotPreviewRestoreParams, ProjectSnapshotPreviewStatus,
+    ProjectSnapshotRestoreParams, ProjectSnapshotRestoreResult, ProjectTemplate,
+    ProjectTemplateCreateParams, ProjectTemplateDeleteParams, ProjectTemplateGetParams,
+    ProjectTemplateListParams, ProjectTemplatePage, ProjectTemplateUpdateParams,
+    PropagateSegmentParams, QaListResult, RecycleDeleteParams, RecycleEntry,
+    RecycleEntryActionParams, RecycleListParams, RecyclePage, ReplaceApplyParams,
     ReplacePreviewItem, ReplacePreviewParams, ReplacePreviewResult, ResolveSegmentCommentParams,
     ReviewApplyParams, ReviewCreateParams, ReviewDecisionParams, ReviewExportParams,
     ReviewExportResult, ReviewInteropDisposition, ReviewListParams, ReviewListResult,
@@ -115,23 +123,32 @@ use translunar_protocol::{
 use translunar_storage as storage;
 use translunar_storage::{
     AnalysisProfileRecord as StorageAnalysisProfile, AnalysisRunRecord as StorageAnalysisRun,
-    ConcordanceRequest as StorageConcordanceRequest, EditorFilter as StorageEditorFilter,
+    ConcordanceRequest as StorageConcordanceRequest,
+    DiscussionMessageRecord as StorageDiscussionMessage, DiscussionScope as StorageDiscussionScope,
+    DiscussionStatus as StorageDiscussionStatus,
+    DiscussionThreadFilter as StorageDiscussionThreadFilter,
+    DiscussionThreadRecord as StorageDiscussionThread, EditorFilter as StorageEditorFilter,
     EditorListRequest as StorageEditorListRequest, EditorMutation as StorageEditorMutation,
     EditorSearchField as StorageEditorSearchField, EditorSort as StorageEditorSort,
     GlobalSearchQuery as StorageGlobalSearchQuery, GlobalSearchResult as StorageGlobalSearchResult,
     INTEROP_STRUCTURAL_PATH_METADATA, InteropApplyResult as StorageInteropApplyResult,
     InteropPreviewKind, InteropPreviewRecord, InteropPreviewRowRecord, ManagedDocument,
-    NewDocument, NewInteropPreview, NewInteropPreviewRow, NewPipelineDefinition,
-    NewProjectArchiveRecord, NewReferenceCorpus, NewReferenceCorpusEntry, NewReimportPreview,
-    NewTermEntry, NewTermTranslation, NewTmLibrary, ProjectArchiveData,
-    ProjectFromTemplateResult as StorageProjectFromTemplateResult,
+    NamedProjectSnapshotRecord as StorageProjectSnapshot, NewDiscussionMessage,
+    NewDiscussionThread, NewDocument, NewInteropPreview, NewInteropPreviewRow,
+    NewPipelineDefinition, NewProjectArchiveRecord, NewProjectSnapshot, NewReferenceCorpus,
+    NewReferenceCorpusEntry, NewReimportPreview, NewTermEntry, NewTermTranslation, NewTmLibrary,
+    ProjectArchiveData, ProjectFromTemplateResult as StorageProjectFromTemplateResult,
+    ProjectSnapshotChangeSummaryRecord as StorageSnapshotSummary,
+    ProjectSnapshotPreviewRecord as StorageSnapshotPreview,
+    ProjectSnapshotPreviewStatusRecord as StorageSnapshotPreviewStatus,
+    ProjectSnapshotRestoreResultRecord as StorageSnapshotRestoreResult,
     ProjectTemplateRecord as StorageProjectTemplate, ProjectUpdate,
     RecycleEntryRecord as StorageRecycleEntry, ReferenceCorpusKind, ReferenceCorpusMutationResult,
     ReimportPreviewRecord as StorageReimportPreview, ReplaceItem as StorageReplaceItem,
     ReplacePreview as StorageReplacePreview, ReplaceRequest as StorageReplaceRequest,
-    ReviewInteropApply, ReviewProposal, StorageError, Store, TableInteropApply,
-    TermSearchRequest as StorageTermSearchRequest, TmSearchRequest as StorageTmSearchRequest,
-    interop_comment_context,
+    RestoreProjectSnapshot, ReviewInteropApply, ReviewProposal, StorageError, Store,
+    TableInteropApply, TermSearchRequest as StorageTermSearchRequest,
+    TmSearchRequest as StorageTmSearchRequest, interop_comment_context,
 };
 use translunar_task_package_core::TaskPackageError;
 use zip::write::{SimpleFileOptions, ZipWriter};
@@ -294,6 +311,132 @@ fn protocol_template(value: StorageProjectTemplate) -> ProjectTemplate {
         built_in: value.built_in,
         created_at_ms: value.created_at_ms,
         updated_at_ms: value.updated_at_ms,
+    }
+}
+
+fn protocol_discussion_scope(value: StorageDiscussionScope) -> DiscussionScope {
+    match value {
+        StorageDiscussionScope::Project => DiscussionScope::Project,
+        StorageDiscussionScope::Document => DiscussionScope::Document,
+        StorageDiscussionScope::Segment => DiscussionScope::Segment,
+    }
+}
+
+fn storage_discussion_scope(value: DiscussionScope) -> StorageDiscussionScope {
+    match value {
+        DiscussionScope::Project => StorageDiscussionScope::Project,
+        DiscussionScope::Document => StorageDiscussionScope::Document,
+        DiscussionScope::Segment => StorageDiscussionScope::Segment,
+    }
+}
+
+fn protocol_discussion_status(value: StorageDiscussionStatus) -> DiscussionStatus {
+    match value {
+        StorageDiscussionStatus::Open => DiscussionStatus::Open,
+        StorageDiscussionStatus::Resolved => DiscussionStatus::Resolved,
+    }
+}
+
+fn protocol_discussion_thread(value: StorageDiscussionThread) -> DiscussionThread {
+    DiscussionThread {
+        id: value.id,
+        project_id: value.project_id,
+        scope: protocol_discussion_scope(value.scope),
+        document_id: value.document_id,
+        segment_id: value.segment_id,
+        title: value.title,
+        status: protocol_discussion_status(value.status),
+        revision: value.revision,
+        message_count: value.message_count,
+        created_at_ms: value.created_at_ms,
+        updated_at_ms: value.updated_at_ms,
+        resolved_at_ms: value.resolved_at_ms,
+        resolved_by: value.resolved_by,
+    }
+}
+
+fn protocol_discussion_message(value: StorageDiscussionMessage) -> DiscussionMessage {
+    DiscussionMessage {
+        id: value.id,
+        thread_id: value.thread_id,
+        ordinal: value.ordinal,
+        actor: value.actor,
+        body: value.body,
+        mentions: value.mentions,
+        revision: value.revision,
+        thread_revision: value.thread_revision,
+        deleted: value.deleted,
+        created_at_ms: value.created_at_ms,
+        updated_at_ms: value.updated_at_ms,
+    }
+}
+
+fn protocol_snapshot_metadata(value: StorageProjectSnapshot) -> NamedProjectSnapshot {
+    NamedProjectSnapshot {
+        id: value.id,
+        project_id: value.project_id,
+        name: value.name,
+        base_project_revision: value.base_project_revision,
+        state_hash: value.state_hash,
+        document_count: value.document_count,
+        segment_count: value.segment_count,
+        thread_count: value.thread_count,
+        created_at_ms: value.created_at_ms,
+        actor: value.actor,
+        reason: value.reason,
+    }
+}
+
+fn protocol_snapshot_summary(value: StorageSnapshotSummary) -> ProjectSnapshotChangeSummary {
+    ProjectSnapshotChangeSummary {
+        documents_added: value.documents_added,
+        documents_removed: value.documents_removed,
+        documents_changed: value.documents_changed,
+        segments_added: value.segments_added,
+        segments_removed: value.segments_removed,
+        segments_changed: value.segments_changed,
+        comments_changed: value.comments_changed,
+        reviews_changed: value.reviews_changed,
+        discussions_changed: value.discussions_changed,
+        mounts_added: value.mounts_added,
+        mounts_removed: value.mounts_removed,
+        mounts_changed: value.mounts_changed,
+    }
+}
+
+fn protocol_snapshot_preview_status(
+    value: StorageSnapshotPreviewStatus,
+) -> ProjectSnapshotPreviewStatus {
+    match value {
+        StorageSnapshotPreviewStatus::Open => ProjectSnapshotPreviewStatus::Open,
+        StorageSnapshotPreviewStatus::Applied => ProjectSnapshotPreviewStatus::Applied,
+    }
+}
+
+fn protocol_snapshot_preview(value: StorageSnapshotPreview) -> ProjectSnapshotPreview {
+    ProjectSnapshotPreview {
+        preview_id: value.preview_id,
+        snapshot_id: value.snapshot_id,
+        project_id: value.project_id,
+        expected_project_revision: value.expected_project_revision,
+        current_project_revision: value.current_project_revision,
+        current_state_hash: value.current_state_hash,
+        status: protocol_snapshot_preview_status(value.status),
+        summary: protocol_snapshot_summary(value.summary),
+        missing_dependency_ids: value.missing_dependency_ids,
+    }
+}
+
+fn protocol_snapshot_restore_result(
+    value: StorageSnapshotRestoreResult,
+) -> ProjectSnapshotRestoreResult {
+    ProjectSnapshotRestoreResult {
+        preview_id: value.preview_id,
+        snapshot_id: value.snapshot_id,
+        status: protocol_snapshot_preview_status(value.status),
+        project_revision: value.project_revision,
+        summary: protocol_snapshot_summary(value.summary),
+        operation_id: value.operation_id,
     }
 }
 
@@ -2539,6 +2682,194 @@ impl EngineService {
                 validated.manifest.dependencies.len()
             )],
         })
+    }
+
+    pub fn list_discussion_threads(
+        &self,
+        params: DiscussionThreadListParams,
+    ) -> Result<DiscussionThreadPage> {
+        let limit = bounded_page_size(params.limit)?;
+        let (items, total) =
+            self.store
+                .list_discussion_threads(&StorageDiscussionThreadFilter {
+                    project_id: params.project_id,
+                    scope: params.scope.map(storage_discussion_scope),
+                    document_id: params.document_id,
+                    segment_id: params.segment_id,
+                    include_resolved: params.include_resolved,
+                    offset: params.offset,
+                    limit,
+                })?;
+        Ok(DiscussionThreadPage {
+            items: items.into_iter().map(protocol_discussion_thread).collect(),
+            total,
+            offset: params.offset,
+            limit,
+        })
+    }
+
+    pub fn create_discussion_thread(
+        &mut self,
+        params: DiscussionThreadCreateParams,
+    ) -> Result<DiscussionThread> {
+        Ok(protocol_discussion_thread(
+            self.store.create_discussion_thread(NewDiscussionThread {
+                project_id: params.project_id,
+                scope: storage_discussion_scope(params.scope),
+                document_id: params.document_id,
+                segment_id: params.segment_id,
+                title: params.title,
+                body: params.body,
+                actor: params.actor,
+                reason: params.reason,
+                expected_project_revision: params.expected_project_revision,
+            })?,
+        ))
+    }
+
+    pub fn resolve_discussion_thread(
+        &mut self,
+        params: DiscussionThreadResolveParams,
+    ) -> Result<DiscussionThread> {
+        Ok(protocol_discussion_thread(
+            self.store.resolve_discussion_thread(
+                &params.thread_id,
+                params.resolved,
+                params.expected_revision,
+                &params.actor,
+                &params.reason,
+            )?,
+        ))
+    }
+
+    pub fn list_discussion_messages(
+        &self,
+        params: DiscussionMessageListParams,
+    ) -> Result<DiscussionMessagePage> {
+        let limit = bounded_page_size(params.limit)?;
+        let (items, total) = self.store.list_discussion_messages(
+            &params.thread_id,
+            params.include_deleted,
+            params.offset,
+            limit,
+        )?;
+        Ok(DiscussionMessagePage {
+            items: items.into_iter().map(protocol_discussion_message).collect(),
+            total,
+            offset: params.offset,
+            limit,
+        })
+    }
+
+    pub fn create_discussion_message(
+        &mut self,
+        params: DiscussionMessageCreateParams,
+    ) -> Result<DiscussionMessage> {
+        Ok(protocol_discussion_message(
+            self.store.create_discussion_message(NewDiscussionMessage {
+                thread_id: params.thread_id,
+                body: params.body,
+                actor: params.actor,
+                reason: params.reason,
+                expected_thread_revision: params.expected_thread_revision,
+            })?,
+        ))
+    }
+
+    pub fn update_discussion_message(
+        &mut self,
+        params: DiscussionMessageUpdateParams,
+    ) -> Result<DiscussionMessage> {
+        Ok(protocol_discussion_message(
+            self.store.update_discussion_message(
+                &params.message_id,
+                &params.body,
+                &params.actor,
+                &params.reason,
+                params.expected_revision,
+            )?,
+        ))
+    }
+
+    pub fn delete_discussion_message(
+        &mut self,
+        params: DiscussionMessageDeleteParams,
+    ) -> Result<DiscussionMessage> {
+        Ok(protocol_discussion_message(
+            self.store.delete_discussion_message(
+                &params.message_id,
+                &params.actor,
+                &params.reason,
+                params.expected_revision,
+            )?,
+        ))
+    }
+
+    pub fn list_project_snapshots(
+        &self,
+        params: ProjectSnapshotListParams,
+    ) -> Result<ProjectSnapshotPage> {
+        let limit = bounded_page_size(params.limit)?;
+        let (items, total) =
+            self.store
+                .list_project_snapshots(&params.project_id, params.offset, limit)?;
+        Ok(ProjectSnapshotPage {
+            items: items.into_iter().map(protocol_snapshot_metadata).collect(),
+            total,
+            offset: params.offset,
+            limit,
+        })
+    }
+
+    pub fn create_project_snapshot(
+        &mut self,
+        params: ProjectSnapshotCreateParams,
+    ) -> Result<NamedProjectSnapshot> {
+        Ok(protocol_snapshot_metadata(
+            self.store.create_project_snapshot(NewProjectSnapshot {
+                project_id: params.project_id,
+                name: params.name,
+                expected_project_revision: params.expected_project_revision,
+                actor: params.actor,
+                reason: params.reason,
+            })?,
+        ))
+    }
+
+    pub fn get_project_snapshot(
+        &self,
+        params: ProjectSnapshotGetParams,
+    ) -> Result<NamedProjectSnapshot> {
+        Ok(protocol_snapshot_metadata(
+            self.store.get_project_snapshot(&params.snapshot_id)?,
+        ))
+    }
+
+    pub fn preview_project_snapshot_restore(
+        &mut self,
+        params: ProjectSnapshotPreviewRestoreParams,
+    ) -> Result<ProjectSnapshotPreview> {
+        Ok(protocol_snapshot_preview(
+            self.store.preview_project_snapshot_restore(
+                &params.snapshot_id,
+                params.expected_project_revision,
+            )?,
+        ))
+    }
+
+    pub fn restore_project_snapshot(
+        &mut self,
+        params: ProjectSnapshotRestoreParams,
+    ) -> Result<ProjectSnapshotRestoreResult> {
+        Ok(protocol_snapshot_restore_result(
+            self.store
+                .restore_project_snapshot(RestoreProjectSnapshot {
+                    preview_id: params.preview_id,
+                    expected_project_revision: params.expected_project_revision,
+                    actor: params.actor,
+                    reason: params.reason,
+                })?,
+        ))
     }
 
     pub fn batch_import(
@@ -5442,6 +5773,54 @@ impl RpcDispatcher {
                 self.service
                     .restore_project_archive(parse_params(request.params)?)?,
             ),
+            methods::DISCUSSION_THREAD_LIST => serialize_result(
+                self.service
+                    .list_discussion_threads(parse_params(request.params)?)?,
+            ),
+            methods::DISCUSSION_THREAD_CREATE => serialize_result(
+                self.service
+                    .create_discussion_thread(parse_params(request.params)?)?,
+            ),
+            methods::DISCUSSION_THREAD_RESOLVE => serialize_result(
+                self.service
+                    .resolve_discussion_thread(parse_params(request.params)?)?,
+            ),
+            methods::DISCUSSION_MESSAGE_LIST => serialize_result(
+                self.service
+                    .list_discussion_messages(parse_params(request.params)?)?,
+            ),
+            methods::DISCUSSION_MESSAGE_CREATE => serialize_result(
+                self.service
+                    .create_discussion_message(parse_params(request.params)?)?,
+            ),
+            methods::DISCUSSION_MESSAGE_UPDATE => serialize_result(
+                self.service
+                    .update_discussion_message(parse_params(request.params)?)?,
+            ),
+            methods::DISCUSSION_MESSAGE_DELETE => serialize_result(
+                self.service
+                    .delete_discussion_message(parse_params(request.params)?)?,
+            ),
+            methods::PROJECT_SNAPSHOT_LIST => serialize_result(
+                self.service
+                    .list_project_snapshots(parse_params(request.params)?)?,
+            ),
+            methods::PROJECT_SNAPSHOT_CREATE => serialize_result(
+                self.service
+                    .create_project_snapshot(parse_params(request.params)?)?,
+            ),
+            methods::PROJECT_SNAPSHOT_GET => serialize_result(
+                self.service
+                    .get_project_snapshot(parse_params(request.params)?)?,
+            ),
+            methods::PROJECT_SNAPSHOT_PREVIEW_RESTORE => serialize_result(
+                self.service
+                    .preview_project_snapshot_restore(parse_params(request.params)?)?,
+            ),
+            methods::PROJECT_SNAPSHOT_RESTORE => serialize_result(
+                self.service
+                    .restore_project_snapshot(parse_params(request.params)?)?,
+            ),
             methods::TASK_PACKAGE_EXPORT => serialize_result(
                 self.service
                     .export_task_package(parse_params(request.params)?)?,
@@ -6026,6 +6405,8 @@ impl RpcDispatcher {
                 "project.create-from-template".to_string(),
                 "project.batch-import".to_string(),
                 "project.archive-portable".to_string(),
+                "discussion.threads".to_string(),
+                "project.snapshots".to_string(),
                 "task-package.offline-handoff".to_string(),
                 "document.reimport".to_string(),
                 "project.recycle".to_string(),
@@ -7219,6 +7600,275 @@ mod tests {
             panic!("unexpected RPC error: {error:?}");
         }
         serde_json::from_value(response.result.expect("RPC result")).expect("decode RPC result")
+    }
+
+    #[test]
+    fn dispatcher_exposes_restart_safe_discussions_and_snapshot_restore() {
+        let context = TestContext::new();
+        let mut dispatcher = RpcDispatcher::open(context.root.path()).expect("open dispatcher");
+        let initialized: InitializeResult = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            1,
+            methods::INITIALIZE,
+            InitializeParams {
+                protocol_version: PROTOCOL_VERSION,
+                client: ClientInfo {
+                    name: "discussion-snapshot-test".to_string(),
+                    version: "1".to_string(),
+                },
+            },
+        ));
+        assert!(
+            initialized
+                .capabilities
+                .iter()
+                .any(|capability| capability == "discussion.threads")
+        );
+        assert!(
+            initialized
+                .capabilities
+                .iter()
+                .any(|capability| capability == "project.snapshots")
+        );
+        let project: Project = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            2,
+            methods::PROJECT_CREATE,
+            CreateProjectParams {
+                name: "Discussion snapshot".to_string(),
+                source_locale: "en-US".to_string(),
+                target_locale: "zh-CN".to_string(),
+                domain: "general".to_string(),
+            },
+        ));
+        let document: Document = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            3,
+            methods::DOCUMENT_IMPORT_DOCX,
+            ImportDocxParams {
+                project_id: project.id.clone(),
+                source_path: context.source.to_string_lossy().into_owned(),
+            },
+        ));
+        let segments: SegmentPage = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            4,
+            methods::SEGMENT_LIST,
+            SegmentListParams {
+                document_id: document.id.clone(),
+                offset: 0,
+                limit: 10,
+            },
+        ));
+        let segment = segments.items.first().expect("imported segment").clone();
+
+        for (id, scope, document_id, segment_id) in [
+            (5, DiscussionScope::Project, None, None),
+            (
+                6,
+                DiscussionScope::Document,
+                Some(document.id.clone()),
+                None,
+            ),
+            (
+                7,
+                DiscussionScope::Segment,
+                Some(document.id.clone()),
+                Some(segment.id.clone()),
+            ),
+        ] {
+            let _: DiscussionThread = dispatcher_result(dispatcher_call(
+                &mut dispatcher,
+                id,
+                methods::DISCUSSION_THREAD_CREATE,
+                DiscussionThreadCreateParams {
+                    project_id: project.id.clone(),
+                    scope,
+                    document_id,
+                    segment_id,
+                    title: format!("{scope:?} discussion"),
+                    body: "Ask @Reviewer for context.".to_string(),
+                    actor: "author".to_string(),
+                    reason: "create discussion".to_string(),
+                    expected_project_revision: project.revision,
+                },
+            ));
+        }
+        let thread_page: DiscussionThreadPage = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            8,
+            methods::DISCUSSION_THREAD_LIST,
+            DiscussionThreadListParams {
+                project_id: project.id.clone(),
+                scope: Some(DiscussionScope::Segment),
+                document_id: Some(document.id.clone()),
+                segment_id: Some(segment.id.clone()),
+                include_resolved: false,
+                offset: 0,
+                limit: 10,
+            },
+        ));
+        assert_eq!(thread_page.total, 1);
+        let thread = thread_page.items[0].clone();
+        let reply: DiscussionMessage = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            9,
+            methods::DISCUSSION_MESSAGE_CREATE,
+            DiscussionMessageCreateParams {
+                thread_id: thread.id.clone(),
+                body: "Answer from @Owner.".to_string(),
+                actor: "reviewer".to_string(),
+                reason: "reply".to_string(),
+                expected_thread_revision: thread.revision,
+            },
+        ));
+        let edited: DiscussionMessage = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            10,
+            methods::DISCUSSION_MESSAGE_UPDATE,
+            DiscussionMessageUpdateParams {
+                message_id: reply.id.clone(),
+                body: "Updated answer from @Owner.".to_string(),
+                actor: "reviewer".to_string(),
+                reason: "clarify reply".to_string(),
+                expected_revision: reply.revision,
+            },
+        ));
+        let deleted: DiscussionMessage = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            11,
+            methods::DISCUSSION_MESSAGE_DELETE,
+            DiscussionMessageDeleteParams {
+                message_id: edited.id.clone(),
+                actor: "reviewer".to_string(),
+                reason: "withdraw reply".to_string(),
+                expected_revision: edited.revision,
+            },
+        ));
+        assert!(deleted.deleted);
+        let resolved: DiscussionThread = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            12,
+            methods::DISCUSSION_THREAD_RESOLVE,
+            DiscussionThreadResolveParams {
+                thread_id: thread.id.clone(),
+                resolved: true,
+                expected_revision: deleted.thread_revision,
+                actor: "author".to_string(),
+                reason: "close thread".to_string(),
+            },
+        ));
+        let reopened: DiscussionThread = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            13,
+            methods::DISCUSSION_THREAD_RESOLVE,
+            DiscussionThreadResolveParams {
+                thread_id: thread.id.clone(),
+                resolved: false,
+                expected_revision: resolved.revision,
+                actor: "author".to_string(),
+                reason: "reopen thread".to_string(),
+            },
+        ));
+        assert_eq!(reopened.status, DiscussionStatus::Open);
+
+        let snapshot: NamedProjectSnapshot = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            14,
+            methods::PROJECT_SNAPSHOT_CREATE,
+            ProjectSnapshotCreateParams {
+                project_id: project.id.clone(),
+                name: "review baseline".to_string(),
+                expected_project_revision: project.revision,
+                actor: "author".to_string(),
+                reason: "capture review state".to_string(),
+            },
+        ));
+        let changed: Segment = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            15,
+            methods::SEGMENT_UPDATE_TARGET,
+            UpdateTargetParams {
+                segment_id: segment.id.clone(),
+                target_text: "Changed after snapshot".to_string(),
+                expected_revision: segment.revision,
+            },
+        ));
+        assert_eq!(changed.target_text, "Changed after snapshot");
+        let preview: ProjectSnapshotPreview = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            16,
+            methods::PROJECT_SNAPSHOT_PREVIEW_RESTORE,
+            ProjectSnapshotPreviewRestoreParams {
+                snapshot_id: snapshot.id.clone(),
+                expected_project_revision: project.revision,
+            },
+        ));
+        assert_eq!(preview.summary.segments_changed, 1);
+        let restored: ProjectSnapshotRestoreResult = dispatcher_result(dispatcher_call(
+            &mut dispatcher,
+            17,
+            methods::PROJECT_SNAPSHOT_RESTORE,
+            ProjectSnapshotRestoreParams {
+                preview_id: preview.preview_id,
+                expected_project_revision: project.revision,
+                actor: "author".to_string(),
+                reason: "restore review baseline".to_string(),
+            },
+        ));
+        assert_eq!(restored.status, ProjectSnapshotPreviewStatus::Applied);
+        assert_eq!(restored.project_revision, project.revision + 1);
+
+        drop(dispatcher);
+        let mut restarted = RpcDispatcher::open(context.root.path()).expect("restart dispatcher");
+        let _: InitializeResult = dispatcher_result(dispatcher_call(
+            &mut restarted,
+            18,
+            methods::INITIALIZE,
+            InitializeParams {
+                protocol_version: PROTOCOL_VERSION,
+                client: ClientInfo {
+                    name: "discussion-snapshot-test".to_string(),
+                    version: "1".to_string(),
+                },
+            },
+        ));
+        let messages: DiscussionMessagePage = dispatcher_result(dispatcher_call(
+            &mut restarted,
+            19,
+            methods::DISCUSSION_MESSAGE_LIST,
+            DiscussionMessageListParams {
+                thread_id: thread.id,
+                include_deleted: true,
+                offset: 0,
+                limit: 10,
+            },
+        ));
+        assert_eq!(messages.total, 2);
+        assert_eq!(messages.items[0].mentions, vec!["@reviewer"]);
+        assert!(messages.items[1].deleted);
+        let snapshots: ProjectSnapshotPage = dispatcher_result(dispatcher_call(
+            &mut restarted,
+            20,
+            methods::PROJECT_SNAPSHOT_LIST,
+            ProjectSnapshotListParams {
+                project_id: project.id,
+                offset: 0,
+                limit: 10,
+            },
+        ));
+        assert_eq!(snapshots.total, 1);
+        let restored_segments: SegmentPage = dispatcher_result(dispatcher_call(
+            &mut restarted,
+            21,
+            methods::SEGMENT_LIST,
+            SegmentListParams {
+                document_id: document.id,
+                offset: 0,
+                limit: 10,
+            },
+        ));
+        assert_eq!(restored_segments.items[0].target_text, "");
     }
 
     #[test]

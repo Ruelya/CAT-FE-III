@@ -1,1 +1,7 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"type":"spec","file":".trellis/spec/backend/engine-boundary.md","reason":"Keep discussion revision checks, snapshot hashing/diffs, restore validation, and Engine dispatch behind typed Rust contracts."}
+{"type":"spec","file":".trellis/spec/backend/database-guidelines.md","reason":"Apply migration 14, bounded deterministic paging, immediate transactions, and rollback-safe snapshot restore."}
+{"type":"spec","file":".trellis/spec/backend/error-handling.md","reason":"Map stale revisions, invalid scope, duplicate names, missing dependencies, and resource limits to stable typed errors."}
+{"type":"spec","file":".trellis/spec/frontend/electron-workbench.md","reason":"Add the Project Insights discussion/snapshot surface using generated RPC contracts and accessible in-app confirmation."}
+{"type":"spec","file":".trellis/spec/frontend/state-management.md","reason":"Keep snapshot payloads, digests, revisions, and restore results Engine-authoritative while React owns presentation state only."}
+{"type":"research","file":".trellis/tasks/07-19-interop-alignment-review/prd.md","reason":"Parent R5 and AC6 define scoped discussions, named snapshots, atomic forward restore, restart safety, and desktop history visibility."}
+{"type":"research","file":".trellis/tasks/archive/2026-07/07-21-offline-task-packages/design.md","reason":"Reuse the completed child pattern for persisted previews, internal digests, expected revisions, terminal states, and atomic apply."}

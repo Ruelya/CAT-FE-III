@@ -2115,3 +2115,133 @@ validate_complete_task_package_selection(&transaction, &selected_rows)?;
 apply_complete_task_package_selection(&transaction, &selected_rows)?;
 transaction.commit()?;
 ```
+
+## Discussion Threads And Project Snapshots Boundary
+
+### 1. Scope / Trigger
+
+Use this contract for local project-, document-, or segment-scoped discussion
+threads and for immutable named project snapshots. The feature crosses the
+protocol catalog, migration 14, storage transactions, Engine dispatch, and
+Project Insights. It does not add network collaboration, notifications,
+attachments, or snapshot files.
+
+### 2. Signatures
+
+Protocol v1 adds these generated Engine methods:
+
+```text
+discussion.thread.list/create/resolve
+discussion.message.list/create/update/delete
+project.snapshot.list/create/get/previewRestore/restore
+```
+
+Discussion create/resolve/message mutations carry actor, reason, and expected
+project/thread/message revisions. Thread pages and message pages carry
+`items`, `total`, `offset`, and `limit`; list limits are validated in `1..=500`.
+Thread scope is `project|document|segment`, and message rows expose stable
+`ordinal`, `revision`, `threadRevision`, `mentions`, and `deleted` fields.
+
+Migration 14 creates `discussion_threads`, `discussion_messages`,
+`project_snapshots`, and `project_snapshot_previews` as STRICT tables with
+foreign keys, scope/status checks, deterministic indexes, and terminal preview
+status. Snapshot preview accepts `snapshotId` and
+`expectedProjectRevision`; restore accepts only `previewId`,
+`expectedProjectRevision`, `actor`, and `reason`.
+
+### 3. Contracts
+
+- Storage derives lower-cased literal `@token` metadata locally. It never
+  queues notifications or contacts a server. Message edits preserve ordinal;
+  deletes retain the row as a tombstone, and list order is `(ordinal, id)`.
+- Discussion actor/reason/title/body limits are 128 bytes, 512 bytes, 256
+  bytes, and 16 KiB respectively. Scope references are checked against the
+  selected project before any write. Every successful mutation appends one
+  bounded operation-history entry in the same Immediate transaction.
+- Snapshot capture is canonical and immutable. It includes project
+  configuration, active documents/versions/segments and project-local editor,
+  comment, review, workflow, discussion, and mount-reference state. It never
+  selects credentials, AI secrets, shared asset rows, or operations. The
+  stored SHA-256 covers the canonical payload, not client input.
+- Snapshot names are unique per project. Payloads are capped at 64 MiB;
+  metadata and pages remain bounded and deterministically ordered.
+- Preview writes only a preview row and returns a stable preview ID, current
+  state hash, expected/current revisions, change summary, and missing mount
+  references. Restore rechecks both revision and current-state hash, validates
+  dependencies, applies project-local rows in one Immediate transaction,
+  increments the project revision once, and appends
+  `project.snapshot.restore`.
+- A successful preview becomes terminal `applied`; a stale/failed restore
+  leaves the preview open and the snapshot/shared assets untouched. A fresh
+  preview is required for retry.
+- On Windows, `scripts/check-contracts.mjs` invokes `pnpm.cmd` through
+  `cmd.exe /d /s /c`; direct `spawnSync("pnpm.cmd")` can return `EINVAL` even
+  when the generated contracts are current.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Unknown project/document/segment/thread/message/snapshot/preview | `not_found`; no side effect |
+| Stale expected project/thread/message revision | `conflict` with entity, expected, and actual revision data; no mutation |
+| Invalid scope references, empty/bounded text, malformed page limit, or oversized payload | `invalid_request`/`resource_limit`; no partial write |
+| Duplicate `(project, name)` snapshot | `invalid_state`; existing snapshot remains immutable |
+| Missing mounted dependency or changed preview revision/hash | `invalid_state`/`conflict`; preview remains retryable and project unchanged |
+| Restore of an `applied` preview | `invalid_state`; no second operation or revision increment |
+| SQLite/FK/validation failure during restore | Transaction rollback; no partial project, discussion, mount, or history write |
+
+### 5. Good / Base / Bad Cases
+
+- Good: create all three scopes, page messages, edit then tombstone a reply,
+  resolve/reopen, restart, and observe the same ordinals and mentions.
+- Good: create a named snapshot, preview it, reject a stale restore, refresh
+  the preview, restore once, and replay the terminal preview without another
+  operation.
+- Base: a preview reports zero changes and no missing mounts; the UI remains
+  inspectable while mutation controls are disabled during busy/error states.
+- Bad: compute a digest in React, write discussion rows outside the revision
+  transaction, delete tombstones, replace a duplicate snapshot, or restore a
+  snapshot after only checking its project revision.
+
+### 6. Tests Required
+
+- Protocol tests assert camelCase serialization, all 12 method catalog entries,
+  bounded page limits, and capability reporting.
+- Storage tests cover migration 14 fresh/upgrade/reopen/rollback, scope/FK
+  checks, mention normalization, stable paging/ordinals, stale writes,
+  duplicate names, missing mounts, injected restore failure, atomic rollback,
+  and restart persistence.
+- Engine tests assert handshake/dispatch, typed `conflict`/`invalid_state`
+  data, bounded validation, history operations, terminal preview behavior,
+  and no secret/shared-row leakage from payloads.
+- `scripts/check-contracts.mjs` and the real stdio smoke must pass. Smoke must
+  cover all scopes, mention/tombstone paging, stale preview, duplicate name,
+  restore/history, terminal retry, and restart recovery.
+- Real-Engine Electron E2E must cover create/edit/delete/resolve/reopen,
+  snapshot preview/stale/restore/restart, console/page errors, horizontal
+  overflow, named controls, and screenshots at 1250x744, 1680x942, and
+  1920x1080.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```typescript
+const requestDigest = await sha256(snapshotJson);
+await window.translunar.invoke("project.snapshot.restore", {
+  previewId,
+  requestDigest,
+});
+```
+
+#### Correct
+
+```typescript
+await window.translunar.invoke("project.snapshot.restore", {
+  previewId: preview.previewId,
+  expectedProjectRevision: preview.expectedProjectRevision,
+  actor: actor.trim(),
+  reason: reason.trim(),
+});
+// Rust rechecks the stored preview hash and derives the authoritative restore.
+```

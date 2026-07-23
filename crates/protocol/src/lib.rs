@@ -29,6 +29,8 @@ mod lifecycle;
 pub use lifecycle::*;
 mod task_package;
 pub use task_package::*;
+mod discussion;
+pub use discussion::*;
 
 pub const PROTOCOL_VERSION: u32 = 1;
 
@@ -48,6 +50,18 @@ pub mod methods {
     pub const PROJECT_BATCH_IMPORT: &str = "project.batchImport";
     pub const PROJECT_ARCHIVE_EXPORT: &str = "project.archive.export";
     pub const PROJECT_ARCHIVE_RESTORE: &str = "project.archive.restore";
+    pub const DISCUSSION_THREAD_LIST: &str = "discussion.thread.list";
+    pub const DISCUSSION_THREAD_CREATE: &str = "discussion.thread.create";
+    pub const DISCUSSION_THREAD_RESOLVE: &str = "discussion.thread.resolve";
+    pub const DISCUSSION_MESSAGE_LIST: &str = "discussion.message.list";
+    pub const DISCUSSION_MESSAGE_CREATE: &str = "discussion.message.create";
+    pub const DISCUSSION_MESSAGE_UPDATE: &str = "discussion.message.update";
+    pub const DISCUSSION_MESSAGE_DELETE: &str = "discussion.message.delete";
+    pub const PROJECT_SNAPSHOT_LIST: &str = "project.snapshot.list";
+    pub const PROJECT_SNAPSHOT_CREATE: &str = "project.snapshot.create";
+    pub const PROJECT_SNAPSHOT_GET: &str = "project.snapshot.get";
+    pub const PROJECT_SNAPSHOT_PREVIEW_RESTORE: &str = "project.snapshot.previewRestore";
+    pub const PROJECT_SNAPSHOT_RESTORE: &str = "project.snapshot.restore";
     pub const TASK_PACKAGE_EXPORT: &str = "taskPackage.export";
     pub const TASK_PACKAGE_PREVIEW: &str = "taskPackage.preview";
     pub const TASK_PACKAGE_APPLY: &str = "taskPackage.apply";
@@ -1716,6 +1730,32 @@ pub struct RpcMethodCatalog {
     pub project_archive_export: MethodContract<ProjectArchiveExportParams, ProjectArchiveResult>,
     #[serde(rename = "project.archive.restore")]
     pub project_archive_restore: MethodContract<ProjectArchiveRestoreParams, ProjectArchiveResult>,
+    #[serde(rename = "discussion.thread.list")]
+    pub discussion_thread_list: MethodContract<DiscussionThreadListParams, DiscussionThreadPage>,
+    #[serde(rename = "discussion.thread.create")]
+    pub discussion_thread_create: MethodContract<DiscussionThreadCreateParams, DiscussionThread>,
+    #[serde(rename = "discussion.thread.resolve")]
+    pub discussion_thread_resolve: MethodContract<DiscussionThreadResolveParams, DiscussionThread>,
+    #[serde(rename = "discussion.message.list")]
+    pub discussion_message_list: MethodContract<DiscussionMessageListParams, DiscussionMessagePage>,
+    #[serde(rename = "discussion.message.create")]
+    pub discussion_message_create: MethodContract<DiscussionMessageCreateParams, DiscussionMessage>,
+    #[serde(rename = "discussion.message.update")]
+    pub discussion_message_update: MethodContract<DiscussionMessageUpdateParams, DiscussionMessage>,
+    #[serde(rename = "discussion.message.delete")]
+    pub discussion_message_delete: MethodContract<DiscussionMessageDeleteParams, DiscussionMessage>,
+    #[serde(rename = "project.snapshot.list")]
+    pub project_snapshot_list: MethodContract<ProjectSnapshotListParams, ProjectSnapshotPage>,
+    #[serde(rename = "project.snapshot.create")]
+    pub project_snapshot_create: MethodContract<ProjectSnapshotCreateParams, NamedProjectSnapshot>,
+    #[serde(rename = "project.snapshot.get")]
+    pub project_snapshot_get: MethodContract<ProjectSnapshotGetParams, NamedProjectSnapshot>,
+    #[serde(rename = "project.snapshot.previewRestore")]
+    pub project_snapshot_preview_restore:
+        MethodContract<ProjectSnapshotPreviewRestoreParams, ProjectSnapshotPreview>,
+    #[serde(rename = "project.snapshot.restore")]
+    pub project_snapshot_restore:
+        MethodContract<ProjectSnapshotRestoreParams, ProjectSnapshotRestoreResult>,
     #[serde(rename = "taskPackage.export")]
     pub task_package_export: MethodContract<TaskPackageExportParams, TaskPackageResult>,
     #[serde(rename = "taskPackage.preview")]
@@ -2049,6 +2089,27 @@ pub struct ProtocolCatalog {
     pub project_list_params: ProjectListParams,
     pub update_project_params: UpdateProjectParams,
     pub set_project_lifecycle_params: SetProjectLifecycleParams,
+    pub discussion_thread_list_params: DiscussionThreadListParams,
+    pub discussion_thread_create_params: DiscussionThreadCreateParams,
+    pub discussion_thread_resolve_params: DiscussionThreadResolveParams,
+    pub discussion_message_list_params: DiscussionMessageListParams,
+    pub discussion_message_create_params: DiscussionMessageCreateParams,
+    pub discussion_message_update_params: DiscussionMessageUpdateParams,
+    pub discussion_message_delete_params: DiscussionMessageDeleteParams,
+    pub discussion_thread: DiscussionThread,
+    pub discussion_message: DiscussionMessage,
+    pub discussion_thread_page: DiscussionThreadPage,
+    pub discussion_message_page: DiscussionMessagePage,
+    pub project_snapshot_list_params: ProjectSnapshotListParams,
+    pub project_snapshot_create_params: ProjectSnapshotCreateParams,
+    pub project_snapshot_get_params: ProjectSnapshotGetParams,
+    pub project_snapshot_preview_restore_params: ProjectSnapshotPreviewRestoreParams,
+    pub project_snapshot_restore_params: ProjectSnapshotRestoreParams,
+    pub named_project_snapshot: NamedProjectSnapshot,
+    pub project_snapshot_page: ProjectSnapshotPage,
+    pub project_snapshot_preview: ProjectSnapshotPreview,
+    pub project_snapshot_change_summary: ProjectSnapshotChangeSummary,
+    pub project_snapshot_restore_result: ProjectSnapshotRestoreResult,
     pub import_docx_params: ImportDocxParams,
     pub import_document_params: ImportDocumentParams,
     pub document_id_params: DocumentIdParams,

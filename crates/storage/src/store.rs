@@ -41,8 +41,10 @@ use crate::{Result, StorageError};
 
 mod ai;
 mod alignment;
+mod discussion;
 mod lifecycle;
 mod qa;
+mod snapshot;
 mod task_package;
 pub use ai::{
     AiProviderProfileUpdate, AiSettingsUpdate, NewAiBatchItem, NewAiBatchRun, NewAiProviderProfile,
@@ -61,6 +63,7 @@ pub use alignment::{
     ReindexReferenceCorpus, RemoveReferenceCorpus, ReplaceAlignmentPartition,
     UpdateAlignmentLinkStatus,
 };
+pub use discussion::*;
 pub use lifecycle::{
     AnalysisProfileRecord, AnalysisRunRecord, ArchiveDocumentData, ArchiveSegmentData,
     ArchiveTermbaseData, ArchiveTmLibraryData, GlobalSearchQuery, GlobalSearchResult,
@@ -68,6 +71,7 @@ pub use lifecycle::{
     ProjectTemplateRecord, RecycleEntryRecord, ReimportPreviewRecord,
 };
 pub use qa::{NewQaProfile, QaIssueFilter, QaProfileUpdate};
+pub use snapshot::*;
 pub use task_package::*;
 
 const NUMBER_RULE_ID: &str = "number-mismatch";
