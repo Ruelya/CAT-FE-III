@@ -473,3 +473,36 @@ Closed asset curation, then shipped local plugin runtime: manifest/lifecycle, pr
 ### Next Steps
 
 - None - task complete
+
+
+## Session 14: Ship local API and CLI automation MVP
+
+**Date**: 2026-07-24
+**Task**: Ship local API and CLI automation MVP
+**Branch**: `master`
+
+### Summary
+
+Implemented X-01/X-02 loopback bearer-token HTTP API and translunar CLI run/token/serve/project commands over EngineService; focused smoke passed.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `31487ef` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
