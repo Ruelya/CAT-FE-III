@@ -37,6 +37,8 @@ mod plugin;
 pub use plugin::*;
 mod ai_quality;
 pub use ai_quality::*;
+mod collab;
+pub use collab::*;
 
 pub const PROTOCOL_VERSION: u32 = 1;
 
@@ -191,6 +193,19 @@ pub mod methods {
     pub const PLUGIN_ENABLE: &str = "plugin.enable";
     pub const PLUGIN_DISABLE: &str = "plugin.disable";
     pub const PLUGIN_UNINSTALL: &str = "plugin.uninstall";
+    pub const COLLAB_MEMBER_LIST: &str = "collab.member.list";
+    pub const COLLAB_MEMBER_ADD: &str = "collab.member.add";
+    pub const COLLAB_MEMBER_REMOVE: &str = "collab.member.remove";
+    pub const COLLAB_LOCK_ACQUIRE: &str = "collab.lock.acquire";
+    pub const COLLAB_LOCK_RELEASE: &str = "collab.lock.release";
+    pub const COLLAB_LOCK_HEARTBEAT: &str = "collab.lock.heartbeat";
+    pub const COLLAB_LOCK_LIST: &str = "collab.lock.list";
+    pub const COLLAB_PRESENCE_HEARTBEAT: &str = "collab.presence.heartbeat";
+    pub const COLLAB_PRESENCE_LIST: &str = "collab.presence.list";
+    pub const COLLAB_ASSIGNMENT_LIST: &str = "collab.assignment.list";
+    pub const COLLAB_ASSIGNMENT_CREATE: &str = "collab.assignment.create";
+    pub const COLLAB_ASSIGNMENT_COMPLETE: &str = "collab.assignment.complete";
+    pub const COLLAB_OP_LOG_LIST: &str = "collab.opLog.list";
     pub const HISTORY_LIST: &str = "history.list";
     pub const DATA_CHECK_HEALTH: &str = "data.checkHealth";
     pub const DATA_CREATE_BACKUP: &str = "data.createBackup";
@@ -2032,6 +2047,33 @@ pub struct RpcMethodCatalog {
     pub plugin_disable: MethodContract<PluginMutationParams, PluginMutationResult>,
     #[serde(rename = "plugin.uninstall")]
     pub plugin_uninstall: MethodContract<PluginMutationParams, PluginMutationResult>,
+    #[serde(rename = "collab.member.list")]
+    pub collab_member_list: MethodContract<CollabProjectParams, CollabMemberListResult>,
+    #[serde(rename = "collab.member.add")]
+    pub collab_member_add: MethodContract<CollabMemberAddParams, CollabMember>,
+    #[serde(rename = "collab.member.remove")]
+    pub collab_member_remove: MethodContract<CollabMemberRemoveParams, EmptyResult>,
+    #[serde(rename = "collab.lock.acquire")]
+    pub collab_lock_acquire: MethodContract<CollabLockAcquireParams, CollabLock>,
+    #[serde(rename = "collab.lock.release")]
+    pub collab_lock_release: MethodContract<CollabLockActorParams, EmptyResult>,
+    #[serde(rename = "collab.lock.heartbeat")]
+    pub collab_lock_heartbeat: MethodContract<CollabLockActorParams, CollabLock>,
+    #[serde(rename = "collab.lock.list")]
+    pub collab_lock_list: MethodContract<CollabProjectParams, CollabLockListResult>,
+    #[serde(rename = "collab.presence.heartbeat")]
+    pub collab_presence_heartbeat: MethodContract<CollabPresenceHeartbeatParams, CollabPresence>,
+    #[serde(rename = "collab.presence.list")]
+    pub collab_presence_list: MethodContract<CollabProjectParams, CollabPresenceListResult>,
+    #[serde(rename = "collab.assignment.list")]
+    pub collab_assignment_list: MethodContract<CollabProjectParams, CollabAssignmentListResult>,
+    #[serde(rename = "collab.assignment.create")]
+    pub collab_assignment_create: MethodContract<CollabAssignmentCreateParams, CollabAssignment>,
+    #[serde(rename = "collab.assignment.complete")]
+    pub collab_assignment_complete:
+        MethodContract<CollabAssignmentCompleteParams, CollabAssignment>,
+    #[serde(rename = "collab.opLog.list")]
+    pub collab_op_log_list: MethodContract<CollabOpLogListParams, CollabOpLogPage>,
     #[serde(rename = "history.list")]
     pub history_list: MethodContract<HistoryListParams, OperationPage>,
     #[serde(rename = "data.checkHealth")]
@@ -2273,6 +2315,12 @@ pub struct ProtocolCatalog {
     pub ai_quality_score_result: AiQualityScoreResult,
     pub ai_semantic_qa_result: AiSemanticQaResult,
     pub ai_term_extract_result: AiTermExtractResult,
+    pub collab_project_params: CollabProjectParams,
+    pub collab_member: CollabMember,
+    pub collab_lock: CollabLock,
+    pub collab_presence: CollabPresence,
+    pub collab_assignment: CollabAssignment,
+    pub collab_op_log_page: CollabOpLogPage,
     pub plugin_list_params: PluginListParams,
     pub plugin_id_params: PluginIdParams,
     pub plugin_install_params: PluginInstallParams,

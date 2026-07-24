@@ -109,6 +109,11 @@ async function main() {
       console.log("Focused AI quality smoke passed.");
       return;
     }
+    if (process.env.TRANSLUNAR_SMOKE_SCOPE === "collab") {
+      await exerciseFocusedCollabSmoke(processHandle);
+      console.log("Focused collaboration smoke passed.");
+      return;
+    }
     const project = await processHandle.call("project.create", {
       name: "Smoke project",
       sourceLocale: "en-US",
@@ -1828,6 +1833,94 @@ async function main() {
 }
 
 
+
+async function exerciseFocusedCollabSmoke(processHandle) {
+  const fixtureDirectory = mkdtempSync(join(tmpdir(), "translunar-collab-smoke-"));
+  const sourcePath = join(fixtureDirectory, "sample.txt");
+  writeFileSync(sourcePath, ["Hello collab.", "", "Second."].join(String.fromCharCode(10)), "utf8");
+  const project = await processHandle.call("project.create", {
+    name: "Collab smoke",
+    sourceLocale: "en-US",
+    targetLocale: "zh-CN",
+    domain: "general",
+  });
+  const imported = await processHandle.call("document.import", {
+    projectId: project.id,
+    sourcePath,
+  });
+  const segments = await processHandle.call("segment.list", {
+    documentId: imported.document.id,
+    offset: 0,
+    limit: 10,
+  });
+  assert(segments.items.length >= 1, "segments");
+  const member = await processHandle.call("collab.member.add", {
+    projectId: project.id,
+    actorId: "alice",
+    role: "owner",
+    actingActor: "alice",
+  });
+  assert(member.actorId === "alice", "member");
+  await processHandle.call("collab.member.add", {
+    projectId: project.id,
+    actorId: "bob",
+    role: "member",
+    actingActor: "alice",
+  });
+  const members = await processHandle.call("collab.member.list", { projectId: project.id });
+  assert(members.items.length >= 2, "members");
+  const lock = await processHandle.call("collab.lock.acquire", {
+    projectId: project.id,
+    documentId: imported.document.id,
+    segmentId: segments.items[0].id,
+    actorId: "alice",
+    ttlMs: 60000,
+  });
+  assert(lock.actorId === "alice", "lock holder");
+  let conflicted = false;
+  try {
+    await processHandle.call("collab.lock.acquire", {
+      projectId: project.id,
+      documentId: imported.document.id,
+      segmentId: segments.items[0].id,
+      actorId: "bob",
+    });
+  } catch (error) {
+    conflicted = true;
+  }
+  assert(conflicted, "bob should conflict");
+  await processHandle.call("collab.presence.heartbeat", {
+    projectId: project.id,
+    actorId: "alice",
+    documentId: imported.document.id,
+    segmentId: segments.items[0].id,
+  });
+  const presence = await processHandle.call("collab.presence.list", { projectId: project.id });
+  assert(presence.items.some((item) => item.actorId === "alice"), "presence");
+  const assignment = await processHandle.call("collab.assignment.create", {
+    projectId: project.id,
+    documentId: imported.document.id,
+    assigneeActorId: "bob",
+    ordinalStart: 0,
+    ordinalEnd: 0,
+    createdBy: "alice",
+  });
+  await processHandle.call("collab.assignment.complete", {
+    assignmentId: assignment.id,
+    expectedRevision: assignment.revision,
+    actorId: "bob",
+  });
+  await processHandle.call("collab.lock.release", {
+    segmentId: segments.items[0].id,
+    actorId: "alice",
+  });
+  const ops = await processHandle.call("collab.opLog.list", {
+    projectId: project.id,
+    afterSequence: 0,
+    limit: 50,
+  });
+  assert(ops.total >= 3, "op log entries");
+}
 
 async function exerciseFocusedAiQualitySmoke(processHandle) {
   const fixtureDirectory = mkdtempSync(join(tmpdir(), "translunar-ai-quality-smoke-"));

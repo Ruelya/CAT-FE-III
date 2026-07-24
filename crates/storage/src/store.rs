@@ -41,6 +41,7 @@ use crate::{Result, StorageError};
 
 mod ai;
 mod alignment;
+mod collab;
 mod curation;
 mod discussion;
 mod lifecycle;
@@ -65,6 +66,7 @@ pub use alignment::{
     ReindexReferenceCorpus, RemoveReferenceCorpus, ReplaceAlignmentPartition,
     UpdateAlignmentLinkStatus,
 };
+pub use collab::*;
 pub use curation::*;
 pub use discussion::*;
 pub use lifecycle::{

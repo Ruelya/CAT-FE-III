@@ -3,7 +3,7 @@
   "name": "collaboration-server",
   "title": "Lightweight collaboration server",
   "description": "Implement self-hosted team mode, local asset replicas and op-log sync, segment locks, presence, progress board, simple roles, assignments, and mentions.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

@@ -2,7 +2,7 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use crate::{Result, StorageError};
 
-pub(crate) const LATEST_SCHEMA_VERSION: u32 = 16;
+pub(crate) const LATEST_SCHEMA_VERSION: u32 = 17;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -1718,7 +1718,74 @@ CREATE INDEX plugin_installations_status_idx
     ON plugin_installations(status, updated_at_ms DESC, id);
 "#;
 
-const MIGRATIONS: [(u32, &str); 16] = [
+const MIGRATION_17: &str = r#"
+CREATE TABLE collab_members (
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    actor_id TEXT NOT NULL CHECK (length(trim(actor_id)) > 0),
+    role TEXT NOT NULL CHECK (role IN ('owner', 'member')),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    PRIMARY KEY(project_id, actor_id)
+) STRICT;
+CREATE INDEX collab_members_actor_idx ON collab_members(actor_id, project_id);
+
+CREATE TABLE collab_segment_locks (
+    segment_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    document_id TEXT NOT NULL,
+    actor_id TEXT NOT NULL CHECK (length(trim(actor_id)) > 0),
+    expires_at_ms INTEGER NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+CREATE INDEX collab_segment_locks_project_idx
+    ON collab_segment_locks(project_id, expires_at_ms, segment_id);
+
+CREATE TABLE collab_presence (
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    actor_id TEXT NOT NULL CHECK (length(trim(actor_id)) > 0),
+    document_id TEXT,
+    segment_id TEXT,
+    expires_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    PRIMARY KEY(project_id, actor_id)
+) STRICT;
+CREATE INDEX collab_presence_expiry_idx
+    ON collab_presence(project_id, expires_at_ms);
+
+CREATE TABLE collab_assignments (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    document_id TEXT NOT NULL,
+    assignee_actor_id TEXT NOT NULL CHECK (length(trim(assignee_actor_id)) > 0),
+    ordinal_start INTEGER NOT NULL CHECK (ordinal_start >= 0),
+    ordinal_end INTEGER NOT NULL CHECK (ordinal_end >= ordinal_start),
+    due_at_ms INTEGER,
+    status TEXT NOT NULL CHECK (status IN ('open', 'completed', 'canceled')),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    created_by TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+CREATE INDEX collab_assignments_project_idx
+    ON collab_assignments(project_id, status, updated_at_ms DESC, id);
+
+CREATE TABLE collab_op_log (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    sequence INTEGER NOT NULL CHECK (sequence >= 1),
+    kind TEXT NOT NULL CHECK (length(trim(kind)) > 0),
+    payload_json TEXT NOT NULL CHECK (json_valid(payload_json) AND json_type(payload_json) = 'object'),
+    actor_id TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    UNIQUE(project_id, sequence)
+) STRICT;
+CREATE INDEX collab_op_log_project_idx
+    ON collab_op_log(project_id, sequence);
+"#;
+
+const MIGRATIONS: [(u32, &str); 17] = [
     (1_u32, MIGRATION_1),
     (2_u32, MIGRATION_2),
     (3_u32, MIGRATION_3),
@@ -1735,6 +1802,7 @@ const MIGRATIONS: [(u32, &str); 16] = [
     (14_u32, MIGRATION_14),
     (15_u32, MIGRATION_15),
     (16_u32, MIGRATION_16),
+    (17_u32, MIGRATION_17),
 ];
 
 pub(crate) fn configure_connection(connection: &Connection) -> Result<()> {

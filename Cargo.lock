@@ -2787,6 +2787,7 @@ dependencies = [
  "translunar-plugin-runtime",
  "translunar-qa-core",
  "translunar-task-package-core",
+ "uuid",
 ]
 
 [[package]]

@@ -66,6 +66,24 @@
     "backup_result": {
       "$ref": "#/$defs/BackupResult"
     },
+    "collab_assignment": {
+      "$ref": "#/$defs/CollabAssignment"
+    },
+    "collab_lock": {
+      "$ref": "#/$defs/CollabLock"
+    },
+    "collab_member": {
+      "$ref": "#/$defs/CollabMember"
+    },
+    "collab_op_log_page": {
+      "$ref": "#/$defs/CollabOpLogPage"
+    },
+    "collab_presence": {
+      "$ref": "#/$defs/CollabPresence"
+    },
+    "collab_project_params": {
+      "$ref": "#/$defs/CollabProjectParams"
+    },
     "concordance_params": {
       "$ref": "#/$defs/ConcordanceParams"
     },
@@ -639,6 +657,12 @@
     "ai_quality_score_result",
     "ai_semantic_qa_result",
     "ai_term_extract_result",
+    "collab_project_params",
+    "collab_member",
+    "collab_lock",
+    "collab_presence",
+    "collab_assignment",
+    "collab_op_log_page",
     "plugin_list_params",
     "plugin_id_params",
     "plugin_install_params",
@@ -4781,6 +4805,564 @@
       "required": [
         "name",
         "version"
+      ]
+    },
+    "CollabAssignment": {
+      "type": "object",
+      "properties": {
+        "assigneeActorId": {
+          "type": "string"
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "createdBy": {
+          "type": "string"
+        },
+        "documentId": {
+          "type": "string"
+        },
+        "dueAtMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "id": {
+          "type": "string"
+        },
+        "ordinalEnd": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "ordinalStart": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "status": {
+          "$ref": "#/$defs/CollabAssignmentStatus"
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "id",
+        "projectId",
+        "documentId",
+        "assigneeActorId",
+        "ordinalStart",
+        "ordinalEnd",
+        "status",
+        "revision",
+        "createdBy",
+        "createdAtMs",
+        "updatedAtMs"
+      ]
+    },
+    "CollabAssignmentCompleteParams": {
+      "type": "object",
+      "properties": {
+        "actorId": {
+          "type": "string",
+          "default": "desktop"
+        },
+        "assignmentId": {
+          "type": "string"
+        },
+        "expectedRevision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "default": null,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "assignmentId"
+      ]
+    },
+    "CollabAssignmentCreateParams": {
+      "type": "object",
+      "properties": {
+        "assigneeActorId": {
+          "type": "string"
+        },
+        "createdBy": {
+          "type": "string",
+          "default": "desktop"
+        },
+        "documentId": {
+          "type": "string"
+        },
+        "dueAtMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "default": null
+        },
+        "ordinalEnd": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "ordinalStart": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "projectId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "projectId",
+        "documentId",
+        "assigneeActorId",
+        "ordinalStart",
+        "ordinalEnd"
+      ]
+    },
+    "CollabAssignmentListResult": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CollabAssignment"
+          }
+        }
+      },
+      "required": [
+        "items"
+      ]
+    },
+    "CollabAssignmentStatus": {
+      "type": "string",
+      "enum": [
+        "open",
+        "completed",
+        "canceled"
+      ]
+    },
+    "CollabLock": {
+      "type": "object",
+      "properties": {
+        "actorId": {
+          "type": "string"
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "documentId": {
+          "type": "string"
+        },
+        "expiresAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "segmentId": {
+          "type": "string"
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "segmentId",
+        "projectId",
+        "documentId",
+        "actorId",
+        "expiresAtMs",
+        "revision",
+        "createdAtMs",
+        "updatedAtMs"
+      ]
+    },
+    "CollabLockAcquireParams": {
+      "type": "object",
+      "properties": {
+        "actorId": {
+          "type": "string",
+          "default": "desktop"
+        },
+        "documentId": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "segmentId": {
+          "type": "string"
+        },
+        "ttlMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "default": null
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "projectId",
+        "documentId",
+        "segmentId"
+      ]
+    },
+    "CollabLockActorParams": {
+      "type": "object",
+      "properties": {
+        "actorId": {
+          "type": "string",
+          "default": "desktop"
+        },
+        "segmentId": {
+          "type": "string"
+        },
+        "ttlMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "default": null
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "segmentId"
+      ]
+    },
+    "CollabLockListResult": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CollabLock"
+          }
+        }
+      },
+      "required": [
+        "items"
+      ]
+    },
+    "CollabMember": {
+      "type": "object",
+      "properties": {
+        "actorId": {
+          "type": "string"
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/CollabRole"
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "projectId",
+        "actorId",
+        "role",
+        "createdAtMs",
+        "updatedAtMs"
+      ]
+    },
+    "CollabMemberAddParams": {
+      "type": "object",
+      "properties": {
+        "actingActor": {
+          "type": "string",
+          "default": "desktop"
+        },
+        "actorId": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/CollabRole"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "projectId",
+        "actorId",
+        "role"
+      ]
+    },
+    "CollabMemberListResult": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CollabMember"
+          }
+        }
+      },
+      "required": [
+        "items"
+      ]
+    },
+    "CollabMemberRemoveParams": {
+      "type": "object",
+      "properties": {
+        "actingActor": {
+          "type": "string",
+          "default": "desktop"
+        },
+        "actorId": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "projectId",
+        "actorId"
+      ]
+    },
+    "CollabOpLogEntry": {
+      "type": "object",
+      "properties": {
+        "actorId": {
+          "type": "string"
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "payload": true,
+        "projectId": {
+          "type": "string"
+        },
+        "sequence": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "id",
+        "projectId",
+        "sequence",
+        "kind",
+        "payload",
+        "actorId",
+        "createdAtMs"
+      ]
+    },
+    "CollabOpLogListParams": {
+      "type": "object",
+      "properties": {
+        "afterSequence": {
+          "type": "integer",
+          "format": "uint64",
+          "default": 0,
+          "minimum": 0
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 200,
+          "minimum": 0
+        },
+        "projectId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "projectId"
+      ]
+    },
+    "CollabOpLogPage": {
+      "type": "object",
+      "properties": {
+        "afterSequence": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CollabOpLogEntry"
+          }
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "items",
+        "total",
+        "afterSequence",
+        "limit"
+      ]
+    },
+    "CollabPresence": {
+      "type": "object",
+      "properties": {
+        "actorId": {
+          "type": "string"
+        },
+        "documentId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expiresAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "segmentId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "projectId",
+        "actorId",
+        "expiresAtMs",
+        "updatedAtMs"
+      ]
+    },
+    "CollabPresenceHeartbeatParams": {
+      "type": "object",
+      "properties": {
+        "actorId": {
+          "type": "string",
+          "default": "desktop"
+        },
+        "documentId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "segmentId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "ttlMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "default": null
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "projectId"
+      ]
+    },
+    "CollabPresenceListResult": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CollabPresence"
+          }
+        }
+      },
+      "required": [
+        "items"
+      ]
+    },
+    "CollabProjectParams": {
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "projectId"
+      ]
+    },
+    "CollabRole": {
+      "type": "string",
+      "enum": [
+        "owner",
+        "member"
       ]
     },
     "ConcordanceHit": {
@@ -9197,10 +9779,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/HistoryListParams"
+          "$ref": "#/$defs/CollabProjectParams"
         },
         "result": {
-          "$ref": "#/$defs/OperationPage"
+          "$ref": "#/$defs/CollabMemberListResult"
         }
       },
       "required": [
@@ -9212,10 +9794,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/EmptyParams"
+          "$ref": "#/$defs/CollabMemberAddParams"
         },
         "result": {
-          "$ref": "#/$defs/DataHealthReport"
+          "$ref": "#/$defs/CollabMember"
         }
       },
       "required": [
@@ -9227,10 +9809,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CreateBackupParams"
+          "$ref": "#/$defs/CollabMemberRemoveParams"
         },
         "result": {
-          "$ref": "#/$defs/BackupResult"
+          "$ref": "#/$defs/EmptyResult"
         }
       },
       "required": [
@@ -9242,10 +9824,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/EmptyParams"
+          "$ref": "#/$defs/CollabLockAcquireParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineCapabilityResult"
+          "$ref": "#/$defs/CollabLock"
         }
       },
       "required": [
@@ -9257,10 +9839,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CreatePipelineParams"
+          "$ref": "#/$defs/CollabLockActorParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineDefinition"
+          "$ref": "#/$defs/EmptyResult"
         }
       },
       "required": [
@@ -9287,10 +9869,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PipelineListParams"
+          "$ref": "#/$defs/CollabLockActorParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineDefinitionPage"
+          "$ref": "#/$defs/CollabLock"
         }
       },
       "required": [
@@ -9302,10 +9884,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PipelineIdParams"
+          "$ref": "#/$defs/CollabProjectParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineDefinition"
+          "$ref": "#/$defs/CollabLockListResult"
         }
       },
       "required": [
@@ -9317,10 +9899,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ValidatePipelineParams"
+          "$ref": "#/$defs/CollabPresenceHeartbeatParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineValidationResult"
+          "$ref": "#/$defs/CollabPresence"
         }
       },
       "required": [
@@ -9332,10 +9914,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/RunPipelineParams"
+          "$ref": "#/$defs/CollabProjectParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineRunSnapshot"
+          "$ref": "#/$defs/CollabPresenceListResult"
         }
       },
       "required": [
@@ -9347,10 +9929,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PipelineRunListParams"
+          "$ref": "#/$defs/CollabProjectParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineRunPage"
+          "$ref": "#/$defs/CollabAssignmentListResult"
         }
       },
       "required": [
@@ -9362,10 +9944,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PipelineRunIdParams"
+          "$ref": "#/$defs/CollabAssignmentCreateParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineRunSnapshot"
+          "$ref": "#/$defs/CollabAssignment"
         }
       },
       "required": [
@@ -9377,10 +9959,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PipelineRunRevisionParams"
+          "$ref": "#/$defs/CollabAssignmentCompleteParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineRunSnapshot"
+          "$ref": "#/$defs/CollabAssignment"
         }
       },
       "required": [
@@ -9392,10 +9974,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiProviderCatalogParams"
+          "$ref": "#/$defs/CollabOpLogListParams"
         },
         "result": {
-          "$ref": "#/$defs/AiProviderCatalogResult"
+          "$ref": "#/$defs/CollabOpLogPage"
         }
       },
       "required": [
@@ -9407,10 +9989,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiProviderListParams"
+          "$ref": "#/$defs/HistoryListParams"
         },
         "result": {
-          "$ref": "#/$defs/AiProviderPage"
+          "$ref": "#/$defs/OperationPage"
         }
       },
       "required": [
@@ -9422,10 +10004,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiProviderCreateParams"
+          "$ref": "#/$defs/EmptyParams"
         },
         "result": {
-          "$ref": "#/$defs/AiProviderProfile"
+          "$ref": "#/$defs/DataHealthReport"
         }
       },
       "required": [
@@ -9452,10 +10034,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiProviderUpdateParams"
+          "$ref": "#/$defs/CreateBackupParams"
         },
         "result": {
-          "$ref": "#/$defs/AiProviderProfile"
+          "$ref": "#/$defs/BackupResult"
         }
       },
       "required": [
@@ -9467,10 +10049,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiProfileRevisionParams"
+          "$ref": "#/$defs/EmptyParams"
         },
         "result": {
-          "$ref": "#/$defs/EmptyResult"
+          "$ref": "#/$defs/PipelineCapabilityResult"
         }
       },
       "required": [
@@ -9482,10 +10064,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiProfileIdParams"
+          "$ref": "#/$defs/CreatePipelineParams"
         },
         "result": {
-          "$ref": "#/$defs/AiProviderTestResult"
+          "$ref": "#/$defs/PipelineDefinition"
         }
       },
       "required": [
@@ -9497,10 +10079,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiProfileIdParams"
+          "$ref": "#/$defs/PipelineListParams"
         },
         "result": {
-          "$ref": "#/$defs/AiCredentialStatus"
+          "$ref": "#/$defs/PipelineDefinitionPage"
         }
       },
       "required": [
@@ -9512,10 +10094,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiSettingsGetParams"
+          "$ref": "#/$defs/PipelineIdParams"
         },
         "result": {
-          "$ref": "#/$defs/AiSettings"
+          "$ref": "#/$defs/PipelineDefinition"
         }
       },
       "required": [
@@ -9527,10 +10109,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiSettingsUpdateParams"
+          "$ref": "#/$defs/ValidatePipelineParams"
         },
         "result": {
-          "$ref": "#/$defs/AiSettings"
+          "$ref": "#/$defs/PipelineValidationResult"
         }
       },
       "required": [
@@ -9542,10 +10124,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiGroundingPreviewParams"
+          "$ref": "#/$defs/RunPipelineParams"
         },
         "result": {
-          "$ref": "#/$defs/AiGroundingPreviewResult"
+          "$ref": "#/$defs/PipelineRunSnapshot"
         }
       },
       "required": [
@@ -9557,10 +10139,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiRunStartParams"
+          "$ref": "#/$defs/PipelineRunListParams"
         },
         "result": {
-          "$ref": "#/$defs/AiRun"
+          "$ref": "#/$defs/PipelineRunPage"
         }
       },
       "required": [
@@ -9572,10 +10154,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiRunIdParams"
+          "$ref": "#/$defs/PipelineRunIdParams"
         },
         "result": {
-          "$ref": "#/$defs/AiRun"
+          "$ref": "#/$defs/PipelineRunSnapshot"
         }
       },
       "required": [
@@ -9587,10 +10169,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiRunListParams"
+          "$ref": "#/$defs/PipelineRunRevisionParams"
         },
         "result": {
-          "$ref": "#/$defs/AiRunPage"
+          "$ref": "#/$defs/PipelineRunSnapshot"
         }
       },
       "required": [
@@ -9617,10 +10199,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiRunEventsParams"
+          "$ref": "#/$defs/AiProviderCatalogParams"
         },
         "result": {
-          "$ref": "#/$defs/AiRunEventPage"
+          "$ref": "#/$defs/AiProviderCatalogResult"
         }
       },
       "required": [
@@ -9632,10 +10214,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiRunRevisionParams"
+          "$ref": "#/$defs/AiProviderListParams"
         },
         "result": {
-          "$ref": "#/$defs/AiRun"
+          "$ref": "#/$defs/AiProviderPage"
         }
       },
       "required": [
@@ -9647,10 +10229,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiResultApplyParams"
+          "$ref": "#/$defs/AiProviderCreateParams"
         },
         "result": {
-          "$ref": "#/$defs/EditorMutationResult"
+          "$ref": "#/$defs/AiProviderProfile"
         }
       },
       "required": [
@@ -9662,10 +10244,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiBatchStartParams"
+          "$ref": "#/$defs/AiProviderUpdateParams"
         },
         "result": {
-          "$ref": "#/$defs/AiBatchRun"
+          "$ref": "#/$defs/AiProviderProfile"
         }
       },
       "required": [
@@ -9677,10 +10259,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiBatchIdParams"
+          "$ref": "#/$defs/AiProfileRevisionParams"
         },
         "result": {
-          "$ref": "#/$defs/AiBatchRun"
+          "$ref": "#/$defs/EmptyResult"
         }
       },
       "required": [
@@ -9692,10 +10274,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiBatchListParams"
+          "$ref": "#/$defs/AiProfileIdParams"
         },
         "result": {
-          "$ref": "#/$defs/AiBatchPage"
+          "$ref": "#/$defs/AiProviderTestResult"
         }
       },
       "required": [
@@ -9707,10 +10289,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiBatchItemsParams"
+          "$ref": "#/$defs/AiProfileIdParams"
         },
         "result": {
-          "$ref": "#/$defs/AiBatchItemPage"
+          "$ref": "#/$defs/AiCredentialStatus"
         }
       },
       "required": [
@@ -9722,10 +10304,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiBatchRevisionParams"
+          "$ref": "#/$defs/AiSettingsGetParams"
         },
         "result": {
-          "$ref": "#/$defs/AiBatchRun"
+          "$ref": "#/$defs/AiSettings"
         }
       },
       "required": [
@@ -9737,10 +10319,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiUsageQueryParams"
+          "$ref": "#/$defs/AiSettingsUpdateParams"
         },
         "result": {
-          "$ref": "#/$defs/AiUsageQueryResult"
+          "$ref": "#/$defs/AiSettings"
         }
       },
       "required": [
@@ -9752,10 +10334,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiQualityDocumentParams"
+          "$ref": "#/$defs/AiGroundingPreviewParams"
         },
         "result": {
-          "$ref": "#/$defs/QualityScoreReport"
+          "$ref": "#/$defs/AiGroundingPreviewResult"
         }
       },
       "required": [
@@ -9782,10 +10364,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiQualityDocumentParams"
+          "$ref": "#/$defs/AiRunStartParams"
         },
         "result": {
-          "$ref": "#/$defs/SemanticQaReport"
+          "$ref": "#/$defs/AiRun"
         }
       },
       "required": [
@@ -9797,10 +10379,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiTermExtractParams"
+          "$ref": "#/$defs/AiRunIdParams"
         },
         "result": {
-          "$ref": "#/$defs/TermExtractReport"
+          "$ref": "#/$defs/AiRun"
         }
       },
       "required": [
@@ -9812,10 +10394,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiConversationListParams"
+          "$ref": "#/$defs/AiRunListParams"
         },
         "result": {
-          "$ref": "#/$defs/AiConversationPage"
+          "$ref": "#/$defs/AiRunPage"
         }
       },
       "required": [
@@ -9827,10 +10409,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiConversationCreateParams"
+          "$ref": "#/$defs/AiRunEventsParams"
         },
         "result": {
-          "$ref": "#/$defs/AiConversation"
+          "$ref": "#/$defs/AiRunEventPage"
         }
       },
       "required": [
@@ -9842,10 +10424,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiConversationUpdateParams"
+          "$ref": "#/$defs/AiRunRevisionParams"
         },
         "result": {
-          "$ref": "#/$defs/AiConversation"
+          "$ref": "#/$defs/AiRun"
         }
       },
       "required": [
@@ -9857,10 +10439,70 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiConversationMessagesParams"
+          "$ref": "#/$defs/AiResultApplyParams"
         },
         "result": {
-          "$ref": "#/$defs/AiConversationMessagePage"
+          "$ref": "#/$defs/EditorMutationResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract186": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiBatchStartParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiBatchRun"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract187": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiBatchIdParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiBatchRun"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract188": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiBatchListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiBatchPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract189": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiBatchItemsParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiBatchItemPage"
         }
       },
       "required": [
@@ -9876,6 +10518,141 @@
         },
         "result": {
           "$ref": "#/$defs/DiscussionMessagePage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract190": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiBatchRevisionParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiBatchRun"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract191": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiUsageQueryParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiUsageQueryResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract192": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiQualityDocumentParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QualityScoreReport"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract193": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiQualityDocumentParams"
+        },
+        "result": {
+          "$ref": "#/$defs/SemanticQaReport"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract194": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiTermExtractParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermExtractReport"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract195": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiConversationListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiConversationPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract196": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiConversationCreateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiConversation"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract197": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiConversationUpdateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiConversation"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract198": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiConversationMessagesParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiConversationMessagePage"
         }
       },
       "required": [
@@ -16138,100 +16915,100 @@
       "type": "object",
       "properties": {
         "ai.batch.cancel": {
-          "$ref": "#/$defs/MethodContract177"
+          "$ref": "#/$defs/MethodContract190"
         },
         "ai.batch.get": {
-          "$ref": "#/$defs/MethodContract174"
+          "$ref": "#/$defs/MethodContract187"
         },
         "ai.batch.items": {
-          "$ref": "#/$defs/MethodContract176"
+          "$ref": "#/$defs/MethodContract189"
         },
         "ai.batch.list": {
-          "$ref": "#/$defs/MethodContract175"
+          "$ref": "#/$defs/MethodContract188"
         },
         "ai.batch.resume": {
-          "$ref": "#/$defs/MethodContract177"
+          "$ref": "#/$defs/MethodContract190"
         },
         "ai.batch.start": {
-          "$ref": "#/$defs/MethodContract173"
+          "$ref": "#/$defs/MethodContract186"
         },
         "ai.conversation.create": {
-          "$ref": "#/$defs/MethodContract183"
+          "$ref": "#/$defs/MethodContract196"
         },
         "ai.conversation.list": {
-          "$ref": "#/$defs/MethodContract182"
+          "$ref": "#/$defs/MethodContract195"
         },
         "ai.conversation.messages": {
-          "$ref": "#/$defs/MethodContract185"
+          "$ref": "#/$defs/MethodContract198"
         },
         "ai.conversation.update": {
-          "$ref": "#/$defs/MethodContract184"
+          "$ref": "#/$defs/MethodContract197"
         },
         "ai.credential.delete": {
-          "$ref": "#/$defs/MethodContract163"
+          "$ref": "#/$defs/MethodContract176"
         },
         "ai.credential.status": {
-          "$ref": "#/$defs/MethodContract163"
+          "$ref": "#/$defs/MethodContract176"
         },
         "ai.grounding.preview": {
-          "$ref": "#/$defs/MethodContract166"
-        },
-        "ai.provider.catalog": {
-          "$ref": "#/$defs/MethodContract157"
-        },
-        "ai.provider.create": {
-          "$ref": "#/$defs/MethodContract159"
-        },
-        "ai.provider.delete": {
-          "$ref": "#/$defs/MethodContract161"
-        },
-        "ai.provider.list": {
-          "$ref": "#/$defs/MethodContract158"
-        },
-        "ai.provider.test": {
-          "$ref": "#/$defs/MethodContract162"
-        },
-        "ai.provider.update": {
-          "$ref": "#/$defs/MethodContract160"
-        },
-        "ai.quality.extractTerms": {
-          "$ref": "#/$defs/MethodContract181"
-        },
-        "ai.quality.scoreDocument": {
           "$ref": "#/$defs/MethodContract179"
         },
-        "ai.quality.semanticQa": {
-          "$ref": "#/$defs/MethodContract180"
-        },
-        "ai.result.apply": {
-          "$ref": "#/$defs/MethodContract172"
-        },
-        "ai.run.cancel": {
-          "$ref": "#/$defs/MethodContract171"
-        },
-        "ai.run.events": {
+        "ai.provider.catalog": {
           "$ref": "#/$defs/MethodContract170"
         },
-        "ai.run.get": {
-          "$ref": "#/$defs/MethodContract168"
+        "ai.provider.create": {
+          "$ref": "#/$defs/MethodContract172"
         },
-        "ai.run.list": {
-          "$ref": "#/$defs/MethodContract169"
+        "ai.provider.delete": {
+          "$ref": "#/$defs/MethodContract174"
         },
-        "ai.run.resume": {
+        "ai.provider.list": {
           "$ref": "#/$defs/MethodContract171"
         },
+        "ai.provider.test": {
+          "$ref": "#/$defs/MethodContract175"
+        },
+        "ai.provider.update": {
+          "$ref": "#/$defs/MethodContract173"
+        },
+        "ai.quality.extractTerms": {
+          "$ref": "#/$defs/MethodContract194"
+        },
+        "ai.quality.scoreDocument": {
+          "$ref": "#/$defs/MethodContract192"
+        },
+        "ai.quality.semanticQa": {
+          "$ref": "#/$defs/MethodContract193"
+        },
+        "ai.result.apply": {
+          "$ref": "#/$defs/MethodContract185"
+        },
+        "ai.run.cancel": {
+          "$ref": "#/$defs/MethodContract184"
+        },
+        "ai.run.events": {
+          "$ref": "#/$defs/MethodContract183"
+        },
+        "ai.run.get": {
+          "$ref": "#/$defs/MethodContract181"
+        },
+        "ai.run.list": {
+          "$ref": "#/$defs/MethodContract182"
+        },
+        "ai.run.resume": {
+          "$ref": "#/$defs/MethodContract184"
+        },
         "ai.run.start": {
-          "$ref": "#/$defs/MethodContract167"
+          "$ref": "#/$defs/MethodContract180"
         },
         "ai.settings.get": {
-          "$ref": "#/$defs/MethodContract164"
+          "$ref": "#/$defs/MethodContract177"
         },
         "ai.settings.update": {
-          "$ref": "#/$defs/MethodContract165"
+          "$ref": "#/$defs/MethodContract178"
         },
         "ai.usage.query": {
-          "$ref": "#/$defs/MethodContract178"
+          "$ref": "#/$defs/MethodContract191"
         },
         "alignment.session.apply": {
           "$ref": "#/$defs/MethodContract92"
@@ -16262,6 +17039,45 @@
         },
         "asset.catalog.list": {
           "$ref": "#/$defs/MethodContract98"
+        },
+        "collab.assignment.complete": {
+          "$ref": "#/$defs/MethodContract156"
+        },
+        "collab.assignment.create": {
+          "$ref": "#/$defs/MethodContract155"
+        },
+        "collab.assignment.list": {
+          "$ref": "#/$defs/MethodContract154"
+        },
+        "collab.lock.acquire": {
+          "$ref": "#/$defs/MethodContract148"
+        },
+        "collab.lock.heartbeat": {
+          "$ref": "#/$defs/MethodContract150"
+        },
+        "collab.lock.list": {
+          "$ref": "#/$defs/MethodContract151"
+        },
+        "collab.lock.release": {
+          "$ref": "#/$defs/MethodContract149"
+        },
+        "collab.member.add": {
+          "$ref": "#/$defs/MethodContract146"
+        },
+        "collab.member.list": {
+          "$ref": "#/$defs/MethodContract145"
+        },
+        "collab.member.remove": {
+          "$ref": "#/$defs/MethodContract147"
+        },
+        "collab.opLog.list": {
+          "$ref": "#/$defs/MethodContract157"
+        },
+        "collab.presence.heartbeat": {
+          "$ref": "#/$defs/MethodContract152"
+        },
+        "collab.presence.list": {
+          "$ref": "#/$defs/MethodContract153"
         },
         "corpus.fromAlignment": {
           "$ref": "#/$defs/MethodContract95"
@@ -16300,10 +17116,10 @@
           "$ref": "#/$defs/MethodContract100"
         },
         "data.checkHealth": {
-          "$ref": "#/$defs/MethodContract146"
+          "$ref": "#/$defs/MethodContract159"
         },
         "data.createBackup": {
-          "$ref": "#/$defs/MethodContract147"
+          "$ref": "#/$defs/MethodContract160"
         },
         "dictionary.add": {
           "$ref": "#/$defs/MethodContract68"
@@ -16381,7 +17197,7 @@
           "$ref": "#/$defs/MethodContract140"
         },
         "history.list": {
-          "$ref": "#/$defs/MethodContract145"
+          "$ref": "#/$defs/MethodContract158"
         },
         "interop.review.apply": {
           "$ref": "#/$defs/MethodContract79"
@@ -16408,34 +17224,34 @@
           "$ref": "#/$defs/MethodContract84"
         },
         "pipeline.create": {
-          "$ref": "#/$defs/MethodContract149"
+          "$ref": "#/$defs/MethodContract162"
         },
         "pipeline.get": {
-          "$ref": "#/$defs/MethodContract151"
+          "$ref": "#/$defs/MethodContract164"
         },
         "pipeline.list": {
-          "$ref": "#/$defs/MethodContract150"
+          "$ref": "#/$defs/MethodContract163"
         },
         "pipeline.run": {
-          "$ref": "#/$defs/MethodContract153"
+          "$ref": "#/$defs/MethodContract166"
         },
         "pipeline.run.cancel": {
-          "$ref": "#/$defs/MethodContract156"
+          "$ref": "#/$defs/MethodContract169"
         },
         "pipeline.run.get": {
-          "$ref": "#/$defs/MethodContract155"
+          "$ref": "#/$defs/MethodContract168"
         },
         "pipeline.run.list": {
-          "$ref": "#/$defs/MethodContract154"
+          "$ref": "#/$defs/MethodContract167"
         },
         "pipeline.run.resume": {
-          "$ref": "#/$defs/MethodContract156"
+          "$ref": "#/$defs/MethodContract169"
         },
         "pipeline.step.list": {
-          "$ref": "#/$defs/MethodContract148"
+          "$ref": "#/$defs/MethodContract161"
         },
         "pipeline.validate": {
-          "$ref": "#/$defs/MethodContract152"
+          "$ref": "#/$defs/MethodContract165"
         },
         "plugin.disable": {
           "$ref": "#/$defs/MethodContract144"
@@ -16875,6 +17691,19 @@
         "plugin.enable",
         "plugin.disable",
         "plugin.uninstall",
+        "collab.member.list",
+        "collab.member.add",
+        "collab.member.remove",
+        "collab.lock.acquire",
+        "collab.lock.release",
+        "collab.lock.heartbeat",
+        "collab.lock.list",
+        "collab.presence.heartbeat",
+        "collab.presence.list",
+        "collab.assignment.list",
+        "collab.assignment.create",
+        "collab.assignment.complete",
+        "collab.opLog.list",
         "history.list",
         "data.checkHealth",
         "data.createBackup",

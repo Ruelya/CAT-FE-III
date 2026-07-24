@@ -156,6 +156,7 @@ use zip::{CompressionMethod, ZipArchive};
 
 mod ai;
 mod ai_quality;
+mod collab;
 mod curation;
 mod local_api;
 mod local_auth;
@@ -6144,6 +6145,58 @@ impl RpcDispatcher {
                 self.service
                     .export_curation(parse_params(request.params)?)?,
             ),
+            methods::COLLAB_MEMBER_LIST => serialize_result(
+                self.service
+                    .list_collab_members(parse_params(request.params)?)?,
+            ),
+            methods::COLLAB_MEMBER_ADD => serialize_result(
+                self.service
+                    .add_collab_member(parse_params(request.params)?)?,
+            ),
+            methods::COLLAB_MEMBER_REMOVE => serialize_result(
+                self.service
+                    .remove_collab_member(parse_params(request.params)?)?,
+            ),
+            methods::COLLAB_LOCK_ACQUIRE => serialize_result(
+                self.service
+                    .acquire_collab_lock(parse_params(request.params)?)?,
+            ),
+            methods::COLLAB_LOCK_RELEASE => serialize_result(
+                self.service
+                    .release_collab_lock(parse_params(request.params)?)?,
+            ),
+            methods::COLLAB_LOCK_HEARTBEAT => serialize_result(
+                self.service
+                    .heartbeat_collab_lock(parse_params(request.params)?)?,
+            ),
+            methods::COLLAB_LOCK_LIST => serialize_result(
+                self.service
+                    .list_collab_locks(parse_params(request.params)?)?,
+            ),
+            methods::COLLAB_PRESENCE_HEARTBEAT => serialize_result(
+                self.service
+                    .collab_presence_heartbeat(parse_params(request.params)?)?,
+            ),
+            methods::COLLAB_PRESENCE_LIST => serialize_result(
+                self.service
+                    .list_collab_presence(parse_params(request.params)?)?,
+            ),
+            methods::COLLAB_ASSIGNMENT_LIST => serialize_result(
+                self.service
+                    .list_collab_assignments(parse_params(request.params)?)?,
+            ),
+            methods::COLLAB_ASSIGNMENT_CREATE => serialize_result(
+                self.service
+                    .create_collab_assignment(parse_params(request.params)?)?,
+            ),
+            methods::COLLAB_ASSIGNMENT_COMPLETE => serialize_result(
+                self.service
+                    .complete_collab_assignment(parse_params(request.params)?)?,
+            ),
+            methods::COLLAB_OP_LOG_LIST => serialize_result(
+                self.service
+                    .list_collab_ops(parse_params(request.params)?)?,
+            ),
             methods::PLUGIN_LIST => {
                 serialize_result(self.service.list_plugins(parse_params(request.params)?)?)
             }
@@ -6514,6 +6567,7 @@ impl RpcDispatcher {
                 "plugin.process.v1".to_string(),
                 "plugin.filter.v1".to_string(),
                 "plugin.local-install".to_string(),
+                "collab.local.v1".to_string(),
                 "translation-memory.exact".to_string(),
                 "translation-memory.library".to_string(),
                 "translation-memory.fuzzy-cjk".to_string(),

@@ -2407,3 +2407,11 @@ await window.translunar.invoke("curation.apply", {
   `ai.quality.extractTerms` are report-only and must not mutate termbases or
   export gates automatically.
 - Advertise `ai.quality.offline` from initialize. Heavy models remain optional.
+
+## Collaboration primitives
+
+- Membership, segment locks, presence, assignments, and op-log live in Engine
+  SQLite (migration 17+) and are exposed via additive `collab.*` methods.
+- Offline single-user mode remains complete without using collab APIs.
+- Locks/presence are expiry-based; conflicting lock acquire returns entity conflict.
+- Op-log is append-only foundation for future replica sync, not a full CRDT.
