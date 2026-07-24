@@ -18,6 +18,7 @@ translunar-domain = { path = "../domain" }
 translunar-editor-core = { path = "../editor-core" }
 translunar-asset-core = { path = "../asset-core" }
 translunar-curation-core = { path = "../curation-core" }
+translunar-plugin-runtime = { path = "../plugin-runtime" }
 translunar-filter-core = { path = "../filter-core" }
 translunar-lifecycle-core = { path = "../lifecycle-core" }
 translunar-pipeline = { path = "../pipeline" }

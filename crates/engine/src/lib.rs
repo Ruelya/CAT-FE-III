@@ -156,6 +156,7 @@ use zip::{CompressionMethod, ZipArchive};
 
 mod ai;
 mod curation;
+mod plugin;
 mod qa;
 mod task_package;
 
@@ -186,6 +187,15 @@ pub enum EngineError {
 
     #[error("curation dataset export failed: {0}")]
     CurationExport(String),
+
+    #[error("plugin manifest invalid: {0}")]
+    PluginInvalidManifest(String),
+
+    #[error("plugin permission denied: {0}")]
+    PluginPermissionDenied(String),
+
+    #[error("plugin process failed: {0}")]
+    PluginProcessFailed(String),
 
     #[error("engine I/O failed: {0}")]
     Io(#[from] std::io::Error),
@@ -2202,6 +2212,11 @@ pub struct EngineService {
     filters: FilterRegistry,
     pipeline: PipelineManager,
     ai: ai::AiManager,
+    plugin_processes: std::collections::BTreeMap<
+        String,
+        std::sync::Arc<translunar_plugin_runtime::PluginProcess>,
+    >,
+    plugin_filter_owners: std::collections::BTreeMap<String, String>,
 }
 
 impl EngineService {
@@ -2252,12 +2267,16 @@ impl EngineService {
         filters
             .register(Arc::new(MqxlzFilter))
             .map_err(|error| EngineError::InvalidState(error.to_string()))?;
-        Ok(Self {
+        let mut service = Self {
             store: Store::open(&data_dir)?,
             filters,
             pipeline: PipelineManager::new(data_dir, ai.clone())?,
             ai,
-        })
+            plugin_processes: std::collections::BTreeMap::new(),
+            plugin_filter_owners: std::collections::BTreeMap::new(),
+        };
+        service.reload_enabled_plugins()?;
+        Ok(service)
     }
 
     pub fn create_project(&mut self, params: CreateProjectParams) -> Result<Project> {
@@ -6120,6 +6139,25 @@ impl RpcDispatcher {
                 self.service
                     .export_curation(parse_params(request.params)?)?,
             ),
+            methods::PLUGIN_LIST => {
+                serialize_result(self.service.list_plugins(parse_params(request.params)?)?)
+            }
+            methods::PLUGIN_GET => {
+                serialize_result(self.service.get_plugin(parse_params(request.params)?)?)
+            }
+            methods::PLUGIN_INSTALL => {
+                serialize_result(self.service.install_plugin(parse_params(request.params)?)?)
+            }
+            methods::PLUGIN_ENABLE => {
+                serialize_result(self.service.enable_plugin(parse_params(request.params)?)?)
+            }
+            methods::PLUGIN_DISABLE => {
+                serialize_result(self.service.disable_plugin(parse_params(request.params)?)?)
+            }
+            methods::PLUGIN_UNINSTALL => serialize_result(
+                self.service
+                    .uninstall_plugin(parse_params(request.params)?)?,
+            ),
             methods::TM_LOOKUP_EXACT => {
                 serialize_result(self.service.lookup_exact(parse_params(request.params)?)?)
             }
@@ -6455,6 +6493,10 @@ impl RpcDispatcher {
                 "asset.curation.provider".to_string(),
                 "asset.curation.rollback".to_string(),
                 "asset.curation.export".to_string(),
+                "plugin.runtime.v1".to_string(),
+                "plugin.process.v1".to_string(),
+                "plugin.filter.v1".to_string(),
+                "plugin.local-install".to_string(),
                 "translation-memory.exact".to_string(),
                 "translation-memory.library".to_string(),
                 "translation-memory.fuzzy-cjk".to_string(),
@@ -6599,6 +6641,21 @@ fn rpc_error(error: EngineError) -> RpcError {
         },
         EngineError::CurationExport(message) => RpcError {
             code: ErrorCode::ExportError,
+            message,
+            data: None,
+        },
+        EngineError::PluginInvalidManifest(message) => RpcError {
+            code: ErrorCode::PluginInvalidManifest,
+            message,
+            data: None,
+        },
+        EngineError::PluginPermissionDenied(message) => RpcError {
+            code: ErrorCode::PluginPermissionDenied,
+            message,
+            data: None,
+        },
+        EngineError::PluginProcessFailed(message) => RpcError {
+            code: ErrorCode::PluginProcessFailed,
             message,
             data: None,
         },

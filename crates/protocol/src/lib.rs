@@ -33,6 +33,8 @@ mod discussion;
 pub use discussion::*;
 mod curation;
 pub use curation::*;
+mod plugin;
+pub use plugin::*;
 
 pub const PROTOCOL_VERSION: u32 = 1;
 
@@ -181,6 +183,12 @@ pub mod methods {
     pub const DOCUMENT_EXPORT_DOCX: &str = "document.exportDocx";
     pub const DOCUMENT_EXPORT: &str = "document.export";
     pub const FILTER_LIST: &str = "filter.list";
+    pub const PLUGIN_LIST: &str = "plugin.list";
+    pub const PLUGIN_GET: &str = "plugin.get";
+    pub const PLUGIN_INSTALL: &str = "plugin.install";
+    pub const PLUGIN_ENABLE: &str = "plugin.enable";
+    pub const PLUGIN_DISABLE: &str = "plugin.disable";
+    pub const PLUGIN_UNINSTALL: &str = "plugin.uninstall";
     pub const HISTORY_LIST: &str = "history.list";
     pub const DATA_CHECK_HEALTH: &str = "data.checkHealth";
     pub const DATA_CREATE_BACKUP: &str = "data.createBackup";
@@ -300,6 +308,9 @@ pub enum ErrorCode {
     UnsupportedCorpusInput,
     ResourceLimitExceeded,
     ResourceLimit,
+    PluginInvalidManifest,
+    PluginPermissionDenied,
+    PluginProcessFailed,
     InternalError,
 }
 
@@ -2004,6 +2015,18 @@ pub struct RpcMethodCatalog {
     pub document_export: MethodContract<ExportDocumentParams, ExportDocumentResult>,
     #[serde(rename = "filter.list")]
     pub filter_list: MethodContract<EmptyParams, FilterListResult>,
+    #[serde(rename = "plugin.list")]
+    pub plugin_list: MethodContract<PluginListParams, PluginPage>,
+    #[serde(rename = "plugin.get")]
+    pub plugin_get: MethodContract<PluginIdParams, PluginSummary>,
+    #[serde(rename = "plugin.install")]
+    pub plugin_install: MethodContract<PluginInstallParams, PluginMutationResult>,
+    #[serde(rename = "plugin.enable")]
+    pub plugin_enable: MethodContract<PluginMutationParams, PluginMutationResult>,
+    #[serde(rename = "plugin.disable")]
+    pub plugin_disable: MethodContract<PluginMutationParams, PluginMutationResult>,
+    #[serde(rename = "plugin.uninstall")]
+    pub plugin_uninstall: MethodContract<PluginMutationParams, PluginMutationResult>,
     #[serde(rename = "history.list")]
     pub history_list: MethodContract<HistoryListParams, OperationPage>,
     #[serde(rename = "data.checkHealth")]
@@ -2233,6 +2256,13 @@ pub struct ProtocolCatalog {
     pub import_document_result: ImportDocumentResult,
     pub export_document_result: ExportDocumentResult,
     pub filter_list_result: FilterListResult,
+    pub plugin_list_params: PluginListParams,
+    pub plugin_id_params: PluginIdParams,
+    pub plugin_install_params: PluginInstallParams,
+    pub plugin_mutation_params: PluginMutationParams,
+    pub plugin_summary: PluginSummary,
+    pub plugin_page: PluginPage,
+    pub plugin_mutation_result: PluginMutationResult,
     pub operation_page: OperationPage,
     pub create_backup_params: CreateBackupParams,
     pub backup_result: BackupResult,

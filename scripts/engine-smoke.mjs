@@ -94,6 +94,11 @@ async function main() {
       console.log("Focused asset-curation Engine smoke passed.");
       return;
     }
+    if (process.env.TRANSLUNAR_SMOKE_SCOPE === "plugin") {
+      await exerciseFocusedPluginSmoke(processHandle, dataDirectory);
+      console.log("Focused plugin-runtime Engine smoke passed.");
+      return;
+    }
     const project = await processHandle.call("project.create", {
       name: "Smoke project",
       sourceLocale: "en-US",
@@ -1810,6 +1815,88 @@ async function main() {
     await rm(dataDirectory, { recursive: true, force: true });
     await rm(backupParent, { recursive: true, force: true });
   }
+}
+
+
+async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
+  const root = resolve(import.meta.dirname, "..");
+  const pluginSource = join(root, "examples", "plugins", "hello-srt");
+  const fixtureDirectory = mkdtempSync(join(tmpdir(), "translunar-plugin-smoke-"));
+  const sourcePath = join(fixtureDirectory, "sample.srt");
+  const srtBody = [
+    "1",
+    "00:00:01,000 --> 00:00:02,000",
+    "Hello plugin world",
+    "",
+    "2",
+    "00:00:03,000 --> 00:00:04,000",
+    "Second cue",
+    "",
+  ].join(String.fromCharCode(10));
+  writeFileSync(sourcePath, srtBody, "utf8");
+
+  const installed = await processHandle.call("plugin.install", {
+    sourcePath: pluginSource,
+    grantRequested: true,
+    actor: "smoke",
+    reason: "focused plugin smoke install",
+  });
+  assert(installed.plugin.id === "example.hello-srt", "install id");
+  assert(installed.plugin.status === "installed", "install status");
+
+  const enabled = await processHandle.call("plugin.enable", {
+    pluginId: "example.hello-srt",
+    actor: "smoke",
+    reason: "enable hello-srt",
+  });
+  assert(enabled.plugin.status === "enabled", "enable status");
+
+  const filters = await processHandle.call("filter.list", {});
+  assert(
+    filters.filters.some((item) => item.id === "example.hello-srt"),
+    "filter contribution registered",
+  );
+
+  const project = await processHandle.call("project.create", {
+    name: "Plugin smoke",
+    sourceLocale: "en-US",
+    targetLocale: "zh-CN",
+    domain: "general",
+  });
+  const imported = await processHandle.call("document.import", {
+    projectId: project.id,
+    sourcePath,
+    filterId: "example.hello-srt",
+  });
+  assert(imported.document.segmentCount >= 2, "imported srt cues");
+
+  const listed = await processHandle.call("plugin.list", { offset: 0, limit: 20 });
+  assert(listed.total >= 1, "plugin list total");
+
+  const disabled = await processHandle.call("plugin.disable", {
+    pluginId: "example.hello-srt",
+    actor: "smoke",
+    reason: "disable after import",
+  });
+  assert(disabled.plugin.status === "disabled", "disable status");
+  const filtersAfter = await processHandle.call("filter.list", {});
+  assert(
+    !filtersAfter.filters.some((item) => item.id === "example.hello-srt"),
+    "filter contribution removed",
+  );
+
+  await processHandle.call("plugin.uninstall", {
+    pluginId: "example.hello-srt",
+    actor: "smoke",
+    reason: "uninstall hello-srt",
+  });
+  const after = await processHandle.call("plugin.list", { offset: 0, limit: 20 });
+  assert(
+    !after.items.some((item) => item.id === "example.hello-srt"),
+    "plugin uninstalled",
+  );
+
+  await processHandle.call("project.list", { offset: 0, limit: 10 });
 }
 
 async function exerciseFocusedCurationSmoke(

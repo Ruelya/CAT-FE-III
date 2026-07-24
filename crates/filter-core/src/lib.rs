@@ -246,6 +246,16 @@ impl FilterRegistry {
             .ok_or_else(|| FilterError::NotFound(id.to_string()))
     }
 
+    pub fn unregister(&mut self, id: &str) -> Result<Arc<dyn DocumentFilter>, FilterError> {
+        self.filters
+            .remove(id)
+            .ok_or_else(|| FilterError::NotFound(id.to_string()))
+    }
+
+    pub fn contains(&self, id: &str) -> bool {
+        self.filters.contains_key(id)
+    }
+
     pub fn descriptors(&self) -> Vec<FilterDescriptor> {
         self.filters
             .values()

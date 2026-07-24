@@ -2,7 +2,7 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use crate::{Result, StorageError};
 
-pub(crate) const LATEST_SCHEMA_VERSION: u32 = 15;
+pub(crate) const LATEST_SCHEMA_VERSION: u32 = 16;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -1688,7 +1688,37 @@ CREATE INDEX curation_changes_unit_idx
     ON curation_changes(unit_id, created_at_ms DESC, id);
 "#;
 
-const MIGRATIONS: [(u32, &str); 15] = [
+const MIGRATION_16: &str = r#"
+CREATE TABLE plugin_installations (
+    id TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL CHECK (length(trim(display_name)) > 0),
+    version TEXT NOT NULL CHECK (length(trim(version)) > 0),
+    tier TEXT NOT NULL CHECK (tier IN ('process')),
+    status TEXT NOT NULL CHECK (status IN ('installed', 'enabled', 'disabled', 'degraded')),
+    package_path TEXT NOT NULL CHECK (length(trim(package_path)) > 0),
+    entry_json TEXT NOT NULL CHECK (json_valid(entry_json) AND json_type(entry_json) = 'object'),
+    manifest_json TEXT NOT NULL CHECK (json_valid(manifest_json) AND json_type(manifest_json) = 'object'),
+    contributions_json TEXT NOT NULL CHECK (
+        json_valid(contributions_json) AND json_type(contributions_json) = 'object'
+    ),
+    requested_permissions_json TEXT NOT NULL CHECK (
+        json_valid(requested_permissions_json) AND json_type(requested_permissions_json) = 'array'
+    ),
+    granted_permissions_json TEXT NOT NULL CHECK (
+        json_valid(granted_permissions_json) AND json_type(granted_permissions_json) = 'array'
+    ),
+    last_error TEXT,
+    crash_count INTEGER NOT NULL DEFAULT 0 CHECK (crash_count >= 0),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    installed_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX plugin_installations_status_idx
+    ON plugin_installations(status, updated_at_ms DESC, id);
+"#;
+
+const MIGRATIONS: [(u32, &str); 16] = [
     (1_u32, MIGRATION_1),
     (2_u32, MIGRATION_2),
     (3_u32, MIGRATION_3),
@@ -1704,6 +1734,7 @@ const MIGRATIONS: [(u32, &str); 15] = [
     (13_u32, MIGRATION_13),
     (14_u32, MIGRATION_14),
     (15_u32, MIGRATION_15),
+    (16_u32, MIGRATION_16),
 ];
 
 pub(crate) fn configure_connection(connection: &Connection) -> Result<()> {

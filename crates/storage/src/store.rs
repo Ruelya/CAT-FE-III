@@ -44,6 +44,7 @@ mod alignment;
 mod curation;
 mod discussion;
 mod lifecycle;
+mod plugin;
 mod qa;
 mod snapshot;
 mod task_package;
@@ -72,6 +73,7 @@ pub use lifecycle::{
     NewProjectArchiveRecord, NewReimportPreview, ProjectArchiveData, ProjectFromTemplateResult,
     ProjectTemplateRecord, RecycleEntryRecord, ReimportPreviewRecord,
 };
+pub use plugin::*;
 pub use qa::{NewQaProfile, QaIssueFilter, QaProfileUpdate};
 pub use snapshot::*;
 pub use task_package::*;
@@ -128,6 +130,7 @@ pub struct DataPaths {
     pub exports: PathBuf,
     pub temporary: PathBuf,
     pub backups: PathBuf,
+    pub plugins: PathBuf,
 }
 
 impl DataPaths {
@@ -137,10 +140,12 @@ impl DataPaths {
         let exports = root.join("exports");
         let temporary = root.join("tmp");
         let backups = root.join("backups");
+        let plugins = root.join("plugins");
         fs::create_dir_all(&sources)?;
         fs::create_dir_all(&exports)?;
         fs::create_dir_all(&temporary)?;
         fs::create_dir_all(&backups)?;
+        fs::create_dir_all(&plugins)?;
         Ok(Self {
             database: root.join("translunar.sqlite3"),
             root,
@@ -148,6 +153,7 @@ impl DataPaths {
             exports,
             temporary,
             backups,
+            plugins,
         })
     }
 

@@ -1,0 +1,32 @@
+{
+  "manifestVersion": 1,
+  "id": "example.hello-srt",
+  "displayName": "Hello SRT",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "apiVersionMin": 1,
+  "tier": "process",
+  "entry": {
+    "kind": "node",
+    "path": "bin/hello-srt.mjs"
+  },
+  "contributions": {
+    "filters": [
+      {
+        "id": "example.hello-srt",
+        "version": "0.1.0",
+        "displayName": "Hello SRT",
+        "extensions": ["srt"],
+        "capabilities": {
+          "import": true,
+          "export": true,
+          "validate": true,
+          "inlineTags": false,
+          "notes": false,
+          "degradationReport": true
+        }
+      }
+    ]
+  },
+  "permissions": ["file.read:source", "file.write:output"]
+}

@@ -2536,6 +2536,7 @@ dependencies = [
  "translunar-filter-xlsx",
  "translunar-lifecycle-core",
  "translunar-pipeline",
+ "translunar-plugin-runtime",
  "translunar-protocol",
  "translunar-qa-core",
  "translunar-storage",
@@ -2692,6 +2693,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "translunar-plugin-runtime"
+version = "0.1.0"
+dependencies = [
+ "schemars",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "translunar-domain",
+ "translunar-filter-core",
+ "uuid",
+]
+
+[[package]]
 name = "translunar-protocol"
 version = "0.1.0"
 dependencies = [
@@ -2755,6 +2770,7 @@ dependencies = [
  "translunar-filter-docx",
  "translunar-lifecycle-core",
  "translunar-pipeline",
+ "translunar-plugin-runtime",
  "translunar-qa-core",
  "translunar-task-package-core",
 ]
