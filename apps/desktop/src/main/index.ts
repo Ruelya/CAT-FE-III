@@ -29,6 +29,7 @@ const IPC_CHANNELS = {
   selectInteropInput: "translunar:dialog:interop-input",
   selectTaskPackageInput: "translunar:dialog:task-package-input",
   selectCorpusInput: "translunar:dialog:corpus-input",
+  selectPluginPackage: "translunar:dialog:plugin-package",
   restartEngine: "translunar:engine:restart",
   setAiCredential: "translunar:ai:credential:set",
   editorCommand: "translunar:editor:command",
@@ -344,7 +345,17 @@ function registerIpc(): void {
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
-  ipcMain.handle(IPC_CHANNELS.restartEngine, async (event) => {
+    ipcMain.handle(IPC_CHANNELS.selectPluginPackage, async () => {
+    if (process.env.TRANSLUNAR_TEST_PLUGIN_SOURCE) {
+      return process.env.TRANSLUNAR_TEST_PLUGIN_SOURCE;
+    }
+    const result = await dialog.showOpenDialog(requireWindow(), {
+      title: "Select plugin package directory",
+      properties: ["openDirectory"],
+    });
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
+ipcMain.handle(IPC_CHANNELS.restartEngine, async (event) => {
     assertTrustedSender(event);
     await requireEngine().restart();
   });

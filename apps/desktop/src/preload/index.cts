@@ -22,6 +22,7 @@ const IPC_CHANNELS = {
   selectInteropInput: "translunar:dialog:interop-input",
   selectTaskPackageInput: "translunar:dialog:task-package-input",
   selectCorpusInput: "translunar:dialog:corpus-input",
+  selectPluginPackage: "translunar:dialog:plugin-package",
   restartEngine: "translunar:engine:restart",
   setAiCredential: "translunar:ai:credential:set",
   editorCommand: "translunar:editor:command",
@@ -87,6 +88,8 @@ const api: DesktopApi = {
     electron.ipcRenderer.invoke(IPC_CHANNELS.selectTaskPackageInput),
   selectCorpusInput: () =>
     electron.ipcRenderer.invoke(IPC_CHANNELS.selectCorpusInput),
+  selectPluginPackage: () =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.selectPluginPackage),
   resolveDroppedPaths: (files) =>
     files
       .slice(0, 500)

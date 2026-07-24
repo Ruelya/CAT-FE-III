@@ -29,6 +29,7 @@ export interface DesktopApi {
   selectInteropInput(kind: "review" | "table"): Promise<string | null>;
   selectTaskPackageInput(): Promise<string | null>;
   selectCorpusInput(): Promise<string | null>;
+  selectPluginPackage(): Promise<string | null>;
   resolveDroppedPaths(files: readonly File[]): string[];
   restartEngine(): Promise<void>;
   setAiCredential(profileId: string, secret: string): Promise<void>;
