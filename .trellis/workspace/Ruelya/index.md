@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 15
+- **Total Sessions**: 16
 - **Last Active**: 2026-07-24
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~541 | Active |
+| `journal-1.md` | ~574 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 16 | 2026-07-24 | Ship collaboration primitives MVP | `cb1bece` | `master` |
 | 15 | 2026-07-24 | Ship offline AI quality intelligence MVP | `c7ad469` | `master` |
 | 14 | 2026-07-24 | Ship local API and CLI automation MVP | `31487ef` | `master` |
 | 13 | 2026-07-24 | Ship plugin runtime Tier-3 filter slice | `7f41b5b`, `e8f3c49`, `9b7cb1f` | `master` |

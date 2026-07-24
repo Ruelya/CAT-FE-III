@@ -539,3 +539,36 @@ Added offline QE score/route, semantic QA findings, and term extraction via ai-q
 ### Next Steps
 
 - None - task complete
+
+
+## Session 16: Ship collaboration primitives MVP
+
+**Date**: 2026-07-24
+**Task**: Ship collaboration primitives MVP
+**Branch**: `master`
+
+### Summary
+
+Added collab members/locks/presence/assignments/op-log with migration 17 and focused smoke; offline single-user path unchanged.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cb1bece` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
