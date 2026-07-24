@@ -41,6 +41,7 @@ use crate::{Result, StorageError};
 
 mod ai;
 mod alignment;
+mod curation;
 mod discussion;
 mod lifecycle;
 mod qa;
@@ -63,6 +64,7 @@ pub use alignment::{
     ReindexReferenceCorpus, RemoveReferenceCorpus, ReplaceAlignmentPartition,
     UpdateAlignmentLinkStatus,
 };
+pub use curation::*;
 pub use discussion::*;
 pub use lifecycle::{
     AnalysisProfileRecord, AnalysisRunRecord, ArchiveDocumentData, ArchiveSegmentData,
@@ -2130,7 +2132,8 @@ impl Store {
     ) -> Result<(Vec<TmUnit>, u32)> {
         find_tm_library(&self.connection, library_id)?;
         let total = self.connection.query_row(
-            "SELECT COUNT(*) FROM tm_units WHERE library_id = ?1",
+            "SELECT COUNT(*) FROM tm_units
+             WHERE library_id = ?1 AND curation_state = 'active'",
             [library_id],
             |row| row.get::<_, i64>(0),
         )?;
@@ -2140,7 +2143,7 @@ impl Store {
                     origin_document_id, origin_segment_id, context_before_hash,
                     context_after_hash, author, metadata_json, created_at_ms,
                     updated_at_ms
-             FROM tm_units WHERE library_id = ?1
+             FROM tm_units WHERE library_id = ?1 AND curation_state = 'active'
              ORDER BY created_at_ms, id LIMIT ?2 OFFSET ?3",
         )?;
         let items = statement
@@ -2193,6 +2196,7 @@ impl Store {
                         updated_at_ms
                  FROM tm_units
                  WHERE library_id = ?1 AND source_locale = ?2 AND target_locale = ?3
+                   AND curation_state = 'active'
                    AND (?4 IS NULL OR domain = ?4)
                     AND (?5 IS NULL OR created_at_ms >= ?5)
                     AND (?6 IS NULL OR origin_project_id = ?6)
@@ -5760,6 +5764,10 @@ impl Store {
              FROM tm_entries e
              JOIN translation_memories tm ON tm.id = e.memory_id
              WHERE tm.project_id = ?1 AND e.source_hash = ?2
+               AND NOT EXISTS (
+                    SELECT 1 FROM tm_units u
+                    WHERE u.id = e.id AND u.curation_state = 'quarantined'
+               )
              ORDER BY e.confirmed_at_ms DESC, e.id",
         )?;
         let normalized = normalize_text(source_text);
@@ -8744,7 +8752,10 @@ fn create_data_backup(
     let result = (|| -> Result<BackupManifest> {
         let database_path = staging.join("translunar.sqlite3");
         connection.backup("main", &database_path, None)?;
-        File::open(&database_path)?.sync_all()?;
+        File::options()
+            .write(true)
+            .open(&database_path)?
+            .sync_all()?;
         copy_directory_contents(&paths.sources, &staging.join("sources"))?;
         copy_directory_contents(&paths.exports, &staging.join("exports"))?;
 
@@ -8763,6 +8774,7 @@ fn create_data_backup(
         let manifest_file = File::create(&manifest_path)?;
         serde_json::to_writer_pretty(&manifest_file, &manifest)?;
         manifest_file.sync_all()?;
+        drop(manifest_file);
         fs::rename(&staging, destination)?;
         Ok(manifest)
     })();
@@ -8788,7 +8800,7 @@ fn copy_directory_contents(source: &Path, destination: &Path) -> Result<()> {
             copy_directory_contents(&entry.path(), &target)?;
         } else if file_type.is_file() {
             fs::copy(entry.path(), &target)?;
-            File::open(&target)?.sync_all()?;
+            File::options().write(true).open(&target)?.sync_all()?;
         }
     }
     Ok(())
@@ -8838,7 +8850,10 @@ fn create_pre_migration_backup(
     let result = (|| -> Result<()> {
         let database_path = staging.join("translunar.sqlite3");
         connection.backup("main", &database_path, None)?;
-        File::open(&database_path)?.sync_all()?;
+        File::options()
+            .write(true)
+            .open(&database_path)?
+            .sync_all()?;
 
         let database_metadata = fs::metadata(&database_path)?;
         let manifest = BackupManifest {
@@ -8856,6 +8871,7 @@ fn create_pre_migration_backup(
         let manifest_file = File::create(&manifest_path)?;
         serde_json::to_writer_pretty(&manifest_file, &manifest)?;
         manifest_file.sync_all()?;
+        drop(manifest_file);
 
         fs::rename(&staging, &destination)?;
         Ok(())

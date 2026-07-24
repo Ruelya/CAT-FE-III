@@ -2,7 +2,7 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use crate::{Result, StorageError};
 
-pub(crate) const LATEST_SCHEMA_VERSION: u32 = 14;
+pub(crate) const LATEST_SCHEMA_VERSION: u32 = 15;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -1566,7 +1566,129 @@ CREATE INDEX project_snapshot_previews_project_idx
     ON project_snapshot_previews(project_id, status, updated_at_ms DESC, id);
 "#;
 
-const MIGRATIONS: [(u32, &str); 14] = [
+const MIGRATION_15: &str = r#"
+ALTER TABLE tm_units ADD COLUMN quality_score_basis_points INTEGER
+    CHECK (quality_score_basis_points IS NULL
+        OR (quality_score_basis_points >= 0 AND quality_score_basis_points <= 10000));
+ALTER TABLE tm_units ADD COLUMN curation_state TEXT NOT NULL DEFAULT 'active'
+    CHECK (curation_state IN ('active', 'quarantined'));
+ALTER TABLE tm_units ADD COLUMN curation_revision INTEGER NOT NULL DEFAULT 0
+    CHECK (curation_revision >= 0);
+ALTER TABLE tm_units ADD COLUMN last_curated_run_id TEXT;
+
+CREATE INDEX tm_units_curation_idx
+    ON tm_units(library_id, curation_state, quality_score_basis_points,
+                created_at_ms, id);
+
+CREATE TABLE curation_runs (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    library_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open'
+        CHECK (status IN ('open', 'applied', 'rolled_back', 'discarded')),
+    mode TEXT NOT NULL CHECK (mode IN ('offline', 'provider')),
+    policy_json TEXT NOT NULL CHECK (
+        json_valid(policy_json) AND json_type(policy_json) = 'object'
+    ),
+    base_library_revision INTEGER NOT NULL CHECK (base_library_revision >= 0),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    summary_json TEXT NOT NULL DEFAULT '{}'
+        CHECK (json_valid(summary_json) AND json_type(summary_json) = 'object'),
+    actor TEXT NOT NULL CHECK (length(trim(actor)) > 0),
+    reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+    provider_profile_id TEXT,
+    created_at_ms INTEGER NOT NULL,
+    completed_at_ms INTEGER,
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX curation_runs_project_idx
+    ON curation_runs(project_id, created_at_ms DESC, id);
+CREATE INDEX curation_runs_library_idx
+    ON curation_runs(library_id, status, updated_at_ms DESC, id);
+
+CREATE TABLE curation_run_units (
+    run_id TEXT NOT NULL REFERENCES curation_runs(id) ON DELETE CASCADE,
+    library_id TEXT NOT NULL,
+    unit_id TEXT NOT NULL,
+    quality_score_basis_points INTEGER NOT NULL
+        CHECK (quality_score_basis_points >= 0 AND quality_score_basis_points <= 10000),
+    recommended_action TEXT NOT NULL
+        CHECK (recommended_action IN ('keep', 'review', 'quarantine')),
+    explanation_json TEXT NOT NULL
+        CHECK (json_valid(explanation_json) AND json_type(explanation_json) = 'array'),
+    unit_snapshot_hash TEXT NOT NULL CHECK (
+        length(unit_snapshot_hash) = 64
+        AND unit_snapshot_hash NOT GLOB '*[^0-9A-Fa-f]*'
+    ),
+    created_at_ms INTEGER NOT NULL,
+    PRIMARY KEY(run_id, unit_id)
+) STRICT;
+
+CREATE INDEX curation_run_units_page_idx
+    ON curation_run_units(run_id, created_at_ms, unit_id);
+CREATE INDEX curation_run_units_library_idx
+    ON curation_run_units(library_id, unit_id, run_id);
+
+CREATE TABLE curation_findings (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES curation_runs(id) ON DELETE CASCADE,
+    library_id TEXT NOT NULL,
+    unit_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN (
+        'exact-duplicate', 'near-duplicate', 'competing-translation',
+        'source-equals-target', 'minimum-length', 'length-ratio',
+        'number-mismatch', 'date-mismatch', 'placeholder-mismatch',
+        'created-outside-range', 'likely-wrong-language', 'semantic-mismatch',
+        'term-drift', 'source-drift'
+    )),
+    severity TEXT NOT NULL CHECK (severity IN ('info', 'warning', 'error')),
+    disposition TEXT NOT NULL CHECK (disposition IN ('keep', 'review', 'quarantine')),
+    score_basis_points INTEGER NOT NULL
+        CHECK (score_basis_points >= 0 AND score_basis_points <= 10000),
+    canonical_unit_id TEXT,
+    evidence_json TEXT NOT NULL
+        CHECK (json_valid(evidence_json) AND json_type(evidence_json) = 'object'),
+    explanation TEXT NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    fingerprint TEXT NOT NULL DEFAULT '',
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    UNIQUE(run_id, unit_id, kind, fingerprint)
+) STRICT;
+
+CREATE INDEX curation_findings_page_idx
+    ON curation_findings(run_id, severity DESC, unit_id, id);
+CREATE INDEX curation_findings_unit_idx
+    ON curation_findings(unit_id, created_at_ms DESC, id);
+CREATE INDEX curation_findings_library_idx
+    ON curation_findings(library_id, run_id, unit_id, id);
+
+CREATE TABLE curation_changes (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES curation_runs(id) ON DELETE CASCADE,
+    finding_id TEXT REFERENCES curation_findings(id) ON DELETE SET NULL,
+    library_id TEXT NOT NULL,
+    unit_id TEXT NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('score', 'quarantine')),
+    before_json TEXT NOT NULL
+        CHECK (json_valid(before_json) AND json_type(before_json) = 'object'),
+    after_json TEXT NOT NULL
+        CHECK (json_valid(after_json) AND json_type(after_json) = 'object'),
+    restored INTEGER NOT NULL DEFAULT 0 CHECK (restored IN (0, 1)),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    created_at_ms INTEGER NOT NULL,
+    restored_at_ms INTEGER,
+    UNIQUE(run_id, unit_id)
+) STRICT;
+
+CREATE INDEX curation_changes_run_idx
+    ON curation_changes(run_id, restored, created_at_ms, id);
+CREATE INDEX curation_changes_unit_idx
+    ON curation_changes(unit_id, created_at_ms DESC, id);
+"#;
+
+const MIGRATIONS: [(u32, &str); 15] = [
     (1_u32, MIGRATION_1),
     (2_u32, MIGRATION_2),
     (3_u32, MIGRATION_3),
@@ -1581,6 +1703,7 @@ const MIGRATIONS: [(u32, &str); 14] = [
     (12_u32, MIGRATION_12),
     (13_u32, MIGRATION_13),
     (14_u32, MIGRATION_14),
+    (15_u32, MIGRATION_15),
 ];
 
 pub(crate) fn configure_connection(connection: &Connection) -> Result<()> {
@@ -1648,6 +1771,10 @@ mod tests {
 
     fn create_v12(connection: &mut Connection) {
         migrate_from_to(connection, 0, 12).expect("create schema v12");
+    }
+
+    fn create_v14(connection: &mut Connection) {
+        migrate_from_to(connection, 0, 14).expect("create schema v14");
     }
 
     #[test]
@@ -2482,6 +2609,325 @@ mod tests {
                 |row| row.get::<_, i64>(0),
             )
             .expect("check rolled-back task-package tables");
+        assert_eq!(new_table_count, 0);
+    }
+
+    #[test]
+    fn migration_15_creates_curation_schema_on_fresh_database() {
+        let mut connection = Connection::open_in_memory().expect("open migration database");
+        migrate(&mut connection).expect("create latest schema");
+
+        let version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read fresh schema version");
+        assert_eq!(version, LATEST_SCHEMA_VERSION);
+        let tables = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name IN (
+                    'curation_runs', 'curation_run_units',
+                    'curation_findings', 'curation_changes'
+                 )",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("count fresh curation tables");
+        assert_eq!(tables, 4);
+        let columns = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('tm_units')
+                 WHERE name IN (
+                    'quality_score_basis_points', 'curation_state',
+                    'curation_revision', 'last_curated_run_id'
+                 )",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("count fresh TM curation columns");
+        assert_eq!(columns, 4);
+    }
+
+    #[test]
+    fn migration_15_upgrades_v14_assets_and_survives_reopen() {
+        let temp = tempfile::tempdir().expect("temporary migration directory");
+        let database = temp.path().join("translunar.sqlite3");
+        let mut connection = Connection::open(&database).expect("open v14 database");
+        create_v14(&mut connection);
+        connection
+            .execute(
+                "INSERT INTO projects (
+                    id, name, source_locale, target_locale, domain,
+                    created_at_ms, updated_at_ms
+                 ) VALUES ('curation-p15', 'Curation', 'en', 'zh', 'general', 1, 1)",
+                [],
+            )
+            .expect("insert curation project");
+        connection
+            .execute(
+                "INSERT INTO tm_libraries (
+                    id, name, source_locale, target_locale, writable,
+                    revision, created_at_ms, updated_at_ms
+                 ) VALUES ('curation-l15', 'Shared TM', 'en', 'zh', 1, 3, 1, 1)",
+                [],
+            )
+            .expect("insert curation library");
+        connection
+            .execute(
+                "INSERT INTO tm_units (
+                    id, library_id, source_locale, target_locale, source_text,
+                    target_text, source_hash, source_key, target_hash,
+                    metadata_json, created_at_ms, updated_at_ms
+                 ) VALUES ('curation-u15', 'curation-l15', 'en', 'zh',
+                           'Source', 'Target', 'source-hash', 'source',
+                           'target-hash', '{}', 2, 2)",
+                [],
+            )
+            .expect("insert legacy TM unit");
+
+        migrate_from_to(&mut connection, 14, 15).expect("upgrade to schema v15");
+        let projection = connection
+            .query_row(
+                "SELECT quality_score_basis_points, curation_state,
+                        curation_revision, last_curated_run_id
+                 FROM tm_units WHERE id = 'curation-u15'",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<i64>>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                    ))
+                },
+            )
+            .expect("read migrated TM curation projection");
+        assert_eq!(projection, (None, "active".to_string(), 0, None));
+        connection
+            .execute(
+                "INSERT INTO curation_runs (
+                    id, project_id, library_id, status, mode, policy_json,
+                    base_library_revision, revision, summary_json, actor, reason,
+                    created_at_ms, completed_at_ms, updated_at_ms
+                 ) VALUES ('curation-r15', 'curation-p15', 'curation-l15', 'open',
+                           'offline', '{}', 3, 0, '{\"analyzedUnits\":1}',
+                           'tester', 'fixture', 3, 3, 3)",
+                [],
+            )
+            .expect("insert migrated curation run");
+        connection
+            .execute(
+                "INSERT INTO curation_run_units (
+                    run_id, library_id, unit_id, quality_score_basis_points,
+                    recommended_action, explanation_json, unit_snapshot_hash,
+                    created_at_ms
+                 ) VALUES ('curation-r15', 'curation-l15', 'curation-u15', 8000,
+                           'review', '[\"fixture\"]',
+                           'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 3)",
+                [],
+            )
+            .expect("insert migrated curation run unit");
+        connection
+            .execute(
+                "INSERT INTO curation_findings (
+                    id, run_id, library_id, unit_id, kind, severity, disposition,
+                    score_basis_points, evidence_json, explanation, fingerprint,
+                    created_at_ms, updated_at_ms
+                 ) VALUES ('curation-f15', 'curation-r15', 'curation-l15',
+                           'curation-u15', 'length-ratio', 'warning', 'review', 8000,
+                           '{}', 'fixture', 'fixture-fingerprint', 3, 3)",
+                [],
+            )
+            .expect("insert migrated curation finding");
+        connection
+            .execute(
+                "INSERT INTO curation_changes (
+                    id, run_id, finding_id, library_id, unit_id, action,
+                    before_json, after_json, created_at_ms
+                 ) VALUES ('curation-c15', 'curation-r15', 'curation-f15',
+                           'curation-l15', 'curation-u15', 'score', '{}', '{}', 3)",
+                [],
+            )
+            .expect("insert migrated curation change");
+        drop(connection);
+
+        let connection = Connection::open(database).expect("reopen upgraded database");
+        let version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read upgraded version");
+        assert_eq!(version, 15);
+        let reopened = connection
+            .query_row(
+                "SELECT r.status, u.recommended_action, f.kind, c.action
+                 FROM curation_runs r
+                 JOIN curation_run_units u ON u.run_id = r.id
+                 JOIN curation_findings f ON f.run_id = r.id
+                 JOIN curation_changes c ON c.run_id = r.id
+                 WHERE r.id = 'curation-r15'",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .expect("read reopened curation state");
+        assert_eq!(
+            reopened,
+            (
+                "open".to_string(),
+                "review".to_string(),
+                "length-ratio".to_string(),
+                "score".to_string(),
+            )
+        );
+    }
+
+    #[test]
+    fn migration_15_strict_constraints_reject_invalid_rows() {
+        let mut connection = Connection::open_in_memory().expect("open migration database");
+        migrate(&mut connection).expect("create latest schema");
+        connection
+            .execute(
+                "INSERT INTO projects (
+                    id, name, source_locale, target_locale, domain,
+                    created_at_ms, updated_at_ms
+                 ) VALUES ('strict-p15', 'Strict', 'en', 'zh', 'general', 1, 1)",
+                [],
+            )
+            .expect("insert strict curation project");
+        connection
+            .execute(
+                "INSERT INTO tm_libraries (
+                    id, name, source_locale, target_locale, writable,
+                    revision, created_at_ms, updated_at_ms
+                 ) VALUES ('strict-l15', 'Strict TM', 'en', 'zh', 1, 0, 1, 1)",
+                [],
+            )
+            .expect("insert strict curation library");
+        connection
+            .execute(
+                "INSERT INTO tm_units (
+                    id, library_id, source_locale, target_locale, source_text,
+                    target_text, source_hash, source_key, target_hash,
+                    metadata_json, created_at_ms, updated_at_ms
+                 ) VALUES ('strict-u15', 'strict-l15', 'en', 'zh', 'Source',
+                           'Target', 'source-hash', 'source', 'target-hash', '{}', 1, 1)",
+                [],
+            )
+            .expect("insert strict curation unit");
+
+        assert!(
+            connection
+                .execute(
+                    "UPDATE tm_units SET quality_score_basis_points = 10001
+                     WHERE id = 'strict-u15'",
+                    [],
+                )
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute(
+                    "UPDATE tm_units SET curation_state = 'deleted'
+                     WHERE id = 'strict-u15'",
+                    [],
+                )
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO curation_runs (
+                        id, project_id, library_id, mode, policy_json,
+                        base_library_revision, summary_json, actor, reason,
+                        created_at_ms, updated_at_ms
+                     ) VALUES ('invalid-json-r15', 'strict-p15', 'strict-l15',
+                               'offline', 'not-json', 0, '{}', 'tester', 'fixture', 1, 1)",
+                    [],
+                )
+                .is_err()
+        );
+        connection
+            .execute(
+                "INSERT INTO curation_runs (
+                    id, project_id, library_id, mode, policy_json,
+                    base_library_revision, summary_json, actor, reason,
+                    created_at_ms, completed_at_ms, updated_at_ms
+                 ) VALUES ('strict-r15', 'strict-p15', 'strict-l15', 'offline',
+                           '{}', 0, '{}', 'tester', 'fixture', 1, 1, 1)",
+                [],
+            )
+            .expect("insert valid strict curation run");
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO curation_run_units (
+                        run_id, library_id, unit_id, quality_score_basis_points,
+                        recommended_action, explanation_json, unit_snapshot_hash,
+                        created_at_ms
+                     ) VALUES ('strict-r15', 'strict-l15', 'strict-u15', -1,
+                               'delete', '{}', 'short', 1)",
+                    [],
+                )
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO curation_findings (
+                        id, run_id, library_id, unit_id, kind, severity, disposition,
+                        score_basis_points, evidence_json, explanation,
+                        created_at_ms, updated_at_ms
+                     ) VALUES ('invalid-f15', 'strict-r15', 'strict-l15',
+                               'strict-u15', 'delete', 'critical', 'delete', 10001,
+                               '[]', 'invalid', 1, 1)",
+                    [],
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn migration_15_rolls_back_every_prior_statement_on_failure() {
+        let mut connection = Connection::open_in_memory().expect("open migration database");
+        create_v14(&mut connection);
+        connection
+            .execute(
+                "CREATE TABLE curation_changes (id TEXT PRIMARY KEY) STRICT",
+                [],
+            )
+            .expect("create conflicting late migration table");
+
+        assert!(migrate_from_to(&mut connection, 14, 15).is_err());
+        let version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read rolled-back version");
+        assert_eq!(version, 14);
+        let curation_column_count = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('tm_units')
+                 WHERE name IN (
+                    'quality_score_basis_points', 'curation_state',
+                    'curation_revision', 'last_curated_run_id'
+                 )",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("check rolled-back TM columns");
+        assert_eq!(curation_column_count, 0);
+        let new_table_count = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name IN (
+                    'curation_runs', 'curation_run_units', 'curation_findings'
+                 )",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("check rolled-back curation tables");
         assert_eq!(new_table_count, 0);
     }
 }

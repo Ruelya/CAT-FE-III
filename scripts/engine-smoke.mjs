@@ -85,6 +85,15 @@ async function main() {
       protocolVersion: 1,
       client: { name: "engine-smoke", version: "0.1.0" },
     });
+    if (process.env.TRANSLUNAR_SMOKE_SCOPE === "curation") {
+      await exerciseFocusedCurationSmoke(
+        processHandle,
+        dataDirectory,
+        aiFixture.url,
+      );
+      console.log("Focused asset-curation Engine smoke passed.");
+      return;
+    }
     const project = await processHandle.call("project.create", {
       name: "Smoke project",
       sourceLocale: "en-US",
@@ -1429,6 +1438,12 @@ async function main() {
       alignmentEvidence,
       aiProfile.id,
     );
+    const curationEvidence = await exerciseCurationBeforeRestart(
+      processHandle,
+      dataDirectory,
+      project.id,
+      aiProfile.id,
+    );
     await processHandle.stop();
     processHandle = await EngineProcess.start(binary, dataDirectory);
     await processHandle.call("engine.initialize", {
@@ -1447,6 +1462,12 @@ async function main() {
       processHandle,
       project.id,
       alignmentApplyEvidence,
+    );
+    await verifyCurationAfterRestart(
+      processHandle,
+      dataDirectory,
+      project.id,
+      curationEvidence,
     );
 
     const qaProfiles = await processHandle.call("qa.profile.list", {
@@ -1789,6 +1810,710 @@ async function main() {
     await rm(dataDirectory, { recursive: true, force: true });
     await rm(backupParent, { recursive: true, force: true });
   }
+}
+
+async function exerciseFocusedCurationSmoke(
+  processHandle,
+  dataDirectory,
+  providerUrl,
+) {
+  const project = await processHandle.call("project.create", {
+    name: "Focused curation smoke",
+    sourceLocale: "en-US",
+    targetLocale: "zh-CN",
+    domain: "general",
+  });
+  const termbases = await processHandle.call("termbase.list", {
+    projectId: project.id,
+    offset: 0,
+    limit: 10,
+  });
+  const defaultTermbase = termbases.items[0];
+  assert(defaultTermbase, "focused curation smoke requires a termbase");
+  await processHandle.call("term.upsert", {
+    termbaseId: defaultTermbase.id,
+    sourceLocale: project.sourceLocale,
+    sourceTerm: "payment terms",
+    status: "candidate",
+    translations: [
+      {
+        locale: project.targetLocale,
+        term: "付款条款",
+        preferred: true,
+        forbidden: false,
+      },
+    ],
+  });
+
+  const corpusPath = join(dataDirectory, "curation-catalog-corpus.txt");
+  writeFileSync(corpusPath, "Payment terms remain available for reference.\n");
+  const projectBeforeCorpus = await processHandle.call("project.get", {
+    projectId: project.id,
+  });
+  await processHandle.call("corpus.import", {
+    projectId: project.id,
+    expectedProjectRevision: projectBeforeCorpus.project.revision,
+    sourcePath: corpusPath,
+    name: "Focused curation corpus",
+    kind: "monolingualSource",
+    sourceLocale: project.sourceLocale,
+    targetLocale: project.targetLocale,
+    filterId: "builtin.txt",
+    options: { segmentationMode: "paragraph" },
+    actor: "engine-smoke",
+    reason: "Seed the unified asset catalog",
+  });
+
+  const profile = await processHandle.call("ai.provider.create", {
+    name: "Focused curation provider",
+    kind: "openaiCompatible",
+    baseUrl: providerUrl,
+    model: "fixture-model",
+    timeoutMs: 5_000,
+    maxResponseBytes: 1_048_576,
+    enabled: true,
+  });
+  await processHandle.call("ai.credential.set", {
+    profileId: profile.id,
+    secret: "engine-smoke-secret",
+  });
+  const settings = await processHandle.call("ai.settings.get", {});
+  await processHandle.call("ai.settings.update", {
+    enabled: true,
+    defaultProfileId: profile.id,
+    monthlyTokenBudget: 100_000,
+    allowInteractive: true,
+    allowBatch: true,
+    allowedOrigins: [providerUrl],
+    expectedRevision: settings.revision,
+  });
+
+  const evidence = await exerciseCurationBeforeRestart(
+    processHandle,
+    dataDirectory,
+    project.id,
+    profile.id,
+  );
+  await processHandle.restart();
+  await processHandle.call("engine.initialize", {
+    protocolVersion: 1,
+    client: { name: "engine-smoke", version: "0.1.0" },
+  });
+  await verifyCurationAfterRestart(
+    processHandle,
+    dataDirectory,
+    project.id,
+    evidence,
+  );
+}
+
+async function exerciseCurationBeforeRestart(
+  processHandle,
+  dataDirectory,
+  projectId,
+  providerProfileId,
+) {
+  const projectSnapshot = await processHandle.call("project.get", {
+    projectId,
+  });
+  const project = projectSnapshot.project;
+  const seedPath = join(dataDirectory, "curation-dirty.csv");
+  const duplicatePath = join(dataDirectory, "curation-duplicates.txt");
+  const jsonlPath = join(dataDirectory, "curation-clean.jsonl");
+  const stalePath = join(dataDirectory, "curation-stale.jsonl");
+  const existingPath = join(dataDirectory, "curation-existing.tsv");
+  const library = await processHandle.call("tm.library.create", {
+    name: "Smoke curation library",
+    sourceLocale: project.sourceLocale,
+    targetLocale: project.targetLocale,
+    domain: "curation-smoke",
+    writable: true,
+    ownerProjectId: projectId,
+  });
+  await processHandle.call("tm.library.mount", {
+    projectId,
+    libraryId: library.id,
+    mode: "write",
+    priority: 2,
+    enabled: true,
+  });
+  writeFileSync(
+    seedPath,
+    [
+      "source,target,sourceLocale,targetLocale,domain,author,createdAtMs",
+      "A stable legal sentence,稳定的法律句子,en-US,zh-CN,curation-smoke,smoke,500",
+      "CurateSmoke mirror text,CurateSmoke mirror text,en-US,zh-CN,curation-smoke,smoke,520",
+      "CurateSmoke invoice 10 is due,策展发票 20 已到期,en-US,zh-CN,curation-smoke,smoke,540",
+      "CurateSmoke hello {name},策展你好,en-US,zh-CN,curation-smoke,smoke,560",
+      "CurateSmoke this extremely detailed contractual sentence contains many important payment obligations,短,en-US,zh-CN,curation-smoke,smoke,580",
+      "CurateSmoke payment terms are due in 30 days,策展付款条款在 30 天内到期,en-US,zh-CN,curation-smoke,smoke,600",
+      "CurateSmoke payment terms are due in 30 days,策展款项须于三十日内支付,en-US,zh-CN,curation-smoke,smoke,620",
+      "X,乙,en-US,zh-CN,curation-smoke,smoke,640",
+      "CurateSmoke the sky is blue,策展合同已经终止,en-US,zh-CN,curation-smoke,smoke,660",
+      "CurateSmoke archived sentence,策展归档句子,en-US,zh-CN,curation-smoke,smoke,42",
+    ].join("\n"),
+    "utf8",
+  );
+  const imported = await processHandle.call("tm.import", {
+    libraryId: library.id,
+    sourcePath: seedPath,
+    format: "csv",
+    sourceLocale: project.sourceLocale,
+    targetLocale: project.targetLocale,
+  });
+  assert(
+    imported.inserted === 10 && imported.skipped === 0,
+    "curation fixture should import every distinct dirty TM row",
+  );
+
+  writeFileSync(
+    duplicatePath,
+    "CurateSmoke duplicate clause.\n\nCurateSmoke duplicate clause.\n",
+    "utf8",
+  );
+  const duplicateDocument = await processHandle.call("document.import", {
+    projectId,
+    sourcePath: duplicatePath,
+    relativePath: "curation/duplicates.txt",
+    filterId: "builtin.txt",
+    options: { segmentationMode: "paragraph" },
+  });
+  const duplicateSegments = await processHandle.call("segment.list", {
+    documentId: duplicateDocument.document.id,
+    offset: 0,
+    limit: 10,
+  });
+  assert(
+    duplicateSegments.items.length === 2,
+    "curation duplicate fixture should create two distinct source segments",
+  );
+  for (const originalSegment of duplicateSegments.items) {
+    const currentDuplicatePage = await processHandle.call("segment.list", {
+      documentId: duplicateDocument.document.id,
+      offset: 0,
+      limit: 10,
+    });
+    const segment = currentDuplicatePage.items.find(
+      (item) => item.id === originalSegment.id,
+    );
+    assert(
+      segment,
+      "duplicate segment should remain addressable after propagation",
+    );
+    const updated = await processHandle.call("segment.updateTarget", {
+      segmentId: segment.id,
+      targetText: "策展重复条款。",
+      expectedRevision: segment.revision,
+    });
+    await processHandle.call("segment.confirm", {
+      segmentId: segment.id,
+      expectedRevision: updated.revision,
+    });
+  }
+
+  const libraryPage = await processHandle.call("tm.library.list", {
+    projectId,
+    offset: 0,
+    limit: 100,
+  });
+  const currentLibrary = libraryPage.items.find(
+    (item) => item.id === library.id,
+  );
+  assert(currentLibrary, "curation library should remain project-visible");
+
+  const catalog = await processHandle.call("asset.catalog.list", {
+    projectId,
+    kind: "all",
+    sourceLocale: project.sourceLocale,
+    offset: 0,
+    limit: 500,
+  });
+  const catalogKinds = new Set(catalog.items.map((item) => item.kind));
+  assert(
+    ["tm", "termbase", "corpus"].every((kind) => catalogKinds.has(kind)),
+    "unified asset catalog should project TM, termbase, and corpus rows",
+  );
+  const curationCatalog = await processHandle.call("asset.catalog.list", {
+    projectId,
+    kind: "tm",
+    sourceLocale: project.sourceLocale,
+    targetLocale: project.targetLocale,
+    domain: "curation-smoke",
+    offset: 0,
+    limit: 500,
+  });
+  assert(
+    curationCatalog.total === 12 &&
+      curationCatalog.items.every(
+        (item) =>
+          item.collectionId === library.id &&
+          item.curationState === "active" &&
+          item.qualityScoreBasisPoints == null,
+      ),
+    "catalog should expose the complete pre-analysis TM projection without mutation",
+  );
+  const firstCatalogPage = await processHandle.call("asset.catalog.list", {
+    projectId,
+    kind: "tm",
+    domain: "curation-smoke",
+    query: "CurateSmoke",
+    offset: 0,
+    limit: 3,
+  });
+  const secondCatalogPage = await processHandle.call("asset.catalog.list", {
+    projectId,
+    kind: "tm",
+    domain: "curation-smoke",
+    query: "CurateSmoke",
+    offset: 3,
+    limit: 3,
+  });
+  assert(
+    firstCatalogPage.total === 10 &&
+      firstCatalogPage.items.length === 3 &&
+      secondCatalogPage.items.length === 3 &&
+      !firstCatalogPage.items.some((item) =>
+        secondCatalogPage.items.some((next) => next.id === item.id),
+      ),
+    "catalog filters and deterministic offset paging should remain bounded",
+  );
+
+  const providerRun = await processHandle.call("curation.run", {
+    projectId,
+    libraryId: library.id,
+    expectedLibraryRevision: currentLibrary.revision,
+    providerProfileId,
+    actor: "engine-smoke",
+    reason: "Exercise strict provider-backed curation annotations",
+    correlationId: "engine-smoke-curation-provider",
+    offset: 0,
+    limit: 3,
+  });
+  assert(
+    providerRun.run.mode === "provider" && providerRun.total === 12,
+    "valid ID-only provider annotations should create a provider curation run",
+  );
+  await assertRpcError(
+    () =>
+      processHandle.call("curation.run", {
+        projectId,
+        libraryId: library.id,
+        expectedLibraryRevision: currentLibrary.revision,
+        providerProfileId,
+        actor: "engine-smoke",
+        reason: "Reject an unknown provider annotation ID",
+        correlationId: "engine-smoke-curation-provider-invalid",
+        offset: 0,
+        limit: 3,
+      }),
+    "provider_protocol",
+    "unknown curation provider annotation",
+  );
+  const libraryAfterProviderFailure = await processHandle.call(
+    "tm.library.list",
+    { projectId, offset: 0, limit: 100 },
+  );
+  assert(
+    libraryAfterProviderFailure.items.find((item) => item.id === library.id)
+      ?.revision === currentLibrary.revision,
+    "invalid provider annotations must not advance the TM library revision",
+  );
+
+  const createdBeforeMs = Date.now() + 60_000;
+  const run = await processHandle.call("curation.run", {
+    projectId,
+    libraryId: library.id,
+    expectedLibraryRevision: currentLibrary.revision,
+    policy: {
+      minimumChars: 2,
+      minimumLengthRatioPercent: 20,
+      maximumLengthRatioPercent: 500,
+      nearDuplicateThreshold: 80,
+      semanticAlignmentThresholdBasisPoints: 3_500,
+      quarantineThresholdBasisPoints: 5_000,
+      minimumTermFrequency: 2,
+      createdAfterMs: 100,
+      createdBeforeMs,
+    },
+    actor: "engine-smoke",
+    reason: "Analyze the deterministic dirty TM fixture",
+    correlationId: "engine-smoke-curation-offline",
+    offset: 0,
+    limit: 3,
+  });
+  assert(
+    run.run.mode === "offline" &&
+      run.run.status === "open" &&
+      run.total === 12 &&
+      run.units.length === 3,
+    "offline curation should create an immutable bounded run snapshot",
+  );
+  const fullRun = await processHandle.call("curation.run.get", {
+    runId: run.run.id,
+    offset: 0,
+    limit: 500,
+  });
+  const findings = await processHandle.call("curation.finding.list", {
+    runId: run.run.id,
+    offset: 0,
+    limit: 500,
+  });
+  const findingKinds = new Set(findings.items.map((finding) => finding.kind));
+  assert(
+    [
+      "exactDuplicate",
+      "competingTranslation",
+      "sourceEqualsTarget",
+      "minimumLength",
+      "lengthRatio",
+      "numberMismatch",
+      "placeholderMismatch",
+      "createdOutsideRange",
+    ].every((kind) => findingKinds.has(kind)),
+    "curation should detect every deterministic dirty-fixture rule family",
+  );
+  assert(
+    fullRun.run.summary.analysis.findingCount === findings.total &&
+      fullRun.run.summary.analysis.driftGroupCount > 0 &&
+      fullRun.run.summary.analysis.termCandidateCount > 0,
+    "curation summary should retain findings, drift, and mined terms",
+  );
+  const firstFindingPage = await processHandle.call("curation.finding.list", {
+    runId: run.run.id,
+    offset: 0,
+    limit: 2,
+  });
+  const secondFindingPage = await processHandle.call("curation.finding.list", {
+    runId: run.run.id,
+    offset: 2,
+    limit: 2,
+  });
+  assert(
+    firstFindingPage.total === findings.total &&
+      firstFindingPage.items.length === 2 &&
+      secondFindingPage.items.length === 2 &&
+      firstFindingPage.items.every(
+        (item) => !secondFindingPage.items.some((next) => next.id === item.id),
+      ),
+    "curation findings should page without duplicated IDs",
+  );
+  const qualityItem = curationCatalog.items.find(
+    (item) => item.sourceText === "A stable legal sentence",
+  );
+  const qualityUnit = fullRun.units.find(
+    (unit) => unit.unitId === qualityItem?.id,
+  );
+  assert(
+    qualityUnit?.recommendedAction === "keep" &&
+      qualityUnit.qualityScoreBasisPoints >= 5_000,
+    "known high-quality fixture data should remain a keep recommendation",
+  );
+  const selectedFinding = findings.items.find(
+    (finding) =>
+      finding.kind === "sourceEqualsTarget" &&
+      finding.disposition === "quarantine",
+  );
+  assert(
+    selectedFinding,
+    "source-equals-target should provide an explicit quarantine candidate",
+  );
+
+  await assertRpcError(
+    () =>
+      processHandle.call("curation.export", {
+        runId: run.run.id,
+        expectedRunRevision: run.run.revision + 1,
+        expectedLibraryRevision: currentLibrary.revision,
+        format: "jsonl",
+        outputPath: stalePath,
+      }),
+    "conflict",
+    "stale curation export",
+  );
+  assert(!existsSync(stalePath), "stale curation export must publish no file");
+  await assertRpcError(
+    () =>
+      processHandle.call("curation.apply", {
+        runId: run.run.id,
+        expectedRunRevision: run.run.revision,
+        expectedLibraryRevision: currentLibrary.revision + 1,
+        selectedFindingIds: [selectedFinding.id],
+        actor: "engine-smoke",
+        reason: "Reject stale curation apply",
+      }),
+    "conflict",
+    "stale curation apply",
+  );
+  const catalogAfterStale = await processHandle.call("asset.catalog.list", {
+    projectId,
+    kind: "tm",
+    domain: "curation-smoke",
+    offset: 0,
+    limit: 500,
+  });
+  assert(
+    catalogAfterStale.items.every(
+      (item) =>
+        item.curationState === "active" && item.qualityScoreBasisPoints == null,
+    ),
+    "stale curation requests must leave every TM projection unchanged",
+  );
+
+  const applied = await processHandle.call("curation.apply", {
+    runId: run.run.id,
+    expectedRunRevision: run.run.revision,
+    expectedLibraryRevision: currentLibrary.revision,
+    selectedFindingIds: [selectedFinding.id],
+    actor: "engine-smoke",
+    reason: "Quarantine one explicitly selected dirty TM unit",
+    correlationId: "engine-smoke-curation-apply",
+  });
+  assert(
+    applied.status === "applied" &&
+      applied.changedUnitCount === 12 &&
+      applied.quarantinedUnitCount === 1,
+    "curation apply should score the snapshot and quarantine only the selection",
+  );
+  const appliedCatalog = await processHandle.call("asset.catalog.list", {
+    projectId,
+    kind: "tm",
+    domain: "curation-smoke",
+    offset: 0,
+    limit: 500,
+  });
+  const quarantined = appliedCatalog.items.filter(
+    (item) => item.curationState === "quarantined",
+  );
+  assert(
+    quarantined.length === 1 &&
+      quarantined[0].id === selectedFinding.unitId &&
+      appliedCatalog.items.every(
+        (item) => item.qualityScoreBasisPoints != null,
+      ),
+    "catalog should expose authoritative scores and only the selected quarantine",
+  );
+
+  const exported = await processHandle.call("curation.export", {
+    runId: run.run.id,
+    expectedRunRevision: applied.runRevision,
+    expectedLibraryRevision: applied.libraryRevision,
+    minimumScoreBasisPoints: 0,
+    format: "jsonl",
+    outputPath: jsonlPath,
+  });
+  const jsonlBytes = readFileSync(jsonlPath, "utf8");
+  const jsonlRows = jsonlBytes
+    .trim()
+    .split(/\r?\n/u)
+    .map((line) => JSON.parse(line));
+  assert(
+    exported.rowCount === 11 &&
+      jsonlRows.length === exported.rowCount &&
+      jsonlRows.every(
+        (row) =>
+          row.unitId &&
+          row.instruction &&
+          row.response &&
+          Number.isInteger(row.qualityScoreBasisPoints),
+      ) &&
+      !jsonlRows.some((row) => row.unitId === selectedFinding.unitId),
+    "JSONL export should contain active instruction/response rows with provenance",
+  );
+  await assertRpcError(
+    () =>
+      processHandle.call("curation.export", {
+        runId: run.run.id,
+        expectedRunRevision: applied.runRevision,
+        expectedLibraryRevision: applied.libraryRevision,
+        format: "jsonl",
+        outputPath: jsonlPath,
+      }),
+    "export_error",
+    "curation JSONL no-clobber",
+  );
+  assert(
+    readFileSync(jsonlPath, "utf8") === jsonlBytes,
+    "failed no-clobber export must preserve existing JSONL bytes",
+  );
+  writeFileSync(existingPath, "do not replace", "utf8");
+  await assertRpcError(
+    () =>
+      processHandle.call("curation.export", {
+        runId: run.run.id,
+        expectedRunRevision: applied.runRevision,
+        expectedLibraryRevision: applied.libraryRevision,
+        format: "tsv",
+        outputPath: existingPath,
+      }),
+    "export_error",
+    "curation TSV no-clobber",
+  );
+  assert(
+    readFileSync(existingPath, "utf8") === "do not replace",
+    "failed TSV publication must preserve the destination sentinel",
+  );
+
+  return {
+    runId: run.run.id,
+    libraryId: library.id,
+    selectedFindingId: selectedFinding.id,
+    selectedUnitId: selectedFinding.unitId,
+    applied,
+    findingFingerprints: findings.items.map((finding) => finding.fingerprint),
+    jsonlPath,
+  };
+}
+
+async function verifyCurationAfterRestart(
+  processHandle,
+  dataDirectory,
+  projectId,
+  evidence,
+) {
+  const recovered = await processHandle.call("curation.run.get", {
+    runId: evidence.runId,
+    offset: 0,
+    limit: 3,
+  });
+  assert(
+    recovered.run.status === "applied" &&
+      recovered.run.revision === evidence.applied.runRevision &&
+      recovered.total === 12,
+    "applied curation run should retain its snapshot after restart",
+  );
+  const recoveredFindings = await processHandle.call("curation.finding.list", {
+    runId: evidence.runId,
+    offset: 0,
+    limit: 500,
+  });
+  assert(
+    JSON.stringify(
+      recoveredFindings.items.map((finding) => finding.fingerprint),
+    ) === JSON.stringify(evidence.findingFingerprints),
+    "curation findings should retain deterministic order through restart",
+  );
+  const appliedCatalog = await processHandle.call("asset.catalog.list", {
+    projectId,
+    kind: "tm",
+    domain: "curation-smoke",
+    offset: 0,
+    limit: 500,
+  });
+  assert(
+    appliedCatalog.items.find((item) => item.id === evidence.selectedUnitId)
+      ?.curationState === "quarantined" &&
+      appliedCatalog.items.every(
+        (item) => item.qualityScoreBasisPoints != null,
+      ),
+    "curation scores and quarantine state should survive restart",
+  );
+
+  const tsvPath = join(dataDirectory, "curation-clean.tsv");
+  const tsv = await processHandle.call("curation.export", {
+    runId: evidence.runId,
+    expectedRunRevision: recovered.run.revision,
+    expectedLibraryRevision: evidence.applied.libraryRevision,
+    minimumScoreBasisPoints: 0,
+    format: "tsv",
+    outputPath: tsvPath,
+  });
+  const tsvLines = readFileSync(tsvPath, "utf8").trim().split(/\r?\n/u);
+  assert(
+    tsv.rowCount === 11 &&
+      tsvLines.length === tsv.rowCount + 1 &&
+      tsvLines[0].startsWith("unit_id\tsource_locale\ttarget_locale"),
+    "TSV export should validate a structured active-row dataset after restart",
+  );
+
+  const rollbackRequest = {
+    runId: evidence.runId,
+    expectedRunRevision: recovered.run.revision,
+    expectedLibraryRevision: evidence.applied.libraryRevision,
+    actor: "engine-smoke",
+    reason: "Restore the curation fixture before image",
+    correlationId: "engine-smoke-curation-rollback",
+  };
+  const rolledBack = await processHandle.call(
+    "curation.rollback",
+    rollbackRequest,
+  );
+  assert(
+    rolledBack.status === "rolledBack" &&
+      rolledBack.restoredUnitCount === 12 &&
+      rolledBack.quarantinedUnitCount === 0,
+    "curation rollback should restore every scored unit atomically",
+  );
+  const replay = await processHandle.call("curation.rollback", rollbackRequest);
+  assert(
+    replay.operationId === rolledBack.operationId &&
+      replay.runRevision === rolledBack.runRevision &&
+      replay.libraryRevision === rolledBack.libraryRevision,
+    "curation rollback should be idempotent before another restart",
+  );
+  const restoredCatalog = await processHandle.call("asset.catalog.list", {
+    projectId,
+    kind: "tm",
+    domain: "curation-smoke",
+    offset: 0,
+    limit: 500,
+  });
+  assert(
+    restoredCatalog.items.length === 12 &&
+      restoredCatalog.items.every(
+        (item) =>
+          item.curationState === "active" &&
+          item.qualityScoreBasisPoints == null,
+      ),
+    "rollback should restore the original active and unscored TM projection",
+  );
+  const history = await processHandle.call("history.list", {
+    projectId,
+    offset: 0,
+    limit: 500,
+    descending: false,
+  });
+  assert(
+    ["curation.apply", "curation.rollback"].every((kind) =>
+      history.items.some((operation) => operation.kind === kind),
+    ),
+    "curation apply and rollback should remain in project operation history",
+  );
+
+  await processHandle.restart();
+  await processHandle.call("engine.initialize", {
+    protocolVersion: 1,
+    client: { name: "engine-smoke", version: "0.1.0" },
+  });
+  const terminal = await processHandle.call("curation.run.get", {
+    runId: evidence.runId,
+    offset: 0,
+    limit: 500,
+  });
+  const terminalCatalog = await processHandle.call("asset.catalog.list", {
+    projectId,
+    kind: "tm",
+    domain: "curation-smoke",
+    offset: 0,
+    limit: 500,
+  });
+  const replayAfterRestart = await processHandle.call(
+    "curation.rollback",
+    rollbackRequest,
+  );
+  assert(
+    terminal.run.status === "rolledBack" &&
+      terminalCatalog.items.every(
+        (item) =>
+          item.curationState === "active" &&
+          item.qualityScoreBasisPoints == null,
+      ) &&
+      replayAfterRestart.operationId === rolledBack.operationId,
+    "rolled-back curation state and idempotency should survive another restart",
+  );
+  assert(
+    statSync(evidence.jsonlPath).size > 0,
+    "published curation dataset should remain readable after Engine restarts",
+  );
 }
 
 async function exerciseDiscussionAndSnapshotWorkflow(
@@ -4074,7 +4799,10 @@ async function exerciseTaskPackageWorkflow(owner, binary, ownerDataDirectory) {
       offset: 0,
       limit: 50,
     });
-    assert(ownerSegments.items.length === 5, "task package fixture should have five rows");
+    assert(
+      ownerSegments.items.length === 5,
+      "task package fixture should have five rows",
+    );
     const ownerSnapshot = await owner.call("project.get", {
       projectId: ownerProject.id,
     });
@@ -4094,8 +4822,14 @@ async function exerciseTaskPackageWorkflow(owner, binary, ownerDataDirectory) {
       actor: "engine-smoke-owner",
       reason: "Create task package smoke assignment",
     });
-    assert(assignment.kind === "assignment", "assignment package kind should be stable");
-    assert(existsSync(assignmentPath), "assignment package should be published");
+    assert(
+      assignment.kind === "assignment",
+      "assignment package kind should be stable",
+    );
+    assert(
+      existsSync(assignmentPath),
+      "assignment package should be published",
+    );
     await assertRpcError(
       () =>
         owner.call("taskPackage.export", {
@@ -4152,7 +4886,7 @@ async function exerciseTaskPackageWorkflow(owner, binary, ownerDataDirectory) {
       reason: "Preview valid task package",
     });
     assert(
-        assignmentPreview.kind === "assignment" &&
+      assignmentPreview.kind === "assignment" &&
         assignmentPreview.total === 5 &&
         assignmentPreview.rows.length === 5,
       "assignment preview should persist all selected rows",
@@ -4222,7 +4956,10 @@ async function exerciseTaskPackageWorkflow(owner, binary, ownerDataDirectory) {
       actor: "engine-smoke-recipient",
       reason: "Export task return",
     });
-    assert(returnResult.kind === "return" && existsSync(returnPath), "return package should be published");
+    assert(
+      returnResult.kind === "return" && existsSync(returnPath),
+      "return package should be published",
+    );
 
     let ownerCurrent = await owner.call("segment.list", {
       documentId: ownerDocument.document.id,
@@ -4290,7 +5027,10 @@ async function exerciseTaskPackageWorkflow(owner, binary, ownerDataDirectory) {
     const refreshedSafeRow = refreshedPreview.rows.find(
       (row) => row.disposition === "bothChanged" && row.identicalChange,
     );
-    assert(refreshedSafeRow, "a safe identical row should remain retryable after stale apply");
+    assert(
+      refreshedSafeRow,
+      "a safe identical row should remain retryable after stale apply",
+    );
     const applyParams = {
       previewId: refreshedPreview.previewId,
       expectedProjectRevision: refreshedPreview.expectedProjectRevision,
@@ -4317,7 +5057,8 @@ async function exerciseTaskPackageWorkflow(owner, binary, ownerDataDirectory) {
       limit: 50,
     });
     assert(
-      finalOwnerSegments.items[2].targetText === "Owner changed after preview" &&
+      finalOwnerSegments.items[2].targetText ===
+        "Owner changed after preview" &&
         finalOwnerSegments.items[3].targetText === "Second same change",
       "task merge should preserve the stale local edit and apply the selected identical edit",
     );
@@ -4407,6 +5148,7 @@ async function waitForAiBatch(processHandle, batchId) {
 }
 
 async function startAiFixture() {
+  let curationRequestCount = 0;
   const server = createServer((request, response) => {
     let body = "";
     request.setEncoding("utf8");
@@ -4419,6 +5161,8 @@ async function startAiFixture() {
         "AI credential must not appear in the request body",
       );
       const alignmentPayload = extractAlignmentFixturePayload(body);
+      const curationPayload = extractCurationFixturePayload(body);
+      if (curationPayload) curationRequestCount += 1;
       const completionChunks = alignmentPayload
         ? [
             JSON.stringify({
@@ -4437,7 +5181,33 @@ async function startAiFixture() {
               ],
             }),
           ]
-        : ["AI fixture ", "translation"];
+        : curationPayload
+          ? [
+              JSON.stringify(
+                curationRequestCount === 2
+                  ? {
+                      annotations: [
+                        {
+                          unitId: "unknown-curation-unit",
+                          scoreBasisPoints: 9_000,
+                          label: "aligned",
+                          evidence: "Unknown fixture identity.",
+                        },
+                      ],
+                    }
+                  : {
+                      annotations: [
+                        {
+                          unitId: curationPayload[0].unitId,
+                          scoreBasisPoints: 9_000,
+                          label: "aligned",
+                          evidence: "Fixture semantic review passed.",
+                        },
+                      ],
+                    },
+              ),
+            ]
+          : ["AI fixture ", "translation"];
       const events = [
         ...completionChunks.map(
           (content) =>
@@ -4446,8 +5216,8 @@ async function startAiFixture() {
         `data: ${JSON.stringify({
           choices: [],
           usage: {
-            prompt_tokens: alignmentPayload ? 24 : 20,
-            completion_tokens: alignmentPayload ? 18 : 4,
+            prompt_tokens: alignmentPayload ? 24 : curationPayload ? 32 : 20,
+            completion_tokens: alignmentPayload ? 18 : curationPayload ? 10 : 4,
           },
         })}`,
         "data: [DONE]",
@@ -4473,6 +5243,53 @@ async function startAiFixture() {
     url: `http://127.0.0.1:${address.port}`,
     close: () => new Promise((resolvePromise) => server.close(resolvePromise)),
   };
+}
+
+function extractCurationFixturePayload(body) {
+  let request;
+  try {
+    request = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  const findMessage = (value) => {
+    if (typeof value === "string") {
+      return value.includes("<curation-data>") ? value : null;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const found = findMessage(item);
+        if (found) return found;
+      }
+      return null;
+    }
+    if (value && typeof value === "object") {
+      for (const item of Object.values(value)) {
+        const found = findMessage(item);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+  const message = findMessage(request);
+  if (!message) return null;
+  const match = message.match(
+    /<curation-data>\s*([\s\S]*?)\s*<\/curation-data>/,
+  );
+  if (!match) return null;
+  try {
+    const payload = JSON.parse(match[1]);
+    if (
+      !Array.isArray(payload) ||
+      payload.length === 0 ||
+      payload.some((unit) => typeof unit?.unitId !== "string")
+    ) {
+      return null;
+    }
+    return payload;
+  } catch {
+    return null;
+  }
 }
 
 function extractAlignmentFixturePayload(body) {

@@ -31,6 +31,8 @@ mod task_package;
 pub use task_package::*;
 mod discussion;
 pub use discussion::*;
+mod curation;
+pub use curation::*;
 
 pub const PROTOCOL_VERSION: u32 = 1;
 
@@ -136,6 +138,13 @@ pub mod methods {
     pub const CORPUS_SEARCH: &str = "corpus.search";
     pub const CORPUS_REINDEX: &str = "corpus.reindex";
     pub const CORPUS_REMOVE: &str = "corpus.remove";
+    pub const ASSET_CATALOG_LIST: &str = "asset.catalog.list";
+    pub const CURATION_RUN: &str = "curation.run";
+    pub const CURATION_RUN_GET: &str = "curation.run.get";
+    pub const CURATION_FINDING_LIST: &str = "curation.finding.list";
+    pub const CURATION_APPLY: &str = "curation.apply";
+    pub const CURATION_ROLLBACK: &str = "curation.rollback";
+    pub const CURATION_EXPORT: &str = "curation.export";
     pub const TM_LOOKUP_EXACT: &str = "tm.lookupExact";
     pub const TM_LIBRARY_LIST: &str = "tm.library.list";
     pub const TM_LIBRARY_CREATE: &str = "tm.library.create";
@@ -1909,6 +1918,20 @@ pub struct RpcMethodCatalog {
     pub corpus_reindex: MethodContract<CorpusMutationParams, ReferenceCorpusMutationResult>,
     #[serde(rename = "corpus.remove")]
     pub corpus_remove: MethodContract<CorpusMutationParams, ReferenceCorpusMutationResult>,
+    #[serde(rename = "asset.catalog.list")]
+    pub asset_catalog_list: MethodContract<AssetCatalogListParams, AssetCatalogPage>,
+    #[serde(rename = "curation.run")]
+    pub curation_run: MethodContract<CurationRunParams, CurationRunSnapshot>,
+    #[serde(rename = "curation.run.get")]
+    pub curation_run_get: MethodContract<CurationRunIdParams, CurationRunSnapshot>,
+    #[serde(rename = "curation.finding.list")]
+    pub curation_finding_list: MethodContract<CurationFindingListParams, CurationFindingPage>,
+    #[serde(rename = "curation.apply")]
+    pub curation_apply: MethodContract<CurationApplyParams, CurationMutationResult>,
+    #[serde(rename = "curation.rollback")]
+    pub curation_rollback: MethodContract<CurationRollbackParams, CurationMutationResult>,
+    #[serde(rename = "curation.export")]
+    pub curation_export: MethodContract<CurationExportParams, CurationExportResult>,
     #[serde(rename = "tm.lookupExact")]
     pub tm_lookup_exact: MethodContract<ExactLookupParams, ExactLookupResult>,
     #[serde(rename = "tm.library.list")]
@@ -2136,6 +2159,19 @@ pub struct ProtocolCatalog {
     pub reference_corpus_page: ReferenceCorpusPage,
     pub corpus_search_result: CorpusSearchResult,
     pub reference_corpus_mutation_result: ReferenceCorpusMutationResult,
+    pub asset_catalog_list_params: AssetCatalogListParams,
+    pub asset_catalog_item: AssetCatalogItem,
+    pub asset_catalog_page: AssetCatalogPage,
+    pub curation_run_params: CurationRunParams,
+    pub curation_run_id_params: CurationRunIdParams,
+    pub curation_finding_list_params: CurationFindingListParams,
+    pub curation_apply_params: CurationApplyParams,
+    pub curation_rollback_params: CurationRollbackParams,
+    pub curation_export_params: CurationExportParams,
+    pub curation_run_snapshot: CurationRunSnapshot,
+    pub curation_finding_page: CurationFindingPage,
+    pub curation_mutation_result: CurationMutationResult,
+    pub curation_export_result: CurationExportResult,
     pub asset_exchange_format: AssetExchangeFormat,
     pub tm_library_list_params: TmLibraryListParams,
     pub tm_library_create_params: TmLibraryCreateParams,

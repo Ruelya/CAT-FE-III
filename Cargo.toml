@@ -9,6 +9,7 @@ members = [
   "crates/qa-core",
   "crates/lifecycle-core",
   "crates/asset-core",
+  "crates/curation-core",
   "crates/filter-core",
   "crates/segmentation-srx",
   "crates/filter-text",

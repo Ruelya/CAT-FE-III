@@ -155,6 +155,7 @@ use zip::write::{SimpleFileOptions, ZipWriter};
 use zip::{CompressionMethod, ZipArchive};
 
 mod ai;
+mod curation;
 mod qa;
 mod task_package;
 
@@ -179,6 +180,12 @@ pub enum EngineError {
 
     #[error("asset exchange failed: {0}")]
     Asset(#[from] AssetError),
+
+    #[error("asset curation failed: {0}")]
+    Curation(#[from] translunar_curation_core::CurationError),
+
+    #[error("curation dataset export failed: {0}")]
+    CurationExport(String),
 
     #[error("engine I/O failed: {0}")]
     Io(#[from] std::io::Error),
@@ -6087,6 +6094,32 @@ impl RpcDispatcher {
                 self.service
                     .remove_reference_corpus(parse_params(request.params)?)?,
             ),
+            methods::ASSET_CATALOG_LIST => serialize_result(
+                self.service
+                    .list_asset_catalog(parse_params(request.params)?)?,
+            ),
+            methods::CURATION_RUN => {
+                serialize_result(self.service.run_curation(parse_params(request.params)?)?)
+            }
+            methods::CURATION_RUN_GET => serialize_result(
+                self.service
+                    .get_curation_run(parse_params(request.params)?)?,
+            ),
+            methods::CURATION_FINDING_LIST => serialize_result(
+                self.service
+                    .list_curation_findings(parse_params(request.params)?)?,
+            ),
+            methods::CURATION_APPLY => {
+                serialize_result(self.service.apply_curation(parse_params(request.params)?)?)
+            }
+            methods::CURATION_ROLLBACK => serialize_result(
+                self.service
+                    .rollback_curation(parse_params(request.params)?)?,
+            ),
+            methods::CURATION_EXPORT => serialize_result(
+                self.service
+                    .export_curation(parse_params(request.params)?)?,
+            ),
             methods::TM_LOOKUP_EXACT => {
                 serialize_result(self.service.lookup_exact(parse_params(request.params)?)?)
             }
@@ -6417,6 +6450,11 @@ impl RpcDispatcher {
                 "alignment.ai-refinement".to_string(),
                 "alignment.tm-apply".to_string(),
                 "reference-corpus".to_string(),
+                "asset.catalog".to_string(),
+                "asset.curation.offline".to_string(),
+                "asset.curation.provider".to_string(),
+                "asset.curation.rollback".to_string(),
+                "asset.curation.export".to_string(),
                 "translation-memory.exact".to_string(),
                 "translation-memory.library".to_string(),
                 "translation-memory.fuzzy-cjk".to_string(),
@@ -6537,6 +6575,31 @@ fn rpc_error(error: EngineError) -> RpcError {
         ) => RpcError {
             code: ErrorCode::ProviderProtocol,
             message: "AI provider returned an invalid response".to_string(),
+            data: None,
+        },
+        EngineError::Curation(
+            translunar_curation_core::CurationError::InvalidSemanticRefinement(_),
+        ) => RpcError {
+            code: ErrorCode::ProviderProtocol,
+            message: "AI provider returned invalid curation annotations".to_string(),
+            data: None,
+        },
+        EngineError::Curation(
+            translunar_curation_core::CurationError::InvalidPolicy(message)
+            | translunar_curation_core::CurationError::InvalidInput(message),
+        ) => RpcError {
+            code: ErrorCode::InvalidRequest,
+            message,
+            data: None,
+        },
+        EngineError::Curation(_) => RpcError {
+            code: ErrorCode::ExportError,
+            message: "curation dataset serialization failed".to_string(),
+            data: None,
+        },
+        EngineError::CurationExport(message) => RpcError {
+            code: ErrorCode::ExportError,
+            message,
             data: None,
         },
         EngineError::CorpusImport(FilterError::NotFound(id)) => RpcError {
@@ -7387,6 +7450,9 @@ fn copy_and_hash(source: &Path, destination: &mut File) -> Result<String> {
     }
     Ok(format!("{:x}", hasher.finalize()))
 }
+
+#[cfg(test)]
+mod curation_tests;
 
 #[cfg(test)]
 mod tests {

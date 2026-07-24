@@ -2462,6 +2462,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "translunar-curation-core"
+version = "0.1.0"
+dependencies = [
+ "csv",
+ "regex",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "translunar-asset-core",
+]
+
+[[package]]
 name = "translunar-domain"
 version = "0.1.0"
 dependencies = [
@@ -2495,6 +2509,7 @@ dependencies = [
  "base64",
  "chrono",
  "clap",
+ "csv",
  "keyring",
  "rusqlite",
  "serde",
@@ -2507,6 +2522,7 @@ dependencies = [
  "translunar-ai-core",
  "translunar-alignment-core",
  "translunar-asset-core",
+ "translunar-curation-core",
  "translunar-domain",
  "translunar-editor-core",
  "translunar-filter-core",
@@ -2685,6 +2701,7 @@ dependencies = [
  "translunar-ai-core",
  "translunar-alignment-core",
  "translunar-asset-core",
+ "translunar-curation-core",
  "translunar-domain",
  "translunar-filter-core",
  "translunar-lifecycle-core",
@@ -2731,6 +2748,7 @@ dependencies = [
  "translunar-ai-core",
  "translunar-alignment-core",
  "translunar-asset-core",
+ "translunar-curation-core",
  "translunar-domain",
  "translunar-editor-core",
  "translunar-filter-core",

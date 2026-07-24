@@ -33,6 +33,15 @@
     "alignment_session_update_params": {
       "$ref": "#/$defs/AlignmentSessionUpdateParams"
     },
+    "asset_catalog_item": {
+      "$ref": "#/$defs/AssetCatalogItem"
+    },
+    "asset_catalog_list_params": {
+      "$ref": "#/$defs/AssetCatalogListParams"
+    },
+    "asset_catalog_page": {
+      "$ref": "#/$defs/AssetCatalogPage"
+    },
     "asset_diagnostic": {
       "$ref": "#/$defs/AssetDiagnostic"
     },
@@ -80,6 +89,36 @@
     },
     "create_project_params": {
       "$ref": "#/$defs/CreateProjectParams"
+    },
+    "curation_apply_params": {
+      "$ref": "#/$defs/CurationApplyParams"
+    },
+    "curation_export_params": {
+      "$ref": "#/$defs/CurationExportParams"
+    },
+    "curation_export_result": {
+      "$ref": "#/$defs/CurationExportResult"
+    },
+    "curation_finding_list_params": {
+      "$ref": "#/$defs/CurationFindingListParams"
+    },
+    "curation_finding_page": {
+      "$ref": "#/$defs/CurationFindingPage"
+    },
+    "curation_mutation_result": {
+      "$ref": "#/$defs/CurationMutationResult"
+    },
+    "curation_rollback_params": {
+      "$ref": "#/$defs/CurationRollbackParams"
+    },
+    "curation_run_id_params": {
+      "$ref": "#/$defs/CurationRunIdParams"
+    },
+    "curation_run_params": {
+      "$ref": "#/$defs/CurationRunParams"
+    },
+    "curation_run_snapshot": {
+      "$ref": "#/$defs/CurationRunSnapshot"
     },
     "data_health_report": {
       "$ref": "#/$defs/DataHealthReport"
@@ -485,6 +524,19 @@
     "reference_corpus_page",
     "corpus_search_result",
     "reference_corpus_mutation_result",
+    "asset_catalog_list_params",
+    "asset_catalog_item",
+    "asset_catalog_page",
+    "curation_run_params",
+    "curation_run_id_params",
+    "curation_finding_list_params",
+    "curation_apply_params",
+    "curation_rollback_params",
+    "curation_export_params",
+    "curation_run_snapshot",
+    "curation_finding_page",
+    "curation_mutation_result",
+    "curation_export_result",
     "asset_exchange_format",
     "tm_library_list_params",
     "tm_library_create_params",
@@ -4170,6 +4222,234 @@
         "json"
       ]
     },
+    "AssetCatalogItem": {
+      "type": "object",
+      "properties": {
+        "collectionId": {
+          "type": "string"
+        },
+        "collectionName": {
+          "type": "string"
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "curationState": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CurationState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "domain": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/AssetCatalogKind"
+        },
+        "originDocumentId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "originProjectId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "originSegmentId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "qualityScoreBasisPoints": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "sourceLocale": {
+          "type": "string"
+        },
+        "sourceText": {
+          "type": "string"
+        },
+        "structuralPath": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "targetLocale": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "targetText": {
+          "type": "string"
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "id",
+        "collectionId",
+        "collectionName",
+        "kind",
+        "sourceLocale",
+        "sourceText",
+        "targetText",
+        "createdAtMs",
+        "updatedAtMs"
+      ]
+    },
+    "AssetCatalogKind": {
+      "type": "string",
+      "enum": [
+        "all",
+        "tm",
+        "termbase",
+        "corpus"
+      ]
+    },
+    "AssetCatalogListParams": {
+      "type": "object",
+      "properties": {
+        "createdAfterMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "default": null
+        },
+        "createdBeforeMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "default": null
+        },
+        "domain": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "kind": {
+          "$ref": "#/$defs/AssetCatalogKind",
+          "default": "all"
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 200,
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        },
+        "originDocumentId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "originProjectId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "projectId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "query": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "sourceLocale": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "targetLocale": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "AssetCatalogPage": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AssetCatalogItem"
+          }
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "items",
+        "total",
+        "offset",
+        "limit"
+      ]
+    },
     "AssetDiagnostic": {
       "type": "object",
       "properties": {
@@ -5020,6 +5300,945 @@
         "segmentId",
         "author",
         "text"
+      ]
+    },
+    "CurationApplyParams": {
+      "type": "object",
+      "properties": {
+        "actor": {
+          "type": "string",
+          "default": "desktop"
+        },
+        "correlationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "expectedLibraryRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "expectedRunRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "reason": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "selectedFindingIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "runId",
+        "expectedRunRevision",
+        "expectedLibraryRevision",
+        "selectedFindingIds",
+        "reason"
+      ]
+    },
+    "CurationDriftGroup": {
+      "type": "object",
+      "properties": {
+        "sourceKey": {
+          "type": "string"
+        },
+        "sourceText": {
+          "type": "string"
+        },
+        "targetVariants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unitIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "sourceKey",
+        "sourceText",
+        "targetVariants",
+        "unitIds"
+      ]
+    },
+    "CurationEvidence": {
+      "type": "object",
+      "properties": {
+        "metrics": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "default": {}
+        },
+        "relatedUnitIds": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "sourceValues": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "targetValues": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "CurationExportFormat": {
+      "type": "string",
+      "enum": [
+        "jsonl",
+        "tsv"
+      ]
+    },
+    "CurationExportParams": {
+      "type": "object",
+      "properties": {
+        "expectedLibraryRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "expectedRunRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "format": {
+          "$ref": "#/$defs/CurationExportFormat"
+        },
+        "minimumScoreBasisPoints": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "default": null,
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "outputPath": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "runId",
+        "expectedRunRevision",
+        "expectedLibraryRevision",
+        "format",
+        "outputPath"
+      ]
+    },
+    "CurationExportResult": {
+      "type": "object",
+      "properties": {
+        "bytesWritten": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "format": {
+          "$ref": "#/$defs/CurationExportFormat"
+        },
+        "libraryId": {
+          "type": "string"
+        },
+        "libraryRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "outputPath": {
+          "type": "string"
+        },
+        "rowCount": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "runId": {
+          "type": "string"
+        },
+        "runRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId",
+        "runRevision",
+        "libraryId",
+        "libraryRevision",
+        "format",
+        "outputPath",
+        "rowCount",
+        "bytesWritten",
+        "sha256"
+      ]
+    },
+    "CurationFinding": {
+      "type": "object",
+      "properties": {
+        "canonicalUnitId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "disposition": {
+          "$ref": "#/$defs/CurationRecommendation"
+        },
+        "evidence": {
+          "$ref": "#/$defs/CurationEvidence"
+        },
+        "explanation": {
+          "type": "string"
+        },
+        "fingerprint": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/CurationFindingKind"
+        },
+        "libraryId": {
+          "type": "string"
+        },
+        "penaltyBasisPoints": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "qualityScoreBasisPoints": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "runId": {
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/CurationSeverity"
+        },
+        "unitId": {
+          "type": "string"
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "id",
+        "runId",
+        "libraryId",
+        "unitId",
+        "kind",
+        "severity",
+        "disposition",
+        "penaltyBasisPoints",
+        "qualityScoreBasisPoints",
+        "evidence",
+        "explanation",
+        "revision",
+        "fingerprint",
+        "createdAtMs",
+        "updatedAtMs"
+      ]
+    },
+    "CurationFindingKind": {
+      "type": "string",
+      "enum": [
+        "exactDuplicate",
+        "nearDuplicate",
+        "competingTranslation",
+        "sourceEqualsTarget",
+        "minimumLength",
+        "lengthRatio",
+        "numberMismatch",
+        "dateMismatch",
+        "placeholderMismatch",
+        "createdOutsideRange",
+        "likelyWrongLanguage",
+        "semanticMismatch"
+      ]
+    },
+    "CurationFindingListParams": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 200,
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        },
+        "runId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "runId"
+      ]
+    },
+    "CurationFindingPage": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CurationFinding"
+          }
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "items",
+        "total",
+        "offset",
+        "limit"
+      ]
+    },
+    "CurationMutationResult": {
+      "type": "object",
+      "properties": {
+        "changedUnitCount": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "libraryId": {
+          "type": "string"
+        },
+        "libraryRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "operationId": {
+          "type": "string"
+        },
+        "quarantinedUnitCount": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "restoredUnitCount": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "runId": {
+          "type": "string"
+        },
+        "runRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "status": {
+          "$ref": "#/$defs/CurationRunStatus"
+        }
+      },
+      "required": [
+        "runId",
+        "status",
+        "runRevision",
+        "libraryId",
+        "libraryRevision",
+        "changedUnitCount",
+        "quarantinedUnitCount",
+        "restoredUnitCount",
+        "operationId"
+      ]
+    },
+    "CurationPolicy": {
+      "type": "object",
+      "properties": {
+        "createdAfterMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "default": null
+        },
+        "createdBeforeMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "default": null
+        },
+        "maximumLengthRatioPercent": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "minimumChars": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "minimumLengthRatioPercent": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "minimumTermFrequency": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "nearDuplicateThreshold": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "quarantineThresholdBasisPoints": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "semanticAlignmentThresholdBasisPoints": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "minimumChars",
+        "minimumLengthRatioPercent",
+        "maximumLengthRatioPercent",
+        "nearDuplicateThreshold",
+        "semanticAlignmentThresholdBasisPoints",
+        "quarantineThresholdBasisPoints",
+        "minimumTermFrequency"
+      ]
+    },
+    "CurationRecommendation": {
+      "type": "string",
+      "enum": [
+        "keep",
+        "review",
+        "quarantine"
+      ]
+    },
+    "CurationRollbackParams": {
+      "type": "object",
+      "properties": {
+        "actor": {
+          "type": "string",
+          "default": "desktop"
+        },
+        "correlationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "expectedLibraryRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "expectedRunRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "reason": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "runId",
+        "expectedRunRevision",
+        "expectedLibraryRevision",
+        "reason"
+      ]
+    },
+    "CurationRun": {
+      "type": "object",
+      "properties": {
+        "actor": {
+          "type": "string"
+        },
+        "baseLibraryRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "completedAtMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "id": {
+          "type": "string"
+        },
+        "libraryId": {
+          "type": "string"
+        },
+        "mode": {
+          "$ref": "#/$defs/CurationRunMode"
+        },
+        "policy": {
+          "$ref": "#/$defs/CurationPolicy"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "providerProfileId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "status": {
+          "$ref": "#/$defs/CurationRunStatus"
+        },
+        "summary": {
+          "$ref": "#/$defs/CurationRunSummary"
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "id",
+        "projectId",
+        "libraryId",
+        "status",
+        "mode",
+        "policy",
+        "baseLibraryRevision",
+        "revision",
+        "summary",
+        "actor",
+        "reason",
+        "createdAtMs",
+        "updatedAtMs"
+      ]
+    },
+    "CurationRunIdParams": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 200,
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        },
+        "runId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "runId"
+      ]
+    },
+    "CurationRunMode": {
+      "type": "string",
+      "enum": [
+        "offline",
+        "provider"
+      ]
+    },
+    "CurationRunParams": {
+      "type": "object",
+      "properties": {
+        "actor": {
+          "type": "string",
+          "default": "desktop"
+        },
+        "correlationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "expectedLibraryRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "libraryId": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 200,
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        },
+        "policy": {
+          "$ref": "#/$defs/CurationPolicy",
+          "default": {
+            "createdAfterMs": null,
+            "createdBeforeMs": null,
+            "maximumLengthRatioPercent": 500,
+            "minimumChars": 2,
+            "minimumLengthRatioPercent": 20,
+            "minimumTermFrequency": 2,
+            "nearDuplicateThreshold": 80,
+            "quarantineThresholdBasisPoints": 5000,
+            "semanticAlignmentThresholdBasisPoints": 3500
+          }
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "providerProfileId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "projectId",
+        "libraryId",
+        "expectedLibraryRevision",
+        "reason"
+      ]
+    },
+    "CurationRunSnapshot": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "run": {
+          "$ref": "#/$defs/CurationRun"
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "units": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CurationRunUnit"
+          }
+        }
+      },
+      "required": [
+        "run",
+        "units",
+        "total",
+        "offset",
+        "limit"
+      ]
+    },
+    "CurationRunStatus": {
+      "type": "string",
+      "enum": [
+        "open",
+        "applied",
+        "rolledBack",
+        "discarded"
+      ]
+    },
+    "CurationRunSummary": {
+      "type": "object",
+      "properties": {
+        "analysis": {
+          "$ref": "#/$defs/CurationSummary"
+        },
+        "driftGroups": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CurationDriftGroup"
+          }
+        },
+        "termCandidates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CurationTermCandidate"
+          }
+        }
+      },
+      "required": [
+        "analysis",
+        "termCandidates",
+        "driftGroups"
+      ]
+    },
+    "CurationRunUnit": {
+      "type": "object",
+      "properties": {
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "explanation": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "libraryId": {
+          "type": "string"
+        },
+        "qualityScoreBasisPoints": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "recommendedAction": {
+          "$ref": "#/$defs/CurationRecommendation"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "unitId": {
+          "type": "string"
+        },
+        "unitSnapshotHash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId",
+        "libraryId",
+        "unitId",
+        "qualityScoreBasisPoints",
+        "recommendedAction",
+        "explanation",
+        "unitSnapshotHash",
+        "createdAtMs"
+      ]
+    },
+    "CurationSeverity": {
+      "type": "string",
+      "enum": [
+        "info",
+        "warning",
+        "error"
+      ]
+    },
+    "CurationState": {
+      "type": "string",
+      "enum": [
+        "active",
+        "quarantined"
+      ]
+    },
+    "CurationSummary": {
+      "type": "object",
+      "properties": {
+        "analyzedUnits": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "driftGroupCount": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "findingCount": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "quarantineCandidates": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "termCandidateCount": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "unitsWithFindings": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "analyzedUnits",
+        "unitsWithFindings",
+        "findingCount",
+        "quarantineCandidates",
+        "termCandidateCount",
+        "driftGroupCount"
+      ]
+    },
+    "CurationTermCandidate": {
+      "type": "object",
+      "properties": {
+        "agreementBasisPoints": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "domain": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "frequency": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "sourceLocale": {
+          "type": "string"
+        },
+        "sourceTerm": {
+          "type": "string"
+        },
+        "targetLocale": {
+          "type": "string"
+        },
+        "targetTerm": {
+          "type": "string"
+        },
+        "unitIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "sourceTerm",
+        "targetTerm",
+        "sourceLocale",
+        "targetLocale",
+        "frequency",
+        "agreementBasisPoints",
+        "unitIds"
       ]
     },
     "DataHealthReport": {
@@ -7150,6 +8369,111 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/CurationRunIdParams"
+        },
+        "result": {
+          "$ref": "#/$defs/CurationRunSnapshot"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract101": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CurationFindingListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/CurationFindingPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract102": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CurationApplyParams"
+        },
+        "result": {
+          "$ref": "#/$defs/CurationMutationResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract103": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CurationRollbackParams"
+        },
+        "result": {
+          "$ref": "#/$defs/CurationMutationResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract104": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CurationExportParams"
+        },
+        "result": {
+          "$ref": "#/$defs/CurationExportResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract105": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/ExactLookupParams"
+        },
+        "result": {
+          "$ref": "#/$defs/ExactLookupResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract106": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TmLibraryListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TmLibraryPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract107": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/TmLibraryCreateParams"
         },
         "result": {
@@ -7161,7 +8485,7 @@
         "result"
       ]
     },
-    "MethodContract101": {
+    "MethodContract108": {
       "type": "object",
       "properties": {
         "params": {
@@ -7176,7 +8500,7 @@
         "result"
       ]
     },
-    "MethodContract102": {
+    "MethodContract109": {
       "type": "object",
       "properties": {
         "params": {
@@ -7184,111 +8508,6 @@
         },
         "result": {
           "$ref": "#/$defs/EmptyResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract103": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/TmSearchParams"
-        },
-        "result": {
-          "$ref": "#/$defs/TmSearchResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract104": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/ConcordanceParams"
-        },
-        "result": {
-          "$ref": "#/$defs/ConcordanceResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract105": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/TmImportParams"
-        },
-        "result": {
-          "$ref": "#/$defs/TmImportResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract106": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/TmExportParams"
-        },
-        "result": {
-          "$ref": "#/$defs/TmExportResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract107": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/TermbaseListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/TermbasePage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract108": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/TermbaseCreateParams"
-        },
-        "result": {
-          "$ref": "#/$defs/Termbase"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract109": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/TermbaseMountParams"
-        },
-        "result": {
-          "$ref": "#/$defs/TermbaseMount"
         }
       },
       "required": [
@@ -7315,6 +8534,111 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/TmSearchParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TmSearchResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract111": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/ConcordanceParams"
+        },
+        "result": {
+          "$ref": "#/$defs/ConcordanceResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract112": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TmImportParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TmImportResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract113": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TmExportParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TmExportResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract114": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermbaseListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermbasePage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract115": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermbaseCreateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/Termbase"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract116": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermbaseMountParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermbaseMount"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract117": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/TermbaseUnmountParams"
         },
         "result": {
@@ -7326,7 +8650,7 @@
         "result"
       ]
     },
-    "MethodContract111": {
+    "MethodContract118": {
       "type": "object",
       "properties": {
         "params": {
@@ -7341,7 +8665,7 @@
         "result"
       ]
     },
-    "MethodContract112": {
+    "MethodContract119": {
       "type": "object",
       "properties": {
         "params": {
@@ -7349,111 +8673,6 @@
         },
         "result": {
           "$ref": "#/$defs/TermEntry"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract113": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/TermbaseImportParams"
-        },
-        "result": {
-          "$ref": "#/$defs/TermbaseImportResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract114": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/TermbaseExportParams"
-        },
-        "result": {
-          "$ref": "#/$defs/TermbaseExportResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract115": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/DocumentIdParams"
-        },
-        "result": {
-          "$ref": "#/$defs/QaListResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract116": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/ListQaParams"
-        },
-        "result": {
-          "$ref": "#/$defs/QaListResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract117": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/QaProfileListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/QaProfilePage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract118": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/QaProfileCreateParams"
-        },
-        "result": {
-          "$ref": "#/$defs/QaProfile"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract119": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/QaProfileCloneParams"
-        },
-        "result": {
-          "$ref": "#/$defs/QaProfile"
         }
       },
       "required": [
@@ -7480,6 +8699,111 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/TermbaseImportParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermbaseImportResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract121": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermbaseExportParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermbaseExportResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract122": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/DocumentIdParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaListResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract123": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/ListQaParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaListResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract124": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/QaProfileListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaProfilePage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract125": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/QaProfileCreateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaProfile"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract126": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/QaProfileCloneParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaProfile"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract127": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/QaProfileUpdateParams"
         },
         "result": {
@@ -7491,7 +8815,7 @@
         "result"
       ]
     },
-    "MethodContract121": {
+    "MethodContract128": {
       "type": "object",
       "properties": {
         "params": {
@@ -7506,7 +8830,7 @@
         "result"
       ]
     },
-    "MethodContract122": {
+    "MethodContract129": {
       "type": "object",
       "properties": {
         "params": {
@@ -7514,111 +8838,6 @@
         },
         "result": {
           "$ref": "#/$defs/QaRun"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract123": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/QaRunListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/QaRunPage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract124": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/QaRunIdParams"
-        },
-        "result": {
-          "$ref": "#/$defs/QaRun"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract125": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/QaIssueListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/QaIssuePage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract126": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/QaIssueWaiveParams"
-        },
-        "result": {
-          "$ref": "#/$defs/QaIssueView"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract127": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/QaIssueRevokeParams"
-        },
-        "result": {
-          "$ref": "#/$defs/QaIssueView"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract128": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/QaReportExportParams"
-        },
-        "result": {
-          "$ref": "#/$defs/QaReportRecord"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract129": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/QaGateCheckParams"
-        },
-        "result": {
-          "$ref": "#/$defs/QaGateResult"
         }
       },
       "required": [
@@ -7645,6 +8864,111 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/QaRunListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaRunPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract131": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/QaRunIdParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaRun"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract132": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/QaIssueListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaIssuePage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract133": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/QaIssueWaiveParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaIssueView"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract134": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/QaIssueRevokeParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaIssueView"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract135": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/QaReportExportParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaReportRecord"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract136": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/QaGateCheckParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaGateResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract137": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/QaOverrideListParams"
         },
         "result": {
@@ -7656,7 +8980,7 @@
         "result"
       ]
     },
-    "MethodContract131": {
+    "MethodContract138": {
       "type": "object",
       "properties": {
         "params": {
@@ -7671,7 +8995,7 @@
         "result"
       ]
     },
-    "MethodContract132": {
+    "MethodContract139": {
       "type": "object",
       "properties": {
         "params": {
@@ -7679,111 +9003,6 @@
         },
         "result": {
           "$ref": "#/$defs/ExportDocumentResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract133": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/EmptyParams"
-        },
-        "result": {
-          "$ref": "#/$defs/FilterListResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract134": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/HistoryListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/OperationPage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract135": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/EmptyParams"
-        },
-        "result": {
-          "$ref": "#/$defs/DataHealthReport"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract136": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/CreateBackupParams"
-        },
-        "result": {
-          "$ref": "#/$defs/BackupResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract137": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/EmptyParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineCapabilityResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract138": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/CreatePipelineParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineDefinition"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract139": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/PipelineListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineDefinitionPage"
         }
       },
       "required": [
@@ -7810,6 +9029,111 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/EmptyParams"
+        },
+        "result": {
+          "$ref": "#/$defs/FilterListResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract141": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/HistoryListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/OperationPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract142": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/EmptyParams"
+        },
+        "result": {
+          "$ref": "#/$defs/DataHealthReport"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract143": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CreateBackupParams"
+        },
+        "result": {
+          "$ref": "#/$defs/BackupResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract144": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/EmptyParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineCapabilityResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract145": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CreatePipelineParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineDefinition"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract146": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/PipelineListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineDefinitionPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract147": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/PipelineIdParams"
         },
         "result": {
@@ -7821,7 +9145,7 @@
         "result"
       ]
     },
-    "MethodContract141": {
+    "MethodContract148": {
       "type": "object",
       "properties": {
         "params": {
@@ -7836,7 +9160,7 @@
         "result"
       ]
     },
-    "MethodContract142": {
+    "MethodContract149": {
       "type": "object",
       "properties": {
         "params": {
@@ -7844,111 +9168,6 @@
         },
         "result": {
           "$ref": "#/$defs/PipelineRunSnapshot"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract143": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/PipelineRunListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineRunPage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract144": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/PipelineRunIdParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineRunSnapshot"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract145": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/PipelineRunRevisionParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineRunSnapshot"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract146": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiProviderCatalogParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiProviderCatalogResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract147": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiProviderListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiProviderPage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract148": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiProviderCreateParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiProviderProfile"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract149": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiProviderUpdateParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiProviderProfile"
         }
       },
       "required": [
@@ -7975,6 +9194,111 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/PipelineRunListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineRunPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract151": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/PipelineRunIdParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineRunSnapshot"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract152": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/PipelineRunRevisionParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineRunSnapshot"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract153": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiProviderCatalogParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiProviderCatalogResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract154": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiProviderListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiProviderPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract155": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiProviderCreateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiProviderProfile"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract156": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiProviderUpdateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiProviderProfile"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract157": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/AiProfileRevisionParams"
         },
         "result": {
@@ -7986,7 +9310,7 @@
         "result"
       ]
     },
-    "MethodContract151": {
+    "MethodContract158": {
       "type": "object",
       "properties": {
         "params": {
@@ -8001,7 +9325,7 @@
         "result"
       ]
     },
-    "MethodContract152": {
+    "MethodContract159": {
       "type": "object",
       "properties": {
         "params": {
@@ -8009,111 +9333,6 @@
         },
         "result": {
           "$ref": "#/$defs/AiCredentialStatus"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract153": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiSettingsGetParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiSettings"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract154": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiSettingsUpdateParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiSettings"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract155": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiGroundingPreviewParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiGroundingPreviewResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract156": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiRunStartParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiRun"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract157": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiRunIdParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiRun"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract158": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiRunListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiRunPage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract159": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiRunEventsParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiRunEventPage"
         }
       },
       "required": [
@@ -8140,6 +9359,111 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/AiSettingsGetParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiSettings"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract161": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiSettingsUpdateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiSettings"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract162": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiGroundingPreviewParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiGroundingPreviewResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract163": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiRunStartParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiRun"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract164": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiRunIdParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiRun"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract165": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiRunListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiRunPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract166": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiRunEventsParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiRunEventPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract167": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/AiRunRevisionParams"
         },
         "result": {
@@ -8151,7 +9475,7 @@
         "result"
       ]
     },
-    "MethodContract161": {
+    "MethodContract168": {
       "type": "object",
       "properties": {
         "params": {
@@ -8166,7 +9490,7 @@
         "result"
       ]
     },
-    "MethodContract162": {
+    "MethodContract169": {
       "type": "object",
       "properties": {
         "params": {
@@ -8174,111 +9498,6 @@
         },
         "result": {
           "$ref": "#/$defs/AiBatchRun"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract163": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiBatchIdParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiBatchRun"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract164": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiBatchListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiBatchPage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract165": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiBatchItemsParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiBatchItemPage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract166": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiBatchRevisionParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiBatchRun"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract167": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiUsageQueryParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiUsageQueryResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract168": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiConversationListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiConversationPage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract169": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiConversationCreateParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiConversation"
         }
       },
       "required": [
@@ -8305,6 +9524,111 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/AiBatchIdParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiBatchRun"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract171": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiBatchListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiBatchPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract172": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiBatchItemsParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiBatchItemPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract173": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiBatchRevisionParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiBatchRun"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract174": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiUsageQueryParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiUsageQueryResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract175": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiConversationListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiConversationPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract176": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiConversationCreateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiConversation"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract177": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/AiConversationUpdateParams"
         },
         "result": {
@@ -8316,7 +9640,7 @@
         "result"
       ]
     },
-    "MethodContract171": {
+    "MethodContract178": {
       "type": "object",
       "properties": {
         "params": {
@@ -9655,10 +10979,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ExactLookupParams"
+          "$ref": "#/$defs/AssetCatalogListParams"
         },
         "result": {
-          "$ref": "#/$defs/ExactLookupResult"
+          "$ref": "#/$defs/AssetCatalogPage"
         }
       },
       "required": [
@@ -9670,10 +10994,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TmLibraryListParams"
+          "$ref": "#/$defs/CurationRunParams"
         },
         "result": {
-          "$ref": "#/$defs/TmLibraryPage"
+          "$ref": "#/$defs/CurationRunSnapshot"
         }
       },
       "required": [
@@ -14351,91 +15675,91 @@
       "type": "object",
       "properties": {
         "ai.batch.cancel": {
-          "$ref": "#/$defs/MethodContract166"
+          "$ref": "#/$defs/MethodContract173"
         },
         "ai.batch.get": {
-          "$ref": "#/$defs/MethodContract163"
-        },
-        "ai.batch.items": {
-          "$ref": "#/$defs/MethodContract165"
-        },
-        "ai.batch.list": {
-          "$ref": "#/$defs/MethodContract164"
-        },
-        "ai.batch.resume": {
-          "$ref": "#/$defs/MethodContract166"
-        },
-        "ai.batch.start": {
-          "$ref": "#/$defs/MethodContract162"
-        },
-        "ai.conversation.create": {
-          "$ref": "#/$defs/MethodContract169"
-        },
-        "ai.conversation.list": {
-          "$ref": "#/$defs/MethodContract168"
-        },
-        "ai.conversation.messages": {
-          "$ref": "#/$defs/MethodContract171"
-        },
-        "ai.conversation.update": {
           "$ref": "#/$defs/MethodContract170"
         },
+        "ai.batch.items": {
+          "$ref": "#/$defs/MethodContract172"
+        },
+        "ai.batch.list": {
+          "$ref": "#/$defs/MethodContract171"
+        },
+        "ai.batch.resume": {
+          "$ref": "#/$defs/MethodContract173"
+        },
+        "ai.batch.start": {
+          "$ref": "#/$defs/MethodContract169"
+        },
+        "ai.conversation.create": {
+          "$ref": "#/$defs/MethodContract176"
+        },
+        "ai.conversation.list": {
+          "$ref": "#/$defs/MethodContract175"
+        },
+        "ai.conversation.messages": {
+          "$ref": "#/$defs/MethodContract178"
+        },
+        "ai.conversation.update": {
+          "$ref": "#/$defs/MethodContract177"
+        },
         "ai.credential.delete": {
-          "$ref": "#/$defs/MethodContract152"
-        },
-        "ai.credential.status": {
-          "$ref": "#/$defs/MethodContract152"
-        },
-        "ai.grounding.preview": {
-          "$ref": "#/$defs/MethodContract155"
-        },
-        "ai.provider.catalog": {
-          "$ref": "#/$defs/MethodContract146"
-        },
-        "ai.provider.create": {
-          "$ref": "#/$defs/MethodContract148"
-        },
-        "ai.provider.delete": {
-          "$ref": "#/$defs/MethodContract150"
-        },
-        "ai.provider.list": {
-          "$ref": "#/$defs/MethodContract147"
-        },
-        "ai.provider.test": {
-          "$ref": "#/$defs/MethodContract151"
-        },
-        "ai.provider.update": {
-          "$ref": "#/$defs/MethodContract149"
-        },
-        "ai.result.apply": {
-          "$ref": "#/$defs/MethodContract161"
-        },
-        "ai.run.cancel": {
-          "$ref": "#/$defs/MethodContract160"
-        },
-        "ai.run.events": {
           "$ref": "#/$defs/MethodContract159"
         },
-        "ai.run.get": {
-          "$ref": "#/$defs/MethodContract157"
+        "ai.credential.status": {
+          "$ref": "#/$defs/MethodContract159"
         },
-        "ai.run.list": {
-          "$ref": "#/$defs/MethodContract158"
+        "ai.grounding.preview": {
+          "$ref": "#/$defs/MethodContract162"
         },
-        "ai.run.resume": {
-          "$ref": "#/$defs/MethodContract160"
-        },
-        "ai.run.start": {
-          "$ref": "#/$defs/MethodContract156"
-        },
-        "ai.settings.get": {
+        "ai.provider.catalog": {
           "$ref": "#/$defs/MethodContract153"
         },
-        "ai.settings.update": {
+        "ai.provider.create": {
+          "$ref": "#/$defs/MethodContract155"
+        },
+        "ai.provider.delete": {
+          "$ref": "#/$defs/MethodContract157"
+        },
+        "ai.provider.list": {
           "$ref": "#/$defs/MethodContract154"
         },
-        "ai.usage.query": {
+        "ai.provider.test": {
+          "$ref": "#/$defs/MethodContract158"
+        },
+        "ai.provider.update": {
+          "$ref": "#/$defs/MethodContract156"
+        },
+        "ai.result.apply": {
+          "$ref": "#/$defs/MethodContract168"
+        },
+        "ai.run.cancel": {
           "$ref": "#/$defs/MethodContract167"
+        },
+        "ai.run.events": {
+          "$ref": "#/$defs/MethodContract166"
+        },
+        "ai.run.get": {
+          "$ref": "#/$defs/MethodContract164"
+        },
+        "ai.run.list": {
+          "$ref": "#/$defs/MethodContract165"
+        },
+        "ai.run.resume": {
+          "$ref": "#/$defs/MethodContract167"
+        },
+        "ai.run.start": {
+          "$ref": "#/$defs/MethodContract163"
+        },
+        "ai.settings.get": {
+          "$ref": "#/$defs/MethodContract160"
+        },
+        "ai.settings.update": {
+          "$ref": "#/$defs/MethodContract161"
+        },
+        "ai.usage.query": {
+          "$ref": "#/$defs/MethodContract174"
         },
         "alignment.session.apply": {
           "$ref": "#/$defs/MethodContract92"
@@ -14464,6 +15788,9 @@
         "analysis.run.get": {
           "$ref": "#/$defs/MethodContract45"
         },
+        "asset.catalog.list": {
+          "$ref": "#/$defs/MethodContract98"
+        },
         "corpus.fromAlignment": {
           "$ref": "#/$defs/MethodContract95"
         },
@@ -14482,11 +15809,29 @@
         "corpus.search": {
           "$ref": "#/$defs/MethodContract96"
         },
+        "curation.apply": {
+          "$ref": "#/$defs/MethodContract102"
+        },
+        "curation.export": {
+          "$ref": "#/$defs/MethodContract104"
+        },
+        "curation.finding.list": {
+          "$ref": "#/$defs/MethodContract101"
+        },
+        "curation.rollback": {
+          "$ref": "#/$defs/MethodContract103"
+        },
+        "curation.run": {
+          "$ref": "#/$defs/MethodContract99"
+        },
+        "curation.run.get": {
+          "$ref": "#/$defs/MethodContract100"
+        },
         "data.checkHealth": {
-          "$ref": "#/$defs/MethodContract135"
+          "$ref": "#/$defs/MethodContract142"
         },
         "data.createBackup": {
-          "$ref": "#/$defs/MethodContract136"
+          "$ref": "#/$defs/MethodContract143"
         },
         "dictionary.add": {
           "$ref": "#/$defs/MethodContract68"
@@ -14519,10 +15864,10 @@
           "$ref": "#/$defs/MethodContract18"
         },
         "document.export": {
-          "$ref": "#/$defs/MethodContract132"
+          "$ref": "#/$defs/MethodContract139"
         },
         "document.exportDocx": {
-          "$ref": "#/$defs/MethodContract131"
+          "$ref": "#/$defs/MethodContract138"
         },
         "document.get": {
           "$ref": "#/$defs/MethodContract34"
@@ -14561,10 +15906,10 @@
           "$ref": "#/$defs/MethodContract"
         },
         "filter.list": {
-          "$ref": "#/$defs/MethodContract133"
+          "$ref": "#/$defs/MethodContract140"
         },
         "history.list": {
-          "$ref": "#/$defs/MethodContract134"
+          "$ref": "#/$defs/MethodContract141"
         },
         "interop.review.apply": {
           "$ref": "#/$defs/MethodContract79"
@@ -14591,34 +15936,34 @@
           "$ref": "#/$defs/MethodContract84"
         },
         "pipeline.create": {
-          "$ref": "#/$defs/MethodContract138"
+          "$ref": "#/$defs/MethodContract145"
         },
         "pipeline.get": {
-          "$ref": "#/$defs/MethodContract140"
+          "$ref": "#/$defs/MethodContract147"
         },
         "pipeline.list": {
-          "$ref": "#/$defs/MethodContract139"
+          "$ref": "#/$defs/MethodContract146"
         },
         "pipeline.run": {
-          "$ref": "#/$defs/MethodContract142"
+          "$ref": "#/$defs/MethodContract149"
         },
         "pipeline.run.cancel": {
-          "$ref": "#/$defs/MethodContract145"
+          "$ref": "#/$defs/MethodContract152"
         },
         "pipeline.run.get": {
-          "$ref": "#/$defs/MethodContract144"
+          "$ref": "#/$defs/MethodContract151"
         },
         "pipeline.run.list": {
-          "$ref": "#/$defs/MethodContract143"
+          "$ref": "#/$defs/MethodContract150"
         },
         "pipeline.run.resume": {
-          "$ref": "#/$defs/MethodContract145"
+          "$ref": "#/$defs/MethodContract152"
         },
         "pipeline.step.list": {
-          "$ref": "#/$defs/MethodContract137"
+          "$ref": "#/$defs/MethodContract144"
         },
         "pipeline.validate": {
-          "$ref": "#/$defs/MethodContract141"
+          "$ref": "#/$defs/MethodContract148"
         },
         "project.analytics.get": {
           "$ref": "#/$defs/MethodContract46"
@@ -14681,52 +16026,52 @@
           "$ref": "#/$defs/MethodContract5"
         },
         "qa.gate.check": {
-          "$ref": "#/$defs/MethodContract129"
+          "$ref": "#/$defs/MethodContract136"
         },
         "qa.issue.list": {
-          "$ref": "#/$defs/MethodContract125"
+          "$ref": "#/$defs/MethodContract132"
         },
         "qa.issue.revoke": {
-          "$ref": "#/$defs/MethodContract127"
+          "$ref": "#/$defs/MethodContract134"
         },
         "qa.issue.waive": {
-          "$ref": "#/$defs/MethodContract126"
+          "$ref": "#/$defs/MethodContract133"
         },
         "qa.list": {
-          "$ref": "#/$defs/MethodContract116"
-        },
-        "qa.override.list": {
-          "$ref": "#/$defs/MethodContract130"
-        },
-        "qa.profile.clone": {
-          "$ref": "#/$defs/MethodContract119"
-        },
-        "qa.profile.create": {
-          "$ref": "#/$defs/MethodContract118"
-        },
-        "qa.profile.delete": {
-          "$ref": "#/$defs/MethodContract121"
-        },
-        "qa.profile.list": {
-          "$ref": "#/$defs/MethodContract117"
-        },
-        "qa.profile.update": {
-          "$ref": "#/$defs/MethodContract120"
-        },
-        "qa.report.export": {
-          "$ref": "#/$defs/MethodContract128"
-        },
-        "qa.run": {
-          "$ref": "#/$defs/MethodContract122"
-        },
-        "qa.run.get": {
-          "$ref": "#/$defs/MethodContract124"
-        },
-        "qa.run.list": {
           "$ref": "#/$defs/MethodContract123"
         },
+        "qa.override.list": {
+          "$ref": "#/$defs/MethodContract137"
+        },
+        "qa.profile.clone": {
+          "$ref": "#/$defs/MethodContract126"
+        },
+        "qa.profile.create": {
+          "$ref": "#/$defs/MethodContract125"
+        },
+        "qa.profile.delete": {
+          "$ref": "#/$defs/MethodContract128"
+        },
+        "qa.profile.list": {
+          "$ref": "#/$defs/MethodContract124"
+        },
+        "qa.profile.update": {
+          "$ref": "#/$defs/MethodContract127"
+        },
+        "qa.report.export": {
+          "$ref": "#/$defs/MethodContract135"
+        },
+        "qa.run": {
+          "$ref": "#/$defs/MethodContract129"
+        },
+        "qa.run.get": {
+          "$ref": "#/$defs/MethodContract131"
+        },
+        "qa.run.list": {
+          "$ref": "#/$defs/MethodContract130"
+        },
         "qa.runDocument": {
-          "$ref": "#/$defs/MethodContract115"
+          "$ref": "#/$defs/MethodContract122"
         },
         "recycle.delete": {
           "$ref": "#/$defs/MethodContract40"
@@ -14837,55 +16182,55 @@
           "$ref": "#/$defs/MethodContract29"
         },
         "term.search": {
-          "$ref": "#/$defs/MethodContract111"
+          "$ref": "#/$defs/MethodContract118"
         },
         "term.upsert": {
-          "$ref": "#/$defs/MethodContract112"
+          "$ref": "#/$defs/MethodContract119"
         },
         "termbase.create": {
-          "$ref": "#/$defs/MethodContract108"
+          "$ref": "#/$defs/MethodContract115"
         },
         "termbase.export": {
-          "$ref": "#/$defs/MethodContract114"
+          "$ref": "#/$defs/MethodContract121"
         },
         "termbase.import": {
-          "$ref": "#/$defs/MethodContract113"
+          "$ref": "#/$defs/MethodContract120"
         },
         "termbase.list": {
-          "$ref": "#/$defs/MethodContract107"
+          "$ref": "#/$defs/MethodContract114"
         },
         "termbase.mount": {
-          "$ref": "#/$defs/MethodContract109"
+          "$ref": "#/$defs/MethodContract116"
         },
         "termbase.unmount": {
-          "$ref": "#/$defs/MethodContract110"
+          "$ref": "#/$defs/MethodContract117"
         },
         "tm.concordance": {
-          "$ref": "#/$defs/MethodContract104"
+          "$ref": "#/$defs/MethodContract111"
         },
         "tm.export": {
-          "$ref": "#/$defs/MethodContract106"
+          "$ref": "#/$defs/MethodContract113"
         },
         "tm.import": {
-          "$ref": "#/$defs/MethodContract105"
+          "$ref": "#/$defs/MethodContract112"
         },
         "tm.library.create": {
-          "$ref": "#/$defs/MethodContract100"
+          "$ref": "#/$defs/MethodContract107"
         },
         "tm.library.list": {
-          "$ref": "#/$defs/MethodContract99"
+          "$ref": "#/$defs/MethodContract106"
         },
         "tm.library.mount": {
-          "$ref": "#/$defs/MethodContract101"
+          "$ref": "#/$defs/MethodContract108"
         },
         "tm.library.unmount": {
-          "$ref": "#/$defs/MethodContract102"
+          "$ref": "#/$defs/MethodContract109"
         },
         "tm.lookupExact": {
-          "$ref": "#/$defs/MethodContract98"
+          "$ref": "#/$defs/MethodContract105"
         },
         "tm.search": {
-          "$ref": "#/$defs/MethodContract103"
+          "$ref": "#/$defs/MethodContract110"
         }
       },
       "additionalProperties": false,
@@ -14991,6 +16336,13 @@
         "corpus.search",
         "corpus.reindex",
         "corpus.remove",
+        "asset.catalog.list",
+        "curation.run",
+        "curation.run.get",
+        "curation.finding.list",
+        "curation.apply",
+        "curation.rollback",
+        "curation.export",
         "tm.lookupExact",
         "tm.library.list",
         "tm.library.create",
