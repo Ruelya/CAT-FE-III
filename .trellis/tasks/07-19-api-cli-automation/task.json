@@ -3,7 +3,7 @@
   "name": "api-cli-automation",
   "title": "Local API, CLI, and automation",
   "description": "Implement authenticated local API, complete CLI orchestration, folder watch, clipboard entry, webhooks, and connector examples with asset sinking.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

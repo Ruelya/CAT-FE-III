@@ -1,1 +1,3 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/engine-boundary.md", "reason": "Engine owns domain writes; API/CLI are additional transports."}
+{"file": ".trellis/tasks/07-19-api-cli-automation/research/api-cli-foundation-evidence.md", "reason": "Baseline evidence for stdio-only exposure and keyring auth pattern."}
+{"file": ".trellis/tasks/07-19-complete-full-cat-prd/design.md", "reason": "Parent requires direct service calls and loopback token auth."}

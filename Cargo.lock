@@ -2541,6 +2541,7 @@ dependencies = [
  "translunar-qa-core",
  "translunar-storage",
  "translunar-task-package-core",
+ "uuid",
  "zip",
 ]
 

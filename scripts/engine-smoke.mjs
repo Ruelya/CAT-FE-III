@@ -12,7 +12,7 @@ import { Buffer } from "node:buffer";
 import { inflateRawSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:http";
 import { clearTimeout, setTimeout } from "node:timers";
 
@@ -97,6 +97,11 @@ async function main() {
     if (process.env.TRANSLUNAR_SMOKE_SCOPE === "plugin") {
       await exerciseFocusedPluginSmoke(processHandle, dataDirectory);
       console.log("Focused plugin-runtime Engine smoke passed.");
+      return;
+    }
+    if (process.env.TRANSLUNAR_SMOKE_SCOPE === "api") {
+      await exerciseFocusedApiCliSmoke(dataDirectory);
+      console.log("Focused local API/CLI smoke passed.");
       return;
     }
     const project = await processHandle.call("project.create", {
@@ -1817,6 +1822,73 @@ async function main() {
   }
 }
 
+
+
+async function exerciseFocusedApiCliSmoke(dataDirectory) {
+  const root = resolve(import.meta.dirname, "..");
+  const cli = join(
+    root,
+    "target",
+    "debug",
+    process.platform === "win32" ? "translunar.exe" : "translunar",
+  );
+  assert(existsSync(cli), `missing translunar CLI at ${cli}`);
+  const fixtureDirectory = mkdtempSync(join(tmpdir(), "translunar-api-cli-smoke-"));
+  const sourcePath = join(fixtureDirectory, "sample.txt");
+  const outputPath = join(fixtureDirectory, "out.txt");
+  const sourceBody = [
+    "Hello API CLI smoke.",
+    "",
+    "Second unit.",
+    "",
+  ].join(String.fromCharCode(10));
+  writeFileSync(sourcePath, sourceBody, "utf8");
+
+  const run = spawnSync(
+    cli,
+    [
+      "--data-dir",
+      dataDirectory,
+      "--json",
+      "run",
+      "--source",
+      sourcePath,
+      "--output",
+      outputPath,
+      "--name",
+      "API CLI smoke",
+    ],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        TRANSLUNAR_API_TEST_MODE: "1",
+        TRANSLUNAR_API_TEST_TOKEN: "test-local-api-token-value-32b",
+      },
+    },
+  );
+  assert(run.status === 0, `cli run failed: ${run.stderr || run.stdout}`);
+  const summary = JSON.parse(run.stdout);
+  assert(summary.projectId, "project id");
+  assert(summary.segmentCount >= 1, "segments");
+  assert(existsSync(outputPath), "export exists");
+
+  const token = spawnSync(
+    cli,
+    ["--data-dir", dataDirectory, "--json", "token", "ensure"],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        TRANSLUNAR_API_TEST_MODE: "1",
+        TRANSLUNAR_API_TEST_TOKEN: "test-local-api-token-value-32b",
+      },
+    },
+  );
+  assert(token.status === 0, `token ensure failed: ${token.stderr || token.stdout}`);
+  const tokenJson = JSON.parse(token.stdout);
+  assert(tokenJson.token, "token present");
+}
 
 async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
   const root = resolve(import.meta.dirname, "..");

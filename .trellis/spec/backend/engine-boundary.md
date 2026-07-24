@@ -2385,3 +2385,16 @@ await window.translunar.invoke("curation.apply", {
 - Advertise `plugin.runtime.v1`, `plugin.process.v1`, `plugin.filter.v1`, and
   `plugin.local-install` from `engine.initialize`.
 - Migration 16 introduces `plugin_installations`; never rewrite earlier migrations.
+
+## Local API and CLI
+
+- `translunar` CLI and loopback HTTP API call `EngineService` directly; they must
+  not route through Electron or nested stdio engines for workflow commands.
+- Bind `127.0.0.1` by default. Non-loopback binds require an explicit
+  `--allow-remote` opt-in.
+- Authenticate protected HTTP routes with a bearer token stored in the OS
+  keyring service `translunar-cat.local-api` (test memory backend via
+  `TRANSLUNAR_API_TEST_MODE`).
+- Never persist the raw API token in SQLite or log it at info level.
+- Desktop `translunar-engine --protocol stdio` remains the GUI transport and
+  must stay unchanged by API/CLI work.

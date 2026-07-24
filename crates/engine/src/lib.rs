@@ -157,6 +157,10 @@ use zip::{CompressionMethod, ZipArchive};
 mod ai;
 mod curation;
 mod plugin;
+mod local_auth;
+mod local_api;
+pub use local_api::{LocalApiConfig, run_pipeline, serve as serve_local_api, validate_bind};
+pub use local_auth::{LocalApiTokenStore, default_token_store, ensure_token, rotate_token};
 mod qa;
 mod task_package;
 

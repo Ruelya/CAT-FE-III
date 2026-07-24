@@ -1,1 +1,3 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/engine-boundary.md", "reason": "Verify API/CLI do not fork domain rules or Electron internals."}
+{"file": ".trellis/tasks/07-19-api-cli-automation/prd.md", "reason": "AC-01..AC-05 for local API and CLI MVP."}
+{"file": ".trellis/tasks/07-19-api-cli-automation/design.md", "reason": "Auth, routes, and CLI command contracts."}
