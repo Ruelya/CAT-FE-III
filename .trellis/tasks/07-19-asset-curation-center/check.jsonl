@@ -1,1 +1,6 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"type":"spec","file":".trellis/spec/backend/quality-guidelines.md","reason":"Run pure-core, migration, storage restart/rollback, Engine smoke, fmt, Clippy, and full workspace quality gates."}
+{"type":"spec","file":".trellis/spec/backend/error-handling.md","reason":"Verify zero-write behavior for malformed, oversized, stale, unknown-ID, provider, and export failures."}
+{"type":"spec","file":".trellis/spec/frontend/quality-guidelines.md","reason":"Verify generated contracts, accessible loading/error/terminal states, real-Engine E2E, viewport containment, and console/page error gates."}
+{"type":"spec","file":".trellis/spec/frontend/type-safety.md","reason":"Check all catalog/curation invokes against the generated method/result map and ensure no renderer domain logic was introduced."}
+{"type":"research","file":".trellis/tasks/07-19-asset-curation-center/design.md","reason":"Review implementation against the migration 15 model, pure analyzer boundary, revision state machine, export semantics, and desktop integration contract."}
+{"type":"research","file":".trellis/tasks/07-19-asset-curation-center/implement.md","reason":"Use the ordered gates and rollback points to run focused then full-scope validation without staging unrelated dirty files."}

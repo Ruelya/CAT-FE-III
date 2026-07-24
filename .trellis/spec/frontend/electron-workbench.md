@@ -1145,3 +1145,123 @@ await expect(
 ).toBeVisible();
 await window.translunar.invoke("project.snapshot.restore", params);
 ```
+
+## Asset Curation And Typed Engine Error Surface
+
+### 1. Scope / Trigger
+
+Use this contract when Project Insights renders the unified asset catalog or
+curation lifecycle, and whenever renderer behavior must branch on an Engine
+error code. Generated method params/results still define the business payload;
+the desktop envelope exists only to preserve typed failures across Electron's
+main/preload/contextBridge boundary.
+
+### 2. Signatures
+
+The shared bridge owns this internal envelope:
+
+```typescript
+export interface DesktopEngineError {
+  code: string;
+  message: string;
+  data?: unknown;
+}
+
+export type DesktopEngineInvokeResponse<Result = unknown> =
+  | { ok: true; result: Result }
+  | { ok: false; error: DesktopEngineError };
+```
+
+`DesktopApi.invoke<Method extends EngineMethod>` keeps its generated
+`EngineParams<Method> -> EngineResult<Method>` signature. The renderer calls
+only `asset.catalog.list`, `curation.run`, `curation.run.get`,
+`curation.finding.list`, `curation.apply`, `curation.rollback`, and
+`curation.export`; it never sees or constructs the success envelope.
+
+### 3. Contracts
+
+- Main validates the sender and generated method name, calls `EngineClient`,
+  returns `{ ok: true, result }`, and catches only `EngineProcessError` to
+  return `{ ok: false, error: { code, message, data? } }`. Unexpected main
+  failures continue to reject the IPC call.
+- Preload treats the IPC value as `unknown`, validates the discriminated
+  envelope, returns the result, or rejects with the plain structured error.
+  The plain object is intentional: Electron may not retain custom `Error`
+  fields such as `code` and `data` through contextBridge cloning.
+- Renderer catch values remain `unknown`. `formatError` accepts native Errors
+  and structured objects for display; behavior such as stale refresh branches
+  only on a narrowed `code === "conflict"`, never on message text.
+- `AssetCurationPanel` owns only filters, paging offsets, selected finding IDs,
+  controlled policy/audit/export fields, dialog visibility, and busy/error/
+  notice/stale state. Generated Engine projections own scores, findings,
+  provenance, status, revisions, and mutation counts.
+- Catalog/run/finding pages replace authoritative results. Apply and rollback
+  use named in-app confirmation dialogs and exact returned revisions. A typed
+  conflict leaves the current run inspectable, marks it stale, and exposes an
+  authoritative reload before another mutation.
+- Only open, `quarantine` findings are selectable. Empty/loading/error/stale/
+  open/applied/rolled-back/export states remain coherent and accessible. The
+  surface stays contained at 1250x744, 1680x942, and 1920x1080.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| IPC value is not a valid success/failure envelope | Reject with `Engine returned an invalid response envelope`; render an error |
+| Engine returns `conflict` | Preserve the run/selection, show stale state, and require authoritative reload |
+| Engine returns another typed failure | Display its bounded message; do not show success or invent state |
+| Library/provider list is loading or empty | Keep stable controls, show named loading/empty state, and disable analyze |
+| Run is not `open` or finding disposition is not `quarantine` | Disable selection/apply; keep evidence visible |
+| Actor/reason is blank, selection is empty, or mutation is busy | Disable the unsafe command without hiding read-only data |
+| Apply/rollback succeeds | Replace run/library revisions from Engine, refresh catalog/project state, and expose the terminal status |
+| Supported viewport | No document horizontal overflow, clipped control text, heading/action overlap, or console/page error |
+
+### 5. Good / Base / Bad Cases
+
+- Good: analyze, receive a structured conflict on stale apply, reload, analyze
+  again, apply selected findings, restart, export, rollback, restart, and
+  render the returned terminal state.
+- Base: no configured provider leaves the complete deterministic offline path
+  available; an empty library/catalog remains an explicit usable state.
+- Bad: rethrow only `new Error(message)` in preload, branch on
+  `message.includes("revision")`, compute a score in React, optimistically
+  increment revisions, or select every low-score row without an actionable
+  Engine finding.
+
+### 6. Tests Required
+
+- Unit tests assert envelope error display, `code` narrowing, selectable
+  finding guards, bounded evidence, date conversion, paging, and basis-point
+  formatting.
+- Typecheck and contract drift prove every invoke payload/result comes from the
+  generated method map; lint forbids unsafe `any` and floating promises.
+- Real-Engine Electron E2E creates/imports a TM, filters the catalog, analyzes,
+  causes a stale conflict, reloads, applies, restarts, exports JSONL, rolls
+  back, restarts, and verifies restored active rows.
+- E2E asserts named controls/dialogs/regions, no console/page errors, no
+  document overflow or heading overlap, and screenshots at all three supported
+  viewport sizes.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```typescript
+// Custom Error fields can disappear across contextBridge cloning.
+throw new Error(engineError.message);
+
+if (String(error).includes("revision")) setStale(true);
+```
+
+#### Correct
+
+```typescript
+// Main returns a cloneable discriminated envelope.
+return {
+  ok: false,
+  error: { code: error.code, message: error.message, data: error.data },
+} satisfies DesktopEngineInvokeResponse;
+
+// Preload validates it and rejects with the plain structured error.
+if (!response.ok) return Promise.reject(response.error);
+```

@@ -2245,3 +2245,129 @@ await window.translunar.invoke("project.snapshot.restore", {
 });
 // Rust rechecks the stored preview hash and derives the authoritative restore.
 ```
+
+## Asset Catalog And Curation Boundary
+
+### 1. Scope / Trigger
+
+Use this contract for the unified TM/termbase/corpus catalog and for explicit
+translation-memory curation. The feature crosses migration 15, storage,
+`curation-core`, Engine/provider orchestration, generated protocol contracts,
+dataset publication, and Project Insights. It never adds a second asset sink,
+hard-deletes an asset, mutates a termbase/corpus, or schedules hidden work.
+
+### 2. Signatures
+
+Protocol v1 adds these generated methods:
+
+```text
+asset.catalog.list      AssetCatalogListParams    -> AssetCatalogPage
+curation.run            CurationRunParams         -> CurationRunSnapshot
+curation.run.get        CurationRunIdParams       -> CurationRunSnapshot
+curation.finding.list   CurationFindingListParams -> CurationFindingPage
+curation.apply          CurationApplyParams       -> CurationMutationResult
+curation.rollback       CurationRollbackParams    -> CurationMutationResult
+curation.export         CurationExportParams      -> CurationExportResult
+```
+
+Migration 15 adds `quality_score_basis_points`, `curation_state`,
+`curation_revision`, and `last_curated_run_id` to `tm_units`, plus STRICT
+`curation_runs`, `curation_run_units`, `curation_findings`, and
+`curation_changes` tables. Run/apply/rollback/export requests carry the
+authoritative run/library revisions defined in `crates/protocol/src/curation.rs`.
+
+### 3. Contracts
+
+- `curation-core` is deterministic and I/O-free. One run accepts at most
+  100,000 units from one library; evidence is capped at 32 values and 256
+  characters per value. Scores are integer basis points in `0..=10_000`.
+- The catalog is globally or project scoped, combines TM, termbase, and active
+  corpus rows, applies the same optional locale/domain/origin/time/query
+  filters, and sorts before slicing. Page limits are `1..=500`; the bounded
+  page window cannot exceed 100,000 rows.
+- Analysis validates the library revision before optional provider work and
+  revalidates it inside the Immediate run-creation transaction. A provider
+  envelope is capped at 256 KiB and is accepted only when strict JSON contains
+  unique known unit IDs, bounded labels/evidence, and valid basis-point scores.
+  Any invalid or stale provider result creates zero curation rows.
+- `apply` requires an open run, exact run/library revisions, a non-empty unique
+  finding selection, matching unit snapshot hashes, actor, and reason. It
+  stores every before image, updates all analyzed scores, quarantines only
+  selected actionable units, advances revisions, and appends one operation in
+  the same Immediate transaction.
+- `rollback` accepts only an applied run and exact revisions. It verifies the
+  current projection against each stored after image, restores score/state/
+  last-run values, advances revisions monotonically, marks changes restored,
+  and appends one operation atomically. An identical terminal retry returns the
+  stored result; a different retry fails without writes.
+- Export reads active units from the run, applies an optional minimum score,
+  renders UTF-8 JSONL or TSV, reparses/counts the temporary file, fsyncs, and
+  publishes without replacing an existing destination.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Unknown project/library/run/finding | `not_found` with bounded entity/ID data; no write |
+| Stale run, library, or unit snapshot | `conflict` or `invalid_state`; the whole transaction rolls back |
+| Page limit outside `1..=500`, inverted dates, invalid policy, duplicate/empty selection | `invalid_request`/`invalid_state`; no partial state |
+| Provider response is oversized, malformed, text-echoing, duplicated, or contains an unknown ID | `provider_protocol`; zero curation rows |
+| Apply selects a `keep` finding or a terminal run receives a different retry | `invalid_state`; no unit/history mutation |
+| Rollback sees an interleaved unit projection | `invalid_state`/`conflict`; no restored flag or revision changes |
+| Export score exceeds 10,000 or serialization/validation fails | `invalid_request`/`export_error`; no destination |
+| Export destination exists | `export_error`; existing bytes remain unchanged |
+
+### 5. Good / Base / Bad Cases
+
+- Good: analyze a shared mounted library under one project audit owner, select
+  actionable findings, apply, restart, export active rows, rollback, restart,
+  and observe the original state with larger revisions.
+- Base: offline analysis returns scores, findings, term candidates, and drift
+  groups without any mutation; an optional provider is advisory only.
+- Bad: compute scores in React, accept a provider annotation for an unknown
+  unit, quarantine every low-score row without explicit selection, decrement a
+  revision during rollback, or overwrite an existing dataset destination.
+
+### 6. Tests Required
+
+- `curation-core` tests cover all deterministic rules, provider envelope
+  rejection, >=90% dirty-fixture detection, clean-row preservation, stable
+  mining/drift, and JSONL/TSV round trips.
+- Migration/storage tests cover fresh migration 15, strict constraints,
+  catalog filters/order/pages/reopen, late-failure rollback, stale snapshots,
+  idempotent apply/rollback, before images, operation history, and restart.
+- Engine/protocol tests cover camelCase payloads, method catalog/capabilities,
+  typed conflicts, provider zero-write failures, no-clobber export, and restart.
+- `cargo run -p translunar-curation-core --bin curation_benchmark` must analyze
+  exactly 10,000 deterministic units and print JSON containing `elapsedMs` and
+  Linux `peakRssKib`.
+- Contract drift, strict Clippy, workspace tests, full stdio smoke, and the
+  real-Engine Electron curation flow must pass. The Electron flow covers stale
+  refresh, apply, restart, export, rollback, restart, accessible controls,
+  console/page errors, and the three supported viewport sizes.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```typescript
+const score = scoreTranslationPair(sourceText, targetText);
+await window.translunar.invoke("curation.apply", {
+  runId,
+  selectedFindingIds: score < 5000 ? allFindingIds : [],
+});
+```
+
+#### Correct
+
+```typescript
+await window.translunar.invoke("curation.apply", {
+  runId: run.id,
+  expectedRunRevision: run.revision,
+  expectedLibraryRevision: library.revision,
+  selectedFindingIds: [...selectedFindingIds],
+  actor: actor.trim(),
+  reason: reason.trim(),
+});
+// Storage validates the immutable analysis and selected findings atomically.
+```
