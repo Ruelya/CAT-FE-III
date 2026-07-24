@@ -1,1 +1,4 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/engine-boundary.md", "reason": "Verify plugin lifecycle stays Engine-owned with typed errors and additive protocol."}
+{"file": ".trellis/spec/frontend/electron-workbench.md", "reason": "Verify Plugins panel uses generated contracts and preserves IPC error codes."}
+{"file": ".trellis/tasks/07-19-plugin-runtime-sdk/prd.md", "reason": "Acceptance criteria AC-01..AC-08 for the vertical slice."}
+{"file": ".trellis/tasks/07-19-plugin-runtime-sdk/design.md", "reason": "Manifest, permissions, process protocol, and migration contracts."}

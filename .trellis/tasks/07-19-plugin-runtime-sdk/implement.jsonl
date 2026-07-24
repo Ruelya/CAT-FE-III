@@ -1,1 +1,4 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/engine-boundary.md", "reason": "Engine owns domain writes, protocol generation, and capability advertisement conventions plugins must follow."}
+{"file": ".trellis/spec/frontend/electron-workbench.md", "reason": "Desktop IPC envelope, page-owned RPC orchestration, and panel patterns for the Plugins surface."}
+{"file": ".trellis/tasks/07-19-plugin-runtime-sdk/research/plugin-foundation-evidence.md", "reason": "Baseline evidence for internal registries and the Tier 3 filter MVP slice."}
+{"file": ".trellis/tasks/07-19-complete-full-cat-prd/design.md", "reason": "Parent three-tier plugin model, protocol namespaces, and permission expectations."}

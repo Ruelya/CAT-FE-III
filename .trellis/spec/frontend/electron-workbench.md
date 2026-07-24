@@ -1265,3 +1265,14 @@ return {
 // Preload validates it and rejects with the plain structured error.
 if (!response.ok) return Promise.reject(response.error);
 ```
+
+## Plugins panel
+
+- Project Insights hosts a Plugins tab that lists Engine-owned plugin summaries
+  via generated `plugin.*` contracts only.
+- Package directory selection stays in Electron main (`selectPluginPackage`);
+  E2E may set `TRANSLUNAR_TEST_PLUGIN_SOURCE`.
+- Preserve typed Engine error codes across the desktop invoke envelope when
+  install/enable/disable fails.
+- Do not import or execute plugin code in the renderer; contributions are
+  descriptors managed by the Engine.

@@ -3,7 +3,7 @@
   "name": "plugin-runtime-sdk",
   "title": "Public plugin runtime and SDK",
   "description": "Implement Tier 1 manifests, Tier 2 sandboxed UI/AI actions, Tier 3 process plugins, permissions, lifecycle, public filter/engine/QA/pipeline/UI SDKs, examples, and local distribution.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

@@ -2371,3 +2371,17 @@ await window.translunar.invoke("curation.apply", {
 });
 // Storage validates the immutable analysis and selected findings atomically.
 ```
+
+## Plugin runtime (local process filters)
+
+- Engine owns plugin install/enable/disable/uninstall and copies packages into
+  `<dataDir>/plugins/<id>/`.
+- Tier 3 process plugins speak newline JSON-RPC; crashes/timeouts must not kill
+  the Engine process.
+- Filter contributions register through the same `FilterRegistry` as built-ins
+  and must not use the `builtin.` id prefix.
+- Effective permissions are `requested ∩ granted`; missing grants fail closed
+  with `plugin_permission_denied`.
+- Advertise `plugin.runtime.v1`, `plugin.process.v1`, `plugin.filter.v1`, and
+  `plugin.local-install` from `engine.initialize`.
+- Migration 16 introduces `plugin_installations`; never rewrite earlier migrations.
