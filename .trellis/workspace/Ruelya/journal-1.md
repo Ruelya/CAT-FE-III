@@ -506,3 +506,36 @@ Implemented X-01/X-02 loopback bearer-token HTTP API and translunar CLI run/toke
 ### Next Steps
 
 - None - task complete
+
+
+## Session 15: Ship offline AI quality intelligence MVP
+
+**Date**: 2026-07-24
+**Task**: Ship offline AI quality intelligence MVP
+**Branch**: `master`
+
+### Summary
+
+Added offline QE score/route, semantic QA findings, and term extraction via ai-quality-core and ai.quality.* Engine methods; focused smoke passed.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c7ad469` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
