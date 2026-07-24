@@ -438,3 +438,38 @@ Shipped unified asset catalog, rule/semantic curation, quality scoring, term min
 ### Next Steps
 
 - None - task complete
+
+
+## Session 13: Ship plugin runtime Tier-3 filter slice
+
+**Date**: 2026-07-24
+**Task**: Ship plugin runtime Tier-3 filter slice
+**Branch**: `master`
+
+### Summary
+
+Closed asset curation, then shipped local plugin runtime: manifest/lifecycle, process host filter adapters, hello-srt example, Plugins panel, specs, and focused Engine smoke.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7f41b5b` | (see git log) |
+| `e8f3c49` | (see git log) |
+| `9b7cb1f` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
