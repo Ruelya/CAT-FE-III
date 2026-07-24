@@ -31,6 +31,7 @@ interface ElectronHarness {
   page: Page;
   dataDirectory: string;
   exportPath: string;
+  curationExportPath: string;
   archivePath: string;
   consoleErrors: string[];
 }
@@ -42,6 +43,7 @@ interface HarnessOptions {
   replacementSource?: string;
   corpusInput?: string;
   interopExportPath?: string;
+  curationExportPath?: string;
   interopReviewInput?: string;
   interopTableInput?: string;
   taskPackageInput?: string;
@@ -63,6 +65,8 @@ async function launchHarness(
       : (sourceOverride ?? {});
   const exportPath =
     options.interopExportPath ?? join(dataDirectory, "translated.docx");
+  const curationExportPath =
+    options.curationExportPath ?? join(dataDirectory, "curation-clean.jsonl");
   const fixture =
     options.source ?? join(workspaceRoot, "fixtures", "docx", "m0-source.docx");
   const engine =
@@ -91,6 +95,7 @@ async function launchHarness(
       TRANSLUNAR_DATA_DIR: dataDirectory,
       TRANSLUNAR_ENGINE_PATH: engine,
       TRANSLUNAR_TEST_EXPORT_DOCX: exportPath,
+      TRANSLUNAR_TEST_CURATION_EXPORT: curationExportPath,
       TRANSLUNAR_TEST_EXPORT_DIRECTORY: dataDirectory,
       TRANSLUNAR_TEST_SOURCE: options.replacementSource ?? fixture,
       TRANSLUNAR_TEST_SOURCE_FILES: (options.sourceFiles ?? [fixture]).join(
@@ -133,6 +138,7 @@ async function launchHarness(
     page,
     dataDirectory,
     exportPath,
+    curationExportPath,
     archivePath,
     consoleErrors,
   };
@@ -266,7 +272,10 @@ async function captureResponsiveSurface(
   }
 }
 
-async function expectNamedControls(page: Page, selector: string): Promise<void> {
+async function expectNamedControls(
+  page: Page,
+  selector: string,
+): Promise<void> {
   const controls = page.locator(
     `${selector} button, ${selector} input, ${selector} textarea, ${selector} select`,
   );
@@ -682,6 +691,283 @@ test("runs the local-first CAT workflow through Electron", async () => {
     expect(consoleErrors).toEqual([]);
   } finally {
     await closeHarness(harness);
+  }
+});
+
+test("curates translation assets through Project Insights with the real Engine", async ({
+  browserName,
+}, testInfo) => {
+  expect(browserName).toBe("chromium");
+  test.setTimeout(180_000);
+  const fixtureDirectory = mkdtempSync(
+    join(tmpdir(), "translunar-asset-curation-ui-"),
+  );
+  const sourcePath = join(fixtureDirectory, "curation-source.txt");
+  const seedPath = join(fixtureDirectory, "curation-seed.csv");
+  const revisionSeedPath = join(fixtureDirectory, "curation-revision.csv");
+  const curationExportPath = join(fixtureDirectory, "curation-clean.jsonl");
+  writeFileSync(
+    sourcePath,
+    "Curation source document.\n\nA stable source segment.",
+    "utf8",
+  );
+  writeFileSync(
+    seedPath,
+    [
+      "source,target,sourceLocale,targetLocale,domain,author,createdAtMs",
+      "Duplicate source,Duplicate target,en-US,zh-CN,Curation,desktop-e2e,100",
+      "Duplicate source,Duplicate target,en-US,zh-CN,Curation,desktop-e2e,110",
+      "Source equals target,Source equals target,en-US,zh-CN,Curation,desktop-e2e,120",
+      "Number 30 days,数字 31 天,en-US,zh-CN,Curation,desktop-e2e,130",
+      "Long source phrase that should be translated,短,en-US,zh-CN,Curation,desktop-e2e,140",
+      "Wrong language target,This target is still English,en-US,zh-CN,Curation,desktop-e2e,150",
+      "Payment terms are due in 30 days,付款条款将在 30 天内到期,en-US,zh-CN,Curation,desktop-e2e,160",
+      "Payment terms are due in 30 days,付款条款于 30 天内到期,en-US,zh-CN,Curation,desktop-e2e,170",
+      "Good source sentence,良好的源句,en-US,zh-CN,Curation,desktop-e2e,180",
+    ].join("\n"),
+    "utf8",
+  );
+  writeFileSync(
+    revisionSeedPath,
+    [
+      "source,target,sourceLocale,targetLocale,domain,author,createdAtMs",
+      "Revision-only source,仅用于修订的句子,en-US,zh-CN,Curation,desktop-e2e,190",
+    ].join("\n"),
+    "utf8",
+  );
+
+  let harness: ElectronHarness | null = null;
+  try {
+    harness = await launchHarness("asset-curation", {
+      source: sourcePath,
+      curationExportPath,
+    });
+    const { page, consoleErrors } = harness;
+    await importFixture(page, "curation-source.txt");
+
+    const ids = await page.evaluate(
+      async ({ seedPath }) => {
+        const api = (window as unknown as { translunar: DesktopApi })
+          .translunar;
+        const projects = await api.invoke("project.list", {
+          lifecycle: "active",
+          offset: 0,
+          limit: 20,
+        });
+        const project = projects.items.find(
+          (item: Project) => item.name === "Craft Contracts 2026",
+        );
+        if (!project) throw new Error("curation project was not created");
+        const library = await api.invoke("tm.library.create", {
+          name: "Desktop curation fixture",
+          ownerProjectId: project.id,
+          sourceLocale: project.sourceLocale,
+          targetLocale: project.targetLocale,
+          domain: "Curation",
+          writable: true,
+        });
+        await api.invoke("tm.library.mount", {
+          projectId: project.id,
+          libraryId: library.id,
+          mode: "write",
+          priority: 1,
+          enabled: true,
+        });
+        await api.invoke("tm.import", {
+          libraryId: library.id,
+          sourcePath: seedPath,
+          format: "csv",
+          sourceLocale: project.sourceLocale,
+          targetLocale: project.targetLocale,
+        });
+        return { projectId: project.id, libraryId: library.id };
+      },
+      { seedPath },
+    );
+
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "Project insights" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Project insights" }),
+    ).toBeVisible();
+    await page.getByRole("tab", { name: "Assets" }).click();
+
+    const catalogSection = page.locator(".asset-curation-catalog-section");
+    const runSection = page.locator(".asset-curation-run-section");
+    const findingsSection = page.locator(".asset-curation-findings-section");
+    await expect(
+      page.getByRole("heading", { name: "Unified asset catalog" }),
+    ).toBeVisible();
+    await expect(catalogSection.locator("tbody tr").first()).toBeVisible();
+    await expect(catalogSection).toContainText("Duplicate source");
+
+    const query = catalogSection.getByLabel("Query");
+    await query.fill("Duplicate source");
+    await catalogSection.getByRole("button", { name: "Apply filters" }).click();
+    await expect(catalogSection).toContainText("Duplicate source");
+    expect(await catalogSection.locator("tbody tr").count()).toBeGreaterThan(0);
+    await query.fill("");
+    await catalogSection.getByRole("button", { name: "Apply filters" }).click();
+
+    await runSection.getByLabel("TM library").selectOption(ids.libraryId);
+    await expect(runSection.getByLabel("TM library")).toHaveValue(
+      ids.libraryId,
+    );
+    await runSection.getByRole("button", { name: "Analyze library" }).click();
+    await expect(page.locator(".asset-curation-status")).toHaveText("open", {
+      timeout: 45_000,
+    });
+    await expect(
+      page.getByRole("heading", { name: "Review and select changes" }),
+    ).toBeVisible();
+    await expect(findingsSection.locator("tbody tr").first()).toBeVisible();
+    await expect(page.locator(".asset-curation-summary-section")).toContainText(
+      "Analyzed",
+    );
+
+    await page.evaluate(
+      async ({ libraryId, revisionSeedPath }) => {
+        const api = (window as unknown as { translunar: DesktopApi })
+          .translunar;
+        const projectPage = await api.invoke("project.list", {
+          lifecycle: "active",
+          offset: 0,
+          limit: 20,
+        });
+        const project = projectPage.items[0];
+        if (!project) throw new Error("curation project disappeared");
+        await api.invoke("tm.import", {
+          libraryId,
+          sourcePath: revisionSeedPath,
+          format: "csv",
+          sourceLocale: project.sourceLocale,
+          targetLocale: project.targetLocale,
+        });
+      },
+      { libraryId: ids.libraryId, revisionSeedPath },
+    );
+
+    await findingsSection
+      .getByRole("button", { name: "Select visible" })
+      .click();
+    await page.getByRole("button", { name: "Apply selected" }).click();
+    const applyDialog = page.getByRole("dialog", {
+      name: "Apply curation selection",
+    });
+    await applyDialog.getByRole("button", { name: "Apply selection" }).click();
+    await expect(page.locator(".asset-curation-stale")).toBeVisible({
+      timeout: 20_000,
+    });
+    await applyDialog.getByRole("button", { name: "Close dialog" }).click();
+    await page
+      .locator(".asset-curation-stale")
+      .getByRole("button", { name: "Reload authoritative state" })
+      .click();
+    await expect(page.locator(".asset-curation-notice")).toContainText(
+      "refreshed from Engine",
+    );
+
+    await runSection.getByRole("button", { name: "Analyze library" }).click();
+    await expect(page.locator(".asset-curation-status")).toHaveText("open", {
+      timeout: 45_000,
+    });
+    await findingsSection
+      .getByRole("button", { name: "Select visible" })
+      .click();
+    await page.getByRole("button", { name: "Apply selected" }).click();
+    const secondApplyDialog = page.getByRole("dialog", {
+      name: "Apply curation selection",
+    });
+    await secondApplyDialog
+      .getByRole("button", { name: "Apply selection" })
+      .click();
+    await expect(page.locator(".asset-curation-status")).toHaveText("applied", {
+      timeout: 45_000,
+    });
+    await expect(page.locator(".asset-curation-notice")).toContainText(
+      "Applied curation",
+    );
+
+    await page.evaluate("window.translunar.restartEngine()");
+    await page.getByRole("button", { name: "Refresh curation state" }).click();
+    await expect(page.locator(".asset-curation-status")).toHaveText("applied");
+
+    await page.getByLabel("Export format").selectOption("jsonl");
+    await page.getByRole("button", { name: "Export clean dataset" }).click();
+    await expect(page.locator(".asset-curation-export-status")).toContainText(
+      "curation-clean.jsonl",
+    );
+    expect(existsSync(curationExportPath)).toBe(true);
+    const exportedRows = readFileSync(curationExportPath, "utf8")
+      .trim()
+      .split(/\r?\n/u)
+      .filter(Boolean)
+      .map(
+        (line) =>
+          JSON.parse(line) as { instruction: string; response: string },
+      );
+    expect(exportedRows.length).toBeGreaterThan(0);
+    expect(exportedRows.every((row) => row.instruction && row.response)).toBe(
+      true,
+    );
+
+    await page.getByRole("button", { name: "Rollback run" }).click();
+    const rollbackDialog = page.getByRole("dialog", {
+      name: "Rollback curation run",
+    });
+    await rollbackDialog.getByRole("button", { name: "Rollback run" }).click();
+    await expect(page.locator(".asset-curation-status")).toHaveText(
+      "Rolled back",
+      { timeout: 45_000 },
+    );
+    await page.evaluate("window.translunar.restartEngine()");
+    await page.getByRole("button", { name: "Refresh curation state" }).click();
+    await expect(page.locator(".asset-curation-status")).toHaveText(
+      "Rolled back",
+    );
+
+    const restoredCatalog = await page.evaluate(async (projectId) => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      return api.invoke("asset.catalog.list", {
+        projectId,
+        kind: "tm",
+        offset: 0,
+        limit: 100,
+      });
+    }, ids.projectId);
+    expect(
+      restoredCatalog.items.every(
+        (item) => item.curationState !== "quarantined",
+      ),
+    ).toBe(true);
+
+    await expectNamedControls(page, ".asset-curation-layout");
+    await captureResponsiveSurface(harness, testInfo, "asset-curation");
+    const headingOverlap = await page.evaluate(() => {
+      const issues: string[] = [];
+      document
+        .querySelectorAll<HTMLElement>(".asset-curation-heading")
+        .forEach((heading, index) => {
+          const title = heading.querySelector("h2")?.getBoundingClientRect();
+          const actions = heading
+            .querySelector<HTMLElement>(".asset-curation-heading-actions")
+            ?.getBoundingClientRect();
+          if (
+            title &&
+            actions &&
+            title.right > actions.left &&
+            title.bottom > actions.top
+          ) {
+            issues.push(`heading-${index}`);
+          }
+        });
+      return issues;
+    });
+    expect(headingOverlap).toEqual([]);
+    expect(consoleErrors).toEqual([]);
+  } finally {
+    if (harness) await closeHarness(harness);
+    await rm(fixtureDirectory, { recursive: true, force: true });
   }
 });
 
@@ -1869,9 +2155,7 @@ test("manages revision-bound discussions and project snapshots through Insights"
       name: "Delete message 2",
     });
     await deleteDialog.getByRole("button", { name: "Delete message" }).click();
-    await expect(successNotice).toContainText(
-      "deleted as a tombstone",
-    );
+    await expect(successNotice).toContainText("deleted as a tombstone");
 
     await page.getByRole("button", { name: "Resolve" }).click();
     await expect(successNotice).toContainText("Discussion resolved");
@@ -1893,9 +2177,7 @@ test("manages revision-bound discussions and project snapshots through Insights"
     await page.getByRole("tab", { name: "Project snapshots" }).click();
     await page.getByLabel("Snapshot name").fill("Before review");
     await page.getByRole("button", { name: "Create snapshot" }).click();
-    await expect(successNotice).toContainText(
-      "Snapshot Before review created",
-    );
+    await expect(successNotice).toContainText("Snapshot Before review created");
     await expect(page.locator(".snapshot-row")).toHaveCount(1);
 
     await page.getByLabel("Snapshot name").fill("Before review");
@@ -2232,9 +2514,9 @@ test("hands off an offline task package between real Engine workspaces", async (
       recipient.page.getByRole("heading", { name: "Engine classifications" }),
     ).toBeVisible();
     await expect(recipient.page.locator(".task-package-row")).toHaveCount(25);
-    await expect(recipient.page.locator(".task-package-pagination")).toContainText(
-      "1-25 of 26",
-    );
+    await expect(
+      recipient.page.locator(".task-package-pagination"),
+    ).toContainText("1-25 of 26");
     await expectNamedControls(recipient.page, ".task-package-layout");
     await captureResponsiveSurface(
       recipient,
@@ -2243,9 +2525,9 @@ test("hands off an offline task package between real Engine workspaces", async (
     );
     await recipient.page.getByRole("button", { name: "Next" }).click();
     await expect(recipient.page.locator(".task-package-row")).toHaveCount(1);
-    await expect(recipient.page.locator(".task-package-pagination")).toContainText(
-      "26-26 of 26",
-    );
+    await expect(
+      recipient.page.locator(".task-package-pagination"),
+    ).toContainText("26-26 of 26");
     await recipient.page.getByRole("button", { name: "Previous" }).click();
     await recipient.page
       .getByLabel("Detached project name")
@@ -2277,7 +2559,9 @@ test("hands off an offline task package between real Engine workspaces", async (
         limit: 20,
       });
       const taskProject = projects.items.find(
-        (project) => project.configuration.taskPackage !== null && project.configuration.taskPackage !== undefined,
+        (project) =>
+          project.configuration.taskPackage !== null &&
+          project.configuration.taskPackage !== undefined,
       );
       if (!taskProject) throw new Error("Detached task project is missing.");
       const snapshot = await api.invoke("project.get", {
@@ -2310,12 +2594,10 @@ test("hands off an offline task package between real Engine workspaces", async (
     await recipient.page
       .getByRole("button", { name: "Choose .tltask destination" })
       .click();
-    await recipient.page
-      .getByRole("button", { name: "Export return" })
-      .click();
-    await expect(recipient.page.locator(".task-package-feedback")).toContainText(
-      "Return package",
-    );
+    await recipient.page.getByRole("button", { name: "Export return" }).click();
+    await expect(
+      recipient.page.locator(".task-package-feedback"),
+    ).toContainText("Return package");
     expect(statSync(returnPath).size).toBeGreaterThan(0);
 
     await owner.page.getByRole("tab", { name: "Open package" }).click();
@@ -2324,9 +2606,9 @@ test("hands off an offline task package between real Engine workspaces", async (
     const ownerPreview = owner.page.locator(".task-package-preview");
     await expect(ownerPreview).toContainText("Remote changed");
     await expect(ownerPreview.locator(".task-package-row")).toHaveCount(25);
-    await expect(ownerPreview.locator(".task-package-pagination")).toContainText(
-      "1-25 of 26",
-    );
+    await expect(
+      ownerPreview.locator(".task-package-pagination"),
+    ).toContainText("1-25 of 26");
     await ownerPreview
       .getByRole("button", { name: "Select safe on page" })
       .click();
@@ -2339,7 +2621,8 @@ test("hands off an offline task package between real Engine workspaces", async (
     const localTarget = "Owner edit retained while retrying the return merge.";
     await owner.page.evaluate(
       async ({ projectId, segmentId, expectedRevision, targetText }) => {
-        const api = (window as unknown as { translunar: DesktopApi }).translunar;
+        const api = (window as unknown as { translunar: DesktopApi })
+          .translunar;
         const snapshot = await api.invoke("project.get", { projectId });
         await api.invoke("project.update", {
           projectId,
@@ -2409,7 +2692,8 @@ test("hands off an offline task package between real Engine workspaces", async (
 
     const ownerTargets = await owner.page.evaluate(
       async ({ documentId, firstSegmentId, secondSegmentId }) => {
-        const api = (window as unknown as { translunar: DesktopApi }).translunar;
+        const api = (window as unknown as { translunar: DesktopApi })
+          .translunar;
         const page = await api.invoke("segment.list", {
           documentId,
           offset: 0,

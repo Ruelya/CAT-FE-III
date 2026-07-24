@@ -4,6 +4,15 @@ import type {
   EngineResult,
 } from "@translunar/contracts";
 
+export interface DesktopEngineError {
+  code: string;
+  message: string;
+  data?: unknown;
+}
+
+export type DesktopEngineInvokeResponse<Result = unknown> =
+  { ok: true; result: Result } | { ok: false; error: DesktopEngineError };
+
 export interface DesktopApi {
   invoke<Method extends EngineMethod>(
     method: Method,

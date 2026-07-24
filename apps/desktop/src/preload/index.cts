@@ -1,6 +1,14 @@
 import electron = require("electron");
 
-import type { DesktopApi } from "../shared/desktop-api.js";
+import type {
+  EngineMethod,
+  EngineParams,
+  EngineResult,
+} from "@translunar/contracts";
+import type {
+  DesktopApi,
+  DesktopEngineInvokeResponse,
+} from "../shared/desktop-api.js";
 
 const IPC_CHANNELS = {
   invoke: "translunar:engine:invoke",
@@ -19,9 +27,45 @@ const IPC_CHANNELS = {
   editorCommand: "translunar:editor:command",
 } as const;
 
+async function invokeEngine<Method extends EngineMethod>(
+  method: Method,
+  params: EngineParams<Method>,
+): Promise<EngineResult<Method>> {
+  const response = (await electron.ipcRenderer.invoke(
+    IPC_CHANNELS.invoke,
+    method,
+    params,
+  )) as unknown;
+  if (!isEngineInvokeResponse<EngineResult<Method>>(response)) {
+    throw new Error("Engine returned an invalid response envelope.");
+  }
+  if (!response.ok) {
+    // A plain object preserves the typed code/data across contextBridge cloning.
+    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+    return Promise.reject(response.error);
+  }
+  return response.result;
+}
+
+function isEngineInvokeResponse<Result>(
+  value: unknown,
+): value is DesktopEngineInvokeResponse<Result> {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  if (record.ok === true) return "result" in record;
+  if (
+    record.ok !== false ||
+    typeof record.error !== "object" ||
+    record.error === null
+  ) {
+    return false;
+  }
+  const error = record.error as Record<string, unknown>;
+  return typeof error.code === "string" && typeof error.message === "string";
+}
+
 const api: DesktopApi = {
-  invoke: (method, params) =>
-    electron.ipcRenderer.invoke(IPC_CHANNELS.invoke, method, params),
+  invoke: invokeEngine,
   selectSourceDocument: () =>
     electron.ipcRenderer.invoke(IPC_CHANNELS.selectSource),
   selectSourceDocuments: () =>

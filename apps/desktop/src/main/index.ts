@@ -14,7 +14,8 @@ import {
   type EngineParams,
 } from "@translunar/contracts";
 
-import { EngineClient } from "./engine-client.js";
+import { EngineClient, EngineProcessError } from "./engine-client.js";
+import type { DesktopEngineInvokeResponse } from "../shared/desktop-api.js";
 
 const IPC_CHANNELS = {
   invoke: "translunar:engine:invoke",
@@ -135,7 +136,23 @@ function registerIpc(): void {
       if (!isEngineMethod(method))
         throw new Error("Unsupported engine method.");
       const activeEngine = requireEngine();
-      return activeEngine.call(method, params as EngineParams<typeof method>);
+      try {
+        const result = await activeEngine.call(
+          method,
+          params as EngineParams<typeof method>,
+        );
+        return { ok: true, result } satisfies DesktopEngineInvokeResponse;
+      } catch (error) {
+        if (!(error instanceof EngineProcessError)) throw error;
+        return {
+          ok: false,
+          error: {
+            code: error.code,
+            message: error.message,
+            ...(error.data === undefined ? {} : { data: error.data }),
+          },
+        } satisfies DesktopEngineInvokeResponse;
+      }
     },
   );
   ipcMain.handle(IPC_CHANNELS.selectSource, async (event) => {
@@ -236,6 +253,12 @@ function registerIpc(): void {
         return join(process.env.TRANSLUNAR_TEST_EXPORT_DIRECTORY, safeName);
       }
       if (
+        process.env.TRANSLUNAR_TEST_CURATION_EXPORT &&
+        safeName.startsWith("curation-")
+      ) {
+        return process.env.TRANSLUNAR_TEST_CURATION_EXPORT;
+      }
+      if (
         safeName.toLocaleLowerCase().endsWith(".tltask") &&
         process.env.TRANSLUNAR_TEST_TASK_PACKAGE_DESTINATION
       ) {
@@ -252,7 +275,7 @@ function registerIpc(): void {
             ? [{ name: "Excel workbooks", extensions: ["xlsx"] }]
             : extension === "tltask"
               ? [{ name: "Offline task packages", extensions: ["tltask"] }]
-            : [{ name: "Source format", extensions: [extension ?? "docx"] }];
+              : [{ name: "Source format", extensions: [extension ?? "docx"] }];
       const result = await dialog.showSaveDialog(requireWindow(), {
         title:
           extension === "tltask"

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   clampPreviewHeight,
   fileName,
+  formatError,
   isConfirmShortcut,
   nextVisibleSegmentId,
   togglePanelCollapsed,
@@ -49,5 +50,11 @@ describe("workbench interaction guards", () => {
     expect(clampPreviewHeight(237.6)).toBe(238);
     expect(clampPreviewHeight(480)).toBe(320);
     expect(clampPreviewHeight(Number.NaN)).toBe(200);
+  });
+
+  it("formats structured Engine errors crossing the desktop boundary", () => {
+    expect(formatError({ code: "conflict", message: "revision changed" })).toBe(
+      "revision changed",
+    );
   });
 });

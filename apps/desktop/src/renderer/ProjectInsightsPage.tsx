@@ -22,6 +22,7 @@ import {
   BarChart3,
   Check,
   Clock3,
+  Database,
   FileClock,
   FilePlus2,
   FileText,
@@ -40,6 +41,7 @@ import {
 
 import { fileName, formatError } from "./workbench-utils";
 import { AlignmentCorpusPanel } from "./AlignmentCorpusPanel";
+import { AssetCurationPanel } from "./AssetCurationPanel";
 import { DiscussionSnapshotPanel } from "./DiscussionSnapshotPanel";
 import { InteropPanel } from "./InteropPanel";
 import { TaskPackagePanel } from "./TaskPackagePanel";
@@ -50,6 +52,7 @@ type InsightsTab =
   | "reimport"
   | "discussions"
   | "alignment"
+  | "assets"
   | "interop"
   | "task-packages"
   | "archive"
@@ -91,6 +94,7 @@ const TABS: Array<{
     label: "Alignment / corpora",
     icon: <GitCompareArrows size={15} />,
   },
+  { id: "assets", label: "Assets", icon: <Database size={15} /> },
   { id: "interop", label: "Interop", icon: <Languages size={15} /> },
   { id: "task-packages", label: "Task packages", icon: <Archive size={15} /> },
   { id: "archive", label: "Archive", icon: <Archive size={15} /> },
@@ -519,6 +523,8 @@ export function ProjectInsightsPage({
             documents={documents}
             onRefresh={onRefresh}
           />
+        ) : tab === "assets" ? (
+          <AssetCurationPanel snapshot={snapshot} onRefresh={onRefresh} />
         ) : tab === "interop" ? (
           <InteropPanel
             snapshot={snapshot}
