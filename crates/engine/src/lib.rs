@@ -155,10 +155,11 @@ use zip::write::{SimpleFileOptions, ZipWriter};
 use zip::{CompressionMethod, ZipArchive};
 
 mod ai;
+mod ai_quality;
 mod curation;
-mod plugin;
-mod local_auth;
 mod local_api;
+mod local_auth;
+mod plugin;
 pub use local_api::{LocalApiConfig, run_pipeline, serve as serve_local_api, validate_bind};
 pub use local_auth::{LocalApiTokenStore, default_token_store, ensure_token, rotate_token};
 mod qa;
@@ -6427,6 +6428,18 @@ impl RpcDispatcher {
                 self.service
                     .resume_ai_batch(parse_params(request.params)?)?,
             ),
+            methods::AI_QUALITY_SCORE_DOCUMENT => serialize_result(
+                self.service
+                    .score_document_quality(parse_params(request.params)?)?,
+            ),
+            methods::AI_QUALITY_SEMANTIC_QA => serialize_result(
+                self.service
+                    .run_semantic_qa(parse_params(request.params)?)?,
+            ),
+            methods::AI_QUALITY_EXTRACT_TERMS => serialize_result(
+                self.service
+                    .extract_document_terms(parse_params(request.params)?)?,
+            ),
             methods::AI_USAGE_QUERY => {
                 serialize_result(self.service.query_ai_usage(parse_params(request.params)?)?)
             }
@@ -6539,6 +6552,7 @@ impl RpcDispatcher {
                 "ai.batch-pretranslation".to_string(),
                 "ai.usage".to_string(),
                 "ai.credential.keyring".to_string(),
+                "ai.quality.offline".to_string(),
             ],
         })
     }

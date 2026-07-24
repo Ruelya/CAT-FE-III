@@ -3,6 +3,21 @@
   "title": "ProtocolCatalog",
   "type": "object",
   "properties": {
+    "ai_quality_document_params": {
+      "$ref": "#/$defs/AiQualityDocumentParams"
+    },
+    "ai_quality_score_result": {
+      "$ref": "#/$defs/QualityScoreReport"
+    },
+    "ai_semantic_qa_result": {
+      "$ref": "#/$defs/SemanticQaReport"
+    },
+    "ai_term_extract_params": {
+      "$ref": "#/$defs/AiTermExtractParams"
+    },
+    "ai_term_extract_result": {
+      "$ref": "#/$defs/TermExtractReport"
+    },
     "alignment_apply_result": {
       "$ref": "#/$defs/AlignmentApplyResult"
     },
@@ -619,6 +634,11 @@
     "import_document_result",
     "export_document_result",
     "filter_list_result",
+    "ai_quality_document_params",
+    "ai_term_extract_params",
+    "ai_quality_score_result",
+    "ai_semantic_qa_result",
+    "ai_term_extract_result",
     "plugin_list_params",
     "plugin_id_params",
     "plugin_install_params",
@@ -1851,6 +1871,18 @@
         "expectedRevision"
       ]
     },
+    "AiQualityDocumentParams": {
+      "type": "object",
+      "properties": {
+        "documentId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "documentId"
+      ]
+    },
     "AiResultApplyParams": {
       "type": "object",
       "properties": {
@@ -2441,6 +2473,36 @@
         "allowInteractive",
         "allowBatch",
         "expectedRevision"
+      ]
+    },
+    "AiTermExtractParams": {
+      "type": "object",
+      "properties": {
+        "documentId": {
+          "type": "string"
+        },
+        "maximumCandidates": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        },
+        "minimumFrequency": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "documentId"
       ]
     },
     "AiUsage": {
@@ -9690,10 +9752,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiConversationListParams"
+          "$ref": "#/$defs/AiQualityDocumentParams"
         },
         "result": {
-          "$ref": "#/$defs/AiConversationPage"
+          "$ref": "#/$defs/QualityScoreReport"
         }
       },
       "required": [
@@ -9720,6 +9782,51 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/AiQualityDocumentParams"
+        },
+        "result": {
+          "$ref": "#/$defs/SemanticQaReport"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract181": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiTermExtractParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermExtractReport"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract182": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiConversationListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiConversationPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract183": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/AiConversationCreateParams"
         },
         "result": {
@@ -9731,7 +9838,7 @@
         "result"
       ]
     },
-    "MethodContract181": {
+    "MethodContract184": {
       "type": "object",
       "properties": {
         "params": {
@@ -9746,7 +9853,7 @@
         "result"
       ]
     },
-    "MethodContract182": {
+    "MethodContract185": {
       "type": "object",
       "properties": {
         "params": {
@@ -14632,6 +14739,50 @@
         "createdAtMs"
       ]
     },
+    "QualityRoute": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "review",
+        "human"
+      ]
+    },
+    "QualityScoreReport": {
+      "type": "object",
+      "properties": {
+        "autoCount": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "documentId": {
+          "type": "string"
+        },
+        "humanCount": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "reviewCount": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "scores": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SegmentQualityScore"
+          }
+        }
+      },
+      "required": [
+        "documentId",
+        "scores",
+        "autoCount",
+        "reviewCount",
+        "humanCount"
+      ]
+    },
     "RecycleDeleteParams": {
       "type": "object",
       "properties": {
@@ -16005,16 +16156,16 @@
           "$ref": "#/$defs/MethodContract173"
         },
         "ai.conversation.create": {
-          "$ref": "#/$defs/MethodContract180"
+          "$ref": "#/$defs/MethodContract183"
         },
         "ai.conversation.list": {
-          "$ref": "#/$defs/MethodContract179"
-        },
-        "ai.conversation.messages": {
           "$ref": "#/$defs/MethodContract182"
         },
+        "ai.conversation.messages": {
+          "$ref": "#/$defs/MethodContract185"
+        },
         "ai.conversation.update": {
-          "$ref": "#/$defs/MethodContract181"
+          "$ref": "#/$defs/MethodContract184"
         },
         "ai.credential.delete": {
           "$ref": "#/$defs/MethodContract163"
@@ -16042,6 +16193,15 @@
         },
         "ai.provider.update": {
           "$ref": "#/$defs/MethodContract160"
+        },
+        "ai.quality.extractTerms": {
+          "$ref": "#/$defs/MethodContract181"
+        },
+        "ai.quality.scoreDocument": {
+          "$ref": "#/$defs/MethodContract179"
+        },
+        "ai.quality.semanticQa": {
+          "$ref": "#/$defs/MethodContract180"
         },
         "ai.result.apply": {
           "$ref": "#/$defs/MethodContract172"
@@ -16753,6 +16913,9 @@
         "ai.batch.cancel",
         "ai.batch.resume",
         "ai.usage.query",
+        "ai.quality.scoreDocument",
+        "ai.quality.semanticQa",
+        "ai.quality.extractTerms",
         "ai.conversation.list",
         "ai.conversation.create",
         "ai.conversation.update",
@@ -16782,6 +16945,26 @@
       "required": [
         "definitionId",
         "projectId"
+      ]
+    },
+    "ScoreFactor": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "delta": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "delta",
+        "message"
       ]
     },
     "Segment": {
@@ -17102,12 +17285,113 @@
         "limit"
       ]
     },
+    "SegmentQualityScore": {
+      "type": "object",
+      "properties": {
+        "factors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ScoreFactor"
+          }
+        },
+        "ordinal": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "route": {
+          "$ref": "#/$defs/QualityRoute"
+        },
+        "score": {
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "segmentId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "segmentId",
+        "ordinal",
+        "score",
+        "route",
+        "factors"
+      ]
+    },
     "SegmentState": {
       "type": "string",
       "enum": [
         "untranslated",
         "draft",
         "confirmed"
+      ]
+    },
+    "SemanticFinding": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "confidenceBasisPoints": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "evidence": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ordinal": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "segmentId": {
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/SemanticSeverity"
+        }
+      },
+      "required": [
+        "segmentId",
+        "ordinal",
+        "code",
+        "severity",
+        "confidenceBasisPoints",
+        "message",
+        "evidence"
+      ]
+    },
+    "SemanticQaReport": {
+      "type": "object",
+      "properties": {
+        "documentId": {
+          "type": "string"
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SemanticFinding"
+          }
+        }
+      },
+      "required": [
+        "documentId",
+        "findings"
+      ]
+    },
+    "SemanticSeverity": {
+      "type": "string",
+      "enum": [
+        "info",
+        "warning",
+        "error"
       ]
     },
     "SetEditorWorkflowParams": {
@@ -18426,6 +18710,36 @@
         "message"
       ]
     },
+    "TermCandidate": {
+      "type": "object",
+      "properties": {
+        "exampleSegmentIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "frequency": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "sourceTerm": {
+          "type": "string"
+        },
+        "suggestedTarget": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sourceTerm",
+        "frequency",
+        "exampleSegmentIds"
+      ]
+    },
     "TermEntry": {
       "type": "object",
       "properties": {
@@ -18498,6 +18812,24 @@
         "translations",
         "createdAtMs",
         "updatedAtMs"
+      ]
+    },
+    "TermExtractReport": {
+      "type": "object",
+      "properties": {
+        "candidates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TermCandidate"
+          }
+        },
+        "documentId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "documentId",
+        "candidates"
       ]
     },
     "TermMatch": {

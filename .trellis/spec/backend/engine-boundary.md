@@ -2398,3 +2398,12 @@ await window.translunar.invoke("curation.apply", {
 - Never persist the raw API token in SQLite or log it at info level.
 - Desktop `translunar-engine --protocol stdio` remains the GUI transport and
   must stay unchanged by API/CLI work.
+
+## Offline AI quality intelligence
+
+- QE scoring, semantic QA, and term extraction default to offline deterministic
+  analyzers in `ai-quality-core`.
+- Engine methods `ai.quality.scoreDocument`, `ai.quality.semanticQa`, and
+  `ai.quality.extractTerms` are report-only and must not mutate termbases or
+  export gates automatically.
+- Advertise `ai.quality.offline` from initialize. Heavy models remain optional.

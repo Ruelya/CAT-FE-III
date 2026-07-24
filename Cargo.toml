@@ -6,6 +6,7 @@ members = [
   "crates/task-package-core",
   "crates/editor-core",
   "crates/ai-core",
+  "crates/ai-quality-core",
   "crates/qa-core",
   "crates/lifecycle-core",
   "crates/asset-core",

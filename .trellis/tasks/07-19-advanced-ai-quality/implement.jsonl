@@ -1,1 +1,2 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/engine-boundary.md", "reason": "Engine owns AI/QA domain analysis; protocol generation rules."}
+{"file": ".trellis/tasks/07-19-advanced-ai-quality/research/ai-quality-baseline.md", "reason": "Baseline and MVP slice boundaries."}

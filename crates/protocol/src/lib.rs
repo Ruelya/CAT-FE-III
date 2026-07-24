@@ -35,6 +35,8 @@ mod curation;
 pub use curation::*;
 mod plugin;
 pub use plugin::*;
+mod ai_quality;
+pub use ai_quality::*;
 
 pub const PROTOCOL_VERSION: u32 = 1;
 
@@ -228,6 +230,9 @@ pub mod methods {
     pub const AI_BATCH_CANCEL: &str = "ai.batch.cancel";
     pub const AI_BATCH_RESUME: &str = "ai.batch.resume";
     pub const AI_USAGE_QUERY: &str = "ai.usage.query";
+    pub const AI_QUALITY_SCORE_DOCUMENT: &str = "ai.quality.scoreDocument";
+    pub const AI_QUALITY_SEMANTIC_QA: &str = "ai.quality.semanticQa";
+    pub const AI_QUALITY_EXTRACT_TERMS: &str = "ai.quality.extractTerms";
     pub const AI_CONVERSATION_LIST: &str = "ai.conversation.list";
     pub const AI_CONVERSATION_CREATE: &str = "ai.conversation.create";
     pub const AI_CONVERSATION_UPDATE: &str = "ai.conversation.update";
@@ -2103,6 +2108,13 @@ pub struct RpcMethodCatalog {
     pub ai_batch_resume: MethodContract<AiBatchRevisionParams, AiBatchRun>,
     #[serde(rename = "ai.usage.query")]
     pub ai_usage_query: MethodContract<AiUsageQueryParams, AiUsageQueryResult>,
+
+    #[serde(rename = "ai.quality.scoreDocument")]
+    pub ai_quality_score_document: MethodContract<AiQualityDocumentParams, AiQualityScoreResult>,
+    #[serde(rename = "ai.quality.semanticQa")]
+    pub ai_quality_semantic_qa: MethodContract<AiQualityDocumentParams, AiSemanticQaResult>,
+    #[serde(rename = "ai.quality.extractTerms")]
+    pub ai_quality_extract_terms: MethodContract<AiTermExtractParams, AiTermExtractResult>,
     #[serde(rename = "ai.conversation.list")]
     pub ai_conversation_list: MethodContract<AiConversationListParams, AiConversationPage>,
     #[serde(rename = "ai.conversation.create")]
@@ -2256,6 +2268,11 @@ pub struct ProtocolCatalog {
     pub import_document_result: ImportDocumentResult,
     pub export_document_result: ExportDocumentResult,
     pub filter_list_result: FilterListResult,
+    pub ai_quality_document_params: AiQualityDocumentParams,
+    pub ai_term_extract_params: AiTermExtractParams,
+    pub ai_quality_score_result: AiQualityScoreResult,
+    pub ai_semantic_qa_result: AiSemanticQaResult,
+    pub ai_term_extract_result: AiTermExtractResult,
     pub plugin_list_params: PluginListParams,
     pub plugin_id_params: PluginIdParams,
     pub plugin_install_params: PluginInstallParams,

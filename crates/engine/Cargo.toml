@@ -20,6 +20,7 @@ thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 translunar-ai-core = { path = "../ai-core" }
+translunar-ai-quality-core = { path = "../ai-quality-core" }
 translunar-alignment-core = { path = "../alignment-core" }
 translunar-domain = { path = "../domain" }
 translunar-editor-core = { path = "../editor-core" }

@@ -2437,6 +2437,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "translunar-ai-quality-core"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "translunar-alignment-core"
 version = "0.1.0"
 dependencies = [
@@ -2520,6 +2531,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "translunar-ai-core",
+ "translunar-ai-quality-core",
  "translunar-alignment-core",
  "translunar-asset-core",
  "translunar-curation-core",
@@ -2715,6 +2727,7 @@ dependencies = [
  "serde",
  "serde_json",
  "translunar-ai-core",
+ "translunar-ai-quality-core",
  "translunar-alignment-core",
  "translunar-asset-core",
  "translunar-curation-core",

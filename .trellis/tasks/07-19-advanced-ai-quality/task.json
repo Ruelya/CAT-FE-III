@@ -3,7 +3,7 @@
   "name": "advanced-ai-quality",
   "title": "Advanced AI and quality intelligence",
   "description": "Implement QE routing, semantic QA, terminology extraction, fuzzy repair, adaptive few-shot, source diagnosis, smart tag placement, project RAG, style cards, agentic pipelines, and multimodal assistance.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

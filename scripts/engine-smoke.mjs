@@ -104,6 +104,11 @@ async function main() {
       console.log("Focused local API/CLI smoke passed.");
       return;
     }
+    if (process.env.TRANSLUNAR_SMOKE_SCOPE === "ai-quality") {
+      await exerciseFocusedAiQualitySmoke(processHandle);
+      console.log("Focused AI quality smoke passed.");
+      return;
+    }
     const project = await processHandle.call("project.create", {
       name: "Smoke project",
       sourceLocale: "en-US",
@@ -1823,6 +1828,69 @@ async function main() {
 }
 
 
+
+async function exerciseFocusedAiQualitySmoke(processHandle) {
+  const fixtureDirectory = mkdtempSync(join(tmpdir(), "translunar-ai-quality-smoke-"));
+  const sourcePath = join(fixtureDirectory, "sample.txt");
+  const sourceBody = [
+    "Replace the actuator housing now.",
+    "",
+    "Clean the actuator housing carefully.",
+    "",
+    "Do not remove safety covers.",
+    "",
+  ].join(String.fromCharCode(10));
+  writeFileSync(sourcePath, sourceBody, "utf8");
+  const project = await processHandle.call("project.create", {
+    name: "AI quality smoke",
+    sourceLocale: "en-US",
+    targetLocale: "zh-CN",
+    domain: "general",
+  });
+  const imported = await processHandle.call("document.import", {
+    projectId: project.id,
+    sourcePath,
+  });
+  const segments = await processHandle.call("segment.list", {
+    documentId: imported.document.id,
+    offset: 0,
+    limit: 50,
+  });
+  // Leave one empty and one equal-to-source for detectors.
+  if (segments.items[0]) {
+    await processHandle.call("segment.updateTarget", {
+      segmentId: segments.items[0].id,
+      targetText: "更换执行器外壳",
+      expectedRevision: segments.items[0].revision,
+    });
+  }
+  if (segments.items[1]) {
+    await processHandle.call("segment.updateTarget", {
+      segmentId: segments.items[1].id,
+      targetText: segments.items[1].sourceText,
+      expectedRevision: segments.items[1].revision,
+    });
+  }
+  const scores = await processHandle.call("ai.quality.scoreDocument", {
+    documentId: imported.document.id,
+  });
+  assert(scores.scores.length >= 2, "score rows");
+  const semantic = await processHandle.call("ai.quality.semanticQa", {
+    documentId: imported.document.id,
+  });
+  assert(
+    semantic.findings.some((item) => item.code === "semantic.source_equals_target"),
+    "semantic equal finding",
+  );
+  const terms = await processHandle.call("ai.quality.extractTerms", {
+    documentId: imported.document.id,
+    minimumFrequency: 2,
+  });
+  assert(
+    terms.candidates.some((item) => item.sourceTerm === "actuator"),
+    "actuator candidate",
+  );
+}
 
 async function exerciseFocusedApiCliSmoke(dataDirectory) {
   const root = resolve(import.meta.dirname, "..");

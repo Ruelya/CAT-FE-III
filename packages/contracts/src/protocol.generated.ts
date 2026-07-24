@@ -1,5 +1,7 @@
 /* eslint-disable -- Generated from the Rust protocol schema. Do not edit. */
 
+export type QualityRoute = "auto" | "review" | "human";
+export type SemanticSeverity = "info" | "warning" | "error";
 export type AlignmentSessionStatus = "open" | "applied" | "discarded";
 export type AlignmentEvidence =
   | {
@@ -230,6 +232,11 @@ export type ErrorCode =
   | "internal_error";
 
 export interface ProtocolCatalog {
+  ai_quality_document_params: AiQualityDocumentParams;
+  ai_quality_score_result: QualityScoreReport;
+  ai_semantic_qa_result: SemanticQaReport;
+  ai_term_extract_params: AiTermExtractParams;
+  ai_term_extract_result: TermExtractReport;
   alignment_apply_result: AlignmentApplyResult;
   alignment_mutation_result: AlignmentMutationResult;
   alignment_session_apply_params: AlignmentSessionApplyParams;
@@ -391,6 +398,63 @@ export interface ProtocolCatalog {
   update_project_params: UpdateProjectParams;
   update_target_params: UpdateTargetParams;
   validate_pipeline_params: ValidatePipelineParams;
+  [k: string]: unknown;
+}
+export interface AiQualityDocumentParams {
+  documentId: string;
+}
+export interface QualityScoreReport {
+  autoCount: number;
+  documentId: string;
+  humanCount: number;
+  reviewCount: number;
+  scores: SegmentQualityScore[];
+  [k: string]: unknown;
+}
+export interface SegmentQualityScore {
+  factors: ScoreFactor[];
+  ordinal: number;
+  route: QualityRoute;
+  score: number;
+  segmentId: string;
+  [k: string]: unknown;
+}
+export interface ScoreFactor {
+  code: string;
+  delta: number;
+  message: string;
+  [k: string]: unknown;
+}
+export interface SemanticQaReport {
+  documentId: string;
+  findings: SemanticFinding[];
+  [k: string]: unknown;
+}
+export interface SemanticFinding {
+  code: string;
+  confidenceBasisPoints: number;
+  evidence: string;
+  message: string;
+  ordinal: number;
+  segmentId: string;
+  severity: SemanticSeverity;
+  [k: string]: unknown;
+}
+export interface AiTermExtractParams {
+  documentId: string;
+  maximumCandidates?: number | null;
+  minimumFrequency?: number | null;
+}
+export interface TermExtractReport {
+  candidates: TermCandidate[];
+  documentId: string;
+  [k: string]: unknown;
+}
+export interface TermCandidate {
+  exampleSegmentIds: string[];
+  frequency: number;
+  sourceTerm: string;
+  suggestedTarget?: string | null;
   [k: string]: unknown;
 }
 export interface AlignmentApplyResult {
@@ -1314,10 +1378,10 @@ export interface RpcMethodCatalog {
   "ai.batch.list": MethodContract175;
   "ai.batch.resume": MethodContract177;
   "ai.batch.start": MethodContract173;
-  "ai.conversation.create": MethodContract180;
-  "ai.conversation.list": MethodContract179;
-  "ai.conversation.messages": MethodContract182;
-  "ai.conversation.update": MethodContract181;
+  "ai.conversation.create": MethodContract183;
+  "ai.conversation.list": MethodContract182;
+  "ai.conversation.messages": MethodContract185;
+  "ai.conversation.update": MethodContract184;
   "ai.credential.delete": MethodContract163;
   "ai.credential.status": MethodContract163;
   "ai.grounding.preview": MethodContract166;
@@ -1327,6 +1391,9 @@ export interface RpcMethodCatalog {
   "ai.provider.list": MethodContract158;
   "ai.provider.test": MethodContract162;
   "ai.provider.update": MethodContract160;
+  "ai.quality.extractTerms": MethodContract181;
+  "ai.quality.scoreDocument": MethodContract179;
+  "ai.quality.semanticQa": MethodContract180;
   "ai.result.apply": MethodContract172;
   "ai.run.cancel": MethodContract171;
   "ai.run.events": MethodContract170;
@@ -1646,7 +1713,7 @@ export interface GroundingOptions1 {
   tmTopN: number;
   [k: string]: unknown;
 }
-export interface MethodContract180 {
+export interface MethodContract183 {
   params: AiConversationCreateParams;
   result: AiConversation;
   [k: string]: unknown;
@@ -1665,7 +1732,7 @@ export interface AiConversation {
   updatedAtMs: number;
   [k: string]: unknown;
 }
-export interface MethodContract179 {
+export interface MethodContract182 {
   params: AiConversationListParams;
   result: AiConversationPage;
   [k: string]: unknown;
@@ -1683,7 +1750,7 @@ export interface AiConversationPage {
   total: number;
   [k: string]: unknown;
 }
-export interface MethodContract182 {
+export interface MethodContract185 {
   params: AiConversationMessagesParams;
   result: AiConversationMessagePage;
   [k: string]: unknown;
@@ -1711,7 +1778,7 @@ export interface AiConversationMessage {
   text: string;
   [k: string]: unknown;
 }
-export interface MethodContract181 {
+export interface MethodContract184 {
   params: AiConversationUpdateParams;
   result: AiConversation;
   [k: string]: unknown;
@@ -1941,6 +2008,21 @@ export interface AiProviderUpdateParams {
   name: string;
   profileId: string;
   timeoutMs: number;
+}
+export interface MethodContract181 {
+  params: AiTermExtractParams;
+  result: TermExtractReport;
+  [k: string]: unknown;
+}
+export interface MethodContract179 {
+  params: AiQualityDocumentParams;
+  result: QualityScoreReport;
+  [k: string]: unknown;
+}
+export interface MethodContract180 {
+  params: AiQualityDocumentParams;
+  result: SemanticQaReport;
+  [k: string]: unknown;
 }
 export interface MethodContract172 {
   params: AiResultApplyParams;
