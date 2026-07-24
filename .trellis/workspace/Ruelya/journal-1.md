@@ -403,3 +403,38 @@ Completed parent AC1-AC8 integration review across CAT interchange, bilingual re
 ### Next Steps
 
 - None - task complete
+
+
+## Session 12: Complete asset curation center
+
+**Date**: 2026-07-24
+**Task**: Complete asset curation center
+**Branch**: `master`
+
+### Summary
+
+Shipped unified asset catalog, rule/semantic curation, quality scoring, term mining, drift reports, explainable apply/rollback, JSONL/TSV export, desktop Assets panel, and cross-layer specs; validated locally and on VPS.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `aad46a1` | (see git log) |
+| `d456506` | (see git log) |
+| `4bd63c3` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
