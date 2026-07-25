@@ -25,18 +25,21 @@ Ownership: font/license assets, font manifest, `@font-face` declarations, base f
 tokens, and focused font-loading evidence. Do not change structural layout in this
 package.
 
-- [ ] Obtain pinned upstream Space Grotesk, Chivo, Space Mono, and Noto Sans SC
+- [x] Obtain pinned upstream Space Grotesk, Chivo, Space Mono, and Noto Sans SC
       WOFF2 assets; verify licenses and SHA-256 before adding them.
-- [ ] Vendor license/provenance and record weights, unicode coverage, individual
+- [x] Vendor license/provenance and record weights, unicode coverage, individual
       size, total WOFF2 size, and packaged-app delta.
-- [ ] Add relative local `@font-face` sources and primary family tokens. Remove
+- [x] Add relative local `@font-face` sources and primary family tokens. Remove
       Bahnschrift/Segoe/YaHei from primary intended roles; retain generic/system
       fallback only after bundled families.
-- [ ] Apply display/body/mono/CJK roles without changing layout dimensions yet.
-- [ ] Add/update E2E rendering evidence to await `document.fonts.ready`, check all
+- [x] Apply display/body/mono/CJK roles without changing layout dimensions yet.
+- [x] Add/update E2E rendering evidence to await `document.fonts.ready`, check all
       four branded families, representative SC glyphs, and no remote font request.
-- [ ] Gate: total WOFF2 <= 20 MiB; production renderer assets resolve under
+- [x] Gate: total WOFF2 <= 20 MiB; production renderer assets resolve under
       Electron `loadFile()`; focused typecheck/build/E2E font evidence passes.
+
+  Evidence: `evidence/wp1-fonts.md` and
+  `apps/desktop/src/renderer/assets/fonts/manifest.json`.
 
 Rollback point: remove the asset/font commit only; no behavior or token migration
 depends on it yet.

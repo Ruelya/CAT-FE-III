@@ -35,6 +35,7 @@ interface ElectronHarness {
   curationExportPath: string;
   archivePath: string;
   consoleErrors: string[];
+  fontRequests: string[];
 }
 
 interface HarnessOptions {
@@ -82,6 +83,7 @@ async function launchHarness(
         : "translunar-engine",
     );
   const consoleErrors: string[] = [];
+  const fontRequests: string[] = [];
   const archivePath = join(dataDirectory, "project-archive.tlcat");
   const sourceDelimiter = process.platform === "win32" ? ";" : ":";
   let application: ElectronApplication | undefined;
@@ -137,6 +139,9 @@ async function launchHarness(
       if (message.type() === "error") consoleErrors.push(message.text());
     });
     page.on("pageerror", (error) => consoleErrors.push(error.message));
+    page.on("request", (request) => {
+      if (request.resourceType() === "font") fontRequests.push(request.url());
+    });
     await dismissFirstRunTutorial(page);
     // The legacy workflow assertions below (importFixture, the setup wizard,
     // and the "Translation segments" region) use exact English control names,
@@ -174,6 +179,7 @@ async function launchHarness(
       curationExportPath,
       archivePath,
       consoleErrors,
+      fontRequests,
     };
   } catch (error: unknown) {
     try {
@@ -3255,7 +3261,7 @@ test("keeps panel motion, geometry, and Windows rendering coherent", async ({
 }, testInfo) => {
   expect(browserName).toBe("chromium");
   const harness = await launchHarness("visual");
-  const { application, page, consoleErrors } = harness;
+  const { application, page, consoleErrors, fontRequests } = harness;
 
   try {
     await importFixture(page);
@@ -3398,8 +3404,43 @@ test("keeps panel motion, geometry, and Windows rendering coherent", async ({
       await expect(page.locator(".segment-row").first()).toHaveClass(/active/u);
     }
 
-    const renderingEvidence = await page.evaluate(() => {
+    const renderingEvidence = await page.evaluate(async () => {
+      const cjkSample = "简体中文翻译龘㐀𠂇";
+      const loadSpecs = [
+        { family: "Translunar Space Grotesk", shorthand: "600 16px" },
+        { family: "Translunar Chivo", shorthand: "400 16px" },
+        { family: "Translunar Space Mono", shorthand: "400 16px" },
+        { family: "Translunar Space Mono", shorthand: "700 16px" },
+        { family: "Translunar Noto Sans SC", shorthand: "400 16px" },
+      ];
+      const fontLoads = await Promise.all(
+        loadSpecs.map(async ({ family, shorthand }) => {
+          const sample = family.endsWith("Noto Sans SC")
+            ? cjkSample
+            : "CAT 0123";
+          const faces = await document.fonts.load(
+            `${shorthand} "${family}"`,
+            sample,
+          );
+          return {
+            family,
+            shorthand,
+            count: faces.length,
+            statuses: faces.map((face) => face.status),
+          };
+        }),
+      );
+      await document.fonts.ready;
       const bodyStyle = getComputedStyle(document.body);
+      const displayStyle = getComputedStyle(
+        document.querySelector(".project-identity strong")!,
+      );
+      const monoStyle = getComputedStyle(
+        document.querySelector(".document-switcher small")!,
+      );
+      const cjkStyle = getComputedStyle(
+        document.querySelector(".target-cell textarea")!,
+      );
       const suggestionsTitle = document.querySelector(
         ".suggestions-header > strong",
       );
@@ -3408,9 +3449,20 @@ test("keeps panel motion, geometry, and Windows rendering coherent", async ({
       return {
         devicePixelRatio: window.devicePixelRatio,
         bodyFontFamily: bodyStyle.fontFamily,
+        displayFontFamily: displayStyle.fontFamily,
+        monoFontFamily: monoStyle.fontFamily,
+        cjkFontFamily: cjkStyle.fontFamily,
         bodyTextRendering: bodyStyle.textRendering,
-        segoeAvailable: document.fonts.check('14px "Segoe UI"'),
-        yaheiAvailable: document.fonts.check('14px "Microsoft YaHei UI"'),
+        cjkSample,
+        cjkSampleReady: document.fonts.check(
+          '400 16px "Translunar Noto Sans SC"',
+          cjkSample,
+        ),
+        fontLoads,
+        fontResources: performance
+          .getEntriesByType("resource")
+          .map((entry) => entry.name)
+          .filter((name) => /\.(?:woff2?|ttf)(?:$|\?)/u.test(name)),
         suggestionsTitleAfter: suggestionsTitle
           ? getComputedStyle(suggestionsTitle, "::after").content
           : null,
@@ -3419,7 +3471,26 @@ test("keeps panel motion, geometry, and Windows rendering coherent", async ({
       };
     });
     expect(renderingEvidence.devicePixelRatio).toBeGreaterThan(0);
-    expect(renderingEvidence.bodyFontFamily).toContain("Segoe UI");
+    expect(renderingEvidence.bodyFontFamily).toContain("Translunar Chivo");
+    expect(renderingEvidence.displayFontFamily).toContain(
+      "Translunar Space Grotesk",
+    );
+    expect(renderingEvidence.monoFontFamily).toContain("Translunar Space Mono");
+    expect(renderingEvidence.cjkFontFamily).toContain(
+      "Translunar Noto Sans SC",
+    );
+    expect(renderingEvidence.cjkSampleReady).toBe(true);
+    expect(renderingEvidence.fontLoads).toHaveLength(5);
+    expect(
+      renderingEvidence.fontLoads.every(
+        ({ count, statuses }) =>
+          count === 1 && statuses.every((status) => status === "loaded"),
+      ),
+    ).toBe(true);
+    expect(
+      renderingEvidence.fontResources.some((url) => /^https?:\/\//u.test(url)),
+    ).toBe(false);
+    expect(fontRequests.some((url) => /^https?:\/\//u.test(url))).toBe(false);
     expect(renderingEvidence.suggestionsTitleAfter).toBe("none");
     expect(renderingEvidence.suggestionsWidth).toBeCloseTo(400, 0);
     await testInfo.attach("rendering-evidence", {

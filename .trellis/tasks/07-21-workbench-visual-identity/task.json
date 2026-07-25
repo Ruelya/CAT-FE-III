@@ -3,7 +3,7 @@
   "name": "workbench-visual-identity",
   "title": "Workbench visual identity deepening",
   "description": "Follow-up to workbench-visual-polish: typography, skeleton/empty states, and design-token scale refactor (deferred scope)",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": "apps/desktop renderer; deferred until after workbench-visual-polish",
   "package": null,
