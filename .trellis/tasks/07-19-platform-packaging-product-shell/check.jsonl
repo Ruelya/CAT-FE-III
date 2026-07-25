@@ -1,1 +1,10 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file":".trellis/tasks/07-19-platform-packaging-product-shell/research/full-scope-gap-evidence.md","reason":"Audit checklist and explicit non-MVP interpretation for independent review."}
+{"file":".trellis/spec/backend/engine-boundary.md","reason":"Verify Engine/protocol ownership, backup/restore, allowlist, restart, and typed error behavior."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Verify migration, path safety, transactions, no-clobber, and rollback behavior."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Verify stable error codes and secret/content redaction."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Run Rust, contract, process, and cross-layer quality review."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Verify main/preload/renderer boundaries, lifecycle, dialogs, drafts, and packaging."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Verify desktop tests, accessibility, visual, and no-console requirements."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Verify authoritative state replacement and safe draft/local preference ownership."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Verify generated contract use and no unsafe casts or local protocol mirrors."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Audit all cross-layer flows and generated/runtime template consistency."}

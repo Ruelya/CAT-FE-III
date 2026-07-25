@@ -1,1 +1,12 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file":".trellis/tasks/07-19-platform-packaging-product-shell/research/full-scope-gap-evidence.md","reason":"Durable evidence from the complete gap matrix and the nine required product-shell work packages."}
+{"file":".trellis/spec/backend/engine-boundary.md","reason":"Rust Engine, protocol, data-directory, backup, health, restart, and transaction boundary contract."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Workspace-relative paths, migration, backup, atomic swap, and rollback storage rules."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Stable typed errors, bounded diagnostics, and no-sensitive-data rules."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Rust/protocol quality gates and cross-layer evidence requirements."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Electron main/preload/renderer boundary, packaging, lifecycle, and recovery contracts."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Desktop typecheck, E2E, accessibility, visual, and production-build gates."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Authoritative Engine state, ephemeral UI state, draft and recovery ownership."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Generated contracts, unknown IPC values, typed reducers, and renderer constraints."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Data-flow, IPC, event, and cross-platform consistency review prompts."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Search-first and shared decoder/reducer/configuration guidance."}
+{"file":".trellis/tasks/07-19-platform-packaging-product-shell/research/remaining-gap-evidence.md","reason":"Verified non-MVP gaps that must be implemented before quality review."}

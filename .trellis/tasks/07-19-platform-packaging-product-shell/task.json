@@ -3,7 +3,7 @@
   "name": "platform-packaging-product-shell",
   "title": "Cross-platform packaging and product shell",
   "description": "Implement Windows/macOS packaging, secure key storage, backup/restore, updates, zh-CN/en-US UI, tutorial/example project, accessibility, installer size controls, and CI.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,
