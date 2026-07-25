@@ -51,6 +51,23 @@ export type MessageKey =
   | "error.draftStale"
   | "error.projectInRecycleBin"
   | "error.projectNoDocuments"
+  | "shellError.canceled"
+  | "shellError.notWritable"
+  | "shellError.insufficientSpace"
+  | "shellError.existingWorkspace"
+  | "shellError.destinationExists"
+  | "shellError.unsafePath"
+  | "shellError.invalidBackup"
+  | "shellError.incompatibleBackup"
+  | "shellError.schemaTooNew"
+  | "shellError.hashMismatch"
+  | "shellError.invalidWorkspaceShape"
+  | "shellError.restoreInProgress"
+  | "shellError.confirmationExpired"
+  | "shellError.confirmationInvalid"
+  | "shellError.healthFailed"
+  | "shellError.stagingIncomplete"
+  | "shellError.unknown"
   | "settings.title"
   | "settings.locale"
   | "settings.localeHelp"
@@ -69,6 +86,8 @@ export type MessageKey =
   | "settings.allowlistEmpty"
   | "settings.noBackups"
   | "settings.close"
+  | "settings.localeName.enUS"
+  | "settings.localeName.zhCN"
   | "settings.profileDisabled"
   | "backup.title"
   | "backup.destination"
@@ -576,6 +595,7 @@ export type MessageKey =
   | "assistant.sections"
   | "ai.kicker"
   | "ai.title"
+  | "ai.description"
   | "ai.enabled"
   | "ai.interactiveRuns"
   | "ai.batchRuns"
@@ -667,6 +687,8 @@ export type MessageKey =
   | "task.rowsAria"
   | "task.noRows"
   | "task.detachedReady"
+  | "task.importDocumentCount"
+  | "task.importBoundRowCount"
   | "task.optionalSlices"
   | "task.tmTermRows"
   | "task.noMountedLibrary"
@@ -1259,7 +1281,19 @@ export type MessageKey =
   | "insights.durationHours"
   | "qa.run"
   | "qa.waivedBy"
+  | "qa.relatedSegmentCount"
+  | "qa.segmentOrdinal"
   | "qa.name"
+  | "interop.reviewImportReason"
+  | "interop.tableImportReason"
+  | "interop.reviewPreviewEmpty"
+  | "interop.tablePreviewEmpty"
+  | "export.checkingTranslation"
+  | "export.readyForDelivery"
+  | "export.publicationBlocked"
+  | "export.qaRunsAgainst"
+  | "tm.searchExactPlaceholder"
+  | "ai.providerCredentialDefault"
   | "qa.label"
   | "qa.field"
   | "qa.reviewStats"
@@ -1423,6 +1457,8 @@ export type MessageKey =
   | "corpus.noSourceExpression"
   | "corpus.noTargetExpression"
   | "corpus.noStructuralPath"
+  | "corpus.noProvenance"
+  | "corpus.provenanceUnavailable"
   | "corpus.removeNamed"
   | "corpus.removeBody"
   | "corpus.removing"
@@ -1595,6 +1631,34 @@ const enUs: MessageCatalog = {
     "This draft is older than the saved segment and will not be applied silently.",
   "error.projectInRecycleBin": "This project is in the recycle bin.",
   "error.projectNoDocuments": "This project has no active documents.",
+  "shellError.canceled": "The operation was canceled.",
+  "shellError.notWritable": "The chosen location is not writable.",
+  "shellError.insufficientSpace":
+    "There is not enough free space for this operation.",
+  "shellError.existingWorkspace":
+    "The target already contains an unrelated workspace.",
+  "shellError.destinationExists":
+    "A file or folder already exists at the destination.",
+  "shellError.unsafePath": "The selected path is not allowed.",
+  "shellError.invalidBackup": "The backup is missing or malformed.",
+  "shellError.incompatibleBackup":
+    "The backup is not compatible with this version.",
+  "shellError.schemaTooNew":
+    "The backup was created by a newer version and cannot be restored.",
+  "shellError.hashMismatch":
+    "The backup failed integrity verification and was not restored.",
+  "shellError.invalidWorkspaceShape":
+    "The backup does not have a valid workspace layout.",
+  "shellError.restoreInProgress": "Another restore is already in progress.",
+  "shellError.confirmationExpired":
+    "The restore confirmation expired. Preview the backup again.",
+  "shellError.confirmationInvalid":
+    "The restore confirmation was invalid. Preview the backup again.",
+  "shellError.healthFailed":
+    "The restored workspace failed its health check. The live workspace was kept.",
+  "shellError.stagingIncomplete":
+    "The staged copy was incomplete. No changes were made.",
+  "shellError.unknown": "The operation could not be completed.",
   "settings.title": "Product settings",
   "settings.locale": "Language",
   "settings.localeHelp":
@@ -1617,6 +1681,8 @@ const enUs: MessageCatalog = {
   "settings.noBackups": "No backups recorded yet.",
   "settings.close": "Close settings",
   "settings.profileDisabled": "(disabled)",
+  "settings.localeName.enUS": "English (United States)",
+  "settings.localeName.zhCN": "简体中文",
   "backup.title": "Workspace backup",
   "backup.destination": "Choose a destination folder",
   "backup.progress": "Creating backup…",
@@ -1982,11 +2048,16 @@ const enUs: MessageCatalog = {
   "export.helpBlocked":
     "Open each blocker in the editor, or explicitly enable a reasoned override.",
   "export.success": "Exported {count} translated segments to {name}.",
+  "export.checkingTranslation": "Checking current translation",
+  "export.readyForDelivery": "Ready for delivery",
+  "export.publicationBlocked": "Publication blocked",
+  "export.qaRunsAgainst": "QA runs against the current translation",
   "tm.exactKicker": "Exact memory",
   "tm.title": "Translation memory",
   "tm.exactAria": "Exact translation memory",
   "tm.activeLookup": "Active-source lookup",
   "tm.searchAria": "Search exact source",
+  "tm.searchExactPlaceholder": "Search exact source text…",
   "tm.lookupFailed": "Exact lookup failed",
   "tm.lookingUp": "Looking up exact matches…",
   "tm.noExactMatch": "No exact match",
@@ -2167,6 +2238,8 @@ const enUs: MessageCatalog = {
   "assistant.sections": "sections",
   "ai.kicker": "Workspace policy",
   "ai.title": "AI control",
+  "ai.description":
+    "Credentials stay in the operating-system keyring. Grounding, runs, usage, and target writes remain Engine-owned.",
   "ai.enabled": "AI enabled",
   "ai.interactiveRuns": "Interactive runs",
   "ai.batchRuns": "Batch runs",
@@ -2210,6 +2283,7 @@ const enUs: MessageCatalog = {
   "ai.chooseProviderProfile": "Choose a provider profile.",
   "ai.batchStarted": "Batch pretranslation started.",
   "ai.providerCredential": "Provider credential",
+  "ai.providerCredentialDefault": "Provider credential (default)",
   "ai.credentialFor": "Credential for {name}",
   "ai.testNamed": "Test {name}",
   "ai.editNamed": "Edit {name}",
@@ -2260,6 +2334,10 @@ const enUs: MessageCatalog = {
   "task.rowsAria": "Task package rows",
   "task.noRows": "No rows were returned for this page.",
   "task.detachedReady": "Detached task project is ready",
+  "task.importDocumentCount":
+    "{count, plural, one {# document} other {# documents}}",
+  "task.importBoundRowCount":
+    "{count, plural, one {# bound row} other {# bound rows}}",
   "task.optionalSlices": "Optional slices",
   "task.tmTermRows": "TM / termbase rows",
   "task.noMountedLibrary": "No mounted library",
@@ -2644,6 +2722,10 @@ const enUs: MessageCatalog = {
   "interop.selectAndPreview":
     "Select an input and preview it to inspect authoritative rows.",
   "interop.appliedReview": "Applied {count} review row(s).",
+  "interop.reviewImportReason": "Interop review import",
+  "interop.tableImportReason": "Bilingual table import",
+  "interop.reviewPreviewEmpty": "Review package preview",
+  "interop.tablePreviewEmpty": "Bilingual table preview",
   "insights.previewReconciliation": "Preview reconciliation",
   "insights.restoreFromHome":
     "Project restore and purge remain available from the project home.",
@@ -2893,6 +2975,9 @@ const enUs: MessageCatalog = {
   "insights.durationHours": "{value} hr",
   "qa.run": "Run QA",
   "qa.waivedBy": "Waived by {actor}",
+  "qa.relatedSegmentCount":
+    "{count, plural, one {# related segment} other {# related segments}}",
+  "qa.segmentOrdinal": "Segment {ordinal}",
   "qa.name": "Name",
   "qa.label": "Label",
   "qa.field": "Field",
@@ -3066,6 +3151,8 @@ const enUs: MessageCatalog = {
   "corpus.noSourceExpression": "(no source expression)",
   "corpus.noTargetExpression": "(no target expression)",
   "corpus.noStructuralPath": "No structural path",
+  "corpus.noProvenance": "No additional provenance",
+  "corpus.provenanceUnavailable": "Provenance is unavailable",
   "corpus.removeNamed": "Remove {name}",
   "corpus.removeBody":
     "Search and AI grounding will exclude this corpus immediately. Original documents, TM units, and the managed source are not changed.",
@@ -3238,6 +3325,23 @@ const zhCn: MessageCatalog = {
   "error.draftStale": "草稿修订号已过期，不会被静默应用。",
   "error.projectInRecycleBin": "该项目位于回收站中。",
   "error.projectNoDocuments": "该项目没有活动文档。",
+  "shellError.canceled": "操作已取消。",
+  "shellError.notWritable": "所选位置不可写。",
+  "shellError.insufficientSpace": "目标磁盘空间不足。",
+  "shellError.existingWorkspace": "所选文件夹已是另一个工作区。",
+  "shellError.destinationExists": "目标已存在，不会被覆盖。",
+  "shellError.unsafePath": "该路径不安全，无法使用。",
+  "shellError.invalidBackup": "该备份无效或不完整。",
+  "shellError.incompatibleBackup": "该备份与当前引擎不兼容。",
+  "shellError.schemaTooNew": "该备份的架构版本比本应用更新。",
+  "shellError.hashMismatch": "备份校验失败：文件哈希不匹配。",
+  "shellError.invalidWorkspaceShape": "备份的工作区结构无法识别。",
+  "shellError.restoreInProgress": "恢复操作已在进行中。",
+  "shellError.confirmationExpired": "确认已过期，请重新预览备份。",
+  "shellError.confirmationInvalid": "确认无效，请重新预览备份。",
+  "shellError.healthFailed": "已恢复的工作区未通过健康检查。",
+  "shellError.stagingIncomplete": "暂存副本不完整。原始工作区保持不变。",
+  "shellError.unknown": "该操作无法完成。",
   "settings.title": "产品设置",
   "settings.locale": "界面语言",
   "settings.localeHelp": "立即生效，并在下次启动时保留。",
@@ -3258,6 +3362,8 @@ const zhCn: MessageCatalog = {
   "settings.allowlistEmpty": "全部已启用配置（无限制）",
   "settings.noBackups": "尚未记录备份。",
   "settings.close": "关闭设置",
+  "settings.localeName.enUS": "English（英语）",
+  "settings.localeName.zhCN": "简体中文",
   "settings.profileDisabled": "（已禁用）",
   "backup.title": "工作区备份",
   "backup.destination": "选择目标文件夹",
@@ -3603,11 +3709,16 @@ const zhCn: MessageCatalog = {
   "export.exportDocument": "导出文档",
   "export.helpBlocked": "在编辑器中打开每个阻断项，或明确启用有理由的覆盖。",
   "export.success": "已导出 {count} 个已翻译句段到 {name}。",
+  "export.checkingTranslation": "正在检查当前译文",
+  "export.readyForDelivery": "可以交付",
+  "export.publicationBlocked": "发布已阻断",
+  "export.qaRunsAgainst": "质检针对当前译文运行",
   "tm.exactKicker": "精确记忆",
   "tm.title": "翻译记忆",
   "tm.exactAria": "精确翻译记忆",
   "tm.activeLookup": "当前原文检索",
   "tm.searchAria": "搜索精确原文",
+  "tm.searchExactPlaceholder": "搜索精确原文…",
   "tm.lookupFailed": "精确检索失败",
   "tm.lookingUp": "正在查找精确匹配…",
   "tm.noExactMatch": "无精确匹配",
@@ -3782,6 +3893,7 @@ const zhCn: MessageCatalog = {
   "assistant.sections": "个分段",
   "ai.kicker": "工作区策略",
   "ai.title": "AI 控制",
+  "ai.description": "凭证存储在操作系统密钥环中。语境、运行、使用记录及译文写入均由引擎管理。",
   "ai.enabled": "启用 AI",
   "ai.interactiveRuns": "交互运行",
   "ai.batchRuns": "批量运行",
@@ -3824,6 +3936,7 @@ const zhCn: MessageCatalog = {
   "ai.chooseProviderProfile": "请选择提供方配置。",
   "ai.batchStarted": "批量预翻译已开始。",
   "ai.providerCredential": "提供方凭据",
+  "ai.providerCredentialDefault": "提供方凭据（默认）",
   "ai.credentialFor": "{name} 的凭据",
   "ai.testNamed": "测试 {name}",
   "ai.editNamed": "编辑 {name}",
@@ -3873,6 +3986,8 @@ const zhCn: MessageCatalog = {
   "task.rowsAria": "任务包行",
   "task.noRows": "本页没有返回任何行。",
   "task.detachedReady": "分离任务项目已就绪",
+  "task.importDocumentCount": "{count, plural, one {# 个文档} other {# 个文档}}",
+  "task.importBoundRowCount": "{count, plural, one {# 个绑定行} other {# 个绑定行}}",
   "task.optionalSlices": "可选切片",
   "task.tmTermRows": "翻译记忆 / 术语库行",
   "task.noMountedLibrary": "没有已挂载的库",
@@ -4243,6 +4358,10 @@ const zhCn: MessageCatalog = {
   "snapshot.created": "快照 {name} 已创建。",
   "interop.selectAndPreview": "选择输入并预览以检查权威行。",
   "interop.appliedReview": "已应用 {count} 条审阅行。",
+  "interop.reviewImportReason": "互操作审阅导入",
+  "interop.tableImportReason": "双语对照表导入",
+  "interop.reviewPreviewEmpty": "审阅包预览",
+  "interop.tablePreviewEmpty": "双语对照表预览",
   "insights.previewReconciliation": "预览对账",
   "insights.restoreFromHome": "项目恢复与清除仍可从项目主页操作。",
   "qa.documentScope": "文档",
@@ -4479,6 +4598,8 @@ const zhCn: MessageCatalog = {
   "insights.durationHours": "{value} 小时",
   "qa.run": "运行质检",
   "qa.waivedBy": "由 {actor} 豁免",
+  "qa.relatedSegmentCount": "{count, plural, one {# 个相关句段} other {# 个相关句段}}",
+  "qa.segmentOrdinal": "句段 {ordinal}",
   "qa.name": "名称",
   "qa.label": "标签",
   "qa.field": "字段",
@@ -4646,6 +4767,8 @@ const zhCn: MessageCatalog = {
   "corpus.noSourceExpression": "（无原文表达）",
   "corpus.noTargetExpression": "（无译文表达）",
   "corpus.noStructuralPath": "无结构路径",
+  "corpus.noProvenance": "无其他来源信息",
+  "corpus.provenanceUnavailable": "来源信息不可用",
   "corpus.removeNamed": "移除 {name}",
   "corpus.removeBody":
     "移除后，搜索与 AI grounding 将立即排除此语料。原始文档、翻译记忆单元和托管源文件不会更改。",

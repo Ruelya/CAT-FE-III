@@ -1,5 +1,7 @@
 import type { AiRunStatus, AlignmentManualLink } from "@translunar/contracts";
 
+import type { MessageKey } from "./i18n/messages";
+
 interface SelectableAlignmentLink {
   id: string;
   ordinal: number;
@@ -76,13 +78,21 @@ export function splitAlignmentReplacement(
   }));
 }
 
-export function formatCorpusProvenance(value: unknown): string {
-  if (value === null || value === undefined) return "No additional provenance";
-  if (typeof value === "string") return value || "No additional provenance";
+type ProvenanceTranslate = (key: MessageKey) => string;
+
+export function formatCorpusProvenance(
+  value: unknown,
+  translate?: ProvenanceTranslate,
+): string {
+  const none = translate?.("corpus.noProvenance") ?? "No additional provenance";
+  if (value === null || value === undefined) return none;
+  if (typeof value === "string") return value || none;
   try {
-    return JSON.stringify(value) || "No additional provenance";
+    return JSON.stringify(value) || none;
   } catch {
-    return "Provenance is unavailable";
+    return (
+      translate?.("corpus.provenanceUnavailable") ?? "Provenance is unavailable"
+    );
   }
 }
 

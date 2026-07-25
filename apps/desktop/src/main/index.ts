@@ -34,7 +34,7 @@ import {
   type UpdateManager,
 } from "./update-manager.js";
 import type { DesktopEngineInvokeResponse } from "../shared/desktop-api.js";
-import { dialogTitle } from "../shared/dialog-messages.js";
+import { dialogFilterName, dialogTitle } from "../shared/dialog-messages.js";
 import type {
   ProductShellSettings,
   TutorialState,
@@ -440,10 +440,11 @@ function registerIpc(): void {
       return testSource;
     }
     const owner = requireWindow();
+    const locale = await currentDialogLocale();
     const result = await dialog.showOpenDialog(owner, {
-      title: dialogTitle(await currentDialogLocale(), "dialog.selectSource"),
+      title: dialogTitle(locale, "dialog.selectSource"),
       properties: ["openFile"],
-      filters: [supportedDocumentFilter()],
+      filters: [supportedDocumentFilter(locale)],
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
@@ -455,10 +456,11 @@ function registerIpc(): void {
         .split(process.platform === "win32" ? ";" : ":")
         .filter(Boolean);
     }
+    const locale = await currentDialogLocale();
     const result = await dialog.showOpenDialog(requireWindow(), {
-      title: dialogTitle(await currentDialogLocale(), "dialog.selectSources"),
+      title: dialogTitle(locale, "dialog.selectSources"),
       properties: ["openFile", "multiSelections"],
-      filters: [supportedDocumentFilter()],
+      filters: [supportedDocumentFilter(locale)],
     });
     return result.canceled ? [] : result.filePaths.slice(0, 500);
   });
@@ -467,11 +469,9 @@ function registerIpc(): void {
     if (process.env.TRANSLUNAR_TEST_SOURCE_FOLDER) {
       return process.env.TRANSLUNAR_TEST_SOURCE_FOLDER;
     }
+    const locale = await currentDialogLocale();
     const result = await dialog.showOpenDialog(requireWindow(), {
-      title: dialogTitle(
-        await currentDialogLocale(),
-        "dialog.selectSourceFolder",
-      ),
+      title: dialogTitle(locale, "dialog.selectSourceFolder"),
       properties: ["openDirectory"],
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
@@ -481,15 +481,13 @@ function registerIpc(): void {
     if (process.env.TRANSLUNAR_TEST_PROJECT_ARCHIVE) {
       return process.env.TRANSLUNAR_TEST_PROJECT_ARCHIVE;
     }
+    const locale = await currentDialogLocale();
     const result = await dialog.showOpenDialog(requireWindow(), {
-      title: dialogTitle(
-        await currentDialogLocale(),
-        "dialog.selectProjectArchive",
-      ),
+      title: dialogTitle(locale, "dialog.selectProjectArchive"),
       properties: ["openFile"],
       filters: [
         {
-          name: "Translunar project archives",
+          name: dialogFilterName(locale, "filter.projectArchives"),
           extensions: ["tlcat", "zip"],
         },
       ],
@@ -507,15 +505,16 @@ function registerIpc(): void {
       if (process.env.TRANSLUNAR_TEST_PROJECT_ARCHIVE_DESTINATION) {
         return process.env.TRANSLUNAR_TEST_PROJECT_ARCHIVE_DESTINATION;
       }
+      const locale = await currentDialogLocale();
       const result = await dialog.showSaveDialog(requireWindow(), {
         title: dialogTitle(
-          await currentDialogLocale(),
+          locale,
           "dialog.selectProjectArchiveDestination",
         ),
         defaultPath: join(app.getPath("documents"), safeName),
         filters: [
           {
-            name: "Translunar project archives",
+            name: dialogFilterName(locale, "filter.projectArchives"),
             extensions: ["tlcat"],
           },
         ],
@@ -552,18 +551,39 @@ function registerIpc(): void {
       if (process.env.TRANSLUNAR_TEST_EXPORT_DOCX) {
         return process.env.TRANSLUNAR_TEST_EXPORT_DOCX;
       }
+      const locale = await currentDialogLocale();
       const extension = safeName.match(/\.([^.]+)$/u)?.[1]?.toLowerCase();
       const filters =
         extension === "html"
-          ? [{ name: "HTML reports", extensions: ["html"] }]
+          ? [
+              {
+                name: dialogFilterName(locale, "filter.htmlReports"),
+                extensions: ["html"],
+              },
+            ]
           : extension === "xlsx"
-            ? [{ name: "Excel workbooks", extensions: ["xlsx"] }]
+            ? [
+                {
+                  name: dialogFilterName(locale, "filter.excelWorkbooks"),
+                  extensions: ["xlsx"],
+                },
+              ]
             : extension === "tltask"
-              ? [{ name: "Offline task packages", extensions: ["tltask"] }]
-              : [{ name: "Source format", extensions: [extension ?? "docx"] }];
+              ? [
+                  {
+                    name: dialogFilterName(locale, "filter.taskPackages"),
+                    extensions: ["tltask"],
+                  },
+                ]
+              : [
+                  {
+                    name: dialogFilterName(locale, "filter.sourceFormat"),
+                    extensions: [extension ?? "docx"],
+                  },
+                ];
       const result = await dialog.showSaveDialog(requireWindow(), {
         title: dialogTitle(
-          await currentDialogLocale(),
+          locale,
           extension === "tltask"
             ? "dialog.selectExportTaskPackage"
             : "dialog.selectExport",
@@ -586,9 +606,10 @@ function registerIpc(): void {
           ? process.env.TRANSLUNAR_TEST_INTEROP_REVIEW
           : process.env.TRANSLUNAR_TEST_INTEROP_TABLE;
       if (testPath) return testPath;
+      const locale = await currentDialogLocale();
       const result = await dialog.showOpenDialog(requireWindow(), {
         title: dialogTitle(
-          await currentDialogLocale(),
+          locale,
           kind === "review"
             ? "dialog.selectInteropReview"
             : "dialog.selectInteropTable",
@@ -596,10 +617,15 @@ function registerIpc(): void {
         properties: ["openFile"],
         filters:
           kind === "review"
-            ? [{ name: "Review DOCX", extensions: ["docx"] }]
+            ? [
+                {
+                  name: dialogFilterName(locale, "filter.reviewDocx"),
+                  extensions: ["docx"],
+                },
+              ]
             : [
                 {
-                  name: "Bilingual tables",
+                  name: dialogFilterName(locale, "filter.bilingualTables"),
                   extensions: ["docx", "xlsx"],
                 },
               ],
@@ -612,13 +638,16 @@ function registerIpc(): void {
     if (process.env.TRANSLUNAR_TEST_TASK_PACKAGE_INPUT) {
       return process.env.TRANSLUNAR_TEST_TASK_PACKAGE_INPUT;
     }
+    const locale = await currentDialogLocale();
     const result = await dialog.showOpenDialog(requireWindow(), {
-      title: dialogTitle(
-        await currentDialogLocale(),
-        "dialog.selectTaskPackageInput",
-      ),
+      title: dialogTitle(locale, "dialog.selectTaskPackageInput"),
       properties: ["openFile"],
-      filters: [{ name: "Offline task packages", extensions: ["tltask"] }],
+      filters: [
+        {
+          name: dialogFilterName(locale, "filter.taskPackages"),
+          extensions: ["tltask"],
+        },
+      ],
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
@@ -627,13 +656,11 @@ function registerIpc(): void {
     if (process.env.TRANSLUNAR_TEST_CORPUS_INPUT) {
       return process.env.TRANSLUNAR_TEST_CORPUS_INPUT;
     }
+    const locale = await currentDialogLocale();
     const result = await dialog.showOpenDialog(requireWindow(), {
-      title: dialogTitle(
-        await currentDialogLocale(),
-        "dialog.selectCorpusInput",
-      ),
+      title: dialogTitle(locale, "dialog.selectCorpusInput"),
       properties: ["openFile"],
-      filters: [supportedDocumentFilter()],
+      filters: [supportedDocumentFilter(locale)],
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
@@ -1039,9 +1066,9 @@ async function currentDialogLocale(): Promise<string> {
   }
 }
 
-function supportedDocumentFilter(): Electron.FileFilter {
+function supportedDocumentFilter(locale: string): Electron.FileFilter {
   return {
-    name: "Supported documents",
+    name: dialogFilterName(locale, "filter.supportedDocuments"),
     extensions: [
       "docx",
       "xlsx",

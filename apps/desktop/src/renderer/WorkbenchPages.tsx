@@ -84,14 +84,14 @@ function SurfaceHeader({
   const [menuOpen, setMenuOpen] = useState(false);
   const pageTitle =
     surface === "qa-review"
-      ? "QA review"
+      ? t("nav.qaReview")
       : surface === "export-review"
-        ? "Export review"
+        ? t("nav.exportReview")
         : surface === "translation-memory"
-          ? "Translation memory"
+          ? t("tm.title")
           : surface === "ai-control"
-            ? "AI control"
-            : "Project insights";
+            ? t("nav.aiControl")
+            : t("nav.projectInsights");
   return (
     <header className="app-bar surface-header">
       <button
@@ -266,7 +266,9 @@ function TranslationMemoryPage({
           <input
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
-            placeholder={activeSegment?.sourceText ?? "Search exact source"}
+            placeholder={
+              activeSegment?.sourceText ?? t("tm.searchExactPlaceholder")
+            }
             aria-label={t("tm.searchAria")}
           />
         </label>

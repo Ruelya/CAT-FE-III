@@ -533,8 +533,8 @@ export function TaskPackagePanel({
 
       {busy ? (
         <div className="task-package-loading" role="status">
-          <LoaderCircle className="spin" size={17} /> Working on{" "}
-          {busy.replaceAll("-", " ")}...
+          <LoaderCircle className="spin" size={17} />{" "}
+          {t("common.workingOn", { task: busy.replaceAll("-", " ") })}
         </div>
       ) : null}
 
@@ -1052,8 +1052,14 @@ function PackageReviewPanel({
           <div>
             <strong>{t("task.detachedReady")}</strong>
             <span>
-              {importResult.project.name} · {importResult.documents.length}{" "}
-              document(s) · {importResult.bindingCount} bound row(s)
+              {importResult.project.name} ·{" "}
+              {t("task.importDocumentCount", {
+                count: importResult.documents.length,
+              })}{" "}
+              ·{" "}
+              {t("task.importBoundRowCount", {
+                count: importResult.bindingCount,
+              })}
             </span>
           </div>
           <button

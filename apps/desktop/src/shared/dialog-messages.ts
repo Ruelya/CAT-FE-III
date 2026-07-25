@@ -22,7 +22,24 @@ export type DialogMessageKey =
   | "dialog.selectBackupDestination"
   | "dialog.selectRestoreSource";
 
+/**
+ * File-filter display names shown in native open/save dialogs. Separate key
+ * space from dialog titles because these label file-type groups, not windows.
+ * Format tokens inside the labels (DOCX, XLSX, tltask, …) stay as data.
+ */
+export type DialogFilterKey =
+  | "filter.supportedDocuments"
+  | "filter.projectArchives"
+  | "filter.htmlReports"
+  | "filter.excelWorkbooks"
+  | "filter.taskPackages"
+  | "filter.sourceFormat"
+  | "filter.reviewDocx"
+  | "filter.bilingualTables";
+
 type DialogCatalog = Record<DialogMessageKey, string>;
+
+type DialogFilterCatalog = Record<DialogFilterKey, string>;
 
 const enUs: DialogCatalog = {
   "dialog.selectSource": "Import source document",
@@ -60,15 +77,48 @@ const zhCn: DialogCatalog = {
   "dialog.selectRestoreSource": "选择要恢复的备份文件夹",
 };
 
+const enUsFilters: DialogFilterCatalog = {
+  "filter.supportedDocuments": "Supported documents",
+  "filter.projectArchives": "Translunar project archives",
+  "filter.htmlReports": "HTML reports",
+  "filter.excelWorkbooks": "Excel workbooks",
+  "filter.taskPackages": "Offline task packages",
+  "filter.sourceFormat": "Source format",
+  "filter.reviewDocx": "Review DOCX",
+  "filter.bilingualTables": "Bilingual tables",
+};
+
+const zhCnFilters: DialogFilterCatalog = {
+  "filter.supportedDocuments": "支持的文档",
+  "filter.projectArchives": "Translunar 项目归档",
+  "filter.htmlReports": "HTML 报告",
+  "filter.excelWorkbooks": "Excel 工作簿",
+  "filter.taskPackages": "离线任务包",
+  "filter.sourceFormat": "源格式",
+  "filter.reviewDocx": "审阅 DOCX",
+  "filter.bilingualTables": "双语对照表",
+};
+
 const catalogs: Record<DialogLocale, DialogCatalog> = {
   "en-US": enUs,
   "zh-CN": zhCn,
 };
 
+const filterCatalogs: Record<DialogLocale, DialogFilterCatalog> = {
+  "en-US": enUsFilters,
+  "zh-CN": zhCnFilters,
+};
+
 const DIALOG_KEYS = Object.keys(enUs) as DialogMessageKey[];
+
+const DIALOG_FILTER_KEYS = Object.keys(enUsFilters) as DialogFilterKey[];
 
 export function listDialogMessageKeys(): DialogMessageKey[] {
   return [...DIALOG_KEYS];
+}
+
+export function listDialogFilterKeys(): DialogFilterKey[] {
+  return [...DIALOG_FILTER_KEYS];
 }
 
 export function normalizeDialogLocale(
@@ -86,4 +136,14 @@ export function dialogTitle(
 ): string {
   const normalized = normalizeDialogLocale(locale);
   return catalogs[normalized][key] ?? catalogs["en-US"][key] ?? key;
+}
+
+export function dialogFilterName(
+  locale: string | null | undefined,
+  key: DialogFilterKey,
+): string {
+  const normalized = normalizeDialogLocale(locale);
+  return (
+    filterCatalogs[normalized][key] ?? filterCatalogs["en-US"][key] ?? key
+  );
 }

@@ -114,9 +114,11 @@ export function InteropPanel({
     setError(null);
     setNotice(null);
     setReason(
-      mode === "review" ? "Interop review import" : "Bilingual table import",
+      mode === "review"
+        ? t("interop.reviewImportReason")
+        : t("interop.tableImportReason"),
     );
-  }, [mode]);
+  }, [mode, t]);
 
   const run = async (key: string, action: () => Promise<void>) => {
     setBusy(key);
@@ -474,8 +476,8 @@ export function InteropPanel({
 
       {busy ? (
         <div className="interop-loading" role="status">
-          <LoaderCircle className="spin" size={17} /> Working on{" "}
-          {busy.replaceAll("-", " ")}...
+          <LoaderCircle className="spin" size={17} />{" "}
+          {t("common.workingOn", { task: busy.replaceAll("-", " ") })}
         </div>
       ) : null}
 
@@ -510,8 +512,8 @@ export function InteropPanel({
           <Languages size={24} />
           <strong>
             {mode === "review"
-              ? "Review package preview"
-              : "Bilingual table preview"}
+              ? t("interop.reviewPreviewEmpty")
+              : t("interop.tablePreviewEmpty")}
           </strong>
           <span>{t("interop.selectAndPreview")}</span>
         </section>

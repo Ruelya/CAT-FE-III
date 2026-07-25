@@ -120,15 +120,12 @@ export function ExportReviewPage({
           <h1>{t("export.title")}</h1>
           <strong className="export-review-state-copy">
             {loading
-              ? "Checking current translation"
+              ? t("export.checkingTranslation")
               : gate?.clear
-                ? "Ready for delivery"
-                : "Publication blocked"}
+                ? t("export.readyForDelivery")
+                : t("export.publicationBlocked")}
           </strong>
-          <p>
-            Every export runs fresh QA against {document.name} before
-            publication.
-          </p>
+          <p>{t("export.heroBody", { name: document.name })}</p>
         </div>
         <button
           type="button"

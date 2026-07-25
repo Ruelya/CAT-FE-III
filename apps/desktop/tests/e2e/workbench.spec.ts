@@ -114,10 +114,10 @@ async function launchHarness(
         TRANSLUNAR_TEST_PROJECT_ARCHIVE: archivePath,
         TRANSLUNAR_TEST_PROJECT_ARCHIVE_DESTINATION: archivePath,
         ...(options.interopReviewInput
-          ? { TRANSLUNAR_TEST_REVIEW_INPUT: options.interopReviewInput }
+          ? { TRANSLUNAR_TEST_INTEROP_REVIEW: options.interopReviewInput }
           : {}),
         ...(options.interopTableInput
-          ? { TRANSLUNAR_TEST_TABLE_INPUT: options.interopTableInput }
+          ? { TRANSLUNAR_TEST_INTEROP_TABLE: options.interopTableInput }
           : {}),
         ...(options.taskPackageInput
           ? { TRANSLUNAR_TEST_TASK_PACKAGE_INPUT: options.taskPackageInput }
@@ -138,8 +138,14 @@ async function launchHarness(
     });
     page.on("pageerror", (error) => consoleErrors.push(error.message));
     await dismissFirstRunTutorial(page);
-    if (options.locale) {
-      const locale = options.locale;
+    // The legacy workflow assertions below (importFixture, the setup wizard,
+    // and the "Translation segments" region) use exact English control names,
+    // so pin a deterministic locale before the first setup interaction instead
+    // of inheriting the host system locale (e.g. zh-CN on this machine/CI),
+    // which would render those controls in Chinese and break the locators.
+    // Explicit per-test locales are still honored.
+    {
+      const locale = options.locale ?? "en-US";
       await page.evaluate(async (nextLocale) => {
         const api = (window as unknown as { translunar: DesktopApi })
           .translunar;
@@ -1823,7 +1829,7 @@ test("manages the complete project lifecycle through the real Engine", async ({
     await expect(
       templateSelect.locator("option", { hasText: templateName }),
     ).toHaveCount(1);
-    await templateSelect.selectOption({ label: `${templateName} · r3` });
+    await templateSelect.selectOption({ label: `${templateName} · revision 3` });
     await page.getByRole("button", { name: "Continue" }).click();
     await dropLocalFiles(page, ".wizard-dropzone", [sourceA, sourceB]);
     await expect(page.getByText("alpha.txt", { exact: true })).toBeVisible();
@@ -1893,7 +1899,7 @@ test("manages the complete project lifecycle through the real Engine", async ({
     await expect(deltaFile).toHaveCount(0);
     await page.getByRole("tab", { name: "Overview" }).click();
     await expect(
-      page.locator(".insights-metric").filter({ hasText: "Files" }),
+      page.locator(".insights-metric").filter({ hasText: "Documents" }),
     ).toContainText("3");
 
     await page.getByRole("tab", { name: "Re-import" }).click();
@@ -1992,7 +1998,7 @@ test("manages the complete project lifecycle through the real Engine", async ({
       page.locator(".search-results > button").first(),
     ).toContainText(projectName);
     await expect(page.locator(".search-result-field").first()).toHaveText(
-      "project",
+      "Project names",
     );
 
     await page.getByLabel("Global search query").fill("alpha");
@@ -2005,7 +2011,7 @@ test("manages the complete project lifecycle through the real Engine", async ({
       page.locator(".search-results > button").first(),
     ).toContainText("alpha.txt");
     await expect(page.locator(".search-result-field").first()).toHaveText(
-      "document",
+      "Document names",
     );
     await page.getByLabel("Search field").selectOption({
       label: "Import notes",
@@ -2645,14 +2651,18 @@ test("hands off an offline task package between real Engine workspaces", async (
       .getByRole("button", { name: "Project insights" })
       .click();
     await recipient.page.getByRole("tab", { name: "Task packages" }).click();
-    await recipient.page.getByRole("tab", { name: "Export return" }).click();
+    await recipient.page
+      .getByRole("tab", { name: /Export a return package|导出回传包/ })
+      .click();
     await expect(
       recipient.page.getByRole("heading", { name: "Export a return package" }),
     ).toBeVisible();
     await recipient.page
       .getByRole("button", { name: "Choose .tltask destination" })
       .click();
-    await recipient.page.getByRole("button", { name: "Export return" }).click();
+    await recipient.page
+      .getByRole("button", { name: /Export a return package|导出回传包/ })
+      .click();
     await expect(
       recipient.page.locator(".task-package-feedback"),
     ).toContainText("Return package");
@@ -3099,7 +3109,7 @@ test("keeps a 10,000 segment document inside the virtual row and 60-second perfo
   try {
     await importFixture(page, "ten-thousand.txt", 60_000);
     await expect(page.locator(".document-switcher")).toContainText(
-      "10000 segments",
+      "10,000 segments",
     );
     await expect
       .poll(() => page.locator(".segment-row").count())

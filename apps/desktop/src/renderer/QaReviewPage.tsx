@@ -543,7 +543,10 @@ export function QaReviewPage(props: WorkspacePageProps) {
               </header>
               <h2>{selected.message}</h2>
               <p>
-                {selected.documentName} · Segment {selected.segmentOrdinal + 1}
+                {selected.documentName} ·{" "}
+                {t("qa.segmentOrdinal", {
+                  ordinal: selected.segmentOrdinal + 1,
+                })}
               </p>
               <Evidence issue={selected} />
               <button
@@ -556,7 +559,9 @@ export function QaReviewPage(props: WorkspacePageProps) {
               </button>
               {selected.disposition === "waived" && selected.waiver ? (
                 <div className="qa-waiver">
-                  <span>Waived by {selected.waiver.actor}</span>
+                  <span>
+                    {t("qa.waivedBy", { actor: selected.waiver.actor })}
+                  </span>
                   <p>{selected.waiver.reason}</p>
                   <button
                     type="button"
@@ -792,7 +797,11 @@ function Evidence({ issue }: { issue: QaIssueView }) {
         <p>{t("qa.noEvidence")}</p>
       )}
       {issue.evidence.relatedSegmentIds?.length ? (
-        <p>{issue.evidence.relatedSegmentIds.length} related segment(s)</p>
+        <p>
+          {t("qa.relatedSegmentCount", {
+            count: issue.evidence.relatedSegmentIds.length,
+          })}
+        </p>
       ) : null}
     </div>
   );
@@ -860,7 +869,7 @@ function ProfileEditor({
         <header>
           <div>
             <span className="surface-kicker">
-              {profile.builtIn ? "Clone profile" : "Custom profile"}
+              {profile.builtIn ? t("qa.cloneProfile") : t("qa.customProfile")}
             </span>
             <h2 id="profile-title">{t("qa.profileRules")}</h2>
           </div>

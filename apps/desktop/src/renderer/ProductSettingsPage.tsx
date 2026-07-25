@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AiProviderProfile, Project } from "@translunar/contracts";
 
 import { useLocale } from "./i18n/LocaleProvider";
+import { localizeShellError } from "./shell-error";
 import { useFocusTrap } from "./useFocusTrap";
 import type {
   DataDirectoryStatus,
@@ -127,7 +128,7 @@ export function ProductSettingsPage({
       if (!source) return;
       const preview = await window.translunar.previewRestore(source);
       if (!preview.ok) {
-        throw new Error(preview.message ?? t("error.restoreFailed"));
+        throw new Error(localizeShellError(preview, t, "error.restoreFailed"));
       }
       const summary = toRestorePreviewSummary(
         preview.data,
@@ -135,7 +136,7 @@ export function ProductSettingsPage({
         formatBytes,
       );
       if (!summary) {
-        throw new Error(preview.message ?? t("error.restoreFailed"));
+        throw new Error(localizeShellError(preview, t, "error.restoreFailed"));
       }
       setRestorePreview(summary);
     });
@@ -157,7 +158,7 @@ export function ProductSettingsPage({
       if (!restored.ok) {
         // Token is single-use / invalidated on failure; clear preview.
         setRestorePreview(null);
-        throw new Error(restored.message ?? t("error.restoreFailed"));
+        throw new Error(localizeShellError(restored, t, "error.restoreFailed"));
       }
       setRestorePreview(null);
       setNotice(t("restore.success"));
@@ -310,7 +311,9 @@ export function ProductSettingsPage({
               >
                 {locales.map((item) => (
                   <option key={item} value={item}>
-                    {item}
+                    {item === "zh-CN"
+                      ? t("settings.localeName.zhCN")
+                      : t("settings.localeName.enUS")}
                   </option>
                 ))}
               </select>
@@ -359,15 +362,22 @@ export function ProductSettingsPage({
                       await window.translunar.validateDataDirectory(path);
                     if (!validation.ok) {
                       throw new Error(
-                        validation.message ?? t("error.dataDirectoryInvalid"),
+                        localizeShellError(
+                          validation,
+                          t,
+                          "error.dataDirectoryInvalid",
+                        ),
                       );
                     }
                     const migrated =
                       await window.translunar.migrateDataDirectory(path);
                     if (!migrated.ok) {
                       throw new Error(
-                        migrated.message ??
-                          t("error.dataDirectoryMigrateFailed"),
+                        localizeShellError(
+                          migrated,
+                          t,
+                          "error.dataDirectoryMigrateFailed",
+                        ),
                       );
                     }
                     setNotice(t("status.ready"));
@@ -392,7 +402,7 @@ export function ProductSettingsPage({
                       );
                     if (!result.ok) {
                       throw new Error(
-                        result.message ?? t("error.backupFailed"),
+                        localizeShellError(result, t, "error.backupFailed"),
                       );
                     }
                     setNotice(

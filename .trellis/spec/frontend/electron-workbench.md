@@ -1295,3 +1295,101 @@ if (!response.ok) return Promise.reject(response.error);
   path to exist, and validate that backup before `prepareInstall` or native
   installer invocation. Backup failure leaves the downloaded package staged
   but must not start installation.
+
+## E2E Product-Shell Regression Contracts
+
+### 1. Scope / Trigger
+
+Use this contract when adding or repairing desktop E2E coverage for locale,
+backup/restore, interop, accessibility labels, or any product-shell dialog.
+These tests cross the renderer, preload, Electron main process, and real
+Engine, so test setup is part of the behavior being verified.
+
+### 2. Signatures
+
+The shared harness accepts an optional locale and fixture seams:
+
+```typescript
+launchHarness(label, {
+  locale?: "en-US" | "zh-CN",
+  interopReviewInput?: string,
+  interopTableInput?: string,
+});
+```
+
+The corresponding main-process seams are:
+
+```text
+TRANSLUNAR_TEST_INTEROP_REVIEW
+TRANSLUNAR_TEST_INTEROP_TABLE
+TRANSLUNAR_TEST_BACKUP_DESTINATION
+```
+
+### 3. Contracts
+
+- The harness sets the locale and verifies persistence **before the first
+  setup/import interaction**. A test may override the default `en-US` with
+  `zh-CN`, but it must not rely on the host OS locale for accessible names.
+- Backup destinations and other fixture paths live outside the active
+  `TRANSLUNAR_DATA_DIR`. The seam must exercise the same destination and
+  no-clobber checks as a user-selected path.
+- Accessible-name assertions use the rendered catalog text and `aria-label`,
+  including the current locale; they do not preserve obsolete English labels.
+- Interop fixture variable names are shared constants by convention: a test
+  rename is incomplete until the main-process reader and every harness caller
+  use the same name.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Host locale is `zh-CN` and no explicit test locale is supplied | Harness pins `en-US` before setup and verifies it after reload |
+| Test requests `zh-CN` | All later locators use the Chinese catalog/accessibility names |
+| Backup seam resolves inside live data directory | Test setup rejects or relocates it; no live workspace mutation is allowed |
+| Interop env name differs between harness and main | Focused test fails before the dialog flow is counted as evidence |
+| Label changed in the catalog | E2E updates its accessible-name assertion from the catalog, not a stale literal |
+
+### 5. Good / Base / Bad Cases
+
+- Good: create an isolated data directory, choose an external backup target,
+  set locale, reload, and then perform the first UI action.
+- Base: a canceled dialog returns `null`, leaves the surface unchanged, and
+  does not call the Engine mutation.
+- Bad: click an English `getByRole` locator before locale initialization,
+  place the backup fixture under the live data directory, or silently fall
+  back to a different interop environment variable.
+
+### 6. Tests Required
+
+- A harness unit/focused E2E assertion that the locale is persisted across a
+  reload before setup interaction.
+- A real-Engine backup flow that proves `manifest.json` is written outside the
+  live data directory and that the success status is visible.
+- Interop review and table flows that set both exact environment names and
+  assert the selected fixture reaches main-process dialog handling.
+- Bilingual shell/accessibility checks that assert current catalog names,
+  focus entry, Escape behavior, and no unlabeled buttons.
+- A full desktop E2E run on the supported Node line before release; focused
+  passes are evidence for the slice only.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```typescript
+await dismissFirstRunTutorial(page);
+await page.getByRole("button", { name: "Import" }).click();
+await page.evaluate(() => window.translunar.updateShellSettings({ locale: "en-US" }));
+```
+
+#### Correct
+
+```typescript
+await dismissFirstRunTutorial(page);
+await page.evaluate(async () => {
+  await window.translunar.updateShellSettings({ locale: "en-US" });
+});
+await page.reload();
+await expect(page.getByRole("button", { name: /Import|导入/ })).toBeVisible();
+// Only now begin setup/import interactions.
+```

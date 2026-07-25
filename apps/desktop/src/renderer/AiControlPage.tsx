@@ -363,10 +363,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
         <div>
           <span className="surface-kicker">{t("ai.kicker")}</span>
           <h1 id="ai-policy-title">{t("ai.title")}</h1>
-          <p>
-            Credentials stay in the operating-system keyring. Grounding, runs,
-            usage, and target writes remain Engine-owned.
-          </p>
+          <p>{t("ai.description")}</p>
         </div>
         {settings ? (
           <div className="ai-policy-controls">
@@ -558,7 +555,8 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
               </label>
               <p>
                 <ShieldCheck size={14} />{" "}
-                {selectedDescriptor?.credentialHint ?? "Provider credential"}
+                {selectedDescriptor?.credentialHint ??
+                  t("ai.providerCredentialDefault")}
               </p>
               <button
                 type="button"
