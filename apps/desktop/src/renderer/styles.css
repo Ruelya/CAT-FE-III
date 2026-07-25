@@ -1857,12 +1857,12 @@ button:active:not(:disabled) {
 }
 
 .segment-grid th {
-  height: 34px;
-  padding: 0 11px;
+  height: 36px;
+  padding: 0 12px;
   border-bottom: 1px solid var(--line);
   color: var(--muted);
   background: color-mix(in oklab, var(--surface), var(--bg) 40%);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   text-align: left;
   text-transform: uppercase;
@@ -1882,7 +1882,7 @@ button:active:not(:disabled) {
 }
 
 .segment-row td {
-  padding: 10px 11px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--line);
   background: var(--surface);
   font-size: calc(15px * var(--editor-zoom, 1));
@@ -1918,7 +1918,7 @@ button:active:not(:disabled) {
   top: 0;
   bottom: 0;
   left: 0;
-  width: 3px;
+  width: 2px;
   background: var(--accent);
   content: "";
   opacity: 0;
@@ -1946,7 +1946,7 @@ button:active:not(:disabled) {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   white-space: nowrap;
@@ -2006,7 +2006,7 @@ button:active:not(:disabled) {
   color: var(--machine);
   background: color-mix(in oklab, var(--machine), transparent 88%);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   line-height: 1;
   vertical-align: 1px;
@@ -2029,7 +2029,7 @@ button.tag-capsule {
 
 .tag-capsule small {
   color: var(--muted);
-  font-size: 7px;
+  font-size: 11px;
 }
 
 .nonprinting {
@@ -2039,34 +2039,102 @@ button.tag-capsule {
 .segment-tools {
   display: flex;
   align-items: center;
-  gap: 3px;
-  min-height: 24px;
-  margin: -5px -4px 5px;
-  padding: 2px 4px;
+  justify-content: flex-end;
+  gap: 4px;
+  min-height: 36px;
+  margin: -4px -4px 6px;
+  padding: 0 0 4px;
   border-bottom: 1px solid var(--line);
 }
 
-.segment-tools button {
+.segment-tools > .segment-tool-button,
+.segment-overflow-wrap > .segment-tool-button {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  min-width: 24px;
-  height: 22px;
-  padding: 0 5px;
-  border-radius: 3px;
+  justify-content: center;
+  gap: 2px;
+  position: relative;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 11px;
 }
 
-.segment-tools button:hover {
+.segment-tools > .segment-tool-button:hover,
+.segment-overflow-wrap > .segment-tool-button:hover,
+.segment-overflow-wrap > .segment-tool-button[aria-expanded="true"] {
+  border-color: var(--line);
   color: var(--ink);
   background: color-mix(in oklab, var(--paper-shade), transparent 18%);
 }
 
-.segment-tools button:disabled {
+.segment-tools > .segment-tool-button:disabled,
+.segment-overflow-wrap > .segment-tool-button:disabled {
   cursor: not-allowed;
   opacity: 0.34;
+}
+
+.segment-tool-count {
+  display: grid;
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  place-items: center;
+  border: 1px solid var(--surface);
+  border-radius: 4px;
+  color: var(--chrome-fg);
+  background: var(--accent);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.segment-overflow-wrap {
+  position: relative;
+}
+
+.segment-overflow-menu {
+  display: grid;
+  position: absolute;
+  z-index: 12;
+  top: calc(100% + 4px);
+  right: 0;
+  width: max-content;
+  min-width: 220px;
+  padding: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  box-shadow: 0 14px 30px rgba(34, 27, 24, 0.18);
+}
+
+.segment-overflow-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 4px;
+  color: var(--ink);
+  font-size: 11px;
+  text-align: left;
+}
+
+.segment-overflow-menu button:hover,
+.segment-overflow-menu button:focus-visible {
+  background: var(--paper-shade);
+}
+
+.segment-overflow-menu button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
 }
 
 .target-tag-strip {
@@ -2108,7 +2176,7 @@ button.tag-capsule {
   border-radius: 3px;
   color: var(--muted);
   background: color-mix(in oklab, var(--accent), transparent 94%);
-  font-size: 10px;
+  font-size: 11px;
   text-align: left;
 }
 
@@ -2117,7 +2185,7 @@ button.tag-capsule {
   flex: 0 0 auto;
   color: var(--accent);
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 11px;
   text-transform: uppercase;
 }
 
@@ -2148,13 +2216,13 @@ button.tag-capsule {
   border-radius: 3px;
   color: var(--warning);
   background: color-mix(in oklab, var(--warning), transparent 91%);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .spell-findings small {
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 7px;
+  font-size: 11px;
 }
 
 .target-cell textarea::placeholder {
@@ -2183,7 +2251,7 @@ button.tag-capsule {
   gap: 5px;
   margin-top: 6px;
   color: var(--error);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -2858,6 +2926,14 @@ button.tag-capsule {
   opacity: 0.78;
 }
 
+.suggestions-header-field {
+  display: flex;
+  align-self: stretch;
+  min-width: 0;
+  flex: 1;
+  background-color: color-mix(in oklab, var(--bg), var(--surface) 18%);
+}
+
 .suggestions-header-tools {
   display: flex;
   align-items: center;
@@ -2867,7 +2943,16 @@ button.tag-capsule {
 }
 
 .suggestions-header-tools .icon-button {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
   background: color-mix(in srgb, var(--surface) 55%, transparent);
+}
+
+.suggestions-header-tools .icon-button:hover,
+.suggestions-header-tools .icon-button:focus-visible {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
 }
 
 .suggestion-tabs {
@@ -2978,13 +3063,29 @@ button.tag-capsule {
   font-size: 10px;
 }
 
-.match-card > header time,
+.match-card-meta time,
 .qa-card > header span {
   margin-left: auto;
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: 8px;
   text-transform: uppercase;
+}
+
+.match-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.match-card-meta time {
+  margin-left: auto;
 }
 
 .match-score {

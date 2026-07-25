@@ -121,19 +121,22 @@ Rollback point: Suggestions package is independent of segment/Preview structure.
 Ownership: segment table/toolbar presentation, any single overflow menu, row
 geometry constant, and 10,000-row/IME/accessibility tests.
 
-- [ ] Inventory command frequency/shortcut access before moving controls. Keep
+- [x] Inventory command frequency/shortcut access before moving controls. Keep
       frequent commands direct; group only verified lower-frequency commands.
-- [ ] Use stable 32px icon controls with Lucide, names, and tooltips. Protected
+- [x] Use stable 32px icon controls with Lucide, names, and tooltips. Protected
       tags and issue evidence stay visible and domain-accurate.
-- [ ] Raise row/status/tool metadata to the type floor and rebalance padding so
+- [x] Raise row/status/tool metadata to the type floor and rebalance padding so
       source/target text remains the strongest element.
-- [ ] If measured row height changes, update the one virtualization constant and
+- [x] If measured row height changes, update the one virtualization constant and
       validate spacer math, filter/search, scroll targeting, confirm-and-advance,
       and focus restore with 10,000 rows.
-- [ ] Run real CJK IME composition, save, confirm, tag, issue, and keyboard menu
+- [x] Run real CJK IME composition, save, confirm, tag, issue, and keyboard menu
       tests. No command may fire or focus move during composition.
-- [ ] Screenshot gate: normal/active/issue/tagged rows at all three widths and 125%
+- [x] Screenshot gate: normal/active/issue/tagged rows at all three widths and 125%
       scaling; no clipping, cards, ornamental cell graphics, or control collision.
+
+  Evidence: `evidence/wp5-segment-density.md` and the `wp5-segment-density-*`
+  screenshots under `evidence/screenshots/`.
 
 Rollback point: segment-density commit restores prior row geometry without
 changing Suggestions or Preview.

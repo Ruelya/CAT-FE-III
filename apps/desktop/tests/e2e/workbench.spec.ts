@@ -17,6 +17,7 @@ import {
   _electron as electron,
   expect,
   test,
+  type Locator,
   type Page,
   type TestInfo,
 } from "@playwright/test";
@@ -265,6 +266,19 @@ async function openApplicationMenu(page: Page): Promise<void> {
   await expect(
     page.getByRole("navigation", { name: "Application views" }),
   ).toBeVisible();
+}
+
+async function openSegmentActions(row: Locator): Promise<Locator> {
+  await row.scrollIntoViewIfNeeded();
+  const editor = row.locator("textarea");
+  if (await editor.count()) await editor.focus();
+  await expect(row).toHaveClass(/active/u);
+  const trigger = row.locator(".segment-more-trigger");
+  await expect(trigger).toHaveCount(1);
+  await trigger.click();
+  const menu = row.getByRole("menu", { name: "More actions" });
+  await expect(menu).toBeVisible();
+  return menu;
 }
 
 async function dropLocalFiles(
@@ -1225,8 +1239,10 @@ test("manages the offline Assistant and real workspace projections", async () =>
     ).toHaveValue("临时草稿");
     const firstRowForSignoff = page.locator(".segment-row").first();
     await firstRowForSignoff.locator("textarea").click();
-    await firstRowForSignoff
-      .getByRole("button", { name: "Open review panel" })
+    await (
+      await openSegmentActions(firstRowForSignoff)
+    )
+      .getByRole("menuitem", { name: "Open review panel" })
       .click();
     await page.getByRole("button", { name: "signed", exact: true }).click();
     const signoffDialog = page.getByRole("dialog", {
@@ -1600,8 +1616,10 @@ test("uses the authoritative professional editor commands", async () => {
     const thirdTarget = thirdRow.locator("textarea");
     await thirdTarget.fill("鼠标和打印机里的软件");
     await expect(page.locator(".save-indicator")).toContainText("Saved");
-    await thirdRow
-      .getByRole("button", { name: "Open Chinese conversion" })
+    await (
+      await openSegmentActions(thirdRow)
+    )
+      .getByRole("menuitem", { name: "Open Chinese conversion" })
       .click();
     await expect(
       page.getByRole("dialog", { name: "Chinese conversion" }),
@@ -1611,7 +1629,11 @@ test("uses the authoritative professional editor commands", async () => {
       .selectOption("simplifiedToTaiwan");
     await page.getByRole("button", { name: "Apply conversion" }).click();
     await expect(thirdTarget).toHaveValue("滑鼠和印表機裡的軟體");
-    await thirdRow.getByRole("button", { name: "Correct source" }).click();
+    await (
+      await openSegmentActions(thirdRow)
+    )
+      .getByRole("menuitem", { name: "Correct source" })
+      .click();
     await page
       .getByLabel("Corrected source")
       .fill("Corrected source for review.");
@@ -1622,7 +1644,11 @@ test("uses the authoritative professional editor commands", async () => {
       "Corrected source for review.",
     );
 
-    await thirdRow.getByRole("button", { name: "Open review panel" }).click();
+    await (
+      await openSegmentActions(thirdRow)
+    )
+      .getByRole("menuitem", { name: "Open review panel" })
+      .click();
     await page
       .getByLabel("Proposed source revision")
       .fill("Corrected source after reviewer feedback.");
@@ -1638,7 +1664,11 @@ test("uses the authoritative professional editor commands", async () => {
     await page.getByRole("button", { name: "Close review panel" }).click();
 
     await firstRow.click();
-    await firstRow.getByRole("button", { name: "Open review panel" }).click();
+    await (
+      await openSegmentActions(firstRow)
+    )
+      .getByRole("menuitem", { name: "Open review panel" })
+      .click();
     await page
       .getByLabel("Proposed target revision")
       .fill("保留期限为 45 天。");
@@ -1650,13 +1680,137 @@ test("uses the authoritative professional editor commands", async () => {
     await page.getByRole("button", { name: "Close review panel" }).click();
     await page.getByRole("button", { name: "Confirm", exact: true }).click();
     await firstRow.click();
-    await firstRow.getByRole("button", { name: "Open review panel" }).click();
+    await (
+      await openSegmentActions(firstRow)
+    )
+      .getByRole("menuitem", { name: "Open review panel" })
+      .click();
     await page.getByRole("button", { name: "signed", exact: true }).click();
     await expect(
       page.getByRole("button", { name: "signed", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("button", { name: "Close review panel" }).click();
     await expect(firstTarget).toBeDisabled();
+    expect(consoleErrors).toEqual([]);
+  } finally {
+    await closeHarness(harness);
+  }
+});
+
+test("keeps active segment actions quiet and IME-safe at 125% zoom", async ({
+  browserName,
+}) => {
+  expect(browserName).toBe("chromium");
+  test.setTimeout(120_000);
+  const harness = await launchHarness("segment-density");
+  const { application, page, consoleErrors } = harness;
+  const evidenceDirectory = resolve(
+    process.cwd(),
+    "..",
+    "..",
+    ".trellis",
+    "tasks",
+    "07-21-workbench-visual-identity",
+    "evidence",
+    "screenshots",
+  );
+
+  try {
+    await importFixture(page);
+    const firstRow = page.locator(".segment-row").first();
+    const firstTarget = firstRow.locator("textarea");
+    await firstTarget.focus();
+    await expect(firstRow).toHaveClass(/active/u);
+    await expect(
+      firstRow.locator(".segment-tools > .segment-tool-button"),
+    ).toHaveCount(4);
+    const allTools = firstRow.locator(".segment-tools .segment-tool-button");
+    await expect(allTools).toHaveCount(5);
+    const toolGeometry = await allTools.evaluateAll((elements) =>
+      elements.map((element) => {
+        const box = element.getBoundingClientRect();
+        return { width: box.width, height: box.height };
+      }),
+    );
+    for (const box of toolGeometry) {
+      expect(box.width).toBeGreaterThanOrEqual(31.5);
+      expect(box.width).toBeLessThanOrEqual(32.5);
+      expect(box.height).toBeGreaterThanOrEqual(31.5);
+      expect(box.height).toBeLessThanOrEqual(32.5);
+    }
+
+    const menu = await openSegmentActions(firstRow);
+    await expect(menu.getByRole("menuitem")).toHaveCount(5);
+    await page.keyboard.press("Escape");
+    await expect(firstRow.locator(".segment-more-trigger")).toBeFocused();
+
+    await firstTarget.evaluate((element) => {
+      element.dispatchEvent(
+        new CompositionEvent("compositionstart", { bubbles: true }),
+      );
+    });
+    const composingMenu = await openSegmentActions(firstRow);
+    await composingMenu
+      .getByRole("menuitem", { name: "Correct source" })
+      .click();
+    await expect(
+      page.getByRole("dialog", { name: "Source correction" }),
+    ).toHaveCount(0);
+    await firstTarget.evaluate((element) => {
+      element.dispatchEvent(
+        new CompositionEvent("compositionend", { bubbles: true }),
+      );
+    });
+
+    await firstTarget.fill("保留期为 60 天。");
+    await expect(page.locator(".save-indicator")).toContainText("Saved");
+    await page.getByRole("button", { name: "Confirm", exact: true }).click();
+    await expect(firstRow).toContainText("Issues");
+
+    await firstTarget.focus();
+    await page.keyboard.press("Control+,");
+    const preferences = page.getByRole("dialog", {
+      name: "Editor preferences",
+    });
+    await expect(preferences).toBeVisible();
+    await preferences.locator('input[type="number"]').fill("125");
+    await preferences
+      .getByRole("button", { name: "Close editor preferences" })
+      .click();
+    await expect(page.locator(".workbench-app")).toHaveCSS(
+      "--editor-zoom",
+      "1.25",
+    );
+
+    mkdirSync(evidenceDirectory, { recursive: true });
+    for (const viewport of [
+      { width: 1250, height: 744, label: "1250x744" },
+      { width: 1680, height: 942, label: "1680x942" },
+      { width: 1920, height: 1080, label: "1920x1080" },
+    ]) {
+      await resizeWindow(application, viewport.width, viewport.height);
+      await page.waitForTimeout(180);
+      const overflow = await page.evaluate(() => ({
+        body: document.body.scrollWidth - document.body.clientWidth,
+        root:
+          (document.querySelector<HTMLElement>("#root")?.scrollWidth ?? 0) -
+          (document.querySelector<HTMLElement>("#root")?.clientWidth ?? 0),
+        tools:
+          (document.querySelector<HTMLElement>(".segment-tools")?.scrollWidth ??
+            0) -
+          (document.querySelector<HTMLElement>(".segment-tools")?.clientWidth ??
+            0),
+      }));
+      expect(overflow.body).toBeLessThanOrEqual(1);
+      expect(overflow.root).toBeLessThanOrEqual(1);
+      expect(overflow.tools).toBeLessThanOrEqual(1);
+      await page.screenshot({
+        path: join(
+          evidenceDirectory,
+          `wp5-segment-density-${viewport.label}-125pct.png`,
+        ),
+      });
+    }
     expect(consoleErrors).toEqual([]);
   } finally {
     await closeHarness(harness);
@@ -3655,26 +3809,61 @@ test("keeps panel motion, geometry, and Windows rendering coherent", async ({
       await page.screenshot({
         path: `test-results/workbench-default-${viewport.label}.png`,
       });
-
-      if (viewport.width === 1250) {
-        await page.getByRole("tab", { name: /Assistant/u }).click();
+      for (const tab of [
+        { name: /^Terms/u, slug: "terms" },
+        { name: /^QA/u, slug: "qa" },
+        { name: /Assistant/u, slug: "assistant" },
+      ]) {
+        await page.getByRole("tab", { name: tab.name }).click();
         await page.screenshot({
-          path: `test-results/workbench-assistant-${viewport.label}.png`,
+          path: `test-results/suggestions-${tab.slug}-${viewport.label}.png`,
         });
+      }
+      if (viewport.width === 1250) {
         const assistantOverflow = await page
           .locator(".assistant-transcript")
           .evaluate((element) => element.scrollWidth - element.clientWidth);
         expect(assistantOverflow).toBeLessThanOrEqual(1);
-        await page.getByRole("tab", { name: /^Matches/u }).click();
       }
+      await page.getByRole("tab", { name: /^Matches/u }).click();
 
       await page.getByRole("button", { name: "Collapse Suggestions" }).click();
+      const suggestionsContent = page.locator(".suggestions-content");
+      const suggestionsRail = page.locator(".suggestions-rail");
+      await expect(suggestionsContent).toHaveCount(1);
+      await expect(suggestionsContent).toHaveAttribute("aria-hidden", "true");
+      expect(
+        await suggestionsContent.evaluate(
+          (element) => (element as HTMLElement).inert,
+        ),
+      ).toBe(true);
+      await expect(suggestionsRail).toHaveAttribute("aria-hidden", "false");
+      expect(
+        await suggestionsRail.evaluate(
+          (element) => (element as HTMLElement).inert,
+        ),
+      ).toBe(false);
+      await expect(
+        page.locator('[data-suggestion-collapse="true"]'),
+      ).toHaveCount(1);
       await waitForPanelMotion(page);
       await page.screenshot({
         path: `test-results/suggestions-collapsed-${viewport.label}.png`,
       });
       await page.getByRole("button", { name: "Open Suggestions" }).click();
       await waitForPanelMotion(page);
+      await expect(suggestionsContent).toHaveAttribute("aria-hidden", "false");
+      expect(
+        await suggestionsContent.evaluate(
+          (element) => (element as HTMLElement).inert,
+        ),
+      ).toBe(false);
+      await expect(suggestionsRail).toHaveAttribute("aria-hidden", "true");
+      expect(
+        await suggestionsRail.evaluate(
+          (element) => (element as HTMLElement).inert,
+        ),
+      ).toBe(true);
 
       await page.getByRole("button", { name: "Maximize Suggestions" }).click();
       await waitForPanelMotion(page);
@@ -3776,6 +3965,12 @@ test("keeps panel motion, geometry, and Windows rendering coherent", async ({
       const suggestionsCollapse = document.querySelector(
         '[data-suggestion-collapse="true"]',
       );
+      const suggestionsHeaderButtons = Array.from(
+        document.querySelectorAll(".suggestions-header-tools .icon-button"),
+      );
+      const suggestionsCollapseCount = document.querySelectorAll(
+        '[data-suggestion-collapse="true"]',
+      ).length;
       const panel = document.querySelector(".suggestions-panel");
       const panelBox = panel?.getBoundingClientRect();
       const box = (element: Element | null) => {
@@ -3785,6 +3980,7 @@ test("keeps panel motion, geometry, and Windows rendering coherent", async ({
               x: value.x,
               width: value.width,
               right: value.right,
+              height: value.height,
             }
           : null;
       };
@@ -3814,6 +4010,10 @@ test("keeps panel motion, geometry, and Windows rendering coherent", async ({
         suggestionsDotsBox: box(suggestionsDots),
         suggestionsToolsBox: box(suggestionsTools),
         suggestionsCollapseBox: box(suggestionsCollapse),
+        suggestionsHeaderButtonBoxes: suggestionsHeaderButtons.map((button) =>
+          box(button),
+        ),
+        suggestionsCollapseCount,
         suggestionsX: panelBox?.x ?? null,
         suggestionsWidth: panelBox?.width ?? null,
       };
@@ -3845,6 +4045,15 @@ test("keeps panel motion, geometry, and Windows rendering coherent", async ({
     expect(renderingEvidence.suggestionsDotsBox).not.toBeNull();
     expect(renderingEvidence.suggestionsToolsBox).not.toBeNull();
     expect(renderingEvidence.suggestionsCollapseBox).not.toBeNull();
+    expect(renderingEvidence.suggestionsCollapseCount).toBe(1);
+    expect(renderingEvidence.suggestionsHeaderButtonBoxes).toHaveLength(2);
+    for (const buttonBox of renderingEvidence.suggestionsHeaderButtonBoxes) {
+      expect(buttonBox).not.toBeNull();
+      expect(buttonBox?.width ?? 0).toBeGreaterThanOrEqual(31.5);
+      expect(buttonBox?.width ?? Infinity).toBeLessThanOrEqual(36.5);
+      expect(buttonBox?.height ?? 0).toBeGreaterThanOrEqual(31.5);
+      expect(buttonBox?.height ?? Infinity).toBeLessThanOrEqual(36.5);
+    }
     expect(
       renderingEvidence.suggestionsTitleBox?.right ?? 0,
     ).toBeLessThanOrEqual(
@@ -3990,11 +4199,26 @@ test("applies the workbench visual polish in light and dark themes", async ({
           appBar: ratio(".project-identity strong", ".app-bar"),
           source: ratio(".source-cell .tagged-text", ".segment-row td"),
           status: ratio(".status-bar", ".status-bar"),
+          suggestionsDotsColor: getComputedStyle(
+            document.querySelector<HTMLElement>(".suggestions-dots")!,
+          ).color,
+          suggestionsHeaderFieldBackground: getComputedStyle(
+            document.querySelector<HTMLElement>(".suggestions-header-field")!,
+          ).backgroundColor,
         };
       });
       expect(contrastEvidence.appBar).toBeGreaterThanOrEqual(4.5);
       expect(contrastEvidence.source).toBeGreaterThanOrEqual(4.5);
       expect(contrastEvidence.status).toBeGreaterThanOrEqual(4.5);
+      expect(contrastEvidence.suggestionsDotsColor).not.toBe(
+        "rgba(0, 0, 0, 0)",
+      );
+      expect(contrastEvidence.suggestionsHeaderFieldBackground).not.toBe(
+        "rgba(0, 0, 0, 0)",
+      );
+      expect(contrastEvidence.suggestionsDotsColor).not.toBe(
+        contrastEvidence.suggestionsHeaderFieldBackground,
+      );
 
       for (const viewport of [
         { width: 1250, height: 744 },
@@ -4100,6 +4324,13 @@ test("applies the workbench visual polish in light and dark themes", async ({
     await expect(firstRow).not.toHaveClass(/row-flash/u, { timeout: 1_500 });
 
     await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.getByRole("button", { name: "Collapse Suggestions" }).click();
+    expect(
+      await page
+        .locator(".suggestions-panel")
+        .evaluate((element) => getComputedStyle(element).transitionDuration),
+    ).toBe("0.001s");
+    await page.getByRole("button", { name: "Open Suggestions" }).click();
     const secondRow = page.locator(".segment-row").nth(1);
     const secondTarget = secondRow.locator("textarea");
     await secondTarget.fill("在减少动画模式下确认。");

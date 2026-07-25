@@ -603,6 +603,39 @@ const suggestion = engineRankedMatches.find((item) =>
 );
 ```
 
+## Segment Row Action Density Contract
+
+### Scope / Trigger
+
+Use this contract when changing the active segment toolbar, protected-tag
+commands, comments, source correction, conversion, review actions, or row
+metadata sizing.
+
+### Contracts
+
+- Keep the four frequent actions directly visible: copy protected tags, insert
+  a protected tag, insert a protected tag pair, and open comments. Group only
+  lower-frequency split, merge, source-correction, Chinese-conversion, and
+  review commands in one accessible overflow menu.
+- Direct controls and the overflow trigger use Lucide icons, a visible
+  tooltip/title, an accessible name, and a stable 32px square hit area. The
+  menu uses `role="menu"`/`role="menuitem"`, closes on blur or Escape, and
+  returns focus to its trigger on Escape.
+- Composition state is checked at every command boundary. While a segment's
+  IME composition is active, no split/merge/correction/conversion/comment/
+  review mutation or focus transition may run.
+- Protected-tag evidence and unresolved issue metadata remain in the row; the
+  toolbar may not turn the cell into a card or hide domain evidence in the
+  overflow menu.
+
+### Validation
+
+The focused Electron test must assert direct/overflow command membership,
+numeric 32px geometry with DPI tolerance, keyboard return, composition
+suppression, save/confirm behavior, and no horizontal overflow at the three
+supported viewports and 125% editor zoom. The 10,000-segment virtualization
+test remains the authority for row height, spacer math, and mounted-row limits.
+
 ## Engine-Backed AI Control And Assistant
 
 ### 1. Scope / Trigger

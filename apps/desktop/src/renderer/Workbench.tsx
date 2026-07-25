@@ -236,6 +236,8 @@ export function Workbench({
   >(null);
   const [toast, setToast] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [segmentActionsOpen, setSegmentActionsOpen] = useState(false);
+  const segmentActionsTriggerRef = useRef<HTMLButtonElement>(null);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const globalSearchCommandRef = useRef<HTMLButtonElement>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -368,6 +370,10 @@ export function Workbench({
   }, [drafts]);
 
   useEffect(() => {
+    setSegmentActionsOpen(false);
+  }, [activeId]);
+
+  useEffect(() => {
     // `Workbench` stays mounted while the parent replaces its Engine-backed
     // workspace after reconnect. Reset every projection-derived state slice so
     // the editor cannot keep rendering rows, revisions, or issues from the
@@ -417,6 +423,7 @@ export function Workbench({
     setActionBusy(null);
     setFlashSegmentId(null);
     setSelectedTargetTagId(null);
+    setSegmentActionsOpen(false);
     setActiveId((current) =>
       nextSegments.some((segment) => segment.id === current)
         ? current
@@ -1425,7 +1432,7 @@ export function Workbench({
   };
 
   const openSourceCorrection = () => {
-    if (!activeSegment) return;
+    if (!activeSegment || composingRef.current.has(activeSegment.id)) return;
     if (document.filterId === "builtin.pdf") {
       setToast(
         "Use the PDF preview OCR correction workflow for this document.",
@@ -1435,6 +1442,16 @@ export function Workbench({
     setSourceCorrectionText(activeSegment.sourceText);
     setSourceCorrectionReason("");
     setSourceCorrectionOpen(true);
+  };
+
+  const openChineseConversion = () => {
+    if (!activeSegment || composingRef.current.has(activeSegment.id)) return;
+    setChineseConversionOpen(true);
+  };
+
+  const openActiveComments = () => {
+    if (!activeSegment || composingRef.current.has(activeSegment.id)) return;
+    setCommentsOpen(true);
   };
 
   const applySourceCorrection = async () => {
@@ -1723,6 +1740,7 @@ export function Workbench({
   };
 
   const openReviewPanel = async () => {
+    if (!activeSegment || composingRef.current.has(activeSegment.id)) return;
     setReviewOpen(true);
     setReviewTarget(
       activeSegment
@@ -1824,7 +1842,7 @@ export function Workbench({
   };
 
   const splitActiveSegment = async () => {
-    if (!activeSegment) return;
+    if (!activeSegment || composingRef.current.has(activeSegment.id)) return;
     const editor = documentQuery<HTMLTextAreaElement>(
       `[data-editor-for="${activeSegment.id}"]`,
     );
@@ -1858,7 +1876,7 @@ export function Workbench({
   };
 
   const mergeActiveSegment = async () => {
-    if (!activeSegment) return;
+    if (!activeSegment || composingRef.current.has(activeSegment.id)) return;
     const index = visibleSegments.findIndex(
       (segment) => segment.id === activeSegment.id,
     );
@@ -1928,8 +1946,8 @@ export function Workbench({
     split: () => void splitActiveSegment(),
     merge: () => void mergeActiveSegment(),
     correctSource: openSourceCorrection,
-    openChineseConversion: () => setChineseConversionOpen(true),
-    openComments: () => setCommentsOpen(true),
+    openChineseConversion,
+    openComments: openActiveComments,
     openReview: () => void openReviewPanel(),
     advanceWorkflow: () => void advanceWorkflow(),
     insertSuggestion: (index) => {
@@ -2331,7 +2349,7 @@ export function Workbench({
               <button
                 type="button"
                 className="icon-button"
-                onClick={() => setCommentsOpen(true)}
+                onClick={openActiveComments}
                 title={t("common.comments")}
                 aria-label={t("workbench.openComments")}
               >
@@ -2432,6 +2450,9 @@ export function Workbench({
                     const editorRow = editorRows.find(
                       (row) => row.segment.id === segment.id,
                     );
+                    const openCommentCount =
+                      editorRow?.comments.filter((comment) => !comment.resolved)
+                        .length ?? 0;
                     const autocomplete = active
                       ? autocompleteForSegment(segment.id)
                       : null;
@@ -2472,95 +2493,188 @@ export function Workbench({
                               className="segment-tools"
                               role="toolbar"
                               aria-label={t("workbench.segmentTools")}
+                              onBlur={(event) => {
+                                if (
+                                  !event.currentTarget.contains(
+                                    event.relatedTarget,
+                                  )
+                                ) {
+                                  setSegmentActionsOpen(false);
+                                }
+                              }}
+                              onKeyDown={(event) => {
+                                if (
+                                  event.key !== "Escape" ||
+                                  !segmentActionsOpen
+                                )
+                                  return;
+                                event.preventDefault();
+                                event.stopPropagation();
+                                setSegmentActionsOpen(false);
+                                window.requestAnimationFrame(() =>
+                                  segmentActionsTriggerRef.current?.focus(),
+                                );
+                              }}
                             >
                               <button
                                 type="button"
+                                className="segment-tool-button"
                                 onClick={() => void copyProtectedTags()}
                                 aria-label={t("workbench.copyTags")}
+                                title={t("workbench.copyTags")}
                                 disabled={editorRow?.workflowState === "signed"}
                               >
-                                <Tags size={12} />
-                                {t("workbench.tags")}
+                                <Tags size={14} aria-hidden="true" />
                               </button>
                               <button
                                 type="button"
+                                className="segment-tool-button"
                                 onClick={() => void insertProtectedTag(false)}
                                 aria-label={t("workbench.insertTag")}
+                                title={t("workbench.insertTag")}
                                 disabled={editorRow?.workflowState === "signed"}
                               >
-                                <Tags size={12} />+
+                                <Tags size={14} aria-hidden="true" />
+                                <span aria-hidden="true">+</span>
                               </button>
                               <button
                                 type="button"
+                                className="segment-tool-button"
                                 onClick={() => void insertProtectedTag(true)}
                                 aria-label={t("workbench.insertTagPair")}
+                                title={t("workbench.insertTagPair")}
                                 disabled={editorRow?.workflowState === "signed"}
                               >
-                                <Tags size={12} />±
+                                <Tags size={14} aria-hidden="true" />
+                                <span aria-hidden="true">±</span>
                               </button>
                               <button
                                 type="button"
-                                onClick={() => void splitActiveSegment()}
-                                aria-label={t("workbench.splitSegment")}
-                                disabled={editorRow?.workflowState === "signed"}
-                              >
-                                <Split size={12} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void mergeActiveSegment()}
-                                aria-label={t("workbench.mergeNext")}
-                                disabled={
-                                  !mergeEligible ||
-                                  editorRow?.workflowState === "signed"
-                                }
-                                title={
-                                  mergeEligible
-                                    ? "Merge split siblings"
-                                    : "Only sibling segments created by Split can be merged safely"
-                                }
-                              >
-                                <Combine size={12} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={openSourceCorrection}
-                                aria-label={t("workbench.correctSource")}
-                                disabled={editorRow?.workflowState === "signed"}
-                              >
-                                <Pencil size={12} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setChineseConversionOpen(true)}
-                                aria-label={t("workbench.openChinese")}
-                                disabled={
-                                  editorRow?.workflowState === "signed" ||
-                                  !(
-                                    drafts[segment.id] ?? segment.targetText
-                                  ).trim()
-                                }
-                              >
-                                <Languages size={12} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setCommentsOpen(true)}
+                                className="segment-tool-button segment-comments-button"
+                                onClick={openActiveComments}
                                 aria-label={t("workbench.openCommentsShort")}
+                                title={t("workbench.openCommentsShort")}
                               >
-                                <MessageSquare size={12} />
-                                {editorRow?.comments.filter(
-                                  (comment) => !comment.resolved,
-                                ).length ?? 0}
+                                <MessageSquare size={14} aria-hidden="true" />
+                                {openCommentCount ? (
+                                  <span className="segment-tool-count">
+                                    {openCommentCount}
+                                  </span>
+                                ) : null}
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => void openReviewPanel()}
-                                aria-label={t("workbench.openReview")}
-                              >
-                                <GitCompareArrows size={12} />
-                                {editorRow?.workflowState}
-                              </button>
+                              <div className="segment-overflow-wrap">
+                                <button
+                                  ref={segmentActionsTriggerRef}
+                                  type="button"
+                                  className="segment-tool-button segment-more-trigger"
+                                  aria-haspopup="menu"
+                                  aria-expanded={segmentActionsOpen}
+                                  aria-label={t("common.moreActions")}
+                                  title={t("common.moreActions")}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setSegmentActionsOpen((open) => !open);
+                                  }}
+                                >
+                                  <MoreHorizontal
+                                    size={16}
+                                    aria-hidden="true"
+                                  />
+                                </button>
+                                {segmentActionsOpen ? (
+                                  <div
+                                    className="segment-overflow-menu"
+                                    role="menu"
+                                    aria-label={t("common.moreActions")}
+                                  >
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      disabled={
+                                        editorRow?.workflowState === "signed"
+                                      }
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        setSegmentActionsOpen(false);
+                                        void splitActiveSegment();
+                                      }}
+                                    >
+                                      <Split size={14} aria-hidden="true" />
+                                      {t("workbench.splitSegment")}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      disabled={
+                                        !mergeEligible ||
+                                        editorRow?.workflowState === "signed"
+                                      }
+                                      title={
+                                        mergeEligible
+                                          ? t("workbench.mergeNext")
+                                          : "Only sibling segments created by Split can be merged safely"
+                                      }
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        setSegmentActionsOpen(false);
+                                        void mergeActiveSegment();
+                                      }}
+                                    >
+                                      <Combine size={14} aria-hidden="true" />
+                                      {t("workbench.mergeNext")}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      disabled={
+                                        editorRow?.workflowState === "signed"
+                                      }
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        setSegmentActionsOpen(false);
+                                        openSourceCorrection();
+                                      }}
+                                    >
+                                      <Pencil size={14} aria-hidden="true" />
+                                      {t("workbench.correctSource")}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      disabled={
+                                        editorRow?.workflowState === "signed" ||
+                                        !(
+                                          drafts[segment.id] ??
+                                          segment.targetText
+                                        ).trim()
+                                      }
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        setSegmentActionsOpen(false);
+                                        openChineseConversion();
+                                      }}
+                                    >
+                                      <Languages size={14} aria-hidden="true" />
+                                      {t("workbench.openChinese")}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        setSegmentActionsOpen(false);
+                                        void openReviewPanel();
+                                      }}
+                                    >
+                                      <GitCompareArrows
+                                        size={14}
+                                        aria-hidden="true"
+                                      />
+                                      {t("workbench.openReview")}
+                                    </button>
+                                  </div>
+                                ) : null}
+                              </div>
                             </div>
                           ) : null}
                           {editorRow?.targetTags.length ? (
@@ -4455,43 +4569,45 @@ function SuggestionsPanel({
           <strong className="suggestions-title" data-cut-terminal="true">
             {t("common.suggestions")}
           </strong>
-          <div className="suggestions-dots" aria-hidden="true" />
-          <div className="suggestions-header-tools">
-            <button
-              type="button"
-              className="icon-button"
-              onClick={() => onModeChange(togglePanelMaximized(mode))}
-              title={
-                mode === "maximized"
-                  ? t("workbench.restoreSuggestions")
-                  : t("workbench.maximizeSuggestions")
-              }
-              aria-label={
-                mode === "maximized"
-                  ? t("workbench.restoreSuggestions")
-                  : t("workbench.maximizeSuggestions")
-              }
-            >
-              {mode === "maximized" ? (
-                <Minimize2 size={14} />
-              ) : (
-                <Maximize2 size={14} />
-              )}
-            </button>
-            <button
-              type="button"
-              className="icon-button"
-              ref={collapseButtonRef}
-              onClick={() => {
-                focusAfterModeRef.current = "rail";
-                onModeChange(togglePanelCollapsed(mode));
-              }}
-              title={t("workbench.collapseSuggestions")}
-              aria-label={t("workbench.collapseSuggestions")}
-              data-suggestion-collapse="true"
-            >
-              <PanelRightClose size={14} />
-            </button>
+          <div className="suggestions-header-field">
+            <div className="suggestions-dots" aria-hidden="true" />
+            <div className="suggestions-header-tools">
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => onModeChange(togglePanelMaximized(mode))}
+                title={
+                  mode === "maximized"
+                    ? t("workbench.restoreSuggestions")
+                    : t("workbench.maximizeSuggestions")
+                }
+                aria-label={
+                  mode === "maximized"
+                    ? t("workbench.restoreSuggestions")
+                    : t("workbench.maximizeSuggestions")
+                }
+              >
+                {mode === "maximized" ? (
+                  <Minimize2 size={14} />
+                ) : (
+                  <Maximize2 size={14} />
+                )}
+              </button>
+              <button
+                type="button"
+                className="icon-button"
+                ref={collapseButtonRef}
+                onClick={() => {
+                  focusAfterModeRef.current = "rail";
+                  onModeChange(togglePanelCollapsed(mode));
+                }}
+                title={t("workbench.collapseSuggestions")}
+                aria-label={t("workbench.collapseSuggestions")}
+                data-suggestion-collapse="true"
+              >
+                <PanelRightClose size={14} />
+              </button>
+            </div>
           </div>
         </header>
         <div className="suggestion-tabs" role="tablist">
@@ -4563,17 +4679,17 @@ function SuggestionsPanel({
             ) : matches.length ? (
               matches.map((match) => (
                 <article className="match-card" key={match.id}>
-                  <header>
+                  <label>{t("common.source")}</label>
+                  <p>{match.sourceText}</p>
+                  <label>{t("common.target")}</label>
+                  <p className="match-target">{match.targetText}</p>
+                  <div className="match-card-meta">
                     <span className="match-score">100%</span>
                     <strong>{t("workbench.projectTm")}</strong>
                     <time>
                       {formatDate(match.confirmedAtMs, { dateStyle: "medium" })}
                     </time>
-                  </header>
-                  <label>{t("common.source")}</label>
-                  <p>{match.sourceText}</p>
-                  <label>{t("common.target")}</label>
-                  <p className="match-target">{match.targetText}</p>
+                  </div>
                   <footer>
                     <span>
                       <Database size={12} />
@@ -4621,7 +4737,6 @@ function SuggestionsPanel({
                     <header>
                       <BookOpen size={13} />
                       <strong>{match.sourceTerm}</strong>
-                      <small>{match.termbaseId.slice(0, 8)}</small>
                     </header>
                     <label>{t("workbench.preferredTarget")}</label>
                     <p className="match-target">
@@ -4629,7 +4744,9 @@ function SuggestionsPanel({
                     </p>
                     {translation ? (
                       <footer>
-                        <span>{translation.locale}</span>
+                        <span>
+                          {match.termbaseId.slice(0, 8)} · {translation.locale}
+                        </span>
                         <button
                           type="button"
                           className="insert-button"
