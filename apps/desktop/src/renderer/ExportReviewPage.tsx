@@ -12,12 +12,15 @@ import {
 
 import type { WorkspacePageProps } from "./WorkbenchPages";
 import { fileName, formatError } from "./workbench-utils";
+import { useLocale } from "./i18n/LocaleProvider";
 
 export function ExportReviewPage({
   snapshot,
   document,
   onOpenSegment,
 }: WorkspacePageProps) {
+  const { t } = useLocale();
+
   const projectId = snapshot.project.id;
   const [gate, setGate] = useState<QaGateResult | null>(null);
   const [blockers, setBlockers] = useState<QaIssueView[]>([]);
@@ -89,7 +92,10 @@ export function ExportReviewPage({
           : {}),
       });
       setSuccess(
-        `Exported ${result.translatedSegments.toLocaleString("en-US")} translated segments to ${fileName(result.outputPath)}.`,
+        t("export.success", {
+          count: result.translatedSegments,
+          name: fileName(result.outputPath),
+        }),
       );
       await checkGate();
     } catch (reasonValue) {
@@ -110,8 +116,8 @@ export function ExportReviewPage({
     >
       <section className="export-review-hero">
         <div>
-          <span className="surface-kicker">Delivery gate</span>
-          <h1>Export review</h1>
+          <span className="surface-kicker">{t("export.kicker")}</span>
+          <h1>{t("export.title")}</h1>
           <strong className="export-review-state-copy">
             {loading
               ? "Checking current translation"
@@ -131,7 +137,7 @@ export function ExportReviewPage({
           onClick={() => void checkGate()}
         >
           <RefreshCw size={14} className={loading ? "spin" : undefined} />
-          Check again
+          {t("export.checkAgain")}
         </button>
       </section>
       {error ? (
@@ -152,31 +158,37 @@ export function ExportReviewPage({
           <div>
             <span>
               {gate?.clear
-                ? "QA gate clear"
-                : `${gate?.errorCount ?? 0} blocking errors`}
+                ? t("export.gateClear")
+                : t("export.blockingErrors", {
+                    count: gate?.errorCount ?? 0,
+                  })}
             </span>
             <strong>
               {gate
-                ? `${gate.warningCount} warnings · ${gate.infoCount} info · ${gate.waivedCount} waived`
-                : "Awaiting authoritative result"}
+                ? t("export.countsLine", {
+                    warnings: gate.warningCount,
+                    info: gate.infoCount,
+                    waived: gate.waivedCount,
+                  })
+                : t("export.awaiting")}
             </strong>
           </div>
         </div>
         <dl>
           <div>
-            <dt>Segments checked</dt>
+            <dt>{t("export.segmentsChecked")}</dt>
             <dd>{gate?.run.checkedSegments ?? "—"}</dd>
           </div>
           <div>
-            <dt>Profile</dt>
+            <dt>{t("common.profile")}</dt>
             <dd>{gate?.run.profileName ?? "—"}</dd>
           </div>
           <div>
-            <dt>Run</dt>
+            <dt>{t("export.run")}</dt>
             <dd>{gate?.run.id.slice(0, 8) ?? "—"}</dd>
           </div>
           <div>
-            <dt>Original format</dt>
+            <dt>{t("export.originalFormat")}</dt>
             <dd>{document.format.toUpperCase()}</dd>
           </div>
         </dl>
@@ -185,9 +197,13 @@ export function ExportReviewPage({
         <div className="export-blockers">
           <header>
             <div>
-              <span className="surface-kicker">Blocking findings</span>
+              <span className="surface-kicker">
+                {t("export.blockingFindings")}
+              </span>
               <h2>
-                {gate?.clear ? "No open errors" : "Resolve before delivery"}
+                {gate?.clear
+                  ? t("export.noOpenErrors")
+                  : t("export.resolveBefore")}
               </h2>
             </div>
             <span>{blockers.length}</span>
@@ -209,8 +225,11 @@ export function ExportReviewPage({
                 <span>
                   <strong>{issue.message}</strong>
                   <small>
-                    {issue.documentName} · Segment {issue.segmentOrdinal + 1} ·{" "}
-                    {issue.ruleId}
+                    {issue.documentName} ·{" "}
+                    {t("export.segmentLabel", {
+                      ordinal: issue.segmentOrdinal + 1,
+                    })}{" "}
+                    · {issue.ruleId}
                   </small>
                 </span>
                 <ExternalLink size={14} />
@@ -219,24 +238,20 @@ export function ExportReviewPage({
           ) : (
             <div className="surface-empty">
               <FileCheck2 size={24} />
-              <strong>Nothing blocks publication</strong>
-              <span>
-                Warnings and waived findings remain visible in the QA report.
-              </span>
+              <strong>{t("export.nothingBlocks")}</strong>
+              <span>{t("export.warningsRemain")}</span>
             </div>
           )}
         </div>
         <aside className="export-delivery-card">
-          <span className="surface-kicker">Publication</span>
+          <span className="surface-kicker">{t("export.publication")}</span>
           <h2>{document.name}</h2>
-          <p>
-            The output is validated and never replaces an existing destination.
-          </p>
+          <p>{t("export.publicationBody")}</p>
           {!gate?.clear && gate ? (
             <div className="override-control">
               <label className="override-toggle">
                 <input
-                  aria-label="Override the QA delivery gate"
+                  aria-label={t("export.overrideAria")}
                   type="checkbox"
                   checked={overrideEnabled}
                   onChange={(event) =>
@@ -244,28 +259,26 @@ export function ExportReviewPage({
                   }
                 />
                 <span>
-                  <strong>Override blocking QA</strong>
-                  <small>
-                    This decision is recorded with the export result.
-                  </small>
+                  <strong>{t("export.overrideTitle")}</strong>
+                  <small>{t("export.overrideHelp")}</small>
                 </span>
               </label>
               {overrideEnabled ? (
                 <div className="override-fields">
                   <label>
-                    Actor
+                    {t("common.actor")}
                     <input
                       value={actor}
                       onChange={(event) => setActor(event.currentTarget.value)}
-                      placeholder="Responsible person"
+                      placeholder={t("export.actorPlaceholder")}
                     />
                   </label>
                   <label>
-                    Reason
+                    {t("common.reason")}
                     <textarea
                       value={reason}
                       onChange={(event) => setReason(event.currentTarget.value)}
-                      placeholder="Why delivery must proceed"
+                      placeholder={t("export.reasonPlaceholder")}
                     />
                   </label>
                 </div>
@@ -282,10 +295,7 @@ export function ExportReviewPage({
             {busy ? "Publishing…" : "Export document"}
           </button>
           {!gate?.clear && gate && !overrideEnabled ? (
-            <p className="export-help">
-              Open each blocker in the editor, or explicitly enable a reasoned
-              override.
-            </p>
+            <p className="export-help">{t("export.helpBlocked")}</p>
           ) : null}
         </aside>
       </section>

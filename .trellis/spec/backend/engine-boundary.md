@@ -176,6 +176,11 @@ open when they are inside the workspace.
 - `data.checkHealth` is read-only and returns IDs/paths/hashes only. Explicit
   backup stages a SQLite snapshot, sources, exports, hashes, and manifest, then
   atomically publishes a new destination without overwriting an existing one.
+- Backup traversal excludes credential-shaped path components at every depth,
+  case-insensitively: `.env*`, names containing `credential`, `*.key`,
+  `*.pem`, and names beginning with `secret`. Excluded files and subtrees must
+  appear in neither the destination nor its manifest; ordinary nested source
+  and export material remains included.
 
 ### 4. Validation & Error Matrix
 
@@ -186,6 +191,7 @@ open when they are inside the workspace.
 | Invalid pipeline state transition | `invalid_state` |
 | Missing managed source, broken version link, or FK violation | typed health finding; no document text |
 | Existing backup destination or staging copy failure | `storage_error`/`invalid_state`; staging is removed |
+| Credential-shaped file or subtree during backup traversal | Skip it before copy/hash/manifest work; continue backing up ordinary workspace material |
 
 ### 5. Good / Base / Bad Cases
 
@@ -201,7 +207,9 @@ open when they are inside the workspace.
 - Real schema-v1 upgrade with TM/QA equality, automatic pre-migration backup,
   rollback, newer-schema rejection, and DOCX export validation.
 - Storage health findings for missing source, broken current-version link, and
-  foreign-key violation; backup no-overwrite and failed-staging cleanup.
+  foreign-key violation; backup no-overwrite, failed-staging cleanup, recursive
+  credential-shaped exclusion, ordinary nested source/export preservation, and
+  absence of secret bytes from both copied files and the manifest.
 - Engine cancellation, restart interruption, resumable recovery,
   non-resumable failure, typed filter/project conflicts, and multi-document
   restart/export.
@@ -2290,6 +2298,11 @@ authoritative run/library revisions defined in `crates/protocol/src/curation.rs`
   envelope is capped at 256 KiB and is accepted only when strict JSON contains
   unique known unit IDs, bounded labels/evidence, and valid basis-point scores.
   Any invalid or stale provider result creates zero curation rows.
+- Provider-backed analysis carries the owning `project_id` into semantic
+  annotation and enforces `ProjectConfiguration.engine_allowlist` before
+  provider-profile, credential, or network work. An empty allowlist is
+  permissive; an unlisted profile returns typed `policy_denied` and creates no
+  run. Provider-free offline curation remains available.
 - `apply` requires an open run, exact run/library revisions, a non-empty unique
   finding selection, matching unit snapshot hashes, actor, and reason. It
   stores every before image, updates all analyzed scores, quarantines only
@@ -2312,6 +2325,7 @@ authoritative run/library revisions defined in `crates/protocol/src/curation.rs`
 | Stale run, library, or unit snapshot | `conflict` or `invalid_state`; the whole transaction rolls back |
 | Page limit outside `1..=500`, inverted dates, invalid policy, duplicate/empty selection | `invalid_request`/`invalid_state`; no partial state |
 | Provider response is oversized, malformed, text-echoing, duplicated, or contains an unknown ID | `provider_protocol`; zero curation rows |
+| Provider profile is absent from the project's non-empty engine allowlist | `policy_denied` before credential/provider work; zero curation rows |
 | Apply selects a `keep` finding or a terminal run receives a different retry | `invalid_state`; no unit/history mutation |
 | Rollback sees an interleaved unit projection | `invalid_state`/`conflict`; no restored flag or revision changes |
 | Export score exceeds 10,000 or serialization/validation fails | `invalid_request`/`export_error`; no destination |
@@ -2337,7 +2351,8 @@ authoritative run/library revisions defined in `crates/protocol/src/curation.rs`
   catalog filters/order/pages/reopen, late-failure rollback, stale snapshots,
   idempotent apply/rollback, before images, operation history, and restart.
 - Engine/protocol tests cover camelCase payloads, method catalog/capabilities,
-  typed conflicts, provider zero-write failures, no-clobber export, and restart.
+  typed conflicts, provider zero-write failures, project allowlist denial plus
+  offline fallback, no-clobber export, and restart.
 - `cargo run -p translunar-curation-core --bin curation_benchmark` must analyze
   exactly 10,000 deterministic units and print JSON containing `elapsedMs` and
   Linux `peakRssKib`.

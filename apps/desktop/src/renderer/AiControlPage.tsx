@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 
 import { formatError } from "./workbench-utils";
+import { useLocale } from "./i18n/LocaleProvider";
 
 interface AiControlPageProps {
   snapshot: ProjectSnapshot;
@@ -50,6 +51,8 @@ const DEFAULT_GROUNDING: GroundingOptions = {
 };
 
 export function AiControlPage({ snapshot, document }: AiControlPageProps) {
+  const { t } = useLocale();
+
   const [tab, setTab] = useState<AiControlTab>("providers");
   const [catalog, setCatalog] = useState<AiProviderDescriptor[]>([]);
   const [profiles, setProfiles] = useState<AiProviderProfile[]>([]);
@@ -218,13 +221,13 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
       });
       setProfiles((current) => [...current, profile]);
       setBatchProfileId((current) => current || profile.id);
-      setNotice(`${profile.name} profile created.`);
+      setNotice(t("ai.profileCreated", { name: profile.name }));
     });
 
   const saveCredential = (profile: AiProviderProfile) =>
     runAction(`credential:${profile.id}`, async () => {
       const secret = credentials[profile.id]?.trim() ?? "";
-      if (!secret) throw new Error("Enter a credential first.");
+      if (!secret) throw new Error(t("ai.enterCredential"));
       await window.translunar.setAiCredential(profile.id, secret);
       setCredentials((current) => ({ ...current, [profile.id]: "" }));
       const page = await window.translunar.invoke("ai.provider.list", {
@@ -232,7 +235,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
         limit: 100,
       });
       setProfiles(page.items);
-      setNotice(`Credential saved to the operating-system keyring.`);
+      setNotice(t("ai.credentialSaved"));
     });
 
   const testProvider = (profile: AiProviderProfile) =>
@@ -240,11 +243,11 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
       const result = await window.translunar.invoke("ai.provider.test", {
         profileId: profile.id,
       });
-      const terminal = await waitForRun(result.run);
+      const terminal = await waitForRun(result.run, t("ai.testTimeout"));
       if (terminal.status !== "succeeded") {
-        throw new Error(terminal.errorMessage ?? "Provider test failed.");
+        throw new Error(terminal.errorMessage ?? t("ai.providerTestFailed"));
       }
-      setNotice(`${profile.name} connection succeeded.`);
+      setNotice(t("ai.connectionSucceeded", { name: profile.name }));
     });
 
   const removeProvider = (profile: AiProviderProfile) =>
@@ -262,7 +265,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
       );
       setSettings(refreshedSettings);
       setBatchProfileId((current) => (current === profile.id ? "" : current));
-      setNotice(`${profile.name} removed.`);
+      setNotice(t("ai.profileRemoved", { name: profile.name }));
     });
 
   const removeCredential = (profile: AiProviderProfile) =>
@@ -275,7 +278,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
           item.id === profile.id ? { ...item, credentialPresent: false } : item,
         ),
       );
-      setNotice(`Credential removed from the operating-system keyring.`);
+      setNotice(t("ai.credentialRemoved"));
     });
 
   const saveProviderUpdate = () =>
@@ -296,7 +299,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
         current.map((item) => (item.id === updated.id ? updated : item)),
       );
       setEditingProfile(null);
-      setNotice(`${updated.name} profile updated.`);
+      setNotice(t("ai.profileUpdated", { name: updated.name }));
     });
 
   const saveSettings = () =>
@@ -307,9 +310,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
         parsedBudget !== null &&
         (!Number.isSafeInteger(parsedBudget) || parsedBudget < 1)
       ) {
-        throw new Error(
-          "Monthly token budget must be a positive whole number.",
-        );
+        throw new Error(t("ai.budgetInvalid"));
       }
       const updated = await window.translunar.invoke("ai.settings.update", {
         enabled: settings.enabled,
@@ -324,12 +325,12 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
         expectedRevision: settings.revision,
       });
       setSettings(updated);
-      setNotice("AI workspace policy saved.");
+      setNotice(t("ai.policySaved"));
     });
 
   const startBatch = () =>
     runAction("batch:start", async () => {
-      if (!batchProfileId) throw new Error("Choose a provider profile.");
+      if (!batchProfileId) throw new Error(t("ai.chooseProviderProfile"));
       const batch = await window.translunar.invoke("ai.batch.start", {
         projectId: snapshot.project.id,
         documentId: document.id,
@@ -343,7 +344,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
       });
       setBatches((current) => [batch, ...current]);
       setActiveBatch(batch);
-      setNotice("Batch pretranslation started.");
+      setNotice(t("ai.batchStarted"));
     });
 
   const changeBatchState = (action: "cancel" | "resume") =>
@@ -360,8 +361,8 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
     <main className="surface-main ai-control-surface">
       <section className="ai-policy-band" aria-labelledby="ai-policy-title">
         <div>
-          <span className="surface-kicker">Workspace policy</span>
-          <h1 id="ai-policy-title">AI control</h1>
+          <span className="surface-kicker">{t("ai.kicker")}</span>
+          <h1 id="ai-policy-title">{t("ai.title")}</h1>
           <p>
             Credentials stay in the operating-system keyring. Grounding, runs,
             usage, and target writes remain Engine-owned.
@@ -380,7 +381,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                   })
                 }
               />
-              <span>AI enabled</span>
+              <span>{t("ai.enabled")}</span>
             </label>
             <label className="switch-control">
               <input
@@ -393,7 +394,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                   })
                 }
               />
-              <span>Interactive runs</span>
+              <span>{t("ai.interactiveRuns")}</span>
             </label>
             <label className="switch-control">
               <input
@@ -406,10 +407,10 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                   })
                 }
               />
-              <span>Batch runs</span>
+              <span>{t("ai.batchRuns")}</span>
             </label>
             <label>
-              Default profile
+              {t("ai.defaultProfile")}
               <select
                 value={settings.defaultProfileId ?? ""}
                 onChange={(event) =>
@@ -419,7 +420,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                   })
                 }
               >
-                <option value="">None</option>
+                <option value="">{t("common.none")}</option>
                 {profiles.map((profile) => (
                   <option key={profile.id} value={profile.id}>
                     {profile.name}
@@ -428,19 +429,19 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
               </select>
             </label>
             <label>
-              Monthly token budget
+              {t("ai.monthlyBudget")}
               <input
                 inputMode="numeric"
                 value={budget}
-                placeholder="Unlimited"
+                placeholder={t("ai.budgetPlaceholder")}
                 onChange={(event) => setBudget(event.currentTarget.value)}
               />
             </label>
             <label className="ai-origins-field">
-              Allowed origins
+              {t("ai.allowedOrigins")}
               <input
                 value={origins}
-                placeholder="Empty allows validated profile origins"
+                placeholder={t("ai.originsPlaceholder")}
                 spellCheck={false}
                 onChange={(event) => setOrigins(event.currentTarget.value)}
               />
@@ -450,7 +451,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
               disabled={busy !== null}
               onClick={() => void saveSettings()}
             >
-              <ShieldCheck size={15} /> Save policy
+              <ShieldCheck size={15} /> {t("ai.savePolicy")}
             </button>
           </div>
         ) : null}
@@ -459,7 +460,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
       <div
         className="ai-control-tabs"
         role="tablist"
-        aria-label="AI control views"
+        aria-label={t("ai.viewsAria")}
       >
         <button
           type="button"
@@ -467,7 +468,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
           aria-selected={tab === "providers"}
           onClick={() => setTab("providers")}
         >
-          <Bot size={14} /> Providers
+          <Bot size={14} /> {t("ai.providersTab")}
         </button>
         <button
           type="button"
@@ -475,7 +476,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
           aria-selected={tab === "batch"}
           onClick={() => setTab("batch")}
         >
-          <Activity size={14} /> Batch
+          <Activity size={14} /> {t("ai.batchTab")}
         </button>
         <button
           type="button"
@@ -486,7 +487,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
             void loadUsage();
           }}
         >
-          <RefreshCw size={14} /> Usage
+          <RefreshCw size={14} /> {t("ai.usageTab")}
         </button>
       </div>
 
@@ -509,14 +510,14 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
           >
             <div className="section-heading">
               <div>
-                <span>Connector catalog</span>
-                <h2 id="create-provider-title">Add provider</h2>
+                <span>{t("ai.connectorCatalog")}</span>
+                <h2 id="create-provider-title">{t("ai.addProvider")}</h2>
               </div>
               <strong>{catalog.length} kinds</strong>
             </div>
             <div className="ai-provider-form">
               <label>
-                Connector
+                {t("ai.connector")}
                 <select
                   value={createKind}
                   onChange={(event) =>
@@ -531,14 +532,14 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                 </select>
               </label>
               <label>
-                Profile name
+                {t("ai.profileName")}
                 <input
                   value={createName}
                   onChange={(event) => setCreateName(event.currentTarget.value)}
                 />
               </label>
               <label>
-                Base URL
+                {t("ai.baseUrl")}
                 <input
                   value={createUrl}
                   spellCheck={false}
@@ -546,7 +547,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                 />
               </label>
               <label>
-                Model
+                {t("common.model")}
                 <input
                   value={createModel}
                   spellCheck={false}
@@ -569,7 +570,8 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                 }
                 onClick={() => void createProvider()}
               >
-                <Plus size={15} /> Add provider
+                <Plus size={15} />
+                {t("ai.addProvider")}
               </button>
             </div>
           </section>
@@ -577,8 +579,8 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
           <section className="ai-profile-list" aria-labelledby="profiles-title">
             <div className="section-heading">
               <div>
-                <span>Configured</span>
-                <h2 id="profiles-title">Provider profiles</h2>
+                <span>{t("ai.configured")}</span>
+                <h2 id="profiles-title">{t("ai.providerProfiles")}</h2>
               </div>
               <strong>{profiles.length}</strong>
             </div>
@@ -611,14 +613,18 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                       }
                     >
                       <KeyRound size={13} />
-                      {profile.credentialPresent ? "Stored" : "Missing"}
+                      {profile.credentialPresent
+                        ? t("ai.credentialStored")
+                        : t("ai.credentialMissing")}
                     </span>
                     <div className="ai-credential-entry">
                       <input
                         type="password"
                         autoComplete="new-password"
-                        aria-label={`Credential for ${profile.name}`}
-                        placeholder="Write-only credential"
+                        aria-label={t("ai.credentialFor", {
+                          name: profile.name,
+                        })}
+                        placeholder={t("ai.credentialPlaceholder")}
                         value={credentials[profile.id] ?? ""}
                         onChange={(event) => {
                           const value = event.currentTarget.value;
@@ -635,14 +641,14 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                         }
                         onClick={() => void saveCredential(profile)}
                       >
-                        Store
+                        {t("ai.store")}
                       </button>
                     </div>
                     <div className="ai-profile-actions">
                       <button
                         type="button"
-                        title="Test connection"
-                        aria-label={`Test ${profile.name}`}
+                        title={t("ai.testConnection")}
+                        aria-label={t("ai.testNamed", { name: profile.name })}
                         disabled={busy !== null || !profile.credentialPresent}
                         onClick={() => void testProvider(profile)}
                       >
@@ -650,8 +656,8 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                       </button>
                       <button
                         type="button"
-                        title="Edit profile"
-                        aria-label={`Edit ${profile.name}`}
+                        title={t("ai.editProfile")}
+                        aria-label={t("ai.editNamed", { name: profile.name })}
                         disabled={busy !== null}
                         onClick={() => setEditingProfile({ ...profile })}
                       >
@@ -659,8 +665,10 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                       </button>
                       <button
                         type="button"
-                        title="Delete credential"
-                        aria-label={`Delete credential for ${profile.name}`}
+                        title={t("ai.deleteCredential")}
+                        aria-label={t("ai.deleteCredentialFor", {
+                          name: profile.name,
+                        })}
                         disabled={busy !== null || !profile.credentialPresent}
                         onClick={() => void removeCredential(profile)}
                       >
@@ -668,8 +676,8 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                       </button>
                       <button
                         type="button"
-                        title="Delete profile"
-                        aria-label={`Delete ${profile.name}`}
+                        title={t("ai.deleteProfile")}
+                        aria-label={t("ai.deleteNamed", { name: profile.name })}
                         disabled={busy !== null}
                         onClick={() => void removeProvider(profile)}
                       >
@@ -680,10 +688,10 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                   {editingProfile?.id === profile.id ? (
                     <div
                       className="ai-profile-edit"
-                      aria-label={`Edit ${profile.name}`}
+                      aria-label={t("ai.editNamed", { name: profile.name })}
                     >
                       <label>
-                        Name
+                        {t("ai.profileName")}
                         <input
                           value={editingProfile.name}
                           onChange={(event) =>
@@ -695,7 +703,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                         />
                       </label>
                       <label>
-                        Base URL
+                        {t("ai.baseUrl")}
                         <input
                           value={editingProfile.baseUrl}
                           spellCheck={false}
@@ -708,7 +716,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                         />
                       </label>
                       <label>
-                        Model
+                        {t("common.model")}
                         <input
                           value={editingProfile.model}
                           spellCheck={false}
@@ -721,7 +729,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                         />
                       </label>
                       <label>
-                        Timeout (ms)
+                        {t("ai.timeoutMs")}
                         <input
                           type="number"
                           value={editingProfile.timeoutMs}
@@ -744,7 +752,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                             })
                           }
                         />
-                        <span>Profile enabled</span>
+                        <span>{t("ai.profileEnabled")}</span>
                       </label>
                       <div>
                         <button
@@ -752,12 +760,13 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                           disabled={busy !== null}
                           onClick={() => void saveProviderUpdate()}
                         >
-                          <ShieldCheck size={13} /> Save
+                          <ShieldCheck size={13} />
+                          {t("common.save")}
                         </button>
                         <button
                           type="button"
-                          title="Cancel edit"
-                          aria-label="Cancel profile edit"
+                          title={t("ai.cancelEdit")}
+                          aria-label={t("ai.cancelEditAria")}
                           onClick={() => setEditingProfile(null)}
                         >
                           <X size={13} />
@@ -770,7 +779,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
             ) : (
               <div className="surface-empty">
                 <Bot size={22} />
-                <strong>No provider profiles</strong>
+                <strong>{t("ai.noProfiles")}</strong>
               </div>
             )}
           </section>
@@ -782,20 +791,20 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
           <section className="ai-batch-config">
             <div className="section-heading">
               <div>
-                <span>TM-first</span>
-                <h2>Pretranslate document</h2>
+                <span>{t("ai.tmFirst")}</span>
+                <h2>{t("ai.pretranslate")}</h2>
               </div>
             </div>
             <div className="ai-batch-form">
               <label>
-                Provider
+                {t("common.provider")}
                 <select
                   value={batchProfileId}
                   onChange={(event) =>
                     setBatchProfileId(event.currentTarget.value)
                   }
                 >
-                  <option value="">Choose profile</option>
+                  <option value="">{t("ai.chooseProfile")}</option>
                   {profiles.map((profile) => (
                     <option key={profile.id} value={profile.id}>
                       {profile.name}
@@ -804,7 +813,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                 </select>
               </label>
               <label>
-                TM threshold
+                {t("ai.tmThreshold")}
                 <input
                   type="number"
                   min={0}
@@ -816,7 +825,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                 />
               </label>
               <label>
-                Concurrency
+                {t("ai.concurrency")}
                 <input
                   type="number"
                   min={1}
@@ -828,7 +837,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                 />
               </label>
               <label>
-                Requests / minute
+                {t("ai.requestsPerMinute")}
                 <input
                   type="number"
                   min={1}
@@ -847,26 +856,26 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                     setReplaceDrafts(event.currentTarget.checked)
                   }
                 />
-                <span>Replace existing drafts</span>
+                <span>{t("ai.replaceDrafts")}</span>
               </label>
               <button
                 type="button"
                 disabled={busy !== null || !batchProfileId}
                 onClick={() => void startBatch()}
               >
-                <Play size={15} /> Start batch
+                <Play size={15} /> {t("ai.startBatch")}
               </button>
             </div>
           </section>
           <section className="ai-batch-progress">
             <div className="section-heading">
               <div>
-                <span>Durable queue</span>
-                <h2>Batch runs</h2>
+                <span>{t("ai.durableQueue")}</span>
+                <h2>{t("ai.batchRuns")}</h2>
               </div>
               {activeBatch ? (
                 <select
-                  aria-label="Selected batch"
+                  aria-label={t("ai.selectedBatchAria")}
                   value={activeBatch.id}
                   onChange={(event) =>
                     setActiveBatch(
@@ -906,10 +915,12 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                     <strong>{activeBatch.succeeded}</strong>AI
                   </span>
                   <span>
-                    <strong>{activeBatch.skipped}</strong>Skipped
+                    <strong>{activeBatch.skipped}</strong>
+                    {t("common.skipped")}
                   </span>
                   <span>
-                    <strong>{activeBatch.failed}</strong>Failed
+                    <strong>{activeBatch.failed}</strong>
+                    {t("common.failed")}
                   </span>
                 </div>
                 <div className="batch-actions">
@@ -919,7 +930,8 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                       disabled={busy !== null}
                       onClick={() => void changeBatchState("cancel")}
                     >
-                      <CircleStop size={14} /> Cancel
+                      <CircleStop size={14} />
+                      {t("common.cancel")}
                     </button>
                   ) : activeBatch.status === "interrupted" ||
                     activeBatch.status === "failed" ||
@@ -929,15 +941,18 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                       disabled={busy !== null}
                       onClick={() => void changeBatchState("resume")}
                     >
-                      <RotateCcw size={14} /> Resume
+                      <RotateCcw size={14} /> {t("ai.resume")}
                     </button>
                   ) : null}
                 </div>
-                <div className="batch-item-list" aria-label="Batch items">
+                <div
+                  className="batch-item-list"
+                  aria-label={t("ai.batchItemsAria")}
+                >
                   {batchItems.map((item) => (
                     <div key={item.segmentId}>
                       <strong>#{item.ordinal + 1}</strong>
-                      <span>{item.source ?? "pending"}</span>
+                      <span>{item.source ?? t("ai.pending")}</span>
                       <em data-status={item.status}>{item.status}</em>
                       {item.errorCode ? <small>{item.errorCode}</small> : null}
                     </div>
@@ -947,7 +962,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
             ) : (
               <div className="surface-empty">
                 <Activity size={22} />
-                <strong>No batch runs</strong>
+                <strong>{t("ai.noBatchRuns")}</strong>
               </div>
             )}
           </section>
@@ -958,13 +973,13 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
         <section className="ai-usage-section">
           <div className="section-heading">
             <div>
-              <span>Current month</span>
-              <h2>Authoritative usage</h2>
+              <span>{t("ai.currentMonth")}</span>
+              <h2>{t("ai.authoritativeUsage")}</h2>
             </div>
             <button
               type="button"
-              aria-label="Refresh usage"
-              title="Refresh usage"
+              aria-label={t("ai.refreshUsage")}
+              title={t("ai.refreshUsage")}
               onClick={() => void runAction("usage", loadUsage)}
             >
               <RefreshCw size={14} />
@@ -973,13 +988,13 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
           {usage.length ? (
             <div className="usage-table" role="table">
               <div role="row" className="usage-head">
-                <span>Provider</span>
-                <span>Requests</span>
-                <span>Input</span>
-                <span>Cache read</span>
-                <span>Thinking</span>
-                <span>Output</span>
-                <span>Elapsed</span>
+                <span>{t("common.provider")}</span>
+                <span>{t("common.requests")}</span>
+                <span>{t("common.input")}</span>
+                <span>{t("ai.cacheRead")}</span>
+                <span>{t("ai.thinking")}</span>
+                <span>{t("common.output")}</span>
+                <span>{t("common.elapsed")}</span>
               </div>
               {usage.map((item) => (
                 <div role="row" key={item.key}>
@@ -996,7 +1011,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
           ) : (
             <div className="surface-empty">
               <Activity size={22} />
-              <strong>No AI usage this month</strong>
+              <strong>{t("ai.noUsage")}</strong>
             </div>
           )}
         </section>
@@ -1005,14 +1020,17 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
   );
 }
 
-async function waitForRun(initial: AiRun): Promise<AiRun> {
+async function waitForRun(
+  initial: AiRun,
+  timeoutMessage: string,
+): Promise<AiRun> {
   let run = initial;
   for (let attempt = 0; attempt < 120; attempt += 1) {
     if (isRunTerminal(run.status)) return run;
     await new Promise<void>((resolve) => window.setTimeout(resolve, 250));
     run = await window.translunar.invoke("ai.run.get", { runId: run.id });
   }
-  throw new Error("Provider test did not finish within 30 seconds.");
+  throw new Error(timeoutMessage);
 }
 
 function isRunTerminal(status: AiRun["status"]): boolean {

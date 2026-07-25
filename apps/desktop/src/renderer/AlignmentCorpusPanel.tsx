@@ -59,10 +59,12 @@ import {
 } from "./alignment-corpus-utils";
 import { fileName, formatError } from "./workbench-utils";
 import "./AlignmentCorpusPanel.css";
+import { useLocale } from "./i18n/LocaleProvider";
 
 type AlignmentCorpusMode = "alignment" | "corpora";
 type AlignmentReplacementCommand = "link" | "merge" | "unlink" | "split";
 type CorpusStatusFilter = ReferenceCorpusStatus | "all";
+type Translate = ReturnType<typeof useLocale>["t"];
 
 interface AlignmentCorpusPanelProps {
   snapshot: ProjectSnapshot;
@@ -75,6 +77,8 @@ export function AlignmentCorpusPanel({
   documents,
   onRefresh,
 }: AlignmentCorpusPanelProps) {
+  const { t } = useLocale();
+
   const [mode, setMode] = useState<AlignmentCorpusMode>("alignment");
 
   return (
@@ -82,7 +86,7 @@ export function AlignmentCorpusPanel({
       <div
         className="alignment-corpus-mode-tabs"
         role="tablist"
-        aria-label="Alignment and corpora mode"
+        aria-label={t("alignment.modeAria")}
       >
         <button
           type="button"
@@ -90,7 +94,7 @@ export function AlignmentCorpusPanel({
           aria-selected={mode === "alignment"}
           onClick={() => setMode("alignment")}
         >
-          <GitCompareArrows size={15} /> Alignment
+          <GitCompareArrows size={15} /> {t("alignment.tabAlignment")}
         </button>
         <button
           type="button"
@@ -98,7 +102,7 @@ export function AlignmentCorpusPanel({
           aria-selected={mode === "corpora"}
           onClick={() => setMode("corpora")}
         >
-          <BookOpen size={15} /> Reference corpora
+          <BookOpen size={15} /> {t("alignment.tabCorpora")}
         </button>
       </div>
 
@@ -120,6 +124,7 @@ function AlignmentWorkflow({
   documents,
   onRefresh,
 }: AlignmentCorpusPanelProps) {
+  const { t } = useLocale();
   const projectId = snapshot.project.id;
   const sourceLocale = snapshot.project.sourceLocale;
   const targetLocale = snapshot.project.targetLocale;
@@ -393,7 +398,10 @@ function AlignmentWorkflow({
       setSessions(page);
       await loadSession(created.session.id, 0);
       setNotice(
-        `Created ${created.linkCount} candidates across ${created.workUnits.toLocaleString()} work units.`,
+        t("alignment.createdCandidates", {
+          links: created.linkCount,
+          units: created.workUnits,
+        }),
       );
     });
   };
@@ -477,8 +485,19 @@ function AlignmentWorkflow({
         },
       );
       await refreshCurrent(result.session.id, detail.offset);
+      const commandLabel =
+        command === "link"
+          ? t("alignment.link")
+          : command === "merge"
+            ? t("alignment.merge")
+            : command === "unlink"
+              ? t("alignment.unlink")
+              : t("alignment.split");
       setNotice(
-        `${command[0]?.toUpperCase() ?? ""}${command.slice(1)} correction saved at session revision ${result.session.revision}.`,
+        t("alignment.correctionSaved", {
+          command: commandLabel,
+          revision: result.session.revision,
+        }),
       );
     });
   };
@@ -505,7 +524,12 @@ function AlignmentWorkflow({
         },
       );
       await refreshCurrent(result.session.id, detail.offset);
-      setNotice(`Candidate ${link.ordinal + 1} marked ${status}.`);
+      setNotice(
+        t("alignment.candidateMarked", {
+          ordinal: link.ordinal + 1,
+          status,
+        }),
+      );
     });
   };
 
@@ -542,25 +566,24 @@ function AlignmentWorkflow({
           started,
           setRefinementRun,
           controller.signal,
+          t,
         );
         if (
           completed.status === "failed" ||
           completed.status === "interrupted"
         ) {
           throw new Error(
-            completed.errorMessage ?? "Alignment refinement failed.",
+            completed.errorMessage ?? t("alignment.refinementFailed"),
           );
         }
         if (completed.status === "canceled") {
-          setNotice(
-            "Alignment refinement was canceled without changing links.",
-          );
+          setNotice(t("alignment.refinementCanceled"));
           return;
         }
         if (controller.signal.aborted) return;
         await refreshCurrent(detail.session.id, detail.offset);
         if (!controller.signal.aborted) {
-          setNotice("AI suggestions are ready as proposed alignment links.");
+          setNotice(t("alignment.aiSuggestionsReady"));
         }
       } catch (reasonValue) {
         if (controller.signal.aborted) return;
@@ -614,7 +637,10 @@ function AlignmentWorkflow({
         reason: reason.trim(),
       });
       setNotice(
-        `Applied ${result.insertedCount} TM units; ${result.duplicateCount} existing units were retained.`,
+        t("alignment.appliedTm", {
+          inserted: result.insertedCount,
+          duplicates: result.duplicateCount,
+        }),
       );
       await Promise.all([
         refreshCurrent(result.sessionId, detail.offset),
@@ -648,7 +674,10 @@ function AlignmentWorkflow({
       });
       setAlignmentCorpusName("");
       setNotice(
-        `Created ${result.corpus.name} with ${result.affectedEntryCount} bilingual entries.`,
+        t("alignment.corpusCreated", {
+          name: result.corpus.name,
+          count: result.affectedEntryCount,
+        }),
       );
       await onRefresh();
     });
@@ -705,14 +734,16 @@ function AlignmentWorkflow({
       >
         <div className="alignment-control-heading">
           <div>
-            <span className="surface-kicker">Revision-bound workspace</span>
-            <h2>Document alignment</h2>
+            <span className="surface-kicker">
+              {t("alignment.revisionBound")}
+            </span>
+            <h2>{t("alignment.documentAlignment")}</h2>
           </div>
           <button
             className="icon-button"
             type="button"
-            title="Refresh alignment workspace"
-            aria-label="Refresh alignment workspace"
+            title={t("alignment.refresh")}
+            aria-label={t("alignment.refresh")}
             onClick={() => void run("refresh", refreshAll)}
             disabled={loading || !!busy}
           >
@@ -722,7 +753,7 @@ function AlignmentWorkflow({
 
         <div className="alignment-document-grid">
           <label className="alignment-field">
-            <span>Source document</span>
+            <span>{t("alignment.sourceDocument")}</span>
             <select
               value={sourceDocumentId}
               onChange={(event) => {
@@ -737,18 +768,19 @@ function AlignmentWorkflow({
               disabled={!!busy || activeDocuments.length < 2}
             >
               {activeDocuments.length < 2 ? (
-                <option value="">Two active documents required</option>
+                <option value="">{t("alignment.twoDocsRequired")}</option>
               ) : (
                 activeDocuments.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.name} · rev {item.revision}
+                    {item.name} ·{" "}
+                    {t("common.revision", { revision: item.revision })}
                   </option>
                 ))
               )}
             </select>
           </label>
           <label className="alignment-field">
-            <span>Target document</span>
+            <span>{t("alignment.targetDocument")}</span>
             <select
               value={targetDocumentId}
               onChange={(event) =>
@@ -757,18 +789,19 @@ function AlignmentWorkflow({
               disabled={!!busy || activeDocuments.length < 2}
             >
               {activeDocuments.length < 2 ? (
-                <option value="">Two active documents required</option>
+                <option value="">{t("alignment.twoDocsRequired")}</option>
               ) : (
                 activeDocuments.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.name} · rev {item.revision}
+                    {item.name} ·{" "}
+                    {t("common.revision", { revision: item.revision })}
                   </option>
                 ))
               )}
             </select>
           </label>
           <label className="alignment-field">
-            <span>Actor</span>
+            <span>{t("common.actor")}</span>
             <input
               value={actor}
               onChange={(event) => setActor(event.currentTarget.value)}
@@ -777,7 +810,7 @@ function AlignmentWorkflow({
             />
           </label>
           <label className="alignment-field alignment-reason-field">
-            <span>Audit reason</span>
+            <span>{t("alignment.auditReason")}</span>
             <input
               value={reason}
               onChange={(event) => setReason(event.currentTarget.value)}
@@ -790,13 +823,13 @@ function AlignmentWorkflow({
             type="submit"
             disabled={!canCreate || !!busy}
           >
-            <GitCompareArrows size={14} /> Create session
+            <GitCompareArrows size={14} /> {t("alignment.createSession")}
           </button>
         </div>
 
         <div className="alignment-session-picker">
           <label className="alignment-field">
-            <span>Alignment session</span>
+            <span>{t("alignment.session")}</span>
             <select
               value={detail?.session.id ?? ""}
               onChange={(event) =>
@@ -807,19 +840,19 @@ function AlignmentWorkflow({
               disabled={!!busy || !sessions?.items.length}
             >
               {!sessions?.items.length ? (
-                <option value="">No sessions yet</option>
+                <option value="">{t("alignment.noSessions")}</option>
               ) : (
                 sessions.items.map((session) => (
                   <option key={session.id} value={session.id}>
-                    {session.id.slice(0, 8)} · {session.status} · rev{" "}
-                    {session.revision}
+                    {session.id.slice(0, 8)} · {session.status} ·{" "}
+                    {t("common.revision", { revision: session.revision })}
                   </option>
                 ))
               )}
             </select>
           </label>
           <PanelPagination
-            label="Alignment sessions"
+            label={t("alignment.sessionsLabel")}
             offset={sessions?.offset ?? 0}
             limit={sessions?.limit ?? 20}
             total={sessions?.total ?? 0}
@@ -845,15 +878,15 @@ function AlignmentWorkflow({
         busy={busy}
         error={error}
         notice={notice}
-        loadingLabel="Loading alignment sessions"
+        loadingLabel={t("alignment.loadingSessions")}
         onReload={() => void run("refresh", refreshAll)}
       />
 
       {!loading && !detail ? (
         <section className="insights-section alignment-corpus-empty">
           <GitCompareArrows size={25} />
-          <strong>No alignment session</strong>
-          <span>Select two active documents to create the first session.</span>
+          <strong>{t("alignment.noSession")}</strong>
+          <span>{t("alignment.selectTwoDocs")}</span>
         </section>
       ) : null}
 
@@ -865,11 +898,20 @@ function AlignmentWorkflow({
             <div className="alignment-terminal" role="status">
               <CheckCircle2 size={16} />
               <div>
-                <strong>Session {detail.session.status}</strong>
+                <strong>
+                  {t("alignment.sessionStatus", {
+                    status: detail.session.status,
+                  })}
+                </strong>
                 <span>
                   {detail.session.terminalResult
-                    ? `${detail.session.terminalResult.insertedCount} inserted, ${detail.session.terminalResult.duplicateCount} duplicates at TM revision ${detail.session.terminalResult.libraryRevision}.`
-                    : "This session is terminal and correction controls are locked."}
+                    ? t("alignment.terminalResult", {
+                        inserted: detail.session.terminalResult.insertedCount,
+                        duplicates:
+                          detail.session.terminalResult.duplicateCount,
+                        revision: detail.session.terminalResult.libraryRevision,
+                      })
+                    : t("alignment.terminalLocked")}
                 </span>
               </div>
             </div>
@@ -886,44 +928,46 @@ function AlignmentWorkflow({
                 onChange={(event) => togglePage(event.currentTarget.checked)}
                 disabled={!!busy || detail.links.length === 0}
               />
-              <span>{selectedLinks.length} selected</span>
+              <span>
+                {t("alignment.selectedCount", { count: selectedLinks.length })}
+              </span>
             </label>
             <div className="alignment-correction-actions">
               <button
                 className="button secondary"
                 type="button"
-                title="Link selected source-only and target-only groups"
+                title={t("alignment.linkTitle")}
                 onClick={() => void replaceSelection("link")}
                 disabled={!!busy || !canLink}
               >
-                <Link2 size={14} /> Link
+                <Link2 size={14} /> {t("alignment.link")}
               </button>
               <button
                 className="button secondary"
                 type="button"
-                title="Merge a contiguous candidate range"
+                title={t("alignment.mergeTitle")}
                 onClick={() => void replaceSelection("merge")}
                 disabled={!!busy || !canMerge}
               >
-                <Combine size={14} /> Merge
+                <Combine size={14} /> {t("alignment.merge")}
               </button>
               <button
                 className="button secondary"
                 type="button"
-                title="Separate one bilingual candidate into unaligned sides"
+                title={t("alignment.unlinkTitle")}
                 onClick={() => void replaceSelection("unlink")}
                 disabled={!!busy || !canUnlink}
               >
-                <Unlink2 size={14} /> Unlink
+                <Unlink2 size={14} /> {t("alignment.unlink")}
               </button>
               <button
                 className="button secondary"
                 type="button"
-                title="Split one grouped candidate by segment order"
+                title={t("alignment.splitTitle")}
                 onClick={() => void replaceSelection("split")}
                 disabled={!!busy || !canSplit}
               >
-                <Split size={14} /> Split
+                <Split size={14} /> {t("alignment.split")}
               </button>
             </div>
           </div>
@@ -931,14 +975,16 @@ function AlignmentWorkflow({
           <div className="alignment-service-grid">
             <div className="alignment-service-block">
               <label className="alignment-field">
-                <span>AI refinement profile</span>
+                <span>{t("alignment.aiProfile")}</span>
                 <select
                   value={profileId}
                   onChange={(event) => setProfileId(event.currentTarget.value)}
                   disabled={!!busy || profiles.length === 0 || !sessionOpen}
                 >
                   {profiles.length === 0 ? (
-                    <option value="">No enabled credentialed profile</option>
+                    <option value="">
+                      {t("alignment.noCredentialProfile")}
+                    </option>
                   ) : (
                     profiles.map((profile) => (
                       <option key={profile.id} value={profile.id}>
@@ -960,7 +1006,8 @@ function AlignmentWorkflow({
                   selectedProposed.length === 0
                 }
               >
-                <Sparkles size={14} /> Refine {selectedProposed.length || ""}
+                <Sparkles size={14} />{" "}
+                {t("alignment.refine", { count: selectedProposed.length })}
               </button>
               {refinementRun ? (
                 <div className="alignment-run-status" role="status">
@@ -975,7 +1022,8 @@ function AlignmentWorkflow({
                       onClick={() => void cancelRefinement()}
                       disabled={cancelingRefinement}
                     >
-                      <CircleX size={13} /> Cancel
+                      <CircleX size={13} />
+                      {t("common.cancel")}
                     </button>
                   ) : null}
                 </div>
@@ -984,18 +1032,19 @@ function AlignmentWorkflow({
 
             <div className="alignment-service-block">
               <label className="alignment-field">
-                <span>Writable TM</span>
+                <span>{t("alignment.writableTm")}</span>
                 <select
                   value={libraryId}
                   onChange={(event) => setLibraryId(event.currentTarget.value)}
                   disabled={!!busy || libraries.length === 0 || !sessionOpen}
                 >
                   {libraries.length === 0 ? (
-                    <option value="">No locale-matching writable TM</option>
+                    <option value="">{t("alignment.noLocaleTm")}</option>
                   ) : (
                     libraries.map((library) => (
                       <option key={library.id} value={library.id}>
-                        {library.name} · rev {library.revision}
+                        {library.name} ·{" "}
+                        {t("common.revision", { revision: library.revision })}
                       </option>
                     ))
                   )}
@@ -1013,20 +1062,23 @@ function AlignmentWorkflow({
                   selectedConfirmed.length === 0
                 }
               >
-                <Database size={14} /> Apply {selectedConfirmed.length || ""}
+                <Database size={14} />{" "}
+                {t("alignment.applyTmCount", {
+                  count: selectedConfirmed.length,
+                })}
               </button>
             </div>
 
             <div className="alignment-service-block alignment-corpus-create">
               <label className="alignment-field">
-                <span>Bilingual corpus name</span>
+                <span>{t("alignment.bilingualName")}</span>
                 <input
                   value={alignmentCorpusName}
                   onChange={(event) =>
                     setAlignmentCorpusName(event.currentTarget.value)
                   }
                   maxLength={160}
-                  placeholder="Confirmed alignment corpus"
+                  placeholder={t("alignment.corpusPlaceholder")}
                   disabled={!!busy}
                 />
               </label>
@@ -1041,13 +1093,16 @@ function AlignmentWorkflow({
                   selectedConfirmed.length === 0
                 }
               >
-                <BookOpen size={14} /> Create corpus
+                <BookOpen size={14} /> {t("alignment.createCorpus")}
               </button>
             </div>
           </div>
 
           {detail.links.length ? (
-            <div className="alignment-links" aria-label="Alignment candidates">
+            <div
+              className="alignment-links"
+              aria-label={t("alignment.candidatesAria")}
+            >
               {detail.links.map((link) => (
                 <AlignmentLinkRow
                   key={link.id}
@@ -1063,12 +1118,12 @@ function AlignmentWorkflow({
             </div>
           ) : (
             <div className="alignment-inline-empty">
-              No candidates on this page.
+              {t("alignment.noCandidatesPage")}
             </div>
           )}
 
           <PanelPagination
-            label="Alignment candidates"
+            label={t("alignment.candidatesLabel")}
             offset={detail.offset}
             limit={detail.limit}
             total={detail.total}
@@ -1101,14 +1156,17 @@ function AlignmentSessionHeading({
 }: {
   detail: AlignmentSessionGetResult;
 }) {
+  const { t } = useLocale();
   return (
     <div className="alignment-session-heading">
       <div>
         <span className="surface-kicker">
-          Session {detail.session.id.slice(0, 8)} · rev{" "}
-          {detail.session.revision}
+          {t("alignment.sessionMeta", {
+            id: detail.session.id.slice(0, 8),
+            revision: detail.session.revision,
+          })}
         </span>
-        <h2>{detail.total} alignment candidates</h2>
+        <h2>{t("alignment.candidateCount", { count: detail.total })}</h2>
       </div>
       <div className="alignment-session-facts">
         <span data-status={detail.session.status}>{detail.session.status}</span>
@@ -1139,6 +1197,7 @@ function AlignmentLinkRow({
   onToggle(linkId: string, checked: boolean): void;
   onStatus(status: "confirmed" | "rejected"): void;
 }) {
+  const { t, formatNumber } = useLocale();
   return (
     <article
       className="alignment-link-row"
@@ -1151,28 +1210,54 @@ function AlignmentLinkRow({
           checked={selected}
           onChange={(event) => onToggle(link.id, event.currentTarget.checked)}
           disabled={busy}
-          aria-label={`Select alignment candidate ${link.ordinal + 1}`}
+          aria-label={t("alignment.selectCandidate", {
+            ordinal: link.ordinal + 1,
+          })}
         />
       </label>
       <div className="alignment-link-meta">
         <strong>#{link.ordinal + 1}</strong>
         <span data-status={link.status}>{link.status}</span>
         <small>{link.origin}</small>
-        <small>{(link.confidenceBasisPoints / 100).toFixed(1)}%</small>
+        <small>
+          {formatNumber(link.confidenceBasisPoints / 100, {
+            maximumFractionDigits: 1,
+            minimumFractionDigits: 1,
+          })}
+          %
+        </small>
       </div>
       <div className="alignment-link-copy">
-        <span>Source · {link.sourceSegmentIds.length} segment(s)</span>
-        <p className="cjk">{link.sourceText || "(source unaligned)"}</p>
-        <code>{link.sourceSegmentIds.join(", ") || "No source member"}</code>
+        <span>
+          {t("alignment.sourceSegments", {
+            count: link.sourceSegmentIds.length,
+          })}
+        </span>
+        <p className="cjk">
+          {link.sourceText || t("alignment.sourceUnaligned")}
+        </p>
+        <code>
+          {link.sourceSegmentIds.join(", ") || t("alignment.noSourceMember")}
+        </code>
       </div>
       <div className="alignment-link-copy">
-        <span>Target · {link.targetSegmentIds.length} segment(s)</span>
-        <p className="cjk">{link.targetText || "(target unaligned)"}</p>
-        <code>{link.targetSegmentIds.join(", ") || "No target member"}</code>
+        <span>
+          {t("alignment.targetSegments", {
+            count: link.targetSegmentIds.length,
+          })}
+        </span>
+        <p className="cjk">
+          {link.targetText || t("alignment.targetUnaligned")}
+        </p>
+        <code>
+          {link.targetSegmentIds.join(", ") || t("alignment.noTargetMember")}
+        </code>
       </div>
       <div className="alignment-link-review">
         <details>
-          <summary>Evidence · {link.evidence.length}</summary>
+          <summary>
+            {t("alignment.evidenceCount", { count: link.evidence.length })}
+          </summary>
           {link.evidence.length ? (
             <ul>
               {link.evidence.map((evidence, index) => (
@@ -1180,7 +1265,7 @@ function AlignmentLinkRow({
               ))}
             </ul>
           ) : (
-            <small>Manual bilingual link</small>
+            <small>{t("alignment.manualLink")}</small>
           )}
         </details>
         <div>
@@ -1195,7 +1280,8 @@ function AlignmentLinkRow({
               link.status === "confirmed"
             }
           >
-            <Check size={13} /> Confirm
+            <Check size={13} />
+            {t("common.confirm")}
           </button>
           <button
             className="button secondary"
@@ -1208,7 +1294,7 @@ function AlignmentLinkRow({
               link.status === "rejected"
             }
           >
-            <X size={13} /> Reject
+            <X size={13} /> {t("alignment.reject")}
           </button>
         </div>
       </div>
@@ -1223,6 +1309,7 @@ function CorpusWorkflow({
   snapshot: ProjectSnapshot;
   onRefresh(): Promise<void>;
 }) {
+  const { t, formatNumber } = useLocale();
   const projectId = snapshot.project.id;
   const [corpora, setCorpora] = useState<ReferenceCorpusPage | null>(null);
   const [searchCorpora, setSearchCorpora] = useState<ReferenceCorpus[]>([]);
@@ -1394,7 +1481,11 @@ function CorpusWorkflow({
       setName("");
       setStatusFilter("active");
       setNotice(
-        `Imported ${result.corpus.name}: ${result.affectedEntryCount} entries, ${result.corpus.diagnosticCount} diagnostics.`,
+        t("alignment.corpusImported", {
+          name: result.corpus.name,
+          entries: result.affectedEntryCount,
+          diagnostics: result.corpus.diagnosticCount,
+        }),
       );
       await Promise.all([
         fetchCorpora(0, "active"),
@@ -1435,7 +1526,10 @@ function CorpusWorkflow({
         reason: reason.trim(),
       });
       setNotice(
-        `Reindexed ${result.corpus.name} at revision ${result.corpus.revision}.`,
+        t("alignment.corpusReindexed", {
+          name: result.corpus.name,
+          revision: result.corpus.revision,
+        }),
       );
       await Promise.all([
         fetchCorpora(corpora?.offset ?? 0),
@@ -1459,9 +1553,7 @@ function CorpusWorkflow({
         searchCorpusId === corpus.id ? "" : searchCorpusId;
       setSearchCorpusId(nextSearchCorpusId);
       setRemoveTarget(null);
-      setNotice(
-        `${result.corpus.name} was removed from retrieval; its managed source remains recoverable.`,
-      );
+      setNotice(t("alignment.corpusRemoved", { name: result.corpus.name }));
       await Promise.all([
         fetchCorpora(corpora?.offset ?? 0),
         fetchSearchCorpora(),
@@ -1492,14 +1584,14 @@ function CorpusWorkflow({
       >
         <div className="alignment-control-heading">
           <div>
-            <span className="surface-kicker">Project-owned retrieval</span>
-            <h2>Import reference corpus</h2>
+            <span className="surface-kicker">{t("corpus.projectOwned")}</span>
+            <h2>{t("corpus.importTitle")}</h2>
           </div>
           <button
             className="icon-button"
             type="button"
-            title="Refresh reference corpora"
-            aria-label="Refresh reference corpora"
+            title={t("corpus.refresh")}
+            aria-label={t("corpus.refresh")}
             onClick={() =>
               void run("corpus-refresh", async () => {
                 await Promise.all([
@@ -1523,11 +1615,9 @@ function CorpusWorkflow({
           <UploadCloud size={20} />
           <div>
             <strong>
-              {inputPath
-                ? fileName(inputPath)
-                : "Choose or drop one corpus file"}
+              {inputPath ? fileName(inputPath) : t("corpus.chooseOrDrop")}
             </strong>
-            <span>{inputPath ? inputPath : "No file selected"}</span>
+            <span>{inputPath ? inputPath : t("corpus.noFileSelected")}</span>
           </div>
           <button
             className="button secondary"
@@ -1535,13 +1625,13 @@ function CorpusWorkflow({
             onClick={() => void chooseInput()}
             disabled={!!busy}
           >
-            <FolderOpen size={14} /> Select file
+            <FolderOpen size={14} /> {t("alignment.selectFile")}
           </button>
         </div>
 
         <div className="corpus-import-grid">
           <label className="alignment-field">
-            <span>Corpus kind</span>
+            <span>{t("corpus.kind")}</span>
             <select
               value={kind}
               onChange={(event) =>
@@ -1549,23 +1639,27 @@ function CorpusWorkflow({
               }
               disabled={!!busy}
             >
-              <option value="monolingualSource">Monolingual source</option>
-              <option value="monolingualTarget">Monolingual target</option>
-              <option value="bilingual">Bilingual</option>
+              <option value="monolingualSource">
+                {t("corpus.monoSource")}
+              </option>
+              <option value="monolingualTarget">
+                {t("corpus.monoTarget")}
+              </option>
+              <option value="bilingual">{t("corpus.bilingual")}</option>
             </select>
           </label>
           <label className="alignment-field corpus-name-field">
-            <span>Corpus name</span>
+            <span>{t("corpus.name")}</span>
             <input
               value={name}
               onChange={(event) => setName(event.currentTarget.value)}
               maxLength={160}
-              placeholder="Product documentation 2026"
+              placeholder={t("corpus.namePlaceholder")}
               disabled={!!busy}
             />
           </label>
           <label className="alignment-field">
-            <span>Source locale</span>
+            <span>{t("corpus.sourceLocale")}</span>
             <input
               value={sourceLocale}
               onChange={(event) => setSourceLocale(event.currentTarget.value)}
@@ -1575,7 +1669,7 @@ function CorpusWorkflow({
             />
           </label>
           <label className="alignment-field">
-            <span>Target locale</span>
+            <span>{t("corpus.targetLocale")}</span>
             <input
               value={targetLocale}
               onChange={(event) => setTargetLocale(event.currentTarget.value)}
@@ -1585,7 +1679,7 @@ function CorpusWorkflow({
             />
           </label>
           <label className="alignment-field">
-            <span>Actor</span>
+            <span>{t("common.actor")}</span>
             <input
               value={actor}
               onChange={(event) => setActor(event.currentTarget.value)}
@@ -1594,7 +1688,7 @@ function CorpusWorkflow({
             />
           </label>
           <label className="alignment-field corpus-reason-field">
-            <span>Audit reason</span>
+            <span>{t("alignment.auditReason")}</span>
             <input
               value={reason}
               onChange={(event) => setReason(event.currentTarget.value)}
@@ -1607,7 +1701,7 @@ function CorpusWorkflow({
             type="submit"
             disabled={!!busy || !canImport}
           >
-            <UploadCloud size={14} /> Import corpus
+            <UploadCloud size={14} /> {t("alignment.importCorpus")}
           </button>
         </div>
       </form>
@@ -1617,7 +1711,7 @@ function CorpusWorkflow({
         busy={busy}
         error={removeTarget ? null : error}
         notice={notice}
-        loadingLabel="Loading reference corpora"
+        loadingLabel={t("alignment.loadingCorpora")}
         onReload={() =>
           void run("corpus-refresh", async () => {
             await Promise.all([
@@ -1632,11 +1726,13 @@ function CorpusWorkflow({
       <section className="insights-section corpus-library">
         <div className="corpus-section-heading">
           <div>
-            <span className="surface-kicker">Mounted assets</span>
-            <h2>{corpora?.total ?? 0} reference corpora</h2>
+            <span className="surface-kicker">{t("corpus.mounted")}</span>
+            <h2>
+              {t("corpus.referenceCount", { count: corpora?.total ?? 0 })}
+            </h2>
           </div>
           <label className="alignment-field corpus-status-filter">
-            <span>Status</span>
+            <span>{t("common.status")}</span>
             <select
               value={statusFilter}
               onChange={(event) => {
@@ -1648,9 +1744,9 @@ function CorpusWorkflow({
               }}
               disabled={!!busy}
             >
-              <option value="active">Active</option>
-              <option value="removed">Removed</option>
-              <option value="all">All</option>
+              <option value="active">{t("common.active")}</option>
+              <option value="removed">{t("corpus.removed")}</option>
+              <option value="all">{t("common.all")}</option>
             </select>
           </label>
         </div>
@@ -1672,20 +1768,20 @@ function CorpusWorkflow({
                     {corpus.targetLocale}
                   </small>
                   <small title={corpus.managedSourcePath ?? undefined}>
-                    {corpusSourceLabel(corpus)}
+                    {corpusSourceLabel(corpus, t)}
                   </small>
                 </div>
                 <div className="corpus-list-metrics">
                   <span>
-                    <strong>{corpus.entryCount.toLocaleString()}</strong>{" "}
-                    entries
+                    <strong>{formatNumber(corpus.entryCount)}</strong>{" "}
+                    {t("corpus.entries")}
                   </span>
                   <span>
-                    <strong>{corpus.diagnosticCount.toLocaleString()}</strong>{" "}
-                    diagnostics
+                    <strong>{formatNumber(corpus.diagnosticCount)}</strong>{" "}
+                    {t("corpus.diagnostics")}
                   </span>
                   <span>
-                    <strong>{corpus.revision}</strong> revision
+                    <strong>{corpus.revision}</strong> {t("corpus.revision")}
                   </span>
                 </div>
                 <div className="corpus-list-actions">
@@ -1697,13 +1793,13 @@ function CorpusWorkflow({
                       !!busy || !hasAuditContext || corpus.status !== "active"
                     }
                   >
-                    <RefreshCw size={13} /> Reindex
+                    <RefreshCw size={13} /> {t("alignment.reindex")}
                   </button>
                   <button
                     className="icon-button danger-icon-button"
                     type="button"
-                    title={`Remove ${corpus.name}`}
-                    aria-label={`Remove ${corpus.name}`}
+                    title={t("corpus.removeNamed", { name: corpus.name })}
+                    aria-label={t("corpus.removeNamed", { name: corpus.name })}
                     onClick={() => {
                       setError(null);
                       setRemoveTarget(corpus);
@@ -1720,12 +1816,12 @@ function CorpusWorkflow({
           </div>
         ) : !loading ? (
           <div className="alignment-inline-empty">
-            No corpora match this status filter.
+            {t("alignment.noCorporaMatch")}
           </div>
         ) : null}
 
         <PanelPagination
-          label="Reference corpora"
+          label={t("corpus.referenceCorpora")}
           offset={corpora?.offset ?? 0}
           limit={corpora?.limit ?? 20}
           total={corpora?.total ?? 0}
@@ -1750,12 +1846,12 @@ function CorpusWorkflow({
       <section className="insights-section corpus-search">
         <div className="corpus-section-heading">
           <div>
-            <span className="surface-kicker">Authoritative ranking</span>
-            <h2>Search corpora</h2>
+            <span className="surface-kicker">{t("corpus.authoritative")}</span>
+            <h2>{t("corpus.searchTitle")}</h2>
           </div>
           {searchResult ? (
             <span className="corpus-search-total">
-              {searchResult.total.toLocaleString()} matches
+              {t("corpus.matchCount", { count: searchResult.total })}
             </span>
           ) : null}
         </div>
@@ -1767,19 +1863,19 @@ function CorpusWorkflow({
           }}
         >
           <label className="alignment-field corpus-query-field">
-            <span>Query</span>
+            <span>{t("corpus.query")}</span>
             <input
               value={query}
               onChange={(event) => {
                 setQuery(event.currentTarget.value);
                 setSearchResult(null);
               }}
-              placeholder="Search source or target expressions"
+              placeholder={t("corpus.queryPlaceholder")}
               disabled={!!busy}
             />
           </label>
           <label className="alignment-field">
-            <span>Side</span>
+            <span>{t("corpus.side")}</span>
             <select
               value={searchSide}
               onChange={(event) => {
@@ -1788,13 +1884,13 @@ function CorpusWorkflow({
               }}
               disabled={!!busy}
             >
-              <option value="both">Source and target</option>
-              <option value="source">Source</option>
-              <option value="target">Target</option>
+              <option value="both">{t("corpus.sourceAndTarget")}</option>
+              <option value="source">{t("common.source")}</option>
+              <option value="target">{t("common.target")}</option>
             </select>
           </label>
           <label className="alignment-field">
-            <span>Scope</span>
+            <span>{t("common.scope")}</span>
             <select
               value={searchCorpusId}
               onChange={(event) => {
@@ -1803,7 +1899,7 @@ function CorpusWorkflow({
               }}
               disabled={!!busy}
             >
-              <option value="">All active corpora</option>
+              <option value="">{t("corpus.allActive")}</option>
               {activeCorpora.map((corpus) => (
                 <option key={corpus.id} value={corpus.id}>
                   {corpus.name}
@@ -1816,7 +1912,8 @@ function CorpusWorkflow({
             type="submit"
             disabled={!!busy || !query.trim()}
           >
-            <Search size={14} /> Search
+            <Search size={14} />
+            {t("home.search")}
           </button>
         </form>
 
@@ -1831,26 +1928,29 @@ function CorpusWorkflow({
                     <span>{hit.matchedSide}</span>
                   </div>
                   <small>
-                    Entry {hit.entry.ordinal + 1} · {hit.entry.id.slice(0, 8)}
+                    {t("corpus.entry", {
+                      ordinal: hit.entry.ordinal + 1,
+                      id: hit.entry.id.slice(0, 8),
+                    })}
                   </small>
                 </header>
                 <div className="corpus-hit-copy">
                   <p className="cjk">
-                    {hit.entry.sourceText || "(no source expression)"}
+                    {hit.entry.sourceText || t("corpus.noSourceExpression")}
                   </p>
                   <p className="cjk corpus-hit-target">
-                    {hit.entry.targetText || "(no target expression)"}
+                    {hit.entry.targetText || t("corpus.noTargetExpression")}
                   </p>
                 </div>
                 <footer>
                   <span title={hit.corpus.managedSourcePath ?? undefined}>
-                    <FolderOpen size={12} /> {corpusSourceLabel(hit.corpus)}
+                    <FolderOpen size={12} /> {corpusSourceLabel(hit.corpus, t)}
                   </span>
                   <code>
-                    {hit.entry.structuralPath || "No structural path"}
+                    {hit.entry.structuralPath || t("corpus.noStructuralPath")}
                   </code>
                   <details>
-                    <summary>Provenance</summary>
+                    <summary>{t("common.provenance")}</summary>
                     <code>{formatCorpusProvenance(hit.entry.provenance)}</code>
                   </details>
                 </footer>
@@ -1859,18 +1959,18 @@ function CorpusWorkflow({
           </div>
         ) : searchResult && !busy ? (
           <div className="alignment-inline-empty">
-            No corpus entry matches this query and scope.
+            {t("alignment.noCorpusEntry")}
           </div>
         ) : !searchResult ? (
           <div className="corpus-search-prompt">
             <FileSearch size={22} />
-            <span>No corpus search has been run.</span>
+            <span>{t("corpus.noSearchYet")}</span>
           </div>
         ) : null}
 
         {searchResult ? (
           <PanelPagination
-            label="Corpus search results"
+            label={t("corpus.searchResults")}
             offset={searchResult.offset}
             limit={searchResult.limit}
             total={searchResult.total}
@@ -1914,26 +2014,22 @@ function CorpusWorkflow({
           >
             <header>
               <div>
-                <small>Reference corpus</small>
+                <small>{t("corpus.reference")}</small>
                 <strong id="corpus-remove-title">
-                  Remove {removeTarget.name}
+                  {t("corpus.removeNamed", { name: removeTarget.name })}
                 </strong>
               </div>
               <button
                 className="icon-button"
                 type="button"
-                aria-label="Close remove corpus confirmation"
+                aria-label={t("corpus.closeRemove")}
                 onClick={() => setRemoveTarget(null)}
                 disabled={!!busy}
               >
                 <X size={14} />
               </button>
             </header>
-            <p>
-              Search and AI grounding will exclude this corpus immediately.
-              Original documents, TM units, and the managed source are not
-              changed.
-            </p>
+            <p>{t("corpus.removeBody")}</p>
             {error ? (
               <p className="surface-error" role="alert">
                 {error}
@@ -1947,7 +2043,7 @@ function CorpusWorkflow({
                 disabled={!!busy}
                 autoFocus
               >
-                Cancel
+                {t("common.cancel")}
               </button>
               <button
                 className="button danger-button"
@@ -1955,7 +2051,8 @@ function CorpusWorkflow({
                 onClick={() => void removeCorpus()}
                 disabled={!!busy || !hasAuditContext}
               >
-                <Trash2 size={14} /> {busy ? "Removing" : "Remove corpus"}
+                <Trash2 size={14} />
+                {busy ? t("corpus.removing") : t("corpus.removeAction")}
               </button>
             </footer>
           </section>
@@ -1980,6 +2077,7 @@ function PanelFeedback({
   loadingLabel: string;
   onReload(): void;
 }) {
+  const { t } = useLocale();
   return (
     <div className="alignment-corpus-feedback">
       {error ? (
@@ -1992,7 +2090,7 @@ function PanelFeedback({
             onClick={onReload}
             disabled={loading || !!busy}
           >
-            Reload authoritative state
+            {t("alignment.reloadState")}
           </button>
         </div>
       ) : null}
@@ -2004,7 +2102,7 @@ function PanelFeedback({
       {loading || busy ? (
         <p className="alignment-corpus-loading" role="status">
           <LoaderCircle className="spin" size={16} />
-          {loading ? loadingLabel : `Working on ${busy?.replaceAll("-", " ")}`}
+          {loading ? loadingLabel : t("common.workingOn", { task: busy ?? "" })}
         </p>
       ) : null}
     </div>
@@ -2028,19 +2126,18 @@ function PanelPagination({
   onPrevious(): void;
   onNext(): void;
 }) {
+  const { t } = useLocale();
   const start = total === 0 ? 0 : offset + 1;
   const end = Math.min(total, offset + limit);
   return (
     <footer className="alignment-pagination">
-      <span>
-        {start}-{end} of {total}
-      </span>
+      <span>{t("common.pageRange", { start, end, total })}</span>
       <div>
         <button
           className="icon-button"
           type="button"
-          title={`Previous ${label.toLocaleLowerCase()} page`}
-          aria-label={`Previous ${label.toLocaleLowerCase()} page`}
+          title={`${t("common.previousPage")} · ${label}`}
+          aria-label={`${t("common.previousPage")} · ${label}`}
           onClick={onPrevious}
           disabled={disabled || offset === 0}
         >
@@ -2049,8 +2146,8 @@ function PanelPagination({
         <button
           className="icon-button"
           type="button"
-          title={`Next ${label.toLocaleLowerCase()} page`}
-          aria-label={`Next ${label.toLocaleLowerCase()} page`}
+          title={`${t("common.nextPage")} · ${label}`}
+          aria-label={`${t("common.nextPage")} · ${label}`}
           onClick={onNext}
           disabled={disabled || offset + limit >= total}
         >
@@ -2061,13 +2158,18 @@ function PanelPagination({
   );
 }
 
-function corpusSourceLabel(corpus: ReferenceCorpus): string {
+function corpusSourceLabel(corpus: ReferenceCorpus, t: Translate): string {
   if (corpus.managedSourcePath) return fileName(corpus.managedSourcePath);
   if (corpus.sourceDocumentId || corpus.targetDocumentId) {
-    return `Documents ${corpus.sourceDocumentId?.slice(0, 8) ?? "-"} / ${corpus.targetDocumentId?.slice(0, 8) ?? "-"}`;
+    return t("corpus.documents", {
+      source: corpus.sourceDocumentId?.slice(0, 8) ?? "-",
+      target: corpus.targetDocumentId?.slice(0, 8) ?? "-",
+    });
   }
   if (corpus.alignmentSessionId) {
-    return `Alignment ${corpus.alignmentSessionId.slice(0, 8)}`;
+    return t("corpus.alignment", {
+      id: corpus.alignmentSessionId.slice(0, 8),
+    });
   }
   return corpus.sourceKind;
 }
@@ -2082,20 +2184,21 @@ async function waitForAiRun(
   initial: AiRun,
   onUpdate: (run: AiRun) => void,
   signal: AbortSignal,
+  t: Translate,
 ): Promise<AiRun> {
   let current = initial;
   for (let attempt = 0; attempt < 480; attempt += 1) {
     if (isTerminalAiRunStatus(current.status)) return current;
     if (signal.aborted) {
       throw new DOMException(
-        "Alignment refinement polling was canceled.",
+        t("alignment.refinementPollingCanceled"),
         "AbortError",
       );
     }
     await new Promise<void>((resolve) => window.setTimeout(resolve, 250));
     if (signal.aborted) {
       throw new DOMException(
-        "Alignment refinement polling was canceled.",
+        t("alignment.refinementPollingCanceled"),
         "AbortError",
       );
     }
@@ -2104,11 +2207,11 @@ async function waitForAiRun(
     });
     if (signal.aborted) {
       throw new DOMException(
-        "Alignment refinement polling was canceled.",
+        t("alignment.refinementPollingCanceled"),
         "AbortError",
       );
     }
     onUpdate(current);
   }
-  throw new Error("Alignment refinement did not finish within two minutes.");
+  throw new Error(t("alignment.refinementTimeout"));
 }

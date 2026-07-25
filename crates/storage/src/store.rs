@@ -8783,7 +8783,7 @@ fn create_data_backup(
         serde_json::to_writer_pretty(&manifest_file, &manifest)?;
         manifest_file.sync_all()?;
         drop(manifest_file);
-        fs::rename(&staging, destination)?;
+        publish_directory_no_clobber(&staging, destination)?;
         Ok(manifest)
     })();
     if result.is_err() {
@@ -8804,6 +8804,11 @@ fn copy_directory_contents(source: &Path, destination: &Path) -> Result<()> {
                 entry.path().display()
             )));
         }
+        // Exclude credential-shaped material by path/file name at any depth,
+        // including whole subtrees named like credential stores.
+        if is_credential_shaped_name(&entry.file_name()) {
+            continue;
+        }
         if file_type.is_dir() {
             copy_directory_contents(&entry.path(), &target)?;
         } else if file_type.is_file() {
@@ -8812,6 +8817,25 @@ fn copy_directory_contents(source: &Path, destination: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Centralized case-insensitive exclusion policy for credential-shaped material.
+///
+/// Returns `true` when a path component (file or directory name) matches a
+/// credential-shaped pattern and must not be copied into a backup. Applied at
+/// every level of `copy_directory_contents`, so a match anywhere in a nested
+/// path excludes that entry (and, for a directory, its whole subtree).
+///
+/// Patterns (case-insensitive): `.env*`, credential-named files
+/// (`credentials.*` / any name containing `credential`), `*.key`, `*.pem`, and
+/// any name beginning with `secret`.
+fn is_credential_shaped_name(name: &std::ffi::OsStr) -> bool {
+    let lower = name.to_string_lossy().to_lowercase();
+    lower.starts_with(".env")
+        || lower.contains("credential")
+        || lower.ends_with(".key")
+        || lower.ends_with(".pem")
+        || lower.starts_with("secret")
 }
 
 fn collect_backup_files(root: &Path, directory: &Path) -> Result<Vec<BackupFile>> {
@@ -8839,6 +8863,55 @@ fn collect_backup_files(root: &Path, directory: &Path) -> Result<Vec<BackupFile>
         }
     }
     Ok(files)
+}
+
+/// Publish a completed backup without ever replacing an existing destination.
+///
+/// `std::fs::rename` replaces an existing directory on Unix but fails on
+/// Windows, so a check-then-rename sequence is not a portable no-clobber
+/// boundary. Reserve the destination with `create_dir` (which is atomic for
+/// the final path), then move the staged entries into that directory. The
+/// manifest is moved last so a partial publication is visibly incomplete; an
+/// error never recursively removes a path that another actor may have filled.
+fn publish_directory_no_clobber(staging: &Path, destination: &Path) -> Result<()> {
+    match fs::create_dir(destination) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            return Err(StorageError::InvalidState(format!(
+                "backup destination already exists: {}",
+                destination.display()
+            )));
+        }
+        Err(error) => return Err(error.into()),
+    }
+
+    let result = (|| -> Result<()> {
+        let mut entries = fs::read_dir(staging)?.collect::<std::result::Result<Vec<_>, _>>()?;
+        entries.sort_by_key(|entry| entry.file_name());
+
+        for entry in entries
+            .iter()
+            .filter(|entry| entry.file_name() != "manifest.json")
+        {
+            let target = destination.join(entry.file_name());
+            fs::rename(entry.path(), target)?;
+        }
+        if let Some(manifest) = entries
+            .iter()
+            .find(|entry| entry.file_name() == "manifest.json")
+        {
+            fs::rename(manifest.path(), destination.join("manifest.json"))?;
+        }
+        fs::remove_dir(staging)?;
+        Ok(())
+    })();
+
+    if result.is_err() {
+        // Remove only an untouched reservation. If any entry was published,
+        // remove_dir fails and the incomplete destination remains inspectable.
+        let _ = fs::remove_dir(destination);
+    }
+    result
 }
 
 fn create_pre_migration_backup(
@@ -8881,7 +8954,7 @@ fn create_pre_migration_backup(
         manifest_file.sync_all()?;
         drop(manifest_file);
 
-        fs::rename(&staging, &destination)?;
+        publish_directory_no_clobber(&staging, &destination)?;
         Ok(())
     })();
 
@@ -10214,6 +10287,206 @@ mod tests {
                 .starts_with(".translunar-backup-")
         });
         assert!(!staging, "failed backup must remove its staging directory");
+    }
+
+    #[test]
+    fn backup_publication_reservation_never_clobbers_competing_destination() {
+        let root = tempfile::tempdir().expect("publication fixture directory");
+        let staging = root.path().join("staging");
+        let destination = root.path().join("destination");
+        fs::create_dir_all(&staging).expect("create staging");
+        fs::write(staging.join("translunar.sqlite3"), b"staged").expect("write staged db");
+        fs::write(
+            staging.join("manifest.json"),
+            br#"{"formatVersion":1,"schemaVersion":1,"files":[]}"#,
+        )
+        .expect("write staged manifest");
+
+        // A competitor wins the final-path reservation before publication.
+        fs::create_dir_all(&destination).expect("create competing destination");
+        fs::write(destination.join("marker"), b"keep").expect("write competitor marker");
+
+        let error = publish_directory_no_clobber(&staging, &destination)
+            .expect_err("existing destination must reject publication");
+        assert!(
+            matches!(error, StorageError::InvalidState(message) if message.contains("already exists"))
+        );
+        assert_eq!(
+            fs::read(destination.join("marker")).expect("read marker"),
+            b"keep"
+        );
+        assert!(staging.join("translunar.sqlite3").exists());
+        assert!(!destination.join("translunar.sqlite3").exists());
+    }
+
+    #[test]
+    fn backup_excludes_secret_values_and_ad_hoc_credential_files() {
+        use translunar_ai_core::AiProviderKind;
+
+        let mut fixture = Fixture::new();
+        let profile = fixture
+            .store
+            .create_ai_provider_profile(NewAiProviderProfile {
+                name: "Privacy probe".to_string(),
+                kind: AiProviderKind::OpenaiCompatible,
+                base_url: "http://127.0.0.1:9/v1".to_string(),
+                model: "probe".to_string(),
+                timeout_ms: 1_000,
+                max_response_bytes: 1_024,
+                enabled: true,
+            })
+            .expect("create AI profile");
+        fixture
+            .store
+            .set_ai_provider_credential_present(&profile.id, true)
+            .expect("mark credential present");
+
+        let root = fixture.store.paths().root.clone();
+        let secret = b"sk-super-secret-do-not-copy";
+        fs::write(
+            root.join("credentials.json"),
+            format!(r#"{{"apiKey":"{}"}}"#, String::from_utf8_lossy(secret)),
+        )
+        .expect("write ad-hoc credentials file");
+        fs::write(root.join("notes-with-secret.txt"), secret).expect("write secret note");
+        // Ordinary project source material must still be backed up.
+        let ordinary = root.join("sources").join("ordinary.txt");
+        fs::write(&ordinary, b"ordinary project source").expect("write ordinary source");
+
+        // Nested credential-shaped material under managed sources/ and exports/
+        // must be excluded regardless of depth or case.
+        let nested_dir = root.join("sources").join("nested").join("deep");
+        fs::create_dir_all(&nested_dir).expect("create nested source directory");
+        fs::write(nested_dir.join(".env.local"), secret).expect("write nested dotenv");
+        fs::write(nested_dir.join("service.KEY"), secret).expect("write nested key");
+        fs::write(nested_dir.join("server.pem"), secret).expect("write nested pem");
+        fs::write(nested_dir.join("Secret-Token.txt"), secret).expect("write nested secret file");
+        fs::write(nested_dir.join("Credentials.yaml"), secret).expect("write nested credentials");
+        // A credential-named subtree must be excluded wholesale.
+        let secret_subtree = root.join("exports").join("secrets");
+        fs::create_dir_all(&secret_subtree).expect("create credential subtree");
+        fs::write(secret_subtree.join("dump.txt"), secret).expect("write secret subtree file");
+        // Ordinary nested source/export material must survive.
+        fs::write(nested_dir.join("chapter.txt"), b"ordinary nested source")
+            .expect("write nested ordinary source");
+        let export_ordinary = root.join("exports").join("delivered.txt");
+        fs::write(&export_ordinary, b"ordinary export").expect("write ordinary export");
+
+        let destination = fixture._temp.path().join("privacy-backup");
+        let manifest = fixture
+            .store
+            .create_backup(&destination)
+            .expect("create backup");
+
+        assert!(
+            !manifest
+                .files
+                .iter()
+                .any(|file| file.relative_path.contains("credentials.json")),
+            "credentials.json must not appear in backup manifest"
+        );
+        assert!(
+            !manifest
+                .files
+                .iter()
+                .any(|file| file.relative_path.contains("notes-with-secret")),
+            "ad-hoc secret notes must not appear in backup manifest"
+        );
+        assert!(
+            manifest
+                .files
+                .iter()
+                .any(|file| file.relative_path == "translunar.sqlite3"),
+            "sqlite workspace must be present"
+        );
+        assert!(
+            manifest
+                .files
+                .iter()
+                .any(|file| file.relative_path == "sources/ordinary.txt"),
+            "ordinary project source must be present"
+        );
+        assert!(
+            manifest
+                .files
+                .iter()
+                .any(|file| file.relative_path == "sources/nested/deep/chapter.txt"),
+            "nested ordinary source must be present"
+        );
+        assert!(
+            manifest
+                .files
+                .iter()
+                .any(|file| file.relative_path == "exports/delivered.txt"),
+            "ordinary export must be present"
+        );
+        assert!(!destination.join("credentials.json").exists());
+        assert!(!destination.join("notes-with-secret.txt").exists());
+
+        // Nested credential-shaped files must be absent from manifest and destination.
+        let excluded_patterns = [
+            ".env.local",
+            "service.KEY",
+            "server.pem",
+            "Secret-Token.txt",
+            "Credentials.yaml",
+            "secrets/",
+        ];
+        for pattern in &excluded_patterns {
+            assert!(
+                !manifest.files.iter().any(|file| file
+                    .relative_path
+                    .to_lowercase()
+                    .contains(&pattern.to_lowercase())),
+                "manifest must not contain credential-shaped file matching pattern: {}",
+                pattern
+            );
+        }
+        // The credential-named subtree must be wholly absent.
+        assert!(!destination.join("exports").join("secrets").exists());
+        assert!(
+            !destination
+                .join("sources")
+                .join("nested")
+                .join("deep")
+                .join(".env.local")
+                .exists()
+        );
+        assert!(
+            !destination
+                .join("sources")
+                .join("nested")
+                .join("deep")
+                .join("service.KEY")
+                .exists()
+        );
+
+        // Walk every file under the backup destination — secret bytes must be absent.
+        fn walk_assert_no_secret(path: &std::path::Path, secret: &[u8]) {
+            if path.is_dir() {
+                for entry in fs::read_dir(path).expect("read backup dir") {
+                    let entry = entry.expect("entry");
+                    walk_assert_no_secret(&entry.path(), secret);
+                }
+                return;
+            }
+            let bytes = fs::read(path).expect("read backup file");
+            assert!(
+                !bytes.windows(secret.len()).any(|window| window == secret),
+                "secret material leaked into {}",
+                path.display()
+            );
+        }
+        walk_assert_no_secret(&destination, secret);
+
+        // Manifest JSON itself must not embed the secret string.
+        let manifest_bytes =
+            fs::read(destination.join("manifest.json")).expect("read backup manifest");
+        assert!(
+            !manifest_bytes
+                .windows(secret.len())
+                .any(|window| window == secret)
+        );
     }
 
     #[test]

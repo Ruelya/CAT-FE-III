@@ -3,6 +3,7 @@ import type {
   ProjectSnapshotPreview,
   ProjectSnapshotRestoreResult,
 } from "@translunar/contracts";
+import type { MessageKey } from "./i18n/messages";
 
 export interface SnapshotChangeItem {
   key: keyof ProjectSnapshotChangeSummary;
@@ -11,20 +12,20 @@ export interface SnapshotChangeItem {
 }
 
 const SNAPSHOT_CHANGE_LABELS: ReadonlyArray<
-  readonly [keyof ProjectSnapshotChangeSummary, string]
+  readonly [keyof ProjectSnapshotChangeSummary, MessageKey, string]
 > = [
-  ["documentsAdded", "Documents added"],
-  ["documentsRemoved", "Documents removed"],
-  ["documentsChanged", "Documents changed"],
-  ["segmentsAdded", "Segments added"],
-  ["segmentsRemoved", "Segments removed"],
-  ["segmentsChanged", "Segments changed"],
-  ["commentsChanged", "Comments changed"],
-  ["reviewsChanged", "Reviews changed"],
-  ["discussionsChanged", "Discussions changed"],
-  ["mountsAdded", "Mounts added"],
-  ["mountsRemoved", "Mounts removed"],
-  ["mountsChanged", "Mounts changed"],
+  ["documentsAdded", "snapshot.documentsAdded", "Documents added"],
+  ["documentsRemoved", "snapshot.documentsRemoved", "Documents removed"],
+  ["documentsChanged", "snapshot.documentsChanged", "Documents changed"],
+  ["segmentsAdded", "snapshot.segmentsAdded", "Segments added"],
+  ["segmentsRemoved", "snapshot.segmentsRemoved", "Segments removed"],
+  ["segmentsChanged", "snapshot.segmentsChanged", "Segments changed"],
+  ["commentsChanged", "snapshot.commentsChanged", "Comments changed"],
+  ["reviewsChanged", "snapshot.reviewsChanged", "Reviews changed"],
+  ["discussionsChanged", "snapshot.discussionsChanged", "Discussions changed"],
+  ["mountsAdded", "snapshot.mountsAdded", "Mounts added"],
+  ["mountsRemoved", "snapshot.mountsRemoved", "Mounts removed"],
+  ["mountsChanged", "snapshot.mountsChanged", "Mounts changed"],
 ];
 
 export function previousPageOffset(offset: number, limit: number): number {
@@ -47,17 +48,23 @@ export function pageRangeLabel(
   offset: number,
   itemCount: number,
   total: number,
+  format?: (start: number, end: number, total: number) => string,
 ): string {
-  if (total === 0 || itemCount === 0) return "0 of 0";
-  return `${offset + 1}-${offset + itemCount} of ${total}`;
+  if (total === 0 || itemCount === 0) {
+    return format ? format(0, 0, 0) : "0 of 0";
+  }
+  const start = offset + 1;
+  const end = offset + itemCount;
+  return format ? format(start, end, total) : `${start}-${end} of ${total}`;
 }
 
 export function snapshotChangeItems(
   summary: ProjectSnapshotChangeSummary,
+  translate?: (key: MessageKey) => string,
 ): SnapshotChangeItem[] {
-  return SNAPSHOT_CHANGE_LABELS.map(([key, label]) => ({
+  return SNAPSHOT_CHANGE_LABELS.map(([key, labelKey, fallback]) => ({
     key,
-    label,
+    label: translate?.(labelKey) ?? fallback,
     value: summary[key] as number,
   }));
 }

@@ -1,0 +1,61 @@
+appId: app.translunar.cat
+productName: Translunar CAT
+copyright: Copyright © Translunar contributors
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - package.json
+# scripts/package-desktop.mjs creates a fresh resource directory containing
+# exactly the verified host-platform/host-arch Engine binary. Direct
+# electron-builder invocation intentionally fails when this environment value
+# is absent, because copying target/release wholesale can bundle a stale
+# opposite-platform binary.
+extraResources:
+  - from: ${env.TRANSLUNAR_ENGINE_RESOURCE_DIR}
+    to: engine
+  - from: resources/examples/
+    to: examples
+asar: true
+compression: maximum
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: dir
+      arch:
+        - x64
+  artifactName: Translunar-CAT-${version}-win-${arch}.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+mac:
+  # Default yml lists both arches for documentation; package-desktop.mjs /
+  # CI pass --x64 or --arm64 so only the host arch is actually built.
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    # electron-updater on macOS requires a ZIP update artifact.
+    - target: zip
+      arch:
+        - x64
+        - arm64
+    - target: dir
+      arch:
+        - x64
+        - arm64
+  category: public.app-category.productivity
+  artifactName: Translunar-CAT-${version}-mac-${arch}.${ext}
+  minimumSystemVersion: "12.0"
+  hardenedRuntime: true
+  gatekeeperAssess: false
+# Signing/notarization are optional CI secrets; unsigned artifacts remain valid
+# for development and internal distribution.
+# When CSC_LINK / Apple notarization secrets are present, electron-builder
+# invokes the platform signing hooks automatically.

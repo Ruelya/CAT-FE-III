@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 
 import { BrandMark } from "./BrandMark";
+import { useLocale } from "./i18n/LocaleProvider";
 import {
   cloneTemplateDefinition,
   parseSearchSnippet,
@@ -89,6 +90,7 @@ const EMPTY_TEMPLATE: TemplateDraft = {
 const PROJECT_PAGE_SIZE = 50;
 
 export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
+  const { t } = useLocale();
   const [tab, setTab] = useState<HomeTab>("projects");
   const [lifecycle, setLifecycle] = useState<ProjectLifecycle>("active");
   const [projects, setProjects] = useState<ProjectOverview[]>([]);
@@ -200,7 +202,7 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
         setNotice(
           result.diagnostics.length
             ? result.diagnostics.join(" ")
-            : "Project archive restored under a new identity.",
+            : t("home.archiveRestored"),
         );
       });
     } catch (reason) {
@@ -234,7 +236,7 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
       overview.snapshot.documents.find((item) => item.id === documentId) ??
       overview.snapshot.documents[0];
     if (!selected) {
-      setError("This project has no active documents to open.");
+      setError(t("home.noActiveDocuments"));
       return;
     }
     await openWorkspace(overview.snapshot.project.id, selected.id);
@@ -242,12 +244,18 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
 
   const setProjectLifecycle = (project: Project, next: ProjectLifecycle) => {
     setPendingAction({
-      title: next === "archived" ? "Archive project" : "Restore project",
+      title:
+        next === "archived"
+          ? t("home.archiveActionTitle")
+          : t("home.restoreActionTitle"),
       description:
         next === "archived"
-          ? `${project.name} will leave the active project list but remain fully recoverable.`
-          : `${project.name} will return to the active project list.`,
-      confirmLabel: next === "archived" ? "Archive" : "Restore",
+          ? t("home.archiveActionDescription", { name: project.name })
+          : t("home.restoreActionDescription", { name: project.name }),
+      confirmLabel:
+        next === "archived"
+          ? t("home.archiveActionConfirm")
+          : t("home.restoreActionConfirm"),
       run: async () => {
         await window.translunar.invoke("project.setLifecycle", {
           projectId: project.id,
@@ -261,9 +269,9 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
 
   const recycleProject = (project: Project) => {
     setPendingAction({
-      title: "Move project to recycle bin",
-      description: `${project.name} and its documents will be hidden from normal projects and search.`,
-      confirmLabel: "Move to recycle bin",
+      title: t("home.recycleActionTitle"),
+      description: t("home.recycleActionDescription", { name: project.name }),
+      confirmLabel: t("home.recycleActionConfirm"),
       danger: true,
       run: async () => {
         await window.translunar.invoke("recycle.delete", {
@@ -295,14 +303,14 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
           description: draft.description.trim(),
           definition,
         });
-        setNotice("Template revision created.");
+        setNotice(t("home.templateRevisionCreated"));
       } else {
         await window.translunar.invoke("project.template.create", {
           name: draft.name.trim(),
           description: draft.description.trim(),
           definition,
         });
-        setNotice("Template created.");
+        setNotice(t("home.templateCreated"));
       }
       setTemplateDraft(null);
     });
@@ -310,9 +318,12 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
 
   const deleteTemplate = (template: ProjectTemplate) => {
     setPendingAction({
-      title: "Delete project template",
-      description: `${template.name} revision ${template.revision} and its revision history will be deleted. Existing projects are unchanged.`,
-      confirmLabel: "Delete template",
+      title: t("home.deleteTemplateTitle"),
+      description: t("home.deleteTemplateDescription", {
+        name: template.name,
+        revision: template.revision,
+      }),
+      confirmLabel: t("home.deleteTemplateConfirm"),
       danger: true,
       run: async () => {
         await window.translunar.invoke("project.template.delete", {
@@ -325,9 +336,11 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
 
   const restoreRecycleEntry = (entry: RecycleEntry) => {
     setPendingAction({
-      title: "Restore recycled item",
-      description: `${entry.displayName} will return to its previous state.`,
-      confirmLabel: "Restore",
+      title: t("home.restoreItemTitle"),
+      description: t("home.restoreItemDescription", {
+        name: entry.displayName,
+      }),
+      confirmLabel: t("home.restoreItem"),
       run: async () => {
         await window.translunar.invoke("recycle.restore", {
           entryId: entry.id,
@@ -340,9 +353,11 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
 
   const purgeRecycleEntry = (entry: RecycleEntry) => {
     setPendingAction({
-      title: "Permanently purge item",
-      description: `${entry.displayName} will be permanently removed. This cannot be undone.`,
-      confirmLabel: "Permanently purge",
+      title: t("home.purgeItemTitle"),
+      description: t("home.purgeItemDescription", {
+        name: entry.displayName,
+      }),
+      confirmLabel: t("home.purgeItemConfirm"),
       danger: true,
       run: async () => {
         await window.translunar.invoke("recycle.purge", {
@@ -369,8 +384,8 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
         <div className="identity-lockup">
           <BrandMark />
           <div>
-            <strong>Translunar</strong>
-            <span>Project workspace</span>
+            <strong>{t("app.name")}</strong>
+            <span>{t("home.projectWorkspace")}</span>
           </div>
         </div>
         <div className="project-home-actions">
@@ -380,10 +395,15 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
             onClick={() => void restoreArchive()}
             disabled={busy}
           >
-            <FolderArchive size={15} /> Restore archive
+            <FolderArchive size={15} /> {t("home.restoreArchive")}
           </button>
-          <button className="button primary" type="button" onClick={onCreate}>
-            <Plus size={15} /> New project
+          <button
+            id="tutorial-target-create"
+            className="button primary"
+            type="button"
+            onClick={onCreate}
+          >
+            <Plus size={15} /> {t("home.newProject")}
           </button>
         </div>
       </header>
@@ -397,31 +417,31 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
       <main className="project-home-main" aria-busy={loading || busy}>
         <aside
           className="project-home-nav"
-          aria-label="Project workspace views"
+          aria-label={t("home.workspaceViews")}
         >
           <HomeTabButton
             active={tab === "projects"}
             onClick={() => setTab("projects")}
             icon={<FolderOpen size={16} />}
-            label="Projects"
+            label={t("home.projects")}
           />
           <HomeTabButton
             active={tab === "search"}
             onClick={() => setTab("search")}
             icon={<Search size={16} />}
-            label="Search"
+            label={t("home.search")}
           />
           <HomeTabButton
             active={tab === "templates"}
             onClick={() => setTab("templates")}
             icon={<FileText size={16} />}
-            label="Templates"
+            label={t("home.templates")}
           />
           <HomeTabButton
             active={tab === "recycle"}
             onClick={() => setTab("recycle")}
             icon={<Trash2 size={16} />}
-            label="Recycle"
+            label={t("home.recycle")}
             count={recycleTotal}
           />
           <button
@@ -429,10 +449,10 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
             type="button"
             onClick={() => void loadHome()}
             disabled={loading || busy}
-            title="Refresh project data"
-            aria-label="Refresh project data"
+            title={t("home.refresh")}
+            aria-label={t("home.refresh")}
           >
-            <RefreshCw size={15} /> Refresh
+            <RefreshCw size={15} /> {t("home.refresh")}
           </button>
         </aside>
         <section className="project-home-content">
@@ -448,7 +468,8 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
           ) : null}
           {loading ? (
             <div className="project-home-loading" role="status">
-              <LoaderCircle className="spin" size={18} /> Loading workspace data
+              <LoaderCircle className="spin" size={18} />{" "}
+              {t("home.loadingWorkspaceData")}
             </div>
           ) : tab === "projects" ? (
             <ProjectsView
@@ -465,6 +486,7 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
               onSetLifecycle={setProjectLifecycle}
               onRecycle={recycleProject}
               onCreate={onCreate}
+              t={t}
             />
           ) : tab === "search" ? (
             <GlobalSearchView projects={projects} onOpen={openWorkspace} />
@@ -542,6 +564,7 @@ function ProjectsView({
   onSetLifecycle,
   onRecycle,
   onCreate,
+  t,
 }: {
   projects: ProjectOverview[];
   total: number;
@@ -553,35 +576,37 @@ function ProjectsView({
   onSetLifecycle(project: Project, lifecycle: ProjectLifecycle): void;
   onRecycle(project: Project): void;
   onCreate(): void;
+  t: ReturnType<typeof useLocale>["t"];
 }) {
   return (
     <>
       <header className="project-view-heading">
         <div>
-          <span>Local projects</span>
+          <span>{t("home.localProjects")}</span>
           <h1>
             {lifecycle === "active"
-              ? "Continue translating"
-              : "Archived projects"}
+              ? t("home.continueTranslating")
+              : t("home.archivedProjects")}
           </h1>
-          <p>
-            {total} {total === 1 ? "project" : "projects"} in this view
-          </p>
+          <p>{t("home.projectCount", { count: total })}</p>
         </div>
-        <div className="segmented-control" aria-label="Project lifecycle">
+        <div
+          className="segmented-control"
+          aria-label={t("home.projectLifecycle")}
+        >
           <button
             type="button"
             aria-pressed={lifecycle === "active"}
             onClick={() => onLifecycle("active")}
           >
-            Active
+            {t("home.active")}
           </button>
           <button
             type="button"
             aria-pressed={lifecycle === "archived"}
             onClick={() => onLifecycle("archived")}
           >
-            Archived
+            {t("home.archived")}
           </button>
         </div>
       </header>
@@ -590,17 +615,17 @@ function ProjectsView({
           <FolderOpen size={26} />
           <strong>
             {lifecycle === "active"
-              ? "No active projects"
-              : "No archived projects"}
+              ? t("home.noActiveProjects")
+              : t("home.noArchivedProjects")}
           </strong>
           <span>
             {lifecycle === "active"
-              ? "Create a project and add source files to begin."
-              : "Archived projects remain available here until restored or recycled."}
+              ? t("home.createToBegin")
+              : t("home.archivedHelp")}
           </span>
           {lifecycle === "active" ? (
             <button className="button primary" type="button" onClick={onCreate}>
-              <Plus size={15} /> New project
+              <Plus size={15} /> {t("home.newProject")}
             </button>
           ) : null}
         </div>
@@ -618,13 +643,16 @@ function ProjectsView({
             ))}
           </div>
           {total > PROJECT_PAGE_SIZE ? (
-            <div className="project-pagination" aria-label="Project pages">
+            <div
+              className="project-pagination"
+              aria-label={t("home.projectPages")}
+            >
               <button
                 type="button"
                 disabled={offset === 0}
                 onClick={() => onPage(Math.max(0, offset - PROJECT_PAGE_SIZE))}
               >
-                Previous
+                {t("action.back")}
               </button>
               <span>
                 {offset + 1}-{Math.min(offset + projects.length, total)} of{" "}
@@ -635,7 +663,7 @@ function ProjectsView({
                 disabled={offset + projects.length >= total}
                 onClick={() => onPage(offset + PROJECT_PAGE_SIZE)}
               >
-                Next
+                {t("action.next")}
               </button>
             </div>
           ) : null}
@@ -656,6 +684,7 @@ function ProjectCard({
   onSetLifecycle(project: Project, lifecycle: ProjectLifecycle): void;
   onRecycle(project: Project): void;
 }) {
+  const { t, formatDate, formatNumber } = useLocale();
   const { snapshot, analytics } = overview;
   const completion = analytics?.progress.completionBasisPoints;
   return (
@@ -665,10 +694,12 @@ function ProjectCard({
           <FolderOpen size={18} />
         </div>
         <div>
-          <span>{snapshot.project.domain || "General"}</span>
+          <span>{snapshot.project.domain || t("home.general")}</span>
           <h2>{snapshot.project.name}</h2>
         </div>
-        <time>{formatDate(snapshot.project.updatedAtMs)}</time>
+        <time>
+          {formatDate(snapshot.project.updatedAtMs, { dateStyle: "medium" })}
+        </time>
       </header>
       <div className="project-card-locales">
         <span>{snapshot.project.sourceLocale}</span>
@@ -677,30 +708,32 @@ function ProjectCard({
       </div>
       <div className="project-card-progress">
         <div>
-          <span>Project progress</span>
+          <span>{t("home.projectProgress")}</span>
           <strong>
             {completion === undefined
-              ? "Unavailable"
-              : formatBasisPoints(completion)}
+              ? t("home.unavailable")
+              : formatBasisPoints(completion, formatNumber)}
           </strong>
         </div>
         <progress
           value={completion ?? 0}
           max={10_000}
-          aria-label={`${snapshot.project.name} completion`}
+          aria-label={t("home.completionAria", { name: snapshot.project.name })}
         />
       </div>
       <div className="project-card-metrics">
         <span>
-          <b>{snapshot.documents.length}</b> files
+          {t("home.filesCount", { count: snapshot.documents.length })}
         </span>
         <span>
-          <b>{analytics?.progress.totalSegments ?? snapshot.counts.total}</b>{" "}
-          segments
+          {t("home.segmentsCount", {
+            count: analytics?.progress.totalSegments ?? snapshot.counts.total,
+          })}
         </span>
         <span>
-          <b>{analytics?.progress.qaBlockers ?? snapshot.counts.openIssues}</b>{" "}
-          blockers
+          {t("home.blockersCount", {
+            count: analytics?.progress.qaBlockers ?? snapshot.counts.openIssues,
+          })}
         </span>
       </div>
       <div className="project-card-files">
@@ -716,7 +749,9 @@ function ProjectCard({
           </button>
         ))}
         {snapshot.documents.length > 3 ? (
-          <span>+{snapshot.documents.length - 3} more files</span>
+          <span>
+            {t("home.moreFiles", { count: snapshot.documents.length - 3 })}
+          </span>
         ) : null}
       </div>
       <footer>
@@ -726,7 +761,7 @@ function ProjectCard({
           disabled={!snapshot.documents.length}
           onClick={() => void onOpen(overview)}
         >
-          Open project <ArrowRight size={14} />
+          {t("home.openProject")} <ArrowRight size={14} />
         </button>
         <button
           className="icon-button"
@@ -739,13 +774,13 @@ function ProjectCard({
           }
           title={
             snapshot.project.lifecycle === "active"
-              ? "Archive project"
-              : "Restore project"
+              ? t("home.archiveProject")
+              : t("home.restoreProject")
           }
           aria-label={
             snapshot.project.lifecycle === "active"
-              ? `Archive ${snapshot.project.name}`
-              : `Restore ${snapshot.project.name}`
+              ? t("home.archiveNamed", { name: snapshot.project.name })
+              : t("home.restoreNamed", { name: snapshot.project.name })
           }
         >
           <Archive size={15} />
@@ -754,8 +789,8 @@ function ProjectCard({
           className="icon-button danger"
           type="button"
           onClick={() => onRecycle(snapshot.project)}
-          title="Move to recycle bin"
-          aria-label={`Recycle ${snapshot.project.name}`}
+          title={t("home.moveToRecycle")}
+          aria-label={t("home.recycleNamed", { name: snapshot.project.name })}
         >
           <Trash2 size={15} />
         </button>
@@ -776,6 +811,7 @@ function GlobalSearchView({
     segmentOrdinal?: number,
   ): Promise<void>;
 }) {
+  const { t } = useLocale();
   const [text, setText] = useState("");
   const [projectId, setProjectId] = useState("");
   const [field, setField] = useState("");
@@ -818,12 +854,9 @@ function GlobalSearchView({
     <>
       <header className="project-view-heading">
         <div>
-          <span>Workspace index</span>
-          <h1>Global search</h1>
-          <p>
-            Source, target, names, comments and import notes across active
-            projects.
-          </p>
+          <span>{t("home.workspaceIndex")}</span>
+          <h1>{t("home.globalSearch")}</h1>
+          <p>{t("home.globalSearchHelp")}</p>
         </div>
       </header>
       <form className="global-search-form" onSubmit={submit}>
@@ -832,17 +865,17 @@ function GlobalSearchView({
           <input
             value={text}
             onChange={(event) => setText(event.currentTarget.value)}
-            placeholder="Search the workspace"
-            aria-label="Global search query"
+            placeholder={t("home.searchPlaceholder")}
+            aria-label={t("home.globalSearchQuery")}
             required
           />
         </label>
         <select
-          aria-label="Search project"
+          aria-label={t("home.searchProject")}
           value={projectId}
           onChange={(event) => setProjectId(event.currentTarget.value)}
         >
-          <option value="">All active projects</option>
+          <option value="">{t("home.allActiveProjects")}</option>
           {projects.map(({ snapshot }) => (
             <option key={snapshot.project.id} value={snapshot.project.id}>
               {snapshot.project.name}
@@ -850,27 +883,27 @@ function GlobalSearchView({
           ))}
         </select>
         <select
-          aria-label="Search field"
+          aria-label={t("home.searchField")}
           value={field}
           onChange={(event) => setField(event.currentTarget.value)}
         >
-          <option value="">All fields</option>
-          <option value="source">Source</option>
-          <option value="target">Target</option>
-          <option value="project">Project names</option>
-          <option value="document">Document names</option>
-          <option value="comment">Comments</option>
-          <option value="note">Import notes</option>
+          <option value="">{t("home.allFields")}</option>
+          <option value="source">{t("home.fieldSource")}</option>
+          <option value="target">{t("home.fieldTarget")}</option>
+          <option value="project">{t("home.fieldProject")}</option>
+          <option value="document">{t("home.fieldDocument")}</option>
+          <option value="comment">{t("home.fieldComment")}</option>
+          <option value="note">{t("home.fieldNote")}</option>
         </select>
         <select
-          aria-label="Search workflow state"
+          aria-label={t("home.searchWorkflowState")}
           value={workflowState}
           onChange={(event) => setWorkflowState(event.currentTarget.value)}
         >
-          <option value="">Any workflow state</option>
-          <option value="translation">Translation</option>
-          <option value="review">Review</option>
-          <option value="signed">Signed</option>
+          <option value="">{t("home.anyWorkflowState")}</option>
+          <option value="translation">{t("home.workflowTranslation")}</option>
+          <option value="review">{t("home.workflowReview")}</option>
+          <option value="signed">{t("home.workflowSigned")}</option>
         </select>
         <button
           className="button primary"
@@ -882,7 +915,7 @@ function GlobalSearchView({
           ) : (
             <Search size={15} />
           )}{" "}
-          Search
+          {t("home.searchSubmit")}
         </button>
       </form>
       {error ? (
@@ -894,20 +927,14 @@ function GlobalSearchView({
         <div className="project-home-empty">
           <Search size={25} />
           <strong>
-            {text
-              ? "No matching workspace content"
-              : "Search every active project"}
+            {text ? t("home.noMatchingContent") : t("home.searchEveryActive")}
           </strong>
-          <span>
-            {text
-              ? "Try another field, project or phrase."
-              : "Results link directly to the authoritative document and segment."}
-          </span>
+          <span>{text ? t("home.tryAnother") : t("home.resultsLink")}</span>
         </div>
       ) : (
         <div className="search-results">
           <header>
-            <strong>{total} results</strong>
+            <strong>{t("home.resultCount", { count: total })}</strong>
             <span>
               {offset + 1}-{Math.min(offset + hits.length, total)}
             </span>
@@ -926,7 +953,7 @@ function GlobalSearchView({
               }
             >
               <span className="search-result-field">
-                {hit.field.replaceAll("_", " ")}
+                {searchFieldLabel(t, hit.field)}
               </span>
               <strong>
                 {hit.projectName}
@@ -940,9 +967,9 @@ function GlobalSearchView({
                 ))}
               </p>
               <footer>
-                {hit.workflowState ?? "project"}
+                {searchWorkflowLabel(t, hit.workflowState)}
                 {hit.segmentOrdinal !== undefined && hit.segmentOrdinal !== null
-                  ? ` · segment ${hit.segmentOrdinal + 1}`
+                  ? ` · ${t("home.segmentNumber", { number: hit.segmentOrdinal + 1 })}`
                   : ""}
                 <ArrowRight size={14} />
               </footer>
@@ -957,14 +984,14 @@ function GlobalSearchView({
             disabled={offset === 0 || loading}
             onClick={() => void search(Math.max(0, offset - 50))}
           >
-            Previous
+            {t("action.back")}
           </button>
           <button
             type="button"
             disabled={offset + hits.length >= total || loading}
             onClick={() => void search(offset + 50)}
           >
-            Next
+            {t("action.next")}
           </button>
         </div>
       ) : null}
@@ -983,19 +1010,17 @@ function TemplatesView({
   onEdit(template: ProjectTemplate): void;
   onDelete(template: ProjectTemplate): void;
 }) {
+  const { t, formatDate } = useLocale();
   return (
     <>
       <header className="project-view-heading">
         <div>
-          <span>Reusable configuration</span>
-          <h1>Project templates</h1>
-          <p>
-            Locales, profiles, review policy and safe editor defaults.
-            Credentials are never stored.
-          </p>
+          <span>{t("home.reusableConfiguration")}</span>
+          <h1>{t("home.projectTemplates")}</h1>
+          <p>{t("home.templatesDescription")}</p>
         </div>
         <button className="button primary" type="button" onClick={onCreate}>
-          <Plus size={15} /> New template
+          <Plus size={15} /> {t("home.newTemplate")}
         </button>
       </header>
       <div className="template-list">
@@ -1006,36 +1031,46 @@ function TemplatesView({
               <header>
                 <div>
                   <span>
-                    {template.builtIn ? "Built in" : "Custom"} · revision{" "}
-                    {template.revision}
+                    {template.builtIn ? t("home.builtIn") : t("home.custom")} ·{" "}
+                    {t("home.revision", { revision: template.revision })}
                   </span>
                   <h2>{template.name}</h2>
                 </div>
                 <FileText size={18} />
               </header>
-              <p>{template.description || "No description"}</p>
+              <p>{template.description || t("home.noDescription")}</p>
               <dl>
                 <div>
-                  <dt>Locales</dt>
+                  <dt>{t("home.locales")}</dt>
                   <dd>
                     {definition.sourceLocale} → {definition.targetLocale}
                   </dd>
                 </div>
                 <div>
-                  <dt>Domain</dt>
-                  <dd>{definition.domain || "General"}</dd>
+                  <dt>{t("common.domain")}</dt>
+                  <dd>{definition.domain || t("home.general")}</dd>
                 </div>
                 <div>
-                  <dt>Analysis</dt>
+                  <dt>{t("home.analysis")}</dt>
                   <dd>{definition.analysisProfileId}</dd>
                 </div>
                 <div>
-                  <dt>Review</dt>
-                  <dd>{definition.reviewRequired ? "Required" : "Optional"}</dd>
+                  <dt>{t("home.review")}</dt>
+                  <dd>
+                    {definition.reviewRequired
+                      ? t("home.required")
+                      : t("home.optional")}
+                  </dd>
                 </div>
               </dl>
               <footer>
-                <time>Updated {formatDate(template.updatedAtMs)}</time>
+                <time>
+                  {t("home.updated", {
+                    value: formatDate(template.updatedAtMs, {
+                      dateStyle: "medium",
+                    }),
+                  })}
+                </time>
                 {!template.builtIn ? (
                   <div>
                     <button
@@ -1043,13 +1078,15 @@ function TemplatesView({
                       type="button"
                       onClick={() => onEdit(template)}
                     >
-                      Edit
+                      {t("common.edit")}
                     </button>
                     <button
                       className="icon-button danger"
                       type="button"
-                      aria-label={`Delete ${template.name}`}
-                      title="Delete template"
+                      aria-label={t("home.deleteTemplateNamed", {
+                        name: template.name,
+                      })}
+                      title={t("home.deleteTemplate")}
                       onClick={() => onDelete(template)}
                     >
                       <Trash2 size={14} />
@@ -1074,25 +1111,21 @@ function RecycleView({
   onRestore(entry: RecycleEntry): void;
   onPurge(entry: RecycleEntry): void;
 }) {
+  const { t, formatDate } = useLocale();
   return (
     <>
       <header className="project-view-heading">
         <div>
-          <span>Recoverable deletion</span>
-          <h1>Recycle bin</h1>
-          <p>
-            Restore retained projects and documents or explicitly purge them.
-          </p>
+          <span>{t("home.recoverableDeletion")}</span>
+          <h1>{t("home.recycleBin")}</h1>
+          <p>{t("home.recycleDescription")}</p>
         </div>
       </header>
       {items.length === 0 ? (
         <div className="project-home-empty">
           <Trash2 size={25} />
-          <strong>Recycle bin is empty</strong>
-          <span>
-            Deleted projects and documents remain recoverable here during
-            retention.
-          </span>
+          <strong>{t("home.recycleEmpty")}</strong>
+          <span>{t("home.recycleEmptyHelp")}</span>
         </div>
       ) : (
         <div className="recycle-list">
@@ -1107,13 +1140,22 @@ function RecycleView({
               </div>
               <div>
                 <span>
-                  {entry.entityType} · deleted {formatDate(entry.deletedAtMs)}
+                  {t("home.deletedAt", {
+                    kind: entry.entityType,
+                    value: formatDate(entry.deletedAtMs, {
+                      dateStyle: "medium",
+                    }),
+                  })}
                 </span>
                 <h2>{entry.displayName}</h2>
                 <p>{entry.reason}</p>
                 <small>
-                  Retained until {formatDate(entry.retentionUntilMs)} ·{" "}
-                  {entry.actor}
+                  {t("home.retainedUntil", {
+                    value: formatDate(entry.retentionUntilMs, {
+                      dateStyle: "medium",
+                    }),
+                    actor: entry.actor,
+                  })}
                 </small>
               </div>
               <div>
@@ -1122,13 +1164,13 @@ function RecycleView({
                   type="button"
                   onClick={() => onRestore(entry)}
                 >
-                  <RotateCcw size={14} /> Restore
+                  <RotateCcw size={14} /> {t("home.restoreItem")}
                 </button>
                 <button
                   className="icon-button danger"
                   type="button"
-                  aria-label={`Purge ${entry.displayName}`}
-                  title="Permanently purge"
+                  aria-label={t("home.purgeNamed", { name: entry.displayName })}
+                  title={t("home.permanentlyPurge")}
                   onClick={() => onPurge(entry)}
                 >
                   <Trash2 size={14} />
@@ -1153,6 +1195,7 @@ function TemplateDialog({
   onCancel(): void;
   onSave(draft: TemplateDraft): Promise<void>;
 }) {
+  const { t } = useLocale();
   const [draft, setDraft] = useState(initial);
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -1169,15 +1212,19 @@ function TemplateDialog({
       >
         <header>
           <div>
-            <span className="surface-kicker">Safe reusable configuration</span>
+            <span className="surface-kicker">
+              {t("home.safeReusableConfiguration")}
+            </span>
             <h2 id="template-dialog-title">
-              {draft.id ? "Edit project template" : "New project template"}
+              {draft.id
+                ? t("home.editProjectTemplate")
+                : t("home.newProjectTemplate")}
             </h2>
           </div>
           <FileText size={20} />
         </header>
         <label>
-          <span>Name</span>
+          <span>{t("home.name")}</span>
           <input
             required
             value={draft.name}
@@ -1187,7 +1234,7 @@ function TemplateDialog({
           />
         </label>
         <label>
-          <span>Description</span>
+          <span>{t("home.description")}</span>
           <textarea
             value={draft.description}
             onChange={(event) =>
@@ -1197,7 +1244,7 @@ function TemplateDialog({
         </label>
         <div className="template-dialog-grid">
           <label>
-            <span>Source locale</span>
+            <span>{t("home.sourceLocale")}</span>
             <input
               required
               value={draft.sourceLocale}
@@ -1207,7 +1254,7 @@ function TemplateDialog({
             />
           </label>
           <label>
-            <span>Target locale</span>
+            <span>{t("home.targetLocale")}</span>
             <input
               required
               value={draft.targetLocale}
@@ -1217,7 +1264,7 @@ function TemplateDialog({
             />
           </label>
           <label>
-            <span>Domain</span>
+            <span>{t("common.domain")}</span>
             <input
               value={draft.domain}
               onChange={(event) =>
@@ -1226,7 +1273,7 @@ function TemplateDialog({
             />
           </label>
           <label>
-            <span>Analysis profile</span>
+            <span>{t("home.analysisProfile")}</span>
             <input
               value={draft.analysisProfileId}
               onChange={(event) =>
@@ -1250,15 +1297,13 @@ function TemplateDialog({
             }
           />
           <span>
-            <strong>Require review before sign-off</strong>
-            <small>
-              The policy is resolved by the Engine when creating a project.
-            </small>
+            <strong>{t("home.requireReviewBeforeSignoff")}</strong>
+            <small>{t("home.engineResolvesPolicy")}</small>
           </span>
         </label>
         {draft.sourceLocale === draft.targetLocale ? (
           <p className="surface-error" role="alert">
-            Source and target locales must be different.
+            {t("home.localesMustDiffer")}
           </p>
         ) : null}
         <footer>
@@ -1268,7 +1313,7 @@ function TemplateDialog({
             onClick={onCancel}
             disabled={busy}
           >
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             className="button primary"
@@ -1284,7 +1329,7 @@ function TemplateDialog({
             ) : (
               <Check size={14} />
             )}{" "}
-            Save template
+            {t("home.saveTemplate")}
           </button>
         </footer>
       </form>
@@ -1303,6 +1348,7 @@ function ConfirmDialog({
   onCancel(): void;
   onConfirm(): Promise<void>;
 }) {
+  const { t } = useLocale();
   return (
     <div className="surface-dialog-backdrop" role="presentation">
       <section
@@ -1313,7 +1359,7 @@ function ConfirmDialog({
       >
         <header>
           <div>
-            <span className="surface-kicker">Explicit action</span>
+            <span className="surface-kicker">{t("common.confirm")}</span>
             <h2 id="confirm-dialog-title">{action.title}</h2>
           </div>
           {action.danger ? <Trash2 size={20} /> : <History size={20} />}
@@ -1326,7 +1372,7 @@ function ConfirmDialog({
             onClick={onCancel}
             disabled={busy}
           >
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             className={action.danger ? "button danger" : "button primary"}
@@ -1360,13 +1406,47 @@ function templateToDraft(template: ProjectTemplate): TemplateDraft {
   };
 }
 
-function formatBasisPoints(value: number): string {
-  return `${(value / 100).toFixed(value % 100 === 0 ? 0 : 1)}%`;
+function formatBasisPoints(
+  value: number,
+  formatNumber: (value: number, options?: Intl.NumberFormatOptions) => string,
+): string {
+  return `${formatNumber(value / 100, { maximumFractionDigits: 1 })}%`;
 }
-function formatDate(value: number): string {
-  return new Date(value).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+
+function searchFieldLabel(
+  t: ReturnType<typeof useLocale>["t"],
+  field: string,
+): string {
+  switch (field) {
+    case "source":
+      return t("home.fieldSource");
+    case "target":
+      return t("home.fieldTarget");
+    case "project":
+      return t("home.fieldProject");
+    case "document":
+      return t("home.fieldDocument");
+    case "comment":
+      return t("home.fieldComment");
+    case "note":
+      return t("home.fieldNote");
+    default:
+      return field.replaceAll("_", " ");
+  }
+}
+
+function searchWorkflowLabel(
+  t: ReturnType<typeof useLocale>["t"],
+  state: string | null | undefined,
+): string {
+  switch (state) {
+    case "translation":
+      return t("home.workflowTranslation");
+    case "review":
+      return t("home.workflowReview");
+    case "signed":
+      return t("home.workflowSigned");
+    default:
+      return state ?? t("common.project");
+  }
 }

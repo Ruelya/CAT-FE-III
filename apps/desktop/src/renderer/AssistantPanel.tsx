@@ -34,6 +34,8 @@ import {
   type ReasoningLevel,
 } from "./assistant-state";
 import { LiveAssistantPanel } from "./LiveAssistantPanel";
+import { useLocale } from "./i18n/LocaleProvider";
+import type { MessageKey } from "./i18n/messages";
 
 interface AssistantPanelProps {
   activeSegment: Segment | undefined;
@@ -44,13 +46,29 @@ interface AssistantPanelProps {
 
 const QUICK_ACTIONS: Array<{
   action: Exclude<AssistantAction, "prompt">;
-  label: string;
-  prompt: string;
+  labelKey: MessageKey;
+  promptKey: MessageKey;
 }> = [
-  { action: "improve", label: "Improve", prompt: "Improve this target" },
-  { action: "fix-terms", label: "Fix terms", prompt: "Fix terminology" },
-  { action: "shorten", label: "Shorten", prompt: "Shorten the target" },
-  { action: "explain", label: "Explain", prompt: "Explain the source" },
+  {
+    action: "improve",
+    labelKey: "assistant.action.improve",
+    promptKey: "assistant.prompt.improve",
+  },
+  {
+    action: "fix-terms",
+    labelKey: "assistant.action.fixTerms",
+    promptKey: "assistant.prompt.fixTerms",
+  },
+  {
+    action: "shorten",
+    labelKey: "assistant.action.shorten",
+    promptKey: "assistant.prompt.shorten",
+  },
+  {
+    action: "explain",
+    labelKey: "assistant.action.explain",
+    promptKey: "assistant.prompt.explain",
+  },
 ];
 
 export function AssistantPanel({
@@ -111,6 +129,7 @@ function OfflineAssistantPanel({
   activeSegment,
   onUseTarget,
 }: Pick<AssistantPanelProps, "activeSegment" | "onUseTarget">) {
+  const { t } = useLocale();
   const [state, dispatch] = useReducer(
     assistantReducer,
     activeSegment,
@@ -180,7 +199,9 @@ function OfflineAssistantPanel({
             aria-expanded={conversationOpen}
             onClick={() => setConversationOpen((open) => !open)}
           >
-            <span>{activeConversation?.title ?? "Conversation"}</span>
+            <span>
+              {activeConversation?.title ?? t("assistant.conversation")}
+            </span>
             <ChevronDown size={14} aria-hidden="true" />
           </button>
           {conversationOpen ? (
@@ -199,7 +220,7 @@ function OfflineAssistantPanel({
                 }}
               >
                 <MessageSquarePlus size={14} />
-                New conversation
+                {t("assistant.newConversation")}
               </button>
               <div className="conversation-list">
                 {state.conversations.map((conversation) => (
@@ -231,8 +252,10 @@ function OfflineAssistantPanel({
                       type="button"
                       className="conversation-archive"
                       role="menuitem"
-                      aria-label={`Archive ${conversation.title}`}
-                      title="Archive conversation"
+                      aria-label={t("assistant.archiveNamed", {
+                        title: conversation.title,
+                      })}
+                      title={t("assistant.archive")}
                       disabled={state.conversations.length <= 1}
                       onClick={() =>
                         dispatch({
@@ -251,9 +274,9 @@ function OfflineAssistantPanel({
         </div>
         <div className="assistant-engine-controls">
           <label>
-            <span>Model</span>
+            <span>{t("common.model")}</span>
             <select
-              aria-label="Requested model"
+              aria-label={t("assistant.requestedModel")}
               value={state.model}
               onChange={(event) =>
                 dispatch({
@@ -264,15 +287,17 @@ function OfflineAssistantPanel({
             >
               <option value="grok-4.5">grok-4.5</option>
               <option value="openai-compatible">
-                OpenAI-compatible profile
+                {t("assistant.openAiProfile")}
               </option>
-              <option value="local-preview">Local preview</option>
+              <option value="local-preview">
+                {t("assistant.localPreview")}
+              </option>
             </select>
           </label>
           <label>
-            <span>Reasoning</span>
+            <span>{t("common.reasoning")}</span>
             <select
-              aria-label="Reasoning level"
+              aria-label={t("assistant.reasoningLevel")}
               value={state.reasoning}
               onChange={(event) =>
                 dispatch({
@@ -281,29 +306,34 @@ function OfflineAssistantPanel({
                 })
               }
             >
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
+              <option value="low">{t("common.low")}</option>
+              <option value="medium">{t("common.medium")}</option>
+              <option value="high">{t("common.high")}</option>
             </select>
           </label>
         </div>
-        <span className="assistant-provider-note">Offline preview</span>
+        <span className="assistant-provider-note">
+          {t("assistant.offlinePreview")}
+        </span>
       </div>
 
       <div className="assistant-context">
-        <span>Active</span>
+        <span>{t("common.active")}</span>
         <strong>{activeSegment ? activeSegment.ordinal + 1 : "—"}</strong>
         <p title={activeSegment?.sourceText}>{activeSegment?.sourceText}</p>
       </div>
 
-      <div className="assistant-quick-actions" aria-label="Assistant actions">
+      <div
+        className="assistant-quick-actions"
+        aria-label={t("assistant.actionsAria")}
+      >
         {QUICK_ACTIONS.map((item) => (
           <button
             type="button"
             key={item.action}
-            onClick={() => appendTurn(item.action, item.prompt)}
+            onClick={() => appendTurn(item.action, t(item.promptKey))}
           >
-            {item.label}
+            {t(item.labelKey)}
           </button>
         ))}
       </div>
@@ -316,7 +346,9 @@ function OfflineAssistantPanel({
               key={message.id}
             >
               <span className="assistant-message-role">
-                {message.role === "user" ? "You" : "Assistant"}
+                {message.role === "user"
+                  ? t("assistant.you")
+                  : t("assistant.roleAssistant")}
               </span>
               <p className={message.targetText ? "cjk" : undefined}>
                 {message.text}
@@ -328,7 +360,7 @@ function OfflineAssistantPanel({
                     className={
                       appliedMessageId === message.id ? "applied" : undefined
                     }
-                    aria-label="Use in target"
+                    aria-label={t("assistant.useInTarget")}
                     disabled={appliedMessageId === message.id}
                     onClick={() => {
                       onUseTarget(message.targetText ?? "");
@@ -338,7 +370,7 @@ function OfflineAssistantPanel({
                     {appliedMessageId === message.id ? (
                       <>
                         <Check size={12} />
-                        Applied
+                        {t("assistant.applied")}
                       </>
                     ) : (
                       "Use in target"
@@ -353,7 +385,7 @@ function OfflineAssistantPanel({
           ))
         ) : (
           <div className="assistant-empty">
-            <strong>No messages</strong>
+            <strong>{t("assistant.noMessages")}</strong>
           </div>
         )}
       </div>
@@ -361,8 +393,8 @@ function OfflineAssistantPanel({
       <div className="assistant-composer">
         <textarea
           value={prompt}
-          aria-label="Ask about the active segment"
-          placeholder="Ask about the active segment..."
+          aria-label={t("assistant.askAria")}
+          placeholder={t("assistant.askPlaceholderDots")}
           onChange={(event) => setPrompt(event.currentTarget.value)}
           onCompositionStart={() => setComposerComposing(true)}
           onCompositionEnd={() => setComposerComposing(false)}
@@ -370,13 +402,13 @@ function OfflineAssistantPanel({
         />
         <button
           type="button"
-          aria-label="Send assistant message"
-          title="Send"
+          aria-label={t("assistant.sendAria")}
+          title={t("common.send")}
           disabled={!prompt.trim() || composerComposing}
           onClick={submitPrompt}
         >
           <Send size={15} />
-          Send
+          {t("common.send")}
         </button>
       </div>
     </div>
@@ -384,53 +416,66 @@ function OfflineAssistantPanel({
 }
 
 function AssistantMetricsFooter({ metrics }: { metrics: AssistantMetrics }) {
+  const { t, formatNumber } = useLocale();
   const items = [
     {
       key: "model",
       value: metrics.model,
-      label: `Offline model profile: ${metrics.model}`,
+      label: t("assistant.metric.offlineModel", { model: metrics.model }),
       icon: <Cpu size={12} />,
     },
     {
       key: "input",
       value: compactMetric(metrics.inputTokens),
-      label: `Synthetic input tokens: ${metrics.inputTokens.toLocaleString("en-US")}`,
+      label: t("assistant.metric.inputTokens", {
+        count: formatNumber(metrics.inputTokens),
+      }),
       icon: <ArrowDownToLine size={12} />,
     },
     {
       key: "cache-read",
       value: compactMetric(metrics.cacheReadTokens),
-      label: `Synthetic cache read tokens: ${metrics.cacheReadTokens.toLocaleString("en-US")}`,
+      label: t("assistant.metric.cacheRead", {
+        count: formatNumber(metrics.cacheReadTokens),
+      }),
       icon: <Database size={12} />,
     },
     {
       key: "thinking",
       value: compactMetric(metrics.thinkingTokens),
-      label: `Synthetic thinking tokens: ${metrics.thinkingTokens.toLocaleString("en-US")}`,
+      label: t("assistant.metric.thinking", {
+        count: formatNumber(metrics.thinkingTokens),
+      }),
       icon: <Brain size={12} />,
     },
     {
       key: "output",
       value: compactMetric(metrics.outputTokens),
-      label: `Synthetic output tokens: ${metrics.outputTokens.toLocaleString("en-US")}`,
+      label: t("assistant.metric.outputTokens", {
+        count: formatNumber(metrics.outputTokens),
+      }),
       icon: <ArrowUpFromLine size={12} />,
     },
     {
       key: "cache-write",
       value: compactMetric(metrics.cacheWriteTokens),
-      label: `Synthetic cache write tokens: ${metrics.cacheWriteTokens.toLocaleString("en-US")}`,
+      label: t("assistant.metric.cacheWrite", {
+        count: formatNumber(metrics.cacheWriteTokens),
+      }),
       icon: <HardDrive size={12} />,
     },
     {
       key: "elapsed",
       value: formatElapsed(metrics.elapsedMs),
-      label: `Synthetic elapsed time: ${formatElapsed(metrics.elapsedMs)}`,
+      label: t("assistant.metric.elapsed", {
+        value: formatElapsed(metrics.elapsedMs),
+      }),
       icon: <Clock3 size={12} />,
       elapsed: true,
     },
   ];
   return (
-    <div className="assistant-metrics" aria-label="Synthetic response metrics">
+    <div className="assistant-metrics" aria-label={t("assistant.metricsAria")}>
       {items.map((item) => (
         <span
           className={

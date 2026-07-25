@@ -50,8 +50,10 @@ import {
 } from "./discussion-snapshot-utils";
 import { formatError } from "./workbench-utils";
 import "./DiscussionSnapshotPanel.css";
+import { useLocale } from "./i18n/LocaleProvider";
 
 type PanelMode = "discussions" | "snapshots";
+type Translate = ReturnType<typeof useLocale>["t"];
 
 interface DiscussionSnapshotPanelProps {
   snapshot: ProjectSnapshot;
@@ -76,6 +78,8 @@ export function DiscussionSnapshotPanel({
   documents,
   onRefresh,
 }: DiscussionSnapshotPanelProps) {
+  const { t } = useLocale();
+
   const [mode, setMode] = useState<PanelMode>("discussions");
 
   return (
@@ -83,7 +87,7 @@ export function DiscussionSnapshotPanel({
       <div
         className="discussion-snapshot-mode-tabs"
         role="tablist"
-        aria-label="Discussion and snapshot workflow"
+        aria-label={t("discussion.modeAria")}
       >
         <button
           type="button"
@@ -92,7 +96,7 @@ export function DiscussionSnapshotPanel({
           onClick={() => setMode("discussions")}
         >
           <MessageSquareText size={15} />
-          Discussions
+          {t("discussion.discussions")}
         </button>
         <button
           type="button"
@@ -101,7 +105,7 @@ export function DiscussionSnapshotPanel({
           onClick={() => setMode("snapshots")}
         >
           <FolderGit2 size={15} />
-          Project snapshots
+          {t("discussion.projectSnapshots")}
         </button>
       </div>
 
@@ -123,6 +127,7 @@ function DiscussionPanel({
   document,
   documents,
 }: Omit<DiscussionSnapshotPanelProps, "onRefresh">) {
+  const { t, formatDate } = useLocale();
   const projectId = snapshot.project.id;
   const activeDocuments = useMemo(
     () => documents.filter((item) => item.status === "active"),
@@ -380,7 +385,7 @@ function DiscussionPanel({
       ]);
       setTitle("");
       setBody("");
-      setNotice("Discussion created with its first message.");
+      setNotice(t("discussion.createdWithMessage"));
     });
   };
 
@@ -409,7 +414,7 @@ function DiscussionPanel({
         refreshMessages(authoritative, true),
       ]);
       setReply("");
-      setNotice("Reply added.");
+      setNotice(t("discussion.replyAdded"));
     });
   };
 
@@ -439,7 +444,9 @@ function DiscussionPanel({
       ]);
       setEditingMessageId(null);
       setEditBody("");
-      setNotice(`Message ${message.ordinal + 1} updated.`);
+      setNotice(
+        t("discussion.messageUpdated", { ordinal: message.ordinal + 1 }),
+      );
     });
   };
 
@@ -461,7 +468,9 @@ function DiscussionPanel({
       ]);
       setDeleteMessage(null);
       setEditingMessageId(null);
-      setNotice(`Message ${message.ordinal + 1} deleted as a tombstone.`);
+      setNotice(
+        t("discussion.messageTombstoned", { ordinal: message.ordinal + 1 }),
+      );
     });
   };
 
@@ -481,7 +490,7 @@ function DiscussionPanel({
       );
       await refreshThreadList(updated);
       setSelectedThread(updated);
-      setNotice(resolved ? "Discussion resolved." : "Discussion reopened.");
+      setNotice(resolved ? t("discussion.resolved") : t("discussion.reopened"));
     });
   };
 
@@ -527,15 +536,15 @@ function DiscussionPanel({
 
       <section className="insights-section discussion-compose">
         <PanelHeading
-          eyebrow="Local review"
-          title="Start a discussion"
+          eyebrow={t("discussion.localReview")}
+          title={t("discussion.start")}
           icon={<Plus size={18} />}
         />
 
         <div
           className="discussion-scope-control"
           role="group"
-          aria-label="Discussion scope"
+          aria-label={t("discussion.scopeAria")}
         >
           {(["project", "document", "segment"] as const).map((value) => (
             <button
@@ -545,14 +554,14 @@ function DiscussionPanel({
               onClick={() => chooseScope(value)}
               disabled={!!busy}
             >
-              {scopeLabel(value)}
+              {scopeLabel(value, t)}
             </button>
           ))}
         </div>
 
         {scope !== "project" ? (
           <label className="discussion-field">
-            <span>Document</span>
+            <span>{t("common.document")}</span>
             <select
               value={documentId}
               onChange={(event) => {
@@ -573,7 +582,7 @@ function DiscussionPanel({
 
         {scope === "segment" ? (
           <label className="discussion-field">
-            <span>Segment</span>
+            <span>{t("common.segment")}</span>
             <select
               value={segmentId}
               onChange={(event) => {
@@ -591,30 +600,32 @@ function DiscussionPanel({
             </select>
             {segmentTotal > SEGMENT_OPTION_LIMIT ? (
               <small>
-                Showing the first {SEGMENT_OPTION_LIMIT} of {segmentTotal}
-                segments.
+                {t("discussion.segmentLimit", {
+                  shown: SEGMENT_OPTION_LIMIT,
+                  total: segmentTotal,
+                })}
               </small>
             ) : null}
           </label>
         ) : null}
 
         <label className="discussion-field">
-          <span>Title (optional)</span>
+          <span>{t("discussion.titleOptional")}</span>
           <input
             value={title}
             onChange={(event) => setTitle(event.currentTarget.value)}
             maxLength={256}
-            placeholder="Review question"
+            placeholder={t("discussion.titlePlaceholder")}
             disabled={!!busy}
           />
         </label>
         <label className="discussion-field">
-          <span>First message</span>
+          <span>{t("discussion.firstMessage")}</span>
           <textarea
             value={body}
             onChange={(event) => setBody(event.currentTarget.value)}
             maxLength={16_384}
-            placeholder="Write a local note and use literal @mentions where useful."
+            placeholder={t("discussion.messagePlaceholder")}
             disabled={!!busy}
           />
         </label>
@@ -638,24 +649,24 @@ function DiscussionPanel({
           ) : (
             <Plus size={14} />
           )}
-          Create discussion
+          {t("discussion.createDiscussion")}
         </button>
       </section>
 
       <section
         className="insights-section discussion-thread-browser"
-        aria-label="Discussion threads"
+        aria-label={t("discussion.threadsAria")}
       >
         <PanelHeading
-          eyebrow={scopeLocation(scope, selectedDocument, selectedSegment)}
-          title="Threads"
+          eyebrow={scopeLocation(scope, selectedDocument, selectedSegment, t)}
+          title={t("common.threads")}
           icon={<MessageSquareText size={18} />}
           actions={
             <button
               className="icon-button"
               type="button"
-              aria-label="Refresh discussions"
-              title="Refresh discussions"
+              aria-label={t("discussion.refresh")}
+              title={t("discussion.refresh")}
               onClick={() => void refreshVisibleThreads()}
               disabled={!!busy || threadsLoading}
             >
@@ -672,12 +683,13 @@ function DiscussionPanel({
               setThreadOffset(0);
             }}
           />
-          <span>Include resolved</span>
+          <span>{t("discussion.includeResolved")}</span>
         </label>
 
         {threadsLoading ? (
           <div className="discussion-loading" role="status">
-            <LoaderCircle className="spin" size={17} /> Loading threads
+            <LoaderCircle className="spin" size={17} />
+            {t("discussion.loadingThreads")}
           </div>
         ) : threadPage && threadPage.items.length > 0 ? (
           <div className="discussion-thread-list">
@@ -699,9 +711,16 @@ function DiscussionPanel({
                   </span>
                 </span>
                 <span className="discussion-thread-meta">
-                  <span>{thread.messageCount} messages</span>
+                  <span>
+                    {t("discussion.messageCount", {
+                      count: thread.messageCount,
+                    })}
+                  </span>
                   <time dateTime={new Date(thread.updatedAtMs).toISOString()}>
-                    {formatDateTime(thread.updatedAtMs)}
+                    {formatDate(thread.updatedAtMs, {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
                   </time>
                 </span>
               </button>
@@ -710,13 +729,13 @@ function DiscussionPanel({
         ) : (
           <div className="discussion-empty">
             <MessageSquareText size={20} />
-            <strong>No matching discussions</strong>
-            <span>Start one for the selected scope.</span>
+            <strong>{t("discussion.noMatching")}</strong>
+            <span>{t("discussion.startOne")}</span>
           </div>
         )}
 
         <Pagination
-          label="Thread pages"
+          label={t("discussion.threadPages")}
           offset={threadPage?.offset ?? threadOffset}
           itemCount={threadPage?.items.length ?? 0}
           total={threadPage?.total ?? 0}
@@ -735,12 +754,14 @@ function DiscussionPanel({
 
       <section
         className="insights-section discussion-thread-detail"
-        aria-label="Selected discussion"
+        aria-label={t("discussion.selectedAria")}
       >
         {selectedThread ? (
           <>
             <PanelHeading
-              eyebrow={`${scopeLabel(selectedThread.scope)} discussion`}
+              eyebrow={t("discussion.scopeTitle", {
+                scope: scopeLabel(selectedThread.scope, t),
+              })}
               title={selectedThread.title}
               icon={<AtSign size={18} />}
               actions={
@@ -763,7 +784,9 @@ function DiscussionPanel({
                   ) : (
                     <RotateCcw size={14} />
                   )}
-                  {selectedThread.status === "open" ? "Resolve" : "Reopen"}
+                  {selectedThread.status === "open"
+                    ? t("discussion.resolve")
+                    : t("discussion.reopen")}
                 </button>
               }
             />
@@ -775,14 +798,25 @@ function DiscussionPanel({
               >
                 {selectedThread.status}
               </span>
-              <span>Revision {selectedThread.revision}</span>
-              <span>{selectedThread.messageCount} active messages</span>
-              <span>{threadTarget(selectedThread, documents, segments)}</span>
+              <span>
+                {t("discussion.revision", {
+                  revision: selectedThread.revision,
+                })}
+              </span>
+              <span>
+                {t("discussion.activeMessages", {
+                  count: selectedThread.messageCount,
+                })}
+              </span>
+              <span>
+                {threadTarget(selectedThread, documents, segments, t)}
+              </span>
             </div>
 
             {messagesLoading ? (
               <div className="discussion-loading" role="status">
-                <LoaderCircle className="spin" size={17} /> Loading messages
+                <LoaderCircle className="spin" size={17} />
+                {t("discussion.loadingMessages")}
               </div>
             ) : messagePage && messagePage.items.length > 0 ? (
               <div className="discussion-message-list">
@@ -795,20 +829,25 @@ function DiscussionPanel({
                     <header>
                       <div>
                         <strong>
-                          {message.deleted ? "Deleted message" : message.actor}
+                          {message.deleted
+                            ? t("discussion.deletedMessage")
+                            : message.actor}
                         </strong>
                         <span>#{message.ordinal + 1}</span>
                       </div>
                       <time
                         dateTime={new Date(message.updatedAtMs).toISOString()}
                       >
-                        {formatDateTime(message.updatedAtMs)}
+                        {formatDate(message.updatedAtMs, {
+                          dateStyle: "medium",
+                          timeStyle: "short",
+                        })}
                       </time>
                     </header>
                     {editingMessageId === message.id ? (
                       <div className="discussion-message-edit">
                         <label>
-                          <span>Edit message</span>
+                          <span>{t("discussion.editMessage")}</span>
                           <textarea
                             value={editBody}
                             onChange={(event) =>
@@ -828,7 +867,8 @@ function DiscussionPanel({
                             }}
                             disabled={!!busy}
                           >
-                            <X size={13} /> Cancel
+                            <X size={13} />
+                            {t("common.cancel")}
                           </button>
                           <button
                             className="button primary"
@@ -841,7 +881,7 @@ function DiscussionPanel({
                             ) : (
                               <Save size={13} />
                             )}
-                            Save
+                            {t("common.save")}
                           </button>
                         </div>
                       </div>
@@ -851,7 +891,7 @@ function DiscussionPanel({
                     {!message.deleted && message.mentions.length > 0 ? (
                       <div
                         className="discussion-mentions"
-                        aria-label="Literal mentions"
+                        aria-label={t("discussion.mentionsAria")}
                       >
                         <AtSign size={12} />
                         {message.mentions.map((mention) => (
@@ -866,8 +906,12 @@ function DiscussionPanel({
                         <button
                           className="icon-button"
                           type="button"
-                          aria-label={`Edit message ${message.ordinal + 1}`}
-                          title={`Edit message ${message.ordinal + 1}`}
+                          aria-label={t("discussion.editNamed", {
+                            ordinal: message.ordinal + 1,
+                          })}
+                          title={t("discussion.editNamed", {
+                            ordinal: message.ordinal + 1,
+                          })}
                           onClick={() => {
                             setEditingMessageId(message.id);
                             setEditBody(message.body);
@@ -879,8 +923,12 @@ function DiscussionPanel({
                         <button
                           className="icon-button danger"
                           type="button"
-                          aria-label={`Delete message ${message.ordinal + 1}`}
-                          title={`Delete message ${message.ordinal + 1}`}
+                          aria-label={t("discussion.deleteNamed", {
+                            ordinal: message.ordinal + 1,
+                          })}
+                          title={t("discussion.deleteNamed", {
+                            ordinal: message.ordinal + 1,
+                          })}
                           onClick={() => setDeleteMessage(message)}
                           disabled={!!busy}
                         >
@@ -894,12 +942,12 @@ function DiscussionPanel({
             ) : (
               <div className="discussion-empty compact">
                 <MessageSquareText size={18} />
-                <strong>No messages on this page</strong>
+                <strong>{t("discussion.noMessagesPage")}</strong>
               </div>
             )}
 
             <Pagination
-              label="Message pages"
+              label={t("discussion.messagePages")}
               offset={messagePage?.offset ?? messageOffset}
               itemCount={messagePage?.items.length ?? 0}
               total={messagePage?.total ?? 0}
@@ -919,15 +967,15 @@ function DiscussionPanel({
 
             <div className="discussion-reply">
               <label>
-                <span>Reply</span>
+                <span>{t("discussion.reply")}</span>
                 <textarea
                   value={reply}
                   onChange={(event) => setReply(event.currentTarget.value)}
                   maxLength={16_384}
                   placeholder={
                     selectedThread.status === "open"
-                      ? "Add a local reply"
-                      : "Reopen this discussion before replying"
+                      ? t("discussion.replyPlaceholder")
+                      : t("discussion.reopenBeforeReply")
                   }
                   disabled={selectedThread.status !== "open" || !!busy}
                 />
@@ -949,15 +997,15 @@ function DiscussionPanel({
                 ) : (
                   <Send size={14} />
                 )}
-                Reply
+                {t("discussion.reply")}
               </button>
             </div>
           </>
         ) : (
           <div className="discussion-empty detail-empty">
             <MessageSquareText size={24} />
-            <strong>Select a discussion</strong>
-            <span>Messages and revision-bound actions appear here.</span>
+            <strong>{t("discussion.selectOne")}</strong>
+            <span>{t("discussion.messagesHere")}</span>
           </div>
         )}
       </section>
@@ -972,17 +1020,18 @@ function DiscussionPanel({
           >
             <header>
               <div>
-                <span className="surface-kicker">Durable tombstone</span>
+                <span className="surface-kicker">
+                  {t("discussion.tombstone")}
+                </span>
                 <h2 id="discussion-delete-title">
-                  Delete message {deleteMessage.ordinal + 1}
+                  {t("discussion.deleteNamed", {
+                    ordinal: deleteMessage.ordinal + 1,
+                  })}
                 </h2>
               </div>
               <Trash2 size={19} />
             </header>
-            <p>
-              The message body will be replaced by an auditable tombstone. Its
-              ordinal remains in the thread history.
-            </p>
+            <p>{t("discussion.tombstoneBody3")}</p>
             <footer>
               <button
                 className="button tertiary"
@@ -990,7 +1039,7 @@ function DiscussionPanel({
                 onClick={() => setDeleteMessage(null)}
                 disabled={!!busy}
               >
-                Cancel
+                {t("common.cancel")}
               </button>
               <button
                 className="button danger"
@@ -1003,7 +1052,7 @@ function DiscussionPanel({
                 ) : (
                   <Trash2 size={14} />
                 )}
-                Delete message
+                {t("discussion.deleteAction")}
               </button>
             </footer>
           </section>
@@ -1017,6 +1066,7 @@ function SnapshotPanel({
   snapshot,
   onRefresh,
 }: Pick<DiscussionSnapshotPanelProps, "snapshot" | "onRefresh">) {
+  const { t, formatDate, formatNumber } = useLocale();
   const projectId = snapshot.project.id;
   const [snapshotPage, setSnapshotPage] = useState<ProjectSnapshotPage | null>(
     null,
@@ -1125,7 +1175,7 @@ function SnapshotPanel({
       setSelectedSnapshot(created);
       setPreview(null);
       setName("");
-      setNotice(`Snapshot ${created.name} created.`);
+      setNotice(t("snapshot.created", { name: created.name }));
     });
   };
 
@@ -1155,8 +1205,8 @@ function SnapshotPanel({
       setConfirmRestore(false);
       setNotice(
         result.missingDependencyIds.length > 0
-          ? "Preview is ready, but dependencies must be restored before apply."
-          : "Restore preview is ready.",
+          ? t("snapshot.previewNeedsDeps")
+          : t("snapshot.previewReady"),
       );
     });
   };
@@ -1185,8 +1235,10 @@ function SnapshotPanel({
       setConfirmRestore(false);
       setNotice(
         result.operationId
-          ? `Snapshot restored in operation ${result.operationId.slice(0, 12)}.`
-          : "Snapshot restored.",
+          ? t("snapshot.restoredWithOp", {
+              id: result.operationId.slice(0, 12),
+            })
+          : t("snapshot.restored"),
       );
       await onRefresh();
       const page = await getSnapshotPage(snapshotOffset);
@@ -1224,17 +1276,17 @@ function SnapshotPanel({
 
       <section className="insights-section snapshot-create">
         <PanelHeading
-          eyebrow="Immutable checkpoint"
-          title="Create a named snapshot"
+          eyebrow={t("snapshot.immutableCheckpoint")}
+          title={t("snapshot.createNamed")}
           icon={<FolderGit2 size={18} />}
         />
         <label className="discussion-field">
-          <span>Snapshot name</span>
+          <span>{t("snapshot.name")}</span>
           <input
             value={name}
             onChange={(event) => setName(event.currentTarget.value)}
             maxLength={256}
-            placeholder="Before legal review"
+            placeholder={t("snapshot.namePlaceholder")}
             disabled={!!busy}
           />
         </label>
@@ -1256,24 +1308,26 @@ function SnapshotPanel({
           ) : (
             <Plus size={14} />
           )}
-          Create snapshot
+          {t("snapshot.create")}
         </button>
       </section>
 
       <section
         className="insights-section snapshot-browser"
-        aria-label="Project snapshots"
+        aria-label={t("snapshot.listAria")}
       >
         <PanelHeading
-          eyebrow={`${snapshotPage?.total ?? 0} immutable checkpoints`}
-          title="Snapshots"
+          eyebrow={t("snapshot.checkpointCount", {
+            count: snapshotPage?.total ?? 0,
+          })}
+          title={t("common.snapshots")}
           icon={<Clock3 size={18} />}
           actions={
             <button
               className="icon-button"
               type="button"
-              aria-label="Refresh project snapshots"
-              title="Refresh project snapshots"
+              aria-label={t("snapshot.refresh")}
+              title={t("snapshot.refresh")}
               onClick={() => void refreshSnapshots()}
               disabled={loading || !!busy}
             >
@@ -1284,7 +1338,8 @@ function SnapshotPanel({
 
         {loading ? (
           <div className="discussion-loading" role="status">
-            <LoaderCircle className="spin" size={17} /> Loading snapshots
+            <LoaderCircle className="spin" size={17} />
+            {t("snapshot.loading")}
           </div>
         ) : snapshotPage && snapshotPage.items.length > 0 ? (
           <div className="snapshot-list">
@@ -1298,10 +1353,17 @@ function SnapshotPanel({
               >
                 <span>
                   <strong>{item.name}</strong>
-                  <small>Revision {item.baseProjectRevision}</small>
+                  <small>
+                    {t("snapshot.revision", {
+                      revision: item.baseProjectRevision,
+                    })}
+                  </small>
                 </span>
                 <time dateTime={new Date(item.createdAtMs).toISOString()}>
-                  {formatDateTime(item.createdAtMs)}
+                  {formatDate(item.createdAtMs, {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  })}
                 </time>
               </button>
             ))}
@@ -1309,13 +1371,13 @@ function SnapshotPanel({
         ) : (
           <div className="discussion-empty">
             <FolderGit2 size={20} />
-            <strong>No project snapshots</strong>
-            <span>Create a named checkpoint for this project.</span>
+            <strong>{t("snapshot.none")}</strong>
+            <span>{t("snapshot.createCheckpoint")}</span>
           </div>
         )}
 
         <Pagination
-          label="Snapshot pages"
+          label={t("snapshot.snapshotPages")}
           offset={snapshotPage?.offset ?? snapshotOffset}
           itemCount={snapshotPage?.items.length ?? 0}
           total={snapshotPage?.total ?? 0}
@@ -1336,12 +1398,14 @@ function SnapshotPanel({
 
       <section
         className="insights-section snapshot-detail"
-        aria-label="Selected project snapshot"
+        aria-label={t("snapshot.selectedAria")}
       >
         {selectedSnapshot ? (
           <>
             <PanelHeading
-              eyebrow={`Created by ${selectedSnapshot.actor}`}
+              eyebrow={t("snapshot.createdBy", {
+                actor: selectedSnapshot.actor,
+              })}
               title={selectedSnapshot.name}
               icon={<ArchiveRestore size={18} />}
               actions={
@@ -1356,19 +1420,30 @@ function SnapshotPanel({
                   ) : (
                     <RefreshCw size={14} />
                   )}
-                  {preview ? "Refresh preview" : "Preview restore"}
+                  {preview
+                    ? t("snapshot.refreshPreview")
+                    : t("snapshot.previewRestore")}
                 </button>
               }
             />
 
             <dl className="snapshot-facts">
               <Fact
-                label="Base revision"
-                value={selectedSnapshot.baseProjectRevision}
+                label={t("snapshot.baseRevision")}
+                value={formatNumber(selectedSnapshot.baseProjectRevision)}
               />
-              <Fact label="Documents" value={selectedSnapshot.documentCount} />
-              <Fact label="Segments" value={selectedSnapshot.segmentCount} />
-              <Fact label="Threads" value={selectedSnapshot.threadCount} />
+              <Fact
+                label={t("snapshot.documents")}
+                value={formatNumber(selectedSnapshot.documentCount)}
+              />
+              <Fact
+                label={t("snapshot.segments")}
+                value={formatNumber(selectedSnapshot.segmentCount)}
+              />
+              <Fact
+                label={t("snapshot.threads")}
+                value={formatNumber(selectedSnapshot.threadCount)}
+              />
             </dl>
             <div className="snapshot-audit">
               <p>{selectedSnapshot.reason}</p>
@@ -1378,13 +1453,16 @@ function SnapshotPanel({
             </div>
 
             {preview ? (
-              <section className="snapshot-preview" aria-label="Restore preview">
+              <section
+                className="snapshot-preview"
+                aria-label={t("snapshot.previewAria")}
+              >
                 <header>
                   <div>
                     <span className="surface-kicker">
-                      Revision-bound preview
+                      {t("snapshot.revisionBoundPreview")}
                     </span>
-                    <h3>Workspace changes</h3>
+                    <h3>{t("snapshot.workspaceChanges")}</h3>
                   </div>
                   <span
                     className="snapshot-preview-status"
@@ -1394,7 +1472,7 @@ function SnapshotPanel({
                   </span>
                 </header>
                 <div className="snapshot-change-grid">
-                  {snapshotChangeItems(preview.summary).map((item) => (
+                  {snapshotChangeItems(preview.summary, t).map((item) => (
                     <div key={item.key}>
                       <span>{item.label}</span>
                       <strong>{item.value}</strong>
@@ -1403,15 +1481,19 @@ function SnapshotPanel({
                 </div>
                 <div className="snapshot-preview-facts">
                   <span>
-                    Expected revision {preview.expectedProjectRevision}
+                    {t("snapshot.expectedRevision", {
+                      revision: preview.expectedProjectRevision,
+                    })}
                   </span>
                   <code title={preview.currentStateHash}>
-                    State {preview.currentStateHash.slice(0, 12)}
+                    {t("snapshot.state", {
+                      digest: preview.currentStateHash.slice(0, 12),
+                    })}
                   </code>
                 </div>
                 {preview.missingDependencyIds.length > 0 ? (
                   <div className="snapshot-missing" role="alert">
-                    <strong>Missing mounted dependencies</strong>
+                    <strong>{t("snapshot.missingDeps")}</strong>
                     {preview.missingDependencyIds.map((id) => (
                       <code key={id}>{id}</code>
                     ))}
@@ -1434,22 +1516,22 @@ function SnapshotPanel({
                     <ArchiveRestore size={14} />
                   )}
                   {preview.status === "applied"
-                    ? "Restored"
-                    : "Restore snapshot"}
+                    ? t("snapshot.restoredLabel")
+                    : t("snapshot.restoreSnapshot")}
                 </button>
               </section>
             ) : (
               <div className="snapshot-preview-empty">
                 <ArchiveRestore size={19} />
-                <span>Run a preview before restoring this snapshot.</span>
+                <span>{t("snapshot.runPreviewFirst")}</span>
               </div>
             )}
           </>
         ) : (
           <div className="discussion-empty detail-empty">
             <FolderGit2 size={24} />
-            <strong>Select a snapshot</strong>
-            <span>Metadata and restore preview appear here.</span>
+            <strong>{t("snapshot.selectOne")}</strong>
+            <span>{t("snapshot.metaHere")}</span>
           </div>
         )}
       </section>
@@ -1464,18 +1546,19 @@ function SnapshotPanel({
           >
             <header>
               <div>
-                <span className="surface-kicker">Atomic restore</span>
+                <span className="surface-kicker">
+                  {t("snapshot.atomicRestore")}
+                </span>
                 <h2 id="snapshot-restore-title">
-                  Restore {selectedSnapshot.name}
+                  {t("snapshot.restoreTitle", { name: selectedSnapshot.name })}
                 </h2>
               </div>
               <ArchiveRestore size={20} />
             </header>
             <p>
-              The Engine will recheck project revision{" "}
-              {preview.expectedProjectRevision}
-              and the current state digest before applying this preview in one
-              transaction.
+              {t("snapshot.restoreBody", {
+                revision: preview.expectedProjectRevision,
+              })}
             </p>
             {error ? (
               <p className="surface-error" role="alert">
@@ -1489,7 +1572,7 @@ function SnapshotPanel({
                 onClick={() => setConfirmRestore(false)}
                 disabled={!!busy}
               >
-                Cancel
+                {t("common.cancel")}
               </button>
               <button
                 className="button primary"
@@ -1502,7 +1585,7 @@ function SnapshotPanel({
                 ) : (
                   <ArchiveRestore size={14} />
                 )}
-                Restore snapshot
+                {t("snapshot.restoreAction")}
               </button>
             </footer>
           </section>
@@ -1541,10 +1624,11 @@ function AuditFields({
   onActor(value: string): void;
   onReason(value: string): void;
 }) {
+  const { t } = useLocale();
   return (
     <div className="discussion-audit-fields">
       <label className="discussion-field">
-        <span>Actor</span>
+        <span>{t("common.actor")}</span>
         <input
           value={actor}
           onChange={(event) => onActor(event.currentTarget.value)}
@@ -1553,7 +1637,7 @@ function AuditFields({
         />
       </label>
       <label className="discussion-field">
-        <span>Reason</span>
+        <span>{t("common.reason")}</span>
         <input
           value={reason}
           onChange={(event) => onReason(event.currentTarget.value)}
@@ -1584,15 +1668,20 @@ function Pagination({
   onPrevious(): void;
   onNext(): void;
 }) {
+  const { t } = useLocale();
   return (
     <nav className="discussion-pagination" aria-label={label}>
-      <span>{pageRangeLabel(offset, itemCount, total)}</span>
+      <span>
+        {pageRangeLabel(offset, itemCount, total, (start, end, count) =>
+          t("common.pageRange", { start, end, total: count }),
+        )}
+      </span>
       <div>
         <button
           className="icon-button"
           type="button"
-          aria-label="Previous page"
-          title="Previous page"
+          aria-label={t("common.previousPage")}
+          title={t("common.previousPage")}
           onClick={onPrevious}
           disabled={disabled || offset === 0}
         >
@@ -1601,8 +1690,8 @@ function Pagination({
         <button
           className="icon-button"
           type="button"
-          aria-label="Next page"
-          title="Next page"
+          aria-label={t("common.nextPage")}
+          title={t("common.nextPage")}
           onClick={onNext}
           disabled={disabled || offset + limit >= total}
         >
@@ -1639,14 +1728,14 @@ function canCreateThread(
   );
 }
 
-function scopeLabel(scope: DiscussionScope): string {
+function scopeLabel(scope: DiscussionScope, t: Translate): string {
   switch (scope) {
     case "project":
-      return "Project";
+      return t("common.project");
     case "document":
-      return "Document";
+      return t("common.document");
     case "segment":
-      return "Segment";
+      return t("common.segment");
   }
 }
 
@@ -1654,42 +1743,41 @@ function scopeLocation(
   scope: DiscussionScope,
   document: Document | undefined,
   segment: Segment | undefined,
+  t: Translate,
 ): string {
-  if (scope === "project") return "Project scope";
-  if (scope === "document") return document?.name ?? "Document scope";
+  if (scope === "project") return t("common.projectScope");
+  if (scope === "document") return document?.name ?? t("common.documentScope");
   return segment
-    ? `${document?.name ?? "Document"} / segment ${segment.ordinal + 1}`
-    : "Segment scope";
+    ? t("common.documentSegmentPath", {
+        document: document?.name ?? t("common.document"),
+        ordinal: segment.ordinal + 1,
+      })
+    : t("common.segmentScope");
 }
 
 function threadTarget(
   thread: DiscussionThread,
   documents: Document[],
   segments: Segment[],
+  t: Translate,
 ): string {
-  if (thread.scope === "project") return "Entire project";
+  if (thread.scope === "project") return t("common.entireProject");
   const targetDocument = documents.find(
     (item) => item.id === thread.documentId,
   );
   if (thread.scope === "document") {
-    return targetDocument?.name ?? thread.documentId ?? "Unknown document";
+    return targetDocument?.name ?? thread.documentId ?? t("common.unknown");
   }
   const targetSegment = segments.find((item) => item.id === thread.segmentId);
   return targetSegment
-    ? `${targetDocument?.name ?? "Document"} / segment ${targetSegment.ordinal + 1}`
-    : `Segment ${thread.segmentId?.slice(0, 12) ?? "unknown"}`;
+    ? t("common.documentSegmentPath", {
+        document: targetDocument?.name ?? t("common.document"),
+        ordinal: targetSegment.ordinal + 1,
+      })
+    : `${t("common.segment")} ${thread.segmentId?.slice(0, 12) ?? t("common.unknown")}`;
 }
 
 function compactText(value: string): string {
   const normalized = value.replaceAll(/\s+/gu, " ").trim();
   return normalized.length > 72 ? `${normalized.slice(0, 69)}...` : normalized;
-}
-
-function formatDateTime(value: number): string {
-  return new Date(value).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }

@@ -209,6 +209,7 @@ export type ErrorCode =
   | "not_found"
   | "conflict"
   | "invalid_state"
+  | "policy_denied"
   | "unsupported_document"
   | "storage_error"
   | "export_error"

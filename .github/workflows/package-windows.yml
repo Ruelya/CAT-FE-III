@@ -1,0 +1,57 @@
+name: package-windows
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.3
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Build Engine (release)
+        run: cargo build -p translunar-engine --release
+      - name: Test package architecture and Engine exclusivity gates
+        run: pnpm release:package:gate-test
+      - name: Test installer smoke protocol helpers
+        run: pnpm release:install-smoke:test
+      - name: Verify host Engine binary
+        shell: pwsh
+        run: |
+          $bin = "target/release/translunar-engine.exe"
+          if (-not (Test-Path $bin)) {
+            throw "Engine binary missing: $bin"
+          }
+          Write-Host "engine binary present: $bin"
+          $arch = $env:PROCESSOR_ARCHITECTURE
+          if ($arch -eq "AMD64") { $mapped = "x64" }
+          elseif ($arch -eq "ARM64") { $mapped = "arm64" }
+          else { $mapped = $arch.ToLower() }
+          "TRANSLUNAR_PACKAGE_ARCH=$mapped" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "TRANSLUNAR_PACKAGE_ARCH=$mapped"
+      - name: Package Windows (host arch only)
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: pnpm package:win
+      - name: Package size / Engine presence / arch gate
+        run: pnpm release:package:check
+      - name: Install / launch / Engine smoke
+        run: pnpm release:install-smoke --platform win32
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: translunar-windows
+          path: apps/desktop/release/**

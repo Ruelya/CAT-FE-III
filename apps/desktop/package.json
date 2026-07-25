@@ -12,16 +12,22 @@
     "pretypecheck": "pnpm --filter @translunar/contracts build",
     "typecheck": "tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.renderer.json && tsc -p tsconfig.e2e.json",
     "test": "vitest run",
-    "test:e2e": "pnpm build && playwright test"
+    "test:e2e": "pnpm build && playwright test",
+    "package:win": "node ../../scripts/package-desktop.mjs --win",
+    "package:mac": "node ../../scripts/package-desktop.mjs --mac",
+    "package:dir": "node ../../scripts/package-desktop.mjs --dir"
   },
   "dependencies": {
     "@translunar/contracts": "workspace:*",
+    "electron-updater": "6.8.9",
     "lucide-react": "1.25.0",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },
   "devDependencies": {
     "@playwright/test": "1.61.1",
+    "@axe-core/playwright": "4.10.2",
+    "playwright": "1.61.1",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.2",
     "@testing-library/user-event": "14.6.1",
@@ -36,6 +42,7 @@
     "typescript": "6.0.3",
     "vite": "8.1.5",
     "vitest": "4.1.10",
-    "wait-on": "9.0.10"
+    "wait-on": "9.0.10",
+    "electron-builder": "26.0.12"
   }
 }

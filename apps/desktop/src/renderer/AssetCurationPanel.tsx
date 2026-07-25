@@ -59,6 +59,7 @@ import {
   severityLabel,
 } from "./asset-curation-utils";
 import "./AssetCurationPanel.css";
+import { useLocale } from "./i18n/LocaleProvider";
 
 type CatalogScope = "project" | "global";
 type MutationDialog = "apply" | "rollback";
@@ -107,6 +108,8 @@ export function AssetCurationPanel({
   snapshot,
   onRefresh,
 }: AssetCurationPanelProps) {
+  const { t } = useLocale();
+
   const projectId = snapshot.project.id;
   const [catalogDraft, setCatalogDraft] =
     useState<CatalogFilterDraft>(EMPTY_FILTERS);
@@ -375,7 +378,13 @@ export function AssetCurationPanel({
       setStale(false);
       await loadFindings(result.run.id, 0);
       setNotice(
-        `${result.run.mode === "provider" ? "Provider" : "Offline"} curation run completed for ${result.total} unit(s).`,
+        t("curation.runCompleted", {
+          mode:
+            result.run.mode === "provider"
+              ? t("curation.modeProvider")
+              : t("curation.modeOffline"),
+          count: result.total,
+        }),
       );
     });
   };
@@ -405,9 +414,7 @@ export function AssetCurationPanel({
       setDialog(null);
       setSelectedFindingIds(new Set());
       await refreshRunAndCatalog(result.runId);
-      setNotice(
-        `Applied curation: ${result.quarantinedUnitCount} unit(s) quarantined.`,
-      );
+      setNotice(t("curation.applied", { count: result.quarantinedUnitCount }));
     });
   };
 
@@ -424,7 +431,9 @@ export function AssetCurationPanel({
       setDialog(null);
       setSelectedFindingIds(new Set());
       await refreshRunAndCatalog(result.runId);
-      setNotice(`Rollback restored ${result.restoredUnitCount} unit(s).`);
+      setNotice(
+        t("curation.rollbackRestored", { count: result.restoredUnitCount }),
+      );
     });
   };
 
@@ -451,7 +460,10 @@ export function AssetCurationPanel({
       });
       setExportPath(result.outputPath);
       setNotice(
-        `Exported ${result.rowCount} active unit(s) as ${result.format.toUpperCase()}.`,
+        t("curation.exported", {
+          count: result.rowCount,
+          format: result.format.toUpperCase(),
+        }),
       );
     });
   };
@@ -466,7 +478,7 @@ export function AssetCurationPanel({
         onRefresh(),
       ]);
       setStale(false);
-      setNotice("Curation state refreshed from Engine.");
+      setNotice(t("curation.refreshed"));
     });
   };
 
@@ -537,14 +549,14 @@ export function AssetCurationPanel({
       <section className="insights-section asset-curation-catalog-section">
         <PanelHeading
           icon={<Database size={16} />}
-          eyebrow="Asset catalog"
-          title="Unified asset catalog"
+          eyebrow={t("curation.catalog")}
+          title={t("curation.unifiedCatalog")}
           actions={
             <button
               className="icon-button"
               type="button"
-              title="Refresh curation state"
-              aria-label="Refresh curation state"
+              title={t("curation.refreshState")}
+              aria-label={t("curation.refreshState")}
               onClick={() => void refreshAuthoritative()}
               disabled={isBusy}
             >
@@ -559,7 +571,7 @@ export function AssetCurationPanel({
           <div
             className="asset-curation-scope"
             role="group"
-            aria-label="Catalog scope"
+            aria-label={t("curation.catalogScope")}
           >
             <button
               type="button"
@@ -567,7 +579,8 @@ export function AssetCurationPanel({
               onClick={() => updateDraft("scope", "project")}
               disabled={isBusy}
             >
-              <ShieldCheck size={13} /> Project
+              <ShieldCheck size={13} />
+              {t("common.project")}
             </button>
             <button
               type="button"
@@ -575,11 +588,11 @@ export function AssetCurationPanel({
               onClick={() => updateDraft("scope", "global")}
               disabled={isBusy}
             >
-              <Database size={13} /> Global
+              <Database size={13} /> {t("curation.global")}
             </button>
           </div>
           <div className="asset-curation-filter-grid">
-            <Field label="Asset kind">
+            <Field label={t("curation.assetKind")}>
               <select
                 value={catalogDraft.kind}
                 onChange={(event) =>
@@ -590,13 +603,13 @@ export function AssetCurationPanel({
                 }
                 disabled={isBusy}
               >
-                <option value="all">All assets</option>
-                <option value="tm">Translation memory</option>
-                <option value="termbase">Termbase</option>
-                <option value="corpus">Reference corpus</option>
+                <option value="all">{t("curation.allAssets")}</option>
+                <option value="tm">{t("common.translationMemory")}</option>
+                <option value="termbase">{t("common.termbase")}</option>
+                <option value="corpus">{t("common.referenceCorpus")}</option>
               </select>
             </Field>
-            <Field label="Source locale">
+            <Field label={t("curation.sourceLocale")}>
               <input
                 value={catalogDraft.sourceLocale}
                 onChange={(event) =>
@@ -606,7 +619,7 @@ export function AssetCurationPanel({
                 disabled={isBusy}
               />
             </Field>
-            <Field label="Target locale">
+            <Field label={t("curation.targetLocale")}>
               <input
                 value={catalogDraft.targetLocale}
                 onChange={(event) =>
@@ -616,23 +629,23 @@ export function AssetCurationPanel({
                 disabled={isBusy}
               />
             </Field>
-            <Field label="Domain">
+            <Field label={t("common.domain")}>
               <input
                 value={catalogDraft.domain}
                 onChange={(event) =>
                   updateDraft("domain", event.currentTarget.value)
                 }
-                placeholder="Any domain"
+                placeholder={t("curation.anyDomain")}
                 disabled={isBusy}
               />
             </Field>
-            <Field label="Query">
+            <Field label={t("curation.query")}>
               <input
                 value={catalogDraft.query}
                 onChange={(event) =>
                   updateDraft("query", event.currentTarget.value)
                 }
-                placeholder="Source or target text"
+                placeholder={t("curation.queryPlaceholder")}
                 disabled={isBusy}
               />
             </Field>
@@ -642,7 +655,7 @@ export function AssetCurationPanel({
                 type="submit"
                 disabled={isBusy}
               >
-                <Search size={14} /> Apply filters
+                <Search size={14} /> {t("curation.applyFilters")}
               </button>
               <button
                 className="button secondary"
@@ -650,30 +663,30 @@ export function AssetCurationPanel({
                 onClick={resetCatalogFilters}
                 disabled={isBusy}
               >
-                <Filter size={14} /> Reset
+                <Filter size={14} /> {t("curation.reset")}
               </button>
             </div>
-            <Field label="Origin project ID">
+            <Field label={t("curation.originProject")}>
               <input
                 value={catalogDraft.originProjectId}
                 onChange={(event) =>
                   updateDraft("originProjectId", event.currentTarget.value)
                 }
-                placeholder="Optional"
+                placeholder={t("common.optional")}
                 disabled={isBusy}
               />
             </Field>
-            <Field label="Origin document ID">
+            <Field label={t("curation.originDocument")}>
               <input
                 value={catalogDraft.originDocumentId}
                 onChange={(event) =>
                   updateDraft("originDocumentId", event.currentTarget.value)
                 }
-                placeholder="Optional"
+                placeholder={t("common.optional")}
                 disabled={isBusy}
               />
             </Field>
-            <Field label="Created after">
+            <Field label={t("curation.createdAfter")}>
               <input
                 type="date"
                 value={catalogDraft.createdAfter}
@@ -683,7 +696,7 @@ export function AssetCurationPanel({
                 disabled={isBusy}
               />
             </Field>
-            <Field label="Created before">
+            <Field label={t("curation.createdBefore")}>
               <input
                 type="date"
                 value={catalogDraft.createdBefore}
@@ -696,17 +709,17 @@ export function AssetCurationPanel({
           </div>
         </form>
         {catalogLoading ? (
-          <LoadingState label="Loading asset catalog" />
+          <LoadingState label={t("curation.loadingCatalog")} />
         ) : !catalogHasItems ? (
           <EmptyState
-            title="No catalog rows"
-            detail="No assets match the current scope and filters."
+            title={t("curation.noCatalogRows")}
+            detail={t("curation.noCatalogMatch")}
           />
         ) : (
           <>
             <CatalogTable items={catalogPage?.items ?? []} />
             <Pagination
-              ariaLabel="Asset catalog pages"
+              ariaLabel={t("curation.catalogPages")}
               offset={catalogPage?.offset ?? 0}
               limit={catalogPage?.limit ?? CURATION_CATALOG_PAGE_LIMIT}
               total={catalogPage?.total ?? 0}
@@ -735,34 +748,36 @@ export function AssetCurationPanel({
       <section className="insights-section asset-curation-run-section">
         <PanelHeading
           icon={<Sparkles size={16} />}
-          eyebrow="Curation run"
-          title="Analyze one TM library"
+          eyebrow={t("curation.runKicker")}
+          title={t("curation.analyzeLibrary")}
           actions={
             <span className="asset-curation-revision">
               {selectedLibrary
-                ? `Library revision ${selectedLibrary.revision}`
-                : "No library selected"}
+                ? t("curation.libraryRevision", {
+                    revision: selectedLibrary.revision,
+                  })
+                : t("curation.noLibrarySelected")}
             </span>
           }
         />
         <div className="asset-curation-run-controls">
-          <Field label="TM library">
+          <Field label={t("curation.tmLibrary")}>
             <select
               value={libraryId}
               onChange={(event) => setLibraryId(event.currentTarget.value)}
               disabled={isBusy || loading}
             >
-              <option value="">Select a TM library</option>
+              <option value="">{t("curation.selectTm")}</option>
               {libraries.map((library) => (
                 <option key={library.id} value={library.id}>
                   {library.name} · {library.sourceLocale} to{" "}
                   {library.targetLocale}
-                  {library.writable ? "" : " · read only"}
+                  {library.writable ? "" : ` · ${t("curation.readOnly")}`}
                 </option>
               ))}
             </select>
           </Field>
-          <Field label="Semantic provider">
+          <Field label={t("curation.semanticProvider")}>
             <select
               value={providerProfileId}
               onChange={(event) =>
@@ -770,7 +785,7 @@ export function AssetCurationPanel({
               }
               disabled={isBusy || loading}
             >
-              <option value="">Offline deterministic checks</option>
+              <option value="">{t("curation.offlineChecks")}</option>
               {providerOptions.map((provider) => (
                 <option key={provider.id} value={provider.id}>
                   {provider.name} · {provider.model}
@@ -778,7 +793,7 @@ export function AssetCurationPanel({
               ))}
             </select>
           </Field>
-          <Field label="Actor">
+          <Field label={t("common.actor")}>
             <input
               value={actor}
               onChange={(event) => setActor(event.currentTarget.value)}
@@ -786,7 +801,7 @@ export function AssetCurationPanel({
               disabled={isBusy}
             />
           </Field>
-          <Field label="Reason">
+          <Field label={t("common.reason")}>
             <input
               value={reason}
               onChange={(event) => setReason(event.currentTarget.value)}
@@ -797,14 +812,14 @@ export function AssetCurationPanel({
         </div>
         <div className="asset-curation-policy-heading">
           <div>
-            <span className="surface-kicker">Policy</span>
-            <strong>Deterministic thresholds</strong>
+            <span className="surface-kicker">{t("common.policy")}</span>
+            <strong>{t("curation.thresholds")}</strong>
           </div>
-          <span>All values are sent to Engine with this run.</span>
+          <span>{t("curation.thresholdsHelp")}</span>
         </div>
         <div className="asset-curation-policy-grid">
           <NumberField
-            label="Minimum chars"
+            label={t("curation.minimumChars")}
             value={policy.minimumChars}
             min={1}
             max={1_000_000}
@@ -812,7 +827,7 @@ export function AssetCurationPanel({
             disabled={isBusy}
           />
           <NumberField
-            label="Minimum ratio %"
+            label={t("curation.minimumRatio")}
             value={policy.minimumLengthRatioPercent}
             min={1}
             max={10_000}
@@ -822,7 +837,7 @@ export function AssetCurationPanel({
             disabled={isBusy}
           />
           <NumberField
-            label="Maximum ratio %"
+            label={t("curation.maximumRatio")}
             value={policy.maximumLengthRatioPercent}
             min={1}
             max={10_000}
@@ -832,7 +847,7 @@ export function AssetCurationPanel({
             disabled={isBusy}
           />
           <NumberField
-            label="Near duplicate %"
+            label={t("curation.nearDuplicate")}
             value={policy.nearDuplicateThreshold}
             min={1}
             max={99}
@@ -840,7 +855,7 @@ export function AssetCurationPanel({
             disabled={isBusy}
           />
           <NumberField
-            label="Semantic score bp"
+            label={t("curation.semanticScore")}
             value={policy.semanticAlignmentThresholdBasisPoints}
             min={0}
             max={10_000}
@@ -850,7 +865,7 @@ export function AssetCurationPanel({
             disabled={isBusy}
           />
           <NumberField
-            label="Quarantine score bp"
+            label={t("curation.quarantineScore")}
             value={policy.quarantineThresholdBasisPoints}
             min={0}
             max={10_000}
@@ -860,14 +875,14 @@ export function AssetCurationPanel({
             disabled={isBusy}
           />
           <NumberField
-            label="Minimum term frequency"
+            label={t("curation.minimumTermFrequency")}
             value={policy.minimumTermFrequency}
             min={2}
             max={10_000}
             onChange={(value) => updatePolicy("minimumTermFrequency", value)}
             disabled={isBusy}
           />
-          <Field label="Created after">
+          <Field label={t("curation.createdAfter")}>
             <input
               type="date"
               value={msToDateInput(policy.createdAfterMs)}
@@ -880,7 +895,7 @@ export function AssetCurationPanel({
               disabled={isBusy}
             />
           </Field>
-          <Field label="Created before">
+          <Field label={t("curation.createdBefore")}>
             <input
               type="date"
               value={msToDateInput(policy.createdBeforeMs)}
@@ -909,7 +924,7 @@ export function AssetCurationPanel({
             ) : (
               <Play size={14} />
             )}
-            Analyze library
+            {t("curation.analyzeAction")}
           </button>
           <button
             className="button secondary"
@@ -917,22 +932,20 @@ export function AssetCurationPanel({
             onClick={() => void refreshAuthoritative()}
             disabled={isBusy}
           >
-            <RefreshCw size={14} /> Refresh revisions
+            <RefreshCw size={14} /> {t("curation.refreshRevisions")}
           </button>
         </div>
         {stale ? (
           <div className="asset-curation-stale" role="alert">
             <AlertTriangle size={15} />
-            <span>
-              Engine revisions changed. Refresh before retrying a mutation.
-            </span>
+            <span>{t("curation.staleRevisions")}</span>
             <button
               className="button secondary"
               type="button"
               onClick={() => void refreshAuthoritative()}
               disabled={isBusy}
             >
-              Reload authoritative state
+              {t("curation.reloadState")}
             </button>
           </div>
         ) : null}
@@ -944,34 +957,44 @@ export function AssetCurationPanel({
             <SummaryStrip run={run} />
             <div className="asset-curation-run-meta">
               <span className={`asset-curation-status is-${runStatus}`}>
-                {runStatus === "rolledBack" ? "Rolled back" : runStatus}
+                {runStatus === "rolledBack"
+                  ? t("curation.rolledBack")
+                  : runStatus}
               </span>
               <span>
                 {run.run.mode === "provider"
-                  ? "Provider refinement"
-                  : "Offline analysis"}
+                  ? t("curation.providerRefinement")
+                  : t("curation.offlineAnalysis")}
               </span>
-              <span>Base library revision {run.run.baseLibraryRevision}</span>
-              <span>Run revision {run.run.revision}</span>
-              <span>Actor {run.run.actor}</span>
+              <span>
+                {t("curation.baseLibraryRevision", {
+                  revision: run.run.baseLibraryRevision,
+                })}
+              </span>
+              <span>
+                {t("curation.runRevisionLabel", { revision: run.run.revision })}
+              </span>
+              <span>{t("curation.actor", { actor: run.run.actor })}</span>
             </div>
           </section>
 
           <section className="insights-section asset-curation-findings-section">
             <PanelHeading
               icon={<ShieldCheck size={16} />}
-              eyebrow="Explainable findings"
-              title="Review and select changes"
+              eyebrow={t("curation.findingsKicker")}
+              title={t("curation.reviewChanges")}
               actions={
                 <div className="asset-curation-section-actions">
-                  <span>{selectedCount} selected</span>
+                  <span>
+                    {t("curation.selectedCount", { count: selectedCount })}
+                  </span>
                   <button
                     className="button secondary"
                     type="button"
                     onClick={selectVisibleFindings}
                     disabled={isBusy || selectableFindings.length === 0}
                   >
-                    <Check size={14} /> Select visible
+                    <Check size={14} /> {t("curation.selectVisible")}
                   </button>
                   <button
                     className="button secondary"
@@ -979,17 +1002,17 @@ export function AssetCurationPanel({
                     onClick={clearSelection}
                     disabled={isBusy || selectedCount === 0}
                   >
-                    <X size={14} /> Clear
+                    <X size={14} /> {t("curation.clear")}
                   </button>
                 </div>
               }
             />
             {findingLoading ? (
-              <LoadingState label="Loading curation findings" />
+              <LoadingState label={t("curation.loadingFindings")} />
             ) : !runHasFindings ? (
               <EmptyState
-                title="No findings on this page"
-                detail="The run completed without findings in the current page."
+                title={t("curation.noFindingsPage")}
+                detail={t("curation.noFindingsDetail")}
               />
             ) : (
               <>
@@ -1002,7 +1025,7 @@ export function AssetCurationPanel({
                   onToggle={toggleFinding}
                 />
                 <Pagination
-                  ariaLabel="Curation finding pages"
+                  ariaLabel={t("curation.findingPages")}
                   offset={findings?.offset ?? 0}
                   limit={findings?.limit ?? CURATION_FINDING_PAGE_LIMIT}
                   total={findings?.total ?? 0}
@@ -1032,16 +1055,16 @@ export function AssetCurationPanel({
             <section className="insights-section asset-curation-units-section">
               <PanelHeading
                 icon={<Database size={16} />}
-                eyebrow="Score projection"
-                title="Analyzed units"
+                eyebrow={t("curation.scoreProjection")}
+                title={t("curation.analyzedUnits")}
               />
               {runLoading ? (
-                <LoadingState label="Loading analyzed units" />
+                <LoadingState label={t("curation.loadingUnits")} />
               ) : (
                 <>
                   <RunUnitsTable units={run.units} />
                   <Pagination
-                    ariaLabel="Analyzed unit pages"
+                    ariaLabel={t("curation.unitPages")}
                     offset={run.offset}
                     limit={run.limit}
                     total={run.total}
@@ -1065,14 +1088,14 @@ export function AssetCurationPanel({
           <section className="insights-section asset-curation-actions-section">
             <PanelHeading
               icon={<FileOutput size={16} />}
-              eyebrow="Revision-safe actions"
-              title="Apply, rollback, and export"
+              eyebrow={t("curation.actionsKicker")}
+              title={t("curation.applyRollbackExport")}
             />
             <div className="asset-curation-action-grid">
               <div className="asset-curation-action-copy">
-                <strong>Selected findings</strong>
+                <strong>{t("curation.selectedFindings")}</strong>
                 <span>
-                  {selectedCount} quarantine candidate(s) selected across pages.
+                  {t("curation.quarantineSelected", { count: selectedCount })}
                 </span>
               </div>
               <button
@@ -1081,7 +1104,7 @@ export function AssetCurationPanel({
                 onClick={() => setDialog("apply")}
                 disabled={!canApply || isBusy}
               >
-                <ShieldCheck size={14} /> Apply selected
+                <ShieldCheck size={14} /> {t("curation.applySelected")}
               </button>
               <button
                 className="button secondary"
@@ -1089,9 +1112,9 @@ export function AssetCurationPanel({
                 onClick={() => setDialog("rollback")}
                 disabled={!canRollback || isBusy}
               >
-                <RotateCcw size={14} /> Rollback run
+                <RotateCcw size={14} /> {t("curation.rollbackRun")}
               </button>
-              <Field label="Export format">
+              <Field label={t("curation.exportFormat")}>
                 <select
                   value={exportFormat}
                   onChange={(event) =>
@@ -1105,7 +1128,7 @@ export function AssetCurationPanel({
                   <option value="tsv">TSV</option>
                 </select>
               </Field>
-              <Field label="Minimum score bp">
+              <Field label={t("curation.minimumScore")}>
                 <input
                   type="number"
                   min={0}
@@ -1114,7 +1137,7 @@ export function AssetCurationPanel({
                   onChange={(event) =>
                     setMinimumScore(event.currentTarget.value)
                   }
-                  placeholder="All active"
+                  placeholder={t("curation.allActive")}
                   disabled={isBusy || runStatus !== "applied"}
                 />
               </Field>
@@ -1129,12 +1152,12 @@ export function AssetCurationPanel({
                 ) : (
                   <Download size={14} />
                 )}
-                Export clean dataset
+                {t("curation.cleanDataset")}
               </button>
             </div>
             {exportPath ? (
               <p className="asset-curation-export-status" role="status">
-                Last export: {exportPath}
+                {t("curation.lastExport", { path: exportPath })}
               </p>
             ) : null}
           </section>
@@ -1142,10 +1165,8 @@ export function AssetCurationPanel({
       ) : (
         <section className="asset-curation-empty-run" aria-live="polite">
           <Sparkles size={22} />
-          <strong>No curation run yet</strong>
-          <span>
-            Select a library and analyze it to inspect scores and findings.
-          </span>
+          <strong>{t("curation.noRun")}</strong>
+          <span>{t("curation.selectAndAnalyze")}</span>
         </section>
       )}
 
@@ -1252,19 +1273,23 @@ function EmptyState({ title, detail }: { title: string; detail: string }) {
 }
 
 function CatalogTable({ items }: { items: AssetCatalogItem[] }) {
+  const { t, formatNumber } = useLocale();
   return (
     <div className="asset-curation-table-wrap">
-      <table className="asset-curation-table" aria-label="Asset catalog rows">
+      <table
+        className="asset-curation-table"
+        aria-label={t("curation.catalogRowsAria")}
+      >
         <thead>
           <tr>
-            <th>Kind</th>
-            <th>Collection</th>
-            <th>Source</th>
-            <th>Target</th>
-            <th>Locale</th>
-            <th>State</th>
-            <th>Quality</th>
-            <th>Provenance</th>
+            <th>{t("common.kind")}</th>
+            <th>{t("common.collection")}</th>
+            <th>{t("common.source")}</th>
+            <th>{t("common.target")}</th>
+            <th>{t("common.locale")}</th>
+            <th>{t("common.state")}</th>
+            <th>{t("common.quality")}</th>
+            <th>{t("common.provenance")}</th>
           </tr>
         </thead>
         <tbody>
@@ -1282,17 +1307,27 @@ function CatalogTable({ items }: { items: AssetCatalogItem[] }) {
               <td title={item.sourceText}>{truncate(item.sourceText)}</td>
               <td title={item.targetText}>{truncate(item.targetText)}</td>
               <td>
-                {item.sourceLocale} to {item.targetLocale || "-"}
+                {item.sourceLocale} → {item.targetLocale || "-"}
               </td>
               <td>{item.curationState ?? "-"}</td>
-              <td>{formatBasisPoints(item.qualityScoreBasisPoints)}</td>
+              <td>
+                {formatBasisPoints(
+                  item.qualityScoreBasisPoints,
+                  formatNumber,
+                  t,
+                )}
+              </td>
               <td>
                 <small>
                   {item.originProjectId
-                    ? `Project ${shortId(item.originProjectId)}`
-                    : "Global"}
+                    ? t("curation.projectOrigin", {
+                        id: shortId(item.originProjectId),
+                      })
+                    : t("curation.globalOrigin")}
                   {item.originDocumentId
-                    ? ` / document ${shortId(item.originDocumentId)}`
+                    ? t("curation.documentOrigin", {
+                        id: shortId(item.originDocumentId),
+                      })
                     : ""}
                   {item.structuralPath ? ` / ${item.structuralPath}` : ""}
                 </small>
@@ -1320,21 +1355,22 @@ function FindingsTable({
   runUnitsById: ReadonlyMap<string, CurationRunSnapshot["units"][number]>;
   onToggle(finding: CurationFinding, checked: boolean): void;
 }) {
+  const { t, formatNumber } = useLocale();
   return (
     <div className="asset-curation-table-wrap">
       <table
         className="asset-curation-table asset-curation-findings-table"
-        aria-label="Curation findings"
+        aria-label={t("curation.findingsAria")}
       >
         <thead>
           <tr>
-            <th>Select</th>
-            <th>Severity</th>
-            <th>Rule</th>
-            <th>Score</th>
-            <th>Disposition</th>
-            <th>Evidence</th>
-            <th>Provenance</th>
+            <th>{t("common.select")}</th>
+            <th>{t("common.severity")}</th>
+            <th>{t("common.rule")}</th>
+            <th>{t("common.score")}</th>
+            <th>{t("common.disposition")}</th>
+            <th>{t("common.evidence")}</th>
+            <th>{t("common.provenance")}</th>
           </tr>
         </thead>
         <tbody>
@@ -1349,7 +1385,10 @@ function FindingsTable({
                     type="checkbox"
                     checked={selectedIds.has(finding.id)}
                     disabled={!selectable}
-                    aria-label={`Select ${findingKindLabel(finding.kind)} finding ${shortId(finding.id)}`}
+                    aria-label={t("curation.selectFinding", {
+                      kind: findingKindLabel(finding.kind, t),
+                      id: shortId(finding.id),
+                    })}
                     onChange={(event) =>
                       onToggle(finding, event.currentTarget.checked)
                     }
@@ -1359,31 +1398,40 @@ function FindingsTable({
                   <span
                     className={`asset-curation-severity is-${finding.severity}`}
                   >
-                    {severityLabel(finding.severity)}
+                    {severityLabel(finding.severity, t)}
                   </span>
                 </td>
                 <td>
-                  <strong>{findingKindLabel(finding.kind)}</strong>
+                  <strong>{findingKindLabel(finding.kind, t)}</strong>
                   <small>{shortId(finding.id)}</small>
                 </td>
                 <td>
                   <strong>
-                    {formatBasisPoints(finding.qualityScoreBasisPoints)}
+                    {formatBasisPoints(
+                      finding.qualityScoreBasisPoints,
+                      formatNumber,
+                      t,
+                    )}
                   </strong>
                   <small>
-                    -{formatBasisPoints(finding.penaltyBasisPoints)}
+                    -
+                    {formatBasisPoints(
+                      finding.penaltyBasisPoints,
+                      formatNumber,
+                      t,
+                    )}
                   </small>
                 </td>
                 <td>
                   <span
                     className={`asset-curation-disposition is-${finding.disposition}`}
                   >
-                    {recommendationLabel(finding.disposition)}
+                    {recommendationLabel(finding.disposition, t)}
                   </span>
                 </td>
                 <td>
                   <ul className="asset-curation-evidence-list">
-                    {formatEvidence(finding.evidence).map((value) => (
+                    {formatEvidence(finding.evidence, t).map((value) => (
                       <li key={value}>{value}</li>
                     ))}
                   </ul>
@@ -1391,14 +1439,18 @@ function FindingsTable({
                 </td>
                 <td>
                   <small>
-                    Unit {shortId(finding.unitId)}
+                    {t("curation.unitOrigin", { id: shortId(finding.unitId) })}
                     {catalogItem?.originDocumentId
-                      ? ` / document ${shortId(catalogItem.originDocumentId)}`
+                      ? t("curation.documentOrigin", {
+                          id: shortId(catalogItem.originDocumentId),
+                        })
                       : ""}
                     {catalogItem?.structuralPath
                       ? ` / ${catalogItem.structuralPath}`
                       : ""}
-                    {runUnit ? ` / ${runUnit.recommendedAction}` : ""}
+                    {runUnit
+                      ? ` / ${recommendationLabel(runUnit.recommendedAction, t)}`
+                      : ""}
                   </small>
                 </td>
               </tr>
@@ -1411,18 +1463,19 @@ function FindingsTable({
 }
 
 function RunUnitsTable({ units }: { units: CurationRunSnapshot["units"] }) {
+  const { t, formatNumber } = useLocale();
   return (
     <div className="asset-curation-table-wrap">
       <table
         className="asset-curation-table"
-        aria-label="Analyzed curation units"
+        aria-label={t("curation.unitsAria")}
       >
         <thead>
           <tr>
-            <th>Unit</th>
-            <th>Score</th>
-            <th>Recommendation</th>
-            <th>Explanation</th>
+            <th>{t("common.unit")}</th>
+            <th>{t("common.score")}</th>
+            <th>{t("common.recommendation")}</th>
+            <th>{t("common.explanation")}</th>
           </tr>
         </thead>
         <tbody>
@@ -1432,8 +1485,14 @@ function RunUnitsTable({ units }: { units: CurationRunSnapshot["units"] }) {
                 <strong>{shortId(unit.unitId)}</strong>
                 <small>{unit.unitSnapshotHash.slice(0, 12)}</small>
               </td>
-              <td>{formatBasisPoints(unit.qualityScoreBasisPoints)}</td>
-              <td>{recommendationLabel(unit.recommendedAction)}</td>
+              <td>
+                {formatBasisPoints(
+                  unit.qualityScoreBasisPoints,
+                  formatNumber,
+                  t,
+                )}
+              </td>
+              <td>{recommendationLabel(unit.recommendedAction, t)}</td>
               <td>
                 <ul className="asset-curation-explanation-list">
                   {unit.explanation.slice(0, 4).map((value) => (
@@ -1450,36 +1509,55 @@ function RunUnitsTable({ units }: { units: CurationRunSnapshot["units"] }) {
 }
 
 function SummaryStrip({ run }: { run: CurationRunSnapshot }) {
+  const { t, formatNumber } = useLocale();
   const summary = run.run.summary.analysis;
   return (
     <div className="asset-curation-metric-strip">
-      <Metric label="Analyzed" value={summary.analyzedUnits} />
-      <Metric label="With findings" value={summary.unitsWithFindings} />
-      <Metric label="Findings" value={summary.findingCount} />
       <Metric
-        label="Quarantine candidates"
-        value={summary.quarantineCandidates}
+        label={t("curation.metricAnalyzed")}
+        value={formatNumber(summary.analyzedUnits)}
       />
-      <Metric label="Term candidates" value={summary.termCandidateCount} />
-      <Metric label="Drift groups" value={summary.driftGroupCount} />
+      <Metric
+        label={t("curation.metricWithFindings")}
+        value={formatNumber(summary.unitsWithFindings)}
+      />
+      <Metric
+        label={t("curation.metricFindings")}
+        value={formatNumber(summary.findingCount)}
+      />
+      <Metric
+        label={t("curation.metricQuarantine")}
+        value={formatNumber(summary.quarantineCandidates)}
+      />
+      <Metric
+        label={t("curation.metricTerms")}
+        value={formatNumber(summary.termCandidateCount)}
+      />
+      <Metric
+        label={t("curation.metricDrift")}
+        value={formatNumber(summary.driftGroupCount)}
+      />
     </div>
   );
 }
 
 function TermsAndDrift({ run }: { run: CurationRunSnapshot }) {
+  const { t, formatNumber } = useLocale();
   const terms = run.run.summary.termCandidates;
   const drift = run.run.summary.driftGroups;
   return (
     <section className="insights-section asset-curation-intelligence-section">
       <PanelHeading
         icon={<Sparkles size={16} />}
-        eyebrow="Language intelligence"
-        title="Terms and drift"
+        eyebrow={t("curation.languageIntelligence")}
+        title={t("curation.termsDrift")}
       />
       <div className="asset-curation-intelligence-block">
-        <h3>Term candidates</h3>
+        <h3>{t("curation.termCandidates")}</h3>
         {terms.length === 0 ? (
-          <span className="asset-curation-muted">No bounded candidates.</span>
+          <span className="asset-curation-muted">
+            {t("curation.noCandidates")}
+          </span>
         ) : (
           <ul className="asset-curation-term-list">
             {terms.slice(0, 12).map((term) => (
@@ -1487,8 +1565,13 @@ function TermsAndDrift({ run }: { run: CurationRunSnapshot }) {
                 <strong>{term.sourceTerm}</strong>
                 <span>{term.targetTerm}</span>
                 <small>
-                  {term.frequency} uses ·{" "}
-                  {formatBasisPoints(term.agreementBasisPoints)} agreement
+                  {t("curation.termUses", { count: term.frequency })} ·{" "}
+                  {formatBasisPoints(
+                    term.agreementBasisPoints,
+                    formatNumber,
+                    t,
+                  )}{" "}
+                  {t("curation.agreement")}
                 </small>
               </li>
             ))}
@@ -1496,10 +1579,10 @@ function TermsAndDrift({ run }: { run: CurationRunSnapshot }) {
         )}
       </div>
       <div className="asset-curation-intelligence-block">
-        <h3>Drift groups</h3>
+        <h3>{t("curation.driftGroups")}</h3>
         {drift.length === 0 ? (
           <span className="asset-curation-muted">
-            No competing translations.
+            {t("curation.noCompeting")}
           </span>
         ) : (
           <ul className="asset-curation-drift-list">
@@ -1507,7 +1590,11 @@ function TermsAndDrift({ run }: { run: CurationRunSnapshot }) {
               <li key={group.sourceKey}>
                 <strong>{group.sourceText}</strong>
                 <span>{group.targetVariants.join(" / ")}</span>
-                <small>{group.unitIds.length} related unit(s)</small>
+                <small>
+                  {t("curation.relatedUnitCount", {
+                    count: group.unitIds.length,
+                  })}
+                </small>
               </li>
             ))}
           </ul>
@@ -1517,7 +1604,7 @@ function TermsAndDrift({ run }: { run: CurationRunSnapshot }) {
   );
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
+function Metric({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="asset-curation-metric">
       <span>{label}</span>
@@ -1541,13 +1628,14 @@ function Pagination({
   onPrevious(): void;
   onNext(): void;
 }) {
+  const { t } = useLocale();
   return (
     <nav className="asset-curation-pagination" aria-label={ariaLabel}>
       <button
         className="icon-button"
         type="button"
-        title="Previous page"
-        aria-label="Previous page"
+        title={t("common.previousPage")}
+        aria-label={t("common.previousPage")}
         onClick={onPrevious}
         disabled={offset === 0}
       >
@@ -1558,13 +1646,15 @@ function Pagination({
           offset,
           Math.min(limit, Math.max(0, total - offset)),
           total,
+          (start, end, count) =>
+            t("common.pageRange", { start, end, total: count }),
         )}
       </span>
       <button
         className="icon-button"
         type="button"
-        title="Next page"
-        aria-label="Next page"
+        title={t("common.nextPage")}
+        aria-label={t("common.nextPage")}
         onClick={onNext}
         disabled={offset + limit >= total}
       >
@@ -1595,11 +1685,14 @@ function MutationDialog({
   onCancel(): void;
   onConfirm(): void;
 }) {
+  const { t } = useLocale();
   const applying = kind === "apply";
-  const title = applying ? "Apply curation selection" : "Rollback curation run";
+  const title = applying
+    ? t("curation.applyDialogTitle")
+    : t("curation.rollbackDialogTitle");
   const description = applying
-    ? `Quarantine ${selectedCount} explicitly selected finding(s) and update the score projection.`
-    : "Restore every unit changed by this run from its recorded before image.";
+    ? t("curation.applyDialogBody", { count: selectedCount })
+    : t("curation.rollbackDialogBody");
   return (
     <div className="asset-curation-dialog-backdrop" role="presentation">
       <section
@@ -1610,14 +1703,14 @@ function MutationDialog({
       >
         <div className="asset-curation-dialog-heading">
           <div>
-            <span className="surface-kicker">Revision-safe mutation</span>
+            <span className="surface-kicker">{t("curation.revisionSafe")}</span>
             <h2 id="asset-curation-dialog-title">{title}</h2>
           </div>
           <button
             className="icon-button"
             type="button"
-            title="Close dialog"
-            aria-label="Close dialog"
+            title={t("aria.closeDialog")}
+            aria-label={t("aria.closeDialog")}
             onClick={onCancel}
             disabled={busy}
           >
@@ -1626,7 +1719,7 @@ function MutationDialog({
         </div>
         <p>{description}</p>
         <label className="asset-curation-field">
-          <span>Actor</span>
+          <span>{t("common.actor")}</span>
           <input
             value={actor}
             onChange={(event) => onActor(event.currentTarget.value)}
@@ -1635,7 +1728,7 @@ function MutationDialog({
           />
         </label>
         <label className="asset-curation-field">
-          <span>Reason</span>
+          <span>{t("common.reason")}</span>
           <textarea
             value={reason}
             onChange={(event) => onReason(event.currentTarget.value)}
@@ -1651,7 +1744,7 @@ function MutationDialog({
             onClick={onCancel}
             disabled={busy}
           >
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             className="button primary"
@@ -1666,7 +1759,9 @@ function MutationDialog({
             ) : (
               <RotateCcw size={14} />
             )}
-            {applying ? "Apply selection" : "Rollback run"}
+            {applying
+              ? t("curation.applyAction")
+              : t("curation.rollbackAction")}
           </button>
         </div>
       </section>

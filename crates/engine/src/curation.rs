@@ -62,7 +62,11 @@ impl EngineService {
         let (mode, annotations) = if let Some(profile_id) = params.provider_profile_id.as_deref() {
             (
                 storage::CurationRunMode::Provider,
-                self.curation_semantic_annotations(profile_id, &snapshot.units)?,
+                self.curation_semantic_annotations(
+                    &params.project_id,
+                    profile_id,
+                    &snapshot.units,
+                )?,
             )
         } else {
             (storage::CurationRunMode::Offline, Vec::new())

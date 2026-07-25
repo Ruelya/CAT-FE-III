@@ -1,0 +1,10 @@
+{
+  "id": "welcome",
+  "name": "Welcome to Translunar",
+  "formatVersion": 1,
+  "license": "Apache-2.0",
+  "sourceFile": "source.txt",
+  "licenseFile": "LICENSE.txt",
+  "sourceLocale": "en-US",
+  "targetLocale": "zh-CN"
+}

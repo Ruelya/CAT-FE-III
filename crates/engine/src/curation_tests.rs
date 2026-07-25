@@ -383,3 +383,123 @@ fn curation_stale_export_maps_to_conflict_without_file() {
     ));
     assert!(!path.exists());
 }
+
+#[test]
+fn provider_curation_enforces_project_allowlist() {
+    use translunar_ai_core::AiProviderKind;
+    use translunar_protocol::{
+        AiProviderCreateParams, AiSettingsGetParams, AiSettingsUpdateParams, UpdateProjectParams,
+    };
+
+    let mut fixture = Fixture::new();
+    let allowed_profile = fixture
+        .service
+        .create_ai_provider(AiProviderCreateParams {
+            name: "Allowed curation provider".to_string(),
+            kind: AiProviderKind::OpenaiCompatible,
+            base_url: "https://allowed.test/v1".to_string(),
+            model: "allowed-model".to_string(),
+            timeout_ms: 5_000,
+            max_response_bytes: 1_048_576,
+            enabled: true,
+        })
+        .expect("create allowed provider");
+    let disallowed_profile = fixture
+        .service
+        .create_ai_provider(AiProviderCreateParams {
+            name: "Disallowed curation provider".to_string(),
+            kind: AiProviderKind::OpenaiCompatible,
+            base_url: "https://disallowed.test/v1".to_string(),
+            model: "disallowed-model".to_string(),
+            timeout_ms: 5_000,
+            max_response_bytes: 1_048_576,
+            enabled: true,
+        })
+        .expect("create disallowed provider");
+
+    // Enable AI so the allowlist denial — not the disabled-AI guard — is what
+    // stops the disallowed provider.
+    let settings = fixture
+        .service
+        .get_ai_settings(AiSettingsGetParams::default())
+        .expect("get AI settings");
+    fixture
+        .service
+        .update_ai_settings(AiSettingsUpdateParams {
+            enabled: true,
+            default_profile_id: Some(allowed_profile.id.clone()),
+            monthly_token_budget: Some(10_000),
+            allow_interactive: true,
+            allow_batch: true,
+            allowed_origins: Vec::new(),
+            expected_revision: settings.revision,
+        })
+        .expect("enable AI");
+
+    let mut updated_config = fixture.project.configuration.clone();
+    updated_config.engine_allowlist = vec![allowed_profile.id.clone()];
+    let project = fixture
+        .service
+        .update_project(UpdateProjectParams {
+            project_id: fixture.project.id.clone(),
+            name: fixture.project.name.clone(),
+            source_locale: fixture.project.source_locale.clone(),
+            target_locale: fixture.project.target_locale.clone(),
+            domain: fixture.project.domain.clone(),
+            configuration: updated_config,
+            expected_revision: fixture.project.revision,
+            actor: "curation-allowlist-test".to_string(),
+            correlation_id: None,
+        })
+        .expect("update project allowlist");
+
+    // Disallowed profile cannot start provider-backed curation even when the
+    // profile exists and credentials would otherwise succeed.
+    let error = fixture
+        .service
+        .run_curation(CurationRunParams {
+            project_id: project.id.clone(),
+            library_id: fixture.library.id.clone(),
+            expected_library_revision: fixture.library.revision,
+            policy: Default::default(),
+            actor: "curation-test".to_string(),
+            reason: "attempt disallowed provider".to_string(),
+            provider_profile_id: Some(disallowed_profile.id.clone()),
+            correlation_id: None,
+            offset: 0,
+            limit: 10,
+        })
+        .expect_err("disallowed provider must be rejected before curation starts");
+    assert!(
+        matches!(
+            error,
+            EngineError::PolicyDenied {
+                ref project_id,
+                ref profile_id,
+            } if project_id == &project.id && profile_id == &disallowed_profile.id
+        ),
+        "expected PolicyDenied, got {:?}",
+        error
+    );
+
+    // Offline curation (no provider) still works.
+    let offline = fixture
+        .service
+        .run_curation(CurationRunParams {
+            project_id: project.id.clone(),
+            library_id: fixture.library.id.clone(),
+            expected_library_revision: fixture.library.revision,
+            policy: Default::default(),
+            actor: "curation-test".to_string(),
+            reason: "offline curation with allowlist".to_string(),
+            provider_profile_id: None,
+            correlation_id: None,
+            offset: 0,
+            limit: 10,
+        })
+        .expect("offline curation succeeds regardless of allowlist");
+    assert_eq!(
+        offline.run.mode,
+        translunar_protocol::CurationRunMode::Offline
+    );
+}

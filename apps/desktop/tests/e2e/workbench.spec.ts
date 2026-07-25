@@ -20,6 +20,7 @@ import {
   type Page,
   type TestInfo,
 } from "@playwright/test";
+import { errors as playwrightErrors } from "playwright";
 import type { Project, ProjectTemplate } from "@translunar/contracts";
 
 import type { DesktopApi } from "../../src/shared/desktop-api.js";
@@ -48,6 +49,7 @@ interface HarnessOptions {
   interopTableInput?: string;
   taskPackageInput?: string;
   taskPackageDestination?: string;
+  locale?: "en-US" | "zh-CN";
 }
 
 async function launchHarness(
@@ -82,71 +84,121 @@ async function launchHarness(
   const consoleErrors: string[] = [];
   const archivePath = join(dataDirectory, "project-archive.tlcat");
   const sourceDelimiter = process.platform === "win32" ? ";" : ":";
-  const application = await electron.launch({
-    args: [
-      "--no-sandbox",
-      "--user-data-dir=" + join(dataDirectory, "electron-user-data"),
-      ".",
-    ],
-    cwd: desktopRoot,
-    env: {
-      ...process.env,
-      ELECTRON_DISABLE_SECURITY_WARNINGS: "true",
-      TRANSLUNAR_DATA_DIR: dataDirectory,
-      TRANSLUNAR_ENGINE_PATH: engine,
-      TRANSLUNAR_TEST_EXPORT_DOCX: exportPath,
-      TRANSLUNAR_TEST_CURATION_EXPORT: curationExportPath,
-      TRANSLUNAR_TEST_EXPORT_DIRECTORY: dataDirectory,
-      TRANSLUNAR_TEST_SOURCE: options.replacementSource ?? fixture,
-      TRANSLUNAR_TEST_SOURCE_FILES: (options.sourceFiles ?? [fixture]).join(
-        sourceDelimiter,
-      ),
-      ...(options.sourceFolder
-        ? { TRANSLUNAR_TEST_SOURCE_FOLDER: options.sourceFolder }
-        : {}),
-      ...(options.corpusInput
-        ? { TRANSLUNAR_TEST_CORPUS_INPUT: options.corpusInput }
-        : {}),
-      TRANSLUNAR_TEST_PROJECT_ARCHIVE: archivePath,
-      TRANSLUNAR_TEST_PROJECT_ARCHIVE_DESTINATION: archivePath,
-      ...(options.interopReviewInput
-        ? { TRANSLUNAR_TEST_REVIEW_INPUT: options.interopReviewInput }
-        : {}),
-      ...(options.interopTableInput
-        ? { TRANSLUNAR_TEST_TABLE_INPUT: options.interopTableInput }
-        : {}),
-      ...(options.taskPackageInput
-        ? { TRANSLUNAR_TEST_TASK_PACKAGE_INPUT: options.taskPackageInput }
-        : {}),
-      ...(options.taskPackageDestination
-        ? {
-            TRANSLUNAR_TEST_TASK_PACKAGE_DESTINATION:
-              options.taskPackageDestination,
-          }
-        : {}),
-      TRANSLUNAR_AI_TEST_MODE: "1",
-      TRANSLUNAR_AI_TEST_CREDENTIAL: "desktop-ai-secret",
-    },
+  let application: ElectronApplication | undefined;
+  try {
+    application = await electron.launch({
+      args: [
+        "--no-sandbox",
+        "--user-data-dir=" + join(dataDirectory, "electron-user-data"),
+        ".",
+      ],
+      cwd: desktopRoot,
+      env: {
+        ...process.env,
+        ELECTRON_DISABLE_SECURITY_WARNINGS: "true",
+        TRANSLUNAR_DATA_DIR: dataDirectory,
+        TRANSLUNAR_ENGINE_PATH: engine,
+        TRANSLUNAR_TEST_EXPORT_DOCX: exportPath,
+        TRANSLUNAR_TEST_CURATION_EXPORT: curationExportPath,
+        TRANSLUNAR_TEST_EXPORT_DIRECTORY: dataDirectory,
+        TRANSLUNAR_TEST_SOURCE: options.replacementSource ?? fixture,
+        TRANSLUNAR_TEST_SOURCE_FILES: (options.sourceFiles ?? [fixture]).join(
+          sourceDelimiter,
+        ),
+        ...(options.sourceFolder
+          ? { TRANSLUNAR_TEST_SOURCE_FOLDER: options.sourceFolder }
+          : {}),
+        ...(options.corpusInput
+          ? { TRANSLUNAR_TEST_CORPUS_INPUT: options.corpusInput }
+          : {}),
+        TRANSLUNAR_TEST_PROJECT_ARCHIVE: archivePath,
+        TRANSLUNAR_TEST_PROJECT_ARCHIVE_DESTINATION: archivePath,
+        ...(options.interopReviewInput
+          ? { TRANSLUNAR_TEST_REVIEW_INPUT: options.interopReviewInput }
+          : {}),
+        ...(options.interopTableInput
+          ? { TRANSLUNAR_TEST_TABLE_INPUT: options.interopTableInput }
+          : {}),
+        ...(options.taskPackageInput
+          ? { TRANSLUNAR_TEST_TASK_PACKAGE_INPUT: options.taskPackageInput }
+          : {}),
+        ...(options.taskPackageDestination
+          ? {
+              TRANSLUNAR_TEST_TASK_PACKAGE_DESTINATION:
+                options.taskPackageDestination,
+            }
+          : {}),
+        TRANSLUNAR_AI_TEST_MODE: "1",
+        TRANSLUNAR_AI_TEST_CREDENTIAL: "desktop-ai-secret",
+      },
+    });
+    const page = await application.firstWindow();
+    page.on("console", (message) => {
+      if (message.type() === "error") consoleErrors.push(message.text());
+    });
+    page.on("pageerror", (error) => consoleErrors.push(error.message));
+    await dismissFirstRunTutorial(page);
+    if (options.locale) {
+      const locale = options.locale;
+      await page.evaluate(async (nextLocale) => {
+        const api = (window as unknown as { translunar: DesktopApi })
+          .translunar;
+        await api.updateShellSettings({ locale: nextLocale });
+      }, locale);
+      const savedLocale = await page.evaluate(async () => {
+        const api = (window as unknown as { translunar: DesktopApi })
+          .translunar;
+        return (await api.getShellSettings()).locale;
+      });
+      expect(savedLocale).toBe(locale);
+      await page.reload();
+      await dismissFirstRunTutorial(page);
+      const reloadedLocale = await page.evaluate(async () => {
+        const api = (window as unknown as { translunar: DesktopApi })
+          .translunar;
+        return (await api.getShellSettings()).locale;
+      });
+      expect(reloadedLocale).toBe(locale);
+    }
+    return {
+      application,
+      page,
+      dataDirectory,
+      exportPath,
+      curationExportPath,
+      archivePath,
+      consoleErrors,
+    };
+  } catch (error: unknown) {
+    try {
+      if (application !== undefined) await application.close();
+    } finally {
+      await rm(dataDirectory, { recursive: true, force: true });
+    }
+    throw error;
+  }
+}
+
+async function dismissFirstRunTutorial(page: Page): Promise<void> {
+  const overlay = page.getByRole("dialog", {
+    name: /First-run tutorial|首次使用教程/i,
   });
-  const page = await application.firstWindow();
-  page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
-  });
-  page.on("pageerror", (error) => consoleErrors.push(error.message));
-  return {
-    application,
-    page,
-    dataDirectory,
-    exportPath,
-    curationExportPath,
-    archivePath,
-    consoleErrors,
-  };
+  try {
+    await overlay.waitFor({ state: "visible", timeout: 5_000 });
+  } catch (error: unknown) {
+    if (error instanceof playwrightErrors.TimeoutError) return;
+    throw error;
+  }
+  await overlay.getByRole("button", { name: /^(Skip|跳过)$/i }).click();
+  await expect(overlay).toHaveCount(0);
 }
 
 async function closeHarness(harness: ElectronHarness): Promise<void> {
-  await harness.application.close();
-  await rm(harness.dataDirectory, { recursive: true, force: true });
+  try {
+    await harness.application.close();
+  } finally {
+    await rm(harness.dataDirectory, { recursive: true, force: true });
+  }
 }
 
 async function importFixture(
@@ -154,10 +206,16 @@ async function importFixture(
   expectedName = "m0-source.docx",
   timeout = 10_000,
 ): Promise<void> {
+  await dismissFirstRunTutorial(page);
   await expect(
-    page.getByRole("heading", { name: "Continue translating" }),
+    page.getByRole("heading", {
+      name: /Continue translating|继续翻译/i,
+    }),
   ).toBeVisible({ timeout });
-  await page.getByRole("button", { name: "New project" }).first().click();
+  await page
+    .getByRole("button", { name: /New project|新建项目/i })
+    .first()
+    .click();
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: "Add files" }).click();
@@ -903,8 +961,7 @@ test("curates translation assets through Project Insights with the real Engine",
       .split(/\r?\n/u)
       .filter(Boolean)
       .map(
-        (line) =>
-          JSON.parse(line) as { instruction: string; response: string },
+        (line) => JSON.parse(line) as { instruction: string; response: string },
       );
     expect(exportedRows.length).toBeGreaterThan(0);
     expect(exportedRows.every((row) => row.instruction && row.response)).toBe(
@@ -1615,7 +1672,7 @@ test("pages the bounded project home list", async ({ browserName }) => {
         });
       }
     });
-    await page.getByRole("button", { name: "Refresh project data" }).click();
+    await page.getByRole("button", { name: /^(Refresh|刷新)$/ }).click();
     await expect(page.locator(".project-card")).toHaveCount(50);
     const pagination = page.getByLabel("Project pages");
     await expect(pagination).toContainText("1-50 of 51");
@@ -1665,6 +1722,7 @@ test("manages the complete project lifecycle through the real Engine", async ({
     sourceFiles: [sourceA, sourceB],
     sourceFolder: addDirectory,
     replacementSource: replacement,
+    locale: "en-US",
   });
   const { page, archivePath, consoleErrors } = harness;
   const projectName = "Lifecycle desktop project";
@@ -1728,7 +1786,7 @@ test("manages the complete project lifecycle through the real Engine", async ({
         definition: { ...definition, pipelineId: "missing.lifecycle.pipeline" },
       });
     }, templateName);
-    await page.getByRole("button", { name: "Refresh project data" }).click();
+    await page.getByRole("button", { name: /^(Refresh|刷新)$/ }).click();
     await expect(templateCard).toContainText("revision 2");
     await templateCard.getByRole("button", { name: "Edit" }).click();
     templateDialog = page.getByRole("dialog", {

@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 
 import { fileName, formatError } from "./workbench-utils";
+import { useLocale } from "./i18n/LocaleProvider";
 
 type InteropMode = "review" | "table";
 
@@ -45,6 +46,8 @@ export function InteropPanel({
   document,
   onRefresh,
 }: InteropPanelProps) {
+  const { t } = useLocale();
+
   const [mode, setMode] = useState<InteropMode>("review");
   const [tableFormat, setTableFormat] = useState<BilingualTableFormat>("xlsx");
   const [inputPath, setInputPath] = useState("");
@@ -156,7 +159,7 @@ export function InteropPanel({
         expectedDocumentRevision: document.revision,
         outputPath,
       });
-      setNotice(`Review DOCX exported with ${result.rowCount} rows.`);
+      setNotice(t("interop.reviewExported", { count: result.rowCount }));
     });
   };
 
@@ -180,7 +183,7 @@ export function InteropPanel({
             .map((row) => row.rowId),
         ),
       );
-      setNotice(`Review preview ready: ${result.total} rows.`);
+      setNotice(t("interop.reviewPreviewReady", { count: result.total }));
     });
   };
 
@@ -207,7 +210,7 @@ export function InteropPanel({
             .map((row) => row.rowId),
         ),
       );
-      setNotice(`Table preview ready: ${result.total} rows.`);
+      setNotice(t("interop.tablePreviewReady", { count: result.total }));
     });
   };
 
@@ -268,7 +271,7 @@ export function InteropPanel({
       );
       setSelectedRows(new Set());
       await onRefresh();
-      setNotice(`Applied ${result.appliedCount} review row(s).`);
+      setNotice(t("interop.appliedReview", { count: result.appliedCount }));
     });
   };
 
@@ -287,7 +290,7 @@ export function InteropPanel({
       );
       setSelectedRows(new Set());
       await loadLibraries();
-      setNotice(`Imported ${result.appliedCount} table row(s) into the TM.`);
+      setNotice(t("interop.tableImported", { count: result.appliedCount }));
     });
   };
 
@@ -305,7 +308,7 @@ export function InteropPanel({
         <div
           className="interop-mode-tabs"
           role="tablist"
-          aria-label="Interop mode"
+          aria-label={t("interop.modeAria")}
         >
           <button
             type="button"
@@ -313,7 +316,7 @@ export function InteropPanel({
             aria-selected={mode === "review"}
             onClick={() => setMode("review")}
           >
-            <FileCheck2 size={15} /> Review DOCX
+            <FileCheck2 size={15} /> {t("interop.reviewDocxTab")}
           </button>
           <button
             type="button"
@@ -321,14 +324,14 @@ export function InteropPanel({
             aria-selected={mode === "table"}
             onClick={() => setMode("table")}
           >
-            <Table2 size={15} /> Table to TM
+            <Table2 size={15} /> {t("interop.tableToTmTab")}
           </button>
         </div>
 
         <div className="interop-control-grid">
           {mode === "table" ? (
             <label className="interop-field">
-              <span>Table format</span>
+              <span>{t("interop.tableFormat")}</span>
               <select
                 value={tableFormat}
                 onChange={(event) => {
@@ -347,13 +350,13 @@ export function InteropPanel({
             </label>
           ) : (
             <div className="interop-field interop-field-note">
-              <span>Package</span>
-              <strong>Signed review DOCX</strong>
+              <span>{t("interop.package")}</span>
+              <strong>{t("interop.signedReview")}</strong>
             </div>
           )}
           {mode === "table" ? (
             <label className="interop-field">
-              <span>Writable TM library</span>
+              <span>{t("interop.writableTm")}</span>
               <select
                 value={libraryId}
                 onChange={(event) => {
@@ -364,7 +367,7 @@ export function InteropPanel({
                 disabled={!!busy || libraries.length === 0}
               >
                 {libraries.length === 0 ? (
-                  <option value="">No matching writable library</option>
+                  <option value="">{t("interop.noWritableLibrary")}</option>
                 ) : (
                   libraries.map((library) => (
                     <option key={library.id} value={library.id}>
@@ -376,7 +379,7 @@ export function InteropPanel({
             </label>
           ) : (
             <div className="interop-field interop-field-note">
-              <span>Document revision</span>
+              <span>{t("interop.documentRevision")}</span>
               <strong>{document.revision}</strong>
             </div>
           )}
@@ -389,11 +392,13 @@ export function InteropPanel({
             onClick={() => void chooseInput()}
             disabled={!!busy}
           >
-            <FolderOpen size={14} /> Select{" "}
-            {mode === "review" ? "review DOCX" : "table"}
+            <FolderOpen size={14} />{" "}
+            {mode === "review"
+              ? t("interop.selectReviewInput")
+              : t("interop.selectTableInput")}
           </button>
           <span className="interop-path" title={inputPath}>
-            {inputPath ? fileName(inputPath) : "No input selected"}
+            {inputPath ? fileName(inputPath) : t("interop.noInputSelected")}
           </span>
           <button
             className="button primary"
@@ -405,7 +410,7 @@ export function InteropPanel({
               !!busy || !inputPath || (mode === "table" && !selectedLibrary)
             }
           >
-            <Languages size={14} /> Preview
+            <Languages size={14} /> {t("interop.preview")}
           </button>
         </div>
 
@@ -417,7 +422,7 @@ export function InteropPanel({
               onClick={() => void chooseOutput()}
               disabled={!!busy}
             >
-              <Download size={14} /> Review export destination
+              <Download size={14} /> {t("interop.exportDestination")}
             </button>
             <span className="interop-path" title={outputPath}>
               {outputPath ? fileName(outputPath) : "No destination selected"}
@@ -428,14 +433,15 @@ export function InteropPanel({
               onClick={() => void exportReview()}
               disabled={!!busy || !outputPath}
             >
-              <Upload size={14} /> Export review
+              <Upload size={14} />
+              {t("export.title")}
             </button>
           </div>
         ) : null}
 
         <div className="interop-audit-fields">
           <label className="interop-field">
-            <span>Actor</span>
+            <span>{t("common.actor")}</span>
             <input
               value={actor}
               onChange={(event) => setActor(event.currentTarget.value)}
@@ -444,7 +450,7 @@ export function InteropPanel({
             />
           </label>
           <label className="interop-field interop-reason-field">
-            <span>Apply reason</span>
+            <span>{t("interop.applyReason")}</span>
             <input
               value={reason}
               onChange={(event) => setReason(event.currentTarget.value)}
@@ -507,9 +513,7 @@ export function InteropPanel({
               ? "Review package preview"
               : "Bilingual table preview"}
           </strong>
-          <span>
-            Select an input and preview it to inspect authoritative rows.
-          </span>
+          <span>{t("interop.selectAndPreview")}</span>
         </section>
       ) : null}
     </div>
@@ -539,15 +543,16 @@ function ReviewPreviewPanel({
   onPrevious(): void;
   onNext(): void;
 }) {
+  const { t } = useLocale();
   return (
     <section
       className="insights-section interop-preview"
-      aria-label="Review preview"
+      aria-label={t("interop.reviewPreviewAria")}
     >
       <PreviewHeading
         icon={<FileCheck2 size={18} />}
-        eyebrow={`Preview ${preview.previewId.slice(0, 8)} · ${preview.inputFormat}`}
-        title={`${preview.total} review rows`}
+        eyebrow={`${t("interop.preview")} ${preview.previewId.slice(0, 8)} · ${preview.inputFormat}`}
+        title={t("interop.reviewRowCount", { count: preview.total })}
         status={preview.status}
         selectedCount={selectedRows.size}
         busy={busy}
@@ -556,10 +561,10 @@ function ReviewPreviewPanel({
       />
       <div className="interop-row interop-row-header" aria-hidden="true">
         <span />
-        <span>Status</span>
-        <span>Source</span>
-        <span>Returned target / comments</span>
-        <span>Diagnostics</span>
+        <span>{t("common.status")}</span>
+        <span>{t("common.source")}</span>
+        <span>{t("interop.returnedTarget")}</span>
+        <span>{t("common.diagnostics")}</span>
       </div>
       <div className="interop-rows">
         {preview.rows.map((row) => (
@@ -608,15 +613,16 @@ function TablePreviewPanel({
   onPrevious(): void;
   onNext(): void;
 }) {
+  const { t } = useLocale();
   return (
     <section
       className="insights-section interop-preview"
-      aria-label="Table preview"
+      aria-label={t("interop.tablePreviewAria")}
     >
       <PreviewHeading
         icon={<Table2 size={18} />}
-        eyebrow={`Preview ${preview.previewId.slice(0, 8)} · ${preview.inputFormat}`}
-        title={`${preview.total} table rows`}
+        eyebrow={`${t("interop.preview")} ${preview.previewId.slice(0, 8)} · ${preview.inputFormat}`}
+        title={t("interop.tableRowCount", { count: preview.total })}
         status={preview.status}
         selectedCount={selectedRows.size}
         busy={busy}
@@ -625,10 +631,10 @@ function TablePreviewPanel({
       />
       <div className="interop-row interop-row-header" aria-hidden="true">
         <span />
-        <span>Disposition</span>
-        <span>Source / target</span>
-        <span>Structural path</span>
-        <span>Diagnostics / metadata</span>
+        <span>{t("common.disposition")}</span>
+        <span>{t("interop.sourceTarget")}</span>
+        <span>{t("interop.structuralPath")}</span>
+        <span>{t("interop.diagnosticsMeta")}</span>
       </div>
       <div className="interop-rows">
         {preview.rows.map((row) => (
@@ -673,6 +679,7 @@ function PreviewHeading({
   isApplied: boolean;
   onApply(): void;
 }) {
+  const { t } = useLocale();
   return (
     <div className="insights-section-heading interop-preview-heading">
       <div className="interop-preview-title">
@@ -692,7 +699,10 @@ function PreviewHeading({
           onClick={onApply}
           disabled={busy || isApplied || selectedCount === 0}
         >
-          <Check size={14} /> {isApplied ? "Applied" : `Apply ${selectedCount}`}
+          <Check size={14} />{" "}
+          {isApplied
+            ? t("interop.applied")
+            : t("interop.applyCount", { count: selectedCount })}
         </button>
       </div>
     </div>
@@ -710,6 +720,7 @@ function ReviewRow({
   disabled: boolean;
   onToggle(rowId: string, enabled: boolean): void;
 }) {
+  const { t } = useLocale();
   return (
     <article className="interop-row" data-disposition={row.disposition}>
       <label className="interop-row-select">
@@ -718,7 +729,7 @@ function ReviewRow({
           checked={selected}
           disabled={disabled}
           onChange={(event) => onToggle(row.rowId, event.currentTarget.checked)}
-          aria-label={`Select review row ${row.ordinal + 1}`}
+          aria-label={t("interop.selectReviewRow", { row: row.ordinal + 1 })}
         />
       </label>
       <div className="interop-cell">
@@ -728,16 +739,24 @@ function ReviewRow({
         >
           {row.disposition}
         </span>
-        <small>Row {row.ordinal + 1}</small>
-        <small>{row.statusContext || "No status"}</small>
+        <small>{t("interop.row", { row: row.ordinal + 1 })}</small>
+        <small>{row.statusContext || t("interop.noStatus")}</small>
       </div>
       <div className="interop-cell interop-source-cell">
-        <strong>{row.sourceText || "(empty source)"}</strong>
-        <small>Current: {row.currentTarget || "No target"}</small>
+        <strong>{row.sourceText || t("interop.emptySource")}</strong>
+        <small>
+          {t("interop.currentTarget", {
+            value: row.currentTarget || t("interop.noTarget"),
+          })}
+        </small>
       </div>
       <div className="interop-cell">
-        <strong>{row.targetText || "(unchanged target)"}</strong>
-        <small>Comment: {row.comments || "No comment"}</small>
+        <strong>{row.targetText || t("interop.unchangedTarget")}</strong>
+        <small>
+          {t("interop.comment", {
+            value: row.comments || t("interop.noComment"),
+          })}
+        </small>
       </div>
       <DiagnosticCell diagnostics={row.diagnostics} />
     </article>
@@ -755,6 +774,7 @@ function TableRow({
   disabled: boolean;
   onToggle(rowId: string, enabled: boolean): void;
 }) {
+  const { t } = useLocale();
   const metadata = Object.entries(row.metadata);
   return (
     <article className="interop-row" data-disposition={row.disposition}>
@@ -764,7 +784,7 @@ function TableRow({
           checked={selected}
           disabled={disabled}
           onChange={(event) => onToggle(row.rowId, event.currentTarget.checked)}
-          aria-label={`Select table row ${row.sourceRow}`}
+          aria-label={t("interop.selectTableRow", { row: row.sourceRow })}
         />
       </label>
       <div className="interop-cell">
@@ -774,11 +794,11 @@ function TableRow({
         >
           {row.disposition}
         </span>
-        <small>Input row {row.sourceRow}</small>
+        <small>{t("interop.inputRow", { row: row.sourceRow })}</small>
       </div>
       <div className="interop-cell interop-source-cell">
-        <strong>{row.sourceText || "(missing source)"}</strong>
-        <small>{row.targetText || "(missing target)"}</small>
+        <strong>{row.sourceText || t("interop.missingSource")}</strong>
+        <small>{row.targetText || t("interop.missingTarget")}</small>
       </div>
       <div className="interop-cell">
         <code>{row.structuralPath}</code>
@@ -795,6 +815,7 @@ function TableRow({
 }
 
 function DiagnosticCell({ diagnostics }: { diagnostics: string[] }) {
+  const { t } = useLocale();
   return (
     <div className="interop-cell interop-diagnostics">
       {diagnostics.length ? (
@@ -803,7 +824,8 @@ function DiagnosticCell({ diagnostics }: { diagnostics: string[] }) {
         ))
       ) : (
         <span className="interop-clean">
-          <CheckCircle2 size={13} /> Ready
+          <CheckCircle2 size={13} />
+          {t("status.ready")}
         </span>
       )}
     </div>
@@ -827,19 +849,18 @@ function Pagination({
   onPrevious(): void;
   onNext(): void;
 }) {
+  const { t } = useLocale();
   const start = total === 0 ? 0 : offset + 1;
   const end = Math.min(offset + limit, total);
   return (
     <footer className="interop-pagination">
-      <span>
-        {start}-{end} of {total}
-      </span>
+      <span>{t("common.pageRange", { start, end, total })}</span>
       <div>
         <button
           className="icon-button"
           type="button"
-          title="Previous preview page"
-          aria-label="Previous preview page"
+          title={t("interop.prevPage")}
+          aria-label={t("interop.prevPage")}
           onClick={onPrevious}
           disabled={!canPrevious}
         >
@@ -848,8 +869,8 @@ function Pagination({
         <button
           className="icon-button"
           type="button"
-          title="Next preview page"
-          aria-label="Next preview page"
+          title={t("interop.nextPage")}
+          aria-label={t("interop.nextPage")}
           onClick={onNext}
           disabled={!canNext}
         >

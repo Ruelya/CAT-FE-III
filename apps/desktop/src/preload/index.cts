@@ -9,6 +9,11 @@ import type {
   DesktopApi,
   DesktopEngineInvokeResponse,
 } from "../shared/desktop-api.js";
+import type {
+  ShellLocalePreferencePatch,
+  TutorialState,
+  UpdateMode,
+} from "../shared/product-shell.js";
 
 const IPC_CHANNELS = {
   invoke: "translunar:engine:invoke",
@@ -26,6 +31,34 @@ const IPC_CHANNELS = {
   restartEngine: "translunar:engine:restart",
   setAiCredential: "translunar:ai:credential:set",
   editorCommand: "translunar:editor:command",
+  getSystemLocale: "translunar:shell:system-locale",
+  getShellSettings: "translunar:shell:settings:get",
+  updateShellSettings: "translunar:shell:settings:update",
+  getDataDirectoryStatus: "translunar:shell:data-dir:status",
+  selectDataDirectory: "translunar:shell:data-dir:select",
+  validateDataDirectory: "translunar:shell:data-dir:validate",
+  migrateDataDirectory: "translunar:shell:data-dir:migrate",
+  selectBackupDestination: "translunar:shell:backup:select-destination",
+  createWorkspaceBackup: "translunar:shell:backup:create",
+  selectRestoreSource: "translunar:shell:restore:select",
+  previewRestore: "translunar:shell:restore:preview",
+  restoreWorkspaceBackup: "translunar:shell:restore:apply",
+  getDraftJournal: "translunar:shell:draft:list",
+  writeDraftJournal: "translunar:shell:draft:write",
+  clearDraftJournal: "translunar:shell:draft:clear",
+  getUpdateStatus: "translunar:shell:update:status",
+  setUpdateMode: "translunar:shell:update:mode",
+  checkForUpdates: "translunar:shell:update:check",
+  deferUpdate: "translunar:shell:update:defer",
+  downloadUpdate: "translunar:shell:update:download",
+  installUpdate: "translunar:shell:update:install",
+  rollbackUpdate: "translunar:shell:update:rollback",
+  openUpdateInstaller: "translunar:shell:update:open-installer",
+  getTutorialState: "translunar:shell:tutorial:get",
+  updateTutorialState: "translunar:shell:tutorial:update",
+  openExampleProject: "translunar:shell:example:open",
+  engineStatus: "translunar:engine:status",
+  engineReconnected: "translunar:engine:reconnected",
 } as const;
 
 async function invokeEngine<Method extends EngineMethod>(
@@ -108,6 +141,85 @@ const api: DesktopApi = {
     electron.ipcRenderer.on(IPC_CHANNELS.editorCommand, handler);
     return () =>
       electron.ipcRenderer.removeListener(IPC_CHANNELS.editorCommand, handler);
+  },
+  getSystemLocale: () =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.getSystemLocale),
+  getShellSettings: () =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.getShellSettings),
+  updateShellSettings: (patch: ShellLocalePreferencePatch) =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.updateShellSettings, patch),
+  getDataDirectoryStatus: () =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.getDataDirectoryStatus),
+  selectDataDirectory: () =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.selectDataDirectory),
+  validateDataDirectory: (path) =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.validateDataDirectory, path),
+  migrateDataDirectory: (path) =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.migrateDataDirectory, path),
+  selectBackupDestination: (suggestedName) =>
+    electron.ipcRenderer.invoke(
+      IPC_CHANNELS.selectBackupDestination,
+      suggestedName,
+    ),
+  createWorkspaceBackup: (destinationPath) =>
+    electron.ipcRenderer.invoke(
+      IPC_CHANNELS.createWorkspaceBackup,
+      destinationPath,
+    ),
+  selectRestoreSource: () =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.selectRestoreSource),
+  previewRestore: (path) =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.previewRestore, path),
+  restoreWorkspaceBackup: (params) =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.restoreWorkspaceBackup, params),
+  getDraftJournal: () =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.getDraftJournal),
+  writeDraftJournal: (record) =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.writeDraftJournal, record),
+  clearDraftJournal: (segmentIds) =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.clearDraftJournal, segmentIds),
+  getUpdateStatus: () =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.getUpdateStatus),
+  setUpdateMode: (mode: UpdateMode) =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.setUpdateMode, mode),
+  checkForUpdates: () =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.checkForUpdates),
+  deferUpdate: (untilMs) =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.deferUpdate, untilMs),
+  downloadUpdate: () =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.downloadUpdate),
+  installUpdate: () => electron.ipcRenderer.invoke(IPC_CHANNELS.installUpdate),
+  rollbackUpdate: () =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.rollbackUpdate),
+  openUpdateInstaller: () =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.openUpdateInstaller),
+  getTutorialState: () =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.getTutorialState),
+  updateTutorialState: (patch: Partial<TutorialState>) =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.updateTutorialState, patch),
+  openExampleProject: () =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.openExampleProject),
+  onEngineReconnected: (listener) => {
+    const handler = () => listener();
+    electron.ipcRenderer.on(IPC_CHANNELS.engineReconnected, handler);
+    return () =>
+      electron.ipcRenderer.removeListener(
+        IPC_CHANNELS.engineReconnected,
+        handler,
+      );
+  },
+  onEngineStatus: (listener) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      payload: {
+        type: "reconnecting" | "reconnected" | "failed";
+        attempt?: number;
+        message?: string;
+      },
+    ) => listener(payload);
+    electron.ipcRenderer.on(IPC_CHANNELS.engineStatus, handler);
+    return () =>
+      electron.ipcRenderer.removeListener(IPC_CHANNELS.engineStatus, handler);
   },
 };
 

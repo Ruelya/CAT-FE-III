@@ -6,6 +6,12 @@ import type {
   CurationRunStatus,
   CurationSeverity,
 } from "@translunar/contracts";
+import type { MessageKey } from "./i18n/messages";
+
+type Translate = (
+  key: MessageKey,
+  vars?: Record<string, string | number>,
+) => string;
 
 export const CURATION_CATALOG_PAGE_LIMIT = 25;
 export const CURATION_FINDING_PAGE_LIMIT = 25;
@@ -44,49 +50,109 @@ const SEVERITY_LABELS: Record<CurationSeverity, string> = {
   info: "Info",
 };
 
-export function findingKindLabel(kind: CurationFindingKind): string {
-  return FINDING_KIND_LABELS[kind];
+const FINDING_KIND_KEYS: Record<CurationFindingKind, MessageKey> = {
+  exactDuplicate: "curation.findingExactDuplicate",
+  nearDuplicate: "curation.findingNearDuplicate",
+  competingTranslation: "curation.findingCompetingTranslation",
+  sourceEqualsTarget: "curation.findingSourceEqualsTarget",
+  minimumLength: "curation.findingMinimumLength",
+  lengthRatio: "curation.findingLengthRatio",
+  numberMismatch: "curation.findingNumberMismatch",
+  dateMismatch: "curation.findingDateMismatch",
+  placeholderMismatch: "curation.findingPlaceholderMismatch",
+  createdOutsideRange: "curation.findingCreatedOutsideRange",
+  likelyWrongLanguage: "curation.findingLikelyWrongLanguage",
+  semanticMismatch: "curation.findingSemanticMismatch",
+};
+
+const SEVERITY_KEYS: Record<CurationSeverity, MessageKey> = {
+  error: "curation.severityError",
+  warning: "curation.severityWarning",
+  info: "curation.severityInfo",
+};
+
+export function findingKindLabel(
+  kind: CurationFindingKind,
+  translate?: Translate,
+): string {
+  return translate?.(FINDING_KIND_KEYS[kind]) ?? FINDING_KIND_LABELS[kind];
 }
 
-export function severityLabel(severity: CurationSeverity): string {
-  return SEVERITY_LABELS[severity];
+export function severityLabel(
+  severity: CurationSeverity,
+  translate?: Translate,
+): string {
+  return translate?.(SEVERITY_KEYS[severity]) ?? SEVERITY_LABELS[severity];
 }
 
 export function recommendationLabel(
   disposition: CurationFinding["disposition"],
+  translate?: Translate,
 ): string {
   switch (disposition) {
     case "keep":
-      return "Keep";
+      return translate?.("curation.dispositionKeep") ?? "Keep";
     case "review":
-      return "Review";
+      return translate?.("curation.dispositionReview") ?? "Review";
     case "quarantine":
-      return "Quarantine";
+      return translate?.("curation.dispositionQuarantine") ?? "Quarantine";
   }
 }
 
-export function formatBasisPoints(value: number | null | undefined): string {
-  if (value === null || value === undefined) return "Not scored";
-  return `${(value / 100).toFixed(1)}%`;
+export function formatBasisPoints(
+  value: number | null | undefined,
+  formatNumber?: (value: number, options?: Intl.NumberFormatOptions) => string,
+  translate?: Translate,
+): string {
+  if (value === null || value === undefined) {
+    return translate?.("curation.scoreNotAvailable") ?? "Not scored";
+  }
+  const formatted = formatNumber
+    ? formatNumber(value / 100, {
+        maximumFractionDigits: 1,
+        minimumFractionDigits: 1,
+      })
+    : (value / 100).toFixed(1);
+  return `${formatted}%`;
 }
 
-export function formatEvidence(evidence: CurationEvidence): string[] {
+export function formatEvidence(
+  evidence: CurationEvidence,
+  translate?: Translate,
+): string[] {
   const values: string[] = [];
   for (const value of evidence.sourceValues ?? []) {
-    values.push(`Source: ${boundedEvidence(value)}`);
+    values.push(
+      translate?.("curation.evidenceSource", {
+        value: boundedEvidence(value),
+      }) ?? `Source: ${boundedEvidence(value)}`,
+    );
   }
   for (const value of evidence.targetValues ?? []) {
-    values.push(`Target: ${boundedEvidence(value)}`);
+    values.push(
+      translate?.("curation.evidenceTarget", {
+        value: boundedEvidence(value),
+      }) ?? `Target: ${boundedEvidence(value)}`,
+    );
   }
   for (const value of evidence.relatedUnitIds ?? []) {
-    values.push(`Related unit: ${boundedEvidence(value)}`);
+    values.push(
+      translate?.("curation.evidenceRelatedUnit", {
+        value: boundedEvidence(value),
+      }) ?? `Related unit: ${boundedEvidence(value)}`,
+    );
   }
   for (const [key, value] of Object.entries(evidence.metrics ?? {}).sort(
     ([left], [right]) => left.localeCompare(right),
   )) {
     values.push(`${key}: ${value}`);
   }
-  return values.length > 0 ? values.slice(0, 8) : ["No additional evidence"];
+  return values.length > 0
+    ? values.slice(0, 8)
+    : [
+        translate?.("curation.noAdditionalEvidence") ??
+          "No additional evidence",
+      ];
 }
 
 export function findingIsSelectable(
@@ -112,9 +178,14 @@ export function pageRangeLabel(
   offset: number,
   itemCount: number,
   total: number,
+  format?: (start: number, end: number, total: number) => string,
 ): string {
-  if (total === 0 || itemCount === 0) return "0 of 0";
-  return `${offset + 1}-${offset + itemCount} of ${total}`;
+  if (total === 0 || itemCount === 0) {
+    return format ? format(0, 0, 0) : "0 of 0";
+  }
+  const start = offset + 1;
+  const end = offset + itemCount;
+  return format ? format(start, end, total) : `${start}-${end} of ${total}`;
 }
 
 export function dateInputToMs(value: string, endOfDay = false): number | null {

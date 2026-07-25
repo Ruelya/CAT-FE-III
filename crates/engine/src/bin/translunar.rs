@@ -12,7 +12,11 @@ use translunar_engine::{
 use translunar_protocol::{CreateProjectParams, ProjectListParams};
 
 #[derive(Debug, Parser)]
-#[command(name = "translunar", version, about = "Translunar CAT local API and CLI")]
+#[command(
+    name = "translunar",
+    version,
+    about = "Translunar CAT local API and CLI"
+)]
 struct Arguments {
     /// Workspace data directory (SQLite + managed sources).
     #[arg(long)]
@@ -147,7 +151,9 @@ fn main() -> Result<()> {
                 );
             } else {
                 eprintln!("Listening on http://{host}:{port}");
-                eprintln!("Bearer token is configured (hidden). Use `translunar token ensure` to view/create.");
+                eprintln!(
+                    "Bearer token is configured (hidden). Use `translunar token ensure` to view/create."
+                );
                 let _ = token;
             }
             serve_local_api(service, tokens, config)?;
@@ -205,7 +211,8 @@ fn main() -> Result<()> {
                 summary.clone(),
                 &format!(
                     "Imported {} segment(s); exported {}",
-                    summary["segmentCount"], output.display()
+                    summary["segmentCount"],
+                    output.display()
                 ),
             );
         }

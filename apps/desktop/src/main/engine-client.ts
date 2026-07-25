@@ -27,36 +27,89 @@ export class EngineProcessError extends Error {
   }
 }
 
+export type EngineExitReason = "intentional" | "unexpected";
+
+export interface EngineClientOptions {
+  maxRestartAttempts?: number;
+  onUnexpectedExit?: (detail: {
+    code: number | null;
+    signal: NodeJS.Signals | null;
+    stderrTail: string;
+    attempt: number;
+  }) => void;
+  onReconnected?: (detail: { attempt: number }) => void;
+  onRestartFailed?: (detail: {
+    attempts: number;
+    stderrTail: string;
+    error: Error;
+  }) => void;
+}
+
 export class EngineClient {
   readonly #executable: string;
-  readonly #dataDirectory: string;
+  #dataDirectory: string;
   #child: ChildProcessWithoutNullStreams | null = null;
   #buffer = "";
   #nextId = 1;
   #pending = new Map<number, PendingCall>();
   #stderrTail: string[] = [];
+  #intentionalStop = false;
+  #restarting = false;
+  #restartAttempts = 0;
+  readonly #maxRestartAttempts: number;
+  readonly #onUnexpectedExit?: EngineClientOptions["onUnexpectedExit"];
+  readonly #onReconnected?: EngineClientOptions["onReconnected"];
+  readonly #onRestartFailed?: EngineClientOptions["onRestartFailed"];
 
-  constructor(executable: string, dataDirectory: string) {
+  constructor(
+    executable: string,
+    dataDirectory: string,
+    options: EngineClientOptions = {},
+  ) {
     this.#executable = executable;
     this.#dataDirectory = dataDirectory;
+    this.#maxRestartAttempts = options.maxRestartAttempts ?? 3;
+    this.#onUnexpectedExit = options.onUnexpectedExit;
+    this.#onReconnected = options.onReconnected;
+    this.#onRestartFailed = options.onRestartFailed;
+  }
+
+  get dataDirectory(): string {
+    return this.#dataDirectory;
+  }
+
+  setDataDirectory(path: string): void {
+    this.#dataDirectory = path;
   }
 
   async start(): Promise<void> {
     if (this.#child) return;
-    const child = spawn(
-      this.#executable,
-      ["--data-dir", this.#dataDirectory, "--protocol", "stdio"],
-      {
-        stdio: ["pipe", "pipe", "pipe"],
-        windowsHide: true,
-      },
-    );
+    this.#intentionalStop = false;
+    // Allow Node scripts as the Engine executable (used by process-level tests).
+    const isNodeScript = /\.[cm]?js$/iu.test(this.#executable);
+    const command = isNodeScript ? process.execPath : this.#executable;
+    const args = isNodeScript
+      ? [
+          this.#executable,
+          "--data-dir",
+          this.#dataDirectory,
+          "--protocol",
+          "stdio",
+        ]
+      : ["--data-dir", this.#dataDirectory, "--protocol", "stdio"];
+    const child = spawn(command, args, {
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+      env: process.env,
+    });
     this.#child = child;
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => this.#consumeStdout(chunk));
     child.stderr.on("data", (chunk: string) => this.#consumeStderr(chunk));
-    child.once("exit", (code, signal) => this.#handleExit(code, signal));
+    child.once("exit", (code, signal) => {
+      void this.#handleExit(code, signal);
+    });
     child.once("error", (error) => this.#rejectAll(error));
     await once(child, "spawn");
     await this.call("engine.initialize", {
@@ -65,9 +118,15 @@ export class EngineClient {
     });
   }
 
+  async startWithDataDirectory(dataDirectory: string): Promise<void> {
+    this.#dataDirectory = dataDirectory;
+    await this.start();
+  }
+
   async stop(): Promise<void> {
     const child = this.#child;
     if (!child) return;
+    this.#intentionalStop = true;
     child.stdin.end();
     const exited = once(child, "exit");
     const timeout = new Promise<"timeout">((resolve) => {
@@ -81,7 +140,27 @@ export class EngineClient {
 
   async restart(): Promise<void> {
     await this.stop();
+    this.#restartAttempts = 0;
     await this.start();
+  }
+
+  /**
+   * Test/E2E helper: kill the current child without intentional-stop semantics
+   * so the bounded unexpected-exit / reconnect path runs.
+   */
+  forceKillChildForTest(): boolean {
+    const child = this.#child;
+    if (!child) return false;
+    // Leave #intentionalStop false — #handleExit must treat this as unexpected.
+    return child.kill();
+  }
+
+  /**
+   * Test/E2E helper: live child PID, or null when no process is attached.
+   */
+  getLiveChildPidForTest(): number | null {
+    const pid = this.#child?.pid;
+    return typeof pid === "number" ? pid : null;
   }
 
   call<Method extends EngineMethod>(
@@ -98,7 +177,12 @@ export class EngineClient {
   #callRaw(method: string, params: unknown): Promise<unknown> {
     const child = this.#child;
     if (!child?.stdin.writable) {
-      return Promise.reject(new Error("Translation engine is not running."));
+      return Promise.reject(
+        new EngineProcessError(
+          "engine_unavailable",
+          "Translation engine is not running.",
+        ),
+      );
     }
     const id = this.#nextId++;
     const frame = JSON.stringify({ jsonrpc: "2.0", id, method, params });
@@ -160,15 +244,60 @@ export class EngineClient {
     process.stderr.write(chunk);
   }
 
-  #handleExit(code: number | null, signal: NodeJS.Signals | null): void {
+  async #handleExit(
+    code: number | null,
+    signal: NodeJS.Signals | null,
+  ): Promise<void> {
     const detail = this.#stderrTail.slice(-8).join(EOL);
+    const intentional = this.#intentionalStop;
     this.#child = null;
     this.#buffer = "";
     this.#rejectAll(
-      new Error(
+      new EngineProcessError(
+        intentional ? "engine_stopped" : "engine_exited",
         `${basename(this.#executable)} exited (${String(code ?? signal)}).${detail ? `${EOL}${detail}` : ""}`,
+        { stderrTail: detail, intentional },
       ),
     );
+
+    if (intentional || this.#restarting) {
+      this.#intentionalStop = false;
+      return;
+    }
+    this.#restarting = true;
+    try {
+      let lastError = new Error("Engine restart attempts exhausted.");
+      for (let attempt = 1; attempt <= this.#maxRestartAttempts; attempt += 1) {
+        this.#restartAttempts = attempt;
+        this.#onUnexpectedExit?.({
+          code,
+          signal,
+          stderrTail: detail,
+          attempt,
+        });
+        await sleep(restartDelayMs(attempt));
+        try {
+          await this.start();
+          this.#restartAttempts = 0;
+          this.#onReconnected?.({ attempt });
+          return;
+        } catch (error) {
+          lastError =
+            error instanceof Error
+              ? error
+              : new Error("Engine automatic restart failed.");
+          await this.stop().catch(() => undefined);
+        }
+      }
+      this.#onRestartFailed?.({
+        attempts: this.#restartAttempts,
+        stderrTail: detail,
+        error: lastError,
+      });
+    } finally {
+      this.#restarting = false;
+      this.#intentionalStop = false;
+    }
   }
 
   #rejectAll(error: Error): void {
@@ -179,4 +308,14 @@ export class EngineClient {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms).unref();
+  });
+}
+
+export function restartDelayMs(attempt: number): number {
+  return Math.min(4_000, 250 * 2 ** Math.max(0, attempt - 1));
 }

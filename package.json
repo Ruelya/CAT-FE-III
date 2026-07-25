@@ -25,7 +25,17 @@
     "format:check": "prettier --check . && cargo fmt --all -- --check",
     "lint": "eslint apps packages/contracts/src && cargo clippy --workspace --all-targets -- -D warnings",
     "typecheck": "pnpm -r --if-present typecheck",
-    "test": "pnpm -r --if-present test && cargo test --workspace"
+    "test": "pnpm -r --if-present test && cargo test --workspace",
+    "package:win": "cargo build -p translunar-engine --release && node scripts/package-desktop.mjs --win",
+    "package:mac": "cargo build -p translunar-engine --release && node scripts/package-desktop.mjs --mac",
+    "package:dir": "cargo build -p translunar-engine --release && node scripts/package-desktop.mjs --dir",
+    "package:desktop": "node scripts/package-desktop.mjs",
+    "release:package:check": "node scripts/release-package-check.mjs",
+    "release:package:arch-test": "node --test scripts/package-architecture.test.mjs",
+    "release:package:gate-test": "node --test scripts/package-architecture.test.mjs scripts/release-package-check.test.mjs",
+    "release:install-smoke:test": "node --test scripts/release-install-smoke.test.mjs",
+    "release:install-smoke": "node scripts/release-install-smoke.mjs",
+    "docs:check": "node -e \"for (const f of ['docs/packaging.md','docs/tutorial.md','docs/contributing.md','docs/plugins/README.md','docs/release-signing.md','docs/accessibility-matrix.md','LICENSE','SECURITY.md','CODE_OF_CONDUCT.md']) require('fs').accessSync(f)\""
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

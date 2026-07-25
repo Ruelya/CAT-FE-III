@@ -32,6 +32,7 @@ import {
 
 import { BrandMark } from "./BrandMark";
 import { fileName, formatError } from "./workbench-utils";
+import { useLocale } from "./i18n/LocaleProvider";
 
 interface SetupViewProps {
   onCreated(projectId: string, documentId: string): Promise<void>;
@@ -42,6 +43,8 @@ type WizardStep = 1 | 2 | 3;
 type ReviewPolicy = "template" | "required" | "optional";
 
 export function SetupView({ onCreated, onCancel }: SetupViewProps) {
+  const { t } = useLocale();
+
   const [step, setStep] = useState<WizardStep>(1);
   const [name, setName] = useState("Craft Contracts 2026");
   const [sourceLocale, setSourceLocale] = useState("en-US");
@@ -161,8 +164,8 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
     if (step === 1 && (!name.trim() || sourceLocale === targetLocale)) {
       setError(
         sourceLocale === targetLocale
-          ? "Source and target languages must be different."
-          : "Enter a project name.",
+          ? t("setup.languagesMustDiffer")
+          : t("setup.enterName"),
       );
       return;
     }
@@ -242,10 +245,10 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
         projectId: project.id,
       });
       if (current.project.lifecycle !== "active") {
-        return "Cleanup was skipped because the project is no longer active.";
+        return t("setup.cleanupSkipped");
       }
       if (current.documents.length > 0) {
-        return "The project was retained because it contains imported documents.";
+        return t("setup.projectRetained");
       }
       const entry = await window.translunar.invoke("recycle.delete", {
         entityType: "project",
@@ -259,16 +262,16 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
         actor: "desktop-wizard",
         reason: "Rollback empty project setup",
       });
-      return "The empty project was removed.";
+      return t("setup.emptyRemoved");
     } catch (reason) {
-      return `Empty-project cleanup failed: ${formatError(reason)}`;
+      return t("setup.cleanupFailed", { detail: formatError(reason) });
     }
   };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (sourcePaths.length === 0) {
-      setError("Add at least one supported file or folder before importing.");
+      setError(t("setup.addFilesFirst"));
       return;
     }
     setBusy(true);
@@ -293,9 +296,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
       )?.document;
       if (!firstDocument) {
         const cleanup = await rollbackEmptyProject(created.project);
-        setError(
-          `No files were imported. ${cleanup} Review the diagnostics and try again.`,
-        );
+        setError(t("setup.noFilesImported", { cleanup }));
         return;
       }
       if (imported.failed === 0 && created.dependencies.length === 0) {
@@ -336,19 +337,20 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
         <div className="identity-lockup">
           <BrandMark />
           <div>
-            <strong>Translunar</strong>
-            <span>Computer-assisted translation</span>
+            <strong>{t("setup.brand")}</strong>
+            <span>{t("setup.tagline")}</span>
           </div>
         </div>
         <div className="setup-header-actions">
-          <span className="setup-header-meta">Local workspace</span>
+          <span className="setup-header-meta">{t("setup.localWorkspace")}</span>
           {onCancel ? (
             <button
               className="button tertiary"
               type="button"
               onClick={onCancel}
             >
-              <ArrowLeft size={14} /> Projects
+              <ArrowLeft size={14} />
+              {t("home.projects")}
             </button>
           ) : null}
         </div>
@@ -361,22 +363,22 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
         <span />
       </div>
       <main className="setup-main setup-wizard-main">
-        <nav className="wizard-steps" aria-label="Project setup steps">
+        <nav className="wizard-steps" aria-label={t("setup.stepsAria")}>
           <WizardStepButton
             number={1}
-            label="Project"
+            label={t("setup.stepProject")}
             step={step}
             onSelect={setStep}
           />
           <WizardStepButton
             number={2}
-            label="Configuration"
+            label={t("setup.stepConfiguration")}
             step={step}
             onSelect={setStep}
           />
           <WizardStepButton
             number={3}
-            label="Files"
+            label={t("setup.stepFiles")}
             step={step}
             onSelect={setStep}
           />
@@ -386,12 +388,12 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
             {step === 1 ? (
               <>
                 <WizardHeading
-                  eyebrow="Step 01 · identity"
-                  title="Name the bilingual workspace"
-                  description="Set the project identity and the single source/target locale pair used by filters, QA, TM and analytics."
+                  eyebrow={t("setup.step1")}
+                  title={t("setup.nameWorkspace")}
+                  description={t("setup.identityDescription")}
                 />
                 <label className="field field-wide">
-                  <span>Project name</span>
+                  <span>{t("setup.projectName")}</span>
                   <input
                     value={name}
                     onChange={(event) => setName(event.currentTarget.value)}
@@ -399,36 +401,36 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                   />
                 </label>
                 <label className="field">
-                  <span>Source language</span>
+                  <span>{t("setup.sourceLanguage")}</span>
                   <select
                     value={sourceLocale}
                     onChange={(event) =>
                       setSourceLocale(event.currentTarget.value)
                     }
                   >
-                    <option value="en-US">English (United States)</option>
-                    <option value="en-GB">English (United Kingdom)</option>
-                    <option value="zh-CN">Chinese (Simplified)</option>
-                    <option value="zh-TW">Chinese (Traditional)</option>
-                    <option value="ja-JP">Japanese</option>
+                    <option value="en-US">{t("setup.locale.enUS")}</option>
+                    <option value="en-GB">{t("setup.locale.enGB")}</option>
+                    <option value="zh-CN">{t("setup.locale.zhCN")}</option>
+                    <option value="zh-TW">{t("setup.locale.zhTW")}</option>
+                    <option value="ja-JP">{t("setup.locale.ja")}</option>
                   </select>
                 </label>
                 <label className="field">
-                  <span>Target language</span>
+                  <span>{t("setup.targetLanguage")}</span>
                   <select
                     value={targetLocale}
                     onChange={(event) =>
                       setTargetLocale(event.currentTarget.value)
                     }
                   >
-                    <option value="zh-CN">Chinese (Simplified)</option>
-                    <option value="zh-TW">Chinese (Traditional)</option>
-                    <option value="en-US">English (United States)</option>
-                    <option value="ja-JP">Japanese</option>
+                    <option value="zh-CN">{t("setup.locale.zhCN")}</option>
+                    <option value="zh-TW">{t("setup.locale.zhTW")}</option>
+                    <option value="en-US">{t("setup.locale.enUS")}</option>
+                    <option value="ja-JP">{t("setup.locale.ja")}</option>
                   </select>
                 </label>
                 <label className="field field-wide">
-                  <span>Domain</span>
+                  <span>{t("common.domain")}</span>
                   <input
                     value={domain}
                     onChange={(event) => setDomain(event.currentTarget.value)}
@@ -440,41 +442,44 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
             {step === 2 ? (
               <>
                 <WizardHeading
-                  eyebrow="Step 02 · reusable configuration"
-                  title="Choose the operating profile"
-                  description="References are resolved by the Engine. Missing template dependencies fall back safely and remain visible in diagnostics."
+                  eyebrow={t("setup.step2")}
+                  title={t("setup.chooseProfile")}
+                  description={t("setup.configurationDescription")}
                 />
                 {loadingOptions ? (
                   <div className="wizard-loading" role="status">
-                    <LoaderCircle className="spin" size={18} /> Loading reusable
-                    profiles
+                    <LoaderCircle className="spin" size={18} />{" "}
+                    {t("setup.loadingProfiles")}
                   </div>
                 ) : null}
                 <label className="field field-wide">
-                  <span>Project template</span>
+                  <span>{t("setup.projectTemplate")}</span>
                   <select
                     value={selectedTemplateId}
                     onChange={(event) =>
                       selectTemplate(event.currentTarget.value)
                     }
                   >
-                    <option value="">No template · built-in defaults</option>
+                    <option value="">{t("setup.noTemplate")}</option>
                     {templates.map((template) => (
                       <option key={template.id} value={template.id}>
-                        {template.name} · r{template.revision}
+                        {t("setup.revisionOption", {
+                          name: template.name,
+                          revision: template.revision,
+                        })}
                       </option>
                     ))}
                   </select>
                 </label>
                 <label className="field">
-                  <span>QA profile</span>
+                  <span>{t("setup.qaProfile")}</span>
                   <select
                     value={qaProfileId}
                     onChange={(event) =>
                       setQaProfileId(event.currentTarget.value)
                     }
                   >
-                    <option value="">Template / default</option>
+                    <option value="">{t("setup.templateDefault")}</option>
                     {qaProfiles.map((profile) => (
                       <option key={profile.id} value={profile.id}>
                         {profile.name}
@@ -483,14 +488,14 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                   </select>
                 </label>
                 <label className="field">
-                  <span>Pipeline</span>
+                  <span>{t("setup.pipeline")}</span>
                   <select
                     value={pipelineId}
                     onChange={(event) =>
                       setPipelineId(event.currentTarget.value)
                     }
                   >
-                    <option value="">Template / none</option>
+                    <option value="">{t("setup.templateNone")}</option>
                     {pipelines.map((pipeline) => (
                       <option key={pipeline.id} value={pipeline.id}>
                         {pipeline.name}
@@ -499,14 +504,14 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                   </select>
                 </label>
                 <label className="field">
-                  <span>AI profile</span>
+                  <span>{t("setup.aiProfile")}</span>
                   <select
                     value={aiProfileId}
                     onChange={(event) =>
                       setAiProfileId(event.currentTarget.value)
                     }
                   >
-                    <option value="">Template / offline assistant</option>
+                    <option value="">{t("setup.templateOffline")}</option>
                     {aiProfiles.map((profile) => (
                       <option key={profile.id} value={profile.id}>
                         {profile.name} · {profile.model}
@@ -515,14 +520,14 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                   </select>
                 </label>
                 <label className="field">
-                  <span>Analysis profile</span>
+                  <span>{t("setup.analysisProfile")}</span>
                   <select
                     value={analysisProfileId}
                     onChange={(event) =>
                       setAnalysisProfileId(event.currentTarget.value)
                     }
                   >
-                    <option value="">Template / standard</option>
+                    <option value="">{t("setup.templateStandard")}</option>
                     {analysisProfiles.map((profile) => (
                       <option key={profile.id} value={profile.id}>
                         {profile.name}
@@ -531,7 +536,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                   </select>
                 </label>
                 <label className="field">
-                  <span>Review policy</span>
+                  <span>{t("setup.reviewPolicy")}</span>
                   <select
                     value={reviewPolicy}
                     onChange={(event) =>
@@ -539,10 +544,12 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                     }
                   >
                     <option value="template">
-                      Template / required default
+                      {t("setup.templateRequired")}
                     </option>
-                    <option value="required">Require review</option>
-                    <option value="optional">Allow direct sign-off</option>
+                    <option value="required">{t("setup.requireReview")}</option>
+                    <option value="optional">
+                      {t("setup.allowDirectSignOff")}
+                    </option>
                   </select>
                 </label>
               </>
@@ -551,27 +558,28 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
             {step === 3 ? (
               <>
                 <WizardHeading
-                  eyebrow="Step 03 · source review"
-                  title="Add files and folders"
-                  description="Folders are discovered recursively by the Engine. Relative paths, collisions and unsupported files are reported per item."
+                  eyebrow={t("setup.step3")}
+                  title={t("setup.addFiles")}
+                  description={t("setup.filesDescription")}
                 />
                 <div className="wizard-import-tools field-wide">
                   <button
+                    id="tutorial-target-import"
                     className="button secondary"
                     type="button"
                     onClick={() => void chooseFiles()}
                   >
-                    <Files size={15} /> Add files
+                    <Files size={15} /> {t("setup.addFilesBtn")}
                   </button>
                   <button
                     className="button secondary"
                     type="button"
                     onClick={() => void chooseFolder()}
                   >
-                    <FolderOpen size={15} /> Add folder
+                    <FolderOpen size={15} /> {t("setup.addFolderBtn")}
                   </button>
                   <label className="wizard-atomicity">
-                    <span>Commit mode</span>
+                    <span>{t("setup.commitMode")}</span>
                     <select
                       value={atomicity}
                       onChange={(event) =>
@@ -581,10 +589,10 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                       }
                     >
                       <option value="bestEffort">
-                        Best effort · keep valid files
+                        {t("setup.bestEffort")}
                       </option>
                       <option value="allOrNothing">
-                        All or nothing · atomic batch
+                        {t("setup.allOrNothing")}
                       </option>
                     </select>
                   </label>
@@ -595,19 +603,16 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                   onDrop={handleDrop}
                 >
                   <UploadCloud size={24} />
-                  <strong>Drop files or folders here</strong>
-                  <span>
-                    Paths are sanitized in the trusted preload; the renderer
-                    never reads file contents.
-                  </span>
+                  <strong>{t("setup.dropFiles")}</strong>
+                  <span>{t("setup.pathsSanitized")}</span>
                 </div>
                 <div
                   className="wizard-file-list field-wide"
-                  aria-label="Selected source paths"
+                  aria-label={t("setup.selectedPathsAria")}
                 >
                   {sourcePaths.length === 0 ? (
                     <div className="wizard-empty">
-                      <FilePlus2 size={18} /> No sources selected
+                      <FilePlus2 size={18} /> {t("setup.noSourcesSelected")}
                     </div>
                   ) : (
                     sourcePaths.map((path) => (
@@ -616,8 +621,10 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                         <code>{path}</code>
                         <button
                           type="button"
-                          aria-label={`Remove ${fileName(path)}`}
-                          title="Remove source"
+                          aria-label={t("setup.removeSourceNamed", {
+                            name: fileName(path),
+                          })}
+                          title={t("setup.removeSource")}
                           onClick={() =>
                             setSourcePaths((items) =>
                               items.filter((item) => item !== path),
@@ -632,7 +639,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                 </div>
                 {dependencyDiagnostics.length > 0 ? (
                   <DiagnosticList
-                    title="Template dependencies"
+                    title={t("setup.templateDeps")}
                     items={dependencyDiagnostics.map((item) => ({
                       status: item.status,
                       label: `${item.kind}: ${item.requestedId}`,
@@ -642,11 +649,14 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                 ) : null}
                 {diagnostics.length > 0 ? (
                   <DiagnosticList
-                    title="Import diagnostics"
+                    title={t("setup.importDiagnostics")}
                     items={diagnostics.map((item) => ({
                       status: item.status,
                       label: item.relativePath || fileName(item.path),
-                      detail: item.message ?? item.errorCode ?? "Imported",
+                      detail:
+                        item.message ??
+                        item.errorCode ??
+                        t("setup.diagnosticImported"),
                     }))}
                   />
                 ) : null}
@@ -659,9 +669,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
               </p>
             ) : null}
             <div className="setup-actions wizard-actions field-wide">
-              <span className="setup-note">
-                SQLite workspace · local files · private by default
-              </span>
+              <span className="setup-note">{t("setup.sqlitePrivate")}</span>
               <div>
                 {step > 1 ? (
                   <button
@@ -670,7 +678,8 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                     disabled={busy}
                     onClick={() => setStep((step - 1) as WizardStep)}
                   >
-                    <ArrowLeft size={15} /> Back
+                    <ArrowLeft size={15} />
+                    {t("action.back")}
                   </button>
                 ) : null}
                 {step < 3 ? (
@@ -679,7 +688,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                     type="button"
                     onClick={goNext}
                   >
-                    Continue <ArrowRight size={16} />
+                    {t("setup.continue")} <ArrowRight size={16} />
                   </button>
                 ) : successfulDocument ? (
                   <button
@@ -688,7 +697,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                     onClick={() => void openSuccessfulDocument()}
                     disabled={busy}
                   >
-                    Open workspace <ArrowRight size={16} />
+                    {t("setup.openWorkspace")} <ArrowRight size={16} />
                   </button>
                 ) : (
                   <button
@@ -698,11 +707,13 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                   >
                     {busy ? (
                       <>
-                        <LoaderCircle className="spin" size={15} /> Importing
+                        <LoaderCircle className="spin" size={15} />{" "}
+                        {t("setup.importing")}
                       </>
                     ) : (
                       <>
-                        Create project <ArrowRight size={16} />
+                        {t("action.createProject")}
+                        <ArrowRight size={16} />
                       </>
                     )}
                   </button>
@@ -719,11 +730,13 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
           ) : (
             <Layers3 size={24} />
           )}
-          <span>STEP 0{step}</span>
+          <span>{t("setup.stepCounter", { step })}</span>
           <span>
             {sourceLocale} → {targetLocale}
           </span>
-          <span>{sourcePaths.length} source selections</span>
+          <span>
+            {t("setup.sourceSelections", { count: sourcePaths.length })}
+          </span>
         </aside>
       </main>
     </div>

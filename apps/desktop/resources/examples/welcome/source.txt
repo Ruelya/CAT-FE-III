@@ -1,0 +1,8 @@
+Welcome to Translunar CAT.
+
+This offline example project uses Apache-2.0-compatible sample text.
+Import, edit, confirm, run QA, and export through the normal Engine path.
+Your translation memory and terminology stay on this machine.
+
+Segment two: local-first tools keep secrets in the OS keychain.
+Segment three: back up the workspace before major migrations or updates.

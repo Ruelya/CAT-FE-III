@@ -1276,3 +1276,22 @@ if (!response.ok) return Promise.reject(response.error);
   install/enable/disable fails.
 - Do not import or execute plugin code in the renderer; contributions are
   descriptors managed by the Engine.
+
+## Packaging and localization shell
+
+- Package with `apps/desktop/electron-builder.yml`; unsigned artifacts are valid
+  for development.
+- Shell copy should prefer `i18n/messages.ts` catalogs (`en-US` / `zh-CN`).
+- Backup restore validation is main-process-owned. Read at most an 8 MiB
+  `manifest.json`, reject more than 100,000 listed files, and re-check manifest
+  metadata after the bounded read. Hash every manifest-listed payload with a
+  stream; never load a potentially multi-gigabyte SQLite or backup file through
+  `readFile` merely to compute SHA-256.
+- A restore preview issues one short-lived, single-use confirmation token bound
+  to the canonical backup path and exact manifest fingerprint. Apply reserves
+  the token synchronously, then revalidates the backup and fingerprint before
+  stopping the Engine or staging/swapping the live data directory.
+- An update installation must create a workspace backup, require the returned
+  path to exist, and validate that backup before `prepareInstall` or native
+  installer invocation. Backup failure leaves the downloaded package staged
+  but must not start installation.

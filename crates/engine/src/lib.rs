@@ -156,6 +156,7 @@ use zip::{CompressionMethod, ZipArchive};
 
 mod ai;
 mod ai_quality;
+mod allowlist;
 mod collab;
 mod curation;
 mod local_api;
@@ -220,6 +221,12 @@ pub enum EngineError {
 
     #[error("invalid engine state: {0}")]
     InvalidState(String),
+
+    #[error("AI provider profile `{profile_id}` is not allowed for project `{project_id}`")]
+    PolicyDenied {
+        project_id: String,
+        profile_id: String,
+    },
 
     #[error("QA gate blocked document export")]
     QaGateBlocked {
@@ -319,6 +326,7 @@ fn engine_error_code(error: &EngineError) -> &'static str {
         }
         EngineError::InvalidRequest(_) => "invalid_request",
         EngineError::InvalidState(_) => "invalid_state",
+        EngineError::PolicyDenied { .. } => "policy_denied",
         EngineError::Io(_) | EngineError::Storage(_) => "storage_error",
         _ => "internal_error",
     }
@@ -6870,6 +6878,14 @@ fn rpc_error(error: EngineError) -> RpcError {
             code: ErrorCode::InvalidState,
             message,
             data: None,
+        },
+        EngineError::PolicyDenied {
+            project_id,
+            profile_id,
+        } => RpcError {
+            code: ErrorCode::PolicyDenied,
+            message: "the selected AI profile is not allowed for this project".to_string(),
+            data: Some(allowlist::allowlist_denial_data(&project_id, &profile_id)),
         },
         EngineError::Import(FilterError::NotFound(id))
         | EngineError::Export(FilterError::NotFound(id)) => RpcError {

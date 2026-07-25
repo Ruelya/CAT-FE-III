@@ -55,9 +55,7 @@ pub fn serve(
     validate_bind(&config)?;
     let addr = SocketAddr::new(config.host, config.port);
     let listener = TcpListener::bind(addr).map_err(EngineError::Io)?;
-    listener
-        .set_nonblocking(false)
-        .map_err(EngineError::Io)?;
+    listener.set_nonblocking(false).map_err(EngineError::Io)?;
     for connection in listener.incoming() {
         let mut stream = match connection {
             Ok(stream) => stream,
@@ -129,13 +127,12 @@ fn handle_connection(
             ]
         }),
         ("GET", "/v1/projects") => {
-            let params: ProjectListParams = serde_json::from_value(body.clone()).unwrap_or(
-                ProjectListParams {
+            let params: ProjectListParams =
+                serde_json::from_value(body.clone()).unwrap_or(ProjectListParams {
                     lifecycle: None,
                     offset: 0,
                     limit: 50,
-                },
-            );
+                });
             serde_json::to_value(engine.list_projects(params)?)?
         }
         ("POST", "/v1/projects") => {
@@ -236,9 +233,8 @@ impl HttpRequest {
         if self.body.is_empty() {
             return Ok(json!({}));
         }
-        serde_json::from_slice(&self.body).map_err(|error| {
-            EngineError::InvalidRequest(format!("invalid JSON body: {error}"))
-        })
+        serde_json::from_slice(&self.body)
+            .map_err(|error| EngineError::InvalidRequest(format!("invalid JSON body: {error}")))
     }
 }
 
@@ -333,7 +329,9 @@ fn write_json(stream: &mut TcpStream, status: u16, body: Value) -> Result<()> {
         "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         payload.len()
     );
-    stream.write_all(header.as_bytes()).map_err(EngineError::Io)?;
+    stream
+        .write_all(header.as_bytes())
+        .map_err(EngineError::Io)?;
     stream.write_all(&payload).map_err(EngineError::Io)?;
     stream.flush().map_err(EngineError::Io)?;
     Ok(())
@@ -414,14 +412,16 @@ pub fn run_pipeline(
         qa_override: None,
     }) {
         Ok(result) => result,
-        Err(EngineError::QaGateBlocked { .. }) => service.export_document(ExportDocumentParams {
-            document_id: imported.document.id.clone(),
-            output_path: output.to_string_lossy().into_owned(),
-            qa_override: Some(QaOverrideInput {
-                actor: "cli".into(),
-                reason: "CLI/API automation export with open QA findings".into(),
-            }),
-        })?,
+        Err(EngineError::QaGateBlocked { .. }) => {
+            service.export_document(ExportDocumentParams {
+                document_id: imported.document.id.clone(),
+                output_path: output.to_string_lossy().into_owned(),
+                qa_override: Some(QaOverrideInput {
+                    actor: "cli".into(),
+                    reason: "CLI/API automation export with open QA findings".into(),
+                }),
+            })?
+        }
         Err(error) => return Err(error),
     };
     Ok(json!({
@@ -487,10 +487,12 @@ mod tests {
             .write_all(b"GET /v1/projects HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
             .unwrap();
         let mut unauthorized_body = String::new();
-        unauthorized
-            .read_to_string(&mut unauthorized_body)
-            .unwrap();
-        assert!(unauthorized_body.contains("401") || unauthorized_body.contains("unauthorized") || unauthorized_body.contains("bearer"));
+        unauthorized.read_to_string(&mut unauthorized_body).unwrap();
+        assert!(
+            unauthorized_body.contains("401")
+                || unauthorized_body.contains("unauthorized")
+                || unauthorized_body.contains("bearer")
+        );
 
         // authenticated project create through a fresh accept loop is heavy; use run_pipeline helper
         let mut engine = service.lock().unwrap();

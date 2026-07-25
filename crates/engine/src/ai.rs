@@ -670,10 +670,12 @@ impl AiManager {
 impl EngineService {
     pub(super) fn curation_semantic_annotations(
         &self,
+        project_id: &str,
         profile_id: &str,
         units: &[CurationUnit],
     ) -> Result<Vec<SemanticAnnotation>> {
         enforce_ai_policy(&self.store, true, false)?;
+        crate::allowlist::enforce_project_engine_allowlist(&self.store, project_id, profile_id)?;
         let mut profile = self.store.get_ai_provider_profile(profile_id)?;
         let credential_present = self
             .ai
@@ -988,6 +990,11 @@ impl EngineService {
         enforce_profile_policy(&self.store, &profile)?;
         ensure_structured_refinement_profile(&profile)?;
         let selection = self.store.prepare_alignment_refinement(&params.context)?;
+        crate::allowlist::enforce_project_engine_allowlist(
+            &self.store,
+            &selection.session.project_id,
+            &params.profile_id,
+        )?;
         let messages = build_alignment_refinement_messages(&selection)?;
         let prompt_hash = prompt_hash(&messages)?;
         let run = self.store.create_ai_run(NewAiRun {
@@ -1020,6 +1027,11 @@ impl EngineService {
             &params.profile_id,
         )?;
         enforce_profile_policy(&self.store, &profile)?;
+        crate::allowlist::enforce_project_engine_allowlist(
+            &self.store,
+            &params.project_id,
+            &params.profile_id,
+        )?;
         let built = build_grounding(
             &self.store,
             &params.project_id,
@@ -2022,6 +2034,11 @@ pub(super) fn create_and_spawn_ai_batch(
     let profile =
         reconcile_profile_credential(store, manager.credentials.as_ref(), &params.profile_id)?;
     enforce_profile_policy(store, &profile)?;
+    crate::allowlist::enforce_project_engine_allowlist(
+        store,
+        &params.project_id,
+        &params.profile_id,
+    )?;
     let project = store.get_project(&params.project_id)?;
     let documents = if let Some(document_id) = params.document_id.as_deref() {
         let document = store.get_document(document_id)?.document;
@@ -2267,9 +2284,9 @@ mod tests {
     use translunar_pipeline::{PipelineRunStatus, PipelineStepDefinition};
     use translunar_protocol::{
         AiBatchStartParams, AiProfileIdParams, AiProviderCreateParams, AiProviderUpdateParams,
-        AiRunStartParams, AiSettingsUpdateParams, ConfirmSegmentParams, CreatePipelineParams,
-        CurationRunParams, ImportDocumentParams, PipelineRunIdParams, ProjectAnalyticsParams,
-        RunPipelineParams, UpdateTargetParams,
+        AiRunListParams, AiRunStartParams, AiSettingsUpdateParams, ConfirmSegmentParams,
+        CreatePipelineParams, CurationRunParams, ImportDocumentParams, PipelineRunIdParams,
+        ProjectAnalyticsParams, RunPipelineParams, UpdateProjectParams, UpdateTargetParams,
     };
     use translunar_storage::{
         AlignmentLinkRecord, AlignmentSessionRecord, NewAlignmentSession, NewTmLibrary,
@@ -3632,6 +3649,63 @@ mod tests {
                 .all(|event| event.kind != translunar_ai_core::AiRunEventKind::Delta)
         );
         assert_eq!(service.store.ai_token_usage_since(0).expect("AI usage"), 12);
+    }
+
+    #[test]
+    fn alignment_refinement_enforces_project_allowlist_before_creating_run() {
+        let root = tempdir().expect("alignment allowlist directory");
+        let mut service = open_alignment_test_service(root.path());
+        let (session, links) = seed_alignment_session(&mut service, root.path());
+        let profile = configure_alignment_provider(
+            &mut service,
+            alignment_fixture_server(
+                Some(valid_alignment_refinement_response(&links)),
+                Duration::ZERO,
+            ),
+        );
+        let project = service
+            .store
+            .get_project(&session.project_id)
+            .expect("load alignment project")
+            .project;
+        let mut configuration = project.configuration.clone();
+        configuration.engine_allowlist = vec!["different-profile".to_string()];
+        service
+            .update_project(UpdateProjectParams {
+                project_id: project.id.clone(),
+                name: project.name.clone(),
+                source_locale: project.source_locale.clone(),
+                target_locale: project.target_locale.clone(),
+                domain: project.domain.clone(),
+                configuration,
+                expected_revision: project.revision,
+                actor: "alignment-allowlist-test".to_string(),
+                correlation_id: None,
+            })
+            .expect("tighten alignment project allowlist");
+
+        let error = service
+            .start_alignment_refinement(AlignmentRefinementStart {
+                profile_id: profile.id.clone(),
+                context: alignment_refinement_context(&session, &links),
+                max_attempts: 1,
+            })
+            .expect_err("disallowed alignment profile must be rejected");
+        assert!(matches!(
+            error,
+            EngineError::PolicyDenied {
+                ref project_id,
+                ref profile_id,
+            } if project_id == &project.id && profile_id == &profile.id
+        ));
+        let runs = service
+            .list_ai_runs(AiRunListParams {
+                project_id: Some(project.id),
+                offset: 0,
+                limit: 20,
+            })
+            .expect("list alignment runs");
+        assert_eq!(runs.total, 0, "denied refinement must not create a run");
     }
 
     #[test]

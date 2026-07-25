@@ -1,0 +1,6 @@
+Apache License
+Version 2.0, January 2004
+http://www.apache.org/licenses/
+
+This example fixture is provided under the Apache-2.0 license for offline
+product-shell demonstrations. It is not customer content.

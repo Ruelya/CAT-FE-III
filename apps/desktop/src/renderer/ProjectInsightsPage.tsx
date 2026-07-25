@@ -47,6 +47,8 @@ import { PluginsPanel } from "./PluginsPanel";
 import { DiscussionSnapshotPanel } from "./DiscussionSnapshotPanel";
 import { InteropPanel } from "./InteropPanel";
 import { TaskPackagePanel } from "./TaskPackagePanel";
+import { useLocale } from "./i18n/LocaleProvider";
+import type { FormatVars, MessageKey } from "./i18n/messages";
 
 type InsightsTab =
   | "overview"
@@ -81,29 +83,61 @@ interface PendingAction {
 
 const TABS: Array<{
   id: InsightsTab;
-  label: string;
+  labelKey: MessageKey;
   icon: ReactNode;
 }> = [
-  { id: "overview", label: "Overview", icon: <BarChart3 size={15} /> },
-  { id: "files", label: "Files", icon: <FileText size={15} /> },
-  { id: "reimport", label: "Re-import", icon: <RotateCcw size={15} /> },
+  {
+    id: "overview",
+    labelKey: "insights.tabOverview",
+    icon: <BarChart3 size={15} />,
+  },
+  { id: "files", labelKey: "insights.tabFiles", icon: <FileText size={15} /> },
+  {
+    id: "reimport",
+    labelKey: "insights.tabReimport",
+    icon: <RotateCcw size={15} />,
+  },
   {
     id: "discussions",
-    label: "Discussions / snapshots",
+    labelKey: "insights.discussionsTab",
     icon: <MessageSquareText size={15} />,
   },
   {
     id: "alignment",
-    label: "Alignment / corpora",
+    labelKey: "insights.alignmentTab",
     icon: <GitCompareArrows size={15} />,
   },
-  { id: "assets", label: "Assets", icon: <Database size={15} /> },
-  { id: "plugins", label: "Plugins", icon: <Puzzle size={15} /> },
-  { id: "interop", label: "Interop", icon: <Languages size={15} /> },
-  { id: "task-packages", label: "Task packages", icon: <Archive size={15} /> },
-  { id: "archive", label: "Archive", icon: <Archive size={15} /> },
-  { id: "history", label: "History", icon: <History size={15} /> },
-  { id: "analysis", label: "Analysis", icon: <FileClock size={15} /> },
+  {
+    id: "assets",
+    labelKey: "insights.tabAssets",
+    icon: <Database size={15} />,
+  },
+  {
+    id: "plugins",
+    labelKey: "insights.tabPlugins",
+    icon: <Puzzle size={15} />,
+  },
+  {
+    id: "interop",
+    labelKey: "insights.tabInterop",
+    icon: <Languages size={15} />,
+  },
+  {
+    id: "task-packages",
+    labelKey: "insights.taskTab",
+    icon: <Archive size={15} />,
+  },
+  {
+    id: "archive",
+    labelKey: "insights.tabArchive",
+    icon: <Archive size={15} />,
+  },
+  { id: "history", labelKey: "insights.history", icon: <History size={15} /> },
+  {
+    id: "analysis",
+    labelKey: "insights.tabAnalysis",
+    icon: <FileClock size={15} />,
+  },
 ];
 
 export function ProjectInsightsPage({
@@ -114,6 +148,8 @@ export function ProjectInsightsPage({
   onOpenProject,
   onReturnHome,
 }: ProjectInsightsPageProps) {
+  const { t } = useLocale();
+
   const projectId = snapshot.project.id;
   const [tab, setTab] = useState<InsightsTab>("overview");
   const [documents, setDocuments] = useState(snapshot.documents);
@@ -227,7 +263,10 @@ export function ProjectInsightsPage({
       });
       setBatchDiagnostics(result.items);
       setNotice(
-        `Batch finished: ${result.succeeded} succeeded, ${result.failed} failed.`,
+        t("insights.batchFinished", {
+          succeeded: result.succeeded,
+          failed: result.failed,
+        }),
       );
       await refreshAfterMutation();
     });
@@ -265,9 +304,11 @@ export function ProjectInsightsPage({
 
   const requestRecycleDocument = (item: Document) => {
     setPendingAction({
-      title: "Recycle document",
-      description: `${item.relativePath} will leave the active project and remain recoverable from the project home.`,
-      confirmLabel: "Recycle document",
+      title: t("insights.recycleDocument"),
+      description: t("insights.recycleDocumentDescription", {
+        name: item.relativePath,
+      }),
+      confirmLabel: t("insights.recycleDocument"),
       danger: true,
       run: async () => {
         await window.translunar.invoke("recycle.delete", {
@@ -286,23 +327,25 @@ export function ProjectInsightsPage({
           const next = remaining.items[0];
           if (next) {
             await refreshAfterMutation();
-            setNotice(`${item.name} moved to the recycle bin.`);
+            setNotice(t("insights.movedToRecycle", { name: item.name }));
           } else {
             onReturnHome();
           }
           return;
         }
         await refreshAfterMutation();
-        setNotice(`${item.name} moved to the recycle bin.`);
+        setNotice(t("insights.movedToRecycle", { name: item.name }));
       },
     });
   };
 
   const requestRecycleProject = () => {
     setPendingAction({
-      title: "Recycle project",
-      description: `${snapshot.project.name} and its active documents will leave normal project and search results.`,
-      confirmLabel: "Recycle project",
+      title: t("insights.recycleProject"),
+      description: t("insights.recycleProjectDescription", {
+        name: snapshot.project.name,
+      }),
+      confirmLabel: t("insights.recycleProject"),
       danger: true,
       run: async () => {
         await window.translunar.invoke("recycle.delete", {
@@ -352,16 +395,18 @@ export function ProjectInsightsPage({
         },
       );
       setReimportPreview(preview);
-      setNotice("Re-import preview is ready.");
+      setNotice(t("insights.reimportPreviewReady"));
     });
   };
 
   const requestApplyReimport = () => {
     if (!reimportPreview) return;
     setPendingAction({
-      title: "Apply re-import",
-      description: `Apply this revision-bound preview to ${document.name}. Removed and ambiguous segments will follow the Engine reconciliation plan.`,
-      confirmLabel: "Apply preview",
+      title: t("insights.applyReimport"),
+      description: t("insights.applyReimportDescription", {
+        name: document.name,
+      }),
+      confirmLabel: t("insights.applyPreview"),
       run: async () => {
         await window.translunar.invoke("document.reimport.apply", {
           previewId: reimportPreview.previewId,
@@ -371,7 +416,7 @@ export function ProjectInsightsPage({
         setReimportPreview(null);
         setReplacementPath("");
         await refreshAfterMutation();
-        setNotice(`${document.name} was re-imported.`);
+        setNotice(t("insights.reimported", { name: document.name }));
       },
     });
   };
@@ -394,8 +439,12 @@ export function ProjectInsightsPage({
         );
         setNotice(
           result.diagnostics.length
-            ? `Archive exported. ${result.diagnostics.join(" ")}`
-            : `Archive exported to ${fileName(result.archivePath)}.`,
+            ? t("insights.archiveExportedDiag", {
+                detail: result.diagnostics.join(" "),
+              })
+            : t("insights.archiveExported", {
+                name: fileName(result.archivePath),
+              }),
         );
         await loadData();
       });
@@ -425,9 +474,7 @@ export function ProjectInsightsPage({
       });
       setAnalysis(result);
       setNotice(
-        result.stale
-          ? "Analysis completed but is stale against current project revisions."
-          : "Analysis snapshot completed.",
+        result.stale ? t("insights.analysisStale") : t("insights.analysisDone"),
       );
       await loadData();
     });
@@ -437,8 +484,8 @@ export function ProjectInsightsPage({
     <main className="project-insights-main" aria-busy={loading || !!busy}>
       <header className="project-insights-heading">
         <div>
-          <span className="surface-kicker">Project operations</span>
-          <h1>Project insights</h1>
+          <span className="surface-kicker">{t("insights.kicker")}</span>
+          <h1>{t("insights.title")}</h1>
           <p>
             {documents.length} files · {snapshot.project.sourceLocale} to{" "}
             {snapshot.project.targetLocale}
@@ -447,8 +494,8 @@ export function ProjectInsightsPage({
         <button
           className="icon-button"
           type="button"
-          title="Refresh project insights"
-          aria-label="Refresh project insights"
+          title={t("insights.refresh")}
+          aria-label={t("insights.refresh")}
           onClick={() => void loadData()}
           disabled={loading || !!busy}
         >
@@ -456,7 +503,7 @@ export function ProjectInsightsPage({
         </button>
       </header>
 
-      <nav className="project-insights-tabs" aria-label="Project insights">
+      <nav className="project-insights-tabs" aria-label={t("insights.title")}>
         {TABS.map((item) => (
           <button
             key={item.id}
@@ -466,7 +513,7 @@ export function ProjectInsightsPage({
             onClick={() => setTab(item.id)}
           >
             {item.icon}
-            <span>{item.label}</span>
+            <span>{t(item.labelKey)}</span>
           </button>
         ))}
       </nav>
@@ -487,7 +534,7 @@ export function ProjectInsightsPage({
       <section className="project-insights-content">
         {loading ? (
           <div className="project-insights-loading" role="status">
-            <LoaderCircle className="spin" size={18} /> Loading project data
+            <LoaderCircle className="spin" size={18} /> {t("insights.loading")}
           </div>
         ) : tab === "overview" ? (
           <OverviewPanel analytics={analytics} documents={documents} />
@@ -585,60 +632,77 @@ function OverviewPanel({
   analytics: ProjectAnalyticsSummary | null;
   documents: Document[];
 }) {
+  const { t, formatNumber, formatDate } = useLocale();
   if (!analytics) {
-    return <UnavailableState label="Project analytics are unavailable." />;
+    return <UnavailableState label={t("insights.analyticsUnavailable")} />;
   }
   return (
     <div className="insights-overview">
-      <section className="insights-metric-strip" aria-label="Project progress">
+      <section
+        className="insights-metric-strip"
+        aria-label={t("insights.progressAria")}
+      >
         <Metric
-          label="Completion"
-          value={formatBasisPoints(analytics.progress.completionBasisPoints)}
+          label={t("insights.completionAria")}
+          value={formatBasisPoints(
+            analytics.progress.completionBasisPoints,
+            formatNumber,
+            t,
+          )}
         />
-        <Metric label="Segments" value={analytics.progress.totalSegments} />
         <Metric
-          label="Confirmed"
+          label={t("common.segments")}
+          value={analytics.progress.totalSegments}
+        />
+        <Metric
+          label={t("common.confirmed")}
           value={analytics.progress.confirmedSegments}
         />
-        <Metric label="QA blockers" value={analytics.progress.qaBlockers} />
-        <Metric label="Files" value={documents.length} />
+        <Metric
+          label={t("insights.qaBlockers")}
+          value={analytics.progress.qaBlockers}
+        />
+        <Metric
+          label={t("common.documents")}
+          value={formatNumber(documents.length)}
+        />
       </section>
 
       <div className="insights-overview-grid">
         <section className="insights-section">
           <SectionHeading
-            eyebrow="Workflow"
-            title="Project progress"
+            eyebrow={t("common.workflow")}
+            title={t("insights.progressAria")}
             icon={<BarChart3 size={18} />}
           />
           <progress
             value={analytics.progress.completionBasisPoints}
             max={10_000}
-            aria-label="Project completion"
+            aria-label={t("insights.completionAria")}
           />
           <dl className="insights-definition-grid">
             <Definition
-              label="Untranslated"
+              label={t("insights.untranslated")}
               value={analytics.progress.untranslatedSegments}
             />
             <Definition
-              label="Draft"
+              label={t("insights.draft")}
               value={analytics.progress.draftSegments}
             />
             <Definition
-              label="Reviewed"
+              label={t("insights.reviewed")}
               value={analytics.progress.reviewedSegments}
             />
             <Definition
-              label="Translation"
+              label={t("insights.translation")}
               value={analytics.progress.workflowTranslation}
             />
             <Definition
-              label="Review"
+              label={t("insights.review")}
               value={analytics.progress.workflowReview}
             />
             <Definition
-              label="Signed"
+              label={t("insights.signed")}
               value={analytics.progress.workflowSigned}
             />
           </dl>
@@ -646,32 +710,38 @@ function OverviewPanel({
 
         <section className="insights-section">
           <SectionHeading
-            eyebrow="Activity"
-            title="Productivity"
+            eyebrow={t("insights.activity")}
+            title={t("insights.productivity")}
             icon={<Clock3 size={18} />}
           />
           <dl className="insights-definition-grid">
             <Definition
-              label="Active editing"
+              label={t("insights.activeEditing")}
               value={formatOptionalMetric(
                 analytics.productivity.activeEditingMs,
-                formatDuration,
+                t("insights.unavailable"),
+                (value) => formatDuration(value, t, formatNumber),
               )}
             />
             <Definition
-              label="Confirmed / hour"
+              label={t("insights.confirmedPerHour")}
               value={formatOptionalMetric(
                 analytics.productivity.confirmedSegmentsPerHourMilli,
-                formatMilli,
+                t("insights.unavailable"),
+                (value) => formatMilli(value, formatNumber),
               )}
             />
             <Definition
-              label="Activity events"
+              label={t("insights.activityEvents")}
               value={analytics.productivity.activityEvents}
             />
             <Definition
-              label="Idle threshold"
-              value={formatDuration(analytics.productivity.idleGapMs)}
+              label={t("insights.idleThreshold")}
+              value={formatDuration(
+                analytics.productivity.idleGapMs,
+                t,
+                formatNumber,
+              )}
             />
           </dl>
           <OptionalReason
@@ -684,32 +754,32 @@ function OverviewPanel({
 
         <section className="insights-section">
           <SectionHeading
-            eyebrow="Automation"
-            title="AI contribution"
+            eyebrow={t("insights.automation")}
+            title={t("insights.aiContribution")}
             icon={<ArrowRight size={18} />}
           />
           {analytics.ai.available ? (
             <dl className="insights-definition-grid">
               <Definition
-                label="Applied segments"
+                label={t("insights.appliedSegments")}
                 value={analytics.ai.contribution.appliedSegments}
               />
               <Definition
-                label="Retained segments"
+                label={t("insights.retainedSegments")}
                 value={analytics.ai.contribution.retainedSegments}
               />
               <Definition
-                label="Replaced segments"
+                label={t("insights.replacedSegments")}
                 value={analytics.ai.contribution.replacedSegments}
               />
               <Definition
-                label="Retained characters"
+                label={t("insights.retainedChars")}
                 value={analytics.ai.contribution.retainedCharacters}
               />
             </dl>
           ) : (
             <UnavailableState
-              label={analytics.ai.reason ?? "AI history is unavailable."}
+              label={analytics.ai.reason ?? t("insights.aiHistoryUnavailable")}
               compact
             />
           )}
@@ -717,36 +787,46 @@ function OverviewPanel({
 
         <section className="insights-section">
           <SectionHeading
-            eyebrow="Resources"
-            title="Asset health"
+            eyebrow={t("insights.assetHealth")}
+            title={t("insights.assetHealth")}
             icon={<ShieldAlert size={18} />}
           />
           <dl className="insights-definition-grid">
             <Definition
-              label="TM units"
+              label={t("insights.tmUnits")}
               value={analytics.assets.tmConfirmedUnits}
             />
             <Definition
-              label="Term entries"
+              label={t("insights.termEntries")}
               value={analytics.assets.termEntries}
             />
             <Definition
-              label="Open blockers"
+              label={t("insights.openBlockers")}
               value={analytics.assets.qaOpenBlockers}
             />
             <Definition
-              label="TM reuse"
-              value={formatOptionalMetric(analytics.assets.tmReuseSegments)}
-            />
-            <Definition
-              label="Mounted hits"
+              label={t("insights.tmReuse")}
               value={formatOptionalMetric(
-                analytics.assets.mountedLibraryHitSegments,
+                analytics.assets.tmReuseSegments,
+                t("insights.unavailable"),
+                formatNumber,
               )}
             />
             <Definition
-              label="Curation outcomes"
-              value={formatOptionalMetric(analytics.assets.curationOutcomes)}
+              label={t("insights.mountedHits")}
+              value={formatOptionalMetric(
+                analytics.assets.mountedLibraryHitSegments,
+                t("insights.unavailable"),
+                formatNumber,
+              )}
+            />
+            <Definition
+              label={t("insights.curationOutcomes")}
+              value={formatOptionalMetric(
+                analytics.assets.curationOutcomes,
+                t("insights.unavailable"),
+                formatNumber,
+              )}
             />
           </dl>
         </section>
@@ -754,8 +834,8 @@ function OverviewPanel({
 
       <section className="insights-section insights-trends">
         <SectionHeading
-          eyebrow="Recent buckets"
-          title="Operational trends"
+          eyebrow={t("insights.recentBuckets")}
+          title={t("insights.trends")}
           icon={<History size={18} />}
         />
         {analytics.trends.length ? (
@@ -763,19 +843,19 @@ function OverviewPanel({
             <table>
               <thead>
                 <tr>
-                  <th>Period</th>
-                  <th>Edits</th>
-                  <th>Confirmed</th>
-                  <th>Workflow</th>
-                  <th>QA runs</th>
-                  <th>TM units</th>
-                  <th>Terms</th>
+                  <th>{t("common.period")}</th>
+                  <th>{t("common.edits")}</th>
+                  <th>{t("common.confirmed")}</th>
+                  <th>{t("common.workflow")}</th>
+                  <th>{t("insights.qaRuns")}</th>
+                  <th>{t("insights.tmUnits")}</th>
+                  <th>{t("common.terms")}</th>
                 </tr>
               </thead>
               <tbody>
                 {analytics.trends.map((bucket) => (
                   <tr key={`${bucket.startMs}-${bucket.endMs}`}>
-                    <td>{formatShortDate(bucket.startMs)}</td>
+                    <td>{formatShortDate(bucket.startMs, formatDate)}</td>
                     <td>{bucket.targetEdits}</td>
                     <td>{bucket.confirmations}</td>
                     <td>{bucket.workflowTransitions}</td>
@@ -788,7 +868,7 @@ function OverviewPanel({
             </table>
           </div>
         ) : (
-          <UnavailableState label="No trend buckets are available." compact />
+          <UnavailableState label={t("insights.noTrendBuckets")} compact />
         )}
       </section>
     </div>
@@ -818,12 +898,13 @@ function FilesPanel({
   onOpen(documentId: string): void;
   onRecycle(document: Document): void;
 }) {
+  const { t, formatNumber } = useLocale();
   return (
     <div className="insights-files-layout">
       <section className="insights-section insights-files">
         <SectionHeading
-          eyebrow="Active source set"
-          title={`${documents.length} project files`}
+          eyebrow={t("insights.activeSourceSet")}
+          title={t("insights.projectFiles", { count: documents.length })}
           icon={<FileText size={18} />}
           actions={
             <>
@@ -833,7 +914,7 @@ function FilesPanel({
                 onClick={onChooseFiles}
                 disabled={busy}
               >
-                <FilePlus2 size={14} /> Add files
+                <FilePlus2 size={14} /> {t("insights.addFiles")}
               </button>
               <button
                 className="button secondary"
@@ -841,7 +922,7 @@ function FilesPanel({
                 onClick={onChooseFolder}
                 disabled={busy}
               >
-                <FolderOpen size={14} /> Add folder
+                <FolderOpen size={14} /> {t("insights.addFolder")}
               </button>
             </>
           }
@@ -852,7 +933,7 @@ function FilesPanel({
           onDrop={onDrop}
         >
           <UploadCloud size={20} />
-          <span>Drop files or folders to add them</span>
+          <span>{t("insights.dropFiles")}</span>
         </div>
         <div className="insights-file-list">
           {documents.map((item) => {
@@ -867,25 +948,41 @@ function FilesPanel({
                 </div>
                 <div className="insights-file-copy">
                   <span>
-                    {item.format} · revision {item.revision} · version{" "}
-                    {item.currentVersion}
+                    {item.format} ·{" "}
+                    {t("insights.fileRevisionVersion", {
+                      revision: item.revision,
+                      version: item.currentVersion,
+                    })}
                   </span>
                   <strong>{item.relativePath}</strong>
                   <small>
-                    {item.status} · {item.segmentCount} segments
+                    {item.status} ·{" "}
                     {item.degradation.length
-                      ? ` · ${item.degradation.length} diagnostics`
-                      : ""}
+                      ? t("insights.fileSegmentsDiagnostics", {
+                          count: item.segmentCount,
+                          diagnostics: item.degradation.length,
+                        })
+                      : t("insights.fileSegments", {
+                          count: item.segmentCount,
+                        })}
                   </small>
                 </div>
                 <div className="insights-file-progress">
                   <strong>
                     {progress
-                      ? formatBasisPoints(progress.completionBasisPoints)
-                      : "Unavailable"}
+                      ? formatBasisPoints(
+                          progress.completionBasisPoints,
+                          formatNumber,
+                          t,
+                        )
+                      : t("insights.unavailable")}
                   </strong>
                   <span>
-                    {progress ? `${progress.qaBlockers} blockers` : ""}
+                    {progress
+                      ? t("insights.blockerCount", {
+                          count: progress.qaBlockers,
+                        })
+                      : ""}
                   </span>
                 </div>
                 <div className="insights-file-actions">
@@ -894,13 +991,14 @@ function FilesPanel({
                     type="button"
                     onClick={() => onOpen(item.id)}
                   >
-                    Open <ArrowRight size={13} />
+                    {t("common.open")}
+                    <ArrowRight size={13} />
                   </button>
                   <button
                     className="icon-button danger"
                     type="button"
-                    title="Recycle document"
-                    aria-label={`Recycle ${item.name}`}
+                    title={t("insights.recycleDocument")}
+                    aria-label={t("insights.recycleNamed", { name: item.name })}
                     onClick={() => onRecycle(item)}
                     disabled={busy}
                   >
@@ -915,8 +1013,8 @@ function FilesPanel({
       {diagnostics.length ? (
         <section className="insights-section insights-diagnostics">
           <SectionHeading
-            eyebrow="Last batch"
-            title="Import diagnostics"
+            eyebrow={t("insights.lastBatch")}
+            title={t("setup.importDiagnostics")}
             icon={<FilePlus2 size={18} />}
           />
           {diagnostics.map((item, index) => (
@@ -957,20 +1055,30 @@ function ReimportPanel({
   onPreview(): void;
   onApply(): void;
 }) {
+  const { t } = useLocale();
   return (
     <div className="insights-reimport-layout">
       <section className="insights-section">
         <SectionHeading
-          eyebrow="Revision reconciliation"
+          eyebrow={t("insights.revisionReconciliation")}
           title={document.name}
           icon={<RotateCcw size={18} />}
         />
         <dl className="insights-file-facts">
-          <Definition label="Current revision" value={document.revision} />
-          <Definition label="Current version" value={document.currentVersion} />
-          <Definition label="Segments" value={document.segmentCount} />
           <Definition
-            label="Source hash"
+            label={t("insights.currentRevision")}
+            value={document.revision}
+          />
+          <Definition
+            label={t("insights.currentVersion")}
+            value={document.currentVersion}
+          />
+          <Definition
+            label={t("common.segments")}
+            value={document.segmentCount}
+          />
+          <Definition
+            label={t("insights.sourceHash")}
             value={document.sourceSha256.slice(0, 12)}
           />
         </dl>
@@ -981,12 +1089,12 @@ function ReimportPanel({
             onClick={onChoose}
             disabled={busy}
           >
-            <FolderOpen size={14} /> Select replacement
+            <FolderOpen size={14} /> {t("insights.selectReplacement")}
           </button>
           <span title={replacementPath}>
             {replacementPath
               ? fileName(replacementPath)
-              : "No replacement selected"}
+              : t("insights.noReplacement")}
           </span>
           <button
             className="button primary"
@@ -994,7 +1102,7 @@ function ReimportPanel({
             onClick={onPreview}
             disabled={busy || !replacementPath}
           >
-            Preview reconciliation
+            {t("insights.previewReconciliation")}
           </button>
         </div>
       </section>
@@ -1002,8 +1110,10 @@ function ReimportPanel({
       {preview ? (
         <section className="insights-section insights-reimport-preview">
           <SectionHeading
-            eyebrow={`Preview ${preview.previewId.slice(0, 8)}`}
-            title="Reconciliation plan"
+            eyebrow={t("insights.previewId", {
+              id: preview.previewId.slice(0, 8),
+            })}
+            title={t("insights.reconciliation")}
             icon={<FileClock size={18} />}
             actions={
               <button
@@ -1012,16 +1122,35 @@ function ReimportPanel({
                 onClick={onApply}
                 disabled={busy}
               >
-                Apply preview <ArrowRight size={13} />
+                {t("insights.applyPreview")}
+                <ArrowRight size={13} />
               </button>
             }
           />
-          <div className="reimport-counts" aria-label="Re-import counts">
-            <Metric label="Unchanged" value={preview.plan.unchanged} />
-            <Metric label="Changed" value={preview.plan.changed} />
-            <Metric label="New" value={preview.plan.newSegments} />
-            <Metric label="Removed" value={preview.plan.removed} />
-            <Metric label="Ambiguous" value={preview.plan.ambiguous} />
+          <div
+            className="reimport-counts"
+            aria-label={t("insights.reimportCounts")}
+          >
+            <Metric
+              label={t("insights.unchanged")}
+              value={preview.plan.unchanged}
+            />
+            <Metric
+              label={t("insights.changed")}
+              value={preview.plan.changed}
+            />
+            <Metric
+              label={t("insights.newSegments")}
+              value={preview.plan.newSegments}
+            />
+            <Metric
+              label={t("insights.removed")}
+              value={preview.plan.removed}
+            />
+            <Metric
+              label={t("insights.ambiguous")}
+              value={preview.plan.ambiguous}
+            />
           </div>
           <div className="reimport-items">
             {preview.plan.items.slice(0, 100).map((item, index) => (
@@ -1033,12 +1162,16 @@ function ReimportPanel({
                 </span>
                 <strong>
                   {item.oldOrdinal === undefined || item.oldOrdinal === null
-                    ? "New"
-                    : `Old ${item.oldOrdinal + 1}`}
+                    ? t("insights.newItem")
+                    : t("insights.oldOrdinal", {
+                        ordinal: item.oldOrdinal + 1,
+                      })}
                   {" → "}
                   {item.newOrdinal === undefined || item.newOrdinal === null
-                    ? "Removed"
-                    : `New ${item.newOrdinal + 1}`}
+                    ? t("insights.removedLabel")
+                    : t("insights.newOrdinal", {
+                        ordinal: item.newOrdinal + 1,
+                      })}
                 </strong>
                 <small>{item.reason}</small>
               </div>
@@ -1061,13 +1194,14 @@ function ArchivePanel({
   onExport(): void;
   onRecycle(): void;
 }) {
+  const { t } = useLocale();
   return (
     <div className="insights-archive-layout">
       <section className="insights-section insights-archive-action">
         <FolderOpen size={24} />
         <div>
-          <span className="surface-kicker">Portable project</span>
-          <h2>Export archive</h2>
+          <span className="surface-kicker">{t("insights.portable")}</span>
+          <h2>{t("insights.exportArchive")}</h2>
           <p>{projectName}</p>
         </div>
         <button
@@ -1076,17 +1210,15 @@ function ArchivePanel({
           onClick={onExport}
           disabled={busy}
         >
-          <Archive size={14} /> Export .tlcat
+          <Archive size={14} /> {t("insights.exportTlcat")}
         </button>
       </section>
       <section className="insights-section insights-archive-action danger-zone">
         <Trash2 size={24} />
         <div>
-          <span className="surface-kicker">Recoverable deletion</span>
-          <h2>Recycle project</h2>
-          <p>
-            Project restore and purge remain available from the project home.
-          </p>
+          <span className="surface-kicker">{t("insights.recoverable")}</span>
+          <h2>{t("insights.recycleProject")}</h2>
+          <p>{t("insights.restoreFromHome")}</p>
         </div>
         <button
           className="button danger"
@@ -1094,7 +1226,8 @@ function ArchivePanel({
           onClick={onRecycle}
           disabled={busy}
         >
-          <Trash2 size={14} /> Recycle project
+          <Trash2 size={14} />
+          {t("insights.recycleProject")}
         </button>
       </section>
     </div>
@@ -1108,11 +1241,12 @@ function HistoryPanel({
   operations: Operation[];
   total: number;
 }) {
+  const { t, formatDate } = useLocale();
   return (
     <section className="insights-section insights-history">
       <SectionHeading
-        eyebrow={`${total} recorded operations`}
-        title="Project history"
+        eyebrow={t("insights.historyCount", { count: total })}
+        title={t("insights.history")}
         icon={<History size={18} />}
       />
       {operations.length ? (
@@ -1128,7 +1262,7 @@ function HistoryPanel({
               </div>
               <div>
                 <strong>{operation.actor}</strong>
-                <time>{formatDateTime(operation.createdAtMs)}</time>
+                <time>{formatDate(operation.createdAtMs)}</time>
               </div>
               <span>
                 {operation.resultRevision === undefined ||
@@ -1140,10 +1274,7 @@ function HistoryPanel({
           ))}
         </div>
       ) : (
-        <UnavailableState
-          label="No project operations are available."
-          compact
-        />
+        <UnavailableState label={t("insights.noOperations")} compact />
       )}
     </section>
   );
@@ -1164,16 +1295,17 @@ function AnalysisPanel({
   onProfile(value: string): void;
   onRun(): void;
 }) {
+  const { t, formatNumber } = useLocale();
   return (
     <div className="insights-analysis-layout">
       <section className="insights-section analysis-controls">
         <SectionHeading
-          eyebrow="Engine snapshot"
-          title="Project analysis"
+          eyebrow={t("insights.engineSnapshot")}
+          title={t("insights.analysis")}
           icon={<FileClock size={18} />}
         />
         <label>
-          <span>Analysis profile</span>
+          <span>{t("setup.analysisProfile")}</span>
           <select
             value={profileId}
             onChange={(event) => onProfile(event.currentTarget.value)}
@@ -1196,126 +1328,150 @@ function AnalysisPanel({
           ) : (
             <BarChart3 size={14} />
           )}
-          Run analysis
+          {t("insights.runAnalysis")}
         </button>
       </section>
 
       {result ? (
         <section className="insights-section analysis-results">
           <SectionHeading
-            eyebrow={`${result.profileId} · revision ${result.profileRevision}`}
+            eyebrow={t("insights.profileRevision", {
+              profile: result.profileId,
+              revision: result.profileRevision,
+            })}
             title={
-              result.stale ? "Stale analysis snapshot" : "Analysis snapshot"
+              result.stale
+                ? t("insights.staleAnalysis")
+                : t("insights.analysisSnapshot")
             }
             icon={
               result.stale ? <ShieldAlert size={18} /> : <Check size={18} />
             }
           />
           <div className="analysis-summary-grid">
-            <Metric label="Segments" value={result.summary.segments} />
-            <Metric label="Source words" value={result.summary.sourceWords} />
             <Metric
-              label="Source characters"
-              value={result.summary.sourceCharacters}
+              label={t("common.segments")}
+              value={formatNumber(result.summary.segments)}
             />
             <Metric
-              label="Source CJK"
-              value={result.summary.sourceCjkCharacters}
-            />
-            <Metric label="Target words" value={result.summary.targetWords} />
-            <Metric
-              label="Target characters"
-              value={result.summary.targetCharacters}
+              label={t("insights.sourceWords")}
+              value={formatNumber(result.summary.sourceWords)}
             />
             <Metric
-              label="Target CJK"
-              value={result.summary.targetCjkCharacters}
+              label={t("insights.sourceChars")}
+              value={formatNumber(result.summary.sourceCharacters)}
             />
             <Metric
-              label="Repetitions"
-              value={result.summary.repeatedSegments}
+              label={t("insights.sourceCjk")}
+              value={formatNumber(result.summary.sourceCjkCharacters)}
             />
             <Metric
-              label="Weighted effort"
-              value={`${result.summary.weightedEffortMilliUnits} mU`}
+              label={t("insights.targetWords")}
+              value={formatNumber(result.summary.targetWords)}
+            />
+            <Metric
+              label={t("insights.targetChars")}
+              value={formatNumber(result.summary.targetCharacters)}
+            />
+            <Metric
+              label={t("insights.targetCjk")}
+              value={formatNumber(result.summary.targetCjkCharacters)}
+            />
+            <Metric
+              label={t("insights.repetitions")}
+              value={formatNumber(result.summary.repeatedSegments)}
+            />
+            <Metric
+              label={t("insights.weightedEffort")}
+              value={t("insights.milliUnits", {
+                value: formatNumber(result.summary.weightedEffortMilliUnits),
+              })}
             />
           </div>
           <div className="analysis-detail-grid">
             <div>
-              <h3>Match bands</h3>
+              <h3>{t("insights.matchBands")}</h3>
               <dl>
                 <Definition
-                  label="Exact"
-                  value={result.summary.matchBands.exact}
+                  label={t("insights.exact")}
+                  value={formatNumber(result.summary.matchBands.exact)}
                 />
                 <Definition
-                  label="95-99"
-                  value={result.summary.matchBands.match9599}
+                  label={t("insights.match9599")}
+                  value={formatNumber(result.summary.matchBands.match9599)}
                 />
                 <Definition
-                  label="85-94"
-                  value={result.summary.matchBands.match8594}
+                  label={t("insights.match8594")}
+                  value={formatNumber(result.summary.matchBands.match8594)}
                 />
                 <Definition
-                  label="75-84"
-                  value={result.summary.matchBands.match7584}
+                  label={t("insights.match7584")}
+                  value={formatNumber(result.summary.matchBands.match7584)}
                 />
                 <Definition
-                  label="50-74"
-                  value={result.summary.matchBands.match5074}
+                  label={t("insights.match5074")}
+                  value={formatNumber(result.summary.matchBands.match5074)}
                 />
                 <Definition
-                  label="No match"
-                  value={result.summary.matchBands.noMatch}
+                  label={t("insights.noMatch")}
+                  value={formatNumber(result.summary.matchBands.noMatch)}
                 />
                 <Definition
-                  label="Repetitions"
-                  value={result.summary.matchBands.repetitions}
+                  label={t("insights.repetitions")}
+                  value={formatNumber(result.summary.matchBands.repetitions)}
                 />
               </dl>
             </div>
             <div>
-              <h3>Workflow</h3>
+              <h3>{t("common.workflow")}</h3>
               <dl>
                 <Definition
-                  label="Translation"
-                  value={result.summary.workflowTranslation}
+                  label={t("insights.translation")}
+                  value={formatNumber(result.summary.workflowTranslation)}
                 />
                 <Definition
-                  label="Review"
-                  value={result.summary.workflowReview}
+                  label={t("insights.review")}
+                  value={formatNumber(result.summary.workflowReview)}
                 />
                 <Definition
-                  label="Signed"
-                  value={result.summary.workflowSigned}
+                  label={t("insights.signed")}
+                  value={formatNumber(result.summary.workflowSigned)}
                 />
               </dl>
             </div>
             <div>
-              <h3>AI contribution</h3>
+              <h3>{t("insights.aiContribution")}</h3>
               <dl>
                 <Definition
-                  label="Applied"
-                  value={result.summary.aiContribution.appliedSegments}
+                  label={t("insights.appliedSegments")}
+                  value={formatNumber(
+                    result.summary.aiContribution.appliedSegments,
+                  )}
                 />
                 <Definition
-                  label="Retained"
-                  value={result.summary.aiContribution.retainedSegments}
+                  label={t("insights.retainedSegments")}
+                  value={formatNumber(
+                    result.summary.aiContribution.retainedSegments,
+                  )}
                 />
                 <Definition
-                  label="Replaced"
-                  value={result.summary.aiContribution.replacedSegments}
+                  label={t("insights.replacedSegments")}
+                  value={formatNumber(
+                    result.summary.aiContribution.replacedSegments,
+                  )}
                 />
                 <Definition
-                  label="Edit distance"
-                  value={result.summary.aiContribution.editDistance}
+                  label={t("insights.editDistance")}
+                  value={formatNumber(
+                    result.summary.aiContribution.editDistance,
+                  )}
                 />
               </dl>
             </div>
           </div>
         </section>
       ) : (
-        <UnavailableState label="No analysis snapshot has been run in this view." />
+        <UnavailableState label={t("insights.noAnalysis")} />
       )}
     </div>
   );
@@ -1400,6 +1556,7 @@ function ActionDialog({
   onCancel(): void;
   onConfirm(): void;
 }) {
+  const { t } = useLocale();
   return (
     <div className="surface-dialog-backdrop" role="presentation">
       <section
@@ -1410,7 +1567,9 @@ function ActionDialog({
       >
         <header>
           <div>
-            <span className="surface-kicker">Explicit action</span>
+            <span className="surface-kicker">
+              {t("insights.explicitAction")}
+            </span>
             <h2 id="insights-action-title">{action.title}</h2>
           </div>
           {action.danger ? <Trash2 size={20} /> : <RotateCcw size={20} />}
@@ -1423,7 +1582,7 @@ function ActionDialog({
             onClick={onCancel}
             disabled={busy}
           >
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             className={action.danger ? "button danger" : "button primary"}
@@ -1446,42 +1605,70 @@ function ActionDialog({
   );
 }
 
-function formatBasisPoints(value: number): string {
-  return `${(value / 100).toFixed(value % 100 === 0 ? 0 : 1)}%`;
+function formatBasisPoints(
+  value: number,
+  formatNumber: (value: number, options?: Intl.NumberFormatOptions) => string,
+  t: (key: MessageKey, vars?: FormatVars) => string,
+): string {
+  return t("insights.percent", {
+    value: formatNumber(value / 100, {
+      maximumFractionDigits: value % 100 === 0 ? 0 : 1,
+    }),
+  });
 }
 
 function formatOptionalMetric(
   metric: OptionalCountMetric,
-  formatter: (value: number) => string = (value) => value.toLocaleString(),
+  fallback: string,
+  formatter: (value: number) => string,
 ): string {
   return metric.available && metric.value !== null && metric.value !== undefined
     ? formatter(metric.value)
-    : "Unavailable";
+    : fallback;
 }
 
-function formatDuration(value: number): string {
-  if (value < 60_000) return `${Math.round(value / 1000)} sec`;
-  if (value < 3_600_000) return `${Math.round(value / 60_000)} min`;
-  return `${(value / 3_600_000).toFixed(1)} hr`;
-}
-
-function formatMilli(value: number): string {
-  return (value / 1000).toFixed(2);
-}
-
-function formatShortDate(value: number): string {
-  return new Date(value).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
+function formatDuration(
+  value: number,
+  t: (key: MessageKey, vars?: FormatVars) => string,
+  formatNumber: (value: number, options?: Intl.NumberFormatOptions) => string,
+): string {
+  if (value < 60_000) {
+    return t("insights.durationSeconds", {
+      value: formatNumber(Math.round(value / 1000)),
+    });
+  }
+  if (value < 3_600_000) {
+    return t("insights.durationMinutes", {
+      value: formatNumber(Math.round(value / 60_000)),
+    });
+  }
+  return t("insights.durationHours", {
+    value: formatNumber(value / 3_600_000, {
+      maximumFractionDigits: 1,
+    }),
   });
 }
 
-function formatDateTime(value: number): string {
-  return new Date(value).toLocaleString("en-US", {
+function formatMilli(
+  value: number,
+  formatNumber: (value: number, options?: Intl.NumberFormatOptions) => string,
+): string {
+  return formatNumber(value / 1000, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function formatShortDate(
+  value: number,
+  formatDate: (
+    value: Date | number,
+    options?: Intl.DateTimeFormatOptions,
+  ) => string,
+): string {
+  return formatDate(value, {
     month: "short",
     day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
   });
 }
 

@@ -309,6 +309,7 @@ pub enum ErrorCode {
     NotFound,
     Conflict,
     InvalidState,
+    PolicyDenied,
     UnsupportedDocument,
     StorageError,
     ExportError,
@@ -2430,6 +2431,11 @@ mod tests {
             serde_json::to_string(&ErrorCode::ResourceLimitExceeded)
                 .expect("serialize resource limit error code"),
             "\"resource_limit_exceeded\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ErrorCode::PolicyDenied)
+                .expect("serialize policy denial error code"),
+            "\"policy_denied\""
         );
     }
 

@@ -72,6 +72,7 @@ import {
 import { AssistantPanel } from "./AssistantPanel";
 import { formatCorpusProvenance } from "./alignment-corpus-utils";
 import { BrandMark } from "./BrandMark";
+import { clearSegmentDrafts, writeSegmentDraft } from "./draft-persist";
 import {
   EDITOR_COMMANDS,
   acceleratorLabel,
@@ -85,6 +86,8 @@ import {
   type EditorCommandInvocation,
 } from "./editor-commands";
 import type { AppSurface } from "./surface-types";
+import { useLocale } from "./i18n/LocaleProvider";
+import type { MessageKey } from "./i18n/messages";
 import {
   clampPreviewHeight,
   fileName,
@@ -107,31 +110,31 @@ const EDITOR_OVERSCAN = 18;
 
 const CHINESE_CONVERSION_OPTIONS: readonly {
   value: ChineseConversionProfile;
-  label: string;
+  labelKey: MessageKey;
 }[] = [
   {
     value: "simplifiedToTraditional",
-    label: "Simplified → Traditional",
+    labelKey: "workbench.chinese.s2t",
   },
   {
     value: "simplifiedToTaiwan",
-    label: "Simplified → Taiwan (vocabulary)",
+    labelKey: "workbench.chinese.s2tw",
   },
   {
     value: "simplifiedToHongKong",
-    label: "Simplified → Hong Kong",
+    labelKey: "workbench.chinese.s2hk",
   },
   {
     value: "traditionalToSimplified",
-    label: "Traditional → Simplified",
+    labelKey: "workbench.chinese.t2s",
   },
   {
     value: "taiwanToSimplified",
-    label: "Taiwan vocabulary → Simplified",
+    labelKey: "workbench.chinese.tw2s",
   },
   {
     value: "hongKongToSimplified",
-    label: "Hong Kong → Simplified",
+    labelKey: "workbench.chinese.hk2s",
   },
 ];
 
@@ -180,6 +183,8 @@ export function Workbench({
   onNavigate,
   focusSegmentId,
 }: WorkbenchProps) {
+  const { t } = useLocale();
+
   const { snapshot, document } = initialWorkspace;
   const initialPreferences = useMemo(readWorkbenchPreferences, []);
   const [editorRows, setEditorRows] = useState(initialWorkspace.editorRows);
@@ -284,10 +289,13 @@ export function Workbench({
   }));
   const timersRef = useRef(new Map<string, number>());
   const inFlightRef = useRef(new Map<string, Promise<Segment>>());
+  const journalWriteSequenceRef = useRef(new Map<string, number>());
   const composingRef = useRef(new Set<string>());
   const pendingSavesRef = useRef(0);
   const editorGridRef = useRef<HTMLDivElement>(null);
   const editorWindowRequestRef = useRef(0);
+  /** Bumped when authoritative workspace props are replaced (reconnect). */
+  const workspaceGenerationRef = useRef(0);
   const editorFilterInitializedRef = useRef(false);
 
   const applyCorrectedSource = (corrected: Segment) => {
@@ -343,6 +351,63 @@ export function Workbench({
   useEffect(() => {
     draftsRef.current = drafts;
   }, [drafts]);
+
+  useEffect(() => {
+    // `Workbench` stays mounted while the parent replaces its Engine-backed
+    // workspace after reconnect. Reset every projection-derived state slice so
+    // the editor cannot keep rendering rows, revisions, or issues from the
+    // pre-crash session.
+    // Clearing maps alone is not cancellation: in-flight promises must observe
+    // a generation boundary before applying results.
+    for (const timer of timersRef.current.values()) {
+      window.clearTimeout(timer);
+    }
+    timersRef.current.clear();
+    workspaceGenerationRef.current += 1;
+    inFlightRef.current.clear();
+    pendingSavesRef.current = 0;
+    journalWriteSequenceRef.current.clear();
+    composingRef.current.clear();
+    // Invalidate any in-flight segment.editor.list request IDs.
+    editorWindowRequestRef.current += 1;
+    const nextSegments = initialWorkspace.segments;
+    const nextRows = initialWorkspace.editorRows;
+    const nextDrafts = Object.fromEntries(
+      nextSegments.map((segment) => [segment.id, segment.targetText]),
+    );
+    segmentsRef.current = nextSegments;
+    editorRowsRef.current = nextRows;
+    draftsRef.current = nextDrafts;
+    setSegments(nextSegments);
+    setEditorRows(nextRows);
+    setDrafts(nextDrafts);
+    setEditorLoading(false);
+    setEditorOffset(0);
+    setEditorTotal(snapshot.counts.total);
+    setCounts(snapshot.counts);
+    setIssues(initialWorkspace.issues);
+    setMatches([]);
+    setTermMatches([]);
+    setSpellFindings([]);
+    setSpellProvider("unavailable");
+    setSaveState("saved");
+    setToast(null);
+    setActionBusy(null);
+    setSelectedTargetTagId(null);
+    setActiveId((current) =>
+      nextSegments.some((segment) => segment.id === current)
+        ? current
+        : (nextSegments[0]?.id ?? ""),
+    );
+  }, [
+    document.id,
+    initialWorkspace.editorRows,
+    initialWorkspace.issues,
+    initialWorkspace.segments,
+    snapshot.counts,
+    snapshot.project.id,
+    snapshot.project.revision,
+  ]);
 
   useEffect(() => {
     try {
@@ -464,10 +529,40 @@ export function Workbench({
     });
   }, [focusSegmentId]);
 
+  const persistDraftToJournal = (segmentId: string, targetText: string) => {
+    const base =
+      segmentsRef.current.find((segment) => segment.id === segmentId) ??
+      editorRowsRef.current.find((row) => row.segment.id === segmentId)
+        ?.segment;
+    if (!base) return;
+
+    const generation = workspaceGenerationRef.current;
+    const sequence = (journalWriteSequenceRef.current.get(segmentId) ?? 0) + 1;
+    journalWriteSequenceRef.current.set(segmentId, sequence);
+    void writeSegmentDraft({
+      projectId: snapshot.project.id,
+      documentId: document.id,
+      segmentId,
+      expectedRevision: base.revision,
+      targetText,
+    }).catch(() => {
+      // A journal failure must be visible, but must not discard the editor
+      // value or turn an input event into an unhandled rejection. Ignore an
+      // older failure when a newer keystroke has already been journaled.
+      if (workspaceGenerationRef.current !== generation) return;
+      if (journalWriteSequenceRef.current.get(segmentId) !== sequence) return;
+      setSaveState("error");
+      setToast(t("error.generic"));
+    });
+  };
+
   const updateDraft = (segmentId: string, targetText: string) => {
     const next = { ...draftsRef.current, [segmentId]: targetText };
     draftsRef.current = next;
     setDrafts(next);
+    // Journal the edit at the input boundary, before the debounced Engine
+    // mutation. This is the crash-before-debounce recovery contract.
+    persistDraftToJournal(segmentId, targetText);
   };
 
   const applySegment = (segment: Segment) => {
@@ -520,13 +615,19 @@ export function Workbench({
   };
 
   const refreshCounts = async () => {
+    const generation = workspaceGenerationRef.current;
     const latest = await window.translunar.invoke("project.get", {
       projectId: snapshot.project.id,
     });
+    if (workspaceGenerationRef.current !== generation) return;
     setCounts(latest.counts);
   };
 
   const persistSegment = async (segmentId: string): Promise<Segment> => {
+    const generation = workspaceGenerationRef.current;
+    const segmentAtStart = segmentsRef.current.find(
+      (segment) => segment.id === segmentId,
+    );
     const timer = timersRef.current.get(segmentId);
     if (timer !== undefined) {
       window.clearTimeout(timer);
@@ -534,18 +635,40 @@ export function Workbench({
     }
     const existing = inFlightRef.current.get(segmentId);
     if (existing) {
-      await existing;
+      try {
+        await existing;
+      } catch (error) {
+        // Preserve current-generation failure semantics: rethrow rejected
+        // saves. Only a generation change may suppress the rejection.
+        if (workspaceGenerationRef.current === generation) {
+          throw error;
+        }
+      }
+      if (workspaceGenerationRef.current !== generation) {
+        // Stale existing wait: no throw / no unhandled rejection if the
+        // segment is absent from the new projection.
+        return (
+          segmentsRef.current.find((segment) => segment.id === segmentId) ??
+          segmentAtStart!
+        );
+      }
       return persistSegment(segmentId);
     }
     const base = segmentsRef.current.find(
       (segment) => segment.id === segmentId,
     );
     if (!base) throw new Error("The segment is no longer available.");
+    if (workspaceGenerationRef.current !== generation) {
+      return base;
+    }
     const targetText = draftsRef.current[segmentId] ?? base.targetText;
     if (targetText === base.targetText) return base;
 
     pendingSavesRef.current += 1;
     setSaveState("saving");
+    // Ensure the final text is queued after any earlier keystroke journal
+    // writes and before the authoritative Engine mutation is sent.
+    persistDraftToJournal(segmentId, targetText);
     const request = window.translunar.invoke("segment.updateTarget", {
       segmentId,
       targetText,
@@ -556,22 +679,54 @@ export function Workbench({
     let succeeded = false;
     try {
       saved = await request;
+      if (workspaceGenerationRef.current !== generation) {
+        // Stale success: do not apply; return current authoritative segment.
+        return (
+          segmentsRef.current.find((segment) => segment.id === segmentId) ??
+          base
+        );
+      }
       applySegment(saved);
       succeeded = true;
     } catch (error) {
+      if (workspaceGenerationRef.current !== generation) {
+        // Stale rejection: no toast/error state; avoid unhandled rejection
+        // from `void persistSegment(...)`.
+        return (
+          segmentsRef.current.find((segment) => segment.id === segmentId) ??
+          base
+        );
+      }
       setSaveState("error");
       setToast(formatError(error));
       throw error;
     } finally {
-      inFlightRef.current.delete(segmentId);
-      pendingSavesRef.current = Math.max(0, pendingSavesRef.current - 1);
-      if (pendingSavesRef.current === 0 && succeeded) setSaveState("saved");
+      // Identity check: an older promise must not delete a newer same-segment
+      // request registered after a reconnect generation bump.
+      if (inFlightRef.current.get(segmentId) === request) {
+        inFlightRef.current.delete(segmentId);
+      }
+      if (workspaceGenerationRef.current === generation) {
+        pendingSavesRef.current = Math.max(0, pendingSavesRef.current - 1);
+        if (pendingSavesRef.current === 0 && succeeded) setSaveState("saved");
+      }
     }
 
-    if (
-      (draftsRef.current[segmentId] ?? saved.targetText) !== saved.targetText
-    ) {
+    const hasNewerDraft =
+      (draftsRef.current[segmentId] ?? saved.targetText) !== saved.targetText;
+    if (hasNewerDraft) {
+      // Do not clear the journal for an acknowledged value while a newer
+      // keystroke is pending; the recursive save will replace it safely.
       return persistSegment(segmentId);
+    }
+    // Clear only after the Engine acknowledged the same text and no newer
+    // renderer value exists. A failed clear intentionally leaves a recovery
+    // record rather than risking silent data loss.
+    await clearSegmentDrafts([segmentId]).catch(() => undefined);
+    if (workspaceGenerationRef.current !== generation) {
+      return (
+        segmentsRef.current.find((segment) => segment.id === segmentId) ?? base
+      );
     }
     await refreshCounts();
     return saved;
@@ -594,11 +749,13 @@ export function Workbench({
   };
 
   const loadEditorWindow = async (offset: number) => {
+    const generation = workspaceGenerationRef.current;
     const requestId = editorWindowRequestRef.current + 1;
     editorWindowRequestRef.current = requestId;
     setEditorLoading(true);
     try {
       await persistAllSegments();
+      if (workspaceGenerationRef.current !== generation) return;
       const result = await window.translunar.invoke("segment.editor.list", {
         documentId: document.id,
         query: search,
@@ -610,7 +767,12 @@ export function Workbench({
         limit: EDITOR_WINDOW_SIZE,
         includeContext: true,
       });
-      if (editorWindowRequestRef.current !== requestId) return;
+      if (
+        workspaceGenerationRef.current !== generation ||
+        editorWindowRequestRef.current !== requestId
+      ) {
+        return;
+      }
       editorRowsRef.current = result.items;
       setEditorRows(result.items);
       setEditorOffset(result.offset);
@@ -628,9 +790,19 @@ export function Workbench({
         setActiveId(nextSegments[0]?.id ?? "");
       }
     } catch (error) {
-      setToast(formatError(error));
+      if (
+        workspaceGenerationRef.current === generation &&
+        editorWindowRequestRef.current === requestId
+      ) {
+        setToast(formatError(error));
+      }
     } finally {
-      if (editorWindowRequestRef.current === requestId) setEditorLoading(false);
+      if (
+        workspaceGenerationRef.current === generation &&
+        editorWindowRequestRef.current === requestId
+      ) {
+        setEditorLoading(false);
+      }
     }
   };
 
@@ -693,6 +865,7 @@ export function Workbench({
     });
     setMatches(result.matches);
   };
+
 
   const confirmSegment = async (segmentId: string) => {
     if (composingRef.current.has(segmentId)) return;
@@ -860,7 +1033,10 @@ export function Workbench({
         outputPath,
       });
       setToast(
-        `Exported ${result.translatedSegments} translated segments to ${fileName(result.outputPath)}.`,
+        t("workbench.exportedSegments", {
+          count: result.translatedSegments,
+          name: fileName(result.outputPath),
+        }),
       );
     } catch (error) {
       setToast(formatError(error));
@@ -1690,9 +1866,7 @@ export function Workbench({
       !isEditorCommandEnabled(command, getEditorCommandContext(), invocation)
     ) {
       if (activeEditorRow?.workflowState === "signed") {
-        setToast(
-          "Signed segments are read-only. Return the segment to review or translation first.",
-        );
+        setToast(t("workbench.signedReadOnly"));
       }
       setCommandPaletteOpen(false);
       return;
@@ -1759,86 +1933,96 @@ export function Workbench({
           <BrandMark />
           <div>
             <strong>{snapshot.project.name}</strong>
-            <span>{snapshot.project.domain || "Translation project"}</span>
+            <span>
+              {snapshot.project.domain || t("workbench.translationProject")}
+            </span>
           </div>
         </div>
-        <div className="document-switcher" aria-label="Active document">
+        <div
+          className="document-switcher"
+          aria-label={t("workbench.activeDocument")}
+        >
           <FileText size={15} />
           <span>{document.name}</span>
-          <small>{counts.total} segments</small>
+          <small>{t("workbench.segmentsCount", { count: counts.total })}</small>
         </div>
         <label className="project-search">
           <Search size={15} />
           <input
             value={search}
             onChange={(event) => setSearch(event.currentTarget.value)}
-            placeholder="Search in document"
-            aria-label="Search in document"
+            placeholder={t("workbench.searchPlaceholder")}
+            aria-label={t("workbench.searchPlaceholder")}
           />
         </label>
         <div className="app-actions">
           <button
+            id="tutorial-target-qa"
             className="top-command"
             type="button"
             onClick={runQa}
             disabled={actionBusy !== null}
           >
             <ShieldCheck size={15} />
-            Run QA
+            {t("workbench.runQa")}
           </button>
           <button
+            id="tutorial-target-export"
             className="top-command export-command"
             type="button"
             onClick={exportDocument}
             disabled={actionBusy !== null}
           >
             <Download size={15} />
-            Export
+            {t("action.export")}
           </button>
           <div className="surface-menu-wrap">
             <button
               className="icon-button dark"
               type="button"
-              title="More actions"
-              aria-label="More actions"
+              title={t("common.moreActions")}
+              aria-label={t("common.moreActions")}
               aria-expanded={menuOpen}
               onClick={() => setMenuOpen((open) => !open)}
             >
               <MoreHorizontal size={17} />
             </button>
             {menuOpen ? (
-              <nav className="surface-menu" aria-label="Application views">
-                <span>Views</span>
+              <nav
+                className="surface-menu"
+                aria-label={t("nav.applicationViews")}
+              >
+                <span>{t("common.views")}</span>
                 <button type="button" aria-current="page" disabled>
-                  Workbench
+                  {t("nav.workbench")}
                 </button>
                 <button
                   type="button"
                   disabled={actionBusy !== null}
                   onClick={() => void navigateToSurface("qa-review")}
                 >
-                  QA review
+                  {t("nav.qaReview")}
                 </button>
                 <button
                   type="button"
                   disabled={actionBusy !== null}
                   onClick={() => void navigateToSurface("export-review")}
                 >
-                  Export review
+                  {t("nav.exportReview")}
                 </button>
                 <button
                   type="button"
                   disabled={actionBusy !== null}
                   onClick={() => void navigateToSurface("translation-memory")}
                 >
-                  Translation memory
+                  {t("common.translationMemory")}
                 </button>
                 <button
                   type="button"
                   disabled={actionBusy !== null}
                   onClick={() => void navigateToSurface("ai-control")}
                 >
-                  AI control
+                  {t("nav.aiControl")}
                 </button>
                 <hr />
                 <button
@@ -1846,7 +2030,7 @@ export function Workbench({
                   disabled={actionBusy !== null}
                   onClick={() => void navigateToSurface("project-insights")}
                 >
-                  Project insights
+                  {t("nav.projectInsights")}
                 </button>
                 <hr />
                 <button
@@ -1854,7 +2038,7 @@ export function Workbench({
                   disabled={actionBusy !== null}
                   onClick={() => void returnHome()}
                 >
-                  Projects
+                  {t("nav.projects")}
                 </button>
               </nav>
             ) : null}
@@ -1870,43 +2054,47 @@ export function Workbench({
       </div>
 
       <main className="workbench-layout">
-        <section className="editor-region">
+        <section
+          id="tutorial-target-edit"
+          className="editor-region"
+          tabIndex={-1}
+        >
           <div className="editor-toolbar">
             <div
               className="filter-group"
               role="group"
-              aria-label="Segment filters"
+              aria-label={t("workbench.segmentFilters")}
             >
               <FilterButton
-                label="All"
+                label={t("workbench.filterAll")}
                 count={counts.total}
                 value="all"
                 active={filter}
                 onChange={setFilter}
               />
               <FilterButton
-                label="Untranslated"
+                label={t("workbench.filterUntranslated")}
                 count={counts.untranslated}
                 value="untranslated"
                 active={filter}
                 onChange={setFilter}
               />
               <FilterButton
-                label="Draft"
+                label={t("workbench.filterDraft")}
                 count={counts.draft}
                 value="draft"
                 active={filter}
                 onChange={setFilter}
               />
               <FilterButton
-                label="Confirmed"
+                label={t("workbench.filterConfirmed")}
                 count={counts.confirmed}
                 value="confirmed"
                 active={filter}
                 onChange={setFilter}
               />
               <FilterButton
-                label="Issues"
+                label={t("workbench.filterIssues")}
                 count={counts.openIssues}
                 value="issues"
                 active={filter}
@@ -1919,30 +2107,33 @@ export function Workbench({
                 onChange={(event) =>
                   setFilter(event.currentTarget.value as SegmentFilter)
                 }
-                aria-label="Additional segment filters"
+                aria-label={t("workbench.additionalFilters")}
               >
                 <option value="" disabled>
-                  More
+                  {t("workbench.more")}
                 </option>
-                <option value="tagged">Tagged</option>
-                <option value="commented">Commented</option>
+                <option value="tagged">{t("workbench.tagged")}</option>
+                <option value="commented">{t("workbench.commented")}</option>
               </select>
             </div>
-            <div className="match-scope" aria-label="Exact TM matching">
+            <div
+              className="match-scope"
+              aria-label={t("workbench.exactTmMatching")}
+            >
               <Database size={13} />
-              <span>Exact TM</span>
+              <span>{t("workbench.exactTm")}</span>
             </div>
             <div
               className="editor-command-strip"
               role="toolbar"
-              aria-label="Editor commands"
+              aria-label={t("workbench.editorCommands")}
             >
               <button
                 type="button"
                 className="icon-button"
                 onClick={() => setCommandPaletteOpen(true)}
-                title="Command palette"
-                aria-label="Open command palette"
+                title={t("workbench.commandPalette")}
+                aria-label={t("workbench.openCommandPalette")}
               >
                 <Command size={14} />
               </button>
@@ -1950,8 +2141,8 @@ export function Workbench({
                 type="button"
                 className="icon-button"
                 onClick={() => setFindOpen(true)}
-                title="Find and replace"
-                aria-label="Open find and replace"
+                title={t("workbench.findReplace")}
+                aria-label={t("workbench.openFindReplace")}
               >
                 <Search size={14} />
               </button>
@@ -1959,8 +2150,8 @@ export function Workbench({
                 type="button"
                 className="icon-button"
                 onClick={() => void undoEditor()}
-                title="Undo"
-                aria-label="Undo editor operation"
+                title={t("common.undo")}
+                aria-label={t("workbench.undoAria")}
               >
                 <RotateCcw size={14} />
               </button>
@@ -1968,8 +2159,8 @@ export function Workbench({
                 type="button"
                 className="icon-button"
                 onClick={() => void redoEditor()}
-                title="Redo"
-                aria-label="Redo editor operation"
+                title={t("common.redo")}
+                aria-label={t("workbench.redoAria")}
               >
                 <RotateCw size={14} />
               </button>
@@ -1977,34 +2168,37 @@ export function Workbench({
                 type="button"
                 className="icon-button"
                 onClick={() => setCommentsOpen(true)}
-                title="Comments"
-                aria-label="Open segment comments"
+                title={t("common.comments")}
+                aria-label={t("workbench.openComments")}
               >
                 <MessageSquare size={14} />
               </button>
             </div>
-            <div className="issue-nav" aria-label="Issue navigation">
-              <span>Issue</span>
+            <div className="issue-nav" aria-label={t("workbench.issueNav")}>
+              <span>{t("common.issue")}</span>
               <button
                 type="button"
                 className="icon-button"
                 onClick={() => navigateIssue(-1)}
                 disabled={!openIssueIds.length}
-                title="Previous issue"
-                aria-label="Previous issue"
+                title={t("workbench.prevIssue")}
+                aria-label={t("workbench.prevIssue")}
               >
                 <ChevronLeft size={14} />
               </button>
               <span className="issue-position">
-                {issuePosition} of {openIssueIds.length}
+                {t("common.positionOf", {
+                  position: issuePosition,
+                  total: openIssueIds.length,
+                })}
               </span>
               <button
                 type="button"
                 className="icon-button"
                 onClick={() => navigateIssue(1)}
                 disabled={!openIssueIds.length}
-                title="Next issue"
-                aria-label="Next issue"
+                title={t("workbench.nextIssue")}
+                aria-label={t("workbench.nextIssue")}
               >
                 <ChevronRight size={14} />
               </button>
@@ -2020,7 +2214,7 @@ export function Workbench({
                 }
               >
                 <Check size={14} />
-                Confirm
+                {t("workbench.confirm")}
               </button>
             ) : null}
           </div>
@@ -2029,7 +2223,7 @@ export function Workbench({
             <div
               className="segment-grid"
               role="region"
-              aria-label="Translation segments"
+              aria-label={t("workbench.segmentsAria")}
               aria-busy={editorLoading}
               ref={editorGridRef}
               onScroll={onEditorScroll}
@@ -2038,9 +2232,17 @@ export function Workbench({
                 <thead>
                   <tr>
                     <th className="id-column">ID</th>
-                    <th className="status-column">Status</th>
-                    <th>Source ({snapshot.project.sourceLocale})</th>
-                    <th>Target ({snapshot.project.targetLocale})</th>
+                    <th className="status-column">{t("common.status")}</th>
+                    <th>
+                      {t("workbench.sourceColumn", {
+                        locale: snapshot.project.sourceLocale,
+                      })}
+                    </th>
+                    <th>
+                      {t("workbench.targetColumn", {
+                        locale: snapshot.project.targetLocale,
+                      })}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2072,9 +2274,7 @@ export function Workbench({
                     return (
                       <tr
                         key={segment.id}
-                        className={
-                          active ? "segment-row active" : "segment-row"
-                        }
+                        className={active ? "segment-row active" : "segment-row"}
                         data-segment-row={segment.id}
                         aria-rowindex={segment.ordinal + 2}
                         onClick={() => setActiveId(segment.id)}
@@ -2098,21 +2298,21 @@ export function Workbench({
                             <div
                               className="segment-tools"
                               role="toolbar"
-                              aria-label="Active segment tools"
+                              aria-label={t("workbench.segmentTools")}
                             >
                               <button
                                 type="button"
                                 onClick={() => void copyProtectedTags()}
-                                aria-label="Copy protected tags"
+                                aria-label={t("workbench.copyTags")}
                                 disabled={editorRow?.workflowState === "signed"}
                               >
                                 <Tags size={12} />
-                                Tags
+                                {t("workbench.tags")}
                               </button>
                               <button
                                 type="button"
                                 onClick={() => void insertProtectedTag(false)}
-                                aria-label="Insert protected tag"
+                                aria-label={t("workbench.insertTag")}
                                 disabled={editorRow?.workflowState === "signed"}
                               >
                                 <Tags size={12} />+
@@ -2120,7 +2320,7 @@ export function Workbench({
                               <button
                                 type="button"
                                 onClick={() => void insertProtectedTag(true)}
-                                aria-label="Insert protected tag pair"
+                                aria-label={t("workbench.insertTagPair")}
                                 disabled={editorRow?.workflowState === "signed"}
                               >
                                 <Tags size={12} />±
@@ -2128,7 +2328,7 @@ export function Workbench({
                               <button
                                 type="button"
                                 onClick={() => void splitActiveSegment()}
-                                aria-label="Split segment"
+                                aria-label={t("workbench.splitSegment")}
                                 disabled={editorRow?.workflowState === "signed"}
                               >
                                 <Split size={12} />
@@ -2136,7 +2336,7 @@ export function Workbench({
                               <button
                                 type="button"
                                 onClick={() => void mergeActiveSegment()}
-                                aria-label="Merge with next segment"
+                                aria-label={t("workbench.mergeNext")}
                                 disabled={
                                   !mergeEligible ||
                                   editorRow?.workflowState === "signed"
@@ -2152,7 +2352,7 @@ export function Workbench({
                               <button
                                 type="button"
                                 onClick={openSourceCorrection}
-                                aria-label="Correct source"
+                                aria-label={t("workbench.correctSource")}
                                 disabled={editorRow?.workflowState === "signed"}
                               >
                                 <Pencil size={12} />
@@ -2160,7 +2360,7 @@ export function Workbench({
                               <button
                                 type="button"
                                 onClick={() => setChineseConversionOpen(true)}
-                                aria-label="Open Chinese conversion"
+                                aria-label={t("workbench.openChinese")}
                                 disabled={
                                   editorRow?.workflowState === "signed" ||
                                   !(
@@ -2173,7 +2373,7 @@ export function Workbench({
                               <button
                                 type="button"
                                 onClick={() => setCommentsOpen(true)}
-                                aria-label="Open comments"
+                                aria-label={t("workbench.openCommentsShort")}
                               >
                                 <MessageSquare size={12} />
                                 {editorRow?.comments.filter(
@@ -2183,7 +2383,7 @@ export function Workbench({
                               <button
                                 type="button"
                                 onClick={() => void openReviewPanel()}
-                                aria-label="Open review panel"
+                                aria-label={t("workbench.openReview")}
                               >
                                 <GitCompareArrows size={12} />
                                 {editorRow?.workflowState}
@@ -2193,7 +2393,7 @@ export function Workbench({
                           {editorRow?.targetTags.length ? (
                             <div
                               className="target-tag-strip"
-                              aria-label="Target protected tags"
+                              aria-label={t("workbench.targetTags")}
                             >
                               {editorRow.targetTags.map((tag) => (
                                 <button
@@ -2208,8 +2408,14 @@ export function Workbench({
                                   disabled={
                                     editorRow.workflowState === "signed"
                                   }
-                                  aria-label={`Select protected tag ${tag.displayText || tag.kind} at position ${tag.position}`}
-                                  title="Select, then use Move tag to caret"
+                                  aria-label={t(
+                                    "workbench.selectProtectedTag",
+                                    {
+                                      tag: tag.displayText || tag.kind,
+                                      position: tag.position,
+                                    },
+                                  )}
+                                  title={t("workbench.moveTagHint")}
                                 >
                                   {tag.displayText || tag.kind}
                                   <small>{tag.position}</small>
@@ -2220,8 +2426,10 @@ export function Workbench({
                           <textarea
                             data-editor-for={segment.id}
                             value={drafts[segment.id] ?? segment.targetText}
-                            placeholder="Untranslated"
-                            aria-label={`Target segment ${segment.ordinal + 1}`}
+                            placeholder={t("workbench.untranslated")}
+                            aria-label={t("workbench.targetSegment", {
+                              ordinal: segment.ordinal + 1,
+                            })}
                             aria-invalid={Boolean(issue)}
                             disabled={editorRow?.workflowState === "signed"}
                             onFocus={() => setActiveId(segment.id)}
@@ -2256,11 +2464,13 @@ export function Workbench({
                                 );
                                 scheduleSave(segment.id, 80);
                               }}
-                              aria-label={`Accept ${autocomplete.provider} autocomplete`}
+                              aria-label={t("workbench.acceptAutocomplete", {
+                                provider: autocomplete.provider,
+                              })}
                             >
                               <small>{autocomplete.provider}</small>
                               <span>{autocomplete.tail}</span>
-                              <kbd>Tab</kbd>
+                              <kbd>{t("workbench.tab")}</kbd>
                             </button>
                           ) : null}
                           {issue ? (
@@ -2283,7 +2493,9 @@ export function Workbench({
                           {active && spellFindings.length ? (
                             <div
                               className="spell-findings"
-                              aria-label={`Spell findings from ${spellProvider}`}
+                              aria-label={t("workbench.spellFindingsFrom", {
+                                provider: spellProvider,
+                              })}
                             >
                               {spellFindings.slice(0, 4).map((finding) => (
                                 <button
@@ -2292,7 +2504,7 @@ export function Workbench({
                                   onClick={() =>
                                     void addDictionaryFinding(finding)
                                   }
-                                  title="Add to user dictionary"
+                                  title={t("workbench.addDictionary")}
                                 >
                                   <AlertTriangle size={10} />
                                   {finding.word}
@@ -2322,7 +2534,9 @@ export function Workbench({
                 </tbody>
               </table>
               {visibleSegments.length === 0 ? (
-                <div className="empty-grid">No segments match this view.</div>
+                <div className="empty-grid">
+                  {t("workbench.noSegmentsMatch")}
+                </div>
               ) : null}
             </div>
             <DocumentPreview
@@ -2366,7 +2580,7 @@ export function Workbench({
             className="command-palette"
             role="dialog"
             aria-modal="true"
-            aria-label="Command palette"
+            aria-label={t("workbench.commandPalette")}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <header>
@@ -2375,14 +2589,14 @@ export function Workbench({
                 autoFocus
                 value={commandQuery}
                 onChange={(event) => setCommandQuery(event.currentTarget.value)}
-                placeholder="Type a command"
-                aria-label="Filter commands"
+                placeholder={t("workbench.typeCommand")}
+                aria-label={t("workbench.filterCommands")}
               />
               <button
                 type="button"
                 className="icon-button"
                 onClick={() => setCommandPaletteOpen(false)}
-                aria-label="Close command palette"
+                aria-label={t("workbench.closeCommandPalette")}
               >
                 <X size={14} />
               </button>
@@ -2428,19 +2642,19 @@ export function Workbench({
             className="editor-dialog preferences-dialog"
             role="dialog"
             aria-modal="true"
-            aria-label="Editor preferences"
+            aria-label={t("workbench.preferencesAria")}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <header>
               <div>
-                <small>Workspace preferences</small>
-                <strong>Editor and shortcuts</strong>
+                <small>{t("workbench.workspacePreferences")}</small>
+                <strong>{t("workbench.editorShortcuts")}</strong>
               </div>
               <button
                 type="button"
                 className="icon-button"
                 onClick={() => setPreferencesOpen(false)}
-                aria-label="Close editor preferences"
+                aria-label={t("workbench.closePreferences")}
               >
                 <X size={14} />
               </button>
@@ -2457,9 +2671,9 @@ export function Workbench({
                     })
                   }
                 >
-                  <option value="system">System</option>
-                  <option value="light">Light</option>
-                  <option value="dark">Dark</option>
+                  <option value="system">{t("workbench.themeSystem")}</option>
+                  <option value="light">{t("workbench.themeLight")}</option>
+                  <option value="dark">{t("workbench.themeDark")}</option>
                 </select>
               </label>
               <label>
@@ -2504,13 +2718,13 @@ export function Workbench({
             <div
               className="shortcut-presets"
               role="group"
-              aria-label="Shortcut presets"
+              aria-label={t("workbench.shortcutPresets")}
             >
               <button
                 type="button"
                 onClick={() => applyShortcutPreset("default")}
               >
-                Default
+                {t("workbench.default")}
               </button>
               <button
                 type="button"
@@ -2551,7 +2765,7 @@ export function Workbench({
                 className="confirm-button"
                 onClick={() => void saveShortcutPreferences()}
               >
-                Save shortcuts
+                {t("workbench.saveShortcuts")}
               </button>
             </footer>
           </section>
@@ -2568,19 +2782,19 @@ export function Workbench({
             className="editor-dialog concordance-dialog"
             role="dialog"
             aria-modal="true"
-            aria-label="Concordance"
+            aria-label={t("tm.concordance")}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <header>
               <div>
-                <small>Translation memory</small>
-                <strong>Concordance</strong>
+                <small>{t("common.translationMemory")}</small>
+                <strong>{t("tm.concordance")}</strong>
               </div>
               <button
                 type="button"
                 className="icon-button"
                 onClick={() => setConcordanceOpen(false)}
-                aria-label="Close concordance"
+                aria-label={t("tm.closeConcordance")}
               >
                 <X size={14} />
               </button>
@@ -2592,7 +2806,7 @@ export function Workbench({
                 onChange={(event) =>
                   setConcordanceQuery(event.currentTarget.value)
                 }
-                aria-label="Concordance query"
+                aria-label={t("tm.concordanceQuery")}
               />
               <select
                 value={concordanceSide}
@@ -2601,11 +2815,11 @@ export function Workbench({
                     event.currentTarget.value as typeof concordanceSide,
                   )
                 }
-                aria-label="Concordance direction"
+                aria-label={t("tm.concordanceDirection")}
               >
-                <option value="both">Source and target</option>
-                <option value="source">Source</option>
-                <option value="target">Target</option>
+                <option value="both">{t("tm.sourceAndTarget")}</option>
+                <option value="source">{t("common.source")}</option>
+                <option value="target">{t("common.target")}</option>
               </select>
               <button
                 type="button"
@@ -2613,7 +2827,7 @@ export function Workbench({
                 onClick={() => void runConcordance()}
                 disabled={!concordanceQuery.trim() || concordanceBusy}
               >
-                Search
+                {t("home.search")}
               </button>
             </div>
             <div className="concordance-results" aria-live="polite">
@@ -2636,7 +2850,7 @@ export function Workbench({
                       setConcordanceOpen(false);
                     }}
                   >
-                    Insert target
+                    {t("workbench.insertTarget")}
                   </button>
                 </article>
               ))}
@@ -2676,7 +2890,7 @@ export function Workbench({
                         setConcordanceOpen(false);
                       }}
                     >
-                      Insert target
+                      {t("workbench.insertTarget")}
                     </button>
                   ) : null}
                 </article>
@@ -2684,7 +2898,7 @@ export function Workbench({
               {!concordanceBusy &&
               concordanceHits.length === 0 &&
               concordanceCorpusHits.length === 0 ? (
-                <div className="empty-comment">No concordance results.</div>
+                <div className="empty-comment">{t("tm.noConcordance")}</div>
               ) : null}
             </div>
           </section>
@@ -2701,42 +2915,42 @@ export function Workbench({
             className="editor-dialog source-correction-dialog"
             role="dialog"
             aria-modal="true"
-            aria-label="Correct source"
+            aria-label={t("workbench.correctSource")}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <header>
               <div>
-                <small>Audited source edit</small>
-                <strong>Correct source</strong>
+                <small>{t("workbench.auditedSource")}</small>
+                <strong>{t("workbench.correctSource")}</strong>
               </div>
               <button
                 type="button"
                 className="icon-button"
                 onClick={() => setSourceCorrectionOpen(false)}
-                aria-label="Close source correction"
+                aria-label={t("workbench.closeSourceCorrection")}
               >
                 <X size={14} />
               </button>
             </header>
             <label>
-              Corrected source
+              {t("workbench.correctedSource")}
               <textarea
                 autoFocus
                 value={sourceCorrectionText}
                 onChange={(event) =>
                   setSourceCorrectionText(event.currentTarget.value)
                 }
-                aria-label="Corrected source"
+                aria-label={t("workbench.correctedSource")}
               />
             </label>
             <label>
-              Reason
+              {t("common.reason")}
               <input
                 value={sourceCorrectionReason}
                 onChange={(event) =>
                   setSourceCorrectionReason(event.currentTarget.value)
                 }
-                aria-label="Source correction reason"
+                aria-label={t("workbench.sourceCorrectionReason")}
               />
             </label>
             <footer>
@@ -2750,7 +2964,7 @@ export function Workbench({
                   sourceCorrectionText === activeSegment?.sourceText
                 }
               >
-                Apply correction
+                {t("workbench.applyCorrection")}
               </button>
             </footer>
           </section>
@@ -2767,25 +2981,25 @@ export function Workbench({
             className="editor-dialog chinese-conversion-dialog"
             role="dialog"
             aria-modal="true"
-            aria-label="Chinese conversion"
+            aria-label={t("workbench.chineseConversion")}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <header>
               <div>
-                <small>Embedded OpenCC dictionaries</small>
-                <strong>Simplified / Traditional Chinese</strong>
+                <small>{t("workbench.chineseDicts")}</small>
+                <strong>{t("workbench.simplifiedTraditional")}</strong>
               </div>
               <button
                 type="button"
                 className="icon-button"
                 onClick={() => setChineseConversionOpen(false)}
-                aria-label="Close Chinese conversion"
+                aria-label={t("workbench.closeChinese")}
               >
                 <X size={14} />
               </button>
             </header>
             <label>
-              Conversion profile
+              {t("workbench.conversionProfile")}
               <select
                 autoFocus
                 value={chineseConversionProfile}
@@ -2794,20 +3008,16 @@ export function Workbench({
                     event.currentTarget.value as ChineseConversionProfile,
                   )
                 }
-                aria-label="Chinese conversion profile"
+                aria-label={t("workbench.chineseProfile")}
               >
                 {CHINESE_CONVERSION_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
-                    {option.label}
+                    {t(option.labelKey)}
                   </option>
                 ))}
               </select>
             </label>
-            <p>
-              The Engine converts the complete active target with embedded
-              OpenCC-grade phrase dictionaries. The change is revisioned and can
-              be undone or redone.
-            </p>
+            <p>{t("workbench.conversionDescription")}</p>
             <footer>
               <button
                 type="button"
@@ -2818,7 +3028,7 @@ export function Workbench({
                   !(drafts[activeSegment.id] ?? activeSegment.targetText).trim()
                 }
               >
-                Apply conversion
+                {t("workbench.applyConversion")}
               </button>
             </footer>
           </section>
@@ -2835,19 +3045,19 @@ export function Workbench({
             className="editor-dialog find-dialog"
             role="dialog"
             aria-modal="true"
-            aria-label="Find and replace"
+            aria-label={t("workbench.findReplace")}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <header>
               <div>
-                <small>Project transform</small>
-                <strong>Find and replace</strong>
+                <small>{t("workbench.projectTransform")}</small>
+                <strong>{t("workbench.findReplace")}</strong>
               </div>
               <button
                 type="button"
                 className="icon-button"
                 onClick={() => setFindOpen(false)}
-                aria-label="Close find and replace"
+                aria-label={t("workbench.closeFindReplace")}
               >
                 <X size={14} />
               </button>
@@ -2864,7 +3074,7 @@ export function Workbench({
               />
             </label>
             <label>
-              Replace with
+              {t("workbench.replaceWith")}
               <input
                 value={replacement}
                 onChange={(event) => {
@@ -2875,7 +3085,7 @@ export function Workbench({
             </label>
             <div className="find-options">
               <label>
-                Scope
+                {t("common.scope")}
                 <select
                   value={findField}
                   onChange={(event) => {
@@ -2883,9 +3093,9 @@ export function Workbench({
                     setReplacePreview(null);
                   }}
                 >
-                  <option value="target">Target</option>
-                  <option value="source">Source</option>
-                  <option value="both">Source and target</option>
+                  <option value="target">{t("common.target")}</option>
+                  <option value="source">{t("common.source")}</option>
+                  <option value="both">{t("tm.sourceAndTarget")}</option>
                 </select>
               </label>
               <label>
@@ -2897,7 +3107,7 @@ export function Workbench({
                     setReplacePreview(null);
                   }}
                 />
-                Regular expression
+                {t("workbench.regularExpression")}
               </label>
               <label>
                 <input
@@ -2908,7 +3118,7 @@ export function Workbench({
                     setReplacePreview(null);
                   }}
                 />
-                Case sensitive
+                {t("workbench.caseSensitive")}
               </label>
               <label>
                 <input
@@ -2919,7 +3129,7 @@ export function Workbench({
                     setReplacePreview(null);
                   }}
                 />
-                Whole word
+                {t("workbench.wholeWord")}
               </label>
             </div>
             {replacePreview ? (
@@ -2946,7 +3156,7 @@ export function Workbench({
                 onClick={() => void previewReplacement()}
                 disabled={!findQuery.trim()}
               >
-                Preview
+                {t("workbench.preview")}
               </button>
               <button
                 type="button"
@@ -2954,7 +3164,7 @@ export function Workbench({
                 onClick={() => void applyReplacement()}
                 disabled={!replacePreview?.items.length}
               >
-                Apply unchanged preview
+                {t("workbench.applyUnchanged")}
               </button>
             </footer>
           </section>
@@ -2962,19 +3172,22 @@ export function Workbench({
       ) : null}
 
       {commentsOpen ? (
-        <aside className="comments-sheet" aria-label="Segment comments">
+        <aside
+          className="comments-sheet"
+          aria-label={t("workbench.segmentComments")}
+        >
           <header>
             <div>
               <small>
                 Segment {activeSegment ? activeSegment.ordinal + 1 : "—"}
               </small>
-              <strong>Comments</strong>
+              <strong>{t("common.comments")}</strong>
             </div>
             <button
               type="button"
               className="icon-button"
               onClick={() => setCommentsOpen(false)}
-              aria-label="Close comments"
+              aria-label={t("workbench.closeComments")}
             >
               <X size={14} />
             </button>
@@ -2990,20 +3203,20 @@ export function Workbench({
                     <strong>{comment.author}</strong>
                     <small>
                       {comment.immutable
-                        ? "import note"
+                        ? t("workbench.importNote")
                         : `r${comment.revision}`}
                     </small>
                   </header>
                   {editingCommentId === comment.id ? (
                     <label className="comment-editor">
-                      Edit comment
+                      {t("workbench.editComment")}
                       <textarea
                         autoFocus
                         value={commentEditText}
                         onChange={(event) =>
                           setCommentEditText(event.currentTarget.value)
                         }
-                        aria-label="Edited comment text"
+                        aria-label={t("workbench.editedComment")}
                       />
                     </label>
                   ) : (
@@ -3020,7 +3233,7 @@ export function Workbench({
                               setCommentEditText("");
                             }}
                           >
-                            Cancel
+                            {t("common.cancel")}
                           </button>
                           <button
                             type="button"
@@ -3030,7 +3243,7 @@ export function Workbench({
                               commentEditText.trim() === comment.text
                             }
                           >
-                            Save edit
+                            {t("workbench.saveEdit")}
                           </button>
                         </>
                       ) : (
@@ -3041,7 +3254,7 @@ export function Workbench({
                             setCommentEditText(comment.text);
                           }}
                         >
-                          Edit
+                          {t("common.edit")}
                         </button>
                       )}
                       <button
@@ -3055,34 +3268,36 @@ export function Workbench({
                           )
                         }
                       >
-                        {comment.resolved ? "Reopen" : "Resolve"}
+                        {comment.resolved
+                          ? t("workbench.reopen")
+                          : t("workbench.resolve")}
                       </button>
                       <button
                         type="button"
                         onClick={() => void deleteComment(comment)}
                       >
-                        Delete
+                        {t("common.delete")}
                       </button>
                     </footer>
                   ) : null}
                 </article>
               ))
             ) : (
-              <div className="empty-comment">No comments on this segment.</div>
+              <div className="empty-comment">{t("workbench.noComments")}</div>
             )}
           </div>
           <footer>
             <textarea
               value={commentDraft}
               onChange={(event) => setCommentDraft(event.currentTarget.value)}
-              placeholder="Add a durable comment"
-              aria-label="New comment"
+              placeholder={t("workbench.addDurableComment")}
+              aria-label={t("workbench.newComment")}
             />
             <button
               type="button"
               onClick={() => void createComment()}
               disabled={!commentDraft.trim()}
-              aria-label="Add comment"
+              aria-label={t("workbench.addComment")}
             >
               <Send size={14} />
             </button>
@@ -3098,14 +3313,13 @@ export function Workbench({
             aria-modal="true"
             aria-labelledby="direct-signoff-title"
           >
-            <span className="surface-kicker">Review bypass</span>
-            <h2 id="direct-signoff-title">Sign off directly</h2>
-            <p>
-              Mandatory review is disabled for this project. This explicit
-              decision is written to durable editor history.
-            </p>
+            <span className="surface-kicker">
+              {t("workbench.reviewBypass")}
+            </span>
+            <h2 id="direct-signoff-title">{t("workbench.signOffDirectly")}</h2>
+            <p>{t("workbench.mandatoryDisabled")}</p>
             <label>
-              Actor
+              {t("common.actor")}
               <input
                 autoFocus
                 value={directSignoffActor}
@@ -3115,7 +3329,7 @@ export function Workbench({
               />
             </label>
             <label>
-              Reason
+              {t("common.reason")}
               <textarea
                 value={directSignoffReason}
                 onChange={(event) =>
@@ -3129,7 +3343,7 @@ export function Workbench({
                 className="button secondary"
                 onClick={() => setDirectSignoffOpen(false)}
               >
-                Cancel
+                {t("common.cancel")}
               </button>
               <button
                 type="button"
@@ -3139,7 +3353,7 @@ export function Workbench({
                 }
                 onClick={() => void confirmDirectSignoff()}
               >
-                Sign off
+                {t("workbench.signOff")}
               </button>
             </footer>
           </section>
@@ -3149,18 +3363,18 @@ export function Workbench({
       {reviewOpen ? (
         <aside
           className="comments-sheet review-sheet"
-          aria-label="Review revisions"
+          aria-label={t("workbench.reviewRevisions")}
         >
           <header>
             <div>
-              <small>Local review workflow</small>
-              <strong>Review revisions</strong>
+              <small>{t("workbench.localReview")}</small>
+              <strong>{t("workbench.reviewRevisions")}</strong>
             </div>
             <button
               type="button"
               className="icon-button"
               onClick={() => setReviewOpen(false)}
-              aria-label="Close review panel"
+              aria-label={t("workbench.closeReview")}
             >
               <X size={14} />
             </button>
@@ -3169,7 +3383,7 @@ export function Workbench({
             <div
               className="workflow-controls"
               role="group"
-              aria-label="Segment workflow state"
+              aria-label={t("workbench.workflowState")}
             >
               {(["translation", "review", "signed"] as const).map((state) => (
                 <button
@@ -3196,14 +3410,14 @@ export function Workbench({
                   </header>
                   {review.proposedSource ? (
                     <div>
-                      <small>Source revision</small>
+                      <small>{t("workbench.sourceRevision")}</small>
                       <WordDiff
                         before={review.beforeSource ?? ""}
                         after={review.proposedSource ?? ""}
                       />
                     </div>
                   ) : null}
-                  <small>Target revision</small>
+                  <small>{t("workbench.targetRevision")}</small>
                   <WordDiff
                     before={review.beforeTarget}
                     after={review.proposedTarget}
@@ -3236,7 +3450,7 @@ export function Workbench({
               (review) => review.segmentId === activeSegment?.id,
             ) ? (
               <div className="empty-comment">
-                No review proposals for this segment.
+                {t("workbench.noReviewProposals")}
               </div>
             ) : null}
           </div>
@@ -3244,14 +3458,14 @@ export function Workbench({
             <textarea
               value={reviewSource}
               onChange={(event) => setReviewSource(event.currentTarget.value)}
-              placeholder="Proposed source revision"
-              aria-label="Proposed source revision"
+              placeholder={t("workbench.proposedSource")}
+              aria-label={t("workbench.proposedSource")}
             />
             <textarea
               value={reviewTarget}
               onChange={(event) => setReviewTarget(event.currentTarget.value)}
-              placeholder="Proposed target revision"
-              aria-label="Proposed target revision"
+              placeholder={t("workbench.proposedTarget")}
+              aria-label={t("workbench.proposedTarget")}
             />
             <label className="review-tag-option">
               <input
@@ -3261,12 +3475,12 @@ export function Workbench({
                   setReviewCopyTags(event.currentTarget.checked)
                 }
               />
-              Propose protected tags copied from source
+              {t("workbench.proposeTags")}
             </label>
             <button
               type="button"
               onClick={() => void createReview()}
-              aria-label="Create review proposal"
+              aria-label={t("workbench.createReview")}
             >
               <GitCompareArrows size={14} />
             </button>
@@ -3448,6 +3662,7 @@ function TaggedText({
 }
 
 function WordDiff({ before, after }: { before: string; after: string }) {
+  const { t } = useLocale();
   const beforeWords = before.split(/(\s+)/u);
   const afterWords = after.split(/(\s+)/u);
   let prefix = 0;
@@ -3478,7 +3693,7 @@ function WordDiff({ before, after }: { before: string; after: string }) {
   return (
     <div
       className="word-diff"
-      aria-label={`Changed from ${before} to ${after}`}
+      aria-label={t("workbench.changedFrom", { before, after })}
     >
       <span>{sharedPrefix}</span>
       {removed ? <del>{removed}</del> : null}
@@ -3513,6 +3728,7 @@ function DocumentPreview({
   onFollowActiveChange,
   onSourceCorrected,
 }: PreviewProps) {
+  const { t } = useLocale();
   const resizeRef = useRef<{
     pointerId: number;
     startY: number;
@@ -3702,11 +3918,14 @@ function DocumentPreview({
   };
 
   return (
-    <section className="document-preview" aria-label="Document preview">
+    <section
+      className="document-preview"
+      aria-label={t("workbench.documentPreview")}
+    >
       <div
         className="preview-resizer"
         role="separator"
-        aria-label="Resize document preview"
+        aria-label={t("workbench.resizePreview")}
         aria-orientation="horizontal"
         aria-valuemin={PREVIEW_MIN_HEIGHT}
         aria-valuemax={PREVIEW_MAX_HEIGHT}
@@ -3719,29 +3938,39 @@ function DocumentPreview({
         onKeyDown={resizeWithKeyboard}
       />
       <header>
-        <strong>Document preview</strong>
+        <strong>{t("workbench.documentPreview")}</strong>
         <span>{document.name}</span>
         <small>
-          {activeSegment ? `Segment ${activeSegment.ordinal + 1}` : ""}
+          {activeSegment
+            ? t("workbench.segmentLabel", {
+                number: activeSegment.ordinal + 1,
+              })
+            : ""}
         </small>
         <label className="preview-follow">
           <input
             type="checkbox"
-            aria-label="Follow active segment"
+            aria-label={t("workbench.followActiveSegment")}
             checked={followActive}
             onChange={(event) =>
               onFollowActiveChange(event.currentTarget.checked)
             }
           />
-          <span>Follow active</span>
+          <span>{t("workbench.followActive")}</span>
         </label>
         <div className="preview-actions">
           <button
             type="button"
             className="icon-button"
-            title={mode === "collapsed" ? "Open preview" : "Collapse preview"}
+            title={
+              mode === "collapsed"
+                ? t("workbench.openPreview")
+                : t("workbench.collapsePreview")
+            }
             aria-label={
-              mode === "collapsed" ? "Open preview" : "Collapse preview"
+              mode === "collapsed"
+                ? t("workbench.openPreview")
+                : t("workbench.collapsePreview")
             }
             onClick={() => onModeChange(togglePanelCollapsed(mode))}
           >
@@ -3779,7 +4008,7 @@ function DocumentPreview({
             <div
               className="pdf-page-picker"
               role="listbox"
-              aria-label="PDF page"
+              aria-label={t("workbench.pdfPage")}
             >
               {pdfPages.map((page) => (
                 <button
@@ -3812,7 +4041,10 @@ function DocumentPreview({
                 </span>
               )}
             </div>
-            <div className="pdf-block-list" aria-label="Extracted PDF blocks">
+            <div
+              className="pdf-block-list"
+              aria-label={t("workbench.extractedBlocks")}
+            >
               {pdfPage?.blocks.map((block) => (
                 <article
                   key={block.segmentId}
@@ -3841,15 +4073,15 @@ function DocumentPreview({
                     correctionOpen ? (
                       <div className="ocr-correction">
                         <textarea
-                          aria-label="Correct OCR source"
+                          aria-label={t("workbench.correctOcr")}
                           value={correctionText}
                           onChange={(event) =>
                             setCorrectionText(event.currentTarget.value)
                           }
                         />
                         <input
-                          aria-label="OCR correction reason"
-                          placeholder="Reason for correction"
+                          aria-label={t("workbench.ocrReason")}
+                          placeholder={t("workbench.reasonForCorrection")}
                           value={correctionReason}
                           onChange={(event) =>
                             setCorrectionReason(event.currentTarget.value)
@@ -3874,7 +4106,7 @@ function DocumentPreview({
                             type="button"
                             onClick={() => setCorrectionOpen(false)}
                           >
-                            Cancel
+                            {t("common.cancel")}
                           </button>
                         </div>
                       </div>
@@ -3888,14 +4120,14 @@ function DocumentPreview({
                         }}
                       >
                         <Pencil size={12} />
-                        Correct OCR
+                        {t("workbench.correctOcrBtn")}
                       </button>
                     )
                   ) : null}
                 </article>
               ))}
               {!pdfLoading && !pdfPage?.blocks.length ? (
-                <p className="empty-grid">No extracted blocks on this page.</p>
+                <p className="empty-grid">{t("workbench.noExtractedBlocks")}</p>
               ) : null}
             </div>
           </div>
@@ -3957,6 +4189,7 @@ function SuggestionsPanel({
   onInsert,
   onApplyMutation,
 }: SuggestionsProps) {
+  const { t, formatDate } = useLocale();
   const openIssues = issues.filter((issue) => issue.status === "open");
   const collapseButtonRef = useRef<HTMLButtonElement>(null);
   const expandButtonRef = useRef<HTMLButtonElement>(null);
@@ -3974,7 +4207,7 @@ function SuggestionsPanel({
   }, [mode]);
 
   return (
-    <aside className="suggestions-panel" aria-label="Suggestions">
+    <aside className="suggestions-panel" aria-label={t("common.suggestions")}>
       <div
         className={
           tab === "assistant"
@@ -3985,7 +4218,7 @@ function SuggestionsPanel({
         inert={mode === "collapsed" ? true : undefined}
       >
         <header className="suggestions-header">
-          <strong>Suggestions</strong>
+          <strong>{t("common.suggestions")}</strong>
           <div className="suggestions-dots" aria-hidden="true" />
           <button
             type="button"
@@ -3995,8 +4228,8 @@ function SuggestionsPanel({
               focusAfterModeRef.current = "rail";
               onModeChange(togglePanelCollapsed(mode));
             }}
-            title="Collapse Suggestions"
-            aria-label="Collapse Suggestions"
+            title={t("workbench.collapseSuggestions")}
+            aria-label={t("workbench.collapseSuggestions")}
           >
             <PanelRightClose size={14} />
           </button>
@@ -4006,13 +4239,13 @@ function SuggestionsPanel({
             onClick={() => onModeChange(togglePanelMaximized(mode))}
             title={
               mode === "maximized"
-                ? "Restore Suggestions"
-                : "Maximize Suggestions"
+                ? t("workbench.restoreSuggestions")
+                : t("workbench.maximizeSuggestions")
             }
             aria-label={
               mode === "maximized"
-                ? "Restore Suggestions"
-                : "Maximize Suggestions"
+                ? t("workbench.restoreSuggestions")
+                : t("workbench.maximizeSuggestions")
             }
           >
             {mode === "maximized" ? (
@@ -4029,7 +4262,7 @@ function SuggestionsPanel({
             aria-selected={tab === "matches"}
             onClick={() => onTabChange("matches")}
           >
-            Matches <span>{matches.length}</span>
+            {t("workbench.matches")} <span>{matches.length}</span>
           </button>
           <button
             type="button"
@@ -4037,7 +4270,7 @@ function SuggestionsPanel({
             aria-selected={tab === "terms"}
             onClick={() => onTabChange("terms")}
           >
-            Terms
+            {t("common.terms")}
           </button>
           <button
             type="button"
@@ -4045,7 +4278,7 @@ function SuggestionsPanel({
             aria-selected={tab === "assistant"}
             onClick={() => onTabChange("assistant")}
           >
-            <Sparkles size={11} /> Assistant
+            <Sparkles size={11} /> {t("workbench.assistant")}
           </button>
           <button
             type="button"
@@ -4058,7 +4291,7 @@ function SuggestionsPanel({
         </div>
         {tab !== "assistant" ? (
           <div className="suggestion-context">
-            <span>Active</span>
+            <span>{t("common.active")}</span>
             <strong>{activeSegment ? activeSegment.ordinal + 1 : "—"}</strong>
             <p>{activeSegment?.sourceText ?? ""}</p>
           </div>
@@ -4076,26 +4309,28 @@ function SuggestionsPanel({
                 <article className="match-card" key={match.id}>
                   <header>
                     <span className="match-score">100%</span>
-                    <strong>Project TM</strong>
+                    <strong>{t("workbench.projectTm")}</strong>
                     <time>
-                      {new Date(match.confirmedAtMs).toLocaleDateString()}
+                      {formatDate(match.confirmedAtMs, { dateStyle: "medium" })}
                     </time>
                   </header>
-                  <label>Source</label>
+                  <label>{t("common.source")}</label>
                   <p>{match.sourceText}</p>
-                  <label>Target</label>
+                  <label>{t("common.target")}</label>
                   <p className="match-target">{match.targetText}</p>
                   <footer>
                     <span>
                       <Database size={12} />
-                      Segment {match.originSegmentId.slice(0, 8)}
+                      {t("workbench.segmentLabel", {
+                        number: match.originSegmentId.slice(0, 8),
+                      })}
                     </span>
                     <button
                       type="button"
                       className="insert-button"
                       onClick={() => onInsert(match.targetText)}
                     >
-                      Insert
+                      {t("workbench.insert")}
                     </button>
                   </footer>
                 </article>
@@ -4103,7 +4338,7 @@ function SuggestionsPanel({
             ) : (
               <EmptySuggestion
                 icon={<Database size={20} />}
-                label="No exact TM match"
+                label={t("workbench.noExactMatch")}
               />
             )
           ) : tab === "terms" ? (
@@ -4119,9 +4354,9 @@ function SuggestionsPanel({
                       <strong>{match.sourceTerm}</strong>
                       <small>{match.termbaseId.slice(0, 8)}</small>
                     </header>
-                    <label>Preferred target</label>
+                    <label>{t("workbench.preferredTarget")}</label>
                     <p className="match-target">
-                      {translation?.term ?? "No target translation"}
+                      {translation?.term ?? t("workbench.noTargetTranslation")}
                     </p>
                     {translation ? (
                       <footer>
@@ -4131,7 +4366,7 @@ function SuggestionsPanel({
                           className="insert-button"
                           onClick={() => onInsert(translation.term)}
                         >
-                          Insert
+                          {t("workbench.insert")}
                         </button>
                       </footer>
                     ) : null}
@@ -4141,7 +4376,7 @@ function SuggestionsPanel({
             ) : (
               <EmptySuggestion
                 icon={<BookOpen size={20} />}
-                label="No term hits"
+                label={t("workbench.noTermHits")}
               />
             )
           ) : tab === "assistant" ? (
@@ -4198,12 +4433,12 @@ function SuggestionsPanel({
             focusAfterModeRef.current = "content";
             onModeChange(togglePanelCollapsed(mode));
           }}
-          title="Open Suggestions"
-          aria-label="Open Suggestions"
+          title={t("workbench.openSuggestions")}
+          aria-label={t("workbench.openSuggestions")}
         >
           <PanelRightOpen size={15} />
         </button>
-        <span>Suggestions</span>
+        <span>{t("common.suggestions")}</span>
         <div className="rail-dots" aria-hidden="true" />
       </div>
     </aside>

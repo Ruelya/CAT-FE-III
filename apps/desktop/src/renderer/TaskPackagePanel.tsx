@@ -30,6 +30,7 @@ import {
 
 import { fileName, formatError } from "./workbench-utils";
 import "./TaskPackagePanel.css";
+import { useLocale } from "./i18n/LocaleProvider";
 
 type TaskPackageMode = "assignment" | "review" | "return";
 type AssetKind = "tm" | "termbase";
@@ -65,6 +66,8 @@ export function TaskPackagePanel({
   onRefresh,
   onOpenProject,
 }: TaskPackagePanelProps) {
+  const { t } = useLocale();
+
   const projectId = snapshot.project.id;
   const activeDocuments = useMemo(
     () => documents.filter((item) => item.status === "active"),
@@ -80,9 +83,7 @@ export function TaskPackagePanel({
   const [returnInstructions, setReturnInstructions] = useState("");
   const [destinationPath, setDestinationPath] = useState("");
   const [packagePath, setPackagePath] = useState("");
-  const [preview, setPreview] = useState<TaskPackagePreviewResult | null>(
-    null,
-  );
+  const [preview, setPreview] = useState<TaskPackagePreviewResult | null>(null);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(
     () => new Set(),
   );
@@ -139,7 +140,9 @@ export function TaskPackagePanel({
       for (const mount of termbasePage.mounts) {
         const termbase = termbaseById.get(mount.termbaseId);
         if (!termbase || !mount.enabled) continue;
-        options.push(assetOptionFromTermbase(termbase, snapshot.project.targetLocale));
+        options.push(
+          assetOptionFromTermbase(termbase, snapshot.project.targetLocale),
+        );
       }
       const unique = new Map(
         options.map((option) => [`${option.kind}:${option.id}`, option]),
@@ -223,7 +226,10 @@ export function TaskPackagePanel({
         reason: reason.trim(),
       });
       setNotice(
-        `Assignment package ${result.packageId.slice(0, 12)} exported to ${fileName(result.packagePath)}.`,
+        t("task.assignmentExported", {
+          id: result.packageId.slice(0, 12),
+          name: fileName(result.packagePath),
+        }),
       );
     });
   };
@@ -241,7 +247,10 @@ export function TaskPackagePanel({
         reason: reason.trim(),
       });
       setNotice(
-        `Return package ${result.packageId.slice(0, 12)} exported to ${fileName(result.packagePath)}.`,
+        t("task.returnExported", {
+          id: result.packageId.slice(0, 12),
+          name: fileName(result.packagePath),
+        }),
       );
     });
   };
@@ -258,11 +267,19 @@ export function TaskPackagePanel({
       });
       setPreview(result);
       setSelectedRows(
-        new Set(result.rows.filter((row) => row.selected).map((row) => row.rowId)),
+        new Set(
+          result.rows.filter((row) => row.selected).map((row) => row.rowId),
+        ),
       );
       setImportResult(null);
       setNotice(
-        `${result.kind === "assignment" ? "Assignment" : "Return"} preview ready: ${result.total} row(s).`,
+        t("task.previewReady", {
+          kind:
+            result.kind === "assignment"
+              ? t("task.kindAssignment")
+              : t("task.kindReturn"),
+          count: result.total,
+        }),
       );
     });
   };
@@ -299,15 +316,16 @@ export function TaskPackagePanel({
         reason: reason.trim(),
       });
       setImportResult(result);
-      setPreview((current) => (current ? { ...current, status: "applied" } : current));
-      setNotice(
-        `Detached task project created with ${result.bindingCount} origin binding(s).`,
+      setPreview((current) =>
+        current ? { ...current, status: "applied" } : current,
       );
+      setNotice(t("task.detachedCreated", { count: result.bindingCount }));
     });
   };
 
   const applyReturn = async () => {
-    if (!preview || preview.kind !== "return" || selectedRows.size === 0) return;
+    if (!preview || preview.kind !== "return" || selectedRows.size === 0)
+      return;
     await run("apply-return", async () => {
       const result = await window.translunar.invoke("taskPackage.apply", {
         previewId: preview.previewId,
@@ -321,7 +339,10 @@ export function TaskPackagePanel({
       );
       await onRefresh();
       setNotice(
-        `Applied ${result.appliedCount} selected row(s); project revision is now ${result.projectRevision}.`,
+        t("task.applied", {
+          count: result.appliedCount,
+          revision: result.projectRevision,
+        }),
       );
     });
   };
@@ -338,7 +359,7 @@ export function TaskPackagePanel({
       setPreview(null);
       setPackagePath("");
       setSelectedRows(new Set());
-      setNotice("Staged task package files were discarded.");
+      setNotice(t("task.discarded"));
     });
   };
 
@@ -385,7 +406,7 @@ export function TaskPackagePanel({
       <div
         className="task-package-mode-tabs"
         role="tablist"
-        aria-label="Task package mode"
+        aria-label={t("task.modeAria")}
       >
         <button
           type="button"
@@ -393,7 +414,7 @@ export function TaskPackagePanel({
           aria-selected={mode === "assignment"}
           onClick={() => setMode("assignment")}
         >
-          <Upload size={15} /> Create assignment
+          <Upload size={15} /> {t("task.createAssignment")}
         </button>
         <button
           type="button"
@@ -401,7 +422,7 @@ export function TaskPackagePanel({
           aria-selected={mode === "review"}
           onClick={() => setMode("review")}
         >
-          <Archive size={15} /> Open package
+          <Archive size={15} /> {t("task.openPackage")}
         </button>
         <button
           type="button"
@@ -409,13 +430,13 @@ export function TaskPackagePanel({
           aria-selected={mode === "return"}
           onClick={() => setMode("return")}
         >
-          <Download size={15} /> Export return
+          <Download size={15} /> {t("task.exportReturn")}
         </button>
       </div>
 
-      <section className="task-package-audit" aria-label="Task package audit fields">
+      <section className="task-package-audit" aria-label={t("task.auditAria")}>
         <label className="task-package-field">
-          <span>Actor</span>
+          <span>{t("common.actor")}</span>
           <input
             value={actor}
             onChange={(event) => setActor(event.currentTarget.value)}
@@ -424,7 +445,7 @@ export function TaskPackagePanel({
           />
         </label>
         <label className="task-package-field">
-          <span>Reason</span>
+          <span>{t("common.reason")}</span>
           <input
             value={reason}
             onChange={(event) => setReason(event.currentTarget.value)}
@@ -512,7 +533,8 @@ export function TaskPackagePanel({
 
       {busy ? (
         <div className="task-package-loading" role="status">
-          <LoaderCircle className="spin" size={17} /> Working on {busy.replaceAll("-", " ")}...
+          <LoaderCircle className="spin" size={17} /> Working on{" "}
+          {busy.replaceAll("-", " ")}...
         </div>
       ) : null}
 
@@ -564,6 +586,7 @@ function AssignmentExportPanel({
   onChooseDestination(): void;
   onExport(): void;
 }) {
+  const { t } = useLocale();
   const assetDraftsValid = assetDrafts.every(
     (draft) => draft.libraryId && parseDelimitedIds(draft.rowIds).length > 0,
   );
@@ -571,13 +594,14 @@ function AssignmentExportPanel({
     <section className="insights-section task-package-controls">
       <TaskPackageHeading
         eyebrow="Bounded handoff"
-        title="Create an assignment package"
+        title={t("task.createAssignment")}
         icon={<Upload size={18} />}
       />
-      <p className="task-package-copy">
-        Export immutable sources and only the rows and assets you explicitly select.
-      </p>
-      <div className="task-package-documents" aria-label="Assignment documents">
+      <p className="task-package-copy">{t("task.exportImmutable")}</p>
+      <div
+        className="task-package-documents"
+        aria-label={t("task.assignmentDocs")}
+      >
         {documents.length ? (
           documents.map((item) => {
             const selected = selectedDocumentIds.has(item.id);
@@ -601,13 +625,13 @@ function AssignmentExportPanel({
                 </label>
                 {selected ? (
                   <label className="task-package-inline-field">
-                    <span>Optional segment IDs</span>
+                    <span>{t("task.optionalSegmentIds")}</span>
                     <input
                       value={segmentIds[item.id] ?? ""}
                       onChange={(event) =>
                         onSegmentIds(item.id, event.currentTarget.value)
                       }
-                      placeholder="Leave empty for every segment"
+                      placeholder={t("task.segmentIdsPlaceholder")}
                       disabled={busy}
                     />
                   </label>
@@ -618,19 +642,19 @@ function AssignmentExportPanel({
         ) : (
           <div className="task-package-empty">
             <FileText size={20} />
-            <span>No active documents are available.</span>
+            <span>{t("task.noActiveDocuments")}</span>
           </div>
         )}
       </div>
 
       <label className="task-package-field">
-        <span>Instructions for recipient</span>
+        <span>{t("task.instructions")}</span>
         <textarea
           value={instructions}
           onChange={(event) => onInstructions(event.currentTarget.value)}
           maxLength={16_384}
           rows={3}
-          placeholder="Describe the requested handoff"
+          placeholder={t("task.instructionsPlaceholder")}
           disabled={busy}
         />
       </label>
@@ -643,7 +667,7 @@ function AssignmentExportPanel({
       />
       {!assetDraftsValid ? (
         <p className="task-package-slice-error" role="alert">
-          Every added asset slice requires a mounted library and at least one explicit row ID.
+          {t("task.everySliceRequires")}
         </p>
       ) : null}
 
@@ -654,10 +678,12 @@ function AssignmentExportPanel({
           onClick={onChooseDestination}
           disabled={busy || selectedDocumentIds.size === 0}
         >
-          <FolderOpen size={14} /> Choose .tltask destination
+          <FolderOpen size={14} /> {t("task.chooseDestination")}
         </button>
         <span className="task-package-path" title={destinationPath}>
-          {destinationPath ? fileName(destinationPath) : "No destination selected"}
+          {destinationPath
+            ? fileName(destinationPath)
+            : "No destination selected"}
         </span>
         <button
           className="button primary"
@@ -671,7 +697,7 @@ function AssignmentExportPanel({
             !destinationPath
           }
         >
-          <Archive size={14} /> Export assignment
+          <Archive size={14} /> {t("task.exportAssignment")}
         </button>
       </div>
     </section>
@@ -699,12 +725,13 @@ function ReturnExportPanel({
   onChooseDestination(): void;
   onExport(): void;
 }) {
+  const { t } = useLocale();
   if (!packageReference) {
     return (
       <section className="insights-section task-package-unavailable">
         <ShieldAlert size={22} />
-        <strong>This project is not an imported task project.</strong>
-        <span>Import an assignment package before exporting a return package.</span>
+        <strong>{t("task.notImported")}</strong>
+        <span>{t("task.importFirst")}</span>
       </section>
     );
   }
@@ -712,34 +739,32 @@ function ReturnExportPanel({
     <section className="insights-section task-package-controls">
       <TaskPackageHeading
         eyebrow="Detached work"
-        title="Export a return package"
+        title={t("task.exportReturn")}
         icon={<Download size={18} />}
       />
       <dl className="task-package-facts">
         <div>
-          <dt>Task project</dt>
+          <dt>{t("task.taskProject")}</dt>
           <dd>{projectName}</dd>
         </div>
         <div>
-          <dt>Origin package</dt>
+          <dt>{t("task.originPackage")}</dt>
           <dd>{packageReference.packageId.slice(0, 16)}</dd>
         </div>
         <div>
-          <dt>Origin project</dt>
+          <dt>{t("task.originProject")}</dt>
           <dd>{packageReference.originProjectId.slice(0, 16)}</dd>
         </div>
       </dl>
-      <p className="task-package-copy">
-        The Engine will include only changed rows bound to the origin assignment.
-      </p>
+      <p className="task-package-copy">{t("task.engineChangedOnly")}</p>
       <label className="task-package-field">
-        <span>Return instructions</span>
+        <span>{t("task.returnInstructions")}</span>
         <textarea
           value={instructions}
           onChange={(event) => onInstructions(event.currentTarget.value)}
           maxLength={16_384}
           rows={3}
-          placeholder="Optional note for the project owner"
+          placeholder={t("task.returnNotePlaceholder")}
           disabled={busy}
         />
       </label>
@@ -750,10 +775,12 @@ function ReturnExportPanel({
           onClick={onChooseDestination}
           disabled={busy}
         >
-          <FolderOpen size={14} /> Choose .tltask destination
+          <FolderOpen size={14} /> {t("task.chooseDestination")}
         </button>
         <span className="task-package-path" title={destinationPath}>
-          {destinationPath ? fileName(destinationPath) : "No destination selected"}
+          {destinationPath
+            ? fileName(destinationPath)
+            : "No destination selected"}
         </span>
         <button
           className="button primary"
@@ -761,7 +788,7 @@ function ReturnExportPanel({
           onClick={onExport}
           disabled={busy || !auditReady || !destinationPath}
         >
-          <Archive size={14} /> Export return
+          <Archive size={14} /> {t("task.exportReturn")}
         </button>
       </div>
     </section>
@@ -817,12 +844,13 @@ function PackageReviewPanel({
   importResult: TaskPackageImportResult | null;
   onOpenImportedProject(): void;
 }) {
+  const { t } = useLocale();
   return (
     <>
       <section className="insights-section task-package-controls">
         <TaskPackageHeading
           eyebrow="Trusted package review"
-          title="Preview an assignment or return"
+          title={t("task.previewTitle")}
           icon={<Archive size={18} />}
         />
         <div className="task-package-path-row">
@@ -832,7 +860,7 @@ function PackageReviewPanel({
             onClick={onChoosePackage}
             disabled={busy}
           >
-            <FolderOpen size={14} /> Open .tltask
+            <FolderOpen size={14} /> {t("task.openTltask")}
           </button>
           <span className="task-package-path" title={packagePath}>
             {packagePath ? fileName(packagePath) : "No package selected"}
@@ -843,24 +871,24 @@ function PackageReviewPanel({
             onClick={onPreview}
             disabled={busy || !auditReady || !packagePath}
           >
-            <RefreshCw size={14} /> Preview package
+            <RefreshCw size={14} /> {t("task.previewPackage")}
           </button>
         </div>
 
         {preview?.kind === "assignment" ? (
           <div className="task-package-import-fields">
             <label className="task-package-field">
-              <span>Detached project name</span>
+              <span>{t("task.detachedName")}</span>
               <input
                 value={importProjectName}
                 onChange={(event) => onImportName(event.currentTarget.value)}
                 maxLength={256}
-                placeholder="Package project name + (Task)"
+                placeholder={t("task.detachedPlaceholder")}
                 disabled={busy || terminalPreview}
               />
             </label>
             <label className="task-package-field">
-              <span>Domain</span>
+              <span>{t("common.domain")}</span>
               <input
                 value={importDomain}
                 onChange={(event) => onImportDomain(event.currentTarget.value)}
@@ -874,20 +902,24 @@ function PackageReviewPanel({
               onClick={onImport}
               disabled={busy || !auditReady || terminalPreview}
             >
-              <Upload size={14} /> Import detached task
+              <Upload size={14} /> {t("task.importDetached")}
             </button>
           </div>
         ) : null}
       </section>
 
       {preview ? (
-        <section className="insights-section task-package-preview" aria-busy={busy}>
+        <section
+          className="insights-section task-package-preview"
+          aria-busy={busy}
+        >
           <header className="insights-section-heading">
             <div>
               <span className="surface-kicker">
-                {preview.kind} · {preview.status} · {preview.previewId.slice(0, 10)}
+                {preview.kind} · {preview.status} ·{" "}
+                {preview.previewId.slice(0, 10)}
               </span>
-              <h2>Engine classifications</h2>
+              <h2>{t("task.engineClassifications")}</h2>
             </div>
             <div className="task-package-preview-actions">
               {preview.kind === "return" ? (
@@ -897,7 +929,7 @@ function PackageReviewPanel({
                   onClick={onSelectSafe}
                   disabled={busy || terminalPreview}
                 >
-                  <Check size={13} /> Select safe on page
+                  <Check size={13} /> {t("task.selectSafeOnPage")}
                 </button>
               ) : null}
               {preview.kind === "return" ? (
@@ -912,14 +944,17 @@ function PackageReviewPanel({
                     selectedRows.size === 0
                   }
                 >
-                  <CheckCircle2 size={13} /> Apply {selectedRows.size || "selected"}
+                  <CheckCircle2 size={13} />{" "}
+                  {t("task.applyCount", {
+                    count: selectedRows.size,
+                  })}
                 </button>
               ) : null}
               <button
                 className="icon-button danger"
                 type="button"
-                title="Discard staged package"
-                aria-label="Discard staged package"
+                title={t("task.discardStaged")}
+                aria-label={t("task.discardStaged")}
                 onClick={onDiscard}
                 disabled={busy || !auditReady || terminalPreview}
               >
@@ -928,13 +963,21 @@ function PackageReviewPanel({
             </div>
           </header>
 
-          <div className="task-package-counts" aria-label="Task package counts">
+          <div
+            className="task-package-counts"
+            aria-label={t("task.countsAria")}
+          >
             <TaskCount label="Total" value={preview.counts.total} />
             <TaskCount label="Unchanged" value={preview.counts.unchanged} />
             <TaskCount label="Remote" value={preview.counts.remoteChanged} />
             <TaskCount label="Local" value={preview.counts.localChanged} />
             <TaskCount label="Both" value={preview.counts.bothChanged} />
-            <TaskCount label="Invalid" value={preview.counts.tagInvalid + preview.counts.missingDependency} />
+            <TaskCount
+              label="Invalid"
+              value={
+                preview.counts.tagInvalid + preview.counts.missingDependency
+              }
+            />
           </div>
 
           {preview.diagnostics.length ? (
@@ -950,7 +993,11 @@ function PackageReviewPanel({
             </div>
           ) : null}
 
-          <div className="task-package-rows" role="list" aria-label="Task package rows">
+          <div
+            className="task-package-rows"
+            role="list"
+            aria-label={t("task.rowsAria")}
+          >
             {preview.rows.length ? (
               preview.rows.map((row) => (
                 <TaskPackageRowView
@@ -964,7 +1011,7 @@ function PackageReviewPanel({
             ) : (
               <div className="task-package-empty">
                 <ShieldAlert size={20} />
-                <span>No rows were returned for this page.</span>
+                <span>{t("task.noRows")}</span>
               </div>
             )}
           </div>
@@ -976,7 +1023,7 @@ function PackageReviewPanel({
               onClick={onPrevious}
               disabled={busy || !canPrevious}
             >
-              <ChevronLeft size={14} /> Previous
+              <ChevronLeft size={14} /> {t("task.previous")}
             </button>
             <span>
               {preview.total === 0
@@ -989,23 +1036,32 @@ function PackageReviewPanel({
               onClick={onNext}
               disabled={busy || !canNext}
             >
-              Next <ChevronRight size={14} />
+              {t("action.next")}
+              <ChevronRight size={14} />
             </button>
           </div>
         </section>
       ) : null}
 
       {importResult ? (
-        <section className="insights-section task-package-import-result" role="status">
+        <section
+          className="insights-section task-package-import-result"
+          role="status"
+        >
           <CheckCircle2 size={20} />
           <div>
-            <strong>Detached task project is ready</strong>
+            <strong>{t("task.detachedReady")}</strong>
             <span>
-              {importResult.project.name} · {importResult.documents.length} document(s) · {importResult.bindingCount} bound row(s)
+              {importResult.project.name} · {importResult.documents.length}{" "}
+              document(s) · {importResult.bindingCount} bound row(s)
             </span>
           </div>
-          <button className="button primary" type="button" onClick={onOpenImportedProject}>
-            <FileText size={14} /> Open task project
+          <button
+            className="button primary"
+            type="button"
+            onClick={onOpenImportedProject}
+          >
+            <FileText size={14} /> {t("task.openTaskProject")}
           </button>
         </section>
       ) : null}
@@ -1024,40 +1080,52 @@ function TaskPackageRowView({
   disabled: boolean;
   onToggle(row: TaskPackagePreviewRow, checked: boolean): void;
 }) {
+  const { t } = useLocale();
   const source =
     row.remoteProjection?.sourceText ??
     row.currentProjection?.sourceText ??
     row.baseProjection?.sourceText ??
-    "Source unavailable";
+    t("task.sourceUnavailable");
   const currentTarget = row.currentProjection?.targetText ?? "";
   const remoteTarget = row.remoteProjection?.targetText ?? "";
   const selectable = row.safeToApply;
   return (
-    <article className="task-package-row" role="listitem" data-disposition={row.disposition}>
+    <article
+      className="task-package-row"
+      role="listitem"
+      data-disposition={row.disposition}
+    >
       <div className="task-package-row-select">
         <input
           type="checkbox"
           checked={selected}
           onChange={(event) => onToggle(row, event.currentTarget.checked)}
           disabled={disabled || !selectable}
-          aria-label={`Select ${row.disposition} row ${row.ordinal + 1}`}
+          aria-label={t("task.selectRow", {
+            disposition: row.disposition,
+            ordinal: row.ordinal + 1,
+          })}
         />
       </div>
       <div className="task-package-row-main">
         <header>
-          <span className="task-package-disposition">{dispositionLabel(row.disposition)}</span>
+          <span className="task-package-disposition">
+            {dispositionLabel(row.disposition)}
+          </span>
           <code>{row.originSegmentId.slice(0, 12)}</code>
-          <span>row {row.ordinal + 1}</span>
-          {row.identicalChange ? <em>identical edit</em> : null}
+          <span>{t("task.rowNumber", { ordinal: row.ordinal + 1 })}</span>
+          {row.identicalChange ? <em>{t("task.identicalEdit")}</em> : null}
         </header>
-        <p className="task-package-source" title={source}>{source}</p>
+        <p className="task-package-source" title={source}>
+          {source}
+        </p>
         <div className="task-package-targets">
           <div>
-            <span>Current</span>
+            <span>{t("common.current")}</span>
             <p title={currentTarget}>{currentTarget || "Empty"}</p>
           </div>
           <div>
-            <span>Returned</span>
+            <span>{t("common.returned")}</span>
             <p title={remoteTarget}>{remoteTarget || "Empty"}</p>
           </div>
         </div>
@@ -1078,6 +1146,7 @@ function AssetSliceEditor({
   busy: boolean;
   onChange(value: AssetDraft[]): void;
 }) {
+  const { t } = useLocale();
   const add = () => {
     const first = options[0];
     if (!first) return;
@@ -1090,8 +1159,8 @@ function AssetSliceEditor({
     <div className="task-package-assets">
       <div className="task-package-subheading">
         <div>
-          <span className="surface-kicker">Optional slices</span>
-          <strong>TM / termbase rows</strong>
+          <span className="surface-kicker">{t("task.optionalSlices")}</span>
+          <strong>{t("task.tmTermRows")}</strong>
         </div>
         <button
           className="button tertiary"
@@ -1099,23 +1168,28 @@ function AssetSliceEditor({
           onClick={add}
           disabled={busy || options.length === 0}
         >
-          <Archive size={13} /> Add slice
+          <Archive size={13} /> {t("task.addSlice")}
         </button>
       </div>
       {drafts.length === 0 ? (
-        <p className="task-package-muted">
-          No asset rows selected. Assignment export will include no shared-library data.
-        </p>
+        <p className="task-package-muted">{t("task.noAssetRows")}</p>
       ) : (
         drafts.map((draft, index) => {
-          const matching = options.filter((option) => option.kind === draft.kind);
+          const matching = options.filter(
+            (option) => option.kind === draft.kind,
+          );
           return (
-            <div className="task-package-asset-row" key={`${index}-${draft.libraryId}`}>
+            <div
+              className="task-package-asset-row"
+              key={`${index}-${draft.libraryId}`}
+            >
               <select
                 value={draft.kind}
                 onChange={(event) => {
                   const kind = event.currentTarget.value as AssetKind;
-                  const nextOption = options.find((option) => option.kind === kind);
+                  const nextOption = options.find(
+                    (option) => option.kind === kind,
+                  );
                   const next = [...drafts];
                   next[index] = {
                     ...draft,
@@ -1125,27 +1199,31 @@ function AssetSliceEditor({
                   onChange(next);
                 }}
                 disabled={busy}
-                aria-label={`Asset slice ${index + 1} kind`}
+                aria-label={t("task.sliceKind", { index: index + 1 })}
               >
                 <option value="tm">TM</option>
-                <option value="termbase">Termbase</option>
+                <option value="termbase">{t("common.termbase")}</option>
               </select>
               <select
                 value={draft.libraryId}
                 onChange={(event) => {
                   const next = [...drafts];
-                  next[index] = { ...draft, libraryId: event.currentTarget.value };
+                  next[index] = {
+                    ...draft,
+                    libraryId: event.currentTarget.value,
+                  };
                   onChange(next);
                 }}
                 disabled={busy || matching.length === 0}
-                aria-label={`Asset slice ${index + 1} library`}
+                aria-label={t("task.sliceLibrary", { index: index + 1 })}
               >
                 {matching.length === 0 ? (
-                  <option value="">No mounted library</option>
+                  <option value="">{t("task.noMountedLibrary")}</option>
                 ) : (
                   matching.map((option) => (
                     <option key={option.id} value={option.id}>
-                      {option.name} · {option.sourceLocale}/{option.targetLocale}
+                      {option.name} · {option.sourceLocale}/
+                      {option.targetLocale}
                     </option>
                   ))
                 )}
@@ -1157,16 +1235,18 @@ function AssetSliceEditor({
                   next[index] = { ...draft, rowIds: event.currentTarget.value };
                   onChange(next);
                 }}
-                placeholder="Explicit row IDs"
+                placeholder={t("task.explicitRowIds")}
                 disabled={busy}
-                aria-label={`Asset slice ${index + 1} row IDs`}
+                aria-label={t("task.sliceRowIds", { index: index + 1 })}
               />
               <button
                 className="icon-button danger"
                 type="button"
-                title="Remove asset slice"
-                aria-label={`Remove asset slice ${index + 1}`}
-                onClick={() => onChange(drafts.filter((_, item) => item !== index))}
+                title={t("task.removeSlice")}
+                aria-label={t("task.removeSliceN", { index: index + 1 })}
+                onClick={() =>
+                  onChange(drafts.filter((_, item) => item !== index))
+                }
                 disabled={busy}
               >
                 <X size={14} />
@@ -1190,6 +1270,7 @@ function ApplyDialog({
   onCancel(): void;
   onConfirm(): void;
 }) {
+  const { t } = useLocale();
   return (
     <div className="surface-dialog-backdrop" role="presentation">
       <section
@@ -1200,21 +1281,35 @@ function ApplyDialog({
       >
         <header>
           <div>
-            <span className="surface-kicker">Transactional merge</span>
-            <h2 id="task-package-apply-title">Apply selected rows?</h2>
+            <span className="surface-kicker">
+              {t("task.transactionalMerge")}
+            </span>
+            <h2 id="task-package-apply-title">{t("task.applySelected")}</h2>
           </div>
           <CheckCircle2 size={20} />
         </header>
-        <p>
-          The Engine will validate the preview revisions and apply {count} safe row(s) in one transaction. Conflicts remain untouched.
-        </p>
+        <p>{t("task.applyDialogBody", { count })}</p>
         <footer>
-          <button className="button tertiary" type="button" onClick={onCancel} disabled={busy}>
-            Cancel
+          <button
+            className="button tertiary"
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+          >
+            {t("common.cancel")}
           </button>
-          <button className="button primary" type="button" onClick={onConfirm} disabled={busy}>
-            {busy ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}
-            Apply merge
+          <button
+            className="button primary"
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+          >
+            {busy ? (
+              <LoaderCircle className="spin" size={14} />
+            ) : (
+              <Check size={14} />
+            )}
+            {t("task.applyMerge")}
           </button>
         </footer>
       </section>
@@ -1279,7 +1374,9 @@ function parseDelimitedIds(value: string): string[] {
   ].slice(0, 100_000);
 }
 
-function buildAssetSelections(drafts: AssetDraft[]): TaskPackageAssetSelection[] {
+function buildAssetSelections(
+  drafts: AssetDraft[],
+): TaskPackageAssetSelection[] {
   return drafts
     .map((draft) => ({
       kind: draft.kind,

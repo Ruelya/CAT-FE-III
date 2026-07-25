@@ -5,12 +5,15 @@ import { Puzzle, RefreshCw } from "lucide-react";
 import { formatError } from "./workbench-utils";
 
 import "./PluginsPanel.css";
+import { useLocale } from "./i18n/LocaleProvider";
 
 interface PluginsPanelProps {
   onRefresh(): Promise<void>;
 }
 
 export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
+  const { t } = useLocale();
+
   const [plugins, setPlugins] = useState<PluginSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -83,16 +86,15 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
       <header className="plugins-panel__header">
         <div>
           <h2 id="plugins-heading">
-            <Puzzle size={16} aria-hidden /> Plugins
+            <Puzzle size={16} aria-hidden />
+            {t("plugins.title")}
           </h2>
-          <p className="plugins-panel__lede">
-            Install local process plugins, grant requested permissions, and
-            enable filter contributions.
-          </p>
+          <p className="plugins-panel__lede">{t("plugins.lede")}</p>
         </div>
         <div className="plugins-panel__actions">
           <button type="button" onClick={() => void load()} disabled={loading}>
-            <RefreshCw size={14} aria-hidden /> Refresh
+            <RefreshCw size={14} aria-hidden />
+            {t("common.refresh")}
           </button>
           <button
             type="button"
@@ -100,7 +102,7 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
             onClick={() => void install()}
             disabled={busyId !== null}
           >
-            Install package…
+            {t("plugins.installPackage")}
           </button>
         </div>
       </header>
@@ -112,12 +114,9 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
       ) : null}
 
       {loading ? (
-        <p className="plugins-panel__empty">Loading plugins…</p>
+        <p className="plugins-panel__empty">{t("plugins.loading")}</p>
       ) : plugins.length === 0 ? (
-        <p className="plugins-panel__empty">
-          No plugins installed. Choose a package directory that contains
-          manifest.json.
-        </p>
+        <p className="plugins-panel__empty">{t("plugins.empty")}</p>
       ) : (
         <ul className="plugins-panel__list">
           {plugins.map((plugin) => (
@@ -143,7 +142,7 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
                     disabled={busyId === plugin.id}
                     onClick={() => void mutate(plugin.id, "plugin.disable")}
                   >
-                    Disable
+                    {t("plugins.disable")}
                   </button>
                 ) : (
                   <button
@@ -151,7 +150,7 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
                     disabled={busyId === plugin.id}
                     onClick={() => void mutate(plugin.id, "plugin.enable")}
                   >
-                    Enable
+                    {t("common.enable")}
                   </button>
                 )}
                 <button
@@ -160,7 +159,7 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
                   disabled={busyId === plugin.id}
                   onClick={() => void mutate(plugin.id, "plugin.uninstall")}
                 >
-                  Uninstall
+                  {t("plugins.uninstall")}
                 </button>
               </div>
             </li>
