@@ -572,3 +572,36 @@ Added collab members/locks/presence/assignments/op-log with migration 17 and foc
 ### Next Steps
 
 - None - task complete
+
+
+## Session 17: Product shell localization and release handoff
+
+**Date**: 2026-07-25
+**Task**: Product shell localization and release handoff
+**Branch**: `master`
+
+### Summary
+
+Completed product-shell localization/E2E regression repairs, added the three-day walkthrough and frontend design-deviation audit, updated Electron workbench contracts, and paused with full-suite/native release evidence explicitly open.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f4f8a24` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
