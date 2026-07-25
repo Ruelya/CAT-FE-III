@@ -100,16 +100,19 @@ Project Home search without affecting fonts or working states.
 
 Ownership: Suggestions DOM/CSS only plus its focused panel-mode tests.
 
-- [ ] Implement the single warm-ink cut terminal, aligned dot field, and stable
+- [x] Implement the single warm-ink cut terminal, aligned dot field, and stable
       collapse/maximize controls; keep tabs on the next row.
-- [ ] Tune Matches/Terms/QA/AI hierarchy so content/provenance/action order is
+- [x] Tune Matches/Terms/QA/AI hierarchy so content/provenance/action order is
       scannable and Assistant configuration does not dominate other resource tabs.
-- [ ] Preserve mounted/inert transitions, one-button collapsed rail, accessible
+- [x] Preserve mounted/inert transitions, one-button collapsed rail, accessible
       names, focus handoff, and intermediate-width animation evidence.
-- [ ] Replace the obsolete E2E `::after content === none` assertion with semantic
+- [x] Replace the obsolete E2E `::after content === none` assertion with semantic
       cut geometry and non-overlap checks.
-- [ ] Screenshot gate: all four tabs plus docked/collapsed/maximized at all three
+- [x] Screenshot gate: all four tabs plus docked/collapsed/maximized at all three
       widths; no clipped title, dots behind content, or floating double-chevron.
+
+  Evidence: `evidence/wp4-suggestions.md` and the `wp4-*` screenshots under
+  `evidence/screenshots/`.
 
 Rollback point: Suggestions package is independent of segment/Preview structure.
 

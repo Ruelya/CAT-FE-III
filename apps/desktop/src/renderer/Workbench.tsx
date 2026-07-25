@@ -4452,42 +4452,47 @@ function SuggestionsPanel({
         inert={mode === "collapsed" ? true : undefined}
       >
         <header className="suggestions-header">
-          <strong>{t("common.suggestions")}</strong>
+          <strong className="suggestions-title" data-cut-terminal="true">
+            {t("common.suggestions")}
+          </strong>
           <div className="suggestions-dots" aria-hidden="true" />
-          <button
-            type="button"
-            className="icon-button"
-            ref={collapseButtonRef}
-            onClick={() => {
-              focusAfterModeRef.current = "rail";
-              onModeChange(togglePanelCollapsed(mode));
-            }}
-            title={t("workbench.collapseSuggestions")}
-            aria-label={t("workbench.collapseSuggestions")}
-          >
-            <PanelRightClose size={14} />
-          </button>
-          <button
-            type="button"
-            className="icon-button"
-            onClick={() => onModeChange(togglePanelMaximized(mode))}
-            title={
-              mode === "maximized"
-                ? t("workbench.restoreSuggestions")
-                : t("workbench.maximizeSuggestions")
-            }
-            aria-label={
-              mode === "maximized"
-                ? t("workbench.restoreSuggestions")
-                : t("workbench.maximizeSuggestions")
-            }
-          >
-            {mode === "maximized" ? (
-              <Minimize2 size={14} />
-            ) : (
-              <Maximize2 size={14} />
-            )}
-          </button>
+          <div className="suggestions-header-tools">
+            <button
+              type="button"
+              className="icon-button"
+              onClick={() => onModeChange(togglePanelMaximized(mode))}
+              title={
+                mode === "maximized"
+                  ? t("workbench.restoreSuggestions")
+                  : t("workbench.maximizeSuggestions")
+              }
+              aria-label={
+                mode === "maximized"
+                  ? t("workbench.restoreSuggestions")
+                  : t("workbench.maximizeSuggestions")
+              }
+            >
+              {mode === "maximized" ? (
+                <Minimize2 size={14} />
+              ) : (
+                <Maximize2 size={14} />
+              )}
+            </button>
+            <button
+              type="button"
+              className="icon-button"
+              ref={collapseButtonRef}
+              onClick={() => {
+                focusAfterModeRef.current = "rail";
+                onModeChange(togglePanelCollapsed(mode));
+              }}
+              title={t("workbench.collapseSuggestions")}
+              aria-label={t("workbench.collapseSuggestions")}
+              data-suggestion-collapse="true"
+            >
+              <PanelRightClose size={14} />
+            </button>
+          </div>
         </header>
         <div className="suggestion-tabs" role="tablist">
           <button

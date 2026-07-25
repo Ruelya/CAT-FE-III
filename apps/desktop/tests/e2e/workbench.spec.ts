@@ -3769,8 +3769,25 @@ test("keeps panel motion, geometry, and Windows rendering coherent", async ({
       const suggestionsTitle = document.querySelector(
         ".suggestions-header > strong",
       );
+      const suggestionsDots = document.querySelector(".suggestions-dots");
+      const suggestionsTools = document.querySelector(
+        ".suggestions-header-tools",
+      );
+      const suggestionsCollapse = document.querySelector(
+        '[data-suggestion-collapse="true"]',
+      );
       const panel = document.querySelector(".suggestions-panel");
       const panelBox = panel?.getBoundingClientRect();
+      const box = (element: Element | null) => {
+        const value = element?.getBoundingClientRect();
+        return value
+          ? {
+              x: value.x,
+              width: value.width,
+              right: value.right,
+            }
+          : null;
+      };
       return {
         devicePixelRatio: window.devicePixelRatio,
         bodyFontFamily: bodyStyle.fontFamily,
@@ -3788,9 +3805,15 @@ test("keeps panel motion, geometry, and Windows rendering coherent", async ({
           .getEntriesByType("resource")
           .map((entry) => entry.name)
           .filter((name) => /\.(?:woff2?|ttf)(?:$|\?)/u.test(name)),
-        suggestionsTitleAfter: suggestionsTitle
-          ? getComputedStyle(suggestionsTitle, "::after").content
+        suggestionsTitleClipPath: suggestionsTitle
+          ? getComputedStyle(suggestionsTitle).clipPath
           : null,
+        suggestionsTitleCut:
+          suggestionsTitle?.getAttribute("data-cut-terminal"),
+        suggestionsTitleBox: box(suggestionsTitle),
+        suggestionsDotsBox: box(suggestionsDots),
+        suggestionsToolsBox: box(suggestionsTools),
+        suggestionsCollapseBox: box(suggestionsCollapse),
         suggestionsX: panelBox?.x ?? null,
         suggestionsWidth: panelBox?.width ?? null,
       };
@@ -3816,7 +3839,29 @@ test("keeps panel motion, geometry, and Windows rendering coherent", async ({
       renderingEvidence.fontResources.some((url) => /^https?:\/\//u.test(url)),
     ).toBe(false);
     expect(fontRequests.some((url) => /^https?:\/\//u.test(url))).toBe(false);
-    expect(renderingEvidence.suggestionsTitleAfter).toBe("none");
+    expect(renderingEvidence.suggestionsTitleClipPath).toMatch(/polygon/u);
+    expect(renderingEvidence.suggestionsTitleCut).toBe("true");
+    expect(renderingEvidence.suggestionsTitleBox).not.toBeNull();
+    expect(renderingEvidence.suggestionsDotsBox).not.toBeNull();
+    expect(renderingEvidence.suggestionsToolsBox).not.toBeNull();
+    expect(renderingEvidence.suggestionsCollapseBox).not.toBeNull();
+    expect(
+      renderingEvidence.suggestionsTitleBox?.right ?? 0,
+    ).toBeLessThanOrEqual(
+      (renderingEvidence.suggestionsDotsBox?.x ?? Infinity) + 1,
+    );
+    expect(
+      renderingEvidence.suggestionsDotsBox?.right ?? 0,
+    ).toBeLessThanOrEqual(
+      (renderingEvidence.suggestionsToolsBox?.x ?? Infinity) + 1,
+    );
+    expect(
+      renderingEvidence.suggestionsToolsBox?.right ?? Infinity,
+    ).toBeLessThanOrEqual(
+      (renderingEvidence.suggestionsX ?? 0) +
+        (renderingEvidence.suggestionsWidth ?? 0) +
+        1,
+    );
     expect(renderingEvidence.suggestionsWidth).toBeCloseTo(400, 0);
     await testInfo.attach("rendering-evidence", {
       body: JSON.stringify(renderingEvidence, null, 2),

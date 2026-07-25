@@ -2822,20 +2822,23 @@ button.tag-capsule {
 .suggestions-header {
   display: flex;
   align-items: center;
+  position: relative;
   min-width: 0;
   border-bottom: 1px solid var(--line);
+  background: color-mix(in oklab, var(--bg), var(--surface) 24%);
 }
 
-.suggestions-header > strong {
+.suggestions-header > .suggestions-title {
   align-self: stretch;
   display: flex;
   align-items: center;
   position: relative;
+  z-index: 2;
   min-width: 132px;
-  padding: 0 16px;
-  border-right: 1px solid color-mix(in oklab, var(--surface), transparent 72%);
+  padding: 0 28px 0 16px;
   color: var(--chrome-fg);
   background: var(--chrome-bg);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 15px) 100%, 0 100%);
   font-family: var(--font-display);
   font-size: 14px;
   font-weight: 650;
@@ -2843,15 +2846,27 @@ button.tag-capsule {
 }
 
 .suggestions-dots {
+  align-self: stretch;
+  position: relative;
+  z-index: 1;
   height: 100%;
   min-width: 42px;
   flex: 1;
-  color: rgba(34, 27, 24, 0.2);
+  color: color-mix(in srgb, var(--ink) 20%, transparent);
   margin-left: 0;
+  background-color: color-mix(in oklab, var(--bg), var(--surface) 18%);
+  opacity: 0.78;
 }
 
-.suggestions-header .icon-button {
-  margin-right: 5px;
+.suggestions-header-tools {
+  display: flex;
+  align-items: center;
+  z-index: 2;
+  gap: 4px;
+  padding-right: 5px;
+}
+
+.suggestions-header-tools .icon-button {
   background: color-mix(in srgb, var(--surface) 55%, transparent);
 }
 
@@ -3130,7 +3145,7 @@ button.tag-capsule {
 .rail-dots {
   width: 100%;
   flex: 1;
-  color: rgba(34, 27, 24, 0.2);
+  color: color-mix(in srgb, var(--ink) 20%, transparent);
 }
 
 /* Offline Assistant preview */
