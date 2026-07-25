@@ -214,7 +214,7 @@ Behavior:
 trellis channel spawn <name>
   [--scope project|global]
   [--agent <agent-name>]                  # loads .trellis/agents/<name>.md
-  [--provider claude|codex]               # overrides agent file
+  [--provider claude|codex|grok]          # overrides agent file (grok = local patch)
   [--as <worker-name>]                    # default: agent name
   [--cwd <path>]
   [--model <id>]
@@ -236,8 +236,8 @@ trellis channel spawn <name>
 
 Behavior:
 - Provider is validated against the adapter registry
-  (`packages/cli/src/commands/channel/adapters/`); current: `claude`,
-  `codex`.
+  (`packages/cli/src/commands/channel/adapters/`); supported providers are
+  `claude` and `codex`.
 - Worker stays inbox-idle until the first `send --to <worker>`.
 - Records a `spawned` event with `pid`, `provider`, `agent`, `files`,
   `manifests`.
@@ -477,4 +477,3 @@ Forum channels are event-sourced; use the CLI reducers
   pipe); diagnostic notes go to stderr.
 - **Errors** go through `chalk.red("Error:")` to stderr and `exit 1`.
 - **`wait` timeout** specifically exits **124**.
-

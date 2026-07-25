@@ -1,0 +1,253 @@
+{
+  "$schema": "https://opencode.ai/theme.json",
+  "defs": {
+    "mission_paper": "#F1E7D6",
+    "chart_white": "#FCF8EE",
+    "surface_raised": "#FFFDF6",
+    "surface_sunken": "#ECE2CF",
+    "paper_shade": "#EAE0CE",
+    "umbra_ink": "#221B18",
+    "graphite_sepia": "#6E655C",
+    "neutral_stone": "#9A9288",
+    "hairline": "#D4CBB9",
+    "hairline_strong": "#B8AFA0",
+    "signal_orange": "#F25C1A",
+    "signal_deep": "#D94F13",
+    "confirmed": "#3F7652",
+    "warning_ochre": "#A97824",
+    "error_red": "#B84232",
+    "machine_blue": "#4F7089",
+    "burnt_orange": "#D9562B",
+    "solar_ochre": "#D29A2E",
+    "lichen_green": "#87904A",
+    "instrument_teal": "#4F8076",
+    "dusk_blue": "#526F86",
+    "diff_add_bg_l": "#E4E8D6",
+    "diff_del_bg_l": "#EFDAD4",
+    "canvas": "#171512",
+    "surface": "#211E1A",
+    "surface_raised_d": "#2A2620",
+    "surface_sunken_d": "#14120F",
+    "paper_shade_d": "#2C2822",
+    "parchment": "#F3EADB",
+    "graphite_light": "#AAA095",
+    "neutral_dark": "#8B8177",
+    "hairline_d": "#3A342C",
+    "hairline_strong_d": "#4A433A",
+    "signal_lift": "#FF6B2B",
+    "signal_hot": "#FF7434",
+    "confirmed_lift": "#4F8A62",
+    "warning_lift": "#C48A2E",
+    "error_lift": "#D04E3C",
+    "machine_lift": "#6A8BA3",
+    "band_orange_d": "#C44E27",
+    "band_ochre_d": "#BD8A29",
+    "band_lichen_d": "#7A8243",
+    "band_teal_d": "#47736A",
+    "band_dusk_d": "#4A6479",
+    "diff_add_bg_d": "#243028",
+    "diff_del_bg_d": "#2F221F"
+  },
+  "theme": {
+    "primary": {
+      "dark": "signal_lift",
+      "light": "signal_orange"
+    },
+    "secondary": {
+      "dark": "machine_lift",
+      "light": "machine_blue"
+    },
+    "accent": {
+      "dark": "signal_hot",
+      "light": "signal_deep"
+    },
+    "error": {
+      "dark": "error_lift",
+      "light": "error_red"
+    },
+    "warning": {
+      "dark": "warning_lift",
+      "light": "warning_ochre"
+    },
+    "success": {
+      "dark": "confirmed_lift",
+      "light": "confirmed"
+    },
+    "info": {
+      "dark": "machine_lift",
+      "light": "machine_blue"
+    },
+    "text": {
+      "dark": "parchment",
+      "light": "umbra_ink"
+    },
+    "textMuted": {
+      "dark": "graphite_light",
+      "light": "graphite_sepia"
+    },
+    "background": {
+      "dark": "canvas",
+      "light": "mission_paper"
+    },
+    "backgroundPanel": {
+      "dark": "surface",
+      "light": "chart_white"
+    },
+    "backgroundElement": {
+      "dark": "surface_raised_d",
+      "light": "paper_shade"
+    },
+    "border": {
+      "dark": "hairline_d",
+      "light": "hairline"
+    },
+    "borderActive": {
+      "dark": "signal_lift",
+      "light": "signal_orange"
+    },
+    "borderSubtle": {
+      "dark": "hairline_strong_d",
+      "light": "hairline_strong"
+    },
+    "diffAdded": {
+      "dark": "confirmed_lift",
+      "light": "confirmed"
+    },
+    "diffRemoved": {
+      "dark": "error_lift",
+      "light": "error_red"
+    },
+    "diffContext": {
+      "dark": "graphite_light",
+      "light": "graphite_sepia"
+    },
+    "diffHunkHeader": {
+      "dark": "machine_lift",
+      "light": "machine_blue"
+    },
+    "diffHighlightAdded": {
+      "dark": "lichen_green",
+      "light": "lichen_green"
+    },
+    "diffHighlightRemoved": {
+      "dark": "burnt_orange",
+      "light": "burnt_orange"
+    },
+    "diffAddedBg": {
+      "dark": "diff_add_bg_d",
+      "light": "diff_add_bg_l"
+    },
+    "diffRemovedBg": {
+      "dark": "diff_del_bg_d",
+      "light": "diff_del_bg_l"
+    },
+    "diffContextBg": {
+      "dark": "surface",
+      "light": "chart_white"
+    },
+    "diffLineNumber": {
+      "dark": "neutral_dark",
+      "light": "neutral_stone"
+    },
+    "diffAddedLineNumberBg": {
+      "dark": "diff_add_bg_d",
+      "light": "diff_add_bg_l"
+    },
+    "diffRemovedLineNumberBg": {
+      "dark": "diff_del_bg_d",
+      "light": "diff_del_bg_l"
+    },
+    "markdownText": {
+      "dark": "parchment",
+      "light": "umbra_ink"
+    },
+    "markdownHeading": {
+      "dark": "signal_lift",
+      "light": "signal_orange"
+    },
+    "markdownLink": {
+      "dark": "machine_lift",
+      "light": "machine_blue"
+    },
+    "markdownLinkText": {
+      "dark": "instrument_teal",
+      "light": "instrument_teal"
+    },
+    "markdownCode": {
+      "dark": "confirmed_lift",
+      "light": "confirmed"
+    },
+    "markdownBlockQuote": {
+      "dark": "graphite_light",
+      "light": "graphite_sepia"
+    },
+    "markdownEmph": {
+      "dark": "warning_lift",
+      "light": "warning_ochre"
+    },
+    "markdownStrong": {
+      "dark": "solar_ochre",
+      "light": "solar_ochre"
+    },
+    "markdownHorizontalRule": {
+      "dark": "hairline_strong_d",
+      "light": "hairline_strong"
+    },
+    "markdownListItem": {
+      "dark": "signal_lift",
+      "light": "signal_orange"
+    },
+    "markdownListEnumeration": {
+      "dark": "instrument_teal",
+      "light": "instrument_teal"
+    },
+    "markdownImage": {
+      "dark": "machine_lift",
+      "light": "machine_blue"
+    },
+    "markdownImageText": {
+      "dark": "band_teal_d",
+      "light": "instrument_teal"
+    },
+    "markdownCodeBlock": {
+      "dark": "parchment",
+      "light": "umbra_ink"
+    },
+    "syntaxComment": {
+      "dark": "neutral_dark",
+      "light": "graphite_sepia"
+    },
+    "syntaxKeyword": {
+      "dark": "signal_lift",
+      "light": "signal_orange"
+    },
+    "syntaxFunction": {
+      "dark": "instrument_teal",
+      "light": "instrument_teal"
+    },
+    "syntaxVariable": {
+      "dark": "solar_ochre",
+      "light": "burnt_orange"
+    },
+    "syntaxString": {
+      "dark": "confirmed_lift",
+      "light": "confirmed"
+    },
+    "syntaxNumber": {
+      "dark": "warning_lift",
+      "light": "solar_ochre"
+    },
+    "syntaxType": {
+      "dark": "machine_lift",
+      "light": "dusk_blue"
+    },
+    "syntaxOperator": {
+      "dark": "band_dusk_d",
+      "light": "dusk_blue"
+    },
+    "syntaxPunctuation": {
+      "dark": "graphite_light",
+      "light": "graphite_sepia"
+    }
+  }
+}

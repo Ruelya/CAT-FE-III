@@ -32,6 +32,12 @@ Before implementing, read in this order:
 - `git commit`
 - `git push`
 - `git merge`
+- Spawning another worker or sub-agent; the main session owns dispatch.
+- Whole-file `write`/overwrite operations on an existing source file. Use a
+  focused patch/search-replace edit that preserves surrounding dirty work.
+- Shell redirection, Python, or other scripting to write source files. Use the
+  available focused editing tool directly. Return a unified diff only when
+  direct editing is genuinely unavailable or unsafe.
 
 The supervising main session owns commits. Report what changed; do not commit on its behalf.
 

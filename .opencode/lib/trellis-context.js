@@ -12,7 +12,7 @@ import { execSync } from "child_process"
 import { createHash } from "crypto"
 import process from "process"
 
-const PYTHON_CMD = platform() === "win32" ? "python" : "python3"
+const PYTHON_CMD = platform() === "win32" ? "python" : "python"
 // Debug logging
 const DEBUG_LOG = "/tmp/trellis-plugin-debug.log"
 

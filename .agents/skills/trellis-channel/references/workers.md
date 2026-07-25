@@ -1,8 +1,8 @@
 # Workers And Agent Cards
 
 Use workers when a peer agent should execute independently and report back
-through the channel event log. A worker is a registered child process (claude
-or codex) attached to a channel; the supervisor forwards inbox messages to it
+through the channel event log. A worker is a registered child process (Claude
+or Codex) attached to a channel; the supervisor forwards inbox messages to it
 and translates its output back into channel events.
 
 ## Spawn
@@ -25,7 +25,7 @@ inbox-idle until a `send --to <worker>` (or a broadcast when
 Key `spawn` flags:
 
 - `--agent <name>` — load `.trellis/agents/<name>.md` (provider/model/as/system prompt defaults).
-- `--provider <claude|codex>` — overrides the agent card; validated against the adapter registry.
+- `--provider <claude|codex>` — overrides the agent card and is validated against the adapter registry.
 - `--as <name>` — channel worker handle; defaults to the agent name.
 - `--cwd <path>` — worker working directory (also the jail root for `--file`/`--jsonl`).
 - `--model <id>` — model override.
@@ -47,8 +47,8 @@ The success event `spawned` records `pid`, `provider`, `agent`, the injected
 `--agent <name>` resolves to `.trellis/agents/<name>.md`. The card name must
 match `[A-Za-z0-9._-]+`. The default Trellis install ships two cards:
 
-- `.trellis/agents/check.md` — code-quality reviewer.
-- `.trellis/agents/implement.md` — coding worker for implementation runs.
+- `.trellis/agents/check.md` — code-quality reviewer (`provider: claude`).
+- `.trellis/agents/implement.md` — coding worker for implementation runs (`provider: claude`).
 
 ```yaml
 ---
