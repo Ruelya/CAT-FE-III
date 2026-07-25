@@ -4082,6 +4082,92 @@ test("keeps panel motion, geometry, and Windows rendering coherent", async ({
   }
 });
 
+test("keeps non-PDF Preview truthful, mounted, and navigable", async ({
+  browserName,
+}) => {
+  expect(browserName).toBe("chromium");
+  test.setTimeout(120_000);
+  const harness = await launchHarness("preview-truthful");
+  const { application, page, consoleErrors } = harness;
+  const evidenceDirectory = resolve(
+    process.cwd(),
+    "..",
+    "..",
+    ".trellis",
+    "tasks",
+    "07-21-workbench-visual-identity",
+    "evidence",
+    "screenshots",
+  );
+
+  try {
+    await importFixture(page);
+    const preview = page.locator(".document-preview");
+    await expect(preview).toBeVisible();
+    await expect(preview.locator(".preview-structure-rail")).toBeVisible();
+    await expect(preview.locator(".preview-paper")).toBeVisible();
+    await expect(preview.locator(".preview-degradation-note")).toBeVisible();
+    await expect(preview).not.toContainText(/Page\s+1\s+of/u);
+
+    const railItems = preview.locator(".preview-rail-item");
+    await expect(railItems).toHaveCount(3);
+    await railItems.nth(1).focus();
+    await page.keyboard.press("Enter");
+    const selectedOrdinal = await railItems
+      .nth(1)
+      .locator("span")
+      .textContent();
+    await expect(page.locator(".segment-row.active .id-cell")).toContainText(
+      selectedOrdinal?.trim() ?? "2",
+    );
+
+    const previewContent = preview.locator(".preview-content");
+    await page.getByRole("button", { name: "Collapse preview" }).click();
+    await expect(previewContent).toHaveCount(1);
+    await expect(previewContent).toHaveAttribute("aria-hidden", "true");
+    expect(
+      await previewContent.evaluate(
+        (element) => (element as HTMLElement).inert,
+      ),
+    ).toBe(true);
+    await page.getByRole("button", { name: "Open preview" }).click();
+    await expect(previewContent).toHaveAttribute("aria-hidden", "false");
+    expect(
+      await previewContent.evaluate(
+        (element) => (element as HTMLElement).inert,
+      ),
+    ).toBe(false);
+
+    for (const viewport of [
+      { width: 1250, height: 744, label: "1250x744" },
+      { width: 1680, height: 942, label: "1680x942" },
+      { width: 1920, height: 1080, label: "1920x1080" },
+    ]) {
+      await resizeWindow(application, viewport.width, viewport.height);
+      await page.waitForTimeout(180);
+      const overflow = await page.evaluate(() => ({
+        body: document.body.scrollWidth - document.body.clientWidth,
+        preview:
+          (document.querySelector<HTMLElement>(".document-preview")
+            ?.scrollWidth ?? 0) -
+          (document.querySelector<HTMLElement>(".document-preview")
+            ?.clientWidth ?? 0),
+      }));
+      expect(overflow.body).toBeLessThanOrEqual(1);
+      expect(overflow.preview).toBeLessThanOrEqual(1);
+      await page.screenshot({
+        path: join(
+          evidenceDirectory,
+          `wp6-preview-nonpdf-${viewport.label}.png`,
+        ),
+      });
+    }
+    expect(consoleErrors).toEqual([]);
+  } finally {
+    await closeHarness(harness);
+  }
+});
+
 test("applies the workbench visual polish in light and dark themes", async ({
   browserName,
 }) => {

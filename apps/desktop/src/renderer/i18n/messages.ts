@@ -997,6 +997,11 @@ export type MessageKey =
   | "workbench.targetRevision"
   | "workbench.documentPreview"
   | "workbench.followActive"
+  | "workbench.previewStructure"
+  | "workbench.previewStructureRail"
+  | "workbench.previewStructureAvailable"
+  | "workbench.previewStructureLimited"
+  | "workbench.previewStructureNote"
   | "workbench.noExtractedBlocks"
   | "workbench.projectTm"
   | "workbench.preferredTarget"
@@ -2666,6 +2671,12 @@ const enUs: MessageCatalog = {
   "workbench.targetRevision": "Target revision",
   "workbench.documentPreview": "Document preview",
   "workbench.followActive": "Follow active",
+  "workbench.previewStructure": "Document flow",
+  "workbench.previewStructureRail": "Document structure",
+  "workbench.previewStructureAvailable": "Engine structure path",
+  "workbench.previewStructureLimited": "Ordered segments",
+  "workbench.previewStructureNote":
+    "Engine order is shown; page layout is not available for this format.",
   "workbench.noExtractedBlocks": "No extracted blocks on this page.",
   "workbench.projectTm": "Project TM",
   "workbench.preferredTarget": "Preferred target",
@@ -4324,6 +4335,11 @@ const zhCn: MessageCatalog = {
   "workbench.targetRevision": "译文修订",
   "workbench.documentPreview": "文档预览",
   "workbench.followActive": "跟随活动",
+  "workbench.previewStructure": "文档流",
+  "workbench.previewStructureRail": "文档结构",
+  "workbench.previewStructureAvailable": "引擎结构路径",
+  "workbench.previewStructureLimited": "有序句段",
+  "workbench.previewStructureNote": "当前显示引擎顺序；此格式不提供页面布局。",
   "workbench.noExtractedBlocks": "本页没有提取的块。",
   "workbench.projectTm": "项目翻译记忆",
   "workbench.preferredTarget": "首选译文",

@@ -460,6 +460,13 @@ and generic document.export method contracts.
 - OCR correction is available only for active OCR, non-confirmed blocks. The
   controlled form requires source text and reason, sends expected revision, and
   replaces grid and preview state with the returned Segment.
+- DOCX/HTML/Markdown/TXT Preview uses the ordered `Segment[]` window and its
+  `structuralPath` values as evidence only. It may show a segment/section
+  position and a degradation note, but it must not invent page numbers,
+  headings, tables, or layout relationships that the Engine did not return.
+- Preview rail/canvas entries call the owning Workbench navigation callback;
+  they do not mutate `activeId` locally. A collapsed `.preview-content` stays
+  mounted for the transition and is `inert`/`aria-hidden` until expanded.
 - Preview and Suggestions retain docked/collapsed/maximized state and focus/
   animation rules. PDF export suggests name-translated.docx and calls generic
   document.export.
@@ -474,6 +481,7 @@ and generic document.export method contracts.
 | Stale OCR revision | Show conflict; keep authoritative current state |
 | Confirmed/non-OCR block | Do not render correction command |
 | Preview collapsed | Stop page fetches, keep animated content mounted/inert |
+| Non-paginated structure unavailable | Show truthful segment position and a bounded limitation note; never show a fake page |
 | Export canceled or fails | Keep workbench and surface error/toast |
 
 ### 5. Good / Base / Bad Cases
@@ -491,6 +499,9 @@ and generic document.export method contracts.
 - Electron PDF E2E runs with real Engine/Poppler/Tesseract, isolated engine
   data and Chromium user-data-dir, and asserts PNG display, confidence,
   correction, target save, panel modes, DOCX output, and no console errors.
+- Non-PDF Electron E2E asserts ordered flow, structure-rail/canvas navigation,
+  mounted collapsed state, inert/aria-hidden behavior, no fake page label, and
+  no horizontal overflow at the three supported viewports.
 - Capture and inspect docked/maximized 1920x1080 screenshots; existing
   1250x744/1680x942/1920x1080 geometry tests remain green.
 

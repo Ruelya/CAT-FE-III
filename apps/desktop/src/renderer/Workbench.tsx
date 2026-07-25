@@ -855,6 +855,7 @@ export function Workbench({
       if (!nextSegments.some((segment) => segment.id === activeId)) {
         setActiveId(nextSegments[0]?.id ?? "");
       }
+      return nextSegments;
     } catch (error) {
       if (
         workspaceGenerationRef.current === generation &&
@@ -862,6 +863,7 @@ export function Workbench({
       ) {
         setToast(formatError(error));
       }
+      return null;
     } finally {
       if (
         workspaceGenerationRef.current === generation &&
@@ -870,6 +872,29 @@ export function Workbench({
         setEditorLoading(false);
       }
     }
+  };
+
+  const navigateToPreviewSegment = async (
+    segmentId: string,
+    ordinal: number,
+  ) => {
+    const current = segmentsRef.current.find(
+      (segment) => segment.id === segmentId,
+    );
+    if (current) {
+      focusSegment(current.id);
+      return;
+    }
+    const offset = Math.max(
+      0,
+      Math.floor(Math.max(0, ordinal) / EDITOR_WINDOW_SIZE) *
+        EDITOR_WINDOW_SIZE,
+    );
+    const loaded = await loadEditorWindow(offset);
+    const target =
+      loaded?.find((segment) => segment.id === segmentId) ??
+      loaded?.find((segment) => segment.ordinal === ordinal);
+    if (target) focusSegment(target.id);
   };
 
   const onEditorScroll = (event: UIEvent<HTMLDivElement>) => {
@@ -2843,12 +2868,16 @@ export function Workbench({
               document={document}
               activeSegment={activeSegment}
               segments={segments}
+              total={editorTotal}
               mode={previewMode}
               onModeChange={setPreviewMode}
               height={previewHeight}
               onHeightChange={setPreviewHeight}
               followActive={followActivePreview}
               onFollowActiveChange={setFollowActivePreview}
+              onNavigateSegment={(segmentId, ordinal) =>
+                void navigateToPreviewSegment(segmentId, ordinal)
+              }
               onSourceCorrected={applyCorrectedSource}
             />
           </div>
@@ -4016,12 +4045,14 @@ interface PreviewProps {
   document: Document;
   activeSegment: Segment | undefined;
   segments: Segment[];
+  total: number;
   mode: PanelMode;
   onModeChange(mode: PanelMode): void;
   height: number;
   onHeightChange(height: number): void;
   followActive: boolean;
   onFollowActiveChange(follow: boolean): void;
+  onNavigateSegment(segmentId: string, ordinal: number): void;
   onSourceCorrected(segment: Segment): void;
 }
 
@@ -4029,12 +4060,14 @@ function DocumentPreview({
   document,
   activeSegment,
   segments,
+  total,
   mode,
   onModeChange,
   height,
   onHeightChange,
   followActive,
   onFollowActiveChange,
+  onNavigateSegment,
   onSourceCorrected,
 }: PreviewProps) {
   const { t } = useLocale();
@@ -4203,6 +4236,11 @@ function DocumentPreview({
     : 0;
   const start = Math.max(0, activeIndex - 2);
   const previewSegments = segments.slice(start, start + 5);
+  const previewPosition = previewAnchor ? previewAnchor.ordinal + 1 : 0;
+  const hasStructuralPaths = previewSegments.some(
+    (segment) => segment.structuralPath.trim().length > 0,
+  );
+  const previewContentHidden = mode === "collapsed";
 
   const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (mode !== "docked") return;
@@ -4252,6 +4290,7 @@ function DocumentPreview({
     <section
       className="document-preview"
       aria-label={t("workbench.documentPreview")}
+      data-preview-mode={mode}
     >
       <div
         className="preview-resizer"
@@ -4268,15 +4307,21 @@ function DocumentPreview({
         onPointerCancel={stopResize}
         onKeyDown={resizeWithKeyboard}
       />
-      <header>
-        <strong>{t("workbench.documentPreview")}</strong>
-        <span>{document.name}</span>
-        <small>
-          {activeSegment
-            ? t("workbench.segmentLabel", {
-                number: activeSegment.ordinal + 1,
+      <header className="preview-header">
+        <div className="preview-identity">
+          <FileText size={14} aria-hidden="true" />
+          <div>
+            <strong>{t("workbench.documentPreview")}</strong>
+            <span title={document.name}>{document.name}</span>
+          </div>
+        </div>
+        <small className="preview-position">
+          {previewPosition
+            ? t("common.positionOf", {
+                position: previewPosition,
+                total: total || segments.length,
               })
-            : ""}
+            : "—"}
         </small>
         <label className="preview-follow">
           <input
@@ -4331,7 +4376,11 @@ function DocumentPreview({
         </div>
       </header>
       {document.filterId === "builtin.pdf" ? (
-        <div className="preview-content pdf-preview-content">
+        <div
+          className="preview-content pdf-preview-content"
+          aria-hidden={previewContentHidden}
+          inert={previewContentHidden ? true : undefined}
+        >
           <div className="pdf-preview-toolbar">
             <span className="pdf-page-label">
               Page {pdfPageNumber} of {pdfPages.length || "..."}
@@ -4390,19 +4439,37 @@ function DocumentPreview({
                           : "pdf-block"
                       }
                     >
-                      <div className="pdf-block-meta">
-                        <span>{block.kind}</span>
-                        <span
-                          className={
-                            block.sourceKind === "ocr" ? "ocr-confidence" : ""
+                      <button
+                        type="button"
+                        className="pdf-block-select"
+                        aria-current={
+                          block.segmentId === activeSegment?.id
+                            ? "location"
+                            : undefined
+                        }
+                        onClick={() => {
+                          const segment = segments.find(
+                            (candidate) => candidate.id === block.segmentId,
+                          );
+                          if (segment) {
+                            onNavigateSegment(segment.id, segment.ordinal);
                           }
-                        >
-                          {block.sourceKind === "ocr"
-                            ? "OCR " + block.confidence / 10 + "%"
-                            : "Text layer"}
-                        </span>
-                      </div>
-                      <p>{block.sourceText}</p>
+                        }}
+                      >
+                        <div className="pdf-block-meta">
+                          <span>{block.kind}</span>
+                          <span
+                            className={
+                              block.sourceKind === "ocr" ? "ocr-confidence" : ""
+                            }
+                          >
+                            {block.sourceKind === "ocr"
+                              ? "OCR " + block.confidence / 10 + "%"
+                              : "Text layer"}
+                          </span>
+                        </div>
+                        <p>{block.sourceText}</p>
+                      </button>
                       {block.sourceKind === "ocr" &&
                       block.segmentId === activeSegment?.id &&
                       block.state !== "confirmed" ? (
@@ -4471,25 +4538,78 @@ function DocumentPreview({
           </div>
         </div>
       ) : (
-        <div className="preview-content">
-          <div className="page-thumb">
-            <FileText size={18} />
-            <span>1</span>
-          </div>
-          <div className="preview-lines">
+        <div
+          className="preview-content document-flow-preview"
+          aria-hidden={previewContentHidden}
+          inert={previewContentHidden ? true : undefined}
+        >
+          <nav
+            className="preview-structure-rail"
+            aria-label={t("workbench.previewStructureRail")}
+          >
+            <strong>{t("workbench.previewStructure")}</strong>
             {previewSegments.map((segment) => (
-              <div
+              <button
                 key={segment.id}
+                type="button"
                 className={
                   segment.id === activeSegment?.id
-                    ? "preview-line active"
-                    : "preview-line"
+                    ? "preview-rail-item active"
+                    : "preview-rail-item"
                 }
+                aria-current={
+                  segment.id === activeSegment?.id ? "location" : undefined
+                }
+                onClick={() => onNavigateSegment(segment.id, segment.ordinal)}
+                title={segment.structuralPath || t("common.noStructuralPath")}
               >
                 <span>{segment.ordinal + 1}</span>
-                <p>{segment.sourceText}</p>
-              </div>
+                <small>
+                  {segment.structuralPath || t("common.noStructuralPath")}
+                </small>
+              </button>
             ))}
+          </nav>
+          <div className="preview-paper" aria-label={t("workbench.preview")}>
+            <div className="preview-paper-meta">
+              <span>
+                {t("common.positionOf", {
+                  position: previewPosition,
+                  total: total || segments.length,
+                })}
+              </span>
+              <span>
+                {hasStructuralPaths
+                  ? t("workbench.previewStructureAvailable")
+                  : t("workbench.previewStructureLimited")}
+              </span>
+            </div>
+            <div className="preview-lines">
+              {previewSegments.map((segment) => (
+                <button
+                  key={segment.id}
+                  type="button"
+                  className={
+                    segment.id === activeSegment?.id
+                      ? "preview-line active"
+                      : "preview-line"
+                  }
+                  aria-current={
+                    segment.id === activeSegment?.id ? "location" : undefined
+                  }
+                  onClick={() => onNavigateSegment(segment.id, segment.ordinal)}
+                >
+                  <span>{segment.ordinal + 1}</span>
+                  <span className="preview-line-copy">
+                    <strong>{segment.sourceText}</strong>
+                    <em>{segment.targetText || "—"}</em>
+                  </span>
+                </button>
+              ))}
+            </div>
+            <p className="preview-degradation-note">
+              {t("workbench.previewStructureNote")}
+            </p>
           </div>
           <div className="preview-dot-field" aria-hidden="true" />
         </div>

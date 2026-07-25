@@ -146,21 +146,25 @@ changing Suggestions or Preview.
 Ownership: DocumentPreview structure/style/navigation and its focused tests. No new
 Engine preview contract in this package.
 
-- [ ] Rebuild handle/body hierarchy with document identity, truthful position,
+- [x] Rebuild handle/body hierarchy with document identity, truthful position,
       grouped controls, structure/thumb rail, and paper/document canvas.
-- [ ] Keep actual PDF image/page count/blocks/OCR correction and the WP2 render
+- [x] Keep actual PDF image/page count/blocks/OCR correction and the WP2 render
       skeleton/error paths.
-- [ ] Render DOCX/HTML/Markdown/TXT from ordered segments/structural paths without
+- [x] Render DOCX/HTML/Markdown/TXT from ordered segments/structural paths without
       fake pages/headings/tables. Show a bounded degraded-structure explanation
       where needed.
-- [ ] Make represented segments navigable through Workbench's active-row path;
+- [x] Make represented segments navigable through Workbench's active-row path;
       preserve target focus, pending drafts, follow-active, resize, and all three
       panel modes.
-- [ ] Test pointer/keyboard resize boundaries, click navigation, focus preservation,
+- [x] Test pointer/keyboard resize boundaries, click navigation, focus preservation,
       active-location visibility, PDF/non-PDF truthfulness, and unsupported states.
 - [ ] Screenshot gate: PDF plus one DOCX/HTML/Markdown fixture, default/collapsed/
       maximized at all three widths. The result must read as a document, not a flat
       text list, without claiming unavailable layout facts.
+
+  Evidence: `evidence/wp6-preview.md` and the `wp6-preview-*` screenshots under
+  `evidence/screenshots/`. The optional Poppler/Tesseract PDF E2E remains an
+  external-run gate when `TRANSLUNAR_PDF_E2E=1` is available.
 
 Rollback point: Preview package reverts independently and leaves PDF data behavior
 unchanged.
