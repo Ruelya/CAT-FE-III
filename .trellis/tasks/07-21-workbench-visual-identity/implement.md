@@ -78,19 +78,19 @@ previous request behavior remains intact when reverted.
 Ownership: app-bar composition, reuse/extraction of existing global search,
 save-before-result navigation, i18n, and focused search tests.
 
-- [ ] Re-search Project Home global search and extract only the controller/result
+- [x] Re-search Project Home global search and extract only the controller/result
       behavior needed by two consumers; keep params, safe snippet parsing, paging,
       and labels in one implementation.
-- [ ] Replace the app-bar's misleading in-document slot with a prominent real
+- [x] Replace the app-bar's misleading in-document slot with a prominent real
       global-search command/surface; retain in-file search in the editor toolbar.
-- [ ] Pass an explicit awaited open-result callback through App/Workbench. Flush
+- [x] Pass an explicit awaited open-result callback through App/Workbench. Flush
       pending edits before opening project/document/segment; keep current state and
       show typed error on failure.
-- [ ] Strengthen the 280-360px identity block using existing BrandMark/project copy
+- [x] Strengthen the 280-360px identity block using existing BrandMark/project copy
       and one restrained geometry field; keep one complete Translunar Band.
-- [ ] Test keyboard open/search/result selection/Escape/focus return, safe snippets,
+- [x] Test keyboard open/search/result selection/Escape/focus return, safe snippets,
       cross-document navigation, and failed-save retention with real Engine search.
-- [ ] Screenshot gate: app bar at all three widths in English/Chinese; identity,
+- [x] Screenshot gate: app bar at all three widths in English/Chinese; identity,
       document, search, Run QA, Export, and overflow do not overlap.
 
 Rollback point: app-bar/search commit reverts to the current in-document field and

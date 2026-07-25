@@ -1,12 +1,5 @@
-import {
-  Fragment,
-  useCallback,
-  useEffect,
-  useState,
-  type FormEvent,
-} from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type {
-  GlobalSearchHit,
   Project,
   ProjectAnalyticsSummary,
   ProjectLifecycle,
@@ -31,10 +24,13 @@ import {
 } from "lucide-react";
 
 import { BrandMark } from "./BrandMark";
+import {
+  GlobalSearchPanel,
+  type GlobalSearchProjectOption,
+} from "./GlobalSearchPanel";
 import { useLocale } from "./i18n/LocaleProvider";
 import {
   cloneTemplateDefinition,
-  parseSearchSnippet,
   readTemplateDefinition,
 } from "./project-home-utils";
 import { formatError } from "./workbench-utils";
@@ -812,44 +808,6 @@ function GlobalSearchView({
   ): Promise<void>;
 }) {
   const { t } = useLocale();
-  const [text, setText] = useState("");
-  const [projectId, setProjectId] = useState("");
-  const [field, setField] = useState("");
-  const [workflowState, setWorkflowState] = useState("");
-  const [hits, setHits] = useState<GlobalSearchHit[]>([]);
-  const [total, setTotal] = useState(0);
-  const [offset, setOffset] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const search = async (nextOffset = 0) => {
-    if (!text.trim()) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const page = await window.translunar.invoke("search.global", {
-        text: text.trim(),
-        projectId: projectId || null,
-        fields: field ? [field] : [],
-        workflowState: workflowState || null,
-        includeRecycled: false,
-        offset: nextOffset,
-        limit: 50,
-      });
-      setHits(page.items);
-      setTotal(page.total);
-      setOffset(page.offset);
-    } catch (reason) {
-      setError(formatError(reason));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    void search(0);
-  };
   return (
     <>
       <header className="project-view-heading">
@@ -859,142 +817,21 @@ function GlobalSearchView({
           <p>{t("home.globalSearchHelp")}</p>
         </div>
       </header>
-      <form className="global-search-form" onSubmit={submit}>
-        <label className="global-search-query">
-          <Search size={16} />
-          <input
-            value={text}
-            onChange={(event) => setText(event.currentTarget.value)}
-            placeholder={t("home.searchPlaceholder")}
-            aria-label={t("home.globalSearchQuery")}
-            required
-          />
-        </label>
-        <select
-          aria-label={t("home.searchProject")}
-          value={projectId}
-          onChange={(event) => setProjectId(event.currentTarget.value)}
-        >
-          <option value="">{t("home.allActiveProjects")}</option>
-          {projects.map(({ snapshot }) => (
-            <option key={snapshot.project.id} value={snapshot.project.id}>
-              {snapshot.project.name}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label={t("home.searchField")}
-          value={field}
-          onChange={(event) => setField(event.currentTarget.value)}
-        >
-          <option value="">{t("home.allFields")}</option>
-          <option value="source">{t("home.fieldSource")}</option>
-          <option value="target">{t("home.fieldTarget")}</option>
-          <option value="project">{t("home.fieldProject")}</option>
-          <option value="document">{t("home.fieldDocument")}</option>
-          <option value="comment">{t("home.fieldComment")}</option>
-          <option value="note">{t("home.fieldNote")}</option>
-        </select>
-        <select
-          aria-label={t("home.searchWorkflowState")}
-          value={workflowState}
-          onChange={(event) => setWorkflowState(event.currentTarget.value)}
-        >
-          <option value="">{t("home.anyWorkflowState")}</option>
-          <option value="translation">{t("home.workflowTranslation")}</option>
-          <option value="review">{t("home.workflowReview")}</option>
-          <option value="signed">{t("home.workflowSigned")}</option>
-        </select>
-        <button
-          className="button primary"
-          type="submit"
-          disabled={loading || !text.trim()}
-        >
-          {loading ? (
-            <LoaderCircle className="spin" size={15} />
-          ) : (
-            <Search size={15} />
-          )}{" "}
-          {t("home.searchSubmit")}
-        </button>
-      </form>
-      {error ? (
-        <p className="surface-error" role="alert">
-          {error}
-        </p>
-      ) : null}
-      {!hits.length && total === 0 ? (
-        <div className="project-home-empty">
-          <Search size={25} />
-          <strong>
-            {text ? t("home.noMatchingContent") : t("home.searchEveryActive")}
-          </strong>
-          <span>{text ? t("home.tryAnother") : t("home.resultsLink")}</span>
-        </div>
-      ) : (
-        <div className="search-results">
-          <header>
-            <strong>{t("home.resultCount", { count: total })}</strong>
-            <span>
-              {offset + 1}-{Math.min(offset + hits.length, total)}
-            </span>
-          </header>
-          {hits.map((hit, index) => (
-            <button
-              key={`${hit.projectId}-${hit.field}-${hit.segmentId ?? index}`}
-              type="button"
-              onClick={() =>
-                void onOpen(
-                  hit.projectId,
-                  hit.documentId ?? undefined,
-                  hit.segmentId ?? undefined,
-                  hit.segmentOrdinal ?? undefined,
-                )
-              }
-            >
-              <span className="search-result-field">
-                {searchFieldLabel(t, hit.field)}
-              </span>
-              <strong>
-                {hit.projectName}
-                {hit.documentName ? ` / ${hit.documentName}` : ""}
-              </strong>
-              <p>
-                {parseSearchSnippet(hit.snippet).map((part, partIndex) => (
-                  <Fragment key={`${part.highlighted}-${partIndex}`}>
-                    {part.highlighted ? <mark>{part.text}</mark> : part.text}
-                  </Fragment>
-                ))}
-              </p>
-              <footer>
-                {searchWorkflowLabel(t, hit.workflowState)}
-                {hit.segmentOrdinal !== undefined && hit.segmentOrdinal !== null
-                  ? ` · ${t("home.segmentNumber", { number: hit.segmentOrdinal + 1 })}`
-                  : ""}
-                <ArrowRight size={14} />
-              </footer>
-            </button>
-          ))}
-        </div>
-      )}
-      {total > 50 ? (
-        <div className="project-pagination">
-          <button
-            type="button"
-            disabled={offset === 0 || loading}
-            onClick={() => void search(Math.max(0, offset - 50))}
-          >
-            {t("action.back")}
-          </button>
-          <button
-            type="button"
-            disabled={offset + hits.length >= total || loading}
-            onClick={() => void search(offset + 50)}
-          >
-            {t("action.next")}
-          </button>
-        </div>
-      ) : null}
+      <GlobalSearchPanel
+        variant="home"
+        projects={projects.map<GlobalSearchProjectOption>(({ snapshot }) => ({
+          id: snapshot.project.id,
+          name: snapshot.project.name,
+        }))}
+        onOpen={(hit) =>
+          onOpen(
+            hit.projectId,
+            hit.documentId ?? undefined,
+            hit.segmentId ?? undefined,
+            hit.segmentOrdinal ?? undefined,
+          )
+        }
+      />
     </>
   );
 }
@@ -1411,42 +1248,4 @@ function formatBasisPoints(
   formatNumber: (value: number, options?: Intl.NumberFormatOptions) => string,
 ): string {
   return `${formatNumber(value / 100, { maximumFractionDigits: 1 })}%`;
-}
-
-function searchFieldLabel(
-  t: ReturnType<typeof useLocale>["t"],
-  field: string,
-): string {
-  switch (field) {
-    case "source":
-      return t("home.fieldSource");
-    case "target":
-      return t("home.fieldTarget");
-    case "project":
-      return t("home.fieldProject");
-    case "document":
-      return t("home.fieldDocument");
-    case "comment":
-      return t("home.fieldComment");
-    case "note":
-      return t("home.fieldNote");
-    default:
-      return field.replaceAll("_", " ");
-  }
-}
-
-function searchWorkflowLabel(
-  t: ReturnType<typeof useLocale>["t"],
-  state: string | null | undefined,
-): string {
-  switch (state) {
-    case "translation":
-      return t("home.workflowTranslation");
-    case "review":
-      return t("home.workflowReview");
-    case "signed":
-      return t("home.workflowSigned");
-    default:
-      return state ?? t("common.project");
-  }
 }

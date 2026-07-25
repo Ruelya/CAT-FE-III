@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type {
   Document,
+  GlobalSearchHit,
   ProjectSnapshot,
   QaIssue,
   Segment,
@@ -367,6 +368,14 @@ export function App() {
         initialWorkspace={workspace}
         onReturnHome={returnHome}
         onNavigate={navigateFromWorkbench}
+        onOpenGlobalSearchHit={(hit: GlobalSearchHit) =>
+          openWorkspace(
+            hit.projectId,
+            hit.documentId ?? undefined,
+            hit.segmentId ?? undefined,
+            hit.segmentOrdinal ?? undefined,
+          )
+        }
         focusSegmentId={focusSegmentId}
       />
     </>

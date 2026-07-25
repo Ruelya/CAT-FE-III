@@ -3332,6 +3332,255 @@ test("exposes the five named Workbench empty states with a real grid recovery ac
   }
 });
 
+test("opens app-bar global search, flushes navigation, and retains a failed draft", async ({
+  browserName,
+}, testInfo) => {
+  expect(browserName).toBe("chromium");
+  test.setTimeout(90_000);
+  const harness = await launchHarness("global-search-workbench");
+  const { page, consoleErrors } = harness;
+
+  try {
+    await importFixture(page);
+    const globalSearchCommand = page.getByRole("button", {
+      name: "Global search",
+    });
+    await expect(globalSearchCommand).toBeVisible();
+
+    const evidenceDirectory = resolve(
+      process.cwd(),
+      "..",
+      "..",
+      ".trellis",
+      "tasks",
+      "07-21-workbench-visual-identity",
+      "evidence",
+      "screenshots",
+    );
+    mkdirSync(evidenceDirectory, { recursive: true });
+    for (const viewport of [
+      { width: 1250, height: 744 },
+      { width: 1680, height: 942 },
+      { width: 1920, height: 1080 },
+    ]) {
+      await resizeWindow(harness.application, viewport.width, viewport.height);
+      const boxes = await Promise.all(
+        [
+          page.locator(".project-identity"),
+          page.locator(".document-switcher"),
+          globalSearchCommand,
+          page.getByRole("button", { name: "Run QA", exact: true }),
+          page.getByRole("button", { name: "Export", exact: true }),
+          page.getByRole("button", { name: "More actions", exact: true }),
+        ].map((locator) => locator.boundingBox()),
+      );
+      for (let index = 0; index < boxes.length - 1; index += 1) {
+        const current = boxes[index];
+        const next = boxes[index + 1];
+        expect(current).not.toBeNull();
+        expect(next).not.toBeNull();
+        expect((current?.x ?? 0) + (current?.width ?? 0)).toBeLessThanOrEqual(
+          (next?.x ?? 0) + 1,
+        );
+      }
+      const last = boxes.at(-1);
+      expect((last?.x ?? 0) + (last?.width ?? 0)).toBeLessThanOrEqual(
+        viewport.width + 1,
+      );
+      await page.screenshot({
+        path: join(
+          evidenceDirectory,
+          `wp3-app-bar-en-${viewport.width}x${viewport.height}.png`,
+        ),
+      });
+      await page.screenshot({
+        path: testInfo.outputPath(
+          `wp3-app-bar-en-${viewport.width}x${viewport.height}.png`,
+        ),
+      });
+    }
+
+    await page.evaluate(async () => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      await api.updateShellSettings({ locale: "zh-CN" });
+    });
+    await page.reload();
+    await dismissFirstRunTutorial(page);
+    await expect(page.locator(".global-search-command")).toBeVisible();
+    for (const viewport of [
+      { width: 1250, height: 744 },
+      { width: 1680, height: 942 },
+      { width: 1920, height: 1080 },
+    ]) {
+      await resizeWindow(harness.application, viewport.width, viewport.height);
+      const boxes = await Promise.all(
+        [
+          page.locator(".project-identity"),
+          page.locator(".document-switcher"),
+          page.locator(".global-search-command"),
+          page.locator("#tutorial-target-qa"),
+          page.locator("#tutorial-target-export"),
+          page.locator(".surface-menu-wrap > button"),
+        ].map((locator) => locator.boundingBox()),
+      );
+      for (let index = 0; index < boxes.length - 1; index += 1) {
+        const current = boxes[index];
+        const next = boxes[index + 1];
+        expect(current).not.toBeNull();
+        expect(next).not.toBeNull();
+        expect((current?.x ?? 0) + (current?.width ?? 0)).toBeLessThanOrEqual(
+          (next?.x ?? 0) + 1,
+        );
+      }
+      const last = boxes.at(-1);
+      expect((last?.x ?? 0) + (last?.width ?? 0)).toBeLessThanOrEqual(
+        viewport.width + 1,
+      );
+      await page.screenshot({
+        path: join(
+          evidenceDirectory,
+          `wp3-app-bar-zh-${viewport.width}x${viewport.height}.png`,
+        ),
+      });
+    }
+    await page.evaluate(async () => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      await api.updateShellSettings({ locale: "en-US" });
+    });
+    await page.reload();
+    await dismissFirstRunTutorial(page);
+    await expect(globalSearchCommand).toBeVisible();
+
+    await globalSearchCommand.click();
+    const dialog = page.getByRole("dialog", { name: "Global search" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByLabel("Global search query")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(globalSearchCommand).toBeFocused();
+
+    await page.keyboard.press("Control+Shift+K");
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel("Global search query").fill("retention period");
+    await dialog.getByRole("button", { name: "Search", exact: true }).click();
+    const result = dialog.locator(".search-results > button").first();
+    await expect(result).toBeVisible();
+    await expect(result.locator("mark")).not.toHaveCount(0);
+
+    const session = await page.evaluate(() => {
+      const raw = localStorage.getItem("translunar.active-workspace.v1");
+      if (!raw) throw new Error("active workspace session is missing");
+      const parsed = JSON.parse(raw) as {
+        projectId: string;
+        documentId: string;
+      };
+      return parsed;
+    });
+    const firstTarget = page.locator(".segment-row textarea").first();
+    await firstTarget.fill("Global search flushed draft.");
+    await result.click();
+    await expect(dialog).toHaveCount(0);
+    await expect(firstTarget).toBeFocused();
+    await expect(firstTarget).toHaveValue("Global search flushed draft.");
+
+    const persisted = await page.evaluate(async ({ documentId }) => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      const rows = await api.invoke("segment.editor.list", {
+        documentId,
+        query: "",
+        field: "both",
+        filter: "all",
+        sort: "ordinal",
+        descending: false,
+        offset: 0,
+        limit: 1,
+        includeContext: true,
+      });
+      return rows.items[0]?.segment.targetText;
+    }, session);
+    expect(persisted).toBe("Global search flushed draft.");
+
+    const conflictBase = await page.evaluate(async ({ documentId }) => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      const rows = await api.invoke("segment.editor.list", {
+        documentId,
+        query: "",
+        field: "both",
+        filter: "all",
+        sort: "ordinal",
+        descending: false,
+        offset: 0,
+        limit: 1,
+        includeContext: true,
+      });
+      const segment = rows.items[0]?.segment;
+      if (!segment) throw new Error("first segment is missing");
+      return { segmentId: segment.id, revision: segment.revision };
+    }, session);
+    await page.evaluate(async ({ segmentId, revision }) => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      await api.invoke("segment.updateTarget", {
+        segmentId,
+        targetText: "External revision wins.",
+        expectedRevision: revision,
+      });
+    }, conflictBase);
+    await firstTarget.fill("Draft retained after conflict.");
+
+    await globalSearchCommand.click();
+    const failedDialog = page.getByRole("dialog", { name: "Global search" });
+    await failedDialog
+      .getByLabel("Global search query")
+      .fill("retention period");
+    await failedDialog
+      .getByRole("button", { name: "Search", exact: true })
+      .click();
+    const failedResult = failedDialog
+      .locator(".search-results > button")
+      .first();
+    await expect(failedResult).toBeVisible();
+    await failedResult.click();
+    await expect(failedDialog).toBeVisible();
+    await expect(failedDialog.getByRole("alert")).toContainText(
+      /conflict|revision|changed|modified/i,
+    );
+    await expect(firstTarget).toHaveValue("Draft retained after conflict.");
+
+    await page.evaluate(
+      async ({ documentId, segmentId }) => {
+        const api = (window as unknown as { translunar: DesktopApi })
+          .translunar;
+        const rows = await api.invoke("segment.editor.list", {
+          documentId,
+          query: "",
+          field: "both",
+          filter: "all",
+          sort: "ordinal",
+          descending: false,
+          offset: 0,
+          limit: 1,
+          includeContext: true,
+        });
+        const segment = rows.items[0]?.segment;
+        if (!segment || segment.id !== segmentId) {
+          throw new Error("conflict cleanup segment is missing");
+        }
+        await api.invoke("segment.updateTarget", {
+          segmentId,
+          targetText: "",
+          expectedRevision: segment.revision,
+        });
+        await api.clearDraftJournal([segmentId]);
+      },
+      { documentId: session.documentId, segmentId: conflictBase.segmentId },
+    );
+
+    expect(consoleErrors).toEqual([]);
+  } finally {
+    await closeHarness(harness);
+  }
+});
+
 test("keeps panel motion, geometry, and Windows rendering coherent", async ({
   browserName,
 }, testInfo) => {

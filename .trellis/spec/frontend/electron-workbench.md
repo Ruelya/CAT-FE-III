@@ -300,6 +300,14 @@ render deterministic previous/next controls when `total` exceeds the page.
   must not invent aliases such as `project_name`. Snippets are rendered by
   parsing only balanced `<mark>` pairs into text and `<mark>` nodes, never
   `dangerouslySetInnerHTML`.
+- Project Home and Workbench global search share one result/controller surface
+  and one `search.global` request shape. Workbench result selection awaits the
+  owning `persistAllSegments` path before calling
+  `onOpen(projectId, documentId?, segmentId?, segmentOrdinal?)`; a rejected
+  flush leaves the Workbench, draft, and search layer mounted. The global
+  search shortcut is `Ctrl+Shift+K` so the established `Ctrl+K` command-palette
+  contract remains intact; the app-bar button exposes the same command with an
+  accessible name and `aria-keyshortcuts`.
 - Template editing starts from a recursive clone of the complete safe
   definition. The clone preserves unrendered safe fields such as `pipelineId`,
   QA/TM/termbase references, editor defaults, and future extensions while
@@ -335,6 +343,7 @@ render deterministic previous/next controls when `total` exceeds the page.
 | No stored session or invalid/recycled session | Show Home; remove only the invalid session key |
 | Malformed session JSON/shape or a `trash` project snapshot | Remove the session key and do not request editor rows |
 | Pending Workbench save rejects while leaving | Keep Workbench mounted; show the typed save error; do not clear selection |
+| Pending Workbench save rejects while opening a global-search result | Keep the Workbench, draft, and search layer mounted; show the normalized Engine error |
 | Canceled source/archive dialog | Keep the current surface; make no create/import/export/restore RPC |
 | Mixed batch result | Render every diagnostic and retain successful document IDs for explicit opening |
 | Template dependency diagnostics | Keep Setup visible with diagnostics and an explicit `Open workspace` action |

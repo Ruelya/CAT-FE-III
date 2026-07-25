@@ -19,6 +19,7 @@ import type {
   EditorMutationResult,
   EditorPreferences,
   EditorWorkflowState,
+  GlobalSearchHit,
   InlineTag,
   PdfPageDetail,
   PdfPageSummary,
@@ -73,6 +74,7 @@ import { AssistantPanel } from "./AssistantPanel";
 import { formatCorpusProvenance } from "./alignment-corpus-utils";
 import { BrandMark } from "./BrandMark";
 import { clearSegmentDrafts, writeSegmentDraft } from "./draft-persist";
+import { GlobalSearchPanel } from "./GlobalSearchPanel";
 import { WorkbenchVisualState } from "./WorkbenchVisualState";
 import {
   EDITOR_COMMANDS,
@@ -151,6 +153,7 @@ interface WorkbenchProps {
   initialWorkspace: InitialWorkspace;
   onReturnHome(): void;
   onNavigate(surface: AppSurface): Promise<void>;
+  onOpenGlobalSearchHit(hit: GlobalSearchHit): Promise<void>;
   focusSegmentId: string | null;
 }
 
@@ -182,6 +185,7 @@ export function Workbench({
   initialWorkspace,
   onReturnHome,
   onNavigate,
+  onOpenGlobalSearchHit,
   focusSegmentId,
 }: WorkbenchProps) {
   const { t } = useLocale();
@@ -232,6 +236,8 @@ export function Workbench({
   >(null);
   const [toast, setToast] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const globalSearchCommandRef = useRef<HTMLButtonElement>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const [preferencesOpen, setPreferencesOpen] = useState(false);
@@ -1145,6 +1151,26 @@ export function Workbench({
     }
   };
 
+  const closeGlobalSearch = () => {
+    setGlobalSearchOpen(false);
+    window.requestAnimationFrame(() => globalSearchCommandRef.current?.focus());
+  };
+
+  const selectGlobalSearchHit = async (hit: GlobalSearchHit) => {
+    setActionBusy("navigate");
+    setToast(null);
+    try {
+      await persistAllSegments();
+      await onOpenGlobalSearchHit(hit);
+    } catch (error) {
+      const message = formatError(error);
+      setToast(message);
+      throw error;
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
   const returnHome = async () => {
     setActionBusy("navigate");
     setToast(null);
@@ -1976,6 +2002,17 @@ export function Workbench({
     ) {
       return;
     }
+    if (
+      (event.ctrlKey || event.metaKey) &&
+      event.key.toLowerCase() === "k" &&
+      event.shiftKey &&
+      !event.altKey
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      setGlobalSearchOpen(true);
+      return;
+    }
     const command = EDITOR_COMMANDS.find((item) =>
       shortcutMatches(
         event.nativeEvent,
@@ -2037,15 +2074,20 @@ export function Workbench({
           <span>{document.name}</span>
           <small>{t("workbench.segmentsCount", { count: counts.total })}</small>
         </div>
-        <label className="project-search">
+        <button
+          ref={globalSearchCommandRef}
+          type="button"
+          className="global-search-command"
+          aria-expanded={globalSearchOpen}
+          aria-haspopup="dialog"
+          aria-keyshortcuts="Control+Shift+K"
+          aria-label={t("home.globalSearch")}
+          onClick={() => setGlobalSearchOpen(true)}
+        >
           <Search size={15} />
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.currentTarget.value)}
-            placeholder={t("workbench.searchPlaceholder")}
-            aria-label={t("workbench.searchPlaceholder")}
-          />
-        </label>
+          <span>{t("home.globalSearch")}</span>
+          <kbd>Ctrl+Shift+K</kbd>
+        </button>
         <div className="app-actions">
           <button
             id="tutorial-target-qa"
@@ -2136,6 +2178,28 @@ export function Workbench({
           </div>
         </div>
       </header>
+      {globalSearchOpen ? (
+        <div
+          className="global-search-layer"
+          role="presentation"
+          onMouseDown={closeGlobalSearch}
+        >
+          <section
+            className="global-search-dialog"
+            role="dialog"
+            aria-modal="false"
+            aria-label={t("home.globalSearch")}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <GlobalSearchPanel
+              variant="workbench"
+              autoFocus
+              onClose={closeGlobalSearch}
+              onOpen={selectGlobalSearchHit}
+            />
+          </section>
+        </div>
+      ) : null}
       <div className="translunar-band" aria-hidden="true">
         <span />
         <span />
@@ -2207,6 +2271,15 @@ export function Workbench({
                 <option value="commented">{t("workbench.commented")}</option>
               </select>
             </div>
+            <label className="document-search">
+              <Search size={14} />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.currentTarget.value)}
+                placeholder={t("workbench.searchPlaceholder")}
+                aria-label={t("workbench.searchAria")}
+              />
+            </label>
             <div
               className="match-scope"
               aria-label={t("workbench.exactTmMatching")}
