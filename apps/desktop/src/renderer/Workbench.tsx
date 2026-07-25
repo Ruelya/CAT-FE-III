@@ -73,6 +73,7 @@ import { AssistantPanel } from "./AssistantPanel";
 import { formatCorpusProvenance } from "./alignment-corpus-utils";
 import { BrandMark } from "./BrandMark";
 import { clearSegmentDrafts, writeSegmentDraft } from "./draft-persist";
+import { WorkbenchVisualState } from "./WorkbenchVisualState";
 import {
   EDITOR_COMMANDS,
   acceleratorLabel,
@@ -203,7 +204,12 @@ export function Workbench({
   const [counts, setCounts] = useState<SegmentCounts>(snapshot.counts);
   const [issues, setIssues] = useState(initialWorkspace.issues);
   const [matches, setMatches] = useState<TmEntry[]>([]);
+  const [matchesLoading, setMatchesLoading] = useState(false);
+  const [matchesError, setMatchesError] = useState<string | null>(null);
   const [termMatches, setTermMatches] = useState<TermMatch[]>([]);
+  const [termLoading, setTermLoading] = useState(false);
+  const [termSettled, setTermSettled] = useState(false);
+  const [termError, setTermError] = useState<string | null>(null);
   const [filter, setFilter] = useState<SegmentFilter>("all");
   const [search, setSearch] = useState("");
   const [activeId, setActiveId] = useState(segments[0]?.id ?? "");
@@ -295,6 +301,8 @@ export function Workbench({
   const pendingSavesRef = useRef(0);
   const editorGridRef = useRef<HTMLDivElement>(null);
   const editorWindowRequestRef = useRef(0);
+  const tmRequestRef = useRef(0);
+  const termRequestRef = useRef(0);
   /** Bumped when authoritative workspace props are replaced (reconnect). */
   const workspaceGenerationRef = useRef(0);
   const editorFilterInitializedRef = useRef(false);
@@ -371,6 +379,8 @@ export function Workbench({
     composingRef.current.clear();
     // Invalidate any in-flight segment.editor.list request IDs.
     editorWindowRequestRef.current += 1;
+    tmRequestRef.current += 1;
+    termRequestRef.current += 1;
     const nextSegments = initialWorkspace.segments;
     const nextRows = initialWorkspace.editorRows;
     const nextDrafts = Object.fromEntries(
@@ -388,7 +398,12 @@ export function Workbench({
     setCounts(snapshot.counts);
     setIssues(initialWorkspace.issues);
     setMatches([]);
+    setMatchesLoading(false);
+    setMatchesError(null);
     setTermMatches([]);
+    setTermLoading(false);
+    setTermSettled(false);
+    setTermError(null);
     setSpellFindings([]);
     setSpellProvider("unavailable");
     setSaveState("saved");
@@ -468,21 +483,37 @@ export function Workbench({
   }, [activeSegment, drafts, snapshot.project.targetLocale]);
 
   useEffect(() => {
+    const requestId = tmRequestRef.current + 1;
+    tmRequestRef.current = requestId;
     if (!activeSegment) {
       setMatches([]);
+      setMatchesLoading(false);
+      setMatchesError(null);
       return;
     }
     let cancelled = false;
+    setMatches([]);
+    setMatchesError(null);
+    setMatchesLoading(true);
     void window.translunar
       .invoke("tm.lookupExact", {
         projectId: snapshot.project.id,
         sourceText: activeSegment.sourceText,
       })
       .then((result) => {
-        if (!cancelled) setMatches(result.matches);
+        if (cancelled || tmRequestRef.current !== requestId) return;
+        setMatches(result.matches);
+        setMatchesError(null);
       })
       .catch((error: unknown) => {
-        if (!cancelled) setToast(formatError(error));
+        if (cancelled || tmRequestRef.current !== requestId) return;
+        setMatches([]);
+        setMatchesLoading(false);
+        setMatchesError(formatError(error));
+      })
+      .finally(() => {
+        if (cancelled || tmRequestRef.current !== requestId) return;
+        setMatchesLoading(false);
       });
     return () => {
       cancelled = true;
@@ -490,11 +521,20 @@ export function Workbench({
   }, [activeSegment, snapshot.project.id]);
 
   useEffect(() => {
+    const requestId = termRequestRef.current + 1;
+    termRequestRef.current = requestId;
     if (!activeSegment) {
       setTermMatches([]);
+      setTermLoading(false);
+      setTermSettled(false);
+      setTermError(null);
       return;
     }
     let cancelled = false;
+    setTermMatches([]);
+    setTermLoading(true);
+    setTermSettled(false);
+    setTermError(null);
     void window.translunar
       .invoke("term.search", {
         projectId: snapshot.project.id,
@@ -503,10 +543,21 @@ export function Workbench({
         limit: 50,
       })
       .then((result) => {
-        if (!cancelled) setTermMatches(result.matches);
+        if (cancelled || termRequestRef.current !== requestId) return;
+        setTermMatches(result.matches);
+        setTermError(null);
       })
       .catch((error: unknown) => {
-        if (!cancelled) setToast(formatError(error));
+        if (cancelled || termRequestRef.current !== requestId) return;
+        setTermMatches([]);
+        setTermLoading(false);
+        setTermSettled(true);
+        setTermError(formatError(error));
+      })
+      .finally(() => {
+        if (cancelled || termRequestRef.current !== requestId) return;
+        setTermLoading(false);
+        setTermSettled(true);
       });
     return () => {
       cancelled = true;
@@ -861,11 +912,28 @@ export function Workbench({
   };
 
   const refreshMatches = async (segment: Segment) => {
-    const result = await window.translunar.invoke("tm.lookupExact", {
-      projectId: snapshot.project.id,
-      sourceText: segment.sourceText,
-    });
-    setMatches(result.matches);
+    const requestId = tmRequestRef.current + 1;
+    tmRequestRef.current = requestId;
+    setMatches([]);
+    setMatchesError(null);
+    setMatchesLoading(true);
+    try {
+      const result = await window.translunar.invoke("tm.lookupExact", {
+        projectId: snapshot.project.id,
+        sourceText: segment.sourceText,
+      });
+      if (tmRequestRef.current !== requestId) return;
+      setMatches(result.matches);
+    } catch (error) {
+      if (tmRequestRef.current === requestId) {
+        setMatches([]);
+        setMatchesLoading(false);
+        setMatchesError(formatError(error));
+      }
+      throw error;
+    } finally {
+      if (tmRequestRef.current === requestId) setMatchesLoading(false);
+    }
   };
 
   const flashConfirmedSegment = (segmentId: string) => {
@@ -1925,6 +1993,11 @@ export function Workbench({
       .toLocaleLowerCase()
       .includes(commandQuery.trim().toLocaleLowerCase()),
   );
+  const hasGridFilters = filter !== "all" || search.trim().length > 0;
+  const clearGridFilters = () => {
+    setFilter("all");
+    setSearch("");
+  };
 
   const applicationClasses = [
     "workbench-app",
@@ -2560,10 +2633,23 @@ export function Workbench({
                   ) : null}
                 </tbody>
               </table>
-              {visibleSegments.length === 0 ? (
-                <div className="empty-grid">
-                  {t("workbench.noSegmentsMatch")}
-                </div>
+              {visibleSegments.length === 0 && !editorLoading ? (
+                <WorkbenchVisualState
+                  kind="empty"
+                  variant="grid"
+                  label={t("workbench.noGridMatches")}
+                  action={
+                    hasGridFilters ? (
+                      <button
+                        type="button"
+                        className="button ghost"
+                        onClick={clearGridFilters}
+                      >
+                        {t("workbench.clearGridFilters")}
+                      </button>
+                    ) : undefined
+                  }
+                />
               ) : null}
             </div>
             <DocumentPreview
@@ -2591,7 +2677,12 @@ export function Workbench({
           activeIssue={activeIssue}
           issues={issues}
           matches={matches}
+          matchesLoading={matchesLoading}
+          matchesError={matchesError}
           termMatches={termMatches}
+          termLoading={termLoading}
+          termSettled={termSettled}
+          termError={termError}
           onInsert={insertMatch}
           onApplyMutation={applyEditorMutation}
         />
@@ -3773,6 +3864,7 @@ function DocumentPreview({
   const [pdfPageNumber, setPdfPageNumber] = useState(1);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const pdfRequestRef = useRef(0);
   const [correctionOpen, setCorrectionOpen] = useState(false);
   const [correctionText, setCorrectionText] = useState("");
   const [correctionReason, setCorrectionReason] = useState("");
@@ -3783,14 +3875,24 @@ function DocumentPreview({
   }, [activeSegment, followActive]);
 
   useEffect(() => {
-    if (document.filterId !== "builtin.pdf") return;
+    const requestId = pdfRequestRef.current + 1;
+    pdfRequestRef.current = requestId;
+    if (document.filterId !== "builtin.pdf") {
+      setPdfPages([]);
+      setPdfPage(null);
+      setPdfLoading(false);
+      setPdfError(null);
+      return;
+    }
     let cancelled = false;
     setPdfLoading(true);
     setPdfError(null);
+    setPdfPages([]);
+    setPdfPage(null);
     void window.translunar
       .invoke("pdf.page.list", { documentId: document.id })
       .then((result) => {
-        if (cancelled) return;
+        if (cancelled || pdfRequestRef.current !== requestId) return;
         setPdfPages(result.pages);
         const activePage = result.pages.find((page) =>
           activeSegment ? page.segmentIds.includes(activeSegment.id) : false,
@@ -3798,10 +3900,14 @@ function DocumentPreview({
         setPdfPageNumber(activePage?.page ?? result.pages[0]?.page ?? 1);
       })
       .catch((reason: unknown) => {
-        if (!cancelled) setPdfError(formatError(reason));
+        if (cancelled || pdfRequestRef.current !== requestId) return;
+        setPdfPages([]);
+        setPdfPage(null);
+        setPdfError(formatError(reason));
       })
       .finally(() => {
-        if (!cancelled) setPdfLoading(false);
+        if (!cancelled && pdfRequestRef.current === requestId)
+          setPdfLoading(false);
       });
     return () => {
       cancelled = true;
@@ -3816,9 +3922,12 @@ function DocumentPreview({
     ) {
       return;
     }
+    const requestId = pdfRequestRef.current + 1;
+    pdfRequestRef.current = requestId;
     let cancelled = false;
     setPdfLoading(true);
     setPdfError(null);
+    setPdfPage(null);
     void window.translunar
       .invoke("pdf.page.get", {
         documentId: document.id,
@@ -3826,13 +3935,17 @@ function DocumentPreview({
         dpi: 144,
       })
       .then((result) => {
-        if (!cancelled) setPdfPage(result);
+        if (cancelled || pdfRequestRef.current !== requestId) return;
+        setPdfPage(result);
       })
       .catch((reason: unknown) => {
-        if (!cancelled) setPdfError(formatError(reason));
+        if (cancelled || pdfRequestRef.current !== requestId) return;
+        setPdfPage(null);
+        setPdfError(formatError(reason));
       })
       .finally(() => {
-        if (!cancelled) setPdfLoading(false);
+        if (!cancelled && pdfRequestRef.current === requestId)
+          setPdfLoading(false);
       });
     return () => {
       cancelled = true;
@@ -4054,113 +4167,120 @@ function DocumentPreview({
               ))}
             </div>
           </div>
-          {pdfError ? (
-            <p className="form-error pdf-preview-error" role="alert">
-              {pdfError}
-            </p>
-          ) : null}
-          <div className="pdf-preview-grid">
-            <div className="pdf-page-image">
-              {pdfPage ? (
-                <img
-                  src={"data:image/png;base64," + pdfPage.imagePngBase64}
-                  alt={"Original PDF page " + pdfPage.page}
-                />
-              ) : (
-                <span>
-                  {pdfLoading ? "Rendering page..." : "No page loaded"}
-                </span>
-              )}
-            </div>
-            <div
-              className="pdf-block-list"
-              aria-label={t("workbench.extractedBlocks")}
-            >
-              {pdfPage?.blocks.map((block) => (
-                <article
-                  key={block.segmentId}
-                  className={
-                    block.segmentId === activeSegment?.id
-                      ? "pdf-block active"
-                      : "pdf-block"
-                  }
+          <div className="pdf-preview-grid" aria-busy={pdfLoading}>
+            {pdfError ? (
+              <div className="pdf-preview-error-state" role="alert">
+                {pdfError}
+              </div>
+            ) : pdfLoading ? (
+              <WorkbenchVisualState
+                kind="loading"
+                variant="preview"
+                label={t("workbench.loadingPdfPage")}
+              />
+            ) : (
+              <>
+                <div className="pdf-page-image">
+                  {pdfPage ? (
+                    <img
+                      src={"data:image/png;base64," + pdfPage.imagePngBase64}
+                      alt={"Original PDF page " + pdfPage.page}
+                    />
+                  ) : (
+                    <span>{t("workbench.noPdfPage")}</span>
+                  )}
+                </div>
+                <div
+                  className="pdf-block-list"
+                  aria-label={t("workbench.extractedBlocks")}
                 >
-                  <div className="pdf-block-meta">
-                    <span>{block.kind}</span>
-                    <span
+                  {pdfPage?.blocks.map((block) => (
+                    <article
+                      key={block.segmentId}
                       className={
-                        block.sourceKind === "ocr" ? "ocr-confidence" : ""
+                        block.segmentId === activeSegment?.id
+                          ? "pdf-block active"
+                          : "pdf-block"
                       }
                     >
-                      {block.sourceKind === "ocr"
-                        ? "OCR " + block.confidence / 10 + "%"
-                        : "Text layer"}
-                    </span>
-                  </div>
-                  <p>{block.sourceText}</p>
-                  {block.sourceKind === "ocr" &&
-                  block.segmentId === activeSegment?.id &&
-                  block.state !== "confirmed" ? (
-                    correctionOpen ? (
-                      <div className="ocr-correction">
-                        <textarea
-                          aria-label={t("workbench.correctOcr")}
-                          value={correctionText}
-                          onChange={(event) =>
-                            setCorrectionText(event.currentTarget.value)
+                      <div className="pdf-block-meta">
+                        <span>{block.kind}</span>
+                        <span
+                          className={
+                            block.sourceKind === "ocr" ? "ocr-confidence" : ""
                           }
-                        />
-                        <input
-                          aria-label={t("workbench.ocrReason")}
-                          placeholder={t("workbench.reasonForCorrection")}
-                          value={correctionReason}
-                          onChange={(event) =>
-                            setCorrectionReason(event.currentTarget.value)
-                          }
-                        />
-                        <div className="ocr-correction-actions">
-                          <button
-                            className="button primary"
-                            type="button"
-                            disabled={
-                              correctionBusy ||
-                              !correctionReason.trim() ||
-                              !correctionText.trim()
-                            }
-                            onClick={() => void submitOcrCorrection()}
-                          >
-                            <Save size={13} />
-                            {correctionBusy ? "Saving" : "Save correction"}
-                          </button>
-                          <button
-                            className="button ghost"
-                            type="button"
-                            onClick={() => setCorrectionOpen(false)}
-                          >
-                            {t("common.cancel")}
-                          </button>
-                        </div>
+                        >
+                          {block.sourceKind === "ocr"
+                            ? "OCR " + block.confidence / 10 + "%"
+                            : "Text layer"}
+                        </span>
                       </div>
-                    ) : (
-                      <button
-                        className="ocr-edit-button"
-                        type="button"
-                        onClick={() => {
-                          setCorrectionText(block.sourceText);
-                          setCorrectionOpen(true);
-                        }}
-                      >
-                        <Pencil size={12} />
-                        {t("workbench.correctOcrBtn")}
-                      </button>
-                    )
+                      <p>{block.sourceText}</p>
+                      {block.sourceKind === "ocr" &&
+                      block.segmentId === activeSegment?.id &&
+                      block.state !== "confirmed" ? (
+                        correctionOpen ? (
+                          <div className="ocr-correction">
+                            <textarea
+                              aria-label={t("workbench.correctOcr")}
+                              value={correctionText}
+                              onChange={(event) =>
+                                setCorrectionText(event.currentTarget.value)
+                              }
+                            />
+                            <input
+                              aria-label={t("workbench.ocrReason")}
+                              placeholder={t("workbench.reasonForCorrection")}
+                              value={correctionReason}
+                              onChange={(event) =>
+                                setCorrectionReason(event.currentTarget.value)
+                              }
+                            />
+                            <div className="ocr-correction-actions">
+                              <button
+                                className="button primary"
+                                type="button"
+                                disabled={
+                                  correctionBusy ||
+                                  !correctionReason.trim() ||
+                                  !correctionText.trim()
+                                }
+                                onClick={() => void submitOcrCorrection()}
+                              >
+                                <Save size={13} />
+                                {correctionBusy ? "Saving" : "Save correction"}
+                              </button>
+                              <button
+                                className="button ghost"
+                                type="button"
+                                onClick={() => setCorrectionOpen(false)}
+                              >
+                                {t("common.cancel")}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            className="ocr-edit-button"
+                            type="button"
+                            onClick={() => {
+                              setCorrectionText(block.sourceText);
+                              setCorrectionOpen(true);
+                            }}
+                          >
+                            <Pencil size={12} />
+                            {t("workbench.correctOcrBtn")}
+                          </button>
+                        )
+                      ) : null}
+                    </article>
+                  ))}
+                  {pdfPage && !pdfError && pdfPage.blocks.length === 0 ? (
+                    <p className="empty-grid">{t("workbench.noPdfBlocks")}</p>
                   ) : null}
-                </article>
-              ))}
-              {!pdfLoading && !pdfPage?.blocks.length ? (
-                <p className="empty-grid">{t("workbench.noExtractedBlocks")}</p>
-              ) : null}
-            </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       ) : (
@@ -4201,7 +4321,12 @@ interface SuggestionsProps {
   activeIssue: QaIssue | undefined;
   issues: QaIssue[];
   matches: TmEntry[];
+  matchesLoading: boolean;
+  matchesError: string | null;
   termMatches: TermMatch[];
+  termLoading: boolean;
+  termSettled: boolean;
+  termError: string | null;
   onInsert(target: string): void;
   onApplyMutation(mutation: EditorMutationResult): void;
 }
@@ -4216,7 +4341,12 @@ function SuggestionsPanel({
   activeIssue,
   issues,
   matches,
+  matchesLoading,
+  matchesError,
   termMatches,
+  termLoading,
+  termSettled,
+  termError,
   onInsert,
   onApplyMutation,
 }: SuggestionsProps) {
@@ -4333,9 +4463,26 @@ function SuggestionsPanel({
               ? "suggestion-scroll assistant-open"
               : "suggestion-scroll"
           }
+          aria-busy={
+            tab === "matches"
+              ? matchesLoading
+              : tab === "terms"
+                ? termLoading
+                : undefined
+          }
         >
           {tab === "matches" ? (
-            matches.length ? (
+            matchesLoading ? (
+              <WorkbenchVisualState
+                kind="loading"
+                variant="matches"
+                label={t("workbench.loadingMatches")}
+              />
+            ) : matchesError ? (
+              <div className="suggestion-error" role="alert">
+                {matchesError}
+              </div>
+            ) : matches.length ? (
               matches.map((match) => (
                 <article className="match-card" key={match.id}>
                   <header>
@@ -4367,13 +4514,26 @@ function SuggestionsPanel({
                 </article>
               ))
             ) : (
-              <EmptySuggestion
-                icon={<Database size={20} />}
-                label={t("workbench.noExactMatch")}
+              <WorkbenchVisualState
+                kind="empty"
+                variant="matches"
+                label={t("workbench.noTmMatchState")}
               />
             )
           ) : tab === "terms" ? (
-            termMatches.length ? (
+            termLoading ? (
+              <div
+                className="suggestion-pending"
+                role="status"
+                aria-live="polite"
+              >
+                {t("workbench.loadingTerms")}
+              </div>
+            ) : termError ? (
+              <div className="suggestion-error" role="alert">
+                {termError}
+              </div>
+            ) : termSettled && termMatches.length ? (
               termMatches.map((match) => {
                 const translation =
                   match.translations.find((item) => item.preferred) ??
@@ -4404,12 +4564,13 @@ function SuggestionsPanel({
                   </article>
                 );
               })
-            ) : (
-              <EmptySuggestion
-                icon={<BookOpen size={20} />}
-                label={t("workbench.noTermHits")}
+            ) : termSettled ? (
+              <WorkbenchVisualState
+                kind="empty"
+                variant="terms"
+                label={t("workbench.noTermHitState")}
               />
-            )
+            ) : null
           ) : tab === "assistant" ? (
             <AssistantPanel
               activeSegment={activeSegment}
@@ -4444,9 +4605,10 @@ function SuggestionsPanel({
               </article>
             ))
           ) : (
-            <EmptySuggestion
-              icon={<CheckCircle2 size={20} />}
-              label="No open QA issues"
+            <WorkbenchVisualState
+              kind="empty"
+              variant="qa"
+              label={t("workbench.noOpenQaState")}
             />
           )}
         </div>
@@ -4473,21 +4635,6 @@ function SuggestionsPanel({
         <div className="rail-dots" aria-hidden="true" />
       </div>
     </aside>
-  );
-}
-
-function EmptySuggestion({
-  icon,
-  label,
-}: {
-  icon: React.ReactNode;
-  label: string;
-}) {
-  return (
-    <div className="empty-suggestion">
-      {icon}
-      <span>{label}</span>
-    </div>
   );
 }
 

@@ -3256,6 +3256,82 @@ test("keeps a 10,000 segment document inside the virtual row and 60-second perfo
   }
 });
 
+test("exposes the five named Workbench empty states with a real grid recovery action", async ({
+  browserName,
+}) => {
+  expect(browserName).toBe("chromium");
+  const harness = await launchHarness("visual-states-empty");
+  const { application, page, consoleErrors } = harness;
+  const evidenceDirectory = resolve(
+    process.cwd(),
+    "..",
+    "..",
+    ".trellis",
+    "tasks",
+    "07-21-workbench-visual-identity",
+    "evidence",
+    "screenshots",
+  );
+  mkdirSync(evidenceDirectory, { recursive: true });
+
+  const capture = async (name: string) => {
+    await page.screenshot({ path: join(evidenceDirectory, `${name}.png`) });
+  };
+
+  try {
+    await importFixture(page);
+    await resizeWindow(application, 1250, 744);
+
+    await expect(
+      page.getByRole("status", {
+        name: "No exact TM match for this segment.",
+      }),
+    ).toBeVisible();
+    await capture("wp2-empty-no-tm-match-1250x744-light");
+
+    await page.getByRole("tab", { name: /^Terms/u }).click();
+    await expect(
+      page.getByRole("status", { name: "No term hit in this segment." }),
+    ).toBeVisible();
+    await capture("wp2-empty-no-term-hit-1250x744-light");
+
+    await page.getByRole("tab", { name: /^QA/u }).click();
+    await expect(
+      page.getByRole("status", { name: "No open QA issue." }),
+    ).toBeVisible();
+    await capture("wp2-empty-no-open-qa-1250x744-light");
+
+    await page.getByRole("tab", { name: /Assistant/u }).click();
+    await page.locator(".conversation-trigger").click();
+    const conversationPopover = page.locator(".conversation-popover");
+    await expect(conversationPopover).toBeVisible();
+    await conversationPopover.locator(".conversation-new").click();
+    await expect(
+      page.getByRole("status", { name: "No Assistant conversation yet." }),
+    ).toBeVisible();
+    await capture("wp2-empty-no-assistant-conversation-1250x744-light");
+
+    await resizeWindow(application, 1680, 942);
+    const documentSearch = page.getByLabel("Search in document");
+    await documentSearch.fill("__wp2_no_segment_result__");
+    const gridEmpty = page.getByRole("status", {
+      name: "No segment matches these filters.",
+    });
+    await expect(gridEmpty).toBeVisible();
+    await expect(
+      gridEmpty.getByRole("button", { name: "Clear filters" }),
+    ).toBeEnabled();
+    await capture("wp2-empty-grid-filters-1680x942-light");
+    await gridEmpty.getByRole("button", { name: "Clear filters" }).click();
+    await expect(documentSearch).toHaveValue("");
+    await expect(page.locator(".segment-row").first()).toBeVisible();
+
+    expect(consoleErrors).toEqual([]);
+  } finally {
+    await closeHarness(harness);
+  }
+});
+
 test("keeps panel motion, geometry, and Windows rendering coherent", async ({
   browserName,
 }, testInfo) => {

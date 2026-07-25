@@ -49,22 +49,26 @@ depends on it yet.
 Ownership: one small Workbench visual-state component/style, request-state wiring,
 i18n, focused unit tests, and the exact 3 loading + 5 empty cases.
 
-- [ ] Add a presentational loading/empty primitive with variants for match card,
+- [x] Add a presentational loading/empty primitive with variants for match card,
       Assistant response, Preview page, term/QA result, and grid.
-- [ ] Add generation-safe TM loading state so an unresolved lookup never flashes
+- [x] Add generation-safe TM loading state so an unresolved lookup never flashes
       `No TM match` and a stale request cannot update the next active segment.
-- [ ] Show Assistant first-token skeleton only from accepted request to first
+- [x] Show Assistant first-token skeleton only from accepted request to first
       readable chunk/terminal error; keep Stop/recovery controls available.
-- [ ] Replace PDF `Rendering page...` with the page/block skeleton; keep PDF error
+- [x] Replace PDF `Rendering page...` with the page/block skeleton; keep PDF error
       and no-page/no-block states distinct.
-- [ ] Implement the five named empty states and a real `Clear filters` action for
+- [x] Implement the five named empty states and a real `Clear filters` action for
       empty grid. Do not add inert actions to terminal positive states.
-- [ ] Add English/Chinese copy, bounded live-region behavior, dark parity, and a
+- [x] Add English/Chinese copy, bounded live-region behavior, dark parity, and a
       static reduced-motion variant.
-- [ ] Unit gate: render each of 8 states, assert its name/role/action contract, and
+- [x] Unit gate: render each of 8 states, assert its name/role/action contract, and
       assert loading/error/empty are mutually exclusive.
-- [ ] E2E gate: capture all 8 named screenshots at a representative viewport and
-      verify no layout jump/console error; repeat reduced-motion and dark checks.
+- [x] E2E empty-state gate: capture the five named empty-state screenshots at
+      representative light view, verify the named roles, console cleanliness,
+      and functional `Clear filters` recovery.
+- [ ] E2E loading/theme gate: capture the three loading screenshots plus the
+      remaining theme/reduced-motion/manual checks; the current fixture resolves
+      loading requests too quickly for stable runtime captures.
 
 Rollback point: the shared state component and state wiring form one package; all
 previous request behavior remains intact when reverted.

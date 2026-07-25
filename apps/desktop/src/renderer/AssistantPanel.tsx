@@ -34,6 +34,7 @@ import {
   type ReasoningLevel,
 } from "./assistant-state";
 import { LiveAssistantPanel } from "./LiveAssistantPanel";
+import { WorkbenchVisualState } from "./WorkbenchVisualState";
 import { useLocale } from "./i18n/LocaleProvider";
 import type { MessageKey } from "./i18n/messages";
 
@@ -338,7 +339,7 @@ function OfflineAssistantPanel({
         ))}
       </div>
 
-      <div className="assistant-transcript" aria-live="polite">
+      <div className="assistant-transcript">
         {activeConversation?.messages.length ? (
           activeConversation.messages.map((message) => (
             <article
@@ -384,9 +385,11 @@ function OfflineAssistantPanel({
             </article>
           ))
         ) : (
-          <div className="assistant-empty">
-            <strong>{t("assistant.noMessages")}</strong>
-          </div>
+          <WorkbenchVisualState
+            kind="empty"
+            variant="assistant"
+            label={t("workbench.noAssistantConversation")}
+          />
         )}
       </div>
 

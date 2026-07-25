@@ -2004,6 +2004,206 @@ button.tag-capsule {
   font-size: 12px;
 }
 
+/* Shared Workbench loading/empty surfaces (WP2). */
+.workbench-visual-state {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 156px;
+  padding: 18px 16px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface-raised) 86%, transparent);
+  text-align: center;
+}
+
+.workbench-visual-state.state-matches,
+.workbench-visual-state.state-terms,
+.workbench-visual-state.state-qa {
+  min-height: 172px;
+}
+
+.workbench-visual-state.state-assistant {
+  min-height: 142px;
+}
+
+.workbench-visual-state.state-preview {
+  grid-column: 1 / -1;
+  min-height: 0;
+  height: 100%;
+  align-content: stretch;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  padding: 12px;
+}
+
+.workbench-visual-state.state-preview .workbench-state-skeleton {
+  width: 100%;
+  height: 100%;
+}
+
+.workbench-visual-state.state-grid {
+  min-height: 180px;
+  height: 100%;
+  border-top: 1px solid var(--line);
+}
+
+.segment-grid > .workbench-visual-state.state-grid {
+  height: calc(100% - 34px);
+}
+
+.workbench-state-mark {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  color: var(--accent);
+  opacity: 0.76;
+}
+
+.workbench-state-mark .brand-mark {
+  width: 28px;
+  height: 28px;
+  transform: scale(0.78);
+  transform-origin: center;
+}
+
+.workbench-state-mark .brand-mark::after {
+  width: 28px;
+}
+
+.workbench-state-label {
+  max-width: 34ch;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.workbench-visual-state.empty .workbench-state-label {
+  color: var(--muted);
+}
+
+.workbench-state-action {
+  margin-top: 2px;
+}
+
+.workbench-state-action .button {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 11px;
+}
+
+.workbench-state-skeleton {
+  width: min(100%, 320px);
+  color: color-mix(in srgb, var(--accent) 30%, var(--line));
+}
+
+.state-skeleton-lines,
+.state-skeleton-assistant,
+.state-skeleton-grid {
+  display: grid;
+  gap: 7px;
+  width: 100%;
+}
+
+.state-skeleton-lines i,
+.state-skeleton-assistant i,
+.state-skeleton-grid i,
+.state-skeleton-blocks i {
+  display: block;
+  height: 9px;
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 10%, var(--surface-raised)),
+    color-mix(in srgb, var(--accent) 24%, var(--surface-raised)),
+    color-mix(in srgb, var(--accent) 10%, var(--surface-raised))
+  );
+  background-size: 220% 100%;
+  animation: state-shimmer 1.8s var(--ease) infinite;
+}
+
+.state-skeleton-lines i:nth-child(2),
+.state-skeleton-assistant i:nth-child(2) {
+  width: 82%;
+}
+
+.state-skeleton-lines i:nth-child(3),
+.state-skeleton-assistant i:nth-child(3) {
+  width: 64%;
+}
+
+.state-skeleton-preview {
+  display: grid;
+  grid-template-columns: minmax(72px, 0.75fr) minmax(120px, 1fr);
+  gap: 12px;
+  min-height: 96px;
+  height: 100%;
+}
+
+.state-skeleton-page {
+  display: block;
+  min-height: 96px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 8%, var(--paper-shade)),
+    color-mix(in srgb, var(--accent) 18%, var(--paper-shade)),
+    color-mix(in srgb, var(--accent) 8%, var(--paper-shade))
+  );
+  background-size: 220% 100%;
+  animation: state-shimmer 1.8s var(--ease) infinite;
+}
+
+.state-skeleton-blocks {
+  display: grid;
+  align-content: center;
+  gap: 8px;
+}
+
+.state-skeleton-blocks i {
+  height: 22px;
+}
+
+.suggestion-pending {
+  display: grid;
+  min-height: 156px;
+  place-items: center;
+  padding: 16px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.suggestion-error {
+  min-height: 132px;
+  padding: 16px;
+  border-left: 2px solid var(--error);
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 5%, var(--surface-raised));
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.workbench-app.theme-dark .workbench-visual-state {
+  background: color-mix(in srgb, var(--surface-raised) 92%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  .workbench-app.theme-system .workbench-visual-state {
+    background: color-mix(in srgb, var(--surface-raised) 92%, transparent);
+  }
+}
+
+@keyframes state-shimmer {
+  from {
+    background-position: 180% 0;
+  }
+  to {
+    background-position: -20% 0;
+  }
+}
+
 /* Document preview */
 .document-preview {
   display: grid;
@@ -2237,10 +2437,16 @@ button.tag-capsule {
   background: var(--surface);
 }
 
-.pdf-preview-error {
-  margin: 0;
-  padding: 6px 10px;
-  border-bottom: 1px solid color-mix(in oklab, var(--error), transparent 70%);
+.pdf-preview-error-state {
+  display: grid;
+  grid-column: 1 / -1;
+  min-height: 120px;
+  place-items: center;
+  padding: 16px;
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 5%, var(--surface-raised));
+  font-size: 11px;
+  text-align: center;
 }
 
 .pdf-preview-grid {
@@ -3894,6 +4100,15 @@ button.tag-capsule {
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
+  }
+
+  .state-skeleton-lines i,
+  .state-skeleton-assistant i,
+  .state-skeleton-grid i,
+  .state-skeleton-blocks i,
+  .state-skeleton-page {
+    animation: none !important;
+    background-position: 0 0;
   }
 }
 

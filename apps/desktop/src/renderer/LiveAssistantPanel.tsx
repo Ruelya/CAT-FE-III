@@ -32,11 +32,9 @@ import {
   Database,
   Eye,
   HardDrive,
-  LoaderCircle,
   MessageSquarePlus,
   RotateCcw,
   Send,
-  Sparkles,
   WandSparkles,
   X,
 } from "lucide-react";
@@ -45,6 +43,7 @@ import { formatError } from "./workbench-utils";
 import { createAssistantTurn, type ReasoningLevel } from "./assistant-state";
 import { useLocale } from "./i18n/LocaleProvider";
 import type { MessageKey } from "./i18n/messages";
+import { WorkbenchVisualState } from "./WorkbenchVisualState";
 
 interface LiveAssistantPanelProps {
   projectId: string;
@@ -123,8 +122,10 @@ export function LiveAssistantPanel({
   const [run, setRun] = useState<AiRun | null>(null);
   const [streamText, setStreamText] = useState("");
   const [streamEvents, setStreamEvents] = useState<AiRunEvent[]>([]);
+  const [waitingForFirstToken, setWaitingForFirstToken] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
   const sequenceRef = useRef(0);
   const mountedRef = useRef(true);
 
@@ -294,6 +295,7 @@ export function LiveAssistantPanel({
     setRun(started);
     setStreamText("");
     setStreamEvents([]);
+    setWaitingForFirstToken(true);
     sequenceRef.current = 0;
     await pollRun(started);
   };
@@ -312,13 +314,17 @@ export function LiveAssistantPanel({
         afterSequence = page.lastSequence;
         setStreamEvents((existing) => [...existing, ...page.items]);
         const delta = page.items.map((item) => item.deltaText ?? "").join("");
-        if (delta) setStreamText((existing) => existing + delta);
+        if (delta) {
+          setStreamText((existing) => existing + delta);
+          if (delta.trim()) setWaitingForFirstToken(false);
+        }
       }
       current = await window.translunar.invoke("ai.run.get", {
         runId: current.id,
       });
       setRun(current);
       if (isTerminal(current.status)) {
+        setWaitingForFirstToken(false);
         await loadMessagesForRun(current);
         return;
       }
@@ -342,6 +348,7 @@ export function LiveAssistantPanel({
     setBusy(true);
     setError(null);
     setStreamText("");
+    setWaitingForFirstToken(false);
     try {
       if (selectedModel === "local-preview") {
         if (!activeSegment) throw new Error(t("assistant.noActiveSegment"));
@@ -384,6 +391,7 @@ export function LiveAssistantPanel({
         await startOnlineRun(action, text, conversationId);
       }
     } catch (reason) {
+      setWaitingForFirstToken(false);
       setError(formatError(reason));
     } finally {
       setBusy(false);
@@ -391,18 +399,19 @@ export function LiveAssistantPanel({
   };
 
   const cancel = async () => {
-    if (!run || busy) return;
-    setBusy(true);
+    if (!run || cancelBusy) return;
+    setCancelBusy(true);
     try {
       const canceled = await window.translunar.invoke("ai.run.cancel", {
         runId: run.id,
         expectedRevision: run.revision,
       });
       setRun(canceled);
+      setWaitingForFirstToken(false);
     } catch (reason) {
       setError(formatError(reason));
     } finally {
-      setBusy(false);
+      setCancelBusy(false);
     }
   };
 
@@ -416,8 +425,10 @@ export function LiveAssistantPanel({
         expectedRevision: run.revision,
       });
       setRun(resumed);
+      setWaitingForFirstToken(!streamText.trim());
       await pollRun(resumed);
     } catch (reason) {
+      setWaitingForFirstToken(false);
       setError(formatError(reason));
     } finally {
       setBusy(false);
@@ -437,6 +448,7 @@ export function LiveAssistantPanel({
       onApplyMutation(mutation);
       setRun(null);
       setStreamText("");
+      setWaitingForFirstToken(false);
     } catch (reason) {
       setError(formatError(reason));
     } finally {
@@ -620,7 +632,7 @@ export function LiveAssistantPanel({
         </details>
       ) : null}
 
-      <div className="assistant-transcript" aria-live="polite">
+      <div className="assistant-transcript">
         {messages.length ? (
           messages.map((message) => (
             <article
@@ -669,27 +681,31 @@ export function LiveAssistantPanel({
               ) : null}
             </article>
           ))
-        ) : (
-          <div className="assistant-empty">
-            <Sparkles size={20} />
-            <strong>
-              {selectedModel === "local-preview"
-                ? t("assistant.offlineReady")
-                : t("assistant.startGrounded")}
-            </strong>
-          </div>
-        )}
+        ) : !run ? (
+          <WorkbenchVisualState
+            kind="empty"
+            variant="assistant"
+            label={t("workbench.noAssistantConversation")}
+          />
+        ) : null}
         {run && !isTerminal(run.status) ? (
           <article className="assistant-message assistant streaming-message">
             <span className="assistant-message-role">
-              <LoaderCircle size={12} className="spin" /> Assistant ·{" "}
-              {run.status}
+              Assistant · {run.status}
             </span>
-            <p className="cjk">{streamText || t("assistant.preparing")}</p>
+            {waitingForFirstToken ? (
+              <WorkbenchVisualState
+                kind="loading"
+                variant="assistant"
+                label={t("workbench.loadingAssistant")}
+              />
+            ) : (
+              <p className="cjk">{streamText}</p>
+            )}
             <div className="stream-controls">
               <button
                 type="button"
-                disabled={busy}
+                disabled={cancelBusy}
                 onClick={() => void cancel()}
               >
                 <CircleStop size={13} /> {t("assistant.stop")}
@@ -955,7 +971,12 @@ function formatElapsed(milliseconds: number): string {
 }
 
 function isTerminal(status: AiRun["status"]): boolean {
-  return status === "succeeded" || status === "failed" || status === "canceled";
+  return (
+    status === "succeeded" ||
+    status === "failed" ||
+    status === "interrupted" ||
+    status === "canceled"
+  );
 }
 
 function delay(milliseconds: number): Promise<void> {

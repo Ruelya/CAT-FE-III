@@ -960,6 +960,18 @@ export type MessageKey =
   | "workbench.tab"
   | "workbench.addDictionary"
   | "workbench.noSegmentsMatch"
+  | "workbench.loadingMatches"
+  | "workbench.loadingTerms"
+  | "workbench.loadingAssistant"
+  | "workbench.loadingPdfPage"
+  | "workbench.noTmMatchState"
+  | "workbench.noTermHitState"
+  | "workbench.noOpenQaState"
+  | "workbench.noAssistantConversation"
+  | "workbench.noGridMatches"
+  | "workbench.clearGridFilters"
+  | "workbench.noPdfPage"
+  | "workbench.noPdfBlocks"
   | "workbench.commandPaletteAria"
   | "workbench.typeCommand"
   | "workbench.filterCommands"
@@ -2617,6 +2629,18 @@ const enUs: MessageCatalog = {
   "workbench.tab": "Tab",
   "workbench.addDictionary": "Add to user dictionary",
   "workbench.noSegmentsMatch": "No segments match this view.",
+  "workbench.loadingMatches": "Checking exact TM matches…",
+  "workbench.loadingTerms": "Checking terminology…",
+  "workbench.loadingAssistant": "Waiting for the first Assistant response…",
+  "workbench.loadingPdfPage": "Rendering the PDF page…",
+  "workbench.noTmMatchState": "No exact TM match for this segment.",
+  "workbench.noTermHitState": "No term hit in this segment.",
+  "workbench.noOpenQaState": "No open QA issue.",
+  "workbench.noAssistantConversation": "No Assistant conversation yet.",
+  "workbench.noGridMatches": "No segment matches these filters.",
+  "workbench.clearGridFilters": "Clear filters",
+  "workbench.noPdfPage": "No PDF page is available.",
+  "workbench.noPdfBlocks": "No extracted blocks on this page.",
   "workbench.commandPaletteAria": "Command palette dialog",
   "workbench.typeCommand": "Type a command",
   "workbench.filterCommands": "Filter commands",
@@ -3893,7 +3917,8 @@ const zhCn: MessageCatalog = {
   "assistant.sections": "个分段",
   "ai.kicker": "工作区策略",
   "ai.title": "AI 控制",
-  "ai.description": "凭证存储在操作系统密钥环中。语境、运行、使用记录及译文写入均由引擎管理。",
+  "ai.description":
+    "凭证存储在操作系统密钥环中。语境、运行、使用记录及译文写入均由引擎管理。",
   "ai.enabled": "启用 AI",
   "ai.interactiveRuns": "交互运行",
   "ai.batchRuns": "批量运行",
@@ -3986,8 +4011,10 @@ const zhCn: MessageCatalog = {
   "task.rowsAria": "任务包行",
   "task.noRows": "本页没有返回任何行。",
   "task.detachedReady": "分离任务项目已就绪",
-  "task.importDocumentCount": "{count, plural, one {# 个文档} other {# 个文档}}",
-  "task.importBoundRowCount": "{count, plural, one {# 个绑定行} other {# 个绑定行}}",
+  "task.importDocumentCount":
+    "{count, plural, one {# 个文档} other {# 个文档}}",
+  "task.importBoundRowCount":
+    "{count, plural, one {# 个绑定行} other {# 个绑定行}}",
   "task.optionalSlices": "可选切片",
   "task.tmTermRows": "翻译记忆 / 术语库行",
   "task.noMountedLibrary": "没有已挂载的库",
@@ -4260,6 +4287,18 @@ const zhCn: MessageCatalog = {
   "workbench.tab": "Tab",
   "workbench.addDictionary": "添加到用户词典",
   "workbench.noSegmentsMatch": "没有匹配此视图的句段。",
+  "workbench.loadingMatches": "正在检查精确翻译记忆匹配…",
+  "workbench.loadingTerms": "正在检查术语…",
+  "workbench.loadingAssistant": "正在等待助手的首个响应…",
+  "workbench.loadingPdfPage": "正在渲染 PDF 页面…",
+  "workbench.noTmMatchState": "此句段没有精确翻译记忆匹配。",
+  "workbench.noTermHitState": "此句段没有术语命中。",
+  "workbench.noOpenQaState": "没有未解决的质检问题。",
+  "workbench.noAssistantConversation": "尚无助手对话。",
+  "workbench.noGridMatches": "没有句段匹配这些筛选条件。",
+  "workbench.clearGridFilters": "清除筛选",
+  "workbench.noPdfPage": "没有可用的 PDF 页面。",
+  "workbench.noPdfBlocks": "本页没有提取块。",
   "workbench.commandPaletteAria": "命令面板对话框",
   "workbench.typeCommand": "输入命令",
   "workbench.filterCommands": "筛选命令",
@@ -4598,7 +4637,8 @@ const zhCn: MessageCatalog = {
   "insights.durationHours": "{value} 小时",
   "qa.run": "运行质检",
   "qa.waivedBy": "由 {actor} 豁免",
-  "qa.relatedSegmentCount": "{count, plural, one {# 个相关句段} other {# 个相关句段}}",
+  "qa.relatedSegmentCount":
+    "{count, plural, one {# 个相关句段} other {# 个相关句段}}",
   "qa.segmentOrdinal": "句段 {ordinal}",
   "qa.name": "名称",
   "qa.label": "标签",
