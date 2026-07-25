@@ -20,7 +20,8 @@
   "subtasks": [],
   "children": [
     "07-25-node24-electron-compatibility",
-    "07-21-workbench-visual-identity"
+    "07-21-workbench-visual-identity",
+    "07-21-workbench-visual-polish"
   ],
   "parent": "07-19-complete-full-cat-prd",
   "relatedFiles": [],

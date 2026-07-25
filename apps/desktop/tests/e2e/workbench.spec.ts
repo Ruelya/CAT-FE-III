@@ -1829,7 +1829,9 @@ test("manages the complete project lifecycle through the real Engine", async ({
     await expect(
       templateSelect.locator("option", { hasText: templateName }),
     ).toHaveCount(1);
-    await templateSelect.selectOption({ label: `${templateName} · revision 3` });
+    await templateSelect.selectOption({
+      label: `${templateName} · revision 3`,
+    });
     await page.getByRole("button", { name: "Continue" }).click();
     await dropLocalFiles(page, ".wizard-dropzone", [sourceA, sourceB]);
     await expect(page.getByText("alpha.txt", { exact: true })).toBeVisible();
@@ -3424,6 +3426,295 @@ test("keeps panel motion, geometry, and Windows rendering coherent", async ({
       body: JSON.stringify(renderingEvidence, null, 2),
       contentType: "application/json",
     });
+    expect(consoleErrors).toEqual([]);
+  } finally {
+    await closeHarness(harness);
+  }
+});
+
+test("applies the workbench visual polish in light and dark themes", async ({
+  browserName,
+}) => {
+  expect(browserName).toBe("chromium");
+  test.setTimeout(120_000);
+  const harness = await launchHarness("visual-polish");
+  const { application, page, consoleErrors } = harness;
+  const evidenceDirectory = resolve(
+    process.cwd(),
+    "..",
+    "..",
+    ".trellis",
+    "tasks",
+    "07-21-workbench-visual-polish",
+    "evidence",
+    "screenshots",
+  );
+
+  const setTheme = async (theme: "light" | "dark") => {
+    await page.locator(".segment-row textarea").first().focus();
+    await page.keyboard.press("Control+,");
+    const preferences = page.getByRole("dialog", {
+      name: "Editor preferences",
+    });
+    await expect(preferences).toBeVisible();
+    await preferences
+      .locator(".preference-controls select")
+      .selectOption(theme);
+    await expect(page.locator(".workbench-app")).toHaveClass(
+      new RegExp(`theme-${theme}`, "u"),
+    );
+    await preferences
+      .getByRole("button", { name: "Close editor preferences" })
+      .click();
+  };
+
+  try {
+    await importFixture(page);
+    mkdirSync(evidenceDirectory, { recursive: true });
+
+    for (const theme of ["light", "dark"] as const) {
+      await setTheme(theme);
+      const appBackground = await page
+        .locator(".workbench-app")
+        .evaluate((element) => getComputedStyle(element).backgroundImage);
+      if (theme === "light") {
+        expect(appBackground).toContain("data:image/svg+xml");
+      } else {
+        expect(appBackground).not.toContain("data:image/svg+xml");
+      }
+      const contrastEvidence = await page.evaluate(() => {
+        interface RgbaColor {
+          red: number;
+          green: number;
+          blue: number;
+          alpha: number;
+        }
+        const parseColor = (value: string): RgbaColor => {
+          const channels = value.match(/[\d.]+/gu)?.map(Number);
+          if (!channels || channels.length < 3) {
+            throw new Error(`Cannot parse computed color: ${value}`);
+          }
+          return {
+            red: channels[0] ?? 0,
+            green: channels[1] ?? 0,
+            blue: channels[2] ?? 0,
+            alpha: channels[3] ?? 1,
+          };
+        };
+        const luminance = (color: RgbaColor) => {
+          const linear = [color.red, color.green, color.blue].map((channel) => {
+            const normalized = channel / 255;
+            return normalized <= 0.04045
+              ? normalized / 12.92
+              : ((normalized + 0.055) / 1.055) ** 2.4;
+          });
+          return (
+            0.2126 * (linear[0] ?? 0) +
+            0.7152 * (linear[1] ?? 0) +
+            0.0722 * (linear[2] ?? 0)
+          );
+        };
+        const contrast = (foreground: string, background: string) => {
+          const fg = parseColor(foreground);
+          const bg = parseColor(background);
+          const composited = {
+            red: fg.red * fg.alpha + bg.red * (1 - fg.alpha),
+            green: fg.green * fg.alpha + bg.green * (1 - fg.alpha),
+            blue: fg.blue * fg.alpha + bg.blue * (1 - fg.alpha),
+            alpha: 1,
+          };
+          const lighter = Math.max(luminance(composited), luminance(bg));
+          const darker = Math.min(luminance(composited), luminance(bg));
+          return (lighter + 0.05) / (darker + 0.05);
+        };
+        const ratio = (
+          foregroundSelector: string,
+          backgroundSelector: string,
+        ) => {
+          const foreground =
+            document.querySelector<HTMLElement>(foregroundSelector);
+          const background =
+            document.querySelector<HTMLElement>(backgroundSelector);
+          if (!foreground || !background) {
+            throw new Error(
+              `Contrast evidence target is missing: ${foregroundSelector}`,
+            );
+          }
+          return contrast(
+            getComputedStyle(foreground).color,
+            getComputedStyle(background).backgroundColor,
+          );
+        };
+        return {
+          appBar: ratio(".project-identity strong", ".app-bar"),
+          source: ratio(".source-cell .tagged-text", ".segment-row td"),
+          status: ratio(".status-bar", ".status-bar"),
+        };
+      });
+      expect(contrastEvidence.appBar).toBeGreaterThanOrEqual(4.5);
+      expect(contrastEvidence.source).toBeGreaterThanOrEqual(4.5);
+      expect(contrastEvidence.status).toBeGreaterThanOrEqual(4.5);
+
+      for (const viewport of [
+        { width: 1250, height: 744 },
+        { width: 1680, height: 942 },
+        { width: 1920, height: 1080 },
+      ]) {
+        await resizeWindow(application, viewport.width, viewport.height);
+        await page.mouse.move(20, 400);
+        await page.waitForTimeout(350);
+        await page.screenshot({
+          path: join(
+            evidenceDirectory,
+            `workbench-polish-${theme}-${viewport.width}x${viewport.height}.png`,
+          ),
+        });
+      }
+    }
+
+    await setTheme("light");
+    const firstRow = page.locator(".segment-row").first();
+    const firstTarget = firstRow.locator("textarea");
+    const paintEvidence = await page.evaluate(() => {
+      const app = document.querySelector<HTMLElement>(".workbench-app");
+      const target = document.querySelector<HTMLElement>(
+        ".segment-row textarea",
+      );
+      const appBarText = document.querySelector<HTMLElement>(
+        ".document-switcher span",
+      );
+      const segmentGrid = document.querySelector<HTMLElement>(".segment-grid");
+      const suggestionScroll =
+        document.querySelector<HTMLElement>(".suggestion-scroll");
+      const previewLines =
+        document.querySelector<HTMLElement>(".preview-lines");
+      const matchCard = document.querySelector<HTMLElement>(".match-card");
+      if (
+        !app ||
+        !target ||
+        !appBarText ||
+        !segmentGrid ||
+        !suggestionScroll ||
+        !previewLines
+      ) {
+        throw new Error("Visual polish evidence targets are missing.");
+      }
+      return {
+        selection: getComputedStyle(target, "::selection").backgroundColor,
+        inverseSelection: getComputedStyle(appBarText, "::selection")
+          .backgroundColor,
+        scrollbarWidth: getComputedStyle(segmentGrid, "::-webkit-scrollbar")
+          .width,
+        scrollbarThumb: getComputedStyle(
+          segmentGrid,
+          "::-webkit-scrollbar-thumb",
+        ).backgroundColor,
+        surfaceSunken:
+          getComputedStyle(app).getPropertyValue("--surface-sunken"),
+        suggestionBackground:
+          getComputedStyle(suggestionScroll).backgroundColor,
+        previewBackground: getComputedStyle(previewLines).backgroundColor,
+        matchBackground: matchCard
+          ? getComputedStyle(matchCard).backgroundColor
+          : null,
+      };
+    });
+    expect(paintEvidence.selection).toBe("rgba(242, 92, 26, 0.24)");
+    expect(paintEvidence.inverseSelection).toBe("rgba(242, 92, 26, 0.55)");
+    expect(paintEvidence.scrollbarWidth).toBe("10px");
+    expect(paintEvidence.scrollbarThumb).not.toBe("rgba(0, 0, 0, 0)");
+    expect(paintEvidence.suggestionBackground).not.toBe("rgba(0, 0, 0, 0)");
+    expect(paintEvidence.previewBackground).not.toBe("rgba(0, 0, 0, 0)");
+
+    const confirmButton = page.getByRole("button", {
+      name: "Confirm",
+      exact: true,
+    });
+    await firstTarget.focus();
+    for (let index = 0; index < 40; index += 1) {
+      await page.keyboard.press("Shift+Tab");
+      if (
+        await confirmButton.evaluate(
+          (element) => element === document.activeElement,
+        )
+      ) {
+        break;
+      }
+    }
+    await expect(confirmButton).toBeFocused();
+    const focusEvidence = await confirmButton.evaluate((element) => ({
+      focusVisible: element.matches(":focus-visible"),
+      boxShadow: getComputedStyle(element).boxShadow,
+    }));
+    expect(focusEvidence.focusVisible).toBe(true);
+    expect(focusEvidence.boxShadow).not.toBe("none");
+
+    await firstTarget.fill("保留期为 30 天。");
+    await expect(page.locator(".save-indicator")).toContainText("Saved");
+    await confirmButton.click();
+    await expect(firstRow).toHaveClass(/row-flash/u);
+    await expect(firstRow.locator(".status-lamp")).toHaveClass(
+      /just-confirmed/u,
+    );
+    await expect(firstRow).not.toHaveClass(/row-flash/u, { timeout: 1_500 });
+
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const secondRow = page.locator(".segment-row").nth(1);
+    const secondTarget = secondRow.locator("textarea");
+    await secondTarget.fill("在减少动画模式下确认。");
+    await expect(page.locator(".save-indicator")).toContainText("Saved");
+    await page.getByRole("button", { name: "Confirm", exact: true }).click();
+    await expect(secondRow).toHaveClass(/row-flash/u);
+    expect(
+      await secondRow
+        .locator("td")
+        .first()
+        .evaluate((element) => getComputedStyle(element).animationDuration),
+    ).toBe("0.001s");
+    await expect(secondRow).not.toHaveClass(/row-flash/u, { timeout: 1_500 });
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+
+    const thirdRow = page.locator(".segment-row").nth(2);
+    const thirdTarget = thirdRow.locator("textarea");
+    const thirdSegmentId = await thirdRow.getAttribute("data-segment-row");
+    if (!thirdSegmentId) throw new Error("Third segment id is missing.");
+    await page.evaluate(async (segmentId) => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      const projects = await api.invoke("project.list", {
+        lifecycle: "active",
+        offset: 0,
+        limit: 20,
+      });
+      const project = projects.items[0];
+      if (!project) throw new Error("Visual polish project is missing.");
+      const snapshot = await api.invoke("project.get", {
+        projectId: project.id,
+      });
+      const document = snapshot.documents[0];
+      if (!document) throw new Error("Visual polish document is missing.");
+      const segments = await api.invoke("segment.list", {
+        documentId: document.id,
+        offset: 0,
+        limit: 20,
+      });
+      const segment = segments.items.find((item) => item.id === segmentId);
+      if (!segment) throw new Error("Visual polish segment is missing.");
+      await api.invoke("segment.updateTarget", {
+        segmentId,
+        targetText: "Engine-side concurrent update.",
+        expectedRevision: segment.revision,
+      });
+    }, thirdSegmentId);
+    await thirdTarget.fill("Stale renderer draft.");
+    await page.getByRole("button", { name: "Confirm", exact: true }).click();
+    await expect(page.locator(".toast")).toContainText(
+      /revision|conflict|modified/iu,
+    );
+    await expect(thirdRow).not.toHaveClass(/row-flash/u);
+    await expect(thirdRow.locator(".status-lamp")).not.toHaveClass(
+      /just-confirmed/u,
+    );
+
     expect(consoleErrors).toEqual([]);
   } finally {
     await closeHarness(harness);

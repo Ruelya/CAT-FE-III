@@ -278,6 +278,7 @@ export function Workbench({
   );
   const [spellFindings, setSpellFindings] = useState<SpellFinding[]>([]);
   const [spellProvider, setSpellProvider] = useState("unavailable");
+  const [flashSegmentId, setFlashSegmentId] = useState<string | null>(null);
   const [preferences, setPreferences] = useState<EditorPreferences>(() => ({
     theme: "system",
     zoom: 100,
@@ -393,6 +394,7 @@ export function Workbench({
     setSaveState("saved");
     setToast(null);
     setActionBusy(null);
+    setFlashSegmentId(null);
     setSelectedTargetTagId(null);
     setActiveId((current) =>
       nextSegments.some((segment) => segment.id === current)
@@ -866,6 +868,21 @@ export function Workbench({
     setMatches(result.matches);
   };
 
+  const flashConfirmedSegment = (segmentId: string) => {
+    const timerKey = `confirm-flash:${segmentId}`;
+    const pending = timersRef.current.get(timerKey);
+    if (pending !== undefined) window.clearTimeout(pending);
+    setFlashSegmentId(segmentId);
+    timersRef.current.set(
+      timerKey,
+      window.setTimeout(() => {
+        timersRef.current.delete(timerKey);
+        setFlashSegmentId((current) =>
+          current === segmentId ? null : current,
+        );
+      }, 500),
+    );
+  };
 
   const confirmSegment = async (segmentId: string) => {
     if (composingRef.current.has(segmentId)) return;
@@ -886,6 +903,7 @@ export function Workbench({
         updateDraft(propagated.id, propagated.targetText);
       }
       setCounts(result.counts);
+      flashConfirmedSegment(segmentId);
       await Promise.all([refreshOpenIssues(), refreshMatches(result.segment)]);
       void loadEditorWindow(editorOffset);
       if (nextId) {
@@ -2274,7 +2292,15 @@ export function Workbench({
                     return (
                       <tr
                         key={segment.id}
-                        className={active ? "segment-row active" : "segment-row"}
+                        className={
+                          active
+                            ? segment.id === flashSegmentId
+                              ? "segment-row active row-flash"
+                              : "segment-row active"
+                            : segment.id === flashSegmentId
+                              ? "segment-row row-flash"
+                              : "segment-row"
+                        }
                         data-segment-row={segment.id}
                         aria-rowindex={segment.ordinal + 2}
                         onClick={() => setActiveId(segment.id)}
@@ -2284,6 +2310,7 @@ export function Workbench({
                           <StatusLamp
                             segment={segment}
                             hasIssue={Boolean(issue)}
+                            justConfirmed={segment.id === flashSegmentId}
                           />
                         </td>
                         <td className="source-cell">
@@ -3569,16 +3596,20 @@ function FilterButton({
 function StatusLamp({
   segment,
   hasIssue,
+  justConfirmed,
 }: {
   segment: Segment;
   hasIssue: boolean;
+  justConfirmed?: boolean;
 }) {
   const state = hasIssue ? "issues" : segment.state;
   const label = hasIssue
     ? "Issues"
     : state[0]?.toLocaleUpperCase() + state.slice(1);
   return (
-    <span className={`status-lamp ${state}`}>
+    <span
+      className={`status-lamp ${state}${justConfirmed ? " just-confirmed" : ""}`}
+    >
       <i />
       {label}
     </span>
