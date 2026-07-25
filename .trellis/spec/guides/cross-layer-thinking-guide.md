@@ -325,3 +325,30 @@ state correctly, but several commands still re-parsed event payload fields with
 local casts. The fix was to make the core event layer own `ThreadChannelEvent`
 and `isThreadEvent`, make `reduceChannelMetadata` the only channel metadata
 projection, and make `reduceThreads` the only thread replay reducer.
+
+## Channel Worker Readiness Boundary
+
+Channel dispatch is also an append-only cross-process contract:
+
+```
+create → spawn → durable spawned/error → targeted send → turn_started → done/error
+```
+
+### Contract
+
+- `channel spawn` is not complete when an OS PID is printed. The caller must
+  observe a durable `spawned` event, or handle a non-zero startup failure.
+- `send --delivery-mode requireRunningWorker` is the dispatch gate. A strict
+  delivery failure must stop the dispatcher; it is not a worker result.
+- A successful `send` is not proof that the provider consumed the prompt.
+  Confirm `turn_started` before waiting for `done`/`error`.
+- Keep the spawn/readiness/send sequence in one host execution context when the
+  host may reap detached child processes as soon as a shell command exits.
+
+### Common Mistake
+
+**Bad**: spawn in one short-lived shell call, immediately send in another, and
+trust the printed PID or zero exit status.
+
+**Good**: wait for `spawned`, send with strict delivery, then require
+`turn_started`; inspect raw channel events on any failure.

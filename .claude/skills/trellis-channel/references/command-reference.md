@@ -87,7 +87,10 @@ Behavior:
   - `appendOnly` (default-ish — just record),
   - `requireKnownWorker` (the named target must have a `spawned` event),
   - `requireRunningWorker` (the worker must currently be live).
-- Prints the appended event as one JSON line on stdout.
+- Strict modes still preserve the message and append `undeliverable` events,
+  but exit non-zero when any target fails the selected condition. Do not treat
+  the message JSON alone as delivery acknowledgement.
+- Prints the appended event as one JSON line on stdout on success.
 
 > **Note:** `send` has **no** `--tag` and **no** `--kind` flag. See
 > [`tag-vs-kind`](#tag-vs-kind--how-event-shape-is-actually-controlled) below.
@@ -236,8 +239,11 @@ trellis channel spawn <name>
 
 Behavior:
 - Provider is validated against the adapter registry
-  (`packages/cli/src/commands/channel/adapters/`); current: `claude`,
-  `codex`.
+  (`packages/cli/src/commands/channel/adapters/`); supported providers are
+  `claude` and `codex`.
+- The command waits for the supervisor to append a durable `spawned` event.
+  It exits non-zero on a provider startup error or readiness timeout; a
+  printed supervisor PID before that event is not a usable worker handle.
 - Worker stays inbox-idle until the first `send --to <worker>`.
 - Records a `spawned` event with `pid`, `provider`, `agent`, `files`,
   `manifests`.
@@ -477,4 +483,3 @@ Forum channels are event-sourced; use the CLI reducers
   pipe); diagnostic notes go to stderr.
 - **Errors** go through `chalk.red("Error:")` to stderr and `exit 1`.
 - **`wait` timeout** specifically exits **124**.
-

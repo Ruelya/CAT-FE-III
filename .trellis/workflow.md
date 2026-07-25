@@ -136,14 +136,16 @@ Channel-driven sub-agent dispatch is the default execution model for this workfl
 
 [workflow-state:in_progress]
 Flow: channel-driven `implement` worker -> channel-driven `check` worker -> `trellis-update-spec` -> commit (Phase 3.4) -> `/trellis:finish-work`.
-Main-session default: `trellis channel spawn --agent implement --provider claude` for implementation (see root `AGENTS.md`); `trellis channel spawn --agent check` for independent quality review. Do not use native Claude Task / Codex sub_agent unless explicitly requested or host-only tools require it.
+Main-session default: `trellis channel spawn --agent implement --provider claude` for implementation (see root `AGENTS.md`); `trellis channel spawn --agent check --provider claude` for independent quality review. Do not use native Claude Task / Codex sub_agent unless explicitly requested or host-only tools require it.
 Worker context order: jsonl entries -> `prd.md` -> `design.md if present` -> `implement.md if present`. Use stable worker handles such as `implement`, `check`, `check-cx`, `check-cc`; read results with `trellis channel messages --raw` when precision matters.
+Dispatch gate: `spawn` must return only after a durable `spawned` event; targeted `send` must use `--delivery-mode requireRunningWorker`; confirm `turn_started` before a long `done`/`error` wait. A PID, message JSON, or zero exit status is not delivery acknowledgement; strict-send failure stops the dispatcher.
 [/workflow-state:in_progress]
 
 [workflow-state:in_progress-inline]
 Flow: `trellis-before-dev` -> edit -> channel-driven `check` worker -> validation -> `trellis-update-spec` -> commit (Phase 3.4) -> `/trellis:finish-work`.
-Inline implementation is allowed only when the user asked for it or the change is too small to justify a worker. After editing, prefer `trellis channel spawn --agent check` for independent review.
+Inline implementation is allowed only when the user asked for it or the change is too small to justify a worker. After editing, prefer `trellis channel spawn --agent check --provider claude` for independent review.
 Read context before editing: `prd.md` -> `design.md if present` -> `implement.md if present`, plus relevant spec/research loaded by skills.
+Dispatch gate for the check worker is identical: wait for durable `spawned`, send with `--delivery-mode requireRunningWorker`, confirm `turn_started`, then wait for `done`/`error`; inspect raw events on any failure.
 [/workflow-state:in_progress-inline]
 
 ### Phase 3: Finish
@@ -176,7 +178,7 @@ Code committed. Run `/trellis:finish-work`; if dirty, return to Phase 3.4 first.
 
 - Planning or unclear requirements -> `trellis-brainstorm`.
 - `in_progress` implementation -> `trellis channel spawn --agent implement --provider claude` (see root `AGENTS.md`).
-- `in_progress` quality check -> `trellis channel spawn --agent check` (Claude by default).
+- `in_progress` quality check -> `trellis channel spawn --agent check --provider claude`.
 - Repeated debugging -> `trellis-break-loop`; spec updates -> `trellis-update-spec`.
 
 [/Claude Code, Cursor, OpenCode, codex-sub-agent, Kiro, Gemini, Qoder, CodeBuddy, Copilot, Droid, Pi]
@@ -276,10 +278,18 @@ trellis channel spawn impl-<topic> \
   --file "$TASK/implement.md" \
   --cwd "$PWD" \
   --timeout 60m
-trellis channel send impl-<topic> --as main --to implement --text-file /tmp/implement-brief.md
+trellis channel send impl-<topic> --as main --to implement --text-file /tmp/implement-brief.md \
+  --delivery-mode requireRunningWorker
 trellis channel wait impl-<topic> --as main --kind done,error --from implement --timeout 60m
 trellis channel messages impl-<topic> --raw --from implement --last 20
 ```
+
+`channel spawn` is a readiness barrier: it must return only after a durable
+`spawned` event exists, or exit non-zero with a startup error. Do not treat the
+printed supervisor PID as delivery acknowledgement. Send with
+`--delivery-mode requireRunningWorker`; a non-zero send is a dispatch failure,
+not a worker result. For a long-lived worker, wait for its first
+`turn_started` event before starting a long `done` wait.
 
 Omit the `design.md` or `implement.md` `--file` when the file does not exist. The brief must state the worker goal, forbidden actions, validation commands, and expected completion summary.
 
@@ -308,6 +318,7 @@ TASK=.trellis/tasks/<active-task>
 trellis channel create cr-<topic> --task "$TASK" --by main --ephemeral
 trellis channel spawn cr-<topic> \
   --agent check \
+  --provider claude \
   --as check \
   --jsonl "$TASK/check.jsonl" \
   --file "$TASK/prd.md" \
@@ -315,7 +326,8 @@ trellis channel spawn cr-<topic> \
   --file "$TASK/implement.md" \
   --cwd "$PWD" \
   --timeout 30m
-trellis channel send cr-<topic> --as main --to check --text-file /tmp/check-brief.md
+trellis channel send cr-<topic> --as main --to check --text-file /tmp/check-brief.md \
+  --delivery-mode requireRunningWorker
 trellis channel wait cr-<topic> --as main --kind done --from check --timeout 30m
 trellis channel messages cr-<topic> --raw --from check --last 40
 ```
@@ -325,8 +337,10 @@ For independent cross-provider review, spawn `check-cc` and `check-cx` in the sa
 ```bash
 trellis channel spawn cr-<topic> --agent check --provider claude --as check-cc --cwd "$PWD" --timeout 30m
 trellis channel spawn cr-<topic> --agent check --provider codex --as check-cx --cwd "$PWD" --timeout 30m
-trellis channel send cr-<topic> --as main --to check-cc --text-file /tmp/check-brief.md
-trellis channel send cr-<topic> --as main --to check-cx --text-file /tmp/check-brief.md
+trellis channel send cr-<topic> --as main --to check-cc --text-file /tmp/check-brief.md \
+  --delivery-mode requireRunningWorker
+trellis channel send cr-<topic> --as main --to check-cx --text-file /tmp/check-brief.md \
+  --delivery-mode requireRunningWorker
 trellis channel wait cr-<topic> --as main --kind done --from check-cc,check-cx --all --timeout 30m
 ```
 

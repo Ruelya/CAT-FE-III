@@ -34,6 +34,16 @@ trellis channel messages <channel> --raw --last 50
 
 Rule of thumb: never diagnose a worker from a truncated progress line.
 
+### Dispatch Startup Gate
+
+For a newly dispatched worker, inspect the raw event stream for a durable
+`spawned` event before sending the first prompt. `spawn` is a readiness
+barrier; a printed PID or a zero exit status before `spawned` is not success.
+Send targeted prompts with `--delivery-mode requireRunningWorker`, stop on a
+non-zero result or `undeliverable`, and confirm `turn_started` before waiting
+for a long `done`/`error` result. This separates a dispatch failure from a
+provider or implementation failure.
+
 ### Rebuild Streaming Text
 
 To reconstruct what a model actually streamed during a turn, concatenate

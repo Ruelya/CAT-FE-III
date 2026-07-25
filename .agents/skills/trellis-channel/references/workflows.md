@@ -19,7 +19,8 @@ trellis channel spawn brainstorm-storage-layer \
   --as cx-arch --timeout 30m
 
 trellis channel send brainstorm-storage-layer \
-  --as main --to cx-arch --text-file /tmp/brainstorm-r1.md
+  --as main --to cx-arch --text-file /tmp/brainstorm-r1.md \
+  --delivery-mode requireRunningWorker
 
 trellis channel wait brainstorm-storage-layer \
   --as main --kind done --from cx-arch --timeout 10m
@@ -62,9 +63,11 @@ trellis channel spawn cr-foo \
   --file "$TASK/implement.md" \
   --cwd "$PWD" --timeout 15m
 
-trellis channel send cr-foo --as main --to check --text-file /tmp/cr-brief.md
+## spawn returns only after durable `spawned` (or exits non-zero on startup error)
+trellis channel send cr-foo --as main --to check --text-file /tmp/cr-brief.md \
+  --delivery-mode requireRunningWorker
 trellis channel wait cr-foo --as main --kind done --from check --timeout 15m
-trellis channel messages cr-foo --kind message --from check --tag final_answer
+trellis channel messages cr-foo --raw --kind message --from check --last 1
 ```
 
 For implement work, use `--agent implement` and send an implementation brief.
@@ -86,8 +89,10 @@ trellis channel spawn cr-feature --agent check --provider codex --as check-cx \
   --jsonl "$TASK/check.jsonl" --file "$TASK/prd.md" --file "$TASK/design.md" \
   --timeout 15m
 
-trellis channel send cr-feature --as main --to check --text-file /tmp/cr-brief.md
-trellis channel send cr-feature --as main --to check-cx --text-file /tmp/cr-brief.md
+trellis channel send cr-feature --as main --to check --text-file /tmp/cr-brief.md \
+  --delivery-mode requireRunningWorker
+trellis channel send cr-feature --as main --to check-cx --text-file /tmp/cr-brief.md \
+  --delivery-mode requireRunningWorker
 trellis channel wait cr-feature --as main --kind done --from check,check-cx --all --timeout 15m
 ```
 

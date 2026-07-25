@@ -12,7 +12,8 @@ trellis channel create impl-task --by dispatcher --cwd /path/to/repo
 trellis channel spawn impl-task --provider codex --as codex-impl --timeout 30m
 
 echo "Implement the schema for table X per .trellis/.../prd.md" \
-  | trellis channel send impl-task --as dispatcher --to codex-impl --stdin
+  | trellis channel send impl-task --as dispatcher --to codex-impl --stdin \
+      --delivery-mode requireRunningWorker
 
 trellis channel wait impl-task --as dispatcher --from codex-impl --kind done --timeout 30m
 ```
@@ -152,12 +153,13 @@ to log the rerouting, or to gate other workers behind a coordinator's
 correction).
 
 For low-priority hints that should wait for the worker's next turn, send a
-plain tagged message instead:
+normal message. `send` has no `--tag` option; use the event log and explicit
+worker handle for routing:
 
 ```bash
 echo "Check this when you reach the next turn." \
   | trellis channel send impl-task --as dispatcher --to codex-impl \
-      --stdin --tag question
+      --stdin --delivery-mode requireRunningWorker
 ```
 
 ## Hard Interrupt — `kill` + `--resume`
@@ -174,7 +176,8 @@ trellis channel spawn impl-task --as codex-impl --provider codex \
   --resume "$(cat ~/.trellis/channels/<bucket>/impl-task/worker.session-id)"
 
 echo "STOP — new instructions: ..." \
-  | trellis channel send impl-task --as dispatcher --to codex-impl --stdin
+  | trellis channel send impl-task --as dispatcher --to codex-impl --stdin \
+      --delivery-mode requireRunningWorker
 ```
 
 `kill` flags:
@@ -228,8 +231,10 @@ two knobs:
   - `broadcastAndExplicit` — also wakes on broadcasts (`send` with no `--to`).
 - **Delivery mode** (`send --delivery-mode`):
   - `appendOnly` — append the event regardless of worker state.
-  - `requireKnownWorker` — fail if no worker named in `--to` was ever spawned.
-  - `requireRunningWorker` — fail if the named worker is not currently alive.
+  - `requireKnownWorker` — append the message, then exit non-zero if no worker
+    named in `--to` has a durable `spawned` event.
+  - `requireRunningWorker` — append the message, then exit non-zero if the
+    target is unknown or terminal in the durable worker registry.
 
 Stricter delivery modes prevent silent message loss when callers expect a
 running peer.

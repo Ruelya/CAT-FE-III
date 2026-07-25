@@ -7,6 +7,11 @@ description: Use Trellis channel for live multi-agent collaboration, spawned wor
 
 `trellis channel` is the local multi-agent collaboration runtime. Reach for it when agents need to talk through a durable event log, when a worker should be spawned as a peer process, when an in-flight worker needs interrupt / debugging, or when feedback should be recorded on a durable `--type forum` channel.
 
+For this CAT project, Claude is the default provider for implementation and
+quality-check workers. Pass `--provider claude` explicitly on main-session
+dispatches; use another provider only for an explicitly requested
+cross-provider review.
+
 Typical user signals: "和 codex/claude 讨论", "brainstorm with another agent", "spawn an implement/check worker", "let agent review", "open an issue board / changelog forum", "look at this thread", "channel is stuck / no output", "progress was truncated", "how do I write that channel command".
 
 This skill is an index. Load only the reference file for the current job — do not preload all of them.
@@ -45,6 +50,13 @@ trellis channel context list <board> --scope global --thread <thread>
 - Use `--context-file` / `--context-raw` and `trellis channel context add/delete/list`. `--linked-context-*` is deprecated terminology.
 - Use `--stdin` or `--text-file` for long messages. Do not put long mixed Chinese/English text in the positional shell argument.
 - Pretty `messages` output is an operator dashboard and may truncate progress. Use `--raw` for audit.
+- Treat `spawn` as a readiness barrier: continue only after a durable
+  `spawned` event (or stop on a non-zero startup error). For every targeted
+  prompt use `send --delivery-mode requireRunningWorker`; a non-zero send or
+  `undeliverable` event is a dispatch failure, not a worker result.
+- Confirm `turn_started` in raw events before starting a long `done`/`error`
+  wait. A printed PID, message JSON, or zero exit status alone is not delivery
+  acknowledgement.
 - `--as` is the speaker or worker handle, depending on the command. Use explicit, stable names when multiple agents or sessions are involved.
 - `--scope project` (default) operates on the current cwd's project bucket; `--scope global` operates on the shared `__global__` bucket. Pick scope deliberately — a global board is invisible from project listings unless `--scope global` is passed.
 - For brainstorm, do multiple pressure-test rounds. One answer plus one confirmation is review, not brainstorm.

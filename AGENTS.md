@@ -45,14 +45,44 @@ trellis channel spawn impl-<topic> \
 - Do **not** put this choice in `task.py start` / PRD.
 - Main session only — workers must not re-spawn channel peers.
 
+## Dispatch handshake (mandatory)
+
+The main session must treat channel dispatch as a readiness protocol, not as
+fire-and-forget process creation. For every targeted worker, keep this order:
+
+```text
+create → spawn → durable spawned/error → strict send → turn_started → wait done/error
+```
+
+- `channel spawn` is successful only when it returns after a new durable
+  `spawned` event. A supervisor PID, a pid sidecar, or a zero exit status before
+  that event is not a worker handle or a delivery acknowledgement.
+- Every targeted prompt uses
+  `--delivery-mode requireRunningWorker`. A non-zero `send` (including an
+  `undeliverable` event) is a dispatch failure; stop and inspect raw events
+  instead of waiting for a worker result.
+- After a successful send, confirm a `turn_started` event for the target before
+  beginning a long `done`/`error` wait. Use `trellis channel messages <name>
+  --raw` when diagnosing any gap.
+- Keep create, spawn, readiness confirmation, and the first send in one host
+  execution context when possible; short-lived shells may reap a detached
+  supervisor before it finishes its startup handshake.
+- Do not use `--tag`, infer completion from message text, or mechanically
+  re-apply a worker's diff when the worker can edit the shared worktree. A diff
+  handoff is only a fallback when direct editing is genuinely unavailable or
+  unsafe.
+
 ## Check / other → stock template
 
 ```bash
-trellis channel spawn cr-<topic> --agent check --as check …
+trellis channel spawn cr-<topic> --agent check --provider claude --as check …
 # optional cross-provider: --provider claude|codex --as check-cc|check-cx
 ```
 
 Claude remains the default for check, research, and finish steps.
+
+Check prompts follow the same readiness and strict-delivery handshake above;
+the main session reads raw events and retains final judgment.
 
 # Code Retrieval Guide
 1. **基础检索 (Foundational Retrieval)**：
