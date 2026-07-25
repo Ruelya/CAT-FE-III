@@ -18,7 +18,9 @@
   "commit": null,
   "pr_url": null,
   "subtasks": [],
-  "children": [],
+  "children": [
+    "07-25-node24-electron-compatibility"
+  ],
   "parent": "07-19-complete-full-cat-prd",
   "relatedFiles": [],
   "notes": "",

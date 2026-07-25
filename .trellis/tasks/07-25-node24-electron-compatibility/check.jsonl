@@ -1,0 +1,5 @@
+{"file":".trellis/tasks/07-25-node24-electron-compatibility/research/node24-current-evidence.md","reason":"Audit the reproduction, version-policy decision, and evidence limitations rather than trusting engine warnings."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Check Electron installation, packaging, lifecycle, and native runner boundaries."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Check supported Node quality commands and desktop E2E expectations."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Check real Engine smoke, generated contracts, and cross-platform evidence claims."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Check host/toolchain changes across install, build, package, and runtime layers."}

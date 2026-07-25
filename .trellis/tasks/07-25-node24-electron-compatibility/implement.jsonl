@@ -1,0 +1,5 @@
+{"file":".trellis/tasks/07-25-node24-electron-compatibility/research/node24-current-evidence.md","reason":"Current repository evidence, known Electron/extract-zip risk, and the explicit evidence gap to close first."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Electron lifecycle, packaging, native smoke, and host/runtime boundary contracts."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Desktop build, E2E, accessibility, and cross-viewport quality gates."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Cross-layer and process-smoke evidence requirements for the Engine and generated contracts."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Review prompts for host Node, Electron postinstall, packaging, and CI boundary changes."}
