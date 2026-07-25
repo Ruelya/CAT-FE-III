@@ -1,0 +1,5 @@
+{"file":"docs/stitch/DESIGN.md","reason":"Review the delivered UI against the written source of truth rather than accidental raster details or generic visual preference."}
+{"file":"docs/frontend-design-deviation-report.md","reason":"Verify the audit's material deviations are closed, especially app bar/search, Suggestions cut header, segment density, Preview hierarchy, and typography."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Check save-before-global-navigation, panel/focus/IME behavior, production assets, and real-Engine cross-viewport evidence."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Check accessible named controls, Lucide use, CJK layout, mounted/inert panel behavior, and component ownership."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Run the complete static, unit, build, Electron E2E, accessibility, console, overflow, and screenshot quality gate."}

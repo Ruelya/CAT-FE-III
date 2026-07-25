@@ -1,0 +1,6 @@
+{"file":"docs/stitch/DESIGN.md","reason":"Authoritative Translunar visual, typography, Workbench anatomy, Suggestions, Preview, loading/empty, motion, accessibility, and 4/6/8 radius requirements."}
+{"file":"docs/frontend-design-deviation-report.md","reason":"Current 1250x744 deviation evidence and required remediation order for typography, app bar, segment density, Suggestions, Preview, and tokens."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Authoritative renderer/Engine ownership, save-before-navigation, panel modes, focus, IME, production asset, and real-Engine E2E contracts."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Component composition, controlled interaction, Lucide/accessibility, collapsed-panel, CJK, and layout conventions."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Required format/lint/type/test/build/E2E, three-viewport screenshot, accessibility, console-error, and production-build gates."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Prevent duplication when sharing global-search behavior, working-state primitives, constants, and token definitions."}

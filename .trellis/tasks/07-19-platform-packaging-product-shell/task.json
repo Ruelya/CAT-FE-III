@@ -19,7 +19,8 @@
   "pr_url": null,
   "subtasks": [],
   "children": [
-    "07-25-node24-electron-compatibility"
+    "07-25-node24-electron-compatibility",
+    "07-21-workbench-visual-identity"
   ],
   "parent": "07-19-complete-full-cat-prd",
   "relatedFiles": [],
