@@ -2,14 +2,23 @@
 
 ## Desktop package
 
+The tested host-runtime matrix is Node 22.17+ within major 22 and Node 24.x.
+Node 24 is the checked-in development default; Node 22 remains the release
+baseline. Every clean install must pass `pnpm electron:install:check`, which
+checks the Electron runtime inventory and repaired extraction dependency chain,
+then launches the installed Electron executable under a hard timeout.
+
 ```bash
-# 1) Build release engine binaries (current platform only)
+# 1) Verify the Electron installation
+pnpm electron:install:check
+
+# 2) Build release engine binaries (current platform only)
 cargo build -p translunar-engine --release
 
-# 2) Build desktop renderer + electron main/preload
+# 3) Build desktop renderer + electron main/preload
 pnpm --filter @translunar/desktop build
 
-# 3) Package (unsigned development artifacts are valid)
+# 4) Package (unsigned development artifacts are valid)
 pnpm --filter @translunar/desktop package:dir
 pnpm release:package:check
 ```

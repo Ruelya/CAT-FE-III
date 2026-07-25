@@ -13,8 +13,9 @@ validation and cross-compilation, but is not a supported desktop target.
 
 ## Prerequisites
 
-- Node.js 22.17 or newer 22.x. Node.js 24 is intentionally rejected because
-  Electron 39's installer can leave a partial runtime under Node 24.
+- Node.js 24.x for the default development lane, or Node.js 22.17 or newer
+  22.x for the retained release lane. Node.js 23, 25, and other majors are
+  rejected deliberately.
 - pnpm 10.18.3, normally provided through Corepack.
 - Rust stable 1.97 or newer with `rustfmt` and `clippy`.
 - On Windows, Visual Studio Build Tools with the C++ workload. The bundled
@@ -25,7 +26,8 @@ field record the tested toolchain.
 
 ## Windows Setup
 
-After selecting Node 22 in your version manager:
+After selecting Node 24 (the checked-in default) or a supported Node 22 release
+runtime in your version manager:
 
 ```powershell
 corepack enable
@@ -43,8 +45,9 @@ Start the development application with:
 pnpm dev:desktop
 ```
 
-On the current K: workstation, the checked-in launcher selects the available
-Cursor-bundled Node 22 before starting pnpm:
+On the current K: workstation, the checked-in launcher can use the available
+Cursor-bundled Node runtime and applies the same repository version guard before
+starting pnpm:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\dev-desktop.ps1
@@ -92,8 +95,9 @@ at 1250x744, 1680x942, and 1920x1080.
 
 ## VPS Builds
 
-The Linux VPS is useful when local disk space is constrained. Use Node 22 for
-pnpm installation and UI builds. For a Windows x64 GNU engine on Ubuntu:
+The Linux VPS is useful when local disk space is constrained. Use Node 24 or the
+retained Node 22.17+ release lane for pnpm installation and UI builds. For a
+Windows x64 GNU engine on Ubuntu:
 
 ```bash
 sudo apt-get install gcc-mingw-w64-x86-64

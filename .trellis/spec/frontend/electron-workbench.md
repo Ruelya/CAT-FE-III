@@ -37,9 +37,10 @@ IPC channels are main/preload-private constants. Main accepts engine methods
 only when they exist in generated `ENGINE_METHODS`, and it verifies the sender
 is the current main window.
 
-The tested toolchain is Node 22.17+ within major 22, pnpm 10.18.3, Electron
-39.8.10, TypeScript 6, Vite 8, React 19, and Playwright 1.61. The workspace
-signature is:
+The tested host toolchain is Node 24.x for development plus Node 22.17+ within
+major 22 for the retained release lane, pnpm 10.18.3, Electron 41.10.3,
+TypeScript 6, Vite 8, React 19, and Playwright 1.61. Node 23, Node 25, and other
+majors are rejected. The workspace signature is:
 
 ```text
 pnpm bootstrap   # frozen install + Rust engine build + desktop build
@@ -57,10 +58,12 @@ pnpm dev:desktop # Vite/tsc watches + Electron
   that promise and top-level await deadlocks launch before Chromium DevTools.
 - Production renderer assets must use Vite `base: "./"`; `loadFile()` cannot
   resolve `/assets/...` from a local file URL.
-- Node 24 is rejected by `scripts/check-node-version.mjs`: Electron 39's
-  `extract-zip` can stop after the first file while reporting a successful
-  postinstall. `onlyBuiltDependencies: [electron]` belongs in
-  `pnpm-workspace.yaml`.
+- `scripts/check-node-version.mjs` accepts only Node 22.17+ within major 22 and
+  Node 24.x. Electron 41.10.3 must resolve `@electron/get@5` and
+  `@electron-internal/extract-zip@1.0.4` or newer; clean installs run
+  `pnpm electron:install:check` to validate the runtime inventory and launch
+  the Electron executable under a hard timeout. `onlyBuiltDependencies:
+  [electron]` belongs in `pnpm-workspace.yaml`.
 - Engine responses replace persisted display state. React owns only ephemeral
   UI state such as search/filter, active segment, tab, save indicator, toast,
   and docked/collapsed/maximized panel modes.
@@ -376,9 +379,9 @@ render deterministic previous/next controls when `total` exceeds the page.
   archive export/restore, analytics, and configuration assertions. It fails on
   console/page errors or horizontal overflow and captures 1250x744, 1680x942,
   and 1920x1080 screenshots.
-- The Node 22 quality chain runs format, lint, typecheck, unit/Rust tests,
-  contracts, desktop production build, Engine smoke, and the focused/full
-  Electron suites. Node 24 results are development feedback only.
+- The Node 22 release lane and Node 24 development lane both run install
+  integrity, format, lint, typecheck, unit/Rust tests, contracts, desktop
+  production build, Engine smoke, and the focused/full Electron suites.
 
 ### 7. Wrong vs Correct
 

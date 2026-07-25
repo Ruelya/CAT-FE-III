@@ -21,17 +21,27 @@ jobs:
         run: cargo test --workspace
 
   node:
+    name: node-${{ matrix.node-version }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["22.17.0", "24"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: ${{ matrix.node-version }}
+      - uses: dtolnay/rust-toolchain@stable
       - uses: pnpm/action-setup@v4
         with:
           version: 10.18.3
+      - name: Install PDF test tools
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils tesseract-ocr
       - name: Install
         run: pnpm install --frozen-lockfile
+      - name: Electron install integrity
+        run: pnpm electron:install:check
       - name: Contracts
         run: pnpm contracts:check
       - name: Lint
@@ -40,3 +50,7 @@ jobs:
         run: pnpm typecheck
       - name: Unit tests
         run: pnpm test
+      - name: Engine E2E
+        run: pnpm test:e2e:engine
+      - name: Desktop E2E
+        run: xvfb-run -a pnpm test:e2e:desktop

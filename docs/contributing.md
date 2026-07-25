@@ -2,12 +2,14 @@
 
 ## Development setup
 
-- Node.js 22.x and pnpm 10.x
+- Node.js 24.x (default development lane) or Node.js 22.17+ within major 22
+  (release lane), with pnpm 10.18.3
 - Rust toolchain from `rust-toolchain.toml`
 - Optional PDF/OCR tools for full smoke: `pdfinfo`, `pdftoppm`, `tesseract`
 
 ```bash
 pnpm install
+pnpm electron:install:check
 cargo build -p translunar-engine
 pnpm contracts:check
 pnpm lint

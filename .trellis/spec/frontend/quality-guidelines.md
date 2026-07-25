@@ -2,7 +2,8 @@
 
 ## Automated Checks
 
-The supported Node range is 22.17.x through 22.x, with pnpm 10.18.3. Run:
+The supported Node lanes are 22.17.x through 22.x and 24.x, with pnpm
+10.18.3. Node 23.x, 25.x, and other majors are rejected. Run:
 
 ```text
 pnpm lint

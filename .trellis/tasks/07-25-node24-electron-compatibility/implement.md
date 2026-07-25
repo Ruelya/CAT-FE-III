@@ -2,8 +2,7 @@
 
 ## Preconditions and ownership
 
-- Task remains in `planning` until the latest planning summary is explicitly
-  approved and `task.py start` is run.
+- The approved task was activated with `task.py start` before implementation.
 - Own only toolchain files, lockfile, install-integrity tests/scripts, CI,
   packaging docs, and the task/spec evidence required by this plan.
 - Do not touch the protected Workbench visual files or unrelated PRD features.
@@ -20,9 +19,12 @@
 
 ### 2. Repair the install chain
 
-- Evaluate the smallest upstream Electron/electron-builder update that fixes
-  the Node 24 postinstall behavior.
-- If needed, prototype a narrow pnpm override/patch with a regression test.
+- Upgrade Electron to `41.10.3` and verify the lockfile selects
+  `@electron/get@5` plus `@electron-internal/extract-zip@1.0.4` or newer.
+- Keep electron-builder `26.0.12` and electron-updater `6.8.9` unchanged unless
+  a focused compatibility failure proves an update is required.
+- Only if Electron 41 fails an essential regression gate, prototype a narrow
+  pnpm patch as a documented rollback alternative; do not use it by default.
 - Rebuild the lockfile deterministically and inspect all changed transitive
   packages before accepting it.
 

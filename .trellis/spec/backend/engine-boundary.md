@@ -806,8 +806,9 @@ include source text, OCR bodies, arbitrary stderr, or user secrets.
   reasoned history, and confirmed/non-OCR rejection.
 - Stdio smoke covers registration, restart, page PNG, OCR correction, stale
   conflict, DOCX export, no-clobber, and DOCX re-import.
-- Electron E2E under Node 22 plus Poppler/Tesseract covers import, page/block
-  comparison, correction, target edit, panel modes, export, and console errors.
+- Electron E2E under the Node 22.17+ release lane and Node 24 development lane,
+  plus Poppler/Tesseract, covers import, page/block comparison, correction,
+  target edit, panel modes, export, and console errors.
 - Render fixture and reconstructed pages to PNG and inspect nonblank,
   non-overlapping output at supported desktop sizes.
 

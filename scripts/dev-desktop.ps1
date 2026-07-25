@@ -5,14 +5,13 @@ if (Test-Path -LiteralPath $cursorNodeHelper) {
   $env:PATH = "$cursorNodeHelper;$env:PATH"
 }
 
-$nodeVersion = (& node --version).Trim()
-if ($nodeVersion -notmatch '^v22\.') {
-  throw "Translunar Desktop requires Node 22.x; found $nodeVersion."
-}
-
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $repositoryRoot
 try {
+  & node scripts/check-node-version.mjs
+  if ($LASTEXITCODE -ne 0) {
+    throw "The Node.js version check failed."
+  }
   & pnpm dev:desktop
   if ($LASTEXITCODE -ne 0) {
     throw "The desktop development process exited with code $LASTEXITCODE."

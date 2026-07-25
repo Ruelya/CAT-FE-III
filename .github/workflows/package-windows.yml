@@ -8,21 +8,30 @@ on:
 
 jobs:
   package:
+    name: package-node-${{ matrix.node-version }}
     runs-on: windows-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["22.17.0", "24"]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: ${{ matrix.node-version }}
       - uses: pnpm/action-setup@v4
         with:
           version: 10.18.3
       - name: Install
         run: pnpm install --frozen-lockfile
+      - name: Electron install integrity
+        run: pnpm electron:install:check
       - name: Build Engine (release)
         run: cargo build -p translunar-engine --release
+      - name: Electron and Engine E2E
+        run: pnpm test:e2e:desktop
       - name: Test package architecture and Engine exclusivity gates
         run: pnpm release:package:gate-test
       - name: Test installer smoke protocol helpers
@@ -53,5 +62,5 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: translunar-windows
+          name: translunar-windows-node-${{ matrix.node-version }}
           path: apps/desktop/release/**

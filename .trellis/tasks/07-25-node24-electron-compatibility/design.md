@@ -12,14 +12,17 @@ Node version policy
 
 The host Node version controls package installation, TypeScript/Vite scripts,
 Playwright, and packaging helpers. The packaged Electron application uses the
-Node runtime embedded by Electron. This task must test both boundaries and
-must not claim that a host upgrade changes the application runtime.
+Node runtime embedded by Electron. The Electron 39 -> 41 upgrade changes that
+embedded runtime as a necessary dependency repair, so both host and packaged
+runtime boundaries require explicit regression evidence.
 
 ## 2. Compatibility strategies
 
-1. **Preferred — upstream upgrade:** move to an Electron release whose
-   postinstall dependency graph is known to work on Node 24, then update
-   electron-builder/electron-updater only as required by that major.
+1. **Selected — upstream upgrade:** move Electron from `39.8.10` to `41.10.3`.
+   Its dependency graph uses `@electron/get@5` and the repaired
+   `@electron-internal/extract-zip`; require extractor `1.0.4` or newer. Keep
+   electron-builder/electron-updater unchanged unless tests prove a required
+   compatibility update.
 2. **Fallback — narrow dependency repair:** if the Electron major cannot move,
    apply a reviewed pnpm override/patch to the exact extraction dependency and
    add a regression inventory/launch test. The patch must be removable and
@@ -27,8 +30,9 @@ must not claim that a host upgrade changes the application runtime.
 3. **Reject:** widening `engines`, setting `--ignore-scripts`, or deleting the
    guard without proving a complete Electron install.
 
-The implementation should test strategy 1 first, then strategy 2 only if the
-upgrade introduces a product or packaging regression.
+The implementation uses strategy 1. Strategy 2 is a rollback alternative only
+if Electron 41 introduces an unresolvable product or packaging regression; it
+is not the default because it would retain an EOL Electron major.
 
 ## 3. Version policy contract
 

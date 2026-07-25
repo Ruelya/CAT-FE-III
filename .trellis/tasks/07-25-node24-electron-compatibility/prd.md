@@ -20,8 +20,9 @@ every contributor to switch runtimes merely to install Electron.
 - The root `engines.node` range is `>=22.17.0 <23` and `preinstall` calls
   `scripts/check-node-version.mjs`.
 - The guard's stated reason is the Electron 39 installation chain: Electron
-  `39.8.10` depends on `extract-zip@2.0.1`, which has been observed/documented
-  as capable of leaving a partial runtime under Node 24.
+  `39.8.10` depends on `extract-zip@2.0.1`. Upstream Electron issue #51619
+  records an extraction hang or missing binary on Node 24.16.0 and newer; the
+  current workstation's Node 24.17.0 is in the affected range.
 - CI and both native packaging workflows currently use Node 22.
 - Node 24 test/build commands can run against the existing installation, but
   that is not evidence that a fresh frozen install is safe.
@@ -40,8 +41,9 @@ every contributor to switch runtimes merely to install Electron.
 
 ### N24-02 — resolve the Electron install chain
 
-- Prefer an upstream Electron/electron-builder update that fixes the problem
-  while preserving the app's current packaging and API behavior.
+- Upgrade Electron to `41.10.3`, the oldest currently supported Electron major
+  with the repaired extraction chain, while keeping electron-builder and
+  electron-updater pinned unless compatibility evidence requires otherwise.
 - If an upstream update is not yet viable, use a narrowly scoped, documented
   dependency patch/override only when it passes the same clean-install and
   package tests. Do not hide the problem with `--ignore-scripts` or a broad
@@ -75,8 +77,10 @@ must agree with the executable version check.
 
 ## Constraints
 
-- This task changes the development/toolchain contract, not the Electron
-  application's embedded Node runtime or CAT product behavior.
+- This task primarily changes the development/toolchain contract. The required
+  Electron 39 -> 41 update also changes the embedded Node/Chromium runtime;
+  that incidental runtime update is allowed only with full desktop and native
+  packaging regression evidence and no CAT product behavior regression.
 - Do not mix unrelated dependency upgrades, visual changes, or PRD feature
   work into this task.
 - Preserve the protected visual-task files in the shared worktree.
@@ -86,18 +90,21 @@ must agree with the executable version check.
 
 ## Acceptance criteria
 
-- [ ] A fresh Node 24 checkout completes `pnpm install --frozen-lockfile`
+- [x] A fresh Node 24 checkout completes `pnpm install --frozen-lockfile`
       without an incomplete Electron runtime.
-- [ ] The Electron executable and package inventory are validated after the
+- [x] The Electron executable and package inventory are validated after the
       install; the old `extract-zip` failure mode is covered by a regression
       check or eliminated by an upstream version.
-- [ ] `package.json`, the version guard, `.node-version`, CI, packaging
+- [x] Electron resolves to `41.10.3`, `@electron/get` resolves to 5.x, and the
+      extraction chain uses `@electron-internal/extract-zip@1.0.4` or newer
+      without regressing supported Linux glibc environments.
+- [x] `package.json`, the version guard, `.node-version`, CI, packaging
       workflows, docs, and Trellis specs agree on the Node 22 + Node 24 policy.
-- [ ] Node 24 passes the full supported quality chain and a real Electron
+- [x] Node 24 passes the full supported quality chain and a real Electron
       Engine smoke; Node 22 remains green on the same essential chain.
-- [ ] Windows and macOS native package/install evidence is recorded, or the
+- [x] Windows and macOS native package/install evidence is recorded, or the
       exact external-runner limitation and pending evidence are recorded.
-- [ ] No `--ignore-scripts`, unreviewed lockfile drift, or hidden fallback is
+- [x] No `--ignore-scripts`, unreviewed lockfile drift, or hidden fallback is
       used to claim compatibility.
 
 ## Recommended decision
