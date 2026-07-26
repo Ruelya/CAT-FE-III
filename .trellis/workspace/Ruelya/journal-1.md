@@ -739,3 +739,36 @@ Implemented and verified default-deny plugin capability requests, scoped revisio
 ### Next Steps
 
 - None - task complete
+
+
+## Session 22: Tier 1 declarative plugin host
+
+**Date**: 2026-07-27
+**Task**: Tier 1 declarative plugin host
+**Branch**: `master`
+
+### Summary
+
+Implemented, verified, committed, and archived the manifest-only Tier 1 host with bounded filters, QA packs, deterministic pipelines, typed registration authorization, rollback compensation, SDK/contracts, official example, stdio smoke, and real Electron lifecycle evidence.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `15f1e8b` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
