@@ -423,6 +423,30 @@ async function openApplicationMenu(page: Page): Promise<void> {
   ).toBeVisible();
 }
 
+async function grantInstalledPluginPermissions(page: Page): Promise<void> {
+  const dialog = page.getByRole("dialog", { name: "Permission review" });
+  await expect(dialog).toBeVisible();
+  await dialog
+    .getByPlaceholder("Record why this permission decision is appropriate")
+    .fill("Desktop E2E explicit capability review");
+  const capabilityIds = await dialog
+    .locator(".plugins-permission-request h3")
+    .allTextContents();
+  expect(capabilityIds.length).toBeGreaterThan(0);
+  for (const capabilityId of capabilityIds) {
+    const request = dialog.locator(".plugins-permission-request").filter({
+      has: page.getByRole("heading", { name: capabilityId, exact: true }),
+    });
+    await request.getByRole("button", { name: "Grant" }).click();
+    await expect(request.locator('[data-decision="granted"]')).toBeVisible();
+  }
+  await expect(
+    dialog.getByRole("heading", { name: "Permission audit" }),
+  ).toBeVisible();
+  await dialog.getByRole("button", { name: "Close dialog" }).click();
+  await expect(dialog).toBeHidden();
+}
+
 async function openSegmentActions(row: Locator): Promise<Locator> {
   await row.scrollIntoViewIfNeeded();
   const editor = row.locator("textarea");
@@ -484,6 +508,7 @@ async function captureResponsiveSurface(
   testInfo: TestInfo,
   label: string,
   evidenceDirectory?: string,
+  containedSelector?: string,
 ): Promise<void> {
   if (evidenceDirectory) mkdirSync(evidenceDirectory, { recursive: true });
   for (const viewport of [
@@ -505,6 +530,12 @@ async function captureResponsiveSurface(
     expect(overflow.body).toBeLessThanOrEqual(1);
     expect(overflow.html).toBeLessThanOrEqual(1);
     expect(overflow.root).toBeLessThanOrEqual(1);
+    if (containedSelector) {
+      const containedOverflow = await harness.page
+        .locator(containedSelector)
+        .evaluate((element) => element.scrollWidth - element.clientWidth);
+      expect(containedOverflow).toBeLessThanOrEqual(1);
+    }
     const screenshot = await harness.page.screenshot({
       path: testInfo.outputPath(
         `${label}-${viewport.width}x${viewport.height}.png`,
@@ -962,7 +993,7 @@ test("manages a local process plugin through Project Insights with the real Engi
     workspaceRoot,
     ".trellis",
     "tasks",
-    "07-26-plugin-tier3-foundation",
+    "07-26-plugin-permission-grants",
     "evidence",
     "screenshots",
   );
@@ -990,6 +1021,7 @@ test("manages a local process plugin through Project Insights with the real Engi
     await expect(page.getByRole("heading", { name: "Plugins" })).toBeVisible();
     await expect(panel).toContainText("No plugins installed");
     await panel.getByRole("button", { name: "Install package…" }).click();
+    await grantInstalledPluginPermissions(page);
 
     let pluginRow = panel.locator(".plugins-panel__item", {
       hasText: "Hello SRT",
@@ -1031,7 +1063,47 @@ test("manages a local process plugin through Project Insights with the real Engi
     );
     expect(await hasHelloFilter()).toBe(true);
 
-    await pluginRow.getByRole("button", { name: "Disable" }).click();
+    await pluginRow.getByRole("button", { name: "Review permissions" }).click();
+    const permissionDialog = page.getByRole("dialog", {
+      name: "Permission review",
+    });
+    await captureResponsiveSurface(
+      harness,
+      testInfo,
+      "plugin-permissions",
+      evidenceDirectory,
+      ".plugins-permission-dialog",
+    );
+    const scopeValueMetrics = await permissionDialog
+      .locator(".plugins-scope-editor__group label span")
+      .first()
+      .evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        return { width: bounds.width, height: bounds.height };
+      });
+    expect(
+      scopeValueMetrics.width,
+      JSON.stringify(scopeValueMetrics),
+    ).toBeGreaterThan(32);
+    expect(
+      scopeValueMetrics.height,
+      JSON.stringify(scopeValueMetrics),
+    ).toBeLessThan(32);
+    await permissionDialog
+      .getByPlaceholder("Record why this permission decision is appropriate")
+      .fill("Desktop E2E operation-time revocation");
+    const fileReadRequest = permissionDialog.locator(
+      ".plugins-permission-request",
+      { hasText: "file.read" },
+    );
+    await fileReadRequest.getByRole("button", { name: "Revoke" }).click();
+    await expect(
+      fileReadRequest.locator('[data-decision="revoked"]'),
+    ).toBeVisible();
+    await expect(permissionDialog).toContainText("detached");
+    await permissionDialog
+      .getByRole("button", { name: "Close dialog" })
+      .click();
     await expect(pluginRow.locator('[data-status="disabled"]')).toHaveText(
       "disabled",
     );
@@ -1093,6 +1165,7 @@ test("isolates a crashed process plugin and shows its durable degraded state", a
     await page.getByRole("tab", { name: "Plugins" }).click();
     const panel = page.locator(".plugins-panel");
     await panel.getByRole("button", { name: "Install package…" }).click();
+    await grantInstalledPluginPermissions(page);
     let pluginRow = panel.locator(".plugins-panel__item", {
       hasText: "Crash Filter Fixture",
     });

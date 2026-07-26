@@ -389,6 +389,45 @@ export type MessageKey =
   | "plugins.empty"
   | "plugins.permissions"
   | "plugins.permissionsNone"
+  | "plugins.review"
+  | "plugins.permissionKicker"
+  | "plugins.reviewTitle"
+  | "plugins.versionChanges"
+  | "plugins.versionChange"
+  | "plugins.change.none"
+  | "plugins.change.added"
+  | "plugins.change.expanded"
+  | "plugins.change.narrowed"
+  | "plugins.change.unchanged"
+  | "plugins.change.removed"
+  | "plugins.reasonPlaceholder"
+  | "plugins.required"
+  | "plugins.optional"
+  | "plugins.unsupported"
+  | "plugins.contribution"
+  | "plugins.allContributions"
+  | "plugins.scope"
+  | "plugins.scopeUnscoped"
+  | "plugins.grant"
+  | "plugins.deny"
+  | "plugins.revoke"
+  | "plugins.audit"
+  | "plugins.auditEmpty"
+  | "plugins.effect.fileRead"
+  | "plugins.effect.fileWrite"
+  | "plugins.effect.networkConnect"
+  | "plugins.effect.assetRead"
+  | "plugins.effect.assetWrite"
+  | "plugins.effect.projectRead"
+  | "plugins.effect.projectWrite"
+  | "plugins.effect.engineConnector"
+  | "plugins.effect.qaRegister"
+  | "plugins.effect.pipelineRegister"
+  | "plugins.effect.aiAction"
+  | "plugins.effect.uiPanel"
+  | "plugins.effect.externalConnector"
+  | "plugins.effect.diagnosticsRead"
+  | "plugins.effect.unsupported"
   | "export.kicker"
   | "export.title"
   | "export.checking"
@@ -2022,13 +2061,59 @@ const enUs: MessageCatalog = {
   "common.policy": "Policy",
   "plugins.title": "Plugins",
   "plugins.lede":
-    "Install local process plugins, grant requested permissions, and enable filter contributions.",
+    "Install local plugins, review scoped authority, and control their contributions.",
   "plugins.installPackage": "Install package…",
   "plugins.loading": "Loading plugins…",
   "plugins.empty":
     "No plugins installed. Choose a package directory that contains manifest.json.",
   "plugins.permissions": "permissions: {list}",
   "plugins.permissionsNone": "none",
+  "plugins.review": "Review permissions",
+  "plugins.permissionKicker": "Explicit authority",
+  "plugins.reviewTitle": "Permission review",
+  "plugins.versionChanges": "Version changes",
+  "plugins.versionChange": "Version change",
+  "plugins.change.none": "No version change",
+  "plugins.change.added": "New request",
+  "plugins.change.expanded": "Expanded scope",
+  "plugins.change.narrowed": "Narrowed scope",
+  "plugins.change.unchanged": "Unchanged",
+  "plugins.change.removed": "Removed request",
+  "plugins.reasonPlaceholder":
+    "Record why this permission decision is appropriate",
+  "plugins.required": "Required",
+  "plugins.optional": "Optional",
+  "plugins.unsupported": "Unsupported",
+  "plugins.contribution": "Contribution",
+  "plugins.allContributions": "All plugin contributions",
+  "plugins.scope": "Granted scope",
+  "plugins.scopeUnscoped": "No additional scope",
+  "plugins.grant": "Grant",
+  "plugins.deny": "Deny",
+  "plugins.revoke": "Revoke",
+  "plugins.audit": "Permission audit",
+  "plugins.auditEmpty": "No permission events recorded.",
+  "plugins.effect.fileRead": "Read files from Engine-managed source locations.",
+  "plugins.effect.fileWrite": "Write files to Engine-managed output locations.",
+  "plugins.effect.networkConnect":
+    "Connect only to the listed network origins.",
+  "plugins.effect.assetRead": "Read the selected translation assets.",
+  "plugins.effect.assetWrite": "Modify the selected translation assets.",
+  "plugins.effect.projectRead": "Read data from the selected projects.",
+  "plugins.effect.projectWrite": "Modify data in the selected projects.",
+  "plugins.effect.engineConnector":
+    "Call the listed privileged Engine operations.",
+  "plugins.effect.qaRegister":
+    "Register the listed quality-assurance contributions.",
+  "plugins.effect.pipelineRegister": "Register the listed pipeline steps.",
+  "plugins.effect.aiAction": "Register and run the listed AI actions.",
+  "plugins.effect.uiPanel": "Add the listed panels to the desktop interface.",
+  "plugins.effect.externalConnector":
+    "Use the listed external connector operations.",
+  "plugins.effect.diagnosticsRead":
+    "Read the listed bounded diagnostic categories.",
+  "plugins.effect.unsupported":
+    "This optional capability is not supported by this Engine and cannot be granted.",
   "export.kicker": "Delivery gate",
   "export.title": "Export review",
   "export.checking": "Checking current translation",
@@ -3706,12 +3791,51 @@ const zhCn: MessageCatalog = {
   "common.explanation": "说明",
   "common.policy": "策略",
   "plugins.title": "插件",
-  "plugins.lede": "安装本地进程插件、授予请求的权限，并启用过滤器贡献。",
+  "plugins.lede": "安装本地插件、审查分范围授权，并控制插件贡献项。",
   "plugins.installPackage": "安装插件包…",
   "plugins.loading": "正在加载插件…",
   "plugins.empty": "尚未安装插件。请选择包含 manifest.json 的包目录。",
   "plugins.permissions": "权限：{list}",
   "plugins.permissionsNone": "无",
+  "plugins.review": "审查权限",
+  "plugins.permissionKicker": "明确授权",
+  "plugins.reviewTitle": "插件权限审查",
+  "plugins.versionChanges": "版本变更",
+  "plugins.versionChange": "版本变化",
+  "plugins.change.none": "无版本变化",
+  "plugins.change.added": "新增请求",
+  "plugins.change.expanded": "范围扩大",
+  "plugins.change.narrowed": "范围缩小",
+  "plugins.change.unchanged": "保持不变",
+  "plugins.change.removed": "已移除请求",
+  "plugins.reasonPlaceholder": "记录作出此权限决定的原因",
+  "plugins.required": "必需",
+  "plugins.optional": "可选",
+  "plugins.unsupported": "不受支持",
+  "plugins.contribution": "贡献项",
+  "plugins.allContributions": "全部插件贡献项",
+  "plugins.scope": "授予范围",
+  "plugins.scopeUnscoped": "无附加范围",
+  "plugins.grant": "授予",
+  "plugins.deny": "拒绝",
+  "plugins.revoke": "撤销",
+  "plugins.audit": "权限审计",
+  "plugins.auditEmpty": "尚无权限事件记录。",
+  "plugins.effect.fileRead": "读取引擎管理的源文件位置。",
+  "plugins.effect.fileWrite": "写入引擎管理的输出文件位置。",
+  "plugins.effect.networkConnect": "仅连接列出的网络来源。",
+  "plugins.effect.assetRead": "读取选定的翻译资产。",
+  "plugins.effect.assetWrite": "修改选定的翻译资产。",
+  "plugins.effect.projectRead": "读取选定项目的数据。",
+  "plugins.effect.projectWrite": "修改选定项目的数据。",
+  "plugins.effect.engineConnector": "调用列出的引擎特权操作。",
+  "plugins.effect.qaRegister": "注册列出的质量检查贡献项。",
+  "plugins.effect.pipelineRegister": "注册列出的流水线步骤。",
+  "plugins.effect.aiAction": "注册并运行列出的 AI 操作。",
+  "plugins.effect.uiPanel": "向桌面界面添加列出的面板。",
+  "plugins.effect.externalConnector": "使用列出的外部连接器操作。",
+  "plugins.effect.diagnosticsRead": "读取列出的受限诊断类别。",
+  "plugins.effect.unsupported": "当前引擎不支持此可选能力，因此无法授予权限。",
   "export.kicker": "交付门禁",
   "export.title": "导出审阅",
   "export.checking": "正在检查当前译文",

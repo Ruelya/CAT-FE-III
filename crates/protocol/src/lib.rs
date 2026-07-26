@@ -197,6 +197,12 @@ pub mod methods {
     pub const PLUGIN_VERSION_LIST: &str = "plugin.version.list";
     pub const PLUGIN_UPGRADE: &str = "plugin.upgrade";
     pub const PLUGIN_ROLLBACK: &str = "plugin.rollback";
+    pub const PLUGIN_PERMISSION_REQUEST_LIST: &str = "plugin.permission.request.list";
+    pub const PLUGIN_PERMISSION_REVIEW: &str = "plugin.permission.review";
+    pub const PLUGIN_PERMISSION_GRANT: &str = "plugin.permission.grant";
+    pub const PLUGIN_PERMISSION_DENY: &str = "plugin.permission.deny";
+    pub const PLUGIN_PERMISSION_REVOKE: &str = "plugin.permission.revoke";
+    pub const PLUGIN_PERMISSION_AUDIT_LIST: &str = "plugin.permission.audit.list";
     pub const COLLAB_MEMBER_LIST: &str = "collab.member.list";
     pub const COLLAB_MEMBER_ADD: &str = "collab.member.add";
     pub const COLLAB_MEMBER_REMOVE: &str = "collab.member.remove";
@@ -2067,6 +2073,24 @@ pub struct RpcMethodCatalog {
     pub plugin_upgrade: MethodContract<PluginUpgradeParams, PluginLifecycleResult>,
     #[serde(rename = "plugin.rollback")]
     pub plugin_rollback: MethodContract<PluginRollbackParams, PluginLifecycleResult>,
+    #[serde(rename = "plugin.permission.request.list")]
+    pub plugin_permission_request_list:
+        MethodContract<PluginCapabilityRequestListParams, PluginCapabilityRequestPage>,
+    #[serde(rename = "plugin.permission.review")]
+    pub plugin_permission_review:
+        MethodContract<PluginCapabilityReviewParams, PluginCapabilityReview>,
+    #[serde(rename = "plugin.permission.grant")]
+    pub plugin_permission_grant:
+        MethodContract<PluginCapabilityGrantParams, PluginCapabilityDecisionResult>,
+    #[serde(rename = "plugin.permission.deny")]
+    pub plugin_permission_deny:
+        MethodContract<PluginCapabilityDecisionParams, PluginCapabilityDecisionResult>,
+    #[serde(rename = "plugin.permission.revoke")]
+    pub plugin_permission_revoke:
+        MethodContract<PluginCapabilityDecisionParams, PluginCapabilityDecisionResult>,
+    #[serde(rename = "plugin.permission.audit.list")]
+    pub plugin_permission_audit_list:
+        MethodContract<PluginCapabilityAuditListParams, PluginCapabilityAuditPage>,
     #[serde(rename = "collab.member.list")]
     pub collab_member_list: MethodContract<CollabProjectParams, CollabMemberListResult>,
     #[serde(rename = "collab.member.add")]

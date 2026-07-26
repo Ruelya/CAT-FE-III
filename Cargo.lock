@@ -2737,6 +2737,7 @@ dependencies = [
  "translunar-filter-core",
  "translunar-lifecycle-core",
  "translunar-pipeline",
+ "translunar-plugin-runtime",
  "translunar-qa-core",
  "translunar-task-package-core",
 ]

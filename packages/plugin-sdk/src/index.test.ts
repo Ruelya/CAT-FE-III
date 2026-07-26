@@ -10,7 +10,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   HOST_API_VERSION,
+  capabilityScopeContains,
+  normalizeCapabilityRequests,
+  normalizeManifest,
   validateManifest,
+  type PluginCapabilityRequest,
   type PluginManifest,
 } from "./index.js";
 
@@ -98,6 +102,173 @@ describe("plugin-sdk manifest validation", () => {
     ],
   ])("rejects %s", (_label, manifest, expectedError) => {
     expect(validateManifest(manifest).join(" ")).toContain(expectedError);
+  });
+});
+
+describe("plugin capability vocabulary", () => {
+  const requests: PluginCapabilityRequest[] = [
+    { capabilityId: "file.read", scope: { kind: "file", areas: ["source"] } },
+    { capabilityId: "file.write", scope: { kind: "file", areas: ["output"] } },
+    {
+      capabilityId: "network.connect",
+      scope: { kind: "network", origins: ["https://api.example.test"] },
+    },
+    {
+      capabilityId: "asset.read",
+      scope: { kind: "assets", projectIds: ["project-a"], assetIds: [] },
+    },
+    {
+      capabilityId: "asset.write",
+      scope: { kind: "assets", projectIds: [], assetIds: ["tm-main"] },
+    },
+    {
+      capabilityId: "project.read",
+      scope: { kind: "projects", projectIds: ["project-a"] },
+    },
+    {
+      capabilityId: "project.write",
+      scope: { kind: "projects", projectIds: ["project-a"] },
+    },
+    {
+      capabilityId: "engine.connector",
+      scope: { kind: "operations", operations: ["segment.read"] },
+    },
+    {
+      capabilityId: "qa.register",
+      scope: { kind: "contributions", contributionIds: ["qa.example"] },
+    },
+    {
+      capabilityId: "pipeline.register",
+      scope: { kind: "contributions", contributionIds: ["pipeline.example"] },
+    },
+    {
+      capabilityId: "ai.action",
+      scope: { kind: "contributions", contributionIds: ["ai.example"] },
+    },
+    {
+      capabilityId: "ui.panel",
+      scope: { kind: "contributions", contributionIds: ["panel.example"] },
+    },
+    {
+      capabilityId: "external.connector",
+      scope: { kind: "operations", operations: ["sync.push"] },
+    },
+    {
+      capabilityId: "diagnostics.read",
+      scope: { kind: "diagnostics", categories: ["runtime"] },
+    },
+  ];
+
+  it("normalizes every capability family and legacy permissions", () => {
+    const normalized = normalizeCapabilityRequests(
+      ["file.read:source", "network:https://legacy.example.test"],
+      requests,
+    );
+    expect(normalized).toHaveLength(15);
+    const manifest = normalizeManifest({ ...base, capabilities: requests });
+    expect(manifest.requestedCapabilities).toHaveLength(requests.length);
+    expect(
+      manifest.requestedCapabilities.map((request) => request.capabilityId),
+    ).toEqual(
+      expect.arrayContaining(requests.map((request) => request.capabilityId)),
+    );
+    expect(validateManifest({ ...base, capabilities: requests })).toEqual([]);
+  });
+
+  it("deduplicates semantic requests and sorts scope values", () => {
+    expect(
+      normalizeCapabilityRequests(
+        [],
+        [
+          {
+            capabilityId: "network.connect",
+            scope: {
+              kind: "network",
+              origins: ["https://b.test", "https://a.test"],
+            },
+          },
+          {
+            capabilityId: "network.connect",
+            required: true,
+            scope: {
+              kind: "network",
+              origins: ["https://a.test", "https://b.test"],
+            },
+          },
+        ],
+      ),
+    ).toEqual([
+      {
+        capabilityId: "network.connect",
+        required: true,
+        scope: {
+          kind: "network",
+          origins: ["https://a.test", "https://b.test"],
+        },
+      },
+    ]);
+  });
+
+  it("checks narrowed and wildcard scope containment", () => {
+    expect(
+      capabilityScopeContains(
+        { kind: "projects", projectIds: ["*"] },
+        { kind: "projects", projectIds: ["project-a"] },
+      ),
+    ).toBe(true);
+    expect(
+      capabilityScopeContains(
+        { kind: "network", origins: ["https://api.example.test"] },
+        { kind: "network", origins: ["https://other.example.test"] },
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects empty and capability-mismatched scopes", () => {
+    expect(
+      validateManifest({
+        ...base,
+        capabilities: [
+          {
+            capabilityId: "asset.read",
+            scope: { kind: "assets", projectIds: [], assetIds: [] },
+          },
+        ],
+      }).join(" "),
+    ).toContain("at least one project or asset");
+    expect(
+      validateManifest({
+        ...base,
+        capabilities: [
+          {
+            capabilityId: "file.read",
+            scope: { kind: "network", origins: ["https://api.example.test"] },
+          },
+        ],
+      }).join(" "),
+    ).toContain("scope kind does not match capability");
+  });
+
+  it("preserves unsupported optional capabilities and rejects required ones", () => {
+    const optional: PluginCapabilityRequest = {
+      capabilityId: "future.translation.inspect",
+      required: false,
+      scope: { kind: "unscoped" },
+    };
+    expect(normalizeCapabilityRequests([], [optional])).toEqual([optional]);
+    expect(validateManifest({ ...base, capabilities: [optional] })).toEqual([]);
+    expect(
+      validateManifest({
+        ...base,
+        capabilities: [{ ...optional, required: true }],
+      }).join(" "),
+    ).toContain("unsupported capability future.translation.inspect");
+    expect(
+      validateManifest({
+        ...base,
+        capabilities: [{ ...optional, capabilityId: "future capability" }],
+      }).join(" "),
+    ).toContain("capability id is empty, oversized, or malformed");
   });
 });
 

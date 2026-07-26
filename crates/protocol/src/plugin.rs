@@ -5,6 +5,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use translunar_filter_core::FilterCapabilities;
 use translunar_filter_core::FilterDescriptor;
+pub use translunar_plugin_runtime::{
+    PluginCapabilityAuditEvent, PluginCapabilityDecision, PluginCapabilityId,
+    PluginCapabilityRequest, PluginCapabilityScope, PluginFileArea,
+};
 
 use crate::{default_actor, default_page_size};
 
@@ -184,6 +188,8 @@ pub struct NormalizedPluginManifest {
     pub runtime: PluginRuntimeDescriptor,
     pub contributions: Vec<PluginContributionDescriptor>,
     pub requested_permissions: Vec<String>,
+    #[serde(default)]
+    pub requested_capabilities: Vec<PluginCapabilityRequest>,
     pub original_manifest_json: Value,
 }
 
@@ -412,6 +418,175 @@ pub struct PluginLifecycleResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub previous_version_id: Option<String>,
     pub action: PluginLifecycleAction,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum PluginCapabilityRisk {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginCapabilityRequestListParams {
+    pub plugin_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_id: Option<String>,
+    #[serde(default)]
+    pub offset: u32,
+    #[serde(default = "default_page_size")]
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginCapabilityReviewParams {
+    pub plugin_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginCapabilityGrantParams {
+    pub plugin_id: String,
+    pub request_id: String,
+    pub expected_revision: u64,
+    pub scope: PluginCapabilityScope,
+    pub actor: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginCapabilityDecisionParams {
+    pub plugin_id: String,
+    pub request_id: String,
+    pub expected_revision: u64,
+    pub actor: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginCapabilityAuditListParams {
+    pub plugin_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    #[serde(default)]
+    pub offset: u32,
+    #[serde(default = "default_page_size")]
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginCapabilityRequestView {
+    pub id: String,
+    pub plugin_id: String,
+    pub version_id: String,
+    pub capability_id: PluginCapabilityId,
+    pub supported: bool,
+    pub required: bool,
+    pub requested_scope: PluginCapabilityScope,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub granted_scope: Option<PluginCapabilityScope>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contribution_id: Option<String>,
+    pub decision: PluginCapabilityDecision,
+    pub risk: PluginCapabilityRisk,
+    pub effect_key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub carried_from_request_id: Option<String>,
+    pub actor: String,
+    pub reason: String,
+    pub revision: u64,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decided_at_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginCapabilityRequestPage {
+    pub items: Vec<PluginCapabilityRequestView>,
+    pub total: u32,
+    pub offset: u32,
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum PluginCapabilityChangeKind {
+    Added,
+    Expanded,
+    Narrowed,
+    Unchanged,
+    Removed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginCapabilityChange {
+    pub capability_id: PluginCapabilityId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contribution_id: Option<String>,
+    pub kind: PluginCapabilityChangeKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_scope: Option<PluginCapabilityScope>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_scope: Option<PluginCapabilityScope>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginCapabilityReview {
+    pub plugin: PluginSummary,
+    pub version_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_version_id: Option<String>,
+    pub requests: Vec<PluginCapabilityRequestView>,
+    pub changes: Vec<PluginCapabilityChange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginCapabilityDecisionResult {
+    pub request: PluginCapabilityRequestView,
+    pub plugin: PluginSummary,
+    pub detached: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginCapabilityAuditEntry {
+    pub sequence: u64,
+    pub id: String,
+    pub plugin_id: String,
+    pub version_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    pub capability_id: PluginCapabilityId,
+    pub scope: PluginCapabilityScope,
+    pub event: PluginCapabilityAuditEvent,
+    pub outcome: String,
+    pub operation: String,
+    pub actor: String,
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_revision: Option<u64>,
+    pub created_at_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginCapabilityAuditPage {
+    pub items: Vec<PluginCapabilityAuditEntry>,
+    pub total: u32,
+    pub offset: u32,
+    pub limit: u32,
 }
 
 #[cfg(test)]

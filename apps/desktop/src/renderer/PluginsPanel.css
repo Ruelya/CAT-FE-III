@@ -31,6 +31,14 @@
   gap: 0.5rem;
 }
 
+.plugins-panel__actions button,
+.plugins-panel__item-actions button,
+.plugins-permission-request__actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .plugins-panel__list {
   list-style: none;
   margin: 0;
@@ -47,6 +55,11 @@
   border: 1px solid var(--line);
   border-radius: var(--radius-panel);
   background: var(--surface);
+}
+
+.plugins-panel__identity {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .plugins-panel__meta {
@@ -73,4 +86,273 @@
 
 .plugins-panel__error {
   color: var(--error);
+}
+
+.surface-dialog.plugins-permission-dialog {
+  width: min(920px, 100%);
+  max-width: calc(100vw - 40px);
+  padding: 0;
+  gap: 0;
+  background: var(--surface);
+}
+
+.plugins-permission-dialog__header {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.2rem 1.35rem 1rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.plugins-permission-dialog__header h2,
+.plugins-permission-dialog__header p,
+.plugins-permission-dialog__changes h3,
+.plugins-permission-dialog__changes p,
+.plugins-permission-request h3,
+.plugins-permission-request p,
+.plugins-permission-audit h3,
+.plugins-permission-audit p {
+  margin: 0;
+}
+
+.plugins-permission-dialog__header p {
+  margin-top: 0.3rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.plugins-permission-dialog__changes,
+.plugins-permission-dialog__reason,
+.plugins-permission-audit {
+  margin: 0 1.35rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.plugins-permission-dialog__changes h3,
+.plugins-permission-audit h3 {
+  margin-bottom: 0.55rem;
+  font-size: 0.86rem;
+}
+
+.plugins-permission-dialog__changes ul,
+.plugins-permission-audit ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plugins-permission-dialog__changes ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.8rem;
+}
+
+.plugins-permission-dialog__changes li {
+  display: inline-flex;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.plugins-permission-dialog__reason {
+  display: grid;
+  gap: 0.4rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.plugins-permission-dialog__reason textarea {
+  min-height: 3.7rem;
+  resize: vertical;
+}
+
+.plugins-permission-dialog__requests {
+  padding: 0 1.35rem;
+}
+
+.plugins-permission-request {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1.05rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.plugins-permission-request > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.plugins-permission-request h3 {
+  font-size: 0.9rem;
+}
+
+.plugins-permission-request header p {
+  max-width: 54rem;
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.plugins-permission-request__badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-content: flex-start;
+  gap: 0.35rem;
+}
+
+.plugins-permission-request__badges span {
+  padding: 0.18rem 0.42rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+.plugins-permission-request__badges [data-risk="high"],
+.plugins-permission-request__badges [data-risk="critical"],
+.plugins-permission-request__badges [data-decision="denied"],
+.plugins-permission-request__badges [data-decision="revoked"] {
+  border-color: color-mix(in srgb, var(--error) 45%, var(--line));
+  color: var(--error);
+}
+
+.plugins-permission-request__badges [data-decision="granted"] {
+  border-color: color-mix(in srgb, var(--confirmed) 45%, var(--line));
+  color: var(--confirmed);
+}
+
+.plugins-permission-request dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+  margin: 0;
+}
+
+.plugins-permission-request dl div {
+  min-width: 0;
+}
+
+.plugins-permission-request dt,
+.plugins-scope-editor > legend,
+.plugins-scope-editor > span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+.plugins-permission-request dd {
+  margin: 0.2rem 0 0;
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+}
+
+.plugins-scope-editor {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.plugins-scope-editor p {
+  font-size: 0.78rem;
+}
+
+.plugins-scope-editor__group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.7rem;
+  min-width: 0;
+}
+
+.plugins-scope-editor__group > span {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.plugins-scope-editor__group label {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: flex-start;
+  gap: 0.35rem;
+  min-width: min(7rem, 100%);
+  max-width: 100%;
+  font-size: 0.76rem;
+  overflow-wrap: anywhere;
+}
+
+.plugins-permission-dialog .plugins-scope-editor__group input {
+  flex: 0 0 auto;
+  width: 0.85rem;
+  height: 0.85rem;
+  margin-top: 0.1rem;
+}
+
+.plugins-permission-request__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.plugins-permission-audit {
+  border-bottom: 0;
+}
+
+.plugins-permission-audit ol {
+  display: grid;
+}
+
+.plugins-permission-audit li {
+  display: grid;
+  grid-template-columns: 3.5rem 8rem minmax(8rem, 1fr) 6rem auto;
+  gap: 0.55rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.plugins-permission-audit li strong {
+  color: var(--ink);
+}
+
+.plugins-permission-audit li p {
+  grid-column: 2 / -1;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .plugins-panel__header,
+  .plugins-panel__item,
+  .plugins-permission-request > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .plugins-panel__item-actions,
+  .plugins-permission-request__badges {
+    justify-content: flex-start;
+  }
+
+  .plugins-permission-request dl {
+    grid-template-columns: 1fr;
+  }
+
+  .plugins-permission-audit li {
+    grid-template-columns: auto 1fr;
+  }
+
+  .plugins-permission-audit li p {
+    grid-column: 1 / -1;
+  }
 }

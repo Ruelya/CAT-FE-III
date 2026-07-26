@@ -11,8 +11,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use schemars::{JsonSchema, Schema, SchemaGenerator};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -93,6 +93,682 @@ pub enum PluginRuntimeError {
 
 pub type Result<T> = std::result::Result<T, PluginRuntimeError>;
 
+/// Stable capability identifiers shared by manifests, persistence, Engine
+/// enforcement, and the public protocol.  The identifiers intentionally use
+/// dotted names so they remain readable in audit records and can be extended
+/// without changing the wire shape.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PluginCapabilityId {
+    FileRead,
+    FileWrite,
+    NetworkConnect,
+    AssetRead,
+    AssetWrite,
+    ProjectRead,
+    ProjectWrite,
+    EngineConnector,
+    QaRegister,
+    PipelineRegister,
+    AiAction,
+    UiPanel,
+    ExternalConnector,
+    DiagnosticsRead,
+    Unsupported(String),
+}
+
+impl PluginCapabilityId {
+    pub fn parse(value: &str) -> Result<Self> {
+        require_id(value, "capability id")?;
+        Ok(match value {
+            "file.read" => Self::FileRead,
+            "file.write" => Self::FileWrite,
+            "network.connect" => Self::NetworkConnect,
+            "asset.read" => Self::AssetRead,
+            "asset.write" => Self::AssetWrite,
+            "project.read" => Self::ProjectRead,
+            "project.write" => Self::ProjectWrite,
+            "engine.connector" => Self::EngineConnector,
+            "qa.register" => Self::QaRegister,
+            "pipeline.register" => Self::PipelineRegister,
+            "ai.action" => Self::AiAction,
+            "ui.panel" => Self::UiPanel,
+            "external.connector" => Self::ExternalConnector,
+            "diagnostics.read" => Self::DiagnosticsRead,
+            other => Self::Unsupported(other.to_string()),
+        })
+    }
+
+    pub const fn is_supported(&self) -> bool {
+        !matches!(self, Self::Unsupported(_))
+    }
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::FileRead => "file.read",
+            Self::FileWrite => "file.write",
+            Self::NetworkConnect => "network.connect",
+            Self::AssetRead => "asset.read",
+            Self::AssetWrite => "asset.write",
+            Self::ProjectRead => "project.read",
+            Self::ProjectWrite => "project.write",
+            Self::EngineConnector => "engine.connector",
+            Self::QaRegister => "qa.register",
+            Self::PipelineRegister => "pipeline.register",
+            Self::AiAction => "ai.action",
+            Self::UiPanel => "ui.panel",
+            Self::ExternalConnector => "external.connector",
+            Self::DiagnosticsRead => "diagnostics.read",
+            Self::Unsupported(value) => value,
+        }
+    }
+}
+
+impl Serialize for PluginCapabilityId {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for PluginCapabilityId {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::parse(&value).map_err(serde::de::Error::custom)
+    }
+}
+
+impl JsonSchema for PluginCapabilityId {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "PluginCapabilityId".into()
+    }
+
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        generator.subschema_for::<String>()
+    }
+}
+
+impl std::fmt::Display for PluginCapabilityId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum PluginFileArea {
+    Source,
+    Output,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum PluginCapabilityScope {
+    #[default]
+    Unscoped,
+    File {
+        areas: Vec<PluginFileArea>,
+    },
+    Network {
+        origins: Vec<String>,
+    },
+    Projects {
+        project_ids: Vec<String>,
+    },
+    Assets {
+        project_ids: Vec<String>,
+        asset_ids: Vec<String>,
+    },
+    Operations {
+        operations: Vec<String>,
+    },
+    Contributions {
+        contribution_ids: Vec<String>,
+    },
+    Diagnostics {
+        categories: Vec<String>,
+    },
+}
+
+impl PluginCapabilityScope {
+    /// Normalize ordering, trim bounded strings, and reject malformed scopes.
+    /// The returned representation is deterministic, which makes semantic
+    /// upgrade comparisons and SQLite uniqueness checks reliable.
+    pub fn normalized(&self) -> Result<Self> {
+        const MAX_SCOPE_ITEMS: usize = 64;
+        const MAX_SCOPE_TEXT: usize = 512;
+        fn strings(values: &[String], label: &str) -> Result<Vec<String>> {
+            if values.is_empty() || values.len() > MAX_SCOPE_ITEMS {
+                return Err(PluginRuntimeError::InvalidManifest(format!(
+                    "{label} must contain between one and {MAX_SCOPE_ITEMS} items"
+                )));
+            }
+            let mut result = values
+                .iter()
+                .map(|value| {
+                    let trimmed = value.trim();
+                    if trimmed.is_empty()
+                        || trimmed.len() > MAX_SCOPE_TEXT
+                        || trimmed != value
+                        || trimmed.chars().any(char::is_control)
+                    {
+                        return Err(PluginRuntimeError::InvalidManifest(format!(
+                            "{label} contains an invalid value"
+                        )));
+                    }
+                    Ok(trimmed.to_string())
+                })
+                .collect::<Result<Vec<_>>>()?;
+            result.sort();
+            result.dedup();
+            Ok(result)
+        }
+
+        match self {
+            Self::Unscoped => Ok(Self::Unscoped),
+            Self::File { areas } => {
+                if areas.is_empty() || areas.len() > 2 {
+                    return Err(PluginRuntimeError::InvalidManifest(
+                        "file scope must name at least one managed area".to_string(),
+                    ));
+                }
+                let mut areas = areas.clone();
+                areas.sort();
+                areas.dedup();
+                Ok(Self::File { areas })
+            }
+            Self::Network { origins } => Ok(Self::Network {
+                origins: strings(origins, "network origins")?,
+            }),
+            Self::Projects { project_ids } => Ok(Self::Projects {
+                project_ids: strings(project_ids, "project scope")?,
+            }),
+            Self::Assets {
+                project_ids,
+                asset_ids,
+            } => {
+                if project_ids.is_empty() && asset_ids.is_empty() {
+                    return Err(PluginRuntimeError::InvalidManifest(
+                        "asset scope must name at least one project or asset".to_string(),
+                    ));
+                }
+                Ok(Self::Assets {
+                    project_ids: if project_ids.is_empty() {
+                        Vec::new()
+                    } else {
+                        strings(project_ids, "asset project scope")?
+                    },
+                    asset_ids: if asset_ids.is_empty() {
+                        Vec::new()
+                    } else {
+                        strings(asset_ids, "asset scope")?
+                    },
+                })
+            }
+            Self::Operations { operations } => Ok(Self::Operations {
+                operations: strings(operations, "operation scope")?,
+            }),
+            Self::Contributions { contribution_ids } => Ok(Self::Contributions {
+                contribution_ids: strings(contribution_ids, "contribution scope")?,
+            }),
+            Self::Diagnostics { categories } => Ok(Self::Diagnostics {
+                categories: strings(categories, "diagnostic scope")?,
+            }),
+        }
+    }
+
+    /// Return true when `candidate` is contained by this scope.  This is used
+    /// both when narrowing a grant and at every privileged operation boundary.
+    pub fn allows(&self, candidate: &Self) -> bool {
+        match (self, candidate) {
+            (Self::Unscoped, Self::Unscoped) => true,
+            (Self::File { areas }, Self::File { areas: requested }) => {
+                requested.iter().all(|area| areas.contains(area))
+            }
+            (Self::Network { origins }, Self::Network { origins: requested }) => requested
+                .iter()
+                .all(|origin| origins.iter().any(|item| item == "*" || item == origin)),
+            (
+                Self::Projects { project_ids },
+                Self::Projects {
+                    project_ids: requested,
+                },
+            ) => requested.iter().all(|project| {
+                project_ids
+                    .iter()
+                    .any(|item| item == "*" || item == project)
+            }),
+            (
+                Self::Assets {
+                    project_ids,
+                    asset_ids,
+                },
+                Self::Assets {
+                    project_ids: requested_projects,
+                    asset_ids: requested_assets,
+                },
+            ) => {
+                requested_projects.iter().all(|project| {
+                    project_ids
+                        .iter()
+                        .any(|item| item == "*" || item == project)
+                }) && requested_assets
+                    .iter()
+                    .all(|asset| asset_ids.iter().any(|item| item == "*" || item == asset))
+            }
+            (
+                Self::Operations { operations },
+                Self::Operations {
+                    operations: requested,
+                },
+            ) => requested.iter().all(|operation| {
+                operations
+                    .iter()
+                    .any(|item| item == "*" || item == operation)
+            }),
+            (
+                Self::Contributions { contribution_ids },
+                Self::Contributions {
+                    contribution_ids: requested,
+                },
+            ) => requested.iter().all(|id| {
+                contribution_ids
+                    .iter()
+                    .any(|item| item == "*" || item == id)
+            }),
+            (
+                Self::Diagnostics { categories },
+                Self::Diagnostics {
+                    categories: requested,
+                },
+            ) => requested.iter().all(|category| {
+                categories
+                    .iter()
+                    .any(|item| item == "*" || item == category)
+            }),
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginCapabilityRequest {
+    pub capability_id: PluginCapabilityId,
+    #[serde(default = "default_required")]
+    pub required: bool,
+    #[serde(default)]
+    pub scope: PluginCapabilityScope,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contribution_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginCapabilityDecision {
+    Pending,
+    Granted,
+    Denied,
+    Revoked,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginCapabilityAuditEvent {
+    Requested,
+    Granted,
+    Denied,
+    Revoked,
+    Carried,
+    OperationAllowed,
+    OperationDenied,
+    Detached,
+}
+
+impl PluginCapabilityAuditEvent {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Requested => "requested",
+            Self::Granted => "granted",
+            Self::Denied => "denied",
+            Self::Revoked => "revoked",
+            Self::Carried => "carried",
+            Self::OperationAllowed => "operation_allowed",
+            Self::OperationDenied => "operation_denied",
+            Self::Detached => "detached",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self> {
+        match value {
+            "requested" => Ok(Self::Requested),
+            "granted" => Ok(Self::Granted),
+            "denied" => Ok(Self::Denied),
+            "revoked" => Ok(Self::Revoked),
+            "carried" => Ok(Self::Carried),
+            "operation_allowed" => Ok(Self::OperationAllowed),
+            "operation_denied" => Ok(Self::OperationDenied),
+            "detached" => Ok(Self::Detached),
+            other => Err(PluginRuntimeError::InvalidManifest(format!(
+                "unknown capability audit event {other}"
+            ))),
+        }
+    }
+}
+
+impl PluginCapabilityDecision {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Granted => "granted",
+            Self::Denied => "denied",
+            Self::Revoked => "revoked",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self> {
+        match value {
+            "pending" => Ok(Self::Pending),
+            "granted" => Ok(Self::Granted),
+            "denied" => Ok(Self::Denied),
+            "revoked" => Ok(Self::Revoked),
+            other => Err(PluginRuntimeError::InvalidManifest(format!(
+                "unknown capability decision {other}"
+            ))),
+        }
+    }
+}
+
+fn default_required() -> bool {
+    true
+}
+
+impl PluginCapabilityRequest {
+    pub fn normalized(&self) -> Result<Self> {
+        let scope = self.scope.normalized()?;
+        if let PluginCapabilityId::Unsupported(capability_id) = &self.capability_id {
+            if self.required {
+                return Err(PluginRuntimeError::CapabilityUnsupported(
+                    capability_id.clone(),
+                ));
+            }
+            if let Some(id) = &self.contribution_id {
+                require_id(id, "capability contribution id")?;
+            }
+            return Ok(Self {
+                scope,
+                ..self.clone()
+            });
+        }
+        let scope_matches_capability = matches!(
+            (&self.capability_id, &scope),
+            (
+                PluginCapabilityId::FileRead | PluginCapabilityId::FileWrite,
+                PluginCapabilityScope::File { .. }
+            ) | (
+                PluginCapabilityId::NetworkConnect,
+                PluginCapabilityScope::Network { .. }
+            ) | (
+                PluginCapabilityId::AssetRead | PluginCapabilityId::AssetWrite,
+                PluginCapabilityScope::Assets { .. }
+            ) | (
+                PluginCapabilityId::ProjectRead | PluginCapabilityId::ProjectWrite,
+                PluginCapabilityScope::Projects { .. }
+            ) | (
+                PluginCapabilityId::EngineConnector | PluginCapabilityId::ExternalConnector,
+                PluginCapabilityScope::Operations { .. }
+            ) | (
+                PluginCapabilityId::QaRegister
+                    | PluginCapabilityId::PipelineRegister
+                    | PluginCapabilityId::AiAction
+                    | PluginCapabilityId::UiPanel,
+                PluginCapabilityScope::Contributions { .. }
+            ) | (
+                PluginCapabilityId::DiagnosticsRead,
+                PluginCapabilityScope::Diagnostics { .. }
+            )
+        );
+        if !scope_matches_capability {
+            return Err(PluginRuntimeError::InvalidManifest(format!(
+                "scope kind does not match capability {}",
+                self.capability_id
+            )));
+        }
+        if let Some(id) = &self.contribution_id {
+            require_id(id, "capability contribution id")?;
+        }
+        Ok(Self {
+            scope,
+            ..self.clone()
+        })
+    }
+
+    pub fn semantic_key(&self) -> Result<String> {
+        let normalized = self.normalized()?;
+        serde_json::to_string(&normalized).map_err(PluginRuntimeError::Json)
+    }
+
+    pub fn legacy_name(&self) -> String {
+        match (&self.capability_id, &self.scope) {
+            (PluginCapabilityId::FileRead, PluginCapabilityScope::File { areas })
+                if areas == &[PluginFileArea::Source] =>
+            {
+                "file.read:source".to_string()
+            }
+            (PluginCapabilityId::FileWrite, PluginCapabilityScope::File { areas })
+                if areas == &[PluginFileArea::Output] =>
+            {
+                "file.write:output".to_string()
+            }
+            (PluginCapabilityId::NetworkConnect, PluginCapabilityScope::Network { origins })
+                if origins.len() == 1 =>
+            {
+                format!("network:{}", origins[0])
+            }
+            _ => self.capability_id.to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginCapabilityCheck {
+    pub plugin_id: String,
+    pub version_id: String,
+    pub capability_id: PluginCapabilityId,
+    pub scope: PluginCapabilityScope,
+    pub operation: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contribution_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginCapabilityDenialCode {
+    NotRequested,
+    Pending,
+    Denied,
+    Revoked,
+    ScopeMismatch,
+    Malformed,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginCapabilityDenial {
+    pub code: PluginCapabilityDenialCode,
+    pub plugin_id: String,
+    pub version_id: String,
+    pub capability_id: PluginCapabilityId,
+    pub operation: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    pub message: String,
+}
+
+impl std::fmt::Display for PluginCapabilityDenial {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{} for {} during {}",
+            self.message, self.capability_id, self.operation
+        )
+    }
+}
+
+pub trait PluginCapabilityAuthorizer: Send + Sync + std::fmt::Debug {
+    fn authorize(
+        &self,
+        check: &PluginCapabilityCheck,
+    ) -> std::result::Result<(), Box<PluginCapabilityDenial>>;
+}
+
+/// Convert the released string permission vocabulary into typed requests.
+/// Unknown strings are rejected instead of being silently treated as grants.
+pub fn parse_legacy_permission(permission: &str) -> Result<PluginCapabilityRequest> {
+    validate_permission_name(permission)?;
+    let (capability_id, scope) = match permission {
+        "file.read:source" => (
+            PluginCapabilityId::FileRead,
+            PluginCapabilityScope::File {
+                areas: vec![PluginFileArea::Source],
+            },
+        ),
+        "file.write:output" => (
+            PluginCapabilityId::FileWrite,
+            PluginCapabilityScope::File {
+                areas: vec![PluginFileArea::Output],
+            },
+        ),
+        value if value.starts_with("network:") => (
+            PluginCapabilityId::NetworkConnect,
+            PluginCapabilityScope::Network {
+                origins: vec![value["network:".len()..].to_string()],
+            },
+        ),
+        value if value.starts_with("asset.read:") => (
+            PluginCapabilityId::AssetRead,
+            PluginCapabilityScope::Assets {
+                project_ids: Vec::new(),
+                asset_ids: vec![value["asset.read:".len()..].to_string()],
+            },
+        ),
+        value if value.starts_with("asset.write:") => (
+            PluginCapabilityId::AssetWrite,
+            PluginCapabilityScope::Assets {
+                project_ids: Vec::new(),
+                asset_ids: vec![value["asset.write:".len()..].to_string()],
+            },
+        ),
+        value if value.starts_with("project.read:") => (
+            PluginCapabilityId::ProjectRead,
+            PluginCapabilityScope::Projects {
+                project_ids: vec![value["project.read:".len()..].to_string()],
+            },
+        ),
+        value if value.starts_with("project.write:") => (
+            PluginCapabilityId::ProjectWrite,
+            PluginCapabilityScope::Projects {
+                project_ids: vec![value["project.write:".len()..].to_string()],
+            },
+        ),
+        value if value.starts_with("engine.connector:") => (
+            PluginCapabilityId::EngineConnector,
+            PluginCapabilityScope::Operations {
+                operations: vec![value["engine.connector:".len()..].to_string()],
+            },
+        ),
+        value if value.starts_with("qa.register:") => (
+            PluginCapabilityId::QaRegister,
+            PluginCapabilityScope::Contributions {
+                contribution_ids: vec![value["qa.register:".len()..].to_string()],
+            },
+        ),
+        value if value.starts_with("pipeline.register:") => (
+            PluginCapabilityId::PipelineRegister,
+            PluginCapabilityScope::Contributions {
+                contribution_ids: vec![value["pipeline.register:".len()..].to_string()],
+            },
+        ),
+        value if value.starts_with("ai.action:") => (
+            PluginCapabilityId::AiAction,
+            PluginCapabilityScope::Contributions {
+                contribution_ids: vec![value["ai.action:".len()..].to_string()],
+            },
+        ),
+        value if value.starts_with("ui.panel:") => (
+            PluginCapabilityId::UiPanel,
+            PluginCapabilityScope::Contributions {
+                contribution_ids: vec![value["ui.panel:".len()..].to_string()],
+            },
+        ),
+        value if value.starts_with("external.connector:") => (
+            PluginCapabilityId::ExternalConnector,
+            PluginCapabilityScope::Operations {
+                operations: vec![value["external.connector:".len()..].to_string()],
+            },
+        ),
+        value if value.starts_with("diagnostics.read:") => (
+            PluginCapabilityId::DiagnosticsRead,
+            PluginCapabilityScope::Diagnostics {
+                categories: vec![value["diagnostics.read:".len()..].to_string()],
+            },
+        ),
+        other => {
+            return Err(PluginRuntimeError::InvalidManifest(format!(
+                "unsupported permission {other}"
+            )));
+        }
+    };
+    PluginCapabilityRequest {
+        capability_id,
+        required: true,
+        scope,
+        contribution_id: None,
+    }
+    .normalized()
+}
+
+pub fn normalize_capability_requests(
+    legacy_permissions: &[String],
+    typed_requests: &[PluginCapabilityRequest],
+) -> Result<Vec<PluginCapabilityRequest>> {
+    if legacy_permissions
+        .len()
+        .saturating_add(typed_requests.len())
+        > MAX_PERMISSION_COUNT
+    {
+        return Err(PluginRuntimeError::PackageInvalid(
+            "too many requested capabilities".to_string(),
+        ));
+    }
+    let mut requests = legacy_permissions
+        .iter()
+        .map(|permission| parse_legacy_permission(permission))
+        .collect::<Result<Vec<_>>>()?;
+    requests.extend(
+        typed_requests
+            .iter()
+            .map(PluginCapabilityRequest::normalized)
+            .collect::<Result<Vec<_>>>()?,
+    );
+    requests.sort_by_key(|request| request.semantic_key().unwrap_or_default());
+    requests.dedup_by(|left, right| left.semantic_key().ok() == right.semantic_key().ok());
+    Ok(requests)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum PluginTier {
@@ -147,6 +823,10 @@ pub struct PluginManifest {
     pub contributions: PluginContributions,
     #[serde(default)]
     pub permissions: Vec<String>,
+    /// Structured capability requests are additive to the released string
+    /// vocabulary.  Empty values are omitted when serializing legacy manifests.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub capabilities: Vec<PluginCapabilityRequest>,
 }
 
 /// Released manifest-v1 process/filter shape. The alias preserves the public
@@ -446,6 +1126,8 @@ pub struct RawPluginManifestV2 {
     pub contributions: Vec<PluginContributionDescriptor>,
     #[serde(default)]
     pub permissions: Vec<String>,
+    #[serde(default)]
+    pub capabilities: Vec<PluginCapabilityRequest>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -460,6 +1142,8 @@ pub struct NormalizedPluginManifest {
     pub runtime: PluginRuntimeDescriptor,
     pub contributions: Vec<PluginContributionDescriptor>,
     pub requested_permissions: Vec<String>,
+    #[serde(default)]
+    pub requested_capabilities: Vec<PluginCapabilityRequest>,
     pub original_manifest_json: Value,
 }
 
@@ -582,6 +1266,7 @@ pub fn validate_manifest(manifest: &PluginManifest, package_dir: &Path) -> Resul
         validate_filter_v1(filter, &mut seen)?;
     }
     validate_permissions(&manifest.permissions)?;
+    validate_capability_requests(&manifest.capabilities)?;
     Ok(())
 }
 
@@ -618,21 +1303,35 @@ pub fn validate_permission_name(permission: &str) -> Result<()> {
             "permission name is empty, oversized, or padded".to_string(),
         ));
     }
-    match permission {
-        "file.read:source" | "file.write:output" => Ok(()),
-        other
-            if other.starts_with("network:")
-                && other.len() > "network:".len()
-                && other["network:".len()..].chars().all(|ch| {
-                    ch.is_ascii_alphanumeric() || matches!(ch, '.' | ':' | '-' | '_')
-                }) =>
-        {
-            Ok(())
-        }
-        other => Err(PluginRuntimeError::InvalidManifest(format!(
-            "unsupported permission {other}"
-        ))),
+    if matches!(permission, "file.read:source" | "file.write:output") {
+        return Ok(());
     }
+    let prefixes = [
+        "network:",
+        "asset.read:",
+        "asset.write:",
+        "project.read:",
+        "project.write:",
+        "engine.connector:",
+        "qa.register:",
+        "pipeline.register:",
+        "ai.action:",
+        "ui.panel:",
+        "external.connector:",
+        "diagnostics.read:",
+    ];
+    if prefixes.iter().any(|prefix| {
+        permission.starts_with(prefix)
+            && permission.len() > prefix.len()
+            && permission[prefix.len()..].chars().all(|ch| {
+                ch.is_ascii_alphanumeric() || matches!(ch, '.' | ':' | '-' | '_' | '/' | '*')
+            })
+    }) {
+        return Ok(());
+    }
+    Err(PluginRuntimeError::InvalidManifest(format!(
+        "unsupported permission {permission}"
+    )))
 }
 
 pub fn ensure_permissions(required: &[String], granted: &[String]) -> Result<()> {
@@ -709,6 +1408,7 @@ impl NormalizedPluginManifest {
             },
             contributions: PluginContributions { filters },
             permissions: self.requested_permissions.clone(),
+            capabilities: self.requested_capabilities.clone(),
         })
     }
 
@@ -822,6 +1522,10 @@ pub fn decode_normalized_manifest(
                     })
                     .collect(),
                 requested_permissions: manifest.permissions.clone(),
+                requested_capabilities: normalize_capability_requests(
+                    &manifest.permissions,
+                    &manifest.capabilities,
+                )?,
                 original_manifest_json: value,
             }
         }
@@ -831,6 +1535,8 @@ pub fn decode_normalized_manifest(
                     PluginRuntimeError::InvalidManifest(format!("cannot parse manifest: {error}"))
                 })?;
             validate_manifest_v2(&manifest, package_dir)?;
+            let requested_capabilities =
+                normalize_capability_requests(&manifest.permissions, &manifest.capabilities)?;
             NormalizedPluginManifest {
                 normalized_version: NORMALIZED_MANIFEST_VERSION,
                 source_manifest_version: MANIFEST_VERSION_V2,
@@ -841,6 +1547,7 @@ pub fn decode_normalized_manifest(
                 runtime: manifest.runtime,
                 contributions: manifest.contributions,
                 requested_permissions: manifest.permissions,
+                requested_capabilities,
                 original_manifest_json: value,
             }
         }
@@ -1087,6 +1794,25 @@ fn validate_permissions(permissions: &[String]) -> Result<()> {
     Ok(())
 }
 
+fn validate_capability_requests(requests: &[PluginCapabilityRequest]) -> Result<()> {
+    if requests.len() > MAX_PERMISSION_COUNT {
+        return Err(PluginRuntimeError::PackageInvalid(
+            "too many structured capability requests".to_string(),
+        ));
+    }
+    let mut seen = BTreeSet::new();
+    for request in requests {
+        let normalized = request.normalized()?;
+        let key = normalized.semantic_key()?;
+        if !seen.insert(key) {
+            return Err(PluginRuntimeError::InvalidManifest(
+                "duplicate structured capability request".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn validate_manifest_v2(manifest: &RawPluginManifestV2, package_dir: &Path) -> Result<()> {
     if manifest.manifest_version != MANIFEST_VERSION_V2 {
         return Err(PluginRuntimeError::UnsupportedVersion {
@@ -1135,6 +1861,7 @@ fn validate_manifest_v2(manifest: &RawPluginManifestV2, package_dir: &Path) -> R
         }
     }
     validate_permissions(&manifest.permissions)?;
+    validate_capability_requests(&manifest.capabilities)?;
     Ok(())
 }
 
@@ -1941,6 +2668,8 @@ pub struct ProcessDocumentFilter {
     descriptor: FilterDescriptor,
     granted_permissions: Vec<String>,
     activation_revision: u64,
+    capability_authorizer: Option<Arc<dyn PluginCapabilityAuthorizer>>,
+    capability_version_id: String,
     default_call_timeout: Duration,
     import_call_timeout: Duration,
 }
@@ -1957,9 +2686,25 @@ impl ProcessDocumentFilter {
             descriptor,
             granted_permissions,
             activation_revision,
+            capability_authorizer: None,
+            capability_version_id: String::new(),
             default_call_timeout: DEFAULT_CALL_TIMEOUT,
             import_call_timeout: IMPORT_CALL_TIMEOUT,
         }
+    }
+
+    /// Attach the Engine-owned authorizer.  The legacy constructor remains
+    /// source-compatible for SDK/fixture callers; production registration
+    /// always supplies this handle so revocations are observed at operation
+    /// time rather than cached in the adapter.
+    pub fn with_capability_authorizer(
+        mut self,
+        authorizer: Arc<dyn PluginCapabilityAuthorizer>,
+        version_id: impl Into<String>,
+    ) -> Self {
+        self.capability_authorizer = Some(authorizer);
+        self.capability_version_id = version_id.into();
+        self
     }
 
     pub fn with_call_timeouts(
@@ -1973,6 +2718,32 @@ impl ProcessDocumentFilter {
     }
 
     fn require(&self, permission: &str, operation: &str) -> std::result::Result<(), FilterError> {
+        if let Some(authorizer) = &self.capability_authorizer {
+            let request = parse_legacy_permission(permission).map_err(|error| {
+                FilterError::PluginPermissionDenied {
+                    plugin_id: self.process.manifest().id.clone(),
+                    filter_id: self.descriptor.id.clone(),
+                    operation: operation.to_string(),
+                    message: format!("malformed capability request: {error}"),
+                }
+            })?;
+            let check = PluginCapabilityCheck {
+                plugin_id: self.process.manifest().id.clone(),
+                version_id: self.capability_version_id.clone(),
+                capability_id: request.capability_id,
+                scope: request.scope,
+                operation: operation.to_string(),
+                contribution_id: Some(self.descriptor.id.clone()),
+            };
+            return authorizer.authorize(&check).map_err(|denial| {
+                FilterError::PluginPermissionDenied {
+                    plugin_id: denial.plugin_id,
+                    filter_id: self.descriptor.id.clone(),
+                    operation: denial.operation,
+                    message: format!("{} ({:?})", denial.message, denial.code),
+                }
+            });
+        }
         ensure_permissions(&[permission.to_string()], &self.granted_permissions).map_err(|error| {
             FilterError::PluginPermissionDenied {
                 plugin_id: self.process.manifest().id.clone(),
@@ -2691,6 +3462,138 @@ mod tests {
         )
         .expect_err("missing write");
         assert!(matches!(error, PluginRuntimeError::PermissionDenied(_)));
+    }
+
+    #[test]
+    fn capability_vocabulary_normalizes_every_family() {
+        let permissions = [
+            "file.read:source",
+            "file.write:output",
+            "network:https://api.example.test",
+            "asset.read:tm-main",
+            "asset.write:tb-main",
+            "project.read:project-a",
+            "project.write:project-a",
+            "engine.connector:segment.read",
+            "qa.register:qa.example",
+            "pipeline.register:pipeline.example",
+            "ai.action:ai.example",
+            "ui.panel:panel.example",
+            "external.connector:sync.push",
+            "diagnostics.read:runtime",
+        ]
+        .map(str::to_string);
+        let normalized = normalize_capability_requests(&permissions, &[])
+            .expect("normalize complete legacy vocabulary");
+        let ids = normalized
+            .iter()
+            .map(|request| request.capability_id.clone())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(ids.len(), 14);
+        assert!(ids.contains(&PluginCapabilityId::FileRead));
+        assert!(ids.contains(&PluginCapabilityId::FileWrite));
+        assert!(ids.contains(&PluginCapabilityId::NetworkConnect));
+        assert!(ids.contains(&PluginCapabilityId::AssetRead));
+        assert!(ids.contains(&PluginCapabilityId::AssetWrite));
+        assert!(ids.contains(&PluginCapabilityId::ProjectRead));
+        assert!(ids.contains(&PluginCapabilityId::ProjectWrite));
+        assert!(ids.contains(&PluginCapabilityId::EngineConnector));
+        assert!(ids.contains(&PluginCapabilityId::QaRegister));
+        assert!(ids.contains(&PluginCapabilityId::PipelineRegister));
+        assert!(ids.contains(&PluginCapabilityId::AiAction));
+        assert!(ids.contains(&PluginCapabilityId::UiPanel));
+        assert!(ids.contains(&PluginCapabilityId::ExternalConnector));
+        assert!(ids.contains(&PluginCapabilityId::DiagnosticsRead));
+    }
+
+    #[test]
+    fn capability_scopes_are_camel_case_narrowable_and_fail_closed() {
+        let requested = PluginCapabilityScope::Assets {
+            project_ids: vec!["project-b".to_string(), "project-a".to_string()],
+            asset_ids: vec!["*".to_string()],
+        }
+        .normalized()
+        .expect("normalize asset scope");
+        assert!(requested.allows(&PluginCapabilityScope::Assets {
+            project_ids: vec!["project-a".to_string()],
+            asset_ids: vec!["tm-main".to_string()],
+        }));
+        assert!(!requested.allows(&PluginCapabilityScope::Assets {
+            project_ids: vec!["project-c".to_string()],
+            asset_ids: vec!["tm-main".to_string()],
+        }));
+        assert_eq!(
+            serde_json::to_value(&requested).expect("serialize scope"),
+            json!({
+                "kind": "assets",
+                "projectIds": ["project-a", "project-b"],
+                "assetIds": ["*"]
+            })
+        );
+        assert!(
+            PluginCapabilityScope::Assets {
+                project_ids: Vec::new(),
+                asset_ids: Vec::new(),
+            }
+            .normalized()
+            .is_err()
+        );
+        assert!(
+            PluginCapabilityRequest {
+                capability_id: PluginCapabilityId::FileRead,
+                required: true,
+                scope: PluginCapabilityScope::Network {
+                    origins: vec!["https://api.example.test".to_string()],
+                },
+                contribution_id: None,
+            }
+            .normalized()
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn unsupported_optional_capabilities_are_preserved_without_authority() {
+        let optional: PluginCapabilityRequest = serde_json::from_value(json!({
+            "capabilityId": "future.translation.inspect",
+            "required": false,
+            "scope": {"kind": "unscoped"}
+        }))
+        .expect("deserialize optional future capability");
+        let normalized = optional.normalized().expect("retain optional capability");
+        assert_eq!(
+            normalized.capability_id,
+            PluginCapabilityId::Unsupported("future.translation.inspect".to_string())
+        );
+        assert!(!normalized.capability_id.is_supported());
+        assert_eq!(
+            serde_json::to_value(&normalized).expect("serialize optional future capability"),
+            json!({
+                "capabilityId": "future.translation.inspect",
+                "required": false,
+                "scope": {"kind": "unscoped"}
+            })
+        );
+
+        let required: PluginCapabilityRequest = serde_json::from_value(json!({
+            "capabilityId": "future.translation.inspect",
+            "required": true,
+            "scope": {"kind": "unscoped"}
+        }))
+        .expect("deserialize required future capability");
+        assert!(matches!(
+            required.normalized(),
+            Err(PluginRuntimeError::CapabilityUnsupported(capability_id))
+                if capability_id == "future.translation.inspect"
+        ));
+        assert!(
+            serde_json::from_value::<PluginCapabilityRequest>(json!({
+                "capabilityId": "future capability",
+                "required": false,
+                "scope": {"kind": "unscoped"}
+            }))
+            .is_err()
+        );
     }
 
     #[test]

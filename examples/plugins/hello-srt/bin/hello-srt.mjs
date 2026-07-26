@@ -8,6 +8,240 @@ import { basename, extname } from "node:path";
 import { createInterface } from "node:readline";
 import { stdin as input, stdout as output } from "node:process";
 var HOST_API_VERSION = 1;
+var PLUGIN_CAPABILITY_IDS = [
+  "file.read",
+  "file.write",
+  "network.connect",
+  "asset.read",
+  "asset.write",
+  "project.read",
+  "project.write",
+  "engine.connector",
+  "qa.register",
+  "pipeline.register",
+  "ai.action",
+  "ui.panel",
+  "external.connector",
+  "diagnostics.read",
+];
+var MAX_CAPABILITY_REQUESTS = 64;
+var MAX_SCOPE_ITEMS = 64;
+var MAX_SCOPE_TEXT = 512;
+function parseLegacyPermission(permission) {
+  const scoped = (capabilityId, scope) => ({
+    capabilityId,
+    required: true,
+    scope,
+  });
+  if (permission === "file.read:source") {
+    return scoped("file.read", { kind: "file", areas: ["source"] });
+  }
+  if (permission === "file.write:output") {
+    return scoped("file.write", { kind: "file", areas: ["output"] });
+  }
+  const mappings = [
+    ["network:", "network.connect", "network"],
+    ["asset.read:", "asset.read", "assets"],
+    ["asset.write:", "asset.write", "assets"],
+    ["project.read:", "project.read", "projects"],
+    ["project.write:", "project.write", "projects"],
+    ["engine.connector:", "engine.connector", "operations"],
+    ["qa.register:", "qa.register", "contributions"],
+    ["pipeline.register:", "pipeline.register", "contributions"],
+    ["ai.action:", "ai.action", "contributions"],
+    ["ui.panel:", "ui.panel", "contributions"],
+    ["external.connector:", "external.connector", "operations"],
+    ["diagnostics.read:", "diagnostics.read", "diagnostics"],
+  ];
+  for (const [prefix, capabilityId, kind] of mappings) {
+    if (!permission.startsWith(prefix)) continue;
+    const value = permission.slice(prefix.length);
+    if (!isValidScopeText(value)) break;
+    switch (kind) {
+      case "network":
+        return scoped(capabilityId, { kind, origins: [value] });
+      case "assets":
+        return scoped(capabilityId, {
+          kind,
+          projectIds: [],
+          assetIds: [value],
+        });
+      case "projects":
+        return scoped(capabilityId, { kind, projectIds: [value] });
+      case "operations":
+        return scoped(capabilityId, { kind, operations: [value] });
+      case "contributions":
+        return scoped(capabilityId, { kind, contributionIds: [value] });
+      case "diagnostics":
+        return scoped(capabilityId, { kind, categories: [value] });
+      default:
+        break;
+    }
+  }
+  throw new Error(`unsupported permission ${permission}`);
+}
+function normalizeCapabilityScope(scope) {
+  const strings = (values, label) => {
+    if (values.length === 0 || values.length > MAX_SCOPE_ITEMS) {
+      throw new Error(`${label} must contain between one and 64 items`);
+    }
+    if (values.some((value) => !isValidScopeText(value))) {
+      throw new Error(`${label} contains an invalid value`);
+    }
+    return [...new Set(values)].sort();
+  };
+  switch (scope.kind) {
+    case "unscoped":
+      return scope;
+    case "file": {
+      if (scope.areas.length === 0 || scope.areas.length > 2) {
+        throw new Error("file scope must name at least one managed area");
+      }
+      return { kind: "file", areas: [...new Set(scope.areas)].sort() };
+    }
+    case "network":
+      return {
+        kind: "network",
+        origins: strings(scope.origins, "network origins"),
+      };
+    case "projects":
+      return {
+        kind: "projects",
+        projectIds: strings(scope.projectIds, "project scope"),
+      };
+    case "assets":
+      if (scope.projectIds.length === 0 && scope.assetIds.length === 0) {
+        throw new Error("asset scope must name at least one project or asset");
+      }
+      return {
+        kind: "assets",
+        projectIds:
+          scope.projectIds.length === 0
+            ? []
+            : strings(scope.projectIds, "asset project scope"),
+        assetIds:
+          scope.assetIds.length === 0
+            ? []
+            : strings(scope.assetIds, "asset scope"),
+      };
+    case "operations":
+      return {
+        kind: "operations",
+        operations: strings(scope.operations, "operation scope"),
+      };
+    case "contributions":
+      return {
+        kind: "contributions",
+        contributionIds: strings(scope.contributionIds, "contribution scope"),
+      };
+    case "diagnostics":
+      return {
+        kind: "diagnostics",
+        categories: strings(scope.categories, "diagnostic scope"),
+      };
+  }
+}
+function normalizeCapabilityRequest(request) {
+  const scope = normalizeCapabilityScope(request.scope);
+  const required = request.required ?? true;
+  if (!isValidCapabilityId(request.capabilityId)) {
+    throw new Error("capability id is empty, oversized, or malformed");
+  }
+  const supported = isKnownPluginCapabilityId(request.capabilityId);
+  if (!supported && required) {
+    throw new Error(`unsupported capability ${request.capabilityId}`);
+  }
+  if (supported && !scopeMatchesCapability(request.capabilityId, scope)) {
+    throw new Error(
+      `scope kind does not match capability ${request.capabilityId}`,
+    );
+  }
+  if (request.contributionId !== void 0) {
+    const errors = [];
+    validateId(request.contributionId, "capability contribution id", errors);
+    if (errors.length > 0) throw new Error(errors[0]);
+  }
+  return {
+    capabilityId: request.capabilityId,
+    required,
+    scope,
+    ...(request.contributionId === void 0
+      ? {}
+      : { contributionId: request.contributionId }),
+  };
+}
+function normalizeCapabilityRequests(legacyPermissions, typedRequests) {
+  if (
+    legacyPermissions.length + typedRequests.length >
+    MAX_CAPABILITY_REQUESTS
+  ) {
+    throw new Error("too many requested capabilities");
+  }
+  const bySemanticKey = /* @__PURE__ */ new Map();
+  for (const request of [
+    ...legacyPermissions.map(parseLegacyPermission),
+    ...typedRequests,
+  ]) {
+    const normalized = normalizeCapabilityRequest(request);
+    bySemanticKey.set(JSON.stringify(normalized), normalized);
+  }
+  return [...bySemanticKey.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([, request]) => request);
+}
+function validateCapabilityRequests(requests, errors) {
+  try {
+    normalizeCapabilityRequests([], requests);
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : String(error));
+  }
+}
+function isValidScopeText(value) {
+  return (
+    value.length > 0 &&
+    value.length <= MAX_SCOPE_TEXT &&
+    value.trim() === value &&
+    !/[\u0000-\u001f\u007f]/.test(value)
+  );
+}
+function isValidCapabilityId(value) {
+  return (
+    value.length > 0 &&
+    value.length <= 128 &&
+    value.trim() === value &&
+    /^[A-Za-z0-9._-]+$/.test(value)
+  );
+}
+function isKnownPluginCapabilityId(capabilityId) {
+  return PLUGIN_CAPABILITY_IDS.some((candidate) => candidate === capabilityId);
+}
+function scopeMatchesCapability(capabilityId, scope) {
+  if (capabilityId === "file.read" || capabilityId === "file.write") {
+    return scope.kind === "file";
+  }
+  if (capabilityId === "network.connect") return scope.kind === "network";
+  if (capabilityId === "asset.read" || capabilityId === "asset.write") {
+    return scope.kind === "assets";
+  }
+  if (capabilityId === "project.read" || capabilityId === "project.write") {
+    return scope.kind === "projects";
+  }
+  if (
+    capabilityId === "engine.connector" ||
+    capabilityId === "external.connector"
+  ) {
+    return scope.kind === "operations";
+  }
+  if (
+    capabilityId === "qa.register" ||
+    capabilityId === "pipeline.register" ||
+    capabilityId === "ai.action" ||
+    capabilityId === "ui.panel"
+  ) {
+    return scope.kind === "contributions";
+  }
+  return capabilityId === "diagnostics.read" && scope.kind === "diagnostics";
+}
 function validateManifest(manifest2) {
   const errors = [];
   if (manifest2.manifestVersion !== 1) errors.push("manifestVersion must be 1");
@@ -80,6 +314,7 @@ function validateManifest(manifest2) {
       errors.push(`unsupported permission ${permission}`);
     }
   }
+  validateCapabilityRequests(manifest2.capabilities ?? [], errors);
   return errors;
 }
 function validateId(value, label, errors) {

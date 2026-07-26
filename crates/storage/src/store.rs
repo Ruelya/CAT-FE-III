@@ -46,6 +46,7 @@ mod curation;
 mod discussion;
 mod lifecycle;
 mod plugin;
+mod plugin_permissions;
 mod qa;
 mod snapshot;
 mod task_package;
@@ -76,6 +77,7 @@ pub use lifecycle::{
     ProjectTemplateRecord, RecycleEntryRecord, ReimportPreviewRecord,
 };
 pub use plugin::*;
+pub use plugin_permissions::*;
 pub use qa::{NewQaProfile, QaIssueFilter, QaProfileUpdate};
 pub use snapshot::*;
 pub use task_package::*;
@@ -623,6 +625,7 @@ impl Store {
         }
         migrate(&mut connection)?;
         plugin::normalize_plugin_versions(&mut connection, &paths)?;
+        plugin_permissions::normalize_plugin_capability_requests(&mut connection)?;
         normalize_managed_source_paths(&mut connection, &paths)?;
         backfill_asset_keys(&mut connection)?;
         if recover_orphaned_runs {

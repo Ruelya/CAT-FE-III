@@ -2,7 +2,7 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use crate::{Result, StorageError};
 
-pub(crate) const LATEST_SCHEMA_VERSION: u32 = 18;
+pub(crate) const LATEST_SCHEMA_VERSION: u32 = 19;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -1994,7 +1994,205 @@ END;
 DROP TABLE plugin_installations_v16;
 "#;
 
-const MIGRATIONS: [(u32, &str); 18] = [
+/// Durable per-capability requests, decisions, and an append-only audit
+/// stream.  The legacy v1 string permissions are copied into explicit
+/// pending/granted requests here; structured v2 requests are completed by the
+/// idempotent Rust normalization pass once the manifest is available.
+const MIGRATION_19: &str = r#"
+CREATE TABLE plugin_capability_requests (
+    id TEXT PRIMARY KEY CHECK (length(trim(id)) > 0),
+    plugin_id TEXT NOT NULL,
+    version_id TEXT NOT NULL,
+    capability_id TEXT NOT NULL CHECK (length(trim(capability_id)) > 0),
+    required INTEGER NOT NULL CHECK (required IN (0, 1)),
+    requested_scope_json TEXT NOT NULL CHECK (
+        json_valid(requested_scope_json) AND json_type(requested_scope_json) = 'object'
+    ),
+    granted_scope_json TEXT CHECK (
+        granted_scope_json IS NULL OR (
+            json_valid(granted_scope_json) AND json_type(granted_scope_json) = 'object'
+        )
+    ),
+    contribution_id TEXT NOT NULL DEFAULT '',
+    legacy_permission TEXT NOT NULL DEFAULT '',
+    carried_from_request_id TEXT,
+    decision TEXT NOT NULL CHECK (decision IN ('pending', 'granted', 'denied', 'revoked')),
+    actor TEXT NOT NULL DEFAULT '',
+    reason TEXT NOT NULL DEFAULT '',
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    decided_at_ms INTEGER,
+    UNIQUE(plugin_id, version_id, capability_id, requested_scope_json, contribution_id),
+    FOREIGN KEY (plugin_id, version_id)
+        REFERENCES plugin_versions(plugin_id, id)
+        ON DELETE CASCADE,
+    FOREIGN KEY (carried_from_request_id)
+        REFERENCES plugin_capability_requests(id)
+        ON DELETE SET NULL
+) STRICT;
+
+CREATE INDEX plugin_capability_requests_plugin_idx
+    ON plugin_capability_requests(plugin_id, version_id, decision, id);
+CREATE INDEX plugin_capability_requests_revision_idx
+    ON plugin_capability_requests(plugin_id, id, revision);
+
+CREATE TABLE plugin_capability_audit (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL UNIQUE,
+    plugin_id TEXT NOT NULL,
+    version_id TEXT NOT NULL,
+    request_id TEXT,
+    capability_id TEXT NOT NULL,
+    scope_json TEXT NOT NULL CHECK (
+        json_valid(scope_json) AND json_type(scope_json) = 'object'
+    ),
+    event TEXT NOT NULL CHECK (
+        event IN (
+            'requested', 'granted', 'denied', 'revoked', 'carried',
+            'operation_allowed', 'operation_denied', 'detached'
+        )
+    ),
+    outcome TEXT NOT NULL DEFAULT '',
+    operation TEXT NOT NULL DEFAULT '',
+    actor TEXT NOT NULL DEFAULT '',
+    reason TEXT NOT NULL DEFAULT '',
+    request_revision INTEGER,
+    created_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX plugin_capability_audit_plugin_idx
+    ON plugin_capability_audit(plugin_id, sequence);
+CREATE INDEX plugin_capability_audit_request_idx
+    ON plugin_capability_audit(request_id, sequence);
+
+CREATE TRIGGER plugin_capability_audit_immutable_update
+BEFORE UPDATE ON plugin_capability_audit
+BEGIN
+    SELECT RAISE(ABORT, 'plugin capability audit is immutable');
+END;
+
+CREATE TRIGGER plugin_capability_audit_immutable_delete
+BEFORE DELETE ON plugin_capability_audit
+BEGIN
+    SELECT RAISE(ABORT, 'plugin capability audit is immutable');
+END;
+
+WITH legacy_permissions AS (
+    SELECT
+        v.id AS version_id,
+        v.plugin_id AS plugin_id,
+        v.installed_at_ms AS created_at_ms,
+        v.original_manifest_json AS manifest_json,
+        i.granted_permissions_json AS granted_json
+    FROM plugin_versions v
+    JOIN plugin_installations i ON i.id = v.plugin_id
+), expanded AS (
+    SELECT
+        legacy_permissions.*,
+        CAST(items.key AS INTEGER) AS ordinal,
+        items.value AS permission
+    FROM legacy_permissions,
+         json_each(json_extract(legacy_permissions.manifest_json, '$.permissions')) items
+    WHERE json_type(json_extract(legacy_permissions.manifest_json, '$.permissions')) = 'array'
+), shaped AS (
+    SELECT
+        expanded.*,
+        CASE
+            WHEN permission = 'file.read:source' THEN 'file.read'
+            WHEN permission = 'file.write:output' THEN 'file.write'
+            WHEN permission LIKE 'network:%' THEN 'network.connect'
+            WHEN permission LIKE 'asset.read:%' THEN 'asset.read'
+            WHEN permission LIKE 'asset.write:%' THEN 'asset.write'
+            WHEN permission LIKE 'project.read:%' THEN 'project.read'
+            WHEN permission LIKE 'project.write:%' THEN 'project.write'
+            WHEN permission LIKE 'engine.connector:%' THEN 'engine.connector'
+            WHEN permission LIKE 'qa.register:%' THEN 'qa.register'
+            WHEN permission LIKE 'pipeline.register:%' THEN 'pipeline.register'
+            WHEN permission LIKE 'ai.action:%' THEN 'ai.action'
+            WHEN permission LIKE 'ui.panel:%' THEN 'ui.panel'
+            WHEN permission LIKE 'external.connector:%' THEN 'external.connector'
+            WHEN permission LIKE 'diagnostics.read:%' THEN 'diagnostics.read'
+            ELSE 'legacy.unsupported'
+        END AS capability_id,
+        CASE
+            WHEN permission = 'file.read:source' THEN json_object('kind', 'file', 'areas', json_array('source'))
+            WHEN permission = 'file.write:output' THEN json_object('kind', 'file', 'areas', json_array('output'))
+            WHEN permission LIKE 'network:%' THEN json_object('kind', 'network', 'origins', json_array(substr(permission, 9)))
+            WHEN permission LIKE 'asset.read:%' OR permission LIKE 'asset.write:%'
+                THEN json_object('kind', 'assets', 'projectIds', json_array(), 'assetIds', json_array(substr(permission, instr(permission, ':') + 1)))
+            WHEN permission LIKE 'project.read:%' OR permission LIKE 'project.write:%'
+                THEN json_object('kind', 'projects', 'projectIds', json_array(substr(permission, instr(permission, ':') + 1)))
+            WHEN permission LIKE 'engine.connector:%'
+                THEN json_object('kind', 'operations', 'operations', json_array(substr(permission, 18)))
+            WHEN permission LIKE 'qa.register:%' OR permission LIKE 'pipeline.register:%'
+                 OR permission LIKE 'ai.action:%' OR permission LIKE 'ui.panel:%'
+                THEN json_object('kind', 'contributions', 'contributionIds', json_array(substr(permission, instr(permission, ':') + 1)))
+            WHEN permission LIKE 'external.connector:%'
+                THEN json_object('kind', 'operations', 'operations', json_array(substr(permission, 20)))
+            WHEN permission LIKE 'diagnostics.read:%'
+                THEN json_object('kind', 'diagnostics', 'categories', json_array(substr(permission, 18)))
+            ELSE json_object('kind', 'unscoped')
+        END AS scope_json
+    FROM expanded
+)
+INSERT INTO plugin_capability_requests (
+    id, plugin_id, version_id, capability_id, required,
+    requested_scope_json, granted_scope_json, contribution_id, legacy_permission,
+    carried_from_request_id,
+    decision, actor, reason, revision, created_at_ms, updated_at_ms, decided_at_ms
+)
+SELECT
+    'legacy-cap:' || version_id || ':' || printf('%04d', ordinal),
+    plugin_id,
+    version_id,
+    capability_id,
+    1,
+    scope_json,
+    CASE WHEN EXISTS (
+        SELECT 1 FROM json_each(shaped.granted_json)
+        WHERE json_each.value = shaped.permission
+    ) AND capability_id <> 'legacy.unsupported' THEN scope_json ELSE NULL END,
+    '',
+    permission,
+    NULL,
+    CASE WHEN EXISTS (
+        SELECT 1 FROM json_each(shaped.granted_json)
+        WHERE json_each.value = shaped.permission
+    ) AND capability_id <> 'legacy.unsupported' THEN 'granted' ELSE 'pending' END,
+    CASE WHEN capability_id = 'legacy.unsupported' THEN 'migration' ELSE 'legacy-migration' END,
+    'migrate legacy plugin permission',
+    0,
+    created_at_ms,
+    created_at_ms,
+    CASE WHEN EXISTS (
+        SELECT 1 FROM json_each(shaped.granted_json)
+        WHERE json_each.value = shaped.permission
+    ) AND capability_id <> 'legacy.unsupported' THEN created_at_ms ELSE NULL END
+FROM shaped;
+
+INSERT INTO plugin_capability_audit (
+    id, plugin_id, version_id, request_id, capability_id, scope_json,
+    event, outcome, operation, actor, reason, request_revision, created_at_ms
+)
+SELECT
+    'legacy-audit:' || requests.id,
+    requests.plugin_id,
+    requests.version_id,
+    requests.id,
+    requests.capability_id,
+    requests.requested_scope_json,
+    'requested',
+    requests.decision,
+    '',
+    requests.actor,
+    requests.reason,
+    requests.revision,
+    requests.created_at_ms
+FROM plugin_capability_requests requests;
+"#;
+
+const MIGRATIONS: [(u32, &str); 19] = [
     (1_u32, MIGRATION_1),
     (2_u32, MIGRATION_2),
     (3_u32, MIGRATION_3),
@@ -2013,6 +2211,7 @@ const MIGRATIONS: [(u32, &str); 18] = [
     (16_u32, MIGRATION_16),
     (17_u32, MIGRATION_17),
     (18_u32, MIGRATION_18),
+    (19_u32, MIGRATION_19),
 ];
 
 pub(crate) fn configure_connection(connection: &Connection) -> Result<()> {
@@ -2059,6 +2258,7 @@ fn migrate_from_to(connection: &mut Connection, current: u32, target: u32) -> Re
 #[cfg(test)]
 mod tests {
     use rusqlite::Connection;
+    use serde_json::json;
 
     use super::*;
 
@@ -3253,7 +3453,7 @@ mod tests {
         let version = connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
             .expect("read latest schema version");
-        assert_eq!(version, 18);
+        assert_eq!(version, LATEST_SCHEMA_VERSION);
         let version_columns = connection
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('plugin_versions')",
@@ -3503,5 +3703,112 @@ mod tests {
             )
             .expect("check rolled-back table rename");
         assert_eq!(renamed_count, 0);
+    }
+
+    #[test]
+    fn migration_19_seeds_exact_legacy_grants_and_immutable_audit() {
+        let mut connection = Connection::open_in_memory().expect("open migration database");
+        configure_connection(&connection).expect("configure migration database");
+        create_v17(&mut connection);
+        let permissions = json!([
+            "file.read:source",
+            "file.write:output",
+            "network:https://api.example.test",
+            "asset.read:tm-main",
+            "asset.write:tb-main",
+            "project.read:project-a",
+            "project.write:project-a",
+            "engine.connector:segment.read",
+            "qa.register:qa.example",
+            "pipeline.register:pipeline.example",
+            "ai.action:ai.example",
+            "ui.panel:panel.example",
+            "external.connector:sync.push",
+            "diagnostics.read:runtime"
+        ]);
+        let manifest = json!({
+            "manifestVersion": 1,
+            "id": "example.legacy",
+            "displayName": "Legacy",
+            "version": "1.0.0",
+            "apiVersion": 1,
+            "apiVersionMin": 1,
+            "tier": "process",
+            "entry": { "kind": "node", "path": "entry.mjs" },
+            "contributions": { "filters": [] },
+            "permissions": permissions
+        });
+        connection
+            .execute(
+                "INSERT INTO plugin_installations (
+                    id, display_name, version, tier, status, package_path,
+                    entry_json, manifest_json, contributions_json,
+                    requested_permissions_json, granted_permissions_json,
+                    installed_at_ms, updated_at_ms
+                 ) VALUES (
+                    'example.legacy', 'Legacy', '1.0.0', 'process', 'installed',
+                    'plugins/example.legacy', '{\"kind\":\"node\",\"path\":\"entry.mjs\"}',
+                    ?1, '{\"filters\":[]}', ?2, ?2, 100, 100
+                 )",
+                rusqlite::params![manifest.to_string(), permissions.to_string()],
+            )
+            .expect("insert legacy plugin");
+
+        migrate_from_to(&mut connection, 17, 19).expect("migrate capability schema");
+        let version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read schema version");
+        assert_eq!(version, 19);
+        let counts = connection
+            .query_row(
+                "SELECT
+                    (SELECT COUNT(*) FROM plugin_capability_requests),
+                    (SELECT COUNT(*) FROM plugin_capability_requests WHERE decision = 'granted'),
+                    (SELECT COUNT(*) FROM plugin_capability_audit)",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                },
+            )
+            .expect("count migrated capability rows");
+        assert_eq!(counts, (14, 14, 14));
+        for (capability, expected) in [
+            ("engine.connector", "segment.read"),
+            ("external.connector", "sync.push"),
+        ] {
+            let operation = connection
+                .query_row(
+                    "SELECT json_extract(requested_scope_json, '$.operations[0]')
+                     FROM plugin_capability_requests WHERE capability_id = ?1",
+                    [capability],
+                    |row| row.get::<_, String>(0),
+                )
+                .expect("read migrated operation scope");
+            assert_eq!(operation, expected);
+        }
+        assert!(
+            connection
+                .execute(
+                    "UPDATE plugin_capability_audit SET reason = 'tampered' WHERE sequence = 1",
+                    [],
+                )
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute("DELETE FROM plugin_capability_audit WHERE sequence = 1", [])
+                .is_err()
+        );
+        migrate_from_to(&mut connection, 19, 19).expect("reopen capability schema");
+        let audit_count = connection
+            .query_row("SELECT COUNT(*) FROM plugin_capability_audit", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .expect("count idempotent audit rows");
+        assert_eq!(audit_count, 14);
     }
 }

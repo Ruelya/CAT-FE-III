@@ -206,41 +206,7 @@ impl EngineService {
             ));
         }
 
-        ensure_plugin_grants(&current)?;
         ensure_candidate_filter_slots(self, &params.plugin_id, &staged.normalized_manifest)?;
-        let candidate_process = Arc::new(PluginProcess::new(
-            staged.path.clone(),
-            legacy_manifest.clone(),
-        ));
-        if let Err(error) = candidate_process.ensure_started() {
-            let message = error.to_string();
-            let mut input = new_version_from_staged(
-                &staged,
-                &legacy_manifest,
-                &current,
-                candidate_destination.clone(),
-                format!(
-                    "upgrade:{}:{}",
-                    staged.normalized_manifest.version, staged.package_hash.sha256
-                ),
-            )?;
-            input.state = PluginVersionState::Failed;
-            input.diagnostics_json = json!([{
-                "code": "plugin_upgrade_failed",
-                "message": bounded_plugin_message(&message),
-                "phase": "probe"
-            }]);
-            if publish_staged_package(&staged.path, &candidate_destination).is_ok() {
-                if let Err(insert_error) = self.store.insert_plugin_version(input) {
-                    let _ = remove_package(&candidate_destination);
-                    tracing::warn!(error = %insert_error, "failed to retain plugin probe candidate");
-                }
-            } else {
-                cleanup_staged(&staged);
-            }
-            return Err(EngineError::PluginUpgradeFailed(message));
-        }
-        candidate_process.stop();
         if let Err(error) = publish_staged_package(&staged.path, &candidate_destination) {
             cleanup_staged(&staged);
             return Err(map_plugin_error(error));
@@ -318,14 +284,6 @@ impl EngineService {
                 compatibility.unsupported_capabilities.join(", "),
             ));
         }
-        let legacy_manifest = normalized
-            .to_legacy_process_manifest()
-            .map_err(map_plugin_error)?;
-        let process = Arc::new(PluginProcess::new(package_path.clone(), legacy_manifest));
-        process.ensure_started().map_err(|error| {
-            EngineError::PluginUpgradeFailed(format!("rollback probe failed: {error}"))
-        })?;
-        process.stop();
         let activation = self.store.rollback_plugin_version(
             &params.plugin_id,
             params.expected_revision,
@@ -381,11 +339,6 @@ impl EngineService {
         }
         let compatibility = normalized.compatibility();
         let legacy_manifest = legacy_inventory_manifest(&normalized);
-        let granted = if params.grant_requested {
-            normalized.requested_permissions.clone()
-        } else {
-            Vec::new()
-        };
         let diagnostics = compatibility_diagnostics(&compatibility);
         let record = self
             .store
@@ -399,7 +352,7 @@ impl EngineService {
                 diagnostics_json: diagnostics,
                 package_sha256: Some(staged.package_hash.sha256.clone()),
                 package_path: destination.clone(),
-                granted_permissions: granted,
+                granted_permissions: Vec::new(),
                 status: PluginStatus::Installed,
                 last_error: None,
                 source_manifest_version: normalized.source_manifest_version,
@@ -407,7 +360,9 @@ impl EngineService {
             .inspect_err(|_| {
                 let _ = remove_package(&destination);
             })?;
-        let _ = (&params.actor, &params.reason);
+        // `grantRequested` remains wire-decodable for old clients, but install
+        // never turns that compatibility field into authority.
+        let _ = (&params.grant_requested, &params.actor, &params.reason);
         Ok(PluginMutationResult {
             plugin: to_summary(record),
         })
@@ -415,7 +370,7 @@ impl EngineService {
 
     pub fn enable_plugin(&mut self, params: PluginMutationParams) -> Result<PluginMutationResult> {
         let record = self.store.get_plugin_installation(&params.plugin_id)?;
-        ensure_plugin_grants(&record)?;
+        self.ensure_plugin_capabilities(&record, "plugin.enable")?;
         if let Some(compatibility) = parse_compatibility(&record.compatibility_json)
             && !compatibility.compatible
         {
@@ -547,6 +502,12 @@ impl EngineService {
     }
 
     fn register_plugin_filters(&mut self, record: &PluginInstallationRecord) -> Result<()> {
+        self.ensure_plugin_capabilities(record, "plugin.register")?;
+        let version_id = record
+            .active_version_id
+            .clone()
+            .ok_or_else(|| EngineError::InvalidState("plugin has no active version".to_string()))?;
+        let authorizer = self.plugin_capabilities.authorizer();
         let descriptors = record.filter_descriptors();
         for descriptor in &descriptors {
             if descriptor.id.starts_with("builtin.") {
@@ -574,7 +535,8 @@ impl EngineService {
                 descriptor.clone(),
                 record.granted_permissions.clone(),
                 record.revision,
-            );
+            )
+            .with_capability_authorizer(Arc::clone(&authorizer), version_id.clone());
             if let Err(error) = self.filters.register(Arc::new(filter)) {
                 for filter_id in &registered {
                     let _ = self.filters.unregister(filter_id);
@@ -593,7 +555,7 @@ impl EngineService {
         Ok(())
     }
 
-    fn unregister_plugin_filters(&mut self, plugin_id: &str) {
+    pub(crate) fn unregister_plugin_filters(&mut self, plugin_id: &str) {
         let owned: Vec<String> = self
             .plugin_filter_owners
             .iter()
@@ -821,6 +783,7 @@ fn legacy_inventory_manifest(normalized: &RuntimeNormalizedPluginManifest) -> Pl
         entry,
         contributions: PluginContributions { filters },
         permissions: normalized.requested_permissions.clone(),
+        capabilities: normalized.requested_capabilities.clone(),
     }
 }
 
@@ -942,21 +905,6 @@ fn cleanup_staged(staged: &StagedPluginPackage) {
     }
 }
 
-fn ensure_plugin_grants(record: &PluginInstallationRecord) -> Result<()> {
-    for permission in &record.requested_permissions {
-        if !record
-            .granted_permissions
-            .iter()
-            .any(|granted| granted == permission)
-        {
-            return Err(EngineError::PluginPermissionDenied(format!(
-                "missing granted permission {permission}"
-            )));
-        }
-    }
-    Ok(())
-}
-
 fn to_wire_normalized_manifest(
     normalized: RuntimeNormalizedPluginManifest,
 ) -> Result<NormalizedPluginManifest> {
@@ -1030,7 +978,7 @@ fn parse_wire_runtime_projection(
 fn new_version_from_staged(
     staged: &StagedPluginPackage,
     legacy_manifest: &translunar_plugin_runtime::PluginManifest,
-    current: &PluginInstallationRecord,
+    _current: &PluginInstallationRecord,
     package_path: PathBuf,
     id: String,
 ) -> Result<NewPluginVersion> {
@@ -1047,7 +995,9 @@ fn new_version_from_staged(
         entry_json: serde_json::to_value(&legacy_manifest.entry)?,
         original_manifest_json: staged.normalized_manifest.original_manifest_json.clone(),
         requested_permissions: staged.normalized_manifest.requested_permissions.clone(),
-        granted_permissions: current.granted_permissions.clone(),
+        // Structured capability requests carry semantically identical grants
+        // in storage. Legacy arrays are only a compatibility projection.
+        granted_permissions: Vec::new(),
         package_sha256: Some(staged.package_hash.sha256.clone()),
         package_path: package_path.clone(),
         managed_package_path: Some(package_path),
@@ -1062,7 +1012,7 @@ fn new_version_from_staged(
     })
 }
 
-fn to_summary(record: PluginInstallationRecord) -> PluginSummary {
+pub(crate) fn to_summary(record: PluginInstallationRecord) -> PluginSummary {
     let runtime = parse_wire_runtime_projection(
         &record.runtime_json,
         &record.normalized_manifest_json,
@@ -1226,6 +1176,34 @@ mod tests {
             .join("examples/plugins/hello-srt")
     }
 
+    fn grant_required_capabilities(service: &mut EngineService, plugin_id: &str) {
+        let requests = service
+            .list_plugin_capability_requests(
+                translunar_protocol::PluginCapabilityRequestListParams {
+                    plugin_id: plugin_id.to_string(),
+                    version_id: None,
+                    offset: 0,
+                    limit: 200,
+                },
+            )
+            .expect("list capability requests");
+        for request in requests.items.into_iter().filter(|item| {
+            item.required
+                && item.decision != translunar_plugin_runtime::PluginCapabilityDecision::Granted
+        }) {
+            service
+                .grant_plugin_capability(translunar_protocol::PluginCapabilityGrantParams {
+                    plugin_id: plugin_id.to_string(),
+                    request_id: request.id,
+                    expected_revision: request.revision,
+                    scope: request.requested_scope,
+                    actor: "test".to_string(),
+                    reason: "explicit test grant".to_string(),
+                })
+                .expect("grant required capability");
+        }
+    }
+
     #[test]
     fn duplicate_install_is_rejected_without_mutating_enabled_plugin() {
         let data = tempdir().expect("data directory");
@@ -1240,6 +1218,7 @@ mod tests {
             })
             .expect("install plugin")
             .plugin;
+        grant_required_capabilities(&mut service, &installed.id);
         let enabled = service
             .enable_plugin(PluginMutationParams {
                 plugin_id: installed.id.clone(),
@@ -1368,12 +1347,26 @@ mod tests {
         let installed = service
             .install_plugin(PluginInstallParams {
                 source_path: hello_srt_source().to_string_lossy().into_owned(),
-                grant_requested: false,
+                grant_requested: true,
                 actor: "test".to_string(),
                 reason: "permission rejection".to_string(),
             })
             .expect("install without grants")
             .plugin;
+        assert!(installed.granted_permissions.is_empty());
+        let pending = service
+            .list_plugin_capability_requests(
+                translunar_protocol::PluginCapabilityRequestListParams {
+                    plugin_id: installed.id.clone(),
+                    version_id: installed.active_version_id.clone(),
+                    offset: 0,
+                    limit: 200,
+                },
+            )
+            .expect("list pending requests");
+        assert!(pending.items.iter().all(|request| {
+            request.decision == translunar_plugin_runtime::PluginCapabilityDecision::Pending
+        }));
         let error = service
             .enable_plugin(PluginMutationParams {
                 plugin_id: installed.id.clone(),
@@ -1413,6 +1406,7 @@ mod tests {
             })
             .expect("install v1")
             .plugin;
+        grant_required_capabilities(&mut service, &installed.id);
         let enabled = service
             .enable_plugin(PluginMutationParams {
                 plugin_id: installed.id.clone(),
@@ -1469,6 +1463,20 @@ mod tests {
         let active_path = upgraded.plugin.package_path.clone();
         assert!(active_path.contains(".versions"));
         assert!(Path::new(&active_path).is_dir());
+        let carried = service
+            .list_plugin_capability_requests(
+                translunar_protocol::PluginCapabilityRequestListParams {
+                    plugin_id: enabled.id.clone(),
+                    version_id: Some(upgraded.active_version_id.clone()),
+                    offset: 0,
+                    limit: 200,
+                },
+            )
+            .expect("list carried grants");
+        assert!(carried.items.iter().all(|request| {
+            request.decision == translunar_plugin_runtime::PluginCapabilityDecision::Granted
+                && request.carried_from_request_id.is_some()
+        }));
         let history = service
             .list_plugin_versions(PluginVersionListParams {
                 plugin_id: enabled.id.clone(),
@@ -1521,6 +1529,221 @@ mod tests {
                 .join("plugins/.versions/example.hello-srt")
                 .exists()
         );
+    }
+
+    #[test]
+    fn upgrade_scope_expansion_requires_fresh_consent() {
+        let data = tempdir().expect("data directory");
+        let mut service = EngineService::open(data.path()).expect("open engine");
+        let installed = service
+            .install_plugin(PluginInstallParams {
+                source_path: hello_srt_source().to_string_lossy().into_owned(),
+                grant_requested: true,
+                actor: "test".to_string(),
+                reason: "install v1".to_string(),
+            })
+            .expect("install v1")
+            .plugin;
+        grant_required_capabilities(&mut service, &installed.id);
+        let enabled = service
+            .enable_plugin(PluginMutationParams {
+                plugin_id: installed.id.clone(),
+                expected_revision: Some(installed.revision),
+                actor: "test".to_string(),
+                reason: "enable v1".to_string(),
+            })
+            .expect("enable v1")
+            .plugin;
+
+        let expanded_package = tempdir().expect("expanded package");
+        copy_package(&hello_srt_source(), expanded_package.path()).expect("copy fixture");
+        let manifest_path = expanded_package.path().join("manifest.json");
+        let mut manifest: Value =
+            serde_json::from_slice(&std::fs::read(&manifest_path).expect("read expanded manifest"))
+                .expect("parse expanded manifest");
+        manifest["version"] = json!("0.2.0");
+        manifest["capabilities"] = json!([{
+            "capabilityId": "network.connect",
+            "required": true,
+            "scope": {
+                "kind": "network",
+                "origins": ["https://api.example.test"]
+            }
+        }]);
+        std::fs::write(
+            &manifest_path,
+            serde_json::to_vec_pretty(&manifest).expect("serialize expanded manifest"),
+        )
+        .expect("write expanded manifest");
+
+        let upgraded = service
+            .upgrade_plugin(PluginUpgradeParams {
+                plugin_id: enabled.id.clone(),
+                source_path: expanded_package.path().to_string_lossy().into_owned(),
+                expected_revision: enabled.revision,
+                actor: "test".to_string(),
+                reason: "request network scope".to_string(),
+            })
+            .expect("retain expanded version for review");
+        assert_eq!(upgraded.plugin.status, WirePluginStatus::Disabled);
+        assert!(!service.filters.contains("example.hello-srt"));
+        let requests = service
+            .list_plugin_capability_requests(
+                translunar_protocol::PluginCapabilityRequestListParams {
+                    plugin_id: enabled.id.clone(),
+                    version_id: Some(upgraded.active_version_id.clone()),
+                    offset: 0,
+                    limit: 200,
+                },
+            )
+            .expect("list expanded requests");
+        let network = requests
+            .items
+            .iter()
+            .find(|request| {
+                request.capability_id
+                    == translunar_plugin_runtime::PluginCapabilityId::NetworkConnect
+            })
+            .expect("network request");
+        assert_eq!(
+            network.decision,
+            translunar_plugin_runtime::PluginCapabilityDecision::Pending
+        );
+        assert!(
+            requests
+                .items
+                .iter()
+                .filter(|request| {
+                    request.capability_id
+                        != translunar_plugin_runtime::PluginCapabilityId::NetworkConnect
+                })
+                .all(|request| {
+                    request.decision == translunar_plugin_runtime::PluginCapabilityDecision::Granted
+                        && request.carried_from_request_id.is_some()
+                })
+        );
+        let denied = service
+            .enable_plugin(PluginMutationParams {
+                plugin_id: enabled.id.clone(),
+                expected_revision: Some(upgraded.plugin.revision),
+                actor: "test".to_string(),
+                reason: "premature enable".to_string(),
+            })
+            .expect_err("expanded scope must remain denied");
+        assert_eq!(
+            crate::rpc_error(denied).code,
+            ErrorCode::PluginPermissionDenied
+        );
+
+        grant_required_capabilities(&mut service, &enabled.id);
+        let enabled_v2 = service
+            .enable_plugin(PluginMutationParams {
+                plugin_id: enabled.id,
+                expected_revision: Some(upgraded.plugin.revision),
+                actor: "test".to_string(),
+                reason: "enable after review".to_string(),
+            })
+            .expect("enable reviewed version")
+            .plugin;
+        assert_eq!(enabled_v2.status, WirePluginStatus::Enabled);
+        assert!(service.filters.contains("example.hello-srt"));
+    }
+
+    #[test]
+    fn unsupported_optional_capability_stays_visible_and_cannot_be_granted() {
+        let data = tempdir().expect("data directory");
+        let package = tempdir().expect("plugin package");
+        copy_package(&hello_srt_source(), package.path()).expect("copy fixture");
+        let manifest_path = package.path().join("manifest.json");
+        let mut manifest: Value =
+            serde_json::from_slice(&std::fs::read(&manifest_path).expect("read manifest"))
+                .expect("parse manifest");
+        manifest["capabilities"] = json!([{
+            "capabilityId": "future.translation.inspect",
+            "required": false,
+            "scope": {"kind": "unscoped"}
+        }]);
+        std::fs::write(
+            &manifest_path,
+            serde_json::to_vec_pretty(&manifest).expect("serialize manifest"),
+        )
+        .expect("write manifest");
+
+        let mut service = EngineService::open(data.path()).expect("open engine");
+        let installed = service
+            .install_plugin(PluginInstallParams {
+                source_path: package.path().to_string_lossy().into_owned(),
+                grant_requested: true,
+                actor: "legacy-client".to_string(),
+                reason: "install optional future capability".to_string(),
+            })
+            .expect("install with unsupported optional capability")
+            .plugin;
+        let review = service
+            .review_plugin_capabilities(translunar_protocol::PluginCapabilityReviewParams {
+                plugin_id: installed.id.clone(),
+            })
+            .expect("review optional future capability");
+        let unsupported = review
+            .requests
+            .iter()
+            .find(|request| request.capability_id.as_str() == "future.translation.inspect")
+            .expect("future capability remains visible");
+        assert!(!unsupported.supported);
+        assert!(!unsupported.required);
+        assert_eq!(
+            unsupported.decision,
+            translunar_plugin_runtime::PluginCapabilityDecision::Pending
+        );
+        let grant_error = service
+            .grant_plugin_capability(translunar_protocol::PluginCapabilityGrantParams {
+                plugin_id: installed.id.clone(),
+                request_id: unsupported.id.clone(),
+                expected_revision: unsupported.revision,
+                scope: unsupported.requested_scope.clone(),
+                actor: "reviewer".to_string(),
+                reason: "attempt unsupported grant".to_string(),
+            })
+            .expect_err("unsupported capability must never gain authority");
+        assert!(matches!(
+            grant_error,
+            EngineError::Storage(translunar_storage::StorageError::InvalidState(_))
+        ));
+
+        grant_required_capabilities(&mut service, &installed.id);
+        let enabled = service
+            .enable_plugin(PluginMutationParams {
+                plugin_id: installed.id.clone(),
+                expected_revision: Some(installed.revision),
+                actor: "reviewer".to_string(),
+                reason: "enable with optional unsupported capability".to_string(),
+            })
+            .expect("optional unsupported capability does not block enable")
+            .plugin;
+        assert_eq!(enabled.status, WirePluginStatus::Enabled);
+
+        manifest["capabilities"][0]["required"] = json!(true);
+        std::fs::write(
+            &manifest_path,
+            serde_json::to_vec_pretty(&manifest).expect("serialize required manifest"),
+        )
+        .expect("write required manifest");
+        let required_data = tempdir().expect("required data directory");
+        let mut required_service =
+            EngineService::open(required_data.path()).expect("open required engine");
+        let required_error = required_service
+            .install_plugin(PluginInstallParams {
+                source_path: package.path().to_string_lossy().into_owned(),
+                grant_requested: false,
+                actor: "test".to_string(),
+                reason: "install required future capability".to_string(),
+            })
+            .expect_err("required unsupported capability must fail closed");
+        assert!(matches!(
+            required_error,
+            EngineError::PluginCapabilityUnsupported(capability_id)
+                if capability_id == "future.translation.inspect"
+        ));
     }
 
     #[test]
@@ -1626,6 +1849,7 @@ mod tests {
             })
             .expect("install")
             .plugin;
+        grant_required_capabilities(&mut service, &installed.id);
         let enabled = service
             .enable_plugin(PluginMutationParams {
                 plugin_id: installed.id.clone(),
@@ -1679,7 +1903,8 @@ lines.on("line", (line) => {
             })
             .expect("active plugin remains");
         assert_eq!(current.active_version_id, enabled.active_version_id);
-        assert_eq!(current.revision, enabled.revision);
+        assert!(current.revision > enabled.revision);
+        assert_eq!(current.status, WirePluginStatus::Enabled);
         assert!(service.filters.contains("example.hello-srt"));
         let history = service
             .list_plugin_versions(PluginVersionListParams {
@@ -1695,6 +1920,216 @@ lines.on("line", (line) => {
                     .diagnostics
                     .iter()
                     .any(|diagnostic| diagnostic.code == "plugin_upgrade_failed")
+        }));
+    }
+
+    #[test]
+    fn capability_grants_are_revision_safe_durable_scoped_and_isolated() {
+        use translunar_plugin_runtime::{
+            PluginCapabilityCheck, PluginCapabilityDecision, PluginCapabilityDenialCode,
+            PluginCapabilityId, PluginCapabilityScope, PluginFileArea,
+        };
+
+        let data = tempdir().expect("data directory");
+        let other_package = tempdir().expect("second plugin package");
+        copy_package(&hello_srt_source(), other_package.path()).expect("copy second fixture");
+        for relative in ["manifest.json", "bin/hello-srt.mjs"] {
+            let path = other_package.path().join(relative);
+            let contents = std::fs::read_to_string(&path).expect("read second fixture file");
+            std::fs::write(
+                path,
+                contents.replace("example.hello-srt", "example.other-srt"),
+            )
+            .expect("write second fixture identity");
+        }
+
+        let mut service = EngineService::open(data.path()).expect("open engine");
+        let first = service
+            .install_plugin(PluginInstallParams {
+                source_path: hello_srt_source().to_string_lossy().into_owned(),
+                grant_requested: true,
+                actor: "legacy-client".to_string(),
+                reason: "default deny proof".to_string(),
+            })
+            .expect("install first plugin")
+            .plugin;
+        let initial = service
+            .list_plugin_capability_requests(
+                translunar_protocol::PluginCapabilityRequestListParams {
+                    plugin_id: first.id.clone(),
+                    version_id: first.active_version_id.clone(),
+                    offset: 0,
+                    limit: 200,
+                },
+            )
+            .expect("list initial requests");
+        assert_eq!(initial.total, 2);
+        assert!(
+            initial
+                .items
+                .iter()
+                .all(|request| request.decision == PluginCapabilityDecision::Pending)
+        );
+
+        let read_request = initial
+            .items
+            .iter()
+            .find(|request| request.capability_id == PluginCapabilityId::FileRead)
+            .expect("file read request")
+            .clone();
+        service
+            .grant_plugin_capability(translunar_protocol::PluginCapabilityGrantParams {
+                plugin_id: first.id.clone(),
+                request_id: read_request.id.clone(),
+                expected_revision: read_request.revision,
+                scope: read_request.requested_scope.clone(),
+                actor: "reviewer".to_string(),
+                reason: "allow source reads".to_string(),
+            })
+            .expect("grant read request");
+        let stale = service
+            .deny_plugin_capability(translunar_protocol::PluginCapabilityDecisionParams {
+                plugin_id: first.id.clone(),
+                request_id: read_request.id.clone(),
+                expected_revision: read_request.revision,
+                actor: "stale-reviewer".to_string(),
+                reason: "stale decision".to_string(),
+            })
+            .expect_err("stale decision must conflict");
+        assert!(matches!(
+            stale,
+            EngineError::Storage(translunar_storage::StorageError::EntityConflict { .. })
+        ));
+        grant_required_capabilities(&mut service, &first.id);
+        let first = service
+            .enable_plugin(PluginMutationParams {
+                plugin_id: first.id.clone(),
+                expected_revision: Some(first.revision),
+                actor: "test".to_string(),
+                reason: "enable first".to_string(),
+            })
+            .expect("enable first plugin")
+            .plugin;
+
+        let second = service
+            .install_plugin(PluginInstallParams {
+                source_path: other_package.path().to_string_lossy().into_owned(),
+                grant_requested: false,
+                actor: "test".to_string(),
+                reason: "install isolated plugin".to_string(),
+            })
+            .expect("install second plugin")
+            .plugin;
+        grant_required_capabilities(&mut service, &second.id);
+        let second = service
+            .enable_plugin(PluginMutationParams {
+                plugin_id: second.id.clone(),
+                expected_revision: Some(second.revision),
+                actor: "test".to_string(),
+                reason: "enable isolated plugin".to_string(),
+            })
+            .expect("enable second plugin")
+            .plugin;
+
+        let first_version = first
+            .active_version_id
+            .clone()
+            .expect("first active version");
+        let allowed_check = PluginCapabilityCheck {
+            plugin_id: first.id.clone(),
+            version_id: first_version.clone(),
+            capability_id: PluginCapabilityId::FileRead,
+            scope: PluginCapabilityScope::File {
+                areas: vec![PluginFileArea::Source],
+            },
+            operation: "fixture.read".to_string(),
+            contribution_id: Some("example.hello-srt".to_string()),
+        };
+        service
+            .plugin_capabilities
+            .authorizer()
+            .authorize(&allowed_check)
+            .expect("granted operation");
+        let mismatch = service
+            .plugin_capabilities
+            .authorizer()
+            .authorize(&PluginCapabilityCheck {
+                scope: PluginCapabilityScope::File {
+                    areas: vec![PluginFileArea::Output],
+                },
+                operation: "fixture.out-of-scope".to_string(),
+                ..allowed_check.clone()
+            })
+            .expect_err("out-of-scope operation must fail");
+        assert_eq!(mismatch.code, PluginCapabilityDenialCode::ScopeMismatch);
+
+        drop(service);
+        let mut service = EngineService::open(data.path()).expect("restart engine");
+        assert!(service.filters.contains("example.hello-srt"));
+        assert!(service.filters.contains("example.other-srt"));
+        let current_request = service
+            .list_plugin_capability_requests(
+                translunar_protocol::PluginCapabilityRequestListParams {
+                    plugin_id: first.id.clone(),
+                    version_id: Some(first_version.clone()),
+                    offset: 0,
+                    limit: 200,
+                },
+            )
+            .expect("list durable grants")
+            .items
+            .into_iter()
+            .find(|request| request.capability_id == PluginCapabilityId::FileRead)
+            .expect("durable file read grant");
+        assert_eq!(current_request.decision, PluginCapabilityDecision::Granted);
+        let revoked = service
+            .revoke_plugin_capability(translunar_protocol::PluginCapabilityDecisionParams {
+                plugin_id: first.id.clone(),
+                request_id: current_request.id,
+                expected_revision: current_request.revision,
+                actor: "reviewer".to_string(),
+                reason: "revoke source reads".to_string(),
+            })
+            .expect("revoke active grant");
+        assert!(revoked.detached);
+        assert_eq!(revoked.plugin.status, WirePluginStatus::Disabled);
+        assert!(!service.filters.contains("example.hello-srt"));
+        assert!(service.filters.contains("example.other-srt"));
+        assert_eq!(
+            service
+                .get_plugin(PluginIdParams {
+                    plugin_id: second.id.clone(),
+                })
+                .expect("isolated plugin remains")
+                .status,
+            WirePluginStatus::Enabled
+        );
+        let revoked_denial = service
+            .plugin_capabilities
+            .authorizer()
+            .authorize(&allowed_check)
+            .expect_err("revoked operation must fail");
+        assert_eq!(revoked_denial.code, PluginCapabilityDenialCode::Revoked);
+
+        let audit = service
+            .list_plugin_capability_audit(translunar_protocol::PluginCapabilityAuditListParams {
+                plugin_id: first.id,
+                request_id: None,
+                offset: 0,
+                limit: 200,
+            })
+            .expect("list immutable audit");
+        assert!(
+            audit
+                .items
+                .windows(2)
+                .all(|window| window[0].sequence > window[1].sequence)
+        );
+        assert!(audit.items.iter().any(|entry| {
+            entry.event == translunar_plugin_runtime::PluginCapabilityAuditEvent::OperationDenied
+        }));
+        assert!(audit.items.iter().any(|entry| {
+            entry.event == translunar_plugin_runtime::PluginCapabilityAuditEvent::Detached
         }));
     }
 
@@ -1740,6 +2175,7 @@ lines.on("line", (line) => {
             })
             .expect("install plugin")
             .plugin;
+        grant_required_capabilities(&mut service, &installed.id);
         let enabled = service
             .enable_plugin(PluginMutationParams {
                 plugin_id: installed.id.clone(),

@@ -162,6 +162,7 @@ mod curation;
 mod local_api;
 mod local_auth;
 mod plugin;
+mod plugin_capability;
 pub use local_api::{LocalApiConfig, run_pipeline, serve as serve_local_api, validate_bind};
 pub use local_auth::{LocalApiTokenStore, default_token_store, ensure_token, rotate_token};
 mod qa;
@@ -221,6 +222,9 @@ pub enum EngineError {
 
     #[error("plugin permission denied: {0}")]
     PluginPermissionDenied(String),
+
+    #[error("plugin capability denied: {0}")]
+    PluginCapabilityDenied(Box<translunar_plugin_runtime::PluginCapabilityDenial>),
 
     #[error("plugin process failed: {0}")]
     PluginProcessFailed(String),
@@ -343,6 +347,7 @@ fn engine_error_code(error: &EngineError) -> &'static str {
         EngineError::PluginPackageHashMismatch(_) => "plugin_package_hash_mismatch",
         EngineError::PluginUpgradeFailed(_) => "plugin_upgrade_failed",
         EngineError::PluginPermissionDenied(_) => "plugin_permission_denied",
+        EngineError::PluginCapabilityDenied(_) => "plugin_permission_denied",
         EngineError::PluginProcessFailed(_) => "plugin_process_failed",
         EngineError::Import(_) => "unsupported_document",
         EngineError::CorpusImport(FilterError::NotFound(_)) => "not_found",
@@ -2278,6 +2283,7 @@ pub struct EngineService {
     >,
     plugin_filter_owners: std::collections::BTreeMap<String, String>,
     plugin_activation_revisions: std::collections::BTreeMap<String, u64>,
+    plugin_capabilities: plugin_capability::PluginCapabilityService,
 }
 
 impl EngineService {
@@ -2328,14 +2334,17 @@ impl EngineService {
         filters
             .register(Arc::new(MqxlzFilter))
             .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+        let store = Store::open(&data_dir)?;
+        let plugin_capabilities = plugin_capability::PluginCapabilityService::open(&data_dir)?;
         let mut service = Self {
-            store: Store::open(&data_dir)?,
+            store,
             filters,
             pipeline: PipelineManager::new(data_dir, ai.clone())?,
             ai,
             plugin_processes: std::collections::BTreeMap::new(),
             plugin_filter_owners: std::collections::BTreeMap::new(),
             plugin_activation_revisions: std::collections::BTreeMap::new(),
+            plugin_capabilities,
         };
         service.reload_enabled_plugins()?;
         Ok(service)
@@ -6308,6 +6317,30 @@ impl RpcDispatcher {
                 self.service
                     .rollback_plugin(parse_params(request.params)?)?,
             ),
+            methods::PLUGIN_PERMISSION_REQUEST_LIST => serialize_result(
+                self.service
+                    .list_plugin_capability_requests(parse_params(request.params)?)?,
+            ),
+            methods::PLUGIN_PERMISSION_REVIEW => serialize_result(
+                self.service
+                    .review_plugin_capabilities(parse_params(request.params)?)?,
+            ),
+            methods::PLUGIN_PERMISSION_GRANT => serialize_result(
+                self.service
+                    .grant_plugin_capability(parse_params(request.params)?)?,
+            ),
+            methods::PLUGIN_PERMISSION_DENY => serialize_result(
+                self.service
+                    .deny_plugin_capability(parse_params(request.params)?)?,
+            ),
+            methods::PLUGIN_PERMISSION_REVOKE => serialize_result(
+                self.service
+                    .revoke_plugin_capability(parse_params(request.params)?)?,
+            ),
+            methods::PLUGIN_PERMISSION_AUDIT_LIST => serialize_result(
+                self.service
+                    .list_plugin_capability_audit(parse_params(request.params)?)?,
+            ),
             methods::TM_LOOKUP_EXACT => {
                 serialize_result(self.service.lookup_exact(parse_params(request.params)?)?)
             }
@@ -6664,6 +6697,7 @@ impl RpcDispatcher {
                 "plugin.version-history.v1".to_string(),
                 "plugin.upgrade.v1".to_string(),
                 "plugin.rollback.v1".to_string(),
+                "plugin.permissions.v1".to_string(),
                 "collab.local.v1".to_string(),
                 "translation-memory.exact".to_string(),
                 "translation-memory.library".to_string(),
@@ -6857,6 +6891,18 @@ fn rpc_error(error: EngineError) -> RpcError {
             code: ErrorCode::PluginPermissionDenied,
             message,
             data: None,
+        },
+        EngineError::PluginCapabilityDenied(denial) => RpcError {
+            code: ErrorCode::PluginPermissionDenied,
+            message: denial.message,
+            data: Some(json!({
+                "denialCode": denial.code,
+                "pluginId": denial.plugin_id,
+                "versionId": denial.version_id,
+                "capabilityId": denial.capability_id,
+                "operation": denial.operation,
+                "requestId": denial.request_id,
+            })),
         },
         EngineError::PluginProcessFailed(message) => RpcError {
             code: ErrorCode::PluginProcessFailed,

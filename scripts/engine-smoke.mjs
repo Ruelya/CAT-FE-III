@@ -2112,6 +2112,24 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
   });
   assert(installed.plugin.id === "example.hello-srt", "install id");
   assert(installed.plugin.status === "installed", "install status");
+  assert(
+    installed.plugin.grantedPermissions.length === 0,
+    "legacy grantRequested must not imply consent",
+  );
+  const pendingRequests = await processHandle.call(
+    "plugin.permission.request.list",
+    {
+      pluginId: installed.plugin.id,
+      versionId: installed.plugin.activeVersionId,
+      offset: 0,
+      limit: 200,
+    },
+  );
+  assert(
+    pendingRequests.items.length >= 2 &&
+      pendingRequests.items.every((request) => request.decision === "pending"),
+    "install should create pending capability requests",
+  );
   const initialHistory = await processHandle.call("plugin.version.list", {
     pluginId: installed.plugin.id,
     offset: 0,
@@ -2120,8 +2138,30 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
   assert(initialHistory.total === 1, "install should seed one version");
   const originalVersionId = initialHistory.items[0].id;
 
+  let pendingEnableError;
+  try {
+    await processHandle.call("plugin.enable", {
+      pluginId: "example.hello-srt",
+      expectedRevision: installed.plugin.revision,
+      actor: "smoke",
+      reason: "default deny proof",
+    });
+  } catch (error) {
+    pendingEnableError = error;
+  }
+  assert(
+    pendingEnableError?.code === "plugin_permission_denied" &&
+      pendingEnableError?.data?.denialCode === "pending",
+    "pending required capability should block enable",
+  );
+  await grantRequiredPluginCapabilities(
+    processHandle,
+    installed.plugin.id,
+    "focused plugin smoke grant",
+  );
   const enabled = await processHandle.call("plugin.enable", {
     pluginId: "example.hello-srt",
+    expectedRevision: installed.plugin.revision,
     actor: "smoke",
     reason: "enable hello-srt",
   });
@@ -2259,8 +2299,8 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
   assert(
     afterFailedUpgrade.activeVersionId ===
       upgradedAfterRestart.activeVersionId &&
-      afterFailedUpgrade.revision === upgradedAfterRestart.revision,
-    "failed candidate leaves active projection unchanged",
+      afterFailedUpgrade.revision > upgradedAfterRestart.revision,
+    "failed candidate rolls back to the active projection with audited revisions",
   );
   const failedHistory = await processHandle.call("plugin.version.list", {
     pluginId: "example.hello-srt",
@@ -2398,6 +2438,11 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
     actor: "smoke",
     reason: "install crash isolation fixture",
   });
+  await grantRequiredPluginCapabilities(
+    processHandle,
+    crashInstalled.plugin.id,
+    "grant crash fixture capabilities",
+  );
   const crashEnabled = await processHandle.call("plugin.enable", {
     pluginId: "fixture.crash-filter",
     expectedRevision: crashInstalled.plugin.revision,
@@ -2481,16 +2526,50 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
     reason: "remove crash isolation fixture",
   });
 
-  const disabled = await processHandle.call("plugin.disable", {
+  const activeRequests = await processHandle.call(
+    "plugin.permission.request.list",
+    {
+      pluginId: "example.hello-srt",
+      versionId: rolledBack.activeVersionId,
+      offset: 0,
+      limit: 200,
+    },
+  );
+  const readGrant = activeRequests.items.find(
+    (request) => request.capabilityId === "file.read",
+  );
+  assert(readGrant?.decision === "granted", "rollback restores version grant");
+  const revoked = await processHandle.call("plugin.permission.revoke", {
     pluginId: "example.hello-srt",
+    requestId: readGrant.id,
+    expectedRevision: readGrant.revision,
     actor: "smoke",
-    reason: "disable after import",
+    reason: "exercise operation-time revocation",
   });
-  assert(disabled.plugin.status === "disabled", "disable status");
+  assert(
+    revoked.detached && revoked.plugin.status === "disabled",
+    "revocation should detach the active plugin",
+  );
   const filtersAfter = await processHandle.call("filter.list", {});
   assert(
     !filtersAfter.filters.some((item) => item.id === "example.hello-srt"),
     "filter contribution removed",
+  );
+  const permissionAudit = await processHandle.call(
+    "plugin.permission.audit.list",
+    { pluginId: "example.hello-srt", offset: 0, limit: 200 },
+  );
+  assert(
+    permissionAudit.items.some(
+      (entry) => entry.event === "operation_allowed",
+    ) &&
+      permissionAudit.items.some((entry) => entry.event === "revoked") &&
+      permissionAudit.items.some((entry) => entry.event === "detached") &&
+      permissionAudit.items.every(
+        (entry, index, items) =>
+          index === 0 || items[index - 1].sequence > entry.sequence,
+      ),
+    "permission audit should be ordered and include operation/revocation evidence",
   );
 
   await processHandle.call("plugin.uninstall", {
@@ -2508,6 +2587,27 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
   );
 
   await processHandle.call("project.list", { offset: 0, limit: 10 });
+}
+
+async function grantRequiredPluginCapabilities(
+  processHandle,
+  pluginId,
+  reason,
+) {
+  const review = await processHandle.call("plugin.permission.review", {
+    pluginId,
+  });
+  for (const request of review.requests) {
+    if (!request.required || request.decision === "granted") continue;
+    await processHandle.call("plugin.permission.grant", {
+      pluginId,
+      requestId: request.id,
+      expectedRevision: request.revision,
+      scope: request.requestedScope,
+      actor: "engine-smoke",
+      reason,
+    });
+  }
 }
 
 async function exerciseFocusedCurationSmoke(

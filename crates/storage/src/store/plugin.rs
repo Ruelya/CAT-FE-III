@@ -744,11 +744,28 @@ impl Store {
                 installed_at_ms: now,
             };
             validate_version_input(&version)?;
+            let requested_capabilities = super::plugin_permissions::requests_from_manifest_values(
+                &version.normalized_manifest_json,
+                &version.original_manifest_json,
+            )?;
             insert_plugin_version_tx(&tx, &version)?;
+            super::plugin_permissions::insert_plugin_capability_requests_tx(
+                &tx,
+                &version.plugin_id,
+                &version.id,
+                &requested_capabilities,
+                None,
+                now,
+            )?;
             tx.execute(
                 "UPDATE plugin_installations SET active_version_id = ?2,
                     package_sha256 = ?3 WHERE id = ?1",
                 params![&manifest.id, version_id, version.package_sha256],
+            )?;
+            super::plugin_permissions::sync_plugin_legacy_grants_tx(
+                &tx,
+                &manifest.id,
+                &version_id,
             )?;
         }
         tx.commit()?;
@@ -848,10 +865,27 @@ impl Store {
             installed_at_ms: now,
         };
         validate_version_input(&version)?;
+        let requested_capabilities = super::plugin_permissions::requests_from_manifest_values(
+            &version.normalized_manifest_json,
+            &version.original_manifest_json,
+        )?;
         insert_plugin_version_tx(&tx, &version)?;
+        super::plugin_permissions::insert_plugin_capability_requests_tx(
+            &tx,
+            &version.plugin_id,
+            &version.id,
+            &requested_capabilities,
+            None,
+            now,
+        )?;
         tx.execute(
             "UPDATE plugin_installations SET active_version_id = ?2 WHERE id = ?1",
             params![version.plugin_id, version.id],
+        )?;
+        super::plugin_permissions::sync_plugin_legacy_grants_tx(
+            &tx,
+            &version.plugin_id,
+            &version.id,
         )?;
         tx.commit()?;
         self.get_plugin_installation(&version.plugin_id)
@@ -1050,6 +1084,10 @@ impl Store {
         input: NewPluginVersion,
     ) -> Result<PluginVersionRecord> {
         validate_version_input(&input)?;
+        let requested_capabilities = super::plugin_permissions::requests_from_manifest_values(
+            &input.normalized_manifest_json,
+            &input.original_manifest_json,
+        )?;
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -1058,7 +1096,20 @@ impl Store {
             tx.commit()?;
             return self.get_plugin_version(&input.plugin_id, &existing_id);
         }
+        let carry_from_version_id = tx.query_row(
+            "SELECT active_version_id FROM plugin_installations WHERE id = ?1",
+            [&input.plugin_id],
+            |row| row.get::<_, Option<String>>(0),
+        )?;
         insert_plugin_version_tx(&tx, &input)?;
+        super::plugin_permissions::insert_plugin_capability_requests_tx(
+            &tx,
+            &input.plugin_id,
+            &input.id,
+            &requested_capabilities,
+            carry_from_version_id.as_deref(),
+            input.installed_at_ms,
+        )?;
         tx.commit()?;
         self.get_plugin_version(&input.plugin_id, &input.id)
     }
@@ -1079,6 +1130,10 @@ impl Store {
             ));
         }
         validate_version_input(&input)?;
+        let requested_capabilities = super::plugin_permissions::requests_from_manifest_values(
+            &input.normalized_manifest_json,
+            &input.original_manifest_json,
+        )?;
         let now = now_ms();
         let tx = self
             .connection
@@ -1124,6 +1179,14 @@ impl Store {
         } else {
             ensure_package_hash_unique_tx(&tx, &input)?;
             insert_plugin_version_tx(&tx, &input)?;
+            super::plugin_permissions::insert_plugin_capability_requests_tx(
+                &tx,
+                plugin_id,
+                &candidate_id,
+                &requested_capabilities,
+                previous_version_id.as_deref(),
+                input.installed_at_ms,
+            )?;
         }
 
         if previous_version_id.as_deref() == Some(candidate_id.as_str()) {
@@ -1153,7 +1216,17 @@ impl Store {
         let legacy_manifest = input.original_manifest_json.to_string();
         let legacy_contributions = legacy_contributions_json(&input.contributions_json);
         let requested_permissions = serde_json::to_string(&input.requested_permissions)?;
-        let granted_permissions = serde_json::to_string(&input.granted_permissions)?;
+        let granted_permissions = "[]".to_string();
+        let effective_status = if status == PluginStatus::Enabled
+            && !super::plugin_permissions::required_plugin_capabilities_satisfied_tx(
+                &tx,
+                plugin_id,
+                &candidate_id,
+            )? {
+            PluginStatus::Disabled
+        } else {
+            status
+        };
         let entry_json = input.entry_json.to_string();
         let runtime_json = input.runtime_json.to_string();
         let normalized_manifest_json = input.normalized_manifest_json.to_string();
@@ -1176,7 +1249,7 @@ impl Store {
                 input.display_name,
                 input.version,
                 plugin_tier_string(input.tier),
-                status.as_str(),
+                effective_status.as_str(),
                 package_path,
                 entry_json,
                 legacy_manifest,
@@ -1208,6 +1281,7 @@ impl Store {
                 actual_revision: to_u64_i64(actual)?,
             });
         }
+        super::plugin_permissions::sync_plugin_legacy_grants_tx(&tx, plugin_id, &candidate_id)?;
         tx.commit()?;
         Ok(PluginActivationResult {
             installation: self.get_plugin_installation(plugin_id)?,
@@ -1252,7 +1326,8 @@ impl Store {
 
     /// Roll back the active projection to a validated version belonging to the
     /// same plugin.  Legacy columns are reconstructed from the stored original
-    /// manifest where possible; grants and crash counters remain untouched.
+    /// manifest where possible; grants are restored from that version's
+    /// capability decisions and crash counters remain untouched.
     pub fn rollback_plugin_version(
         &mut self,
         plugin_id: &str,
@@ -1263,9 +1338,9 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let (actual_revision, previous_version_id, granted_json): (i64, Option<String>, String) =
+        let (actual_revision, previous_version_id, current_status): (i64, Option<String>, String) =
             tx.query_row(
-                "SELECT revision, active_version_id, granted_permissions_json
+                "SELECT revision, active_version_id, status
                  FROM plugin_installations WHERE id = ?1",
                 [plugin_id],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
@@ -1314,6 +1389,20 @@ impl Store {
         }
         let (display_name, tier, entry_json, manifest_json, contributions_json, requested_json) =
             legacy_projection_from_version(&version)?;
+        let granted_json = serde_json::to_string(
+            &super::plugin_permissions::granted_plugin_legacy_permissions_tx(
+                &tx, plugin_id, version_id,
+            )?,
+        )?;
+        let required_satisfied =
+            super::plugin_permissions::required_plugin_capabilities_satisfied_tx(
+                &tx, plugin_id, version_id,
+            )?;
+        let rollback_status = if current_status == "enabled" && !required_satisfied {
+            "disabled"
+        } else {
+            current_status.as_str()
+        };
         if let Some(previous) = previous_version_id.as_deref() {
             tx.execute(
                 "UPDATE plugin_versions SET deactivated_at_ms = ?3
@@ -1336,8 +1425,9 @@ impl Store {
                 revision = revision + 1, updated_at_ms = ?11,
                 active_version_id = ?12, package_sha256 = ?13,
                 runtime_json = ?14, normalized_manifest_json = ?15,
-                compatibility_json = ?16, diagnostics_json = ?17
-             WHERE id = ?1 AND revision = ?18",
+                compatibility_json = ?16, diagnostics_json = ?17,
+                status = ?18
+             WHERE id = ?1 AND revision = ?19",
             params![
                 plugin_id,
                 display_name,
@@ -1361,6 +1451,7 @@ impl Store {
                 version.normalized_manifest_json.to_string(),
                 version.compatibility_json.to_string(),
                 version.diagnostics_json.to_string(),
+                rollback_status,
                 to_i64(expected_revision)?,
             ],
         )?;
@@ -1964,6 +2055,7 @@ fn manifest_from_projection(
         entry: entry.clone(),
         contributions: contributions.clone(),
         permissions: requested.to_vec(),
+        capabilities: Vec::new(),
     }
 }
 
@@ -2016,6 +2108,7 @@ mod tests {
                 }],
             },
             permissions: vec!["file.read:source".to_string()],
+            capabilities: Vec::new(),
         }
     }
 

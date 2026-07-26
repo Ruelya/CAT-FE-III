@@ -18,6 +18,7 @@ translunar-curation-core = { path = "../curation-core" }
 translunar-filter-core = { path = "../filter-core" }
 translunar-lifecycle-core = { path = "../lifecycle-core" }
 translunar-pipeline = { path = "../pipeline" }
+translunar-plugin-runtime = { path = "../plugin-runtime" }
 translunar-qa-core = { path = "../qa-core" }
 translunar-task-package-core = { path = "../task-package-core" }
 
