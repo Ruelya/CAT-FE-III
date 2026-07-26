@@ -18,7 +18,13 @@
   "commit": null,
   "pr_url": null,
   "subtasks": [],
-  "children": [],
+  "children": [
+    "07-26-plugin-multitier-runtime",
+    "07-26-plugin-permission-grants",
+    "07-26-plugin-tier3-foundation",
+    "07-27-plugin-tier1-declarative",
+    "07-27-plugin-tier2-sandbox"
+  ],
   "parent": "07-19-complete-full-cat-prd",
   "relatedFiles": [],
   "notes": "",

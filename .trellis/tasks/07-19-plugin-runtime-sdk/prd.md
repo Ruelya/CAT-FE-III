@@ -2,11 +2,12 @@
 
 ## Goal
 
-Ship a local-first plugin runtime so third parties can install a process filter
-plugin, grant only the permissions it needs, and use it through the same Engine
-filter path as built-ins. This child establishes the shared manifest,
-lifecycle, permission, Tier 3 process host, public SDK, and hello-world example
-that later extension points reuse.
+Complete the full local-first plugin ecosystem assigned by the parent PRD. The
+existing Tier 3 process-filter runtime is the foundation, not the completion
+boundary. The finished parent must support all three tiers, enforce auditable
+capability grants, expose public filter/engine/QA/pipeline/AI/UI/external-
+connector contracts, ship official examples, and provide a release-grade
+desktop management and validation path.
 
 ## Confirmed baseline
 
@@ -77,15 +78,54 @@ that later extension points reuse.
 - Preserve typed Engine error codes across the desktop IPC envelope introduced
   by the curation work.
 
-## Out of scope (this child)
+### R7. Multi-tier runtime model (P-01, P-02, P-10)
 
-- Plugin marketplace / signing / remote index (P-11).
-- Tier 2 sandboxed JS/UI runtime and iframe host.
-- Code-level QA rule plugins (H-12), engine connector plugins (F-12), pipeline
-  step process plugins, AI action injection, and external-system connectors
-  (P-03..P-08 beyond descriptor-ready stubs if needed).
-- OS-level seccomp/AppContainer confinement beyond host-enforced path scopes.
-- API/CLI automation child surfaces (owned by `07-19-api-cli-automation`).
+- Generalize manifest, persistence, protocol, lifecycle, diagnostics, upgrade,
+  and compatibility handling across Tier 1 declarative, Tier 2 sandboxed JS,
+  and Tier 3 supervised processes.
+- Existing installations and the hello-SRT process filter must migrate without
+  losing status, grants, crash history, or contribution identity.
+
+### R8. Capability grants and audit (P-09)
+
+- Replace install-time blanket approval with per-capability consent, bounded
+  resource scopes, grant/revoke lifecycle, runtime enforcement, and durable
+  audit evidence. Default deny applies to every tier and contribution kind.
+
+### R9. Tier 1 and Tier 2 hosts (P-01, P-02)
+
+- Tier 1 evaluates declarative filters, provider descriptors, regex QA rules,
+  and pipeline steps without executing plugin code.
+- Tier 2 runs JavaScript in a constrained worker/sandbox with explicit host
+  APIs, time/memory/output limits, cancellation, and an isolated UI-panel host.
+
+### R10. Public extension contracts (P-03..P-07, F-12, H-12)
+
+- Publish versioned Engine connector, QA rule, pipeline step, AI action, and UI
+  panel contracts and SDK helpers. Contributions register through the owning
+  Engine registries and cannot bypass generated wire types or permissions.
+
+### R11. External connector contract (P-08, X-07)
+
+- Define authenticated pull/push/poll/webhook descriptors shared with the
+  automation family and ship an official deterministic example connector.
+
+### R12. Management, examples, distribution, and qualification
+
+- Desktop management covers contribution inventory, permission review,
+  grant/revoke, upgrades, degraded/crash state, diagnostics, and uninstall.
+- Ship examples for every supported contribution family and tier, public docs,
+  package validation, restart/upgrade/denial/timeout E2E, and local distribution
+  guidance.
+
+## Out of scope
+
+- A hosted marketplace, commercial billing, and mandatory remote signing/index
+  infrastructure (P-11) remain release-ecosystem work.
+- Claims of OS-level seccomp/AppContainer isolation are excluded until native
+  sandbox evidence exists; host-enforced scopes must be described honestly.
+- Automation UI and CLI orchestration remain owned by
+  `07-19-api-cli-automation`, while the shared connector contract is co-owned.
 
 ## Acceptance criteria
 
@@ -106,6 +146,21 @@ that later extension points reuse.
       enable/disable, and show last error without console/page errors.
 - [ ] AC-08: `pnpm contracts:check`, workspace lint/typecheck/tests, Clippy,
       and Engine smoke pass for the owned surface.
+- [ ] AC-09: Existing Tier 3 installations migrate to the tier-aware schema and
+      restart without contribution or grant loss.
+- [ ] AC-10: Per-capability grants are consented, scoped, revocable, audited,
+      and enforced identically at registry and operation boundaries.
+- [ ] AC-11: Tier 1 declarative contributions and Tier 2 sandboxed/UI
+      contributions execute under bounded hosts with denial, timeout, crash,
+      and restart tests.
+- [ ] AC-12: Public Engine connector, QA, pipeline, AI action, UI panel, and
+      external connector SDKs have official examples using no private Engine
+      implementation dependency.
+- [ ] AC-13: Desktop management and full lifecycle E2E cover install, review,
+      grant/revoke, enable/disable, upgrade, degraded recovery, and uninstall.
+- [ ] AC-14: Every P-01..P-10 requirement is mapped to one independently
+      archived child task and reproducible evidence; the Tier 3 foundation alone
+      cannot close this parent.
 
 ## Constraints
 

@@ -1,4 +1,29 @@
-# Design: Public Plugin Runtime and SDK
+# Design: Complete Public Plugin Runtime and SDK
+
+## Baseline and completion boundary
+
+The current manifest, migration 16, Tier 3 process filter host, SDK, hello-SRT
+example, and Plugins panel are a compatibility baseline. Full completion adds a
+tier-neutral control plane and separate contribution adapters; it does not
+stretch the process-filter adapter into unrelated registries.
+
+```text
+Plugin control plane
+  Manifest + package validator
+  Installation/version lifecycle
+  CapabilityGrantService + audit log
+  Tier host registry
+    Tier1DeclarativeHost
+    Tier2SandboxHost + isolated panel bridge
+    Tier3ProcessHost
+  Contribution adapter registry
+    filters | engine connectors | QA | pipeline | AI actions | UI | external
+```
+
+Each contribution adapter translates a public SDK contract into one existing
+owning registry. The control plane owns lifecycle and authority; adapters own
+domain validation; plugins never receive SQLite, renderer Node, or raw Engine
+internals.
 
 ## Architecture
 
@@ -73,18 +98,19 @@ Rules:
 - Host API is currently `1`. `apiVersionMin..=apiVersion` must contain host.
 - Entry `kind` for MVP: `node` (path relative to package root) or `executable`.
 
-## Permissions
+## Foundation permissions
 
-Initial vocabulary:
+The current vocabulary is retained for migration:
 
 - `file.read:source` — read Engine-supplied source path for filter ops
 - `file.write:output` — write Engine-supplied export destination
 - reserved later: `network:<origin>`, `asset.read:*`, `ui.panel`, ...
 
-Effective authority = requested ∩ granted. Enable requires every requested
-permission to be granted (MVP installs grant requested permissions after an
-explicit `grantRequested: true` flag on install/enable). Missing permission
-fails the operation with `permissionDenied`.
+The full model stores requested capabilities separately from user decisions.
+An install never turns a request into authority. Effective authority is the
+intersection of requested, explicitly granted, currently valid, and operation-
+scoped permissions. Every grant/revoke and denied operation records actor,
+reason, scope, plugin version, and timestamp without secret payloads.
 
 ## Process protocol
 
@@ -166,10 +192,10 @@ Built-ins register first and always win id conflicts.
 
 | Choice | Why | Alternative rejected |
 | --- | --- | --- |
-| Tier 3 filter first | Reuses strongest registry; proves isolation | Scaffold all extension points shallowly |
+| Preserve Tier 3 filter as baseline | Keeps shipped compatibility while later tiers are added through separate hosts | Rewrite the working foundation |
 | Copy package into data dir | Stable path after install | Run in-place (breaks when source moves) |
 | Node example entry | Fast public SDK dogfood without shipping a second native toolchain | Only native executable examples |
-| Host-enforced path scopes | Honest MVP security boundary | Pretend full OS sandbox exists |
+| Host-enforced scopes with explicit evidence | Honest security boundary until native sandbox evidence exists | Claim unsupported OS isolation |
 
 ## Rollback
 
