@@ -4181,7 +4181,7 @@ test("applies the workbench visual polish in light and dark themes", async ({
     "..",
     ".trellis",
     "tasks",
-    "07-21-workbench-visual-polish",
+    "07-21-workbench-visual-identity",
     "evidence",
     "screenshots",
   );
@@ -4317,7 +4317,7 @@ test("applies the workbench visual polish in light and dark themes", async ({
         await page.screenshot({
           path: join(
             evidenceDirectory,
-            `workbench-polish-${theme}-${viewport.width}x${viewport.height}.png`,
+            `wp7-tokens-${theme}-${viewport.width}x${viewport.height}.png`,
           ),
         });
       }

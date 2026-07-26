@@ -174,17 +174,22 @@ unchanged.
 Ownership: mechanical token definitions/migration and documented exceptions. Do
 not combine new structural markup with this package.
 
-- [ ] Add 4/6/8 semantic radius tokens and 4/8/12/16/24/32 spacing tokens.
-- [ ] Migrate renderer rectangular radii. Keep only reviewed `50%` true circles
+- [x] Add 4/6/8 semantic radius tokens and 4/8/12/16/24/32 spacing tokens.
+- [x] Migrate renderer rectangular radii. Keep only reviewed `50%` true circles
       and 0/1px square indicator/registration exceptions; remove raw 3/5/7/9px
       drift and update segmented-corner syntax to use tokens.
-- [ ] Migrate spacing in app bar, toolbar, segment rows, Suggestions, Preview,
+- [x] Migrate spacing in app bar, toolbar, segment rows, Suggestions, Preview,
       states, and Workbench dialogs; list intentional non-spacing geometry.
-- [ ] Remove sub-11px metadata from task-owned Workbench surfaces without reducing
+- [x] Remove sub-11px metadata from task-owned Workbench surfaces without reducing
       type to fix overflow.
-- [ ] Check light/dark contrast and 125% scaling after each component group.
-- [ ] Gate each mechanical group with `rg` audit, focused E2E, and three-width
+- [x] Check light/dark contrast and 125% scaling after each component group.
+- [x] Gate each mechanical group with `rg` audit, focused E2E, and three-width
       screenshots before proceeding to the next group.
+
+  Evidence: `evidence/wp7-tokens.md` and the `wp7-tokens-*` screenshots under
+  `evidence/screenshots/`. The global Settings FAB/status-bar overlap found in
+  manual review is owned by the WP8 final-check loop and must be resolved before
+  archive.
 
 Rollback point: one mechanical component-group commit at a time; never revert all
 concurrent renderer changes.
