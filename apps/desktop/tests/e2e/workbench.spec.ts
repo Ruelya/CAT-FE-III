@@ -22,6 +22,7 @@ import {
   type TestInfo,
 } from "@playwright/test";
 import { errors as playwrightErrors } from "playwright";
+import AxeBuilder from "@axe-core/playwright";
 import type { Project, ProjectTemplate } from "@translunar/contracts";
 
 import type { DesktopApi } from "../../src/shared/desktop-api.js";
@@ -262,7 +263,10 @@ async function waitForPanelMotion(page: Page): Promise<void> {
 }
 
 async function openApplicationMenu(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "More actions" }).click();
+  await page
+    .getByRole("banner")
+    .getByRole("button", { name: "More actions" })
+    .click();
   await expect(
     page.getByRole("navigation", { name: "Application views" }),
   ).toBeVisible();
@@ -1105,7 +1109,9 @@ test("manages the offline Assistant and real workspace projections", async () =>
     await page.getByLabel("Reasoning level").selectOption("low");
     await page.getByRole("button", { name: /Terminology and tone/u }).click();
     await page.getByRole("menuitem", { name: "New conversation" }).click();
-    await expect(page.getByText("No messages", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("No Assistant conversation yet.", { exact: true }),
+    ).toBeVisible();
     const composer = page.getByLabel("Ask about the active segment");
     await composer.fill("Shorten the target");
     await composer.press("Control+Enter");
@@ -1253,7 +1259,11 @@ test("manages the offline Assistant and real workspace projections", async () =>
       .getByLabel("Reason")
       .fill("Exercise explicit direct sign-off audit");
     await signoffDialog.getByRole("button", { name: "Sign off" }).click();
-    await expect(firstRowForSignoff).toContainText("signed");
+    await expect(
+      page
+        .getByRole("group", { name: "Workflow state" })
+        .getByRole("button", { name: "signed", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
     await page
       .getByRole("button", { name: "translation", exact: true })
       .click();
@@ -1569,6 +1579,9 @@ test("uses the authoritative professional editor commands", async () => {
     await expect(
       page.getByRole("dialog", { name: "Editor preferences" }),
     ).toBeVisible();
+    await page.getByRole("button", { name: "memoQ", exact: true }).click();
+    const concordanceShortcut = page.getByLabel("Shortcut for Concordance");
+    await expect(concordanceShortcut).toHaveValue("Ctrl+Shift+F");
     await page.getByRole("button", { name: "Trados", exact: true }).click();
     await expect(page.getByLabel("Shortcut for Next segment")).toHaveValue(
       "Ctrl+Alt+ArrowDown",
@@ -3437,7 +3450,7 @@ test("exposes the five named Workbench empty states with a real grid recovery ac
     await resizeWindow(application, 1250, 744);
 
     await expect(
-      page.getByRole("status", {
+      page.getByRole("region", {
         name: "No exact TM match for this segment.",
       }),
     ).toBeVisible();
@@ -3445,13 +3458,13 @@ test("exposes the five named Workbench empty states with a real grid recovery ac
 
     await page.getByRole("tab", { name: /^Terms/u }).click();
     await expect(
-      page.getByRole("status", { name: "No term hit in this segment." }),
+      page.getByRole("region", { name: "No term hit in this segment." }),
     ).toBeVisible();
     await capture("wp2-empty-no-term-hit-1250x744-light");
 
     await page.getByRole("tab", { name: /^QA/u }).click();
     await expect(
-      page.getByRole("status", { name: "No open QA issue." }),
+      page.getByRole("region", { name: "No open QA issue." }),
     ).toBeVisible();
     await capture("wp2-empty-no-open-qa-1250x744-light");
 
@@ -3461,14 +3474,14 @@ test("exposes the five named Workbench empty states with a real grid recovery ac
     await expect(conversationPopover).toBeVisible();
     await conversationPopover.locator(".conversation-new").click();
     await expect(
-      page.getByRole("status", { name: "No Assistant conversation yet." }),
+      page.getByRole("region", { name: "No Assistant conversation yet." }),
     ).toBeVisible();
     await capture("wp2-empty-no-assistant-conversation-1250x744-light");
 
     await resizeWindow(application, 1680, 942);
     const documentSearch = page.getByLabel("Search in document");
     await documentSearch.fill("__wp2_no_segment_result__");
-    const gridEmpty = page.getByRole("status", {
+    const gridEmpty = page.getByRole("region", {
       name: "No segment matches these filters.",
     });
     await expect(gridEmpty).toBeVisible();
@@ -3496,10 +3509,21 @@ test("opens app-bar global search, flushes navigation, and retains a failed draf
 
   try {
     await importFixture(page);
-    const globalSearchCommand = page.getByRole("button", {
-      name: "Global search",
-    });
+    const globalSearchCommand = page
+      .getByRole("banner")
+      .getByRole("button", { name: "Global search", exact: true });
     await expect(globalSearchCommand).toBeVisible();
+    await expect(page.locator(".shell-settings-fab")).toHaveCount(0);
+    await openApplicationMenu(page);
+    const applicationMenu = page.getByRole("navigation", {
+      name: "Application views",
+    });
+    await applicationMenu.getByRole("button", { name: "Settings" }).click();
+    const settingsDialog = page.getByRole("dialog", {
+      name: "Product settings",
+    });
+    await expect(settingsDialog).toBeVisible();
+    await settingsDialog.getByRole("button", { name: "Close dialog" }).click();
 
     const evidenceDirectory = resolve(
       process.cwd(),
@@ -3525,9 +3549,12 @@ test("opens app-bar global search, flushes navigation, and retains a failed draf
           globalSearchCommand,
           page.getByRole("button", { name: "Run QA", exact: true }),
           page.getByRole("button", { name: "Export", exact: true }),
-          page.getByRole("button", { name: "More actions", exact: true }),
+          page
+            .getByRole("banner")
+            .getByRole("button", { name: "More actions", exact: true }),
         ].map((locator) => locator.boundingBox()),
       );
+      expect(boxes[0]?.width ?? 0).toBeGreaterThanOrEqual(279);
       for (let index = 0; index < boxes.length - 1; index += 1) {
         const current = boxes[index];
         const next = boxes[index + 1];
@@ -3577,6 +3604,7 @@ test("opens app-bar global search, flushes navigation, and retains a failed draf
           page.locator(".surface-menu-wrap > button"),
         ].map((locator) => locator.boundingBox()),
       );
+      expect(boxes[0]?.width ?? 0).toBeGreaterThanOrEqual(279);
       for (let index = 0; index < boxes.length - 1; index += 1) {
         const current = boxes[index];
         const next = boxes[index + 1];
@@ -3778,19 +3806,27 @@ test("keeps panel motion, geometry, and Windows rendering coherent", async ({
       name: "Resize document preview",
     });
     await previewResizer.focus();
+    await expect(previewResizer).toBeFocused();
     await previewResizer.press("End");
+    await expect(previewResizer).toHaveAttribute("aria-valuenow", "320");
     await waitForPanelMotion(page);
     expect(
       (await page.locator(".document-preview").boundingBox())?.height,
     ).toBeCloseTo(320, 0);
+    await previewResizer.focus();
+    await expect(previewResizer).toBeFocused();
     await previewResizer.press("Home");
+    await expect(previewResizer).toHaveAttribute("aria-valuenow", "120");
     await waitForPanelMotion(page);
     expect(
       (await page.locator(".document-preview").boundingBox())?.height,
     ).toBeCloseTo(120, 0);
+    await previewResizer.focus();
+    await expect(previewResizer).toBeFocused();
     for (let index = 0; index < 10; index += 1) {
       await previewResizer.press("ArrowUp");
     }
+    await expect(previewResizer).toHaveAttribute("aria-valuenow", "200");
     await waitForPanelMotion(page);
     expect(
       (await page.locator(".document-preview").boundingBox())?.height,
@@ -3806,6 +3842,22 @@ test("keeps panel motion, geometry, and Windows rendering coherent", async ({
     ]) {
       await resizeWindow(application, viewport.width, viewport.height);
       await page.waitForTimeout(180);
+      const layoutBox = await page.locator(".workbench-layout").boundingBox();
+      const editorBox = await page.locator(".editor-region").boundingBox();
+      expect(layoutBox).not.toBeNull();
+      expect(editorBox).not.toBeNull();
+      expect(
+        (editorBox?.width ?? 0) / (layoutBox?.width ?? 1),
+      ).toBeGreaterThanOrEqual(0.6);
+      const accessibility = await new AxeBuilder({ page })
+        .setLegacyMode(true)
+        .include(".workbench-app")
+        .disableRules(["color-contrast"])
+        .analyze();
+      expect(
+        accessibility.violations,
+        `Workbench axe violations at ${viewport.label}`,
+      ).toEqual([]);
       await page.screenshot({
         path: `test-results/workbench-default-${viewport.label}.png`,
       });
@@ -3908,12 +3960,14 @@ test("keeps panel motion, geometry, and Windows rendering coherent", async ({
       await page.getByRole("button", { name: "Restore preview" }).click();
       await waitForPanelMotion(page);
 
-      const editorBox = await page.locator(".editor-region").boundingBox();
+      const restoredEditorBox = await page
+        .locator(".editor-region")
+        .boundingBox();
       const suggestionsBox = await suggestions.boundingBox();
       expect(
-        editorBox &&
+        restoredEditorBox &&
           suggestionsBox &&
-          editorBox.x + editorBox.width <= suggestionsBox.x + 1,
+          restoredEditorBox.x + restoredEditorBox.width <= suggestionsBox.x + 1,
       ).toBeTruthy();
       await expect(page.locator(".segment-row").first()).toHaveClass(/active/u);
     }
@@ -4230,10 +4284,11 @@ test("applies the workbench visual polish in light and dark themes", async ({
           if (!channels || channels.length < 3) {
             throw new Error(`Cannot parse computed color: ${value}`);
           }
+          const channelScale = value.trim().startsWith("color(srgb ") ? 255 : 1;
           return {
-            red: channels[0] ?? 0,
-            green: channels[1] ?? 0,
-            blue: channels[2] ?? 0,
+            red: (channels[0] ?? 0) * channelScale,
+            green: (channels[1] ?? 0) * channelScale,
+            blue: (channels[2] ?? 0) * channelScale,
             alpha: channels[3] ?? 1,
           };
         };
@@ -4285,6 +4340,15 @@ test("applies the workbench visual polish in light and dark themes", async ({
           appBar: ratio(".project-identity strong", ".app-bar"),
           source: ratio(".source-cell .tagged-text", ".segment-row td"),
           status: ratio(".status-bar", ".status-bar"),
+          emptyState: ratio(
+            ".workbench-state-label",
+            ".workbench-visual-state",
+          ),
+          preview: ratio(
+            ".preview-paper .preview-line-copy strong",
+            ".preview-paper",
+          ),
+          confirm: ratio(".confirm-button", ".confirm-button"),
           suggestionsDotsColor: getComputedStyle(
             document.querySelector<HTMLElement>(".suggestions-dots")!,
           ).color,
@@ -4296,6 +4360,9 @@ test("applies the workbench visual polish in light and dark themes", async ({
       expect(contrastEvidence.appBar).toBeGreaterThanOrEqual(4.5);
       expect(contrastEvidence.source).toBeGreaterThanOrEqual(4.5);
       expect(contrastEvidence.status).toBeGreaterThanOrEqual(4.5);
+      expect(contrastEvidence.emptyState).toBeGreaterThanOrEqual(4.5);
+      expect(contrastEvidence.preview).toBeGreaterThanOrEqual(4.5);
+      expect(contrastEvidence.confirm).toBeGreaterThanOrEqual(4.5);
       expect(contrastEvidence.suggestionsDotsColor).not.toBe(
         "rgba(0, 0, 0, 0)",
       );

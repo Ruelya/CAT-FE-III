@@ -1338,6 +1338,10 @@ if (!response.ok) return Promise.reject(response.error);
 - Package with `apps/desktop/electron-builder.yml`; unsigned artifacts are valid
   for development.
 - Shell copy should prefer `i18n/messages.ts` catalogs (`en-US` / `zh-CN`).
+- Project Home may use its dedicated Settings affordance. Workbench and
+  secondary workspace surfaces expose Settings through their application
+  overflow menu; they must not render a fixed floating Settings control over a
+  status bar, panel rail, or document content.
 - Backup restore validation is main-process-owned. Read at most an 8 MiB
   `manifest.json`, reject more than 100,000 listed files, and re-check manifest
   metadata after the bounded read. Hash every manifest-listed payload with a

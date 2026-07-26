@@ -7,6 +7,7 @@ import type {
   Segment,
   SegmentEditorRow,
 } from "@translunar/contracts";
+import { Settings } from "lucide-react";
 
 import { BrandMark } from "./BrandMark";
 import {
@@ -247,14 +248,17 @@ export function App() {
           </button>
         </div>
       ) : null}
-      <button
-        type="button"
-        className="shell-settings-fab"
-        aria-label={t("aria.settings")}
-        onClick={() => setSettingsOpen(true)}
-      >
-        {t("action.settings")}
-      </button>
+      {mode !== "workspace" ? (
+        <button
+          type="button"
+          className="shell-settings-fab"
+          aria-label={t("aria.settings")}
+          title={t("action.settings")}
+          onClick={() => setSettingsOpen(true)}
+        >
+          <Settings size={18} aria-hidden="true" />
+        </button>
+      ) : null}
       {settingsOpen ? (
         <ProductSettingsPage
           project={workspace?.snapshot.project ?? null}
@@ -356,6 +360,7 @@ export function App() {
           }
           onOpenProject={openWorkspace}
           onReturnHome={returnHome}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
       </>
     );
@@ -368,6 +373,7 @@ export function App() {
         initialWorkspace={workspace}
         onReturnHome={returnHome}
         onNavigate={navigateFromWorkbench}
+        onOpenSettings={() => setSettingsOpen(true)}
         onOpenGlobalSearchHit={(hit: GlobalSearchHit) =>
           openWorkspace(
             hit.projectId,

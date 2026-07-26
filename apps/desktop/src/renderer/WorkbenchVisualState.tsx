@@ -30,8 +30,8 @@ export function WorkbenchVisualState({
       className={`workbench-visual-state ${kind} state-${variant}`}
       data-state-kind={kind}
       data-state-variant={variant}
-      role="status"
-      aria-live="polite"
+      role={kind === "loading" ? "status" : "region"}
+      aria-live={kind === "loading" ? "polite" : undefined}
       aria-busy={kind === "loading" ? true : undefined}
       aria-label={label}
     >

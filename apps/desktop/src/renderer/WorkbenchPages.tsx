@@ -35,6 +35,7 @@ export interface WorkspacePageProps {
   onOpenDocument(documentId: string): Promise<void>;
   onOpenProject(projectId: string, documentId?: string): Promise<void>;
   onReturnHome(): void;
+  onOpenSettings(): void;
 }
 
 export function WorkspacePage(props: WorkspacePageProps) {
@@ -79,6 +80,7 @@ function SurfaceHeader({
   document,
   onNavigate,
   onReturnHome,
+  onOpenSettings,
 }: WorkspacePageProps) {
   const { t } = useLocale();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -181,6 +183,15 @@ function SurfaceHeader({
                 {t("nav.projectInsights")}
               </button>
               <hr />
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onOpenSettings();
+                }}
+              >
+                {t("action.settings")}
+              </button>
               <button type="button" onClick={onReturnHome}>
                 {t("nav.projects")}
               </button>

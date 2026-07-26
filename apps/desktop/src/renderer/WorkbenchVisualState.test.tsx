@@ -36,19 +36,24 @@ describe("WorkbenchVisualState", () => {
   it("renders exactly the three loading and five empty state contracts", () => {
     for (const state of NAMED_STATES) {
       const view = render(<WorkbenchVisualState {...state} />);
-      const status = screen.getByRole("status", { name: state.label });
-      expect(status).toHaveAttribute("data-state-kind", state.kind);
-      expect(status).toHaveAttribute("data-state-variant", state.variant);
+      const surface = screen.getByRole(
+        state.kind === "loading" ? "status" : "region",
+        { name: state.label },
+      );
+      expect(surface).toHaveAttribute("data-state-kind", state.kind);
+      expect(surface).toHaveAttribute("data-state-variant", state.variant);
       if (state.kind === "loading") {
-        expect(status).toHaveAttribute("aria-busy", "true");
+        expect(surface).toHaveAttribute("aria-busy", "true");
+        expect(surface).toHaveAttribute("aria-live", "polite");
         expect(
-          status.querySelector(".workbench-state-skeleton"),
+          surface.querySelector(".workbench-state-skeleton"),
         ).not.toBeNull();
       } else {
-        expect(status).not.toHaveAttribute("aria-busy");
-        expect(status.querySelector(".workbench-state-skeleton")).toBeNull();
+        expect(surface).not.toHaveAttribute("aria-busy");
+        expect(surface).not.toHaveAttribute("aria-live");
+        expect(surface.querySelector(".workbench-state-skeleton")).toBeNull();
       }
-      expect(status.querySelector(".spin")).toBeNull();
+      expect(surface.querySelector(".spin")).toBeNull();
       view.unmount();
     }
   });

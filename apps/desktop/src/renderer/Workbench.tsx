@@ -83,6 +83,7 @@ import {
   dispatchEditorCommand,
   isEditorCommandEnabled,
   shortcutMatches,
+  validateShortcutBindings,
   type EditorCommandContext,
   type EditorCommandHandlers,
   type EditorCommandId,
@@ -110,6 +111,7 @@ const WORKBENCH_PREFERENCES_KEY = "translunar.workbench-preferences.v1";
 const EDITOR_WINDOW_SIZE = 100;
 const EDITOR_ROW_HEIGHT = 112;
 const EDITOR_OVERSCAN = 18;
+const GLOBAL_SEARCH_SHORTCUT = "Ctrl+Shift+K";
 
 const CHINESE_CONVERSION_OPTIONS: readonly {
   value: ChineseConversionProfile;
@@ -153,6 +155,7 @@ interface WorkbenchProps {
   initialWorkspace: InitialWorkspace;
   onReturnHome(): void;
   onNavigate(surface: AppSurface): Promise<void>;
+  onOpenSettings(): void;
   onOpenGlobalSearchHit(hit: GlobalSearchHit): Promise<void>;
   focusSegmentId: string | null;
 }
@@ -185,6 +188,7 @@ export function Workbench({
   initialWorkspace,
   onReturnHome,
   onNavigate,
+  onOpenSettings,
   onOpenGlobalSearchHit,
   focusSegmentId,
 }: WorkbenchProps) {
@@ -1309,7 +1313,6 @@ export function Workbench({
               "editor.next": "Ctrl+ArrowDown",
               "editor.previous": "Ctrl+ArrowUp",
               "editor.copySource": "Ctrl+Shift+C",
-              "editor.concordance": "Ctrl+Shift+K",
             }
           : {};
     setShortcutDrafts({ ...defaults, ...overrides });
@@ -1319,13 +1322,20 @@ export function Workbench({
     const bindings = EDITOR_COMMANDS.map((command) =>
       (shortcutDrafts[command.id] ?? command.shortcut).trim(),
     );
-    if (bindings.some((binding) => !binding)) {
+    const validation = validateShortcutBindings(
+      bindings,
+      GLOBAL_SEARCH_SHORTCUT,
+    );
+    if (validation === "empty") {
       setToast("Shortcut bindings cannot be empty.");
       return;
     }
-    const normalized = bindings.map((binding) => binding.toLocaleLowerCase());
-    if (new Set(normalized).size !== normalized.length) {
+    if (validation === "collision") {
       setToast("Shortcut bindings must not collide.");
+      return;
+    }
+    if (validation === "reserved") {
+      setToast(`${GLOBAL_SEARCH_SHORTCUT} is reserved for Global search.`);
       return;
     }
     const shortcuts = Object.fromEntries(
@@ -2045,12 +2055,7 @@ export function Workbench({
     ) {
       return;
     }
-    if (
-      (event.ctrlKey || event.metaKey) &&
-      event.key.toLowerCase() === "k" &&
-      event.shiftKey &&
-      !event.altKey
-    ) {
+    if (shortcutMatches(event.nativeEvent, GLOBAL_SEARCH_SHORTCUT)) {
       event.preventDefault();
       event.stopPropagation();
       setGlobalSearchOpen(true);
@@ -2129,7 +2134,7 @@ export function Workbench({
         >
           <Search size={15} />
           <span>{t("home.globalSearch")}</span>
-          <kbd>Ctrl+Shift+K</kbd>
+          <kbd>{GLOBAL_SEARCH_SHORTCUT}</kbd>
         </button>
         <div className="app-actions">
           <button
@@ -2201,6 +2206,15 @@ export function Workbench({
                   {t("nav.aiControl")}
                 </button>
                 <hr />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onOpenSettings();
+                  }}
+                >
+                  {t("action.settings")}
+                </button>
                 <button
                   type="button"
                   disabled={actionBusy !== null}
@@ -2325,6 +2339,7 @@ export function Workbench({
             </label>
             <div
               className="match-scope"
+              role="group"
               aria-label={t("workbench.exactTmMatching")}
             >
               <Database size={13} />
@@ -4118,16 +4133,14 @@ function DocumentPreview({
           activeSegment ? page.segmentIds.includes(activeSegment.id) : false,
         );
         setPdfPageNumber(activePage?.page ?? result.pages[0]?.page ?? 1);
+        if (result.pages.length === 0) setPdfLoading(false);
       })
       .catch((reason: unknown) => {
         if (cancelled || pdfRequestRef.current !== requestId) return;
         setPdfPages([]);
         setPdfPage(null);
         setPdfError(formatError(reason));
-      })
-      .finally(() => {
-        if (!cancelled && pdfRequestRef.current === requestId)
-          setPdfLoading(false);
+        setPdfLoading(false);
       });
     return () => {
       cancelled = true;

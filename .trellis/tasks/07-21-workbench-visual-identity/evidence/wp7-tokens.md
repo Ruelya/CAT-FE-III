@@ -57,8 +57,7 @@ viewport boundaries.
 | Light | `screenshots/wp7-tokens-light-1250x744.png` | `screenshots/wp7-tokens-light-1680x942.png` | `screenshots/wp7-tokens-light-1920x1080.png` |
 | Dark | `screenshots/wp7-tokens-dark-1250x744.png` | `screenshots/wp7-tokens-dark-1680x942.png` | `screenshots/wp7-tokens-dark-1920x1080.png` |
 
-Workbench-owned content remains contained at all three widths. Manual review
-also identified the global product Settings FAB overlapping the Workbench
-status bar at the compact viewport. That shell defect is outside the token
-migration and is an explicit WP8 blocker; the task cannot be archived until
-the final screenshots show it resolved.
+Workbench-owned content remains contained at all three widths. WP8 removed the
+global Settings FAB from Workbench and secondary workspace surfaces and routed
+Settings through their application menus. The refreshed matrix above shows no
+fixed control covering the compact status bar.

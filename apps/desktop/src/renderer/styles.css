@@ -1442,7 +1442,7 @@ button:active:not(:disabled) {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  width: min(220px, 18vw);
+  width: min(248px, 18vw);
   min-width: 172px;
   height: 36px;
   padding: 0 10px;
@@ -2348,7 +2348,7 @@ button.tag-capsule {
 }
 
 .workbench-visual-state.empty .workbench-state-label {
-  color: var(--muted);
+  color: var(--ink);
 }
 
 .workbench-state-action {
@@ -4583,8 +4583,8 @@ button.tag-capsule {
   }
 
   .project-identity {
-    width: 240px;
-    flex-basis: 240px;
+    width: 280px;
+    flex-basis: 280px;
   }
 
   .global-search-command {

@@ -17,6 +17,11 @@ the desktop package's unit tests collect only `src/**/*.test.ts(x)`. Playwright
 tests belong in `apps/desktop/tests/e2e` and launch the built Electron app with
 the real engine and an isolated data directory.
 
+`pnpm --filter @translunar/desktop exec playwright test ...` reuses the current
+`apps/desktop/dist` output. After changing renderer DOM, CSS, or assets, run
+`pnpm build:desktop` before that focused command. The final
+`pnpm test:e2e:desktop` gate builds automatically and remains authoritative.
+
 ## Test Expectations
 
 Unit tests cover pure interaction guards and reducer transitions, including
@@ -40,6 +45,9 @@ font rendering, panel seams, focus order, and horizontal transcript overflow.
   toggle.
 - Prefer numeric geometry tolerances over exact CSS strings; Windows DPI can
   produce fractional values.
+- Before each keyboard-resize phase, focus the separator and assert both its
+  `aria-valuenow` transition and the final numeric geometry. Panel motion can
+  otherwise make a sent key and a handled key indistinguishable in a long suite.
 - Check no renderer console/page errors in Playwright.
 
 ## Review Checklist

@@ -5,11 +5,15 @@
   bottom: 16px;
   right: 16px;
   z-index: 40;
+  display: inline-grid;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  place-items: center;
   border: 1px solid color-mix(in srgb, var(--ink, #2a2118) 18%, transparent);
+  border-radius: var(--radius-button, 6px);
   background: color-mix(in srgb, var(--paper, #f7efe2) 92%, white);
   color: var(--ink, #2a2118);
-  border-radius: 999px;
-  padding: 0.45rem 0.9rem;
   font: inherit;
   cursor: pointer;
   box-shadow: 0 8px 24px rgb(42 33 24 / 12%);

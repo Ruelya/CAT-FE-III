@@ -391,6 +391,24 @@ export function shortcutMatches(
   );
 }
 
+export type ShortcutBindingValidation =
+  "empty" | "collision" | "reserved" | null;
+
+export function validateShortcutBindings(
+  bindings: readonly string[],
+  reservedShortcut: string,
+): ShortcutBindingValidation {
+  const normalized = bindings.map((binding) =>
+    binding.trim().toLocaleLowerCase(),
+  );
+  if (normalized.some((binding) => !binding)) return "empty";
+  if (new Set(normalized).size !== normalized.length) return "collision";
+  if (normalized.includes(reservedShortcut.toLocaleLowerCase())) {
+    return "reserved";
+  }
+  return null;
+}
+
 export function acceleratorLabel(shortcut: string): string {
   return shortcut.replace(
     "Ctrl",

@@ -1,4 +1,4 @@
-import { mkdtempSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, statSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -16,6 +16,14 @@ test("reviews and corrects a scanned PDF through the workbench", async () => {
   const dataDirectory = mkdtempSync(join(tmpdir(), "translunar-pdf-desktop-"));
   const exportPath = join(dataDirectory, "scanned-translated.docx");
   const fixture = join(workspaceRoot, "fixtures", "pdf", "scanned.pdf");
+  const evidenceDirectory = join(
+    workspaceRoot,
+    ".trellis",
+    "tasks",
+    "07-21-workbench-visual-identity",
+    "evidence",
+    "screenshots",
+  );
   const engine =
     process.env.TRANSLUNAR_ENGINE_PATH ??
     join(
@@ -60,7 +68,42 @@ test("reviews and corrects a scanned PDF through the workbench", async () => {
     ).toBeVisible();
     await expect(page.locator(".segment-row")).toHaveCount(3);
     await expect(page.locator('img[alt^="Original PDF page"]')).toBeVisible();
-    await page.screenshot({ path: "test-results/pdf-review-1920x1080.png" });
+    mkdirSync(evidenceDirectory, { recursive: true });
+    for (const viewport of [
+      { width: 1250, height: 744, label: "1250x744" },
+      { width: 1680, height: 942, label: "1680x942" },
+      { width: 1920, height: 1080, label: "1920x1080" },
+    ]) {
+      await application.evaluate(({ BrowserWindow }, size) => {
+        BrowserWindow.getAllWindows()[0]?.setSize(size.width, size.height);
+      }, viewport);
+      await expect(page.locator('img[alt^="Original PDF page"]')).toBeVisible();
+      await page.screenshot({
+        path: join(
+          evidenceDirectory,
+          `wp6-preview-pdf-default-${viewport.label}.png`,
+        ),
+      });
+      await page.getByRole("button", { name: "Collapse preview" }).click();
+      await page.waitForTimeout(250);
+      await page.screenshot({
+        path: join(
+          evidenceDirectory,
+          `wp6-preview-pdf-collapsed-${viewport.label}.png`,
+        ),
+      });
+      await page.getByRole("button", { name: "Open preview" }).click();
+      await expect(page.locator('img[alt^="Original PDF page"]')).toBeVisible();
+      await page.getByRole("button", { name: "Maximize preview" }).click();
+      await expect(page.locator(".pdf-preview-grid")).toBeVisible();
+      await page.screenshot({
+        path: join(
+          evidenceDirectory,
+          `wp6-preview-pdf-maximized-${viewport.label}.png`,
+        ),
+      });
+      await page.getByRole("button", { name: "Restore preview" }).click();
+    }
 
     const invoiceRow = page.locator(".segment-row").filter({
       hasText: "INV-2048",
@@ -79,15 +122,6 @@ test("reviews and corrects a scanned PDF through the workbench", async () => {
     await expect(invoiceRow).toContainText("INV-2048 unchanged!");
     await invoiceRow.locator("textarea").fill("发票号 INV-2048 保持不变！");
     await expect(page.locator(".save-indicator")).toContainText("Saved");
-
-    await page.getByRole("button", { name: "Collapse preview" }).click();
-    await page.waitForTimeout(250);
-    await page.getByRole("button", { name: "Open preview" }).click();
-    await page.getByRole("button", { name: "Maximize preview" }).click();
-    await expect(page.locator(".pdf-preview-grid")).toBeVisible();
-    await page.screenshot({
-      path: "test-results/pdf-review-maximized-1920x1080.png",
-    });
 
     await page.getByRole("button", { name: "Export" }).click();
     await expect(page.locator(".toast")).toContainText(

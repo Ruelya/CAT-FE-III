@@ -5,6 +5,7 @@ import {
   commandById,
   dispatchEditorCommand,
   isEditorCommandEnabled,
+  validateShortcutBindings,
   type EditorCommandContext,
   type EditorCommandHandlers,
 } from "./editor-commands";
@@ -106,5 +107,19 @@ describe("editor command registry", () => {
     dispatchEditorCommand("editor.suggestion.3", handlers);
     expect(handlers.insertTag).toHaveBeenCalledWith(true);
     expect(handlers.insertSuggestion).toHaveBeenCalledWith(2);
+  });
+
+  it("rejects empty, colliding, and globally reserved shortcut bindings", () => {
+    const reserved = "Ctrl+Shift+K";
+    expect(validateShortcutBindings(["Ctrl+S", ""], reserved)).toBe("empty");
+    expect(validateShortcutBindings(["Ctrl+S", " ctrl+s "], reserved)).toBe(
+      "collision",
+    );
+    expect(validateShortcutBindings(["Ctrl+S", "ctrl+shift+k"], reserved)).toBe(
+      "reserved",
+    );
+    expect(validateShortcutBindings(["Ctrl+S", "Ctrl+Shift+F"], reserved)).toBe(
+      null,
+    );
   });
 });

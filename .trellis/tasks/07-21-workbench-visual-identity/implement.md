@@ -187,16 +187,18 @@ not combine new structural markup with this package.
       screenshots before proceeding to the next group.
 
   Evidence: `evidence/wp7-tokens.md` and the `wp7-tokens-*` screenshots under
-  `evidence/screenshots/`. The global Settings FAB/status-bar overlap found in
-  manual review is owned by the WP8 final-check loop and must be resolved before
-  archive.
+  `evidence/screenshots/`. WP8 resolved the global Settings FAB/status-bar
+  overlap by routing Settings through workspace application menus.
 
 Rollback point: one mechanical component-group commit at a time; never revert all
 concurrent renderer changes.
 
 ## WP8 - Final independent check and evidence
 
-- [ ] Run formatting and static checks:
+- [x] Run task-owned formatting and static checks. All changed files pass
+      focused Prettier; lint, typecheck, tests, and build pass. The root
+      `format:check` remains blocked by 53 pre-existing files outside this
+      task's change set and is recorded in `evidence/wp8-final-check.md`:
 
 ```powershell
 pnpm format:check
@@ -206,7 +208,7 @@ pnpm test
 pnpm build:desktop
 ```
 
-- [ ] Run focused desktop checks first, then the full suite:
+- [x] Run focused desktop checks first, then the full suite:
 
 ```powershell
 pnpm --filter @translunar/desktop test
@@ -214,7 +216,9 @@ pnpm --filter @translunar/desktop test:e2e -- tests/e2e/workbench.spec.ts
 pnpm test:e2e:desktop
 ```
 
-- [ ] Audit remaining token/type drift and font payload:
+- [x] Audit remaining token/type drift and font payload. Workbench-owned
+      selectors meet the 11px floor; the whole stylesheet still contains
+      out-of-scope small type and the evidence records that boundary:
 
 ```powershell
 rg -n "border-radius:\s*(3|5|7|9)px" apps/desktop/src/renderer/styles.css
@@ -222,12 +226,12 @@ rg -n "font-size:\s*(7|8|9|10)px" apps/desktop/src/renderer/styles.css
 Get-ChildItem -Recurse -File apps/desktop/src/renderer -Include *.woff2 | Measure-Object Length -Sum
 ```
 
-- [ ] Independent reviewer maps AC1-AC9 to implementation, tests, and named visual
+- [x] Independent reviewer maps AC1-AC9 to implementation, tests, and named visual
       evidence; checks both themes, reduced motion, 125% scaling, keyboard/focus,
       CJK IME, console/page errors, and no horizontal overflow.
 - [ ] Obtain native Windows and macOS font/package evidence. Windows-only
       screenshots are insufficient for AC1.
-- [ ] Update stale task/spec evidence only when it records a verified executable
+- [x] Update stale task/spec evidence only when it records a verified executable
       contract; do not turn aspirational visual choices into coding specs.
 - [ ] Commit this task separately, finish it, and archive it immediately after the
       quality gate. Do not leave a completed visual task in the active task list.
@@ -236,7 +240,7 @@ Get-ChildItem -Recurse -File apps/desktop/src/renderer -Include *.woff2 | Measur
 
 - [ ] Every acceptance criterion has a command, assertion, or named screenshot.
 - [ ] The eight-state matrix is complete: 3 loading + 5 empty, no substitutions.
-- [ ] App bar, Suggestions title, segment density, and Preview hierarchy are all
+- [x] App bar, Suggestions title, segment density, and Preview hierarchy are all
       implemented; none is deferred as optional polish.
 - [ ] No unresolved question, unowned file, unrecorded platform gap, or shared-file
       conflict remains before archive.
