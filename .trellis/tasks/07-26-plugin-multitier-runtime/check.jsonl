@@ -1,0 +1,5 @@
+{"file":"docs/Full PRD gap matrix.md","reason":"Check that the result moves beyond the Tier 3 filter MVP without claiming later hosts complete."}
+{"file":".trellis/tasks/07-26-plugin-multitier-runtime/prd.md","reason":"Acceptance, compatibility, scope, and rollback contract."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Audit migration idempotency and no-loss behavior."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Audit Rust/protocol/smoke/full-gate evidence."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Audit desktop regression and generated-type coverage."}

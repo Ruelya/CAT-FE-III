@@ -1,0 +1,7 @@
+{"file":"docs/Full PRD gap matrix.md","reason":"Authoritative full-scope plugin gaps, package order, and rejected MVP completion boundary."}
+{"file":".trellis/tasks/07-19-plugin-runtime-sdk/prd.md","reason":"Parent P-01..P-10 requirements and compatibility obligations."}
+{"file":".trellis/tasks/07-19-plugin-runtime-sdk/design.md","reason":"Parent tier-neutral control-plane and contribution-adapter architecture."}
+{"file":".trellis/spec/backend/engine-boundary.md","reason":"Engine ownership, generated protocol, registry, and renderer boundary."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Additive migration, transaction, backup, and compatibility rules."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Rust, contract, smoke, and compatibility quality gates."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Desktop Plugins surface and typed Electron bridge constraints."}
