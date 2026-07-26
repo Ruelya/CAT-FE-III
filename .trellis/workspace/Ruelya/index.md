@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 20
-- **Last Active**: 2026-07-26
+- **Total Sessions**: 21
+- **Last Active**: 2026-07-27
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~707 | Active |
+| `journal-1.md` | ~741 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 21 | 2026-07-27 | Plugin capability grants and audit | `22a9077`, `e566b9d` | `master` |
 | 20 | 2026-07-26 | Complete plugin multi-tier runtime control plane | `dc228a7` | `master` |
 | 19 | 2026-07-26 | Complete plugin Tier 3 foundation | `5c5b147` | `master` |
 | 18 | 2026-07-26 | Complete Workbench visual qualification | `124fbec`, `fb566cd` | `master` |

@@ -705,3 +705,37 @@ Implemented and verified the tier-aware plugin control plane: v1/v2 normalized m
 ### Next Steps
 
 - None - task complete
+
+
+## Session 21: Plugin capability grants and audit
+
+**Date**: 2026-07-27
+**Task**: Plugin capability grants and audit
+**Branch**: `master`
+
+### Summary
+
+Implemented and verified default-deny plugin capability requests, scoped revision-safe consent, immutable audit, operation-boundary enforcement, generated protocol and SDK support, and the accessible desktop permission review flow; full lint, typecheck, unit/workspace tests, focused stdio smoke, and desktop E2E passed.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `22a9077` | (see git log) |
+| `e566b9d` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
