@@ -2071,10 +2071,13 @@ async function exerciseFocusedApiCliSmoke(dataDirectory) {
 async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
   const root = resolve(import.meta.dirname, "..");
   const pluginSource = join(root, "examples", "plugins", "hello-srt");
+  const crashPluginSource = join(root, "fixtures", "plugins", "crash-filter");
   const fixtureDirectory = mkdtempSync(
     join(tmpdir(), "translunar-plugin-smoke-"),
   );
   const sourcePath = join(fixtureDirectory, "sample.srt");
+  const outputPath = join(fixtureDirectory, "translated.srt");
+  const crashSourcePath = join(fixtureDirectory, "sample.crash");
   const srtBody = [
     "1",
     "00:00:01,000 --> 00:00:02,000",
@@ -2086,6 +2089,7 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
     "",
   ].join(String.fromCharCode(10));
   writeFileSync(sourcePath, srtBody, "utf8");
+  writeFileSync(crashSourcePath, "crash fixture", "utf8");
 
   const installed = await processHandle.call("plugin.install", {
     sourcePath: pluginSource,
@@ -2103,10 +2107,49 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
   });
   assert(enabled.plugin.status === "enabled", "enable status");
 
+  let duplicateError;
+  try {
+    await processHandle.call("plugin.install", {
+      sourcePath: pluginSource,
+      grantRequested: false,
+      actor: "smoke",
+      reason: "duplicate install must fail closed",
+    });
+  } catch (error) {
+    duplicateError = error;
+  }
+  assert(duplicateError?.code === "invalid_state", "duplicate typed conflict");
+  const afterDuplicate = await processHandle.call("plugin.get", {
+    pluginId: "example.hello-srt",
+  });
+  assert(
+    afterDuplicate.revision === enabled.plugin.revision &&
+      afterDuplicate.status === "enabled",
+    "duplicate install leaves enabled record unchanged",
+  );
+
   const filters = await processHandle.call("filter.list", {});
   assert(
     filters.filters.some((item) => item.id === "example.hello-srt"),
     "filter contribution registered",
+  );
+
+  await processHandle.restart();
+  await processHandle.call("engine.initialize", {
+    protocolVersion: 1,
+    client: { name: "plugin-smoke-restart", version: "0.1.0" },
+  });
+  const restartedPlugin = await processHandle.call("plugin.get", {
+    pluginId: "example.hello-srt",
+  });
+  assert(
+    restartedPlugin.status === "enabled",
+    "enabled status survives restart",
+  );
+  const restartedFilters = await processHandle.call("filter.list", {});
+  assert(
+    restartedFilters.filters.some((item) => item.id === "example.hello-srt"),
+    "enabled contribution survives restart",
   );
 
   const project = await processHandle.call("project.create", {
@@ -2121,12 +2164,119 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
     filterId: "example.hello-srt",
   });
   assert(imported.document.segmentCount >= 2, "imported srt cues");
+  const segments = await processHandle.call("segment.list", {
+    documentId: imported.document.id,
+    offset: 0,
+    limit: 100,
+  });
+  const exported = await processHandle.call("document.export", {
+    documentId: imported.document.id,
+    outputPath,
+    qaOverride: {
+      actor: "plugin-smoke",
+      reason: "qualify plugin export with untranslated fixture segments",
+    },
+  });
+  assert(exported.filterId === "example.hello-srt", "plugin export filter id");
+  assert(
+    exported.translatedSegments === segments.total && existsSync(outputPath),
+    "plugin export publishes subtitle output",
+  );
 
   const listed = await processHandle.call("plugin.list", {
     offset: 0,
     limit: 20,
   });
   assert(listed.total >= 1, "plugin list total");
+
+  const crashInstalled = await processHandle.call("plugin.install", {
+    sourcePath: crashPluginSource,
+    grantRequested: true,
+    actor: "smoke",
+    reason: "install crash isolation fixture",
+  });
+  const crashEnabled = await processHandle.call("plugin.enable", {
+    pluginId: "fixture.crash-filter",
+    expectedRevision: crashInstalled.plugin.revision,
+    actor: "smoke",
+    reason: "enable crash isolation fixture",
+  });
+  let crashError;
+  try {
+    await processHandle.call("document.import", {
+      projectId: project.id,
+      sourcePath: crashSourcePath,
+      filterId: "fixture.crash-filter",
+    });
+  } catch (error) {
+    crashError = error;
+  }
+  assert(
+    crashError?.code === "plugin_process_failed",
+    "typed crash error code",
+  );
+  assert(
+    crashError?.data?.pluginId === "fixture.crash-filter" &&
+      crashError?.data?.filterId === "fixture.crash-filter" &&
+      crashError?.data?.operation === "filter.import" &&
+      crashError?.data?.failureKind === "crash" &&
+      crashError?.data?.retryable === false,
+    "typed crash error data",
+  );
+  assert(
+    !String(crashError?.message).includes("private fixture stderr"),
+    "plugin stderr is not exposed over RPC",
+  );
+  const degraded = await processHandle.call("plugin.get", {
+    pluginId: "fixture.crash-filter",
+  });
+  assert(degraded.status === "degraded", "crashed plugin is degraded");
+  assert(
+    degraded.crashCount === crashEnabled.plugin.crashCount + 1,
+    "crash count increments once",
+  );
+  assert(
+    degraded.lastError.includes("filter.import") &&
+      !degraded.lastError.includes("private fixture stderr"),
+    "bounded last error is durable and excludes stderr",
+  );
+  const filtersAfterCrash = await processHandle.call("filter.list", {});
+  assert(
+    !filtersAfterCrash.filters.some(
+      (item) => item.id === "fixture.crash-filter",
+    ),
+    "crashed contribution is unregistered",
+  );
+  await processHandle.call("project.list", { offset: 0, limit: 10 });
+
+  await processHandle.restart();
+  await processHandle.call("engine.initialize", {
+    protocolVersion: 1,
+    client: { name: "plugin-crash-restart", version: "0.1.0" },
+  });
+  const degradedAfterRestart = await processHandle.call("plugin.get", {
+    pluginId: "fixture.crash-filter",
+  });
+  assert(
+    degradedAfterRestart.status === "degraded" &&
+      degradedAfterRestart.crashCount === degraded.crashCount &&
+      degradedAfterRestart.lastError === degraded.lastError,
+    "degraded diagnostics survive restart",
+  );
+  const filtersAfterCrashRestart = await processHandle.call("filter.list", {});
+  assert(
+    !filtersAfterCrashRestart.filters.some(
+      (item) => item.id === "fixture.crash-filter",
+    ),
+    "degraded contribution stays unregistered after restart",
+  );
+  await processHandle.call("project.list", { offset: 0, limit: 10 });
+  await processHandle.call("plugin.uninstall", {
+    pluginId: "fixture.crash-filter",
+    expectedRevision: degradedAfterRestart.revision,
+    actor: "smoke",
+    reason: "remove crash isolation fixture",
+  });
 
   const disabled = await processHandle.call("plugin.disable", {
     pluginId: "example.hello-srt",

@@ -10,12 +10,16 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test src/manifest-validate.test.mjs"
+    "build": "tsc -p tsconfig.build.json && pnpm build:example",
+    "build:example": "node scripts/build-hello-srt.mjs",
+    "pretest": "pnpm build:example",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.example.json --noEmit",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@types/node": "26.1.1",
+    "esbuild": "0.27.0",
+    "prettier": "3.9.5",
     "typescript": "6.0.3",
     "vitest": "4.1.10"
   }

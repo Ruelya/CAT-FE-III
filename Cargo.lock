@@ -2714,6 +2714,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
+ "tracing",
  "translunar-domain",
  "translunar-filter-core",
  "uuid",

@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Rust, contracts, smoke, and review quality gate"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Verify typed and bounded errors without partial effects"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Desktop production build, E2E, accessibility, and visual gate"}
+{"file":".trellis/tasks/07-26-plugin-tier3-foundation/prd.md","reason":"Acceptance criteria under independent review"}

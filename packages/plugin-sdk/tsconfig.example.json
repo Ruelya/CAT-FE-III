@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@translunar/plugin-sdk": ["./src/index.ts"]
+    },
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": ["src/index.ts", "../../examples/plugins/hello-srt/src/index.ts"]
+}

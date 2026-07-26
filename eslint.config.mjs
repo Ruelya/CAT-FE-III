@@ -35,6 +35,8 @@ export default tseslint.config(
           "./apps/desktop/tsconfig.renderer.json",
           "./apps/desktop/tsconfig.e2e.json",
           "./packages/contracts/tsconfig.json",
+          "./packages/plugin-sdk/tsconfig.json",
+          "./packages/plugin-sdk/tsconfig.example.json",
         ],
         tsconfigRootDir: import.meta.dirname,
       },

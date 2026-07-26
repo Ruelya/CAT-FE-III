@@ -305,6 +305,14 @@ fn engine_error_code(error: &EngineError) -> &'static str {
         EngineError::Storage(StorageError::NotFound { .. }) => "not_found",
         EngineError::Storage(StorageError::Conflict { .. })
         | EngineError::Storage(StorageError::EntityConflict { .. }) => "conflict",
+        EngineError::Import(FilterError::PluginPermissionDenied { .. })
+        | EngineError::CorpusImport(FilterError::PluginPermissionDenied { .. })
+        | EngineError::Export(FilterError::PluginPermissionDenied { .. }) => {
+            "plugin_permission_denied"
+        }
+        EngineError::Import(FilterError::PluginProcessFailed { .. })
+        | EngineError::CorpusImport(FilterError::PluginProcessFailed { .. })
+        | EngineError::Export(FilterError::PluginProcessFailed { .. }) => "plugin_process_failed",
         EngineError::Import(_) => "unsupported_document",
         EngineError::CorpusImport(FilterError::NotFound(_)) => "not_found",
         EngineError::CorpusImport(_) | EngineError::CorpusInput(_) => "unsupported_corpus_input",
@@ -2133,6 +2141,13 @@ impl PipelineManager {
             let step_run = match store.start_pipeline_step(&run_id, index, input.clone()) {
                 Ok(step_run) => step_run,
                 Err(error) => {
+                    // A cancellation can win the revision race between the
+                    // loop guard and step start. Preserve the canceling
+                    // transition instead of converting that expected race
+                    // into a failed run.
+                    if Self::finalize_if_canceling(&mut store, &run_id) {
+                        return;
+                    }
                     let _ = store.fail_pipeline_run(
                         &run_id,
                         PipelineFailure {
@@ -2231,6 +2246,7 @@ pub struct EngineService {
         std::sync::Arc<translunar_plugin_runtime::PluginProcess>,
     >,
     plugin_filter_owners: std::collections::BTreeMap<String, String>,
+    plugin_activation_revisions: std::collections::BTreeMap<String, u64>,
 }
 
 impl EngineService {
@@ -2288,6 +2304,7 @@ impl EngineService {
             ai,
             plugin_processes: std::collections::BTreeMap::new(),
             plugin_filter_owners: std::collections::BTreeMap::new(),
+            plugin_activation_revisions: std::collections::BTreeMap::new(),
         };
         service.reload_enabled_plugins()?;
         Ok(service)
@@ -3437,14 +3454,17 @@ impl EngineService {
             )));
         }
         let relative_path = normalize_relative_path(params.relative_path.as_deref(), &source_path)?;
-        let prepared = self.prepare_document_import(
+        let prepared = match self.prepare_document_import(
             &params.project_id,
             &project.project.source_locale,
             source_path,
             relative_path,
             params.filter_id.as_deref(),
             &params.options,
-        )?;
+        ) {
+            Ok(prepared) => prepared,
+            Err(error) => return Err(self.handle_plugin_filter_failure(error)),
+        };
         let managed_source_path = prepared.input.managed_source_path.clone();
         match self.store.insert_document(&prepared.input, &prepared.units) {
             Ok(document) => Ok(ImportDocumentResult {
@@ -3465,7 +3485,10 @@ impl EngineService {
     ) -> Result<ReferenceCorpusMutationResult> {
         let project = self.store.get_project(&request.project_id)?.project;
         validate_reference_corpus_import_request(&project, &request)?;
-        let input = self.prepare_reference_corpus_import(&project, request)?;
+        let input = match self.prepare_reference_corpus_import(&project, request) {
+            Ok(input) => input,
+            Err(error) => return Err(self.handle_plugin_filter_failure(error)),
+        };
         let managed_source_path = input.managed_source_path.clone();
         match self.store.create_reference_corpus(input) {
             Ok(result) => Ok(result),
@@ -3696,14 +3719,17 @@ impl EngineService {
                         diagnostics.push(None);
                         ready.push((index, display, relative, prepared));
                     }
-                    Err(error) => diagnostics.push(Some(BatchImportDiagnostic {
-                        path: display,
-                        relative_path: relative,
-                        status: "failed".to_string(),
-                        document: None,
-                        error_code: Some(engine_error_code(&error).to_string()),
-                        message: Some(error.to_string()),
-                    })),
+                    Err(error) => {
+                        let error = self.handle_plugin_filter_failure(error);
+                        diagnostics.push(Some(BatchImportDiagnostic {
+                            path: display,
+                            relative_path: relative,
+                            status: "failed".to_string(),
+                            document: None,
+                            error_code: Some(engine_error_code(&error).to_string()),
+                            message: Some(error.to_string()),
+                        }));
+                    }
                 },
             }
         }
@@ -3795,10 +3821,15 @@ impl EngineService {
                 source_path.display()
             )));
         }
-        let filter = self
+        let filter = match self
             .filters
             .select(&source_path, Some(&managed.document.filter_id))
-            .map_err(EngineError::Import)?;
+        {
+            Ok(filter) => filter,
+            Err(error) => {
+                return Err(self.handle_plugin_filter_failure(EngineError::Import(error)));
+            }
+        };
         let extension = source_path
             .extension()
             .and_then(|value| value.to_str())
@@ -3815,15 +3846,23 @@ impl EngineService {
             .tempfile_in(&self.store.paths().temporary)?;
         let source_sha256 = copy_and_hash(&source_path, temporary.as_file_mut())?;
         temporary.as_file().sync_all()?;
-        let stream = filter
-            .import(ImportRequest {
-                source: temporary.path().to_path_buf(),
-                document_id: Some(managed.document.id.clone()),
-                source_locale: Some(project.project.source_locale),
-                options: params.options.clone(),
-            })
-            .map_err(EngineError::Import)?;
-        let imported = collect_imported_document(stream).map_err(EngineError::Import)?;
+        let stream = match filter.import(ImportRequest {
+            source: temporary.path().to_path_buf(),
+            document_id: Some(managed.document.id.clone()),
+            source_locale: Some(project.project.source_locale),
+            options: params.options.clone(),
+        }) {
+            Ok(stream) => stream,
+            Err(error) => {
+                return Err(self.handle_plugin_filter_failure(EngineError::Import(error)));
+            }
+        };
+        let imported = match collect_imported_document(stream) {
+            Ok(imported) => imported,
+            Err(error) => {
+                return Err(self.handle_plugin_filter_failure(EngineError::Import(error)));
+            }
+        };
         if imported.units.is_empty() {
             return Err(EngineError::Import(FilterError::Invalid(
                 "re-import candidate contains no translatable units".to_string(),
@@ -5398,7 +5437,7 @@ impl EngineService {
                 if let Some(override_id) = override_id.as_deref() {
                     let _ = self.store.finish_qa_export_override(override_id, false);
                 }
-                return Err(EngineError::Export(error));
+                return Err(self.handle_plugin_filter_failure(EngineError::Export(error)));
             }
         };
         if let Some(override_id) = override_id.as_deref() {
@@ -6738,6 +6777,66 @@ fn rpc_error(error: EngineError) -> RpcError {
             code: ErrorCode::PluginProcessFailed,
             message,
             data: None,
+        },
+        EngineError::Import(FilterError::PluginPermissionDenied {
+            plugin_id,
+            filter_id,
+            operation,
+            message,
+        })
+        | EngineError::CorpusImport(FilterError::PluginPermissionDenied {
+            plugin_id,
+            filter_id,
+            operation,
+            message,
+        })
+        | EngineError::Export(FilterError::PluginPermissionDenied {
+            plugin_id,
+            filter_id,
+            operation,
+            message,
+        }) => RpcError {
+            code: ErrorCode::PluginPermissionDenied,
+            message,
+            data: Some(json!({
+                "pluginId": plugin_id,
+                "filterId": filter_id,
+                "operation": operation,
+            })),
+        },
+        EngineError::Import(FilterError::PluginProcessFailed {
+            plugin_id,
+            filter_id,
+            operation,
+            kind,
+            message,
+            ..
+        })
+        | EngineError::CorpusImport(FilterError::PluginProcessFailed {
+            plugin_id,
+            filter_id,
+            operation,
+            kind,
+            message,
+            ..
+        })
+        | EngineError::Export(FilterError::PluginProcessFailed {
+            plugin_id,
+            filter_id,
+            operation,
+            kind,
+            message,
+            ..
+        }) => RpcError {
+            code: ErrorCode::PluginProcessFailed,
+            message,
+            data: Some(json!({
+                "pluginId": plugin_id,
+                "filterId": filter_id,
+                "operation": operation,
+                "failureKind": kind.as_str(),
+                "retryable": false,
+            })),
         },
         EngineError::CorpusImport(FilterError::NotFound(id)) => RpcError {
             code: ErrorCode::NotFound,

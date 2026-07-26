@@ -1,13 +1,14 @@
 //! Local plugin manifest validation, process host, and filter adapters.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -16,8 +17,8 @@ use thiserror::Error;
 use translunar_domain::{DegradationFinding, DocumentNote, InlineTag};
 use translunar_filter_core::{
     DocumentFilter, DocumentMetadata, ExportReport, ExportRequest, FilterCapabilities,
-    FilterDescriptor, FilterError, FilterEvent, FilterEventStream, ImportRequest, ProbeResult,
-    ValidationReport,
+    FilterDescriptor, FilterError, FilterEvent, FilterEventStream, ImportRequest,
+    PluginProcessFailureKind, ProbeResult, ValidationReport,
 };
 
 pub const HOST_API_VERSION: u32 = 1;
@@ -25,7 +26,8 @@ pub const MANIFEST_FILE_NAME: &str = "manifest.json";
 const DEFAULT_CALL_TIMEOUT: Duration = Duration::from_secs(30);
 const IMPORT_CALL_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_FRAME_BYTES: usize = 8 * 1024 * 1024;
-const MAX_STDERR_TAIL_LINES: usize = 40;
+const MAX_STDERR_TAIL_BYTES: usize = 16 * 1024;
+const WRITER_QUEUE_CAPACITY: usize = 64;
 
 #[derive(Debug, Error)]
 pub enum PluginRuntimeError {
@@ -41,6 +43,8 @@ pub enum PluginRuntimeError {
     Process(String),
     #[error("plugin protocol error: {0}")]
     Protocol(String),
+    #[error("plugin operation failed: {0}")]
+    Remote(String),
     #[error("plugin timed out after {0:?}")]
     Timeout(Duration),
     #[error("I/O failed: {0}")]
@@ -331,11 +335,12 @@ struct PendingCall {
 
 #[derive(Debug)]
 struct ProcessState {
+    generation: u64,
     child: Child,
-    stdin: ChildStdin,
+    writer: SyncSender<String>,
     pending: Arc<Mutex<BTreeMap<u64, PendingCall>>>,
     next_id: AtomicU64,
-    stderr_tail: Arc<Mutex<Vec<String>>>,
+    stderr_tail: Arc<Mutex<VecDeque<u8>>>,
 }
 
 impl ProcessState {
@@ -350,6 +355,8 @@ pub struct PluginProcess {
     package_dir: PathBuf,
     manifest: PluginManifest,
     state: Mutex<Option<ProcessState>>,
+    start_lock: Mutex<()>,
+    next_generation: AtomicU64,
 }
 
 impl PluginProcess {
@@ -358,6 +365,8 @@ impl PluginProcess {
             package_dir,
             manifest,
             state: Mutex::new(None),
+            start_lock: Mutex::new(()),
+            next_generation: AtomicU64::new(1),
         }
     }
 
@@ -366,6 +375,10 @@ impl PluginProcess {
     }
 
     pub fn ensure_started(&self) -> Result<()> {
+        let _start_guard = self
+            .start_lock
+            .lock()
+            .map_err(|_| PluginRuntimeError::Process("start lock poisoned".to_string()))?;
         let mut guard = self
             .state
             .lock()
@@ -373,10 +386,23 @@ impl PluginProcess {
         if guard.is_some() {
             return Ok(());
         }
-        *guard = Some(self.spawn_locked()?);
+        let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
+        *guard = Some(self.spawn_locked(generation)?);
         drop(guard);
         let handshake: HandshakeResult =
-            self.call("plugin.handshake", json!({}), DEFAULT_CALL_TIMEOUT)?;
+            match self.call_started("plugin.handshake", json!({}), DEFAULT_CALL_TIMEOUT) {
+                Ok(handshake) => handshake,
+                Err(PluginRuntimeError::Remote(_)) => {
+                    self.stop();
+                    return Err(PluginRuntimeError::Protocol(
+                        "plugin rejected the handshake".to_string(),
+                    ));
+                }
+                Err(error) => {
+                    self.stop();
+                    return Err(error);
+                }
+            };
         if handshake.plugin_id != self.manifest.id {
             self.stop();
             return Err(PluginRuntimeError::Protocol(format!(
@@ -395,15 +421,16 @@ impl PluginProcess {
     }
 
     pub fn stop(&self) {
-        if let Ok(mut guard) = self.state.lock()
-            && let Some(mut state) = guard.take()
-        {
-            let _ = Self::write_notification(&mut state.stdin, "plugin.shutdown", json!({}));
+        let state = self.state.lock().ok().and_then(|mut guard| guard.take());
+        if let Some(mut state) = state {
+            if let Ok(notification) = Self::encode_notification("plugin.shutdown", json!({})) {
+                let _ = state.writer.try_send(notification);
+            }
             state.kill();
         }
     }
 
-    fn spawn_locked(&self) -> Result<ProcessState> {
+    fn spawn_locked(&self, generation: u64) -> Result<ProcessState> {
         let entry = self.package_dir.join(&self.manifest.entry.path);
         let mut command = match self.manifest.entry.kind {
             PluginEntryKind::Node => {
@@ -415,6 +442,7 @@ impl PluginProcess {
         };
         command
             .current_dir(&self.package_dir)
+            .env_clear()
             .env("TRANSLUNAR_PLUGIN_ID", &self.manifest.id)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -423,6 +451,11 @@ impl PluginProcess {
         {
             use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            for name in ["SystemRoot", "WINDIR"] {
+                if let Some(value) = std::env::var_os(name) {
+                    command.env(name, value);
+                }
+            }
             command.creation_flags(CREATE_NO_WINDOW);
         }
         let mut child = command.spawn()?;
@@ -439,7 +472,20 @@ impl PluginProcess {
             .take()
             .ok_or_else(|| PluginRuntimeError::Process("missing stderr".to_string()))?;
         let pending: Arc<Mutex<BTreeMap<u64, PendingCall>>> = Arc::new(Mutex::new(BTreeMap::new()));
-        let stderr_tail = Arc::new(Mutex::new(Vec::new()));
+        let (writer, writer_receiver) =
+            std::sync::mpsc::sync_channel::<String>(WRITER_QUEUE_CAPACITY);
+        {
+            let pending = Arc::clone(&pending);
+            thread::spawn(move || {
+                let mut stdin = stdin;
+                while let Ok(encoded) = writer_receiver.recv() {
+                    if let Err(error) = writeln!(stdin, "{encoded}").and_then(|()| stdin.flush()) {
+                        fail_pending_writer_calls(&pending, &error);
+                        break;
+                    }
+                }
+            });
+        }
         {
             let pending = Arc::clone(&pending);
             thread::spawn(move || {
@@ -483,29 +529,54 @@ impl PluginProcess {
                 }
             });
         }
+        let stderr_tail = Arc::new(Mutex::new(VecDeque::with_capacity(MAX_STDERR_TAIL_BYTES)));
         {
             let stderr_tail = Arc::clone(&stderr_tail);
             thread::spawn(move || {
-                let reader = BufReader::new(stderr);
-                for line in reader.lines().map_while(|line| line.ok()) {
-                    let mut tail = stderr_tail
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner());
-                    tail.push(line);
-                    if tail.len() > MAX_STDERR_TAIL_LINES {
-                        let overflow = tail.len() - MAX_STDERR_TAIL_LINES;
-                        tail.drain(0..overflow);
+                let mut reader = BufReader::new(stderr);
+                loop {
+                    let available = match reader.fill_buf() {
+                        Ok([]) | Err(_) => break,
+                        Ok(bytes) => bytes,
+                    };
+                    let consumed = available.len();
+                    {
+                        let mut tail = stderr_tail
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner());
+                        for byte in available {
+                            if tail.len() == MAX_STDERR_TAIL_BYTES {
+                                tail.pop_front();
+                            }
+                            tail.push_back(*byte);
+                        }
                     }
+                    reader.consume(consumed);
                 }
             });
         }
         Ok(ProcessState {
+            generation,
             child,
-            stdin,
+            writer,
             pending,
             next_id: AtomicU64::new(1),
             stderr_tail,
         })
+    }
+
+    fn log_stderr_tail(&self, state: &ProcessState, reason: &str) {
+        let tail = state
+            .stderr_tail
+            .lock()
+            .map(|bytes| bytes.iter().copied().collect::<Vec<_>>())
+            .unwrap_or_default();
+        tracing::warn!(
+            plugin_id = %self.manifest.id,
+            reason,
+            stderr_tail_bytes = tail.len(),
+            "plugin process terminated"
+        );
     }
 
     pub fn call<T: for<'de> Deserialize<'de>>(
@@ -515,7 +586,17 @@ impl PluginProcess {
         timeout: Duration,
     ) -> Result<T> {
         self.ensure_started()?;
-        let (id, receiver) = {
+        self.call_started(method, params, timeout)
+    }
+
+    fn call_started<T: for<'de> Deserialize<'de>>(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Result<T> {
+        let started_at = Instant::now();
+        let (generation, id, receiver) = {
             let mut guard = self
                 .state
                 .lock()
@@ -524,16 +605,13 @@ impl PluginProcess {
                 PluginRuntimeError::Process("plugin process is not running".into())
             })?;
             if let Some(status) = state.child.try_wait()? {
-                let tail = state
-                    .stderr_tail
-                    .lock()
-                    .map(|lines| lines.join("\n"))
-                    .unwrap_or_default();
+                self.log_stderr_tail(state, "exited before call");
                 *guard = None;
                 return Err(PluginRuntimeError::Process(format!(
-                    "plugin exited before call (status {status}): {tail}"
+                    "plugin exited before call (status {status})"
                 )));
             }
+            let generation = state.generation;
             let id = state.next_id.fetch_add(1, Ordering::Relaxed);
             let (sender, receiver) = std::sync::mpsc::channel();
             state
@@ -564,23 +642,50 @@ impl PluginProcess {
                     "request frame exceeds size limit".to_string(),
                 ));
             }
-            writeln!(state.stdin, "{encoded}")?;
-            state.stdin.flush()?;
-            (id, receiver)
+            if let Err(error) = state.writer.try_send(encoded) {
+                state
+                    .pending
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&id);
+                drop(guard);
+                self.mark_dead(generation, "request enqueue failed");
+                return Err(match error {
+                    TrySendError::Full(_) => {
+                        PluginRuntimeError::Process("plugin stdin writer queue is full".to_string())
+                    }
+                    TrySendError::Disconnected(_) => PluginRuntimeError::Process(
+                        "plugin stdin writer is unavailable".to_string(),
+                    ),
+                });
+            }
+            (generation, id, receiver)
         };
 
-        match receiver.recv_timeout(timeout) {
-            Ok(Ok(value)) => Ok(serde_json::from_value(value)?),
+        let remaining = timeout.saturating_sub(started_at.elapsed());
+        match receiver.recv_timeout(remaining) {
+            Ok(Ok(value)) => match serde_json::from_value(value) {
+                Ok(value) => Ok(value),
+                Err(error) => {
+                    self.mark_dead(generation, "invalid result payload");
+                    Err(PluginRuntimeError::Protocol(format!(
+                        "invalid result for {method}: {error}"
+                    )))
+                }
+            },
+            Ok(Err(PluginRuntimeError::Remote(message))) => {
+                Err(PluginRuntimeError::Remote(message))
+            }
             Ok(Err(error)) => {
-                self.mark_dead();
+                self.mark_dead(generation, "fatal call error");
                 Err(error)
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                self.mark_dead();
+                self.mark_dead(generation, "call timeout");
                 Err(PluginRuntimeError::Timeout(timeout))
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                self.mark_dead();
+                self.mark_dead(generation, "response channel disconnected");
                 Err(PluginRuntimeError::Process(format!(
                     "plugin call {method} disconnected (id {id})"
                 )))
@@ -588,23 +693,27 @@ impl PluginProcess {
         }
     }
 
-    fn mark_dead(&self) {
-        if let Ok(mut guard) = self.state.lock()
-            && let Some(mut state) = guard.take()
-        {
+    fn mark_dead(&self, generation: u64, reason: &str) {
+        let state = self.state.lock().ok().and_then(|mut guard| {
+            guard
+                .as_ref()
+                .is_some_and(|state| state.generation == generation)
+                .then(|| guard.take())
+                .flatten()
+        });
+        if let Some(mut state) = state {
+            self.log_stderr_tail(&state, reason);
             state.kill();
         }
     }
 
-    fn write_notification(stdin: &mut ChildStdin, method: &str, params: Value) -> Result<()> {
+    fn encode_notification(method: &str, params: Value) -> Result<String> {
         let frame = json!({
             "jsonrpc": "2.0",
             "method": method,
             "params": params,
         });
-        writeln!(stdin, "{}", serde_json::to_string(&frame)?)?;
-        stdin.flush()?;
-        Ok(())
+        Ok(serde_json::to_string(&frame)?)
     }
 }
 
@@ -622,19 +731,25 @@ fn dispatch_frame(pending: &Mutex<BTreeMap<u64, PendingCall>>, frame: Value) {
     let Some(call) = pending.remove(&id) else {
         return;
     };
-    if let Some(error) = frame.get("error") {
-        let message = error
-            .get("message")
-            .and_then(Value::as_str)
-            .unwrap_or("plugin returned an error");
-        let _ = call.sender.send(Err(PluginRuntimeError::Protocol(format!(
-            "{}: {message}",
+    if frame.get("error").is_some() {
+        let _ = call.sender.send(Err(PluginRuntimeError::Remote(format!(
+            "{}: plugin operation failed",
             call.method
         ))));
         return;
     }
     let result = frame.get("result").cloned().unwrap_or(Value::Null);
     let _ = call.sender.send(Ok(result));
+}
+
+fn fail_pending_writer_calls(pending: &Mutex<BTreeMap<u64, PendingCall>>, error: &std::io::Error) {
+    let kind = error.kind();
+    let message = error.to_string();
+    let mut pending = pending.lock().unwrap_or_else(|error| error.into_inner());
+    for (_, call) in std::mem::take(&mut *pending) {
+        let error = std::io::Error::new(kind, message.clone());
+        let _ = call.sender.send(Err(PluginRuntimeError::Io(error)));
+    }
 }
 
 fn node_executable() -> PathBuf {
@@ -648,6 +763,9 @@ pub struct ProcessDocumentFilter {
     process: Arc<PluginProcess>,
     descriptor: FilterDescriptor,
     granted_permissions: Vec<String>,
+    activation_revision: u64,
+    default_call_timeout: Duration,
+    import_call_timeout: Duration,
 }
 
 impl ProcessDocumentFilter {
@@ -655,28 +773,77 @@ impl ProcessDocumentFilter {
         process: Arc<PluginProcess>,
         descriptor: FilterDescriptor,
         granted_permissions: Vec<String>,
+        activation_revision: u64,
     ) -> Self {
         Self {
             process,
             descriptor,
             granted_permissions,
+            activation_revision,
+            default_call_timeout: DEFAULT_CALL_TIMEOUT,
+            import_call_timeout: IMPORT_CALL_TIMEOUT,
         }
     }
 
-    fn require(&self, permission: &str) -> std::result::Result<(), FilterError> {
-        ensure_permissions(&[permission.to_string()], &self.granted_permissions)
-            .map_err(|error| FilterError::Processing(error.to_string()))
+    pub fn with_call_timeouts(
+        mut self,
+        default_call_timeout: Duration,
+        import_call_timeout: Duration,
+    ) -> Self {
+        self.default_call_timeout = default_call_timeout;
+        self.import_call_timeout = import_call_timeout;
+        self
     }
 
-    fn map_err(error: PluginRuntimeError) -> FilterError {
+    fn require(&self, permission: &str, operation: &str) -> std::result::Result<(), FilterError> {
+        ensure_permissions(&[permission.to_string()], &self.granted_permissions).map_err(|error| {
+            FilterError::PluginPermissionDenied {
+                plugin_id: self.process.manifest().id.clone(),
+                filter_id: self.descriptor.id.clone(),
+                operation: operation.to_string(),
+                message: error.to_string(),
+            }
+        })
+    }
+
+    fn map_err(&self, operation: &str, error: PluginRuntimeError) -> FilterError {
         match error {
-            PluginRuntimeError::PermissionDenied(message) => {
-                FilterError::Processing(format!("permission denied: {message}"))
+            PluginRuntimeError::PermissionDenied(message) => FilterError::PluginPermissionDenied {
+                plugin_id: self.process.manifest().id.clone(),
+                filter_id: self.descriptor.id.clone(),
+                operation: operation.to_string(),
+                message,
+            },
+            PluginRuntimeError::Remote(message) => FilterError::PluginOperationFailed {
+                plugin_id: self.process.manifest().id.clone(),
+                filter_id: self.descriptor.id.clone(),
+                operation: operation.to_string(),
+                message,
+            },
+            other => {
+                let kind = match &other {
+                    PluginRuntimeError::Timeout(_) => PluginProcessFailureKind::Timeout,
+                    PluginRuntimeError::Protocol(_) | PluginRuntimeError::Json(_) => {
+                        PluginProcessFailureKind::Protocol
+                    }
+                    PluginRuntimeError::Io(_) => PluginProcessFailureKind::Io,
+                    PluginRuntimeError::Process(_)
+                    | PluginRuntimeError::InvalidManifest(_)
+                    | PluginRuntimeError::NotFound(_)
+                    | PluginRuntimeError::Conflict(_) => PluginProcessFailureKind::Crash,
+                    PluginRuntimeError::PermissionDenied(_) | PluginRuntimeError::Remote(_) => {
+                        unreachable!("handled above")
+                    }
+                };
+                FilterError::PluginProcessFailed {
+                    plugin_id: self.process.manifest().id.clone(),
+                    filter_id: self.descriptor.id.clone(),
+                    operation: operation.to_string(),
+                    activation_revision: self.activation_revision,
+                    kind,
+                    message: other.to_string(),
+                }
             }
-            PluginRuntimeError::Timeout(duration) => {
-                FilterError::Processing(format!("plugin timed out after {duration:?}"))
-            }
-            other => FilterError::Processing(other.to_string()),
         }
     }
 }
@@ -687,15 +854,15 @@ impl DocumentFilter for ProcessDocumentFilter {
     }
 
     fn probe(&self, source: &Path) -> std::result::Result<ProbeResult, FilterError> {
-        self.require("file.read:source")?;
+        self.require("file.read:source", "filter.probe")?;
         let result = self
             .process
             .call::<ProbeResult>(
                 "filter.probe",
                 json!({ "sourcePath": path_string(source) }),
-                DEFAULT_CALL_TIMEOUT,
+                self.default_call_timeout,
             )
-            .map_err(Self::map_err)?;
+            .map_err(|error| self.map_err("filter.probe", error))?;
         Ok(result)
     }
 
@@ -703,7 +870,7 @@ impl DocumentFilter for ProcessDocumentFilter {
         &self,
         request: ImportRequest,
     ) -> std::result::Result<FilterEventStream, FilterError> {
-        self.require("file.read:source")?;
+        self.require("file.read:source", "filter.import")?;
         let events = self
             .process
             .call::<Vec<PluginFilterEvent>>(
@@ -714,9 +881,9 @@ impl DocumentFilter for ProcessDocumentFilter {
                     "sourceLocale": request.source_locale,
                     "options": request.options,
                 }),
-                IMPORT_CALL_TIMEOUT,
+                self.import_call_timeout,
             )
-            .map_err(Self::map_err)?;
+            .map_err(|error| self.map_err("filter.import", error))?;
         let mapped = events
             .into_iter()
             .map(|event| Ok::<FilterEvent, FilterError>(FilterEvent::from(event)));
@@ -724,8 +891,8 @@ impl DocumentFilter for ProcessDocumentFilter {
     }
 
     fn export(&self, request: ExportRequest<'_>) -> std::result::Result<ExportReport, FilterError> {
-        self.require("file.read:source")?;
-        self.require("file.write:output")?;
+        self.require("file.read:source", "filter.export")?;
+        self.require("file.write:output", "filter.export")?;
         self.process
             .call::<ExportReport>(
                 "filter.export",
@@ -734,20 +901,20 @@ impl DocumentFilter for ProcessDocumentFilter {
                     "outputPath": path_string(request.output),
                     "segments": request.segments,
                 }),
-                IMPORT_CALL_TIMEOUT,
+                self.import_call_timeout,
             )
-            .map_err(Self::map_err)
+            .map_err(|error| self.map_err("filter.export", error))
     }
 
     fn validate(&self, source: &Path) -> std::result::Result<ValidationReport, FilterError> {
-        self.require("file.read:source")?;
+        self.require("file.read:source", "filter.validate")?;
         self.process
             .call::<ValidationReport>(
                 "filter.validate",
                 json!({ "sourcePath": path_string(source) }),
-                DEFAULT_CALL_TIMEOUT,
+                self.default_call_timeout,
             )
-            .map_err(Self::map_err)
+            .map_err(|error| self.map_err("filter.validate", error))
     }
 }
 
@@ -797,40 +964,53 @@ mod tests {
     }
 
     #[test]
-    fn rejects_builtin_prefix_and_missing_entry() {
-        let dir = tempdir().unwrap();
-        write_manifest(
-            dir.path(),
-            r#"{
-              "manifestVersion": 1,
-              "id": "builtin.evil",
-              "displayName": "Evil",
-              "version": "0.1.0",
-              "apiVersion": 1,
-              "apiVersionMin": 1,
-              "tier": "process",
-              "entry": { "kind": "node", "path": "missing.mjs" },
-              "contributions": {
-                "filters": [{
-                  "id": "example.x",
-                  "version": "0.1.0",
-                  "displayName": "X",
-                  "extensions": ["x"],
-                  "capabilities": {
-                    "import": true,
-                    "export": true,
-                    "validate": true,
-                    "inlineTags": false,
-                    "notes": false,
+    fn rejects_reserved_id_missing_entry_and_incompatible_api_range() {
+        let manifest = json!({
+            "manifestVersion": 1,
+            "id": "example.invalid",
+            "displayName": "Invalid fixture",
+            "version": "0.1.0",
+            "apiVersion": 1,
+            "apiVersionMin": 1,
+            "tier": "process",
+            "entry": { "kind": "node", "path": "entry.mjs" },
+            "contributions": { "filters": [{
+                "id": "example.invalid",
+                "version": "0.1.0",
+                "displayName": "Invalid fixture",
+                "extensions": ["invalid"],
+                "capabilities": {
+                    "import": true, "export": false, "validate": false,
+                    "inlineTags": false, "notes": false,
                     "degradationReport": false
-                  }
-                }]
-              },
-              "permissions": ["file.read:source"]
-            }"#,
-        );
-        let error = load_manifest(dir.path()).expect_err("builtin id");
+                }
+            }] },
+            "permissions": ["file.read:source"]
+        });
+
+        let reserved_dir = tempdir().expect("reserved id directory");
+        let mut reserved = manifest.clone();
+        reserved["id"] = json!("builtin.evil");
+        write_manifest(reserved_dir.path(), &reserved.to_string());
+        let error = load_manifest(reserved_dir.path()).expect_err("reserved id");
         assert!(error.to_string().contains("builtin"));
+
+        let missing_dir = tempdir().expect("missing entry directory");
+        fs::write(
+            missing_dir.path().join(MANIFEST_FILE_NAME),
+            manifest.to_string(),
+        )
+        .expect("write missing-entry manifest");
+        let error = load_manifest(missing_dir.path()).expect_err("missing entry");
+        assert!(error.to_string().contains("entry file missing"));
+
+        let api_dir = tempdir().expect("API range directory");
+        let mut incompatible = manifest;
+        incompatible["apiVersion"] = json!(2);
+        incompatible["apiVersionMin"] = json!(2);
+        write_manifest(api_dir.path(), &incompatible.to_string());
+        let error = load_manifest(api_dir.path()).expect_err("incompatible API range");
+        assert!(error.to_string().contains("outside plugin range"));
     }
 
     #[test]
@@ -879,5 +1059,294 @@ mod tests {
         )
         .expect_err("missing write");
         assert!(matches!(error, PluginRuntimeError::PermissionDenied(_)));
+    }
+
+    #[test]
+    fn writer_io_failure_retains_io_classification_at_the_filter_boundary() {
+        let dir = tempdir().expect("plugin directory");
+        write_manifest(
+            dir.path(),
+            r#"{
+              "manifestVersion": 1,
+              "id": "example.writer-io",
+              "displayName": "Writer I/O fixture",
+              "version": "0.1.0",
+              "apiVersion": 1,
+              "apiVersionMin": 1,
+              "tier": "process",
+              "entry": { "kind": "node", "path": "entry.mjs" },
+              "contributions": { "filters": [{
+                "id": "example.writer-io",
+                "version": "0.1.0",
+                "displayName": "Writer I/O fixture",
+                "extensions": ["writer-io"],
+                "capabilities": {
+                  "import": true, "export": false, "validate": false,
+                  "inlineTags": false, "notes": false,
+                  "degradationReport": false
+                }
+              }] },
+              "permissions": ["file.read:source"]
+            }"#,
+        );
+        fs::write(dir.path().join("entry.mjs"), "").expect("write entry");
+        let manifest = load_manifest(dir.path()).expect("fixture manifest");
+        let descriptor = manifest.filter_descriptors().remove(0);
+        let process = Arc::new(PluginProcess::new(dir.path().to_path_buf(), manifest));
+        let filter = ProcessDocumentFilter::new(
+            process,
+            descriptor,
+            vec!["file.read:source".to_string()],
+            7,
+        );
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let pending = Mutex::new(BTreeMap::from([(
+            1,
+            PendingCall {
+                method: "filter.probe".to_string(),
+                sender,
+            },
+        )]));
+
+        fail_pending_writer_calls(
+            &pending,
+            &std::io::Error::new(std::io::ErrorKind::BrokenPipe, "fixture broken pipe"),
+        );
+        let runtime_error = receiver
+            .recv()
+            .expect("writer failure response")
+            .expect_err("writer failure must fail the pending call");
+        assert!(matches!(runtime_error, PluginRuntimeError::Io(_)));
+        assert!(matches!(
+            filter.map_err("filter.probe", runtime_error),
+            FilterError::PluginProcessFailed {
+                kind: PluginProcessFailureKind::Io,
+                activation_revision: 7,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn timeout_kills_only_the_plugin_and_restart_keeps_host_environment_clear() {
+        let dir = tempdir().expect("plugin directory");
+        write_manifest(
+            dir.path(),
+            r#"{
+              "manifestVersion": 1,
+              "id": "example.timeout",
+              "displayName": "Timeout fixture",
+              "version": "0.1.0",
+              "apiVersion": 1,
+              "apiVersionMin": 1,
+              "tier": "process",
+              "entry": { "kind": "node", "path": "entry.mjs" },
+              "contributions": {
+                "filters": [{
+                  "id": "example.timeout",
+                  "version": "0.1.0",
+                  "displayName": "Timeout fixture",
+                  "extensions": ["timeout"],
+                  "capabilities": {
+                    "import": true,
+                    "export": false,
+                    "validate": false,
+                    "inlineTags": false,
+                    "notes": false,
+                    "degradationReport": false
+                  }
+                }]
+              },
+              "permissions": ["file.read:source"]
+            }"#,
+        );
+        fs::write(
+            dir.path().join("entry.mjs"),
+            r#"import { createInterface } from "node:readline";
+const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
+rl.on("line", (line) => {
+  const request = JSON.parse(line);
+  if (request.method === "test.timeout") return;
+  const result = request.method === "plugin.handshake"
+    ? { apiVersion: 1, pluginId: "example.timeout", contributions: { filters: [] } }
+    : request.method === "test.path"
+      ? (process.env.PATH ?? null)
+      : {};
+  if (request.method === "test.remote") {
+    process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, error: { code: -32000, message: "fixture details" } })}\n`);
+    return;
+  }
+  process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
+});
+"#,
+        )
+        .expect("write process fixture");
+        let manifest = load_manifest(dir.path()).expect("fixture manifest");
+        let process = PluginProcess::new(dir.path().to_path_buf(), manifest);
+
+        let inherited_path: Option<String> = process
+            .call("test.path", json!({}), Duration::from_secs(2))
+            .expect("environment probe");
+        assert_eq!(inherited_path, None);
+        let generation = process
+            .state
+            .lock()
+            .expect("process state")
+            .as_ref()
+            .expect("running process")
+            .generation;
+
+        let remote = process
+            .call::<Value>("test.remote", json!({}), Duration::from_secs(2))
+            .expect_err("remote operation must fail");
+        assert!(matches!(remote, PluginRuntimeError::Remote(_)));
+        assert_eq!(
+            process
+                .state
+                .lock()
+                .expect("process state")
+                .as_ref()
+                .expect("remote error keeps process alive")
+                .generation,
+            generation
+        );
+        let still_usable: Option<String> = process
+            .call("test.path", json!({}), Duration::from_secs(2))
+            .expect("remote error does not poison process");
+        assert_eq!(still_usable, None);
+
+        let error = process
+            .call::<Value>("test.timeout", json!({}), Duration::from_millis(50))
+            .expect_err("call must time out");
+        assert!(matches!(error, PluginRuntimeError::Timeout(_)));
+
+        let inherited_path_after_restart: Option<String> = process
+            .call("test.path", json!({}), Duration::from_secs(2))
+            .expect("plugin restarts after timeout");
+        assert_eq!(inherited_path_after_restart, None);
+    }
+
+    #[test]
+    fn rejected_handshake_never_exposes_an_uninitialized_process() {
+        let dir = tempdir().expect("plugin directory");
+        write_manifest(
+            dir.path(),
+            r#"{
+              "manifestVersion": 1,
+              "id": "example.reject-handshake",
+              "displayName": "Reject handshake fixture",
+              "version": "0.1.0",
+              "apiVersion": 1,
+              "apiVersionMin": 1,
+              "tier": "process",
+              "entry": { "kind": "node", "path": "entry.mjs" },
+              "contributions": { "filters": [{
+                "id": "example.reject-handshake",
+                "version": "0.1.0",
+                "displayName": "Reject handshake fixture",
+                "extensions": ["reject"],
+                "capabilities": {
+                  "import": true, "export": false, "validate": false,
+                  "inlineTags": false, "notes": false,
+                  "degradationReport": false
+                }
+              }] },
+              "permissions": ["file.read:source"]
+            }"#,
+        );
+        fs::write(
+            dir.path().join("entry.mjs"),
+            r#"import { createInterface } from "node:readline";
+const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
+rl.on("line", (line) => {
+  const request = JSON.parse(line);
+  process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, error: { code: -32000, message: "no" } })}\n`);
+});
+"#,
+        )
+        .expect("write rejecting process");
+        let manifest = load_manifest(dir.path()).expect("fixture manifest");
+        let process = PluginProcess::new(dir.path().to_path_buf(), manifest);
+
+        let error = process.ensure_started().expect_err("handshake must fail");
+        assert!(matches!(error, PluginRuntimeError::Protocol(_)));
+        assert!(process.state.lock().expect("process state").is_none());
+    }
+
+    #[test]
+    fn writer_backpressure_obeys_deadline_and_recovers_with_a_new_generation() {
+        let dir = tempdir().expect("plugin directory");
+        write_manifest(
+            dir.path(),
+            r#"{
+              "manifestVersion": 1,
+              "id": "example.backpressure",
+              "displayName": "Backpressure fixture",
+              "version": "0.1.0",
+              "apiVersion": 1,
+              "apiVersionMin": 1,
+              "tier": "process",
+              "entry": { "kind": "node", "path": "entry.mjs" },
+              "contributions": { "filters": [{
+                "id": "example.backpressure",
+                "version": "0.1.0",
+                "displayName": "Backpressure fixture",
+                "extensions": ["blocked"],
+                "capabilities": {
+                  "import": true, "export": false, "validate": false,
+                  "inlineTags": false, "notes": false,
+                  "degradationReport": false
+                }
+              }] },
+              "permissions": ["file.read:source"]
+            }"#,
+        );
+        fs::write(
+            dir.path().join("entry.mjs"),
+            r#"import { existsSync, writeFileSync } from "node:fs";
+import { createInterface } from "node:readline";
+const marker = ".backpressure-observed";
+const blockThisGeneration = !existsSync(marker);
+if (blockThisGeneration) writeFileSync(marker, "blocked");
+const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
+rl.on("line", (line) => {
+  const request = JSON.parse(line);
+  const result = request.method === "plugin.handshake"
+    ? { apiVersion: 1, pluginId: "example.backpressure", contributions: { filters: [] } }
+    : "recovered";
+  process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
+  if (request.method === "plugin.handshake" && blockThisGeneration) {
+    rl.close();
+    process.stdin.pause();
+  }
+});
+setInterval(() => {}, 1_000);
+"#,
+        )
+        .expect("write backpressure fixture");
+        let manifest = load_manifest(dir.path()).expect("fixture manifest");
+        let process = PluginProcess::new(dir.path().to_path_buf(), manifest);
+        process
+            .ensure_started()
+            .expect("first generation handshake");
+
+        let started_at = Instant::now();
+        let error = process
+            .call::<Value>(
+                "test.backpressure",
+                json!({ "payload": "x".repeat(4 * 1024 * 1024) }),
+                Duration::from_millis(100),
+            )
+            .expect_err("blocked writer must honor the deadline");
+        assert!(matches!(error, PluginRuntimeError::Timeout(_)));
+        assert!(
+            started_at.elapsed() < Duration::from_secs(2),
+            "wall-clock deadline was not bounded"
+        );
+
+        let recovered: String = process
+            .call("test.recovered", json!({}), Duration::from_secs(2))
+            .expect("next generation remains usable");
+        assert_eq!(recovered, "recovered");
     }
 }

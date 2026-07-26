@@ -170,6 +170,10 @@ open when they are inside the workspace.
   transaction.
 - Pipeline states are `queued -> running -> succeeded|failed`, with
   `canceling -> canceled` and `interrupted -> queued|failed`.
+- A worker must re-check the durable `canceling` state before mapping any
+  revision/step-start race to `failed`; cancellation won by the caller is
+  finalized as `canceled` even when it arrives between the loop guard and
+  step transaction.
 - Startup marks orphaned running work interrupted in one transaction. Resume
   preserves committed step output/checkpoint data; non-resumable steps become a
   typed `step_not_resumable` failure.
@@ -2388,19 +2392,165 @@ await window.translunar.invoke("curation.apply", {
 // Storage validates the immutable analysis and selected findings atomically.
 ```
 
-## Plugin runtime (local process filters)
+## Plugin Runtime (Local Process Filters)
 
-- Engine owns plugin install/enable/disable/uninstall and copies packages into
-  `<dataDir>/plugins/<id>/`.
-- Tier 3 process plugins speak newline JSON-RPC; crashes/timeouts must not kill
-  the Engine process.
-- Filter contributions register through the same `FilterRegistry` as built-ins
-  and must not use the `builtin.` id prefix.
-- Effective permissions are `requested ∩ granted`; missing grants fail closed
-  with `plugin_permission_denied`.
-- Advertise `plugin.runtime.v1`, `plugin.process.v1`, `plugin.filter.v1`, and
-  `plugin.local-install` from `engine.initialize`.
-- Migration 16 introduces `plugin_installations`; never rewrite earlier migrations.
+### 1. Scope / Trigger
+
+Use this contract when changing local plugin install/lifecycle, migration 16,
+the Tier 3 child-process host, a process-backed `DocumentFilter`, plugin error
+mapping, the public process SDK, or plugin Engine/Desktop E2E. This is the
+qualified Tier 3 filter foundation; Tier 1, Tier 2, scoped grants/audit, and
+non-filter contribution registries have separate task contracts.
+
+### 2. Signatures
+
+Protocol v1 adds:
+
+```text
+plugin.list      PluginListParams      -> PluginPage
+plugin.get       PluginIdParams        -> PluginSummary
+plugin.install   PluginInstallParams   -> PluginMutationResult
+plugin.enable    PluginMutationParams  -> PluginMutationResult
+plugin.disable   PluginMutationParams  -> PluginMutationResult
+plugin.uninstall PluginMutationParams  -> PluginMutationResult
+```
+
+The process entry speaks newline JSON-RPC:
+
+```text
+plugin.handshake | plugin.shutdown
+filter.descriptor | filter.probe | filter.import | filter.export | filter.validate
+```
+
+Fatal adapter failures preserve this internal shape through the filter layer:
+
+```rust
+FilterError::PluginProcessFailed {
+    plugin_id,
+    filter_id,
+    operation,
+    activation_revision,
+    kind, // crash | timeout | protocol | io
+    message,
+}
+```
+
+Migration 16 owns `plugin_installations`, including status, requested/granted
+permissions, manifest/contributions, revision, `last_error`, and
+`crash_count`. Released migration 16 is immutable.
+
+### 3. Contracts
+
+- Engine owns package copy, SQLite lifecycle state, process supervision, and
+  registry attach/detach. Packages run from `<dataDir>/plugins/<id>/`; the
+  renderer never imports plugin code.
+- Installation validates the source manifest, then rejects an existing id
+  before removing/copying a directory, updating SQLite, spawning a process, or
+  touching the filter registry. A stale directory without a database row may
+  be cleaned as interrupted-install residue.
+- Enable performs the revision-checked SQLite transition first, uses the
+  returned revision as the activation identity, removes the previous
+  activation, then registers all contributions. Registration prevalidates the
+  complete descriptor set and rolls back every filter/process on any failure.
+- Disable performs its revision CAS before unregistering. A stale enable or
+  disable cannot split the SQLite and in-memory states.
+- Fatal process errors update to `degraded` only with one SQL CAS over
+  `id + status=enabled + activation revision`; matching failures increment
+  `crashCount` once and unregister only that activation. A late failure from an
+  older activation cannot overwrite disable, uninstall, or re-enable.
+- A plugin-returned JSON-RPC `error` is a non-fatal application failure. It
+  fails the current import/export operation but keeps the process and enabled
+  lifecycle state. Crash, timeout, malformed framing/result, and host I/O are
+  fatal.
+- `plugin_process_failed` data contains `pluginId`, `filterId`, `operation`,
+  `failureKind`, and `retryable`. Permission denial uses
+  `plugin_permission_denied`. Plugin application errors keep the owning
+  document/corpus/export error code and never increment crash state.
+- Child processes inherit `TRANSLUNAR_PLUGIN_ID` only, plus the explicit
+  non-secret Windows runtime allowlist `SystemRoot`/`WINDIR`. Host lookup may
+  read `TRANSLUNAR_NODE_PATH`, but it is not inherited by the plugin.
+- Stdout frames and requests are limited to 8 MiB. Stderr is drained into a
+  16 KiB rolling tail; only its byte count enters structured local logs. Raw
+  stderr never enters RPC errors, `lastError`, SQLite, or the desktop.
+- Each process owns a bounded stdin writer queue and dedicated writer thread.
+  Call deadlines begin before enqueue, no process-state mutex is held across
+  pipe I/O, writer failure affects only that process generation, and shutdown
+  notification is best effort before kill/reap. A plugin that stops reading
+  stdin cannot bypass the wall-clock deadline or block Engine shutdown.
+- The public SDK validates the host API range, tier/entry path, reserved and
+  duplicate ids, descriptor metadata/extensions, and permission names before
+  starting its JSON-RPC server. Engine installation remains authoritative for
+  package-dependent checks such as entry-file existence.
+- Startup reloads only `enabled` rows. `degraded`, `disabled`, and `installed`
+  rows remain unregistered across restart.
+- `engine.initialize` advertises `plugin.runtime.v1`, `plugin.process.v1`,
+  `plugin.filter.v1`, and `plugin.local-install`.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Existing plugin id | `invalid_state`; record, revision, package bytes, process, and filters unchanged |
+| Unsupported API range, missing/escaping entry, unknown field, `builtin.` id | `plugin_invalid_manifest`; no managed package/row/registration |
+| Required permission not granted | `plugin_permission_denied`; no registration/operation side effect |
+| Plugin JSON-RPC application error | Owning operation error; process stays ready, plugin stays enabled |
+| Exit, closed stdout, deadline, invalid frame/result, host process I/O | `plugin_process_failed` with structured data; matching activation becomes degraded and unregisters |
+| Fatal failure arrives after disable/re-enable/uninstall | Return the current call error; ignore stale lifecycle write and do not remove the new activation |
+| Crash persistence itself fails | Preserve the original plugin RPC error, unregister the matching in-memory activation, log storage failure locally |
+| Engine restart after degradation | Diagnostics persist; plugin contribution stays absent; ordinary RPCs continue |
+
+### 5. Good / Base / Bad Cases
+
+- Good: install hello-SRT, enable, restart, import/export, disable, and
+  uninstall while contribution inventory follows the durable lifecycle.
+- Base: a handler returns a normal JSON-RPC error; the current document action
+  fails but a second plugin call uses the same process and crashCount is
+  unchanged.
+- Bad: overwrite a managed package on duplicate install, map a child exit to
+  `unsupported_document`, expose stderr to a client, or let a stale timeout
+  degrade a newer activation.
+
+### 6. Tests Required
+
+- Runtime unit tests: manifest/API/path validation, permission intersection,
+  environment allowlist, non-fatal remote error followed by success, handshake
+  rejection cleanup, response timeout kill/restart, blocked-stdin wall-clock
+  deadline/recovery, writer generation isolation, and generation-aware cleanup.
+- Storage tests: enabled/revision CAS, one crash increment, repeated stale
+  failure, re-enable/disable stale failure, and preserved status/count.
+- Engine tests: duplicate install over an enabled plugin and stale
+  enable/disable leave package bytes, summary, registry, and process identity
+  unchanged; invalid API/entry and missing grants leave no partial
+  registration; a typed timeout degrades exactly one activation, removes its
+  contribution, persists one crash, and remains absent after restart.
+- Real stdio smoke: SDK example build; install/enable/restart/import/export;
+  duplicate rejection; crash code/data; degraded persistence; contribution
+  removal; restart; and a subsequent ordinary RPC.
+- Electron E2E: successful and crashed plugins through the generated Desktop
+  API, typed IPC error data, refreshed degraded/lastError display, restart,
+  named controls, zero console/page errors, and 1250x744/1680x942/1920x1080
+  screenshots.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+// A timeout from activation R can overwrite a later enable at R+2.
+store.record_plugin_crash(plugin_id, error.to_string())?;
+filters.unregister(filter_id)?;
+```
+
+#### Correct
+
+```rust
+if store
+    .record_plugin_crash(plugin_id, activation_revision, safe_message)?
+    .is_some()
+{
+    unregister_plugin_activation(plugin_id, activation_revision);
+}
+```
 
 ## Local API and CLI
 

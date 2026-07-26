@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/engine-boundary.md","reason":"Engine/plugin lifecycle, protocol, and process isolation contract"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Typed lower-layer errors and single RPC mapping boundary"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Durable plugin state and no-partial-side-effect rules"}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Generated plugin contracts and structured desktop IPC errors"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Real Engine E2E, accessibility, viewport, and console gates"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Cross-layer failure and persistence propagation checklist"}

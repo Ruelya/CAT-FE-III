@@ -126,13 +126,89 @@ interface JsonRpcRequest {
 export function validateManifest(manifest: PluginManifest): string[] {
   const errors: string[] = [];
   if (manifest.manifestVersion !== 1) errors.push("manifestVersion must be 1");
-  if (!manifest.id?.trim()) errors.push("id is required");
-  if (manifest.id?.startsWith("builtin."))
+  validateId(manifest.id, "id", errors);
+  if (manifest.id?.startsWith("builtin.")) {
     errors.push("id must not use builtin. prefix");
-  if (!manifest.contributions?.filters?.length) {
+  }
+  if (!manifest.displayName?.trim()) errors.push("displayName is required");
+  if (!manifest.version?.trim()) errors.push("version is required");
+  if (
+    !Number.isInteger(manifest.apiVersion) ||
+    !Number.isInteger(manifest.apiVersionMin) ||
+    manifest.apiVersion < 0 ||
+    manifest.apiVersionMin < 0
+  ) {
+    errors.push("apiVersion and apiVersionMin must be non-negative integers");
+  } else if (manifest.apiVersionMin > manifest.apiVersion) {
+    errors.push("apiVersionMin must be <= apiVersion");
+  } else if (
+    HOST_API_VERSION < manifest.apiVersionMin ||
+    HOST_API_VERSION > manifest.apiVersion
+  ) {
+    errors.push(
+      `host API ${HOST_API_VERSION} is outside plugin range ${manifest.apiVersionMin}..=${manifest.apiVersion}`,
+    );
+  }
+  if (manifest.tier !== "process") errors.push("tier must be process");
+  if (
+    !manifest.entry ||
+    !["node", "executable"].includes(manifest.entry.kind) ||
+    !manifest.entry.path?.trim() ||
+    manifest.entry.path.includes("..") ||
+    /^(?:[A-Za-z]:[\\/]|[\\/])/.test(manifest.entry.path)
+  ) {
+    errors.push(
+      "entry must have a supported kind and a relative path without '..'",
+    );
+  }
+
+  const filters = manifest.contributions?.filters;
+  if (!filters?.length) {
     errors.push("at least one filter contribution is required");
+  } else {
+    const seen = new Set<string>();
+    for (const filter of filters) {
+      validateId(filter.id, "filter id", errors);
+      if (filter.id?.startsWith("builtin.")) {
+        errors.push(`filter id ${filter.id} must not use builtin. prefix`);
+      }
+      if (seen.has(filter.id)) {
+        errors.push(`duplicate filter id ${filter.id}`);
+      }
+      seen.add(filter.id);
+      if (!filter.version?.trim() || !filter.displayName?.trim()) {
+        errors.push(`filter ${filter.id} needs version and displayName`);
+      }
+      if (!filter.extensions?.length) {
+        errors.push(`filter ${filter.id} needs at least one extension`);
+      }
+    }
+  }
+  for (const permission of manifest.permissions ?? []) {
+    if (
+      permission !== "file.read:source" &&
+      permission !== "file.write:output" &&
+      !(
+        permission.startsWith("network:") &&
+        permission.length > "network:".length
+      )
+    ) {
+      errors.push(`unsupported permission ${permission}`);
+    }
   }
   return errors;
+}
+
+function validateId(
+  value: string | undefined,
+  label: string,
+  errors: string[],
+): void {
+  if (!value || value.trim() !== value) {
+    errors.push(`${label} must be non-empty without surrounding whitespace`);
+  } else if (!/^[A-Za-z0-9._-]+$/.test(value)) {
+    errors.push(`${label} contains unsupported characters`);
+  }
 }
 
 export function startProcessPlugin(options: ProcessPluginOptions): void {

@@ -45,7 +45,7 @@
   gap: 1rem;
   padding: 0.85rem 1rem;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-panel);
   background: var(--surface);
 }
 
@@ -72,5 +72,5 @@
 }
 
 .plugins-panel__error {
-  color: #a33;
+  color: var(--error);
 }

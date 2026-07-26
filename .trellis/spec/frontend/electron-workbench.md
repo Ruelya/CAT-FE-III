@@ -1368,16 +1368,97 @@ return {
 if (!response.ok) return Promise.reject(response.error);
 ```
 
-## Plugins panel
+## Plugins Panel
 
-- Project Insights hosts a Plugins tab that lists Engine-owned plugin summaries
-  via generated `plugin.*` contracts only.
-- Package directory selection stays in Electron main (`selectPluginPackage`);
-  E2E may set `TRANSLUNAR_TEST_PLUGIN_SOURCE`.
-- Preserve typed Engine error codes across the desktop invoke envelope when
-  install/enable/disable fails.
-- Do not import or execute plugin code in the renderer; contributions are
-  descriptors managed by the Engine.
+### 1. Scope / Trigger
+
+Use this contract for the Project Insights Plugins tab, package-directory
+selection, plugin lifecycle actions, plugin diagnostics, or desktop plugin E2E.
+The surface projects Engine-owned state; it never implements lifecycle policy.
+
+### 2. Signatures
+
+```typescript
+window.translunar.selectPluginPackage(): Promise<string | null>;
+window.translunar.invoke("plugin.list", { offset, limit }): Promise<PluginPage>;
+window.translunar.invoke("plugin.install", PluginInstallParams);
+window.translunar.invoke("plugin.enable" | "plugin.disable" |
+  "plugin.uninstall", PluginMutationParams);
+```
+
+`PluginsPanel` accepts only `onRefresh(): Promise<void>`. Its rows consume the
+generated `PluginSummary` fields `status`, permissions, `lastError`, revision,
+and contribution descriptors.
+
+### 3. Contracts
+
+- Project Insights owns the Plugins tab; package selection remains in Electron
+  main. `TRANSLUNAR_TEST_PLUGIN_SOURCE` replaces only the dialog result in E2E.
+- Renderer code uses generated `plugin.*` method types and the shared structured
+  invoke envelope. It never imports plugin code, reads manifests, opens SQLite,
+  infers status, or registers contributions.
+- Install, enable, disable, and uninstall expose one busy state, clear the
+  previous alert, invoke Engine, reload summaries, and refresh owning project
+  data. Cancellation changes nothing.
+- An external process failure can occur during document work rather than a
+  panel button. The panel Refresh action must then show Engine-owned
+  `degraded` and `lastError`; it does not synthesize the transition locally.
+- Structured IPC rejection preserves `code` and `data`, including
+  `plugin_process_failed` fields `pluginId`, `filterId`, `operation`,
+  `failureKind`, and `retryable`.
+- Enabled status uses the confirmed color, degraded uses warning, and error
+  text uses the shared error token. Long permission/error text wraps inside the
+  row; actions remain reachable at supported viewports.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required UI behavior |
+| --- | --- |
+| Package dialog canceled | No Engine call, no alert, current list unchanged |
+| Install/lifecycle RPC fails | Named alert shows formatted error; busy state clears |
+| Plugin process crashes during document import | Structured rejection retains code/data; Refresh shows degraded row and safe lastError |
+| Degraded plugin after Engine restart | Row remains degraded and contribution is absent from `filter.list` |
+| Empty list | Render localized empty state, not a placeholder plugin |
+| Long diagnostics/permissions at 1250x744 | Wrap inside row with no document overflow or action overlap |
+
+### 5. Good / Base / Bad Cases
+
+- Good: install, enable, verify contribution, restart, disable, and uninstall
+  from one named Plugins surface.
+- Base: refresh after an out-of-panel crash and render the durable degraded row
+  without a console error.
+- Bad: catch an Engine error as `String(error)` before reading its code/data,
+  import the plugin entry in React, or set status to degraded optimistically.
+
+### 6. Tests Required
+
+- Real-Engine E2E covers empty/install/enabled/restart/disabled/uninstalled and
+  crash/degraded/restart paths.
+- Assert the exact typed failure code/data, absence from `filter.list`, visible
+  safe lastError, a subsequent ordinary RPC, and no stderr leakage.
+- Assert every button/tab/region has an accessible name and console/page error
+  collections remain empty.
+- Capture and inspect 1250x744, 1680x942, and 1920x1080 for both enabled and
+  degraded states; assert no global horizontal overflow or incoherent overlap.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```typescript
+catch (error) {
+  setPlugins((rows) => rows.map((row) => ({ ...row, status: "degraded" })));
+}
+```
+
+#### Correct
+
+```typescript
+catch (error: unknown) {
+  setError(formatError(error));
+  await load(); // Render Engine-owned status, revision, and lastError.
+}
+```
 
 ## Packaging and localization shell
 

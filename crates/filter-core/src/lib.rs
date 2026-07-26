@@ -170,6 +170,25 @@ pub struct ValidationReport {
     pub findings: Vec<DegradationFinding>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PluginProcessFailureKind {
+    Crash,
+    Timeout,
+    Protocol,
+    Io,
+}
+
+impl PluginProcessFailureKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Crash => "crash",
+            Self::Timeout => "timeout",
+            Self::Protocol => "protocol",
+            Self::Io => "io",
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum FilterError {
     #[error("unsupported document: {0}")]
@@ -180,6 +199,29 @@ pub enum FilterError {
     Io(#[from] std::io::Error),
     #[error("document processing failed: {0}")]
     Processing(String),
+    #[error("plugin {plugin_id} permission denied during {operation}: {message}")]
+    PluginPermissionDenied {
+        plugin_id: String,
+        filter_id: String,
+        operation: String,
+        message: String,
+    },
+    #[error("plugin {plugin_id} operation {operation} failed: {message}")]
+    PluginOperationFailed {
+        plugin_id: String,
+        filter_id: String,
+        operation: String,
+        message: String,
+    },
+    #[error("plugin {plugin_id} process {kind:?} during {operation}: {message}")]
+    PluginProcessFailed {
+        plugin_id: String,
+        filter_id: String,
+        operation: String,
+        activation_revision: u64,
+        kind: PluginProcessFailureKind,
+        message: String,
+    },
     #[error("no filter matched the source: {0}")]
     NoMatch(String),
     #[error("filter not found: {0}")]

@@ -214,47 +214,65 @@ impl Store {
         expected_revision: Option<u64>,
         last_error: Option<String>,
     ) -> Result<PluginInstallationRecord> {
-        let current = self.get_plugin_installation(plugin_id)?;
-        if let Some(expected) = expected_revision
-            && current.revision != expected
-        {
-            return Err(StorageError::EntityConflict {
-                entity: "plugin",
-                id: plugin_id.to_string(),
-                expected_revision: expected,
-                actual_revision: current.revision,
-            });
-        }
         let now = now_ms();
-        self.connection.execute(
-            "UPDATE plugin_installations
-             SET status = ?2, last_error = ?3, revision = revision + 1, updated_at_ms = ?4
-             WHERE id = ?1",
-            params![plugin_id, status.as_str(), last_error, now],
-        )?;
+        let updated = if let Some(expected) = expected_revision {
+            self.connection.execute(
+                "UPDATE plugin_installations
+                 SET status = ?2, last_error = ?3, revision = revision + 1, updated_at_ms = ?4
+                 WHERE id = ?1 AND revision = ?5",
+                params![
+                    plugin_id,
+                    status.as_str(),
+                    last_error,
+                    now,
+                    to_i64(expected)?
+                ],
+            )?
+        } else {
+            self.connection.execute(
+                "UPDATE plugin_installations
+                 SET status = ?2, last_error = ?3, revision = revision + 1, updated_at_ms = ?4
+                 WHERE id = ?1",
+                params![plugin_id, status.as_str(), last_error, now],
+            )?
+        };
+        if updated == 0 {
+            let current = self.get_plugin_installation(plugin_id)?;
+            if let Some(expected) = expected_revision {
+                return Err(StorageError::EntityConflict {
+                    entity: "plugin",
+                    id: plugin_id.to_string(),
+                    expected_revision: expected,
+                    actual_revision: current.revision,
+                });
+            }
+        }
         self.get_plugin_installation(plugin_id)
     }
 
     pub fn record_plugin_crash(
         &mut self,
         plugin_id: &str,
+        activation_revision: u64,
         last_error: impl Into<String>,
-    ) -> Result<PluginInstallationRecord> {
+    ) -> Result<Option<PluginInstallationRecord>> {
         let now = now_ms();
         let updated = self.connection.execute(
             "UPDATE plugin_installations
              SET status = 'degraded', last_error = ?2, crash_count = crash_count + 1,
                  revision = revision + 1, updated_at_ms = ?3
-             WHERE id = ?1",
-            params![plugin_id, last_error.into(), now],
+             WHERE id = ?1 AND status = 'enabled' AND revision = ?4",
+            params![
+                plugin_id,
+                last_error.into(),
+                now,
+                to_i64(activation_revision)?
+            ],
         )?;
         if updated == 0 {
-            return Err(StorageError::NotFound {
-                entity: "plugin",
-                id: plugin_id.to_string(),
-            });
+            return Ok(None);
         }
-        self.get_plugin_installation(plugin_id)
+        self.get_plugin_installation(plugin_id).map(Some)
     }
 
     pub fn delete_plugin_installation(&mut self, plugin_id: &str) -> Result<()> {
@@ -341,4 +359,118 @@ fn path_string(path: &Path) -> String {
 #[allow(dead_code)]
 fn _conversion_anchor(column: usize) -> rusqlite::Error {
     conversion_error(column, StorageError::InvalidData("anchor".into()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+    use translunar_filter_core::FilterCapabilities;
+    use translunar_plugin_runtime::{
+        PluginContributions, PluginEntryKind, PluginFilterContribution,
+    };
+
+    fn manifest() -> PluginManifest {
+        PluginManifest {
+            manifest_version: 1,
+            id: "example.crash-cas".to_string(),
+            display_name: "Crash CAS".to_string(),
+            version: "0.1.0".to_string(),
+            api_version: 1,
+            api_version_min: 1,
+            tier: PluginTier::Process,
+            entry: PluginEntry {
+                kind: PluginEntryKind::Node,
+                path: "entry.mjs".to_string(),
+            },
+            contributions: PluginContributions {
+                filters: vec![PluginFilterContribution {
+                    id: "example.crash-cas".to_string(),
+                    version: "0.1.0".to_string(),
+                    display_name: "Crash CAS".to_string(),
+                    extensions: vec!["cas".to_string()],
+                    capabilities: FilterCapabilities {
+                        import: true,
+                        export: false,
+                        validate: false,
+                        inline_tags: false,
+                        notes: false,
+                        degradation_report: false,
+                    },
+                }],
+            },
+            permissions: vec!["file.read:source".to_string()],
+        }
+    }
+
+    #[test]
+    fn crash_transition_is_guarded_by_enabled_activation_revision() {
+        let directory = tempdir().expect("data directory");
+        let mut store = Store::open(directory.path()).expect("open store");
+        let installed = store
+            .upsert_plugin_installation(UpsertPluginInstallation {
+                manifest: manifest(),
+                package_path: directory.path().join("plugins/example.crash-cas"),
+                status: PluginStatus::Installed,
+                granted_permissions: vec!["file.read:source".to_string()],
+                last_error: None,
+            })
+            .expect("install row");
+        let enabled = store
+            .set_plugin_status(
+                &installed.id,
+                PluginStatus::Enabled,
+                Some(installed.revision),
+                None,
+            )
+            .expect("enable row");
+
+        let degraded = store
+            .record_plugin_crash(&enabled.id, enabled.revision, "first crash")
+            .expect("record crash")
+            .expect("matching activation updates");
+        assert_eq!(degraded.status, PluginStatus::Degraded);
+        assert_eq!(degraded.crash_count, 1);
+
+        assert!(
+            store
+                .record_plugin_crash(&enabled.id, enabled.revision, "duplicate crash")
+                .expect("stale crash is ignored")
+                .is_none()
+        );
+        let reenabled = store
+            .set_plugin_status(
+                &degraded.id,
+                PluginStatus::Enabled,
+                Some(degraded.revision),
+                None,
+            )
+            .expect("re-enable row");
+        assert!(
+            store
+                .record_plugin_crash(&reenabled.id, enabled.revision, "old activation")
+                .expect("old activation is ignored")
+                .is_none()
+        );
+        let disabled = store
+            .set_plugin_status(
+                &reenabled.id,
+                PluginStatus::Disabled,
+                Some(reenabled.revision),
+                None,
+            )
+            .expect("disable row");
+        assert!(
+            store
+                .record_plugin_crash(&disabled.id, reenabled.revision, "after disable")
+                .expect("disabled activation is ignored")
+                .is_none()
+        );
+        let current = store
+            .get_plugin_installation(&disabled.id)
+            .expect("current row");
+        assert_eq!(current.status, PluginStatus::Disabled);
+        assert_eq!(current.crash_count, 1);
+        assert_eq!(current.last_error, None);
+    }
 }

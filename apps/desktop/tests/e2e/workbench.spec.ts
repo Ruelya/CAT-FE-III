@@ -56,6 +56,7 @@ interface HarnessOptions {
   interopTableInput?: string;
   taskPackageInput?: string;
   taskPackageDestination?: string;
+  pluginSource?: string;
   locale?: "en-US" | "zh-CN";
   engineDelay?: {
     methods: EngineMethod[];
@@ -140,6 +141,9 @@ async function launchHarness(
               TRANSLUNAR_TEST_TASK_PACKAGE_DESTINATION:
                 options.taskPackageDestination,
             }
+          : {}),
+        ...(options.pluginSource
+          ? { TRANSLUNAR_TEST_PLUGIN_SOURCE: options.pluginSource }
           : {}),
         TRANSLUNAR_AI_TEST_MODE: "1",
         TRANSLUNAR_AI_TEST_CREDENTIAL: "desktop-ai-secret",
@@ -479,7 +483,9 @@ async function captureResponsiveSurface(
   harness: ElectronHarness,
   testInfo: TestInfo,
   label: string,
+  evidenceDirectory?: string,
 ): Promise<void> {
+  if (evidenceDirectory) mkdirSync(evidenceDirectory, { recursive: true });
   for (const viewport of [
     { width: 1250, height: 744 },
     { width: 1680, height: 942 },
@@ -499,11 +505,20 @@ async function captureResponsiveSurface(
     expect(overflow.body).toBeLessThanOrEqual(1);
     expect(overflow.html).toBeLessThanOrEqual(1);
     expect(overflow.root).toBeLessThanOrEqual(1);
-    await harness.page.screenshot({
+    const screenshot = await harness.page.screenshot({
       path: testInfo.outputPath(
         `${label}-${viewport.width}x${viewport.height}.png`,
       ),
     });
+    if (evidenceDirectory) {
+      writeFileSync(
+        join(
+          evidenceDirectory,
+          `${label}-${viewport.width}x${viewport.height}.png`,
+        ),
+        screenshot,
+      );
+    }
   }
 }
 
@@ -933,6 +948,243 @@ test("runs the local-first CAT workflow through Electron", async () => {
     expect(consoleErrors).toEqual([]);
   } finally {
     await closeHarness(harness);
+  }
+});
+
+test("manages a local process plugin through Project Insights with the real Engine", async ({
+  browserName,
+}, testInfo) => {
+  expect(browserName).toBe("chromium");
+  test.setTimeout(120_000);
+  const workspaceRoot = resolve(process.cwd(), "..", "..");
+  const pluginSource = join(workspaceRoot, "examples", "plugins", "hello-srt");
+  const evidenceDirectory = join(
+    workspaceRoot,
+    ".trellis",
+    "tasks",
+    "07-26-plugin-tier3-foundation",
+    "evidence",
+    "screenshots",
+  );
+  const harness = await launchHarness("plugin-runtime", { pluginSource });
+  const { page, consoleErrors } = harness;
+  const hasHelloFilter = () =>
+    page.evaluate(async () => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      const filters = await api.invoke("filter.list", {});
+      return filters.filters.some(
+        (filter) => filter.id === "example.hello-srt",
+      );
+    });
+
+  try {
+    await importFixture(page);
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "Project insights" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Project insights" }),
+    ).toBeVisible();
+    await page.getByRole("tab", { name: "Plugins" }).click();
+
+    const panel = page.locator(".plugins-panel");
+    await expect(page.getByRole("heading", { name: "Plugins" })).toBeVisible();
+    await expect(panel).toContainText("No plugins installed");
+    await panel.getByRole("button", { name: "Install package…" }).click();
+
+    let pluginRow = panel.locator(".plugins-panel__item", {
+      hasText: "Hello SRT",
+    });
+    await expect(pluginRow).toBeVisible();
+    await expect(pluginRow.locator('[data-status="installed"]')).toHaveText(
+      "installed",
+    );
+    await expect(pluginRow).toContainText("file.read:source");
+    await expect(pluginRow).toContainText("file.write:output");
+    expect(await hasHelloFilter()).toBe(false);
+
+    await pluginRow.getByRole("button", { name: "Enable" }).click();
+    await expect(pluginRow.locator('[data-status="enabled"]')).toHaveText(
+      "enabled",
+    );
+    expect(await hasHelloFilter()).toBe(true);
+    await expectNamedControls(page, ".plugins-panel");
+    await captureResponsiveSurface(
+      harness,
+      testInfo,
+      "plugin-management",
+      evidenceDirectory,
+    );
+
+    await page.evaluate("window.translunar.restartEngine()");
+    await page.reload();
+    await expect(
+      page.getByRole("region", { name: "Translation segments" }),
+    ).toBeVisible();
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "Project insights" }).click();
+    await page.getByRole("tab", { name: "Plugins" }).click();
+    pluginRow = page.locator(".plugins-panel__item", {
+      hasText: "Hello SRT",
+    });
+    await expect(pluginRow.locator('[data-status="enabled"]')).toHaveText(
+      "enabled",
+    );
+    expect(await hasHelloFilter()).toBe(true);
+
+    await pluginRow.getByRole("button", { name: "Disable" }).click();
+    await expect(pluginRow.locator('[data-status="disabled"]')).toHaveText(
+      "disabled",
+    );
+    expect(await hasHelloFilter()).toBe(false);
+
+    await pluginRow.getByRole("button", { name: "Uninstall" }).click();
+    await expect(panel.locator(".plugins-panel__item")).toHaveCount(0);
+    await expect(panel).toContainText("No plugins installed");
+    expect(await hasHelloFilter()).toBe(false);
+    expect(consoleErrors).toEqual([]);
+  } finally {
+    await closeHarness(harness);
+  }
+});
+
+test("isolates a crashed process plugin and shows its durable degraded state", async ({
+  browserName,
+}, testInfo) => {
+  expect(browserName).toBe("chromium");
+  test.setTimeout(120_000);
+  const workspaceRoot = resolve(process.cwd(), "..", "..");
+  const fixtureDirectory = mkdtempSync(
+    join(tmpdir(), "translunar-plugin-crash-ui-"),
+  );
+  const crashSource = join(fixtureDirectory, "source.crash");
+  writeFileSync(crashSource, "crash fixture", "utf8");
+  const pluginSource = join(
+    workspaceRoot,
+    "fixtures",
+    "plugins",
+    "crash-filter",
+  );
+  const evidenceDirectory = join(
+    workspaceRoot,
+    ".trellis",
+    "tasks",
+    "07-26-plugin-tier3-foundation",
+    "evidence",
+    "screenshots",
+  );
+  const harness = await launchHarness("plugin-crash", { pluginSource });
+  const { page, consoleErrors } = harness;
+
+  try {
+    await importFixture(page);
+    const projectId = await page.evaluate(async () => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      const projects = await api.invoke("project.list", {
+        offset: 0,
+        limit: 10,
+      });
+      return projects.items[0]?.id ?? null;
+    });
+    expect(projectId).not.toBeNull();
+    if (projectId === null) throw new Error("fixture project was not created");
+
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "Project insights" }).click();
+    await page.getByRole("tab", { name: "Plugins" }).click();
+    const panel = page.locator(".plugins-panel");
+    await panel.getByRole("button", { name: "Install package…" }).click();
+    let pluginRow = panel.locator(".plugins-panel__item", {
+      hasText: "Crash Filter Fixture",
+    });
+    await pluginRow.getByRole("button", { name: "Enable" }).click();
+    await expect(pluginRow.locator('[data-status="enabled"]')).toHaveText(
+      "enabled",
+    );
+
+    const failure = await page.evaluate(
+      async ({ currentProjectId, sourcePath }) => {
+        const api = (window as unknown as { translunar: DesktopApi })
+          .translunar;
+        try {
+          await api.invoke("document.import", {
+            projectId: currentProjectId,
+            sourcePath,
+            filterId: "fixture.crash-filter",
+          });
+          return null;
+        } catch (cause: unknown) {
+          const record =
+            typeof cause === "object" && cause !== null
+              ? (cause as Record<string, unknown>)
+              : {};
+          return {
+            code: record.code,
+            message: record.message,
+            data: record.data,
+          };
+        }
+      },
+      { currentProjectId: projectId, sourcePath: crashSource },
+    );
+    expect(failure?.code).toBe("plugin_process_failed");
+    const failureData = failure?.data as Record<string, unknown> | undefined;
+    expect(failureData).toMatchObject({
+      pluginId: "fixture.crash-filter",
+      filterId: "fixture.crash-filter",
+      operation: "filter.import",
+      failureKind: "crash",
+      retryable: false,
+    });
+    expect(String(failure?.message)).not.toContain("private fixture stderr");
+
+    await page.evaluate(async () => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      await api.invoke("project.list", { offset: 0, limit: 10 });
+    });
+    await panel.getByRole("button", { name: "Refresh" }).click();
+    pluginRow = panel.locator(".plugins-panel__item", {
+      hasText: "Crash Filter Fixture",
+    });
+    await expect(pluginRow.locator('[data-status="degraded"]')).toHaveText(
+      "degraded",
+    );
+    await expect(pluginRow).toContainText("filter.import");
+    await expect(pluginRow).not.toContainText("private fixture stderr");
+    const hasCrashedFilter = await page.evaluate(async () => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      const filters = await api.invoke("filter.list", {});
+      return filters.filters.some(
+        (filter) => filter.id === "fixture.crash-filter",
+      );
+    });
+    expect(hasCrashedFilter).toBe(false);
+    await expectNamedControls(page, ".plugins-panel");
+    await captureResponsiveSurface(
+      harness,
+      testInfo,
+      "plugin-degraded",
+      evidenceDirectory,
+    );
+
+    await page.evaluate("window.translunar.restartEngine()");
+    await page.reload();
+    await expect(
+      page.getByRole("region", { name: "Translation segments" }),
+    ).toBeVisible();
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "Project insights" }).click();
+    await page.getByRole("tab", { name: "Plugins" }).click();
+    pluginRow = page.locator(".plugins-panel__item", {
+      hasText: "Crash Filter Fixture",
+    });
+    await expect(pluginRow.locator('[data-status="degraded"]')).toHaveText(
+      "degraded",
+    );
+    await expect(pluginRow).toContainText("filter.import");
+    expect(consoleErrors).toEqual([]);
+  } finally {
+    await closeHarness(harness);
+    await rm(fixtureDirectory, { recursive: true, force: true });
   }
 });
 

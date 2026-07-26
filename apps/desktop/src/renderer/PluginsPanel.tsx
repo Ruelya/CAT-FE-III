@@ -19,9 +19,9 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (preserveError = false) => {
     setLoading(true);
-    setError(null);
+    if (!preserveError) setError(null);
     try {
       const page = await window.translunar.invoke("plugin.list", {
         offset: 0,
@@ -54,7 +54,10 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
       await load();
       await onRefresh();
     } catch (cause) {
-      setError(formatError(cause));
+      const message = formatError(cause);
+      setError(message);
+      await load(true);
+      setError(message);
     } finally {
       setBusyId(null);
     }
@@ -75,7 +78,10 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
       await load();
       await onRefresh();
     } catch (cause) {
-      setError(formatError(cause));
+      const message = formatError(cause);
+      setError(message);
+      await load(true);
+      setError(message);
     } finally {
       setBusyId(null);
     }
@@ -129,7 +135,11 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
                   <span data-status={plugin.status}>{plugin.status}</span>
                 </div>
                 <div className="plugins-panel__meta">
-                  permissions: {plugin.grantedPermissions.join(", ") || "none"}
+                  {t("plugins.permissions", {
+                    list:
+                      plugin.grantedPermissions.join(", ") ||
+                      t("plugins.permissionsNone"),
+                  })}
                 </div>
                 {plugin.lastError ? (
                   <p className="plugins-panel__error">{plugin.lastError}</p>
