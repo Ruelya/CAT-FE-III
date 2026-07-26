@@ -1,0 +1,5 @@
+{"file":"docs/Full PRD gap matrix.md","reason":"Reject stored-but-unenforced or blanket-grant completion claims."}
+{"file":".trellis/tasks/07-26-plugin-permission-grants/prd.md","reason":"Acceptance, scope, audit, and enforcement contract."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Audit durable decisions, migration, revisions, and ordered evidence."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Audit default-deny typed failure behavior."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Audit consent accessibility and desktop E2E evidence."}

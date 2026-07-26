@@ -1,0 +1,8 @@
+{"file":"docs/Full PRD gap matrix.md","reason":"Authoritative permission/grant gap and dependency order."}
+{"file":".trellis/tasks/07-19-plugin-runtime-sdk/prd.md","reason":"Parent P-09 and full plugin lifecycle requirements."}
+{"file":".trellis/tasks/07-19-plugin-runtime-sdk/design.md","reason":"Tier-neutral control plane and authority boundary."}
+{"file":".trellis/tasks/archive/2026-07/07-26-plugin-multitier-runtime/prd.md","reason":"Required normalized manifest/runtime/contribution dependency; archived child contract."}
+{"file":".trellis/spec/backend/engine-boundary.md","reason":"Engine ownership and typed protocol boundaries."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Grant/audit migration and transaction rules."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Stable typed denial and bounded error contracts."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Accessible typed desktop Plugins permission workflow."}

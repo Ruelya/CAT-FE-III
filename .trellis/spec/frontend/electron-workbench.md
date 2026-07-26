@@ -1460,6 +1460,114 @@ catch (error: unknown) {
 }
 ```
 
+## Plugin Permission Review Surface
+
+### 1. Scope / Trigger
+
+Use this contract when rendering plugin capability requests, version changes,
+grant scopes, consent decisions, or immutable audit evidence in the Plugins
+panel. The renderer is a review client for Engine-owned authority; it does not
+infer whether a plugin may attach or perform an operation.
+
+### 2. Signatures
+
+```typescript
+window.translunar.invoke("plugin.permission.review", { pluginId });
+window.translunar.invoke("plugin.permission.audit.list", {
+  pluginId, requestId?, offset, limit,
+});
+window.translunar.invoke("plugin.permission.grant", {
+  pluginId, requestId, expectedRevision, scope, actor, reason,
+});
+window.translunar.invoke("plugin.permission.deny" |
+  "plugin.permission.revoke", {
+  pluginId, requestId, expectedRevision, actor, reason,
+});
+```
+
+The dialog consumes generated `PluginCapabilityReview`,
+`PluginCapabilityRequestView`, `PluginCapabilityScope`, and
+`PluginCapabilityAuditEntry` types only.
+
+### 3. Contracts
+
+- Open review loads the current review and first bounded audit page together.
+  Closing the dialog discards local scope/reason drafts; reopening reloads
+  authoritative requests, changes, decisions, revisions, and audit entries.
+- Each request shows capability ID, localized effect, requested/granted scope,
+  required/optional status, contribution ID, supported flag, risk, decision,
+  version-change kind, actor/reason, and revision without displaying secrets.
+- A grant requires a non-empty reason, a supported request, and a scope no
+  broader than the request. Unsupported optional requests remain visible and
+  have Grant disabled. Deny/revoke use the exact displayed request revision.
+- Every successful decision reloads review, audit, plugin inventory, and the
+  owning Insights projection. The renderer never optimistically changes
+  decision, plugin status, attachment, or audit order.
+- The named modal traps focus, supports Escape, restores focus to its opener,
+  and keeps the reason field, scope controls, actions, and audit reachable by
+  keyboard. The dialog uses the shared surface tokens and must not inherit the
+  global full-width input rule for checkboxes.
+- English and Simplified Chinese catalogs own all labels/effects. Long IDs,
+  scopes, reasons, and unsupported text wrap without horizontal document or
+  dialog overflow at 1250x744, 1680x942, and 1920x1080.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required UI behavior |
+| --- | --- |
+| Review/audit load fails | Keep inventory usable, show named bounded error, clear busy state |
+| Reason is blank | Disable grant/deny/revoke without hiding request evidence |
+| Request is unsupported | Show unsupported effect/status; disable Grant; allow an explicit deny when valid |
+| Grant scope is broader than requested | Keep Grant disabled; do not send the RPC |
+| Engine returns `conflict` | Show typed error and reload authoritative review before another decision |
+| Decision succeeds and detaches plugin | Reload inventory and show Engine-owned disabled state |
+| Long content or 125% Windows scaling | No clipped labels, action overlap, checkbox stretching, or horizontal overflow |
+
+### 5. Good / Base / Bad Cases
+
+- Good: open review, inspect a version scope expansion, enter a reason, narrow
+  scope, grant, enable, reopen after restart, revoke, and read ordered audit.
+- Base: show an unknown optional request as unsupported and pending while the
+  known required request remains independently reviewable.
+- Bad: hide unsupported requests, grant every request on install, mutate the
+  plugin row optimistically, or expose raw manifest/credential values as scope.
+
+### 6. Tests Required
+
+- Unit tests cover scope containment controls, supported/unsupported action
+  guards, decision labels, localization keys, and bounded error formatting.
+- Real-Engine Electron E2E covers pending install, review, scoped grant,
+  enable, restart, audit display, revoke/detach, typed failure, and subsequent
+  healthy RPC behavior with zero page/console errors.
+- E2E asserts focus entry/return, named modal/actions, checkbox and label
+  geometry, dialog/document overflow, and inspected screenshots at 1250x744,
+  1680x942, and 1920x1080.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```typescript
+setPlugins((items) => items.map((item) =>
+  item.id === pluginId ? { ...item, status: "enabled" } : item,
+));
+```
+
+#### Correct
+
+```typescript
+await window.translunar.invoke("plugin.permission.grant", {
+  pluginId,
+  requestId: request.id,
+  expectedRevision: request.revision,
+  scope: scopeDraft,
+  actor: "desktop",
+  reason: reason.trim(),
+});
+await openReview(pluginId, true);
+await load();
+```
+
 ## Packaging and localization shell
 
 - Package with `apps/desktop/electron-builder.yml`; unsigned artifacts are valid

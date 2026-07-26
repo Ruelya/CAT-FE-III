@@ -176,3 +176,105 @@ tampered managed packages retain their durable installation/version rows and
 receive bounded diagnostics; normalization never silently deletes history.
 The tested concurrency boundary is SQLite CAS plus the serialized Engine
 dispatcher, not ownership by multiple independent Engine processes.
+
+## Plugin capability decisions and audit
+
+### 1. Scope / Trigger
+
+Use this contract when changing migration 19, normalized manifest permission
+requests, decision persistence, upgrade carry-forward, authorization checks,
+or plugin audit paging.
+
+### 2. Signatures
+
+Migration 19 adds two STRICT tables:
+
+```text
+plugin_capability_requests(
+  id, plugin_id, version_id, capability_id, required,
+  requested_scope_json, granted_scope_json, contribution_id,
+  legacy_permission, carried_from_request_id, decision, actor, reason,
+  revision, created_at_ms, updated_at_ms, decided_at_ms
+)
+plugin_capability_audit(
+  sequence, id, plugin_id, version_id, request_id, capability_id,
+  scope_json, event, outcome, operation, actor, reason,
+  request_revision, created_at_ms
+)
+```
+
+`Store::decide_plugin_capability(PluginCapabilityDecisionInput)` is the only
+decision mutation entry point. `Store::authorize_plugin_capability` evaluates
+one `PluginCapabilityCheck` and appends the operation result in the same
+immediate transaction.
+
+### 3. Contracts
+
+- A request is unique by plugin/version/capability/requested-scope/contribution.
+  Its decision is `pending|granted|denied|revoked`; revision starts at zero and
+  increments exactly once for every accepted review decision.
+- `granted_scope_json` is null unless the decision is granted, is normalized
+  before persistence, and must be contained by `requested_scope_json`.
+- Decision mutation validates actor/reason bounds and expected revision, writes
+  the request and decision audit event, updates the legacy active projection,
+  and performs any active-plugin detach in one Immediate transaction.
+- The audit stream is ordered by the SQLite `AUTOINCREMENT` sequence. Update
+  and delete triggers make it immutable; reads page by plugin and optional
+  request ID in ascending sequence order.
+- Upgrade carry uses semantic identity and records `carried_from_request_id`.
+  Unsupported capability IDs never carry a grant. Store opening may add missing
+  structured requests idempotently but must not rewrite existing decisions.
+- Migration 19 maps exact active-version legacy grants to explicit decisions.
+  Ambiguous/unsupported legacy entries stay pending; released migrations 16
+  through 19 remain immutable.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required storage result |
+| --- | --- |
+| Stale `expected_revision` | `EntityConflict`; no request, plugin, projection, or audit write |
+| Grant scope is malformed or exceeds request | `InvalidState`; transaction rolls back |
+| Grant targets unsupported capability | `InvalidState`; request remains visible and ungranted |
+| Revoke targets a non-granted request | `InvalidState`; no detach or audit mutation |
+| Active granted request is denied/revoked | Request decision and plugin disable commit together with ordered evidence |
+| Audit update/delete attempted | SQLite trigger aborts the statement |
+| Migration 19 reopens or normalization repeats | No duplicate request/audit row and no decision rewrite |
+
+### 5. Good / Base / Bad Cases
+
+- Good: decide revision 0, receive revision 1, authorize an in-scope operation,
+  restart, and read immutable decision plus operation audit rows in sequence.
+- Base: preserve an unsupported optional request as pending so a newer host can
+  interpret it later without granting authority today.
+- Bad: append audit after committing the decision, delete denial history,
+  compare raw scope JSON strings, or carry a grant by capability name alone.
+
+### 6. Tests Required
+
+- Migration tests cover fresh v19, v18 upgrade, exact legacy mapping,
+  unsupported legacy requests, immutable triggers, reopen, and idempotency.
+- Store tests cover decision CAS, bounded actor/reason, contained scope,
+  operation allow/deny evidence, detach atomicity, restart, audit paging/order,
+  cross-plugin isolation, and semantic carry-forward.
+- Engine tests assert a failed transaction leaves plugin revision, request
+  revision, active registration, and audit count unchanged.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+update_decision(request_id)?;
+transaction.commit()?;
+append_audit(request_id)?;
+```
+
+#### Correct
+
+```rust
+let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+compare_request_revision(&tx, request_id, expected_revision)?;
+update_decision_and_projection(&tx, input)?;
+append_immutable_audit(&tx, input)?;
+tx.commit()?;
+```

@@ -2591,6 +2591,114 @@ bounded diagnostics only. Absolute managed paths, raw manifests, stderr, and
 package contents do not cross the renderer boundary. Existing six lifecycle
 methods and legacy process manifests remain decodable.
 
+## Plugin Capability Authorization Boundary
+
+### 1. Scope / Trigger
+
+Use this contract when changing plugin manifest capabilities, install/upgrade
+consent, contribution attachment, privileged host operations, permission RPCs,
+or structured plugin denials. A stored decision is not authority by itself;
+Engine must enforce the active version, decision, and scope at the operation
+boundary.
+
+### 2. Signatures
+
+Protocol v1 exposes generated contracts for the complete consent lifecycle:
+
+```text
+plugin.permission.request.list PluginCapabilityRequestListParams -> PluginCapabilityRequestPage
+plugin.permission.review       PluginCapabilityReviewParams      -> PluginCapabilityReview
+plugin.permission.grant        PluginCapabilityGrantParams       -> PluginCapabilityDecisionResult
+plugin.permission.deny         PluginCapabilityDecisionParams    -> PluginCapabilityDecisionResult
+plugin.permission.revoke       PluginCapabilityDecisionParams    -> PluginCapabilityDecisionResult
+plugin.permission.audit.list   PluginCapabilityAuditListParams   -> PluginCapabilityAuditPage
+```
+
+Every decision carries `pluginId`, `requestId`, `expectedRevision`, `actor`,
+and `reason`; grant additionally carries a normalized `scope` contained by the
+requested scope. Runtime checks use `PluginCapabilityCheck` and return either
+an allowed request record or a structured `PluginCapabilityDenial`.
+
+### 3. Contracts
+
+- Manifest normalization preserves syntactically valid unknown capability IDs
+  as unsupported values. Unknown required capabilities reject the manifest;
+  unknown optional capabilities remain visible, pending, and ungrantable.
+- Install creates pending requests and grants no authority. Enable requires a
+  grant with a scope for every supported required request; an unsupported
+  optional request does not block enable and never authorizes an operation.
+- `PluginCapabilityService` is the central durable authorizer. Host startup,
+  contribution registration, and every privileged host call must re-check the
+  active plugin version and requested/granted scope; adapters do not cache a
+  grant across operations.
+- Grant, deny, and revoke use request revision compare-and-swap. Deny/revoke of
+  an active enabled request disables the plugin and unregisters its filters;
+  unrelated plugins and Engine RPCs remain available.
+- Upgrade carries only a supported, granted request with the same capability,
+  required flag, normalized scope, and contribution identity. New or expanded
+  requests remain pending; unsupported grants never carry.
+- Operation denials use `plugin_permission_denied` with bounded, secret-free
+  fields including denial code, plugin/version/capability/operation, and
+  optional request ID. Authorization attempts append allowed or denied audit
+  evidence without exposing payload bodies, prompts, credentials, or stderr.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Malformed or unknown required capability | Manifest/SDK validation failure; no install or attachment |
+| Unknown optional capability | Persist and display as unsupported; Grant rejected; no authority |
+| Required request pending, denied, revoked, or without granted scope | Enable/registration fails closed with `plugin_permission_denied` |
+| Operation exceeds granted scope or was not requested | Typed denial; no privileged side effect; denied audit event |
+| Decision uses a stale revision | `conflict`; request, plugin status, and audit remain authoritative |
+| Deny/revoke affects an enabled active version | Plugin becomes disabled, matching contributions detach, Engine stays healthy |
+| Upgrade request is semantically identical | Exact grant may carry with provenance; otherwise request remains pending |
+
+### 5. Good / Base / Bad Cases
+
+- Good: install creates pending requests, the user grants a narrowed scope,
+  enable succeeds, an in-scope operation is audited, revoke detaches the
+  contribution, and restart preserves the disabled state and evidence.
+- Base: an optional future capability remains inspectable but unsupported; it
+  neither blocks enable nor becomes grantable authority.
+- Bad: treat `grantedPermissions` as sufficient authority, silently drop an
+  unknown optional ID, carry an expanded scope, or check only at registration.
+
+### 6. Tests Required
+
+- Runtime/SDK tests cover every capability family, scope normalization,
+  malformed/unknown required values, and preserved unknown optional values.
+- Storage/Engine tests cover pending install, narrowed grant, stale revision,
+  restart durability, scope mismatch, deny/revoke detach, audit ordering,
+  cross-plugin isolation, exact upgrade carry, and expanded-scope consent.
+- Generated contract drift, real stdio plugin smoke, and real-Engine Electron
+  E2E must exercise review, grant, enable, restart, revoke, and a subsequent
+  ordinary Engine RPC.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+if installation.granted_permissions.contains(&permission) {
+    run_privileged_operation()?;
+}
+```
+
+#### Correct
+
+```rust
+authorizer.authorize(&PluginCapabilityCheck {
+    plugin_id,
+    version_id,
+    capability_id,
+    scope,
+    contribution_id,
+    operation,
+})?;
+run_privileged_operation()?;
+```
+
 ## Local API and CLI
 
 - `translunar` CLI and loopback HTTP API call `EngineService` directly; they must
