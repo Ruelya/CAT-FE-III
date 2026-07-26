@@ -2552,6 +2552,45 @@ if store
 }
 ```
 
+## Tier-aware plugin control-plane extension
+
+The qualified process/filter host is now one executable branch of a normalized
+plugin control plane. `plugin-runtime` decodes legacy manifest v1 and tagged
+manifest v2 into one bounded model, validates runtime/contribution descriptor
+versions and relative package paths, and computes the deterministic staged
+package hash. `crates/storage` owns migration-18 history and projections;
+`EngineService` remains the only layer that probes a host or attaches a filter.
+
+The lifecycle boundary is deliberately blue/green:
+
+```text
+inspect -> normalize/hash only
+install -> stage/hash -> persist inventory
+upgrade -> stage/probe -> revision CAS -> attach (or compensate)
+rollback -> validate/probe history -> revision CAS -> attach
+uninstall -> detach/stop -> quarantine -> transactional delete -> cleanup
+```
+
+Declarative and sandbox packages, and valid non-filter contribution families,
+are inspectable inventory in this child but are not executed. They persist as
+`installed`/incompatible records and return the typed capability error before
+process or registry mutation. The process host requires an exact handshake
+inventory match before attachment, so an unsupported descriptor cannot be
+partially registered.
+
+Every upgrade/rollback/enable/disable mutation carries the expected install
+revision and increments it once on success. A stale revision, duplicate
+version/hash, failed candidate probe, or failed attach leaves the previous
+active bytes and summary authoritative. Crash persistence is additionally
+guarded by plugin id, active version, enabled status, and activation revision;
+late failures from an old process cannot degrade a newer activation.
+
+The additive protocol methods (`plugin.inspect`, `plugin.version.list`,
+`plugin.upgrade`, and `plugin.rollback`) expose normalized projections and
+bounded diagnostics only. Absolute managed paths, raw manifests, stderr, and
+package contents do not cross the renderer boundary. Existing six lifecycle
+methods and legacy process manifests remain decodable.
+
 ## Local API and CLI
 
 - `translunar` CLI and loopback HTTP API call `EngineService` directly; they must

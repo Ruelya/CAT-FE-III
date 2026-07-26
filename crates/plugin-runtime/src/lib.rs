@@ -1,7 +1,8 @@
 //! Local plugin manifest validation, process host, and filter adapters.
 
-use std::collections::{BTreeMap, VecDeque};
-use std::io::{BufRead, BufReader, Write};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::fs::File;
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -13,6 +14,7 @@ use std::time::{Duration, Instant};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use translunar_domain::{DegradationFinding, DocumentNote, InlineTag};
 use translunar_filter_core::{
@@ -20,14 +22,40 @@ use translunar_filter_core::{
     FilterDescriptor, FilterError, FilterEvent, FilterEventStream, ImportRequest,
     PluginProcessFailureKind, ProbeResult, ValidationReport,
 };
+use uuid::Uuid;
 
 pub const HOST_API_VERSION: u32 = 1;
 pub const MANIFEST_FILE_NAME: &str = "manifest.json";
+pub const NORMALIZED_MANIFEST_VERSION: u32 = 1;
+pub const MANIFEST_VERSION_V1: u32 = 1;
+pub const MANIFEST_VERSION_V2: u32 = 2;
+pub const RUNTIME_DESCRIPTOR_VERSION: u32 = 1;
+pub const CONTRIBUTION_DESCRIPTOR_VERSION: u32 = 1;
+pub const PROCESS_PROTOCOL_VERSION: u32 = 1;
+pub const PACKAGE_HASH_ALGORITHM: &str = "sha256";
+pub const PACKAGE_HASH_VERSION: u32 = 1;
 const DEFAULT_CALL_TIMEOUT: Duration = Duration::from_secs(30);
 const IMPORT_CALL_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_FRAME_BYTES: usize = 8 * 1024 * 1024;
 const MAX_STDERR_TAIL_BYTES: usize = 16 * 1024;
 const WRITER_QUEUE_CAPACITY: usize = 64;
+const MAX_MANIFEST_BYTES: u64 = 256 * 1024;
+const MAX_ID_BYTES: usize = 128;
+const MAX_VERSION_BYTES: usize = 128;
+const MAX_DISPLAY_NAME_BYTES: usize = 256;
+const MAX_SHORT_STRING_BYTES: usize = 256;
+const MAX_LONG_STRING_BYTES: usize = 16 * 1024;
+const MAX_PERMISSION_COUNT: usize = 64;
+const MAX_PERMISSION_BYTES: usize = 256;
+const MAX_CONTRIBUTION_COUNT: usize = 256;
+const MAX_LIST_ITEMS: usize = 256;
+const MAX_MAP_ENTRIES: usize = 128;
+const MAX_JSON_DESCRIPTOR_BYTES: usize = 64 * 1024;
+const MAX_JSON_DEPTH: usize = 16;
+const MAX_PACKAGE_FILES: usize = 4096;
+const MAX_PACKAGE_TOTAL_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_PACKAGE_PATH_BYTES: usize = 512;
+const MAX_PACKAGE_DEPTH: usize = 32;
 
 #[derive(Debug, Error)]
 pub enum PluginRuntimeError {
@@ -39,6 +67,16 @@ pub enum PluginRuntimeError {
     NotFound(String),
     #[error("plugin conflict: {0}")]
     Conflict(String),
+    #[error("unsupported plugin {component} version {version}")]
+    UnsupportedVersion { component: String, version: u32 },
+    #[error("host API {host} outside plugin range {min}..={max}")]
+    IncompatibleHost { min: u32, max: u32, host: u32 },
+    #[error("plugin capability unsupported: {0}")]
+    CapabilityUnsupported(String),
+    #[error("plugin package invalid: {0}")]
+    PackageInvalid(String),
+    #[error("plugin package hash mismatch: expected {expected}, actual {actual}")]
+    PackageHashMismatch { expected: String, actual: String },
     #[error("plugin process failed: {0}")]
     Process(String),
     #[error("plugin protocol error: {0}")]
@@ -58,6 +96,8 @@ pub type Result<T> = std::result::Result<T, PluginRuntimeError>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum PluginTier {
+    Declarative,
+    Sandbox,
     Process,
 }
 
@@ -109,10 +149,365 @@ pub struct PluginManifest {
     pub permissions: Vec<String>,
 }
 
+/// Released manifest-v1 process/filter shape. The alias preserves the public
+/// `PluginManifest` and `startProcessPlugin` compatibility contract.
+pub type RawPluginManifestV1 = PluginManifest;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginApiRange {
+    pub min: u32,
+    pub max: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum DeclarativeRuntimeEntry {
+    Manifest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum SandboxRuntimeEntry {
+    Javascript {
+        path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        export_name: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum ProcessRuntimeEntry {
+    Node { path: String },
+    Executable { path: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "tier",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum PluginRuntimeDescriptor {
+    Declarative {
+        runtime_version: u32,
+        entry: DeclarativeRuntimeEntry,
+    },
+    Sandbox {
+        runtime_version: u32,
+        entry: SandboxRuntimeEntry,
+    },
+    Process {
+        runtime_version: u32,
+        protocol_version: u32,
+        entry: ProcessRuntimeEntry,
+    },
+}
+
+impl PluginRuntimeDescriptor {
+    pub fn tier(&self) -> PluginTier {
+        match self {
+            Self::Declarative { .. } => PluginTier::Declarative,
+            Self::Sandbox { .. } => PluginTier::Sandbox,
+            Self::Process { .. } => PluginTier::Process,
+        }
+    }
+
+    pub fn entry_path(&self) -> Option<&str> {
+        match self {
+            Self::Declarative { .. } => None,
+            Self::Sandbox {
+                entry: SandboxRuntimeEntry::Javascript { path, .. },
+                ..
+            }
+            | Self::Process {
+                entry: ProcessRuntimeEntry::Node { path } | ProcessRuntimeEntry::Executable { path },
+                ..
+            } => Some(path),
+        }
+    }
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum PluginContributionKind {
+    Filter,
+    EngineConnector,
+    QaRule,
+    PipelineStep,
+    AiAction,
+    UiPanel,
+    ExternalConnector,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FilterContributionDescriptor {
+    pub descriptor_version: u32,
+    pub id: String,
+    pub version: String,
+    pub display_name: String,
+    pub extensions: Vec<String>,
+    pub capabilities: FilterCapabilities,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EngineConnectorContributionDescriptor {
+    pub descriptor_version: u32,
+    pub id: String,
+    pub version: String,
+    pub display_name: String,
+    pub protocol: String,
+    pub operations: Vec<String>,
+    pub config_schema_version: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QaRuleContributionDescriptor {
+    pub descriptor_version: u32,
+    pub id: String,
+    pub version: String,
+    pub display_name: String,
+    pub rule_type: String,
+    pub severity: String,
+    pub definition: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PipelineStepContributionDescriptor {
+    pub descriptor_version: u32,
+    pub id: String,
+    pub version: String,
+    pub display_name: String,
+    pub input: Value,
+    pub output: Value,
+    pub config_schema_version: u32,
+    pub resumable: bool,
+    pub cancellable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AiActionContributionDescriptor {
+    pub descriptor_version: u32,
+    pub id: String,
+    pub version: String,
+    pub display_name: String,
+    pub label: String,
+    pub placement: String,
+    pub input: Value,
+    pub prompt_template: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UiPanelContributionDescriptor {
+    pub descriptor_version: u32,
+    pub id: String,
+    pub version: String,
+    pub display_name: String,
+    pub label: String,
+    pub placement: String,
+    pub surface: String,
+    pub bridge_version: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalConnectorContributionDescriptor {
+    pub descriptor_version: u32,
+    pub id: String,
+    pub version: String,
+    pub display_name: String,
+    pub transports: Vec<String>,
+    pub checkpoint_version: u32,
+    pub capabilities: BTreeMap<String, bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum PluginContributionDescriptor {
+    #[serde(rename = "filter")]
+    Filter(FilterContributionDescriptor),
+    #[serde(rename = "engineConnector")]
+    EngineConnector(EngineConnectorContributionDescriptor),
+    #[serde(rename = "qaRule")]
+    QaRule(QaRuleContributionDescriptor),
+    #[serde(rename = "pipelineStep")]
+    PipelineStep(PipelineStepContributionDescriptor),
+    #[serde(rename = "aiAction")]
+    AiAction(AiActionContributionDescriptor),
+    #[serde(rename = "uiPanel")]
+    UiPanel(UiPanelContributionDescriptor),
+    #[serde(rename = "externalConnector")]
+    ExternalConnector(ExternalConnectorContributionDescriptor),
+}
+
+impl PluginContributionDescriptor {
+    pub fn kind(&self) -> PluginContributionKind {
+        match self {
+            Self::Filter(_) => PluginContributionKind::Filter,
+            Self::EngineConnector(_) => PluginContributionKind::EngineConnector,
+            Self::QaRule(_) => PluginContributionKind::QaRule,
+            Self::PipelineStep(_) => PluginContributionKind::PipelineStep,
+            Self::AiAction(_) => PluginContributionKind::AiAction,
+            Self::UiPanel(_) => PluginContributionKind::UiPanel,
+            Self::ExternalConnector(_) => PluginContributionKind::ExternalConnector,
+        }
+    }
+
+    pub fn descriptor_version(&self) -> u32 {
+        match self {
+            Self::Filter(value) => value.descriptor_version,
+            Self::EngineConnector(value) => value.descriptor_version,
+            Self::QaRule(value) => value.descriptor_version,
+            Self::PipelineStep(value) => value.descriptor_version,
+            Self::AiAction(value) => value.descriptor_version,
+            Self::UiPanel(value) => value.descriptor_version,
+            Self::ExternalConnector(value) => value.descriptor_version,
+        }
+    }
+
+    pub fn id(&self) -> &str {
+        match self {
+            Self::Filter(value) => &value.id,
+            Self::EngineConnector(value) => &value.id,
+            Self::QaRule(value) => &value.id,
+            Self::PipelineStep(value) => &value.id,
+            Self::AiAction(value) => &value.id,
+            Self::UiPanel(value) => &value.id,
+            Self::ExternalConnector(value) => &value.id,
+        }
+    }
+
+    pub fn version(&self) -> &str {
+        match self {
+            Self::Filter(value) => &value.version,
+            Self::EngineConnector(value) => &value.version,
+            Self::QaRule(value) => &value.version,
+            Self::PipelineStep(value) => &value.version,
+            Self::AiAction(value) => &value.version,
+            Self::UiPanel(value) => &value.version,
+            Self::ExternalConnector(value) => &value.version,
+        }
+    }
+
+    pub fn display_name(&self) -> &str {
+        match self {
+            Self::Filter(value) => &value.display_name,
+            Self::EngineConnector(value) => &value.display_name,
+            Self::QaRule(value) => &value.display_name,
+            Self::PipelineStep(value) => &value.display_name,
+            Self::AiAction(value) => &value.display_name,
+            Self::UiPanel(value) => &value.display_name,
+            Self::ExternalConnector(value) => &value.display_name,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RawPluginManifestV2 {
+    pub manifest_version: u32,
+    pub id: String,
+    pub display_name: String,
+    pub version: String,
+    pub host_api: PluginApiRange,
+    pub runtime: PluginRuntimeDescriptor,
+    pub contributions: Vec<PluginContributionDescriptor>,
+    #[serde(default)]
+    pub permissions: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NormalizedPluginManifest {
+    pub normalized_version: u32,
+    pub source_manifest_version: u32,
+    pub id: String,
+    pub display_name: String,
+    pub version: String,
+    pub host_api: PluginApiRange,
+    pub runtime: PluginRuntimeDescriptor,
+    pub contributions: Vec<PluginContributionDescriptor>,
+    pub requested_permissions: Vec<String>,
+    pub original_manifest_json: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginCompatibility {
+    pub compatible: bool,
+    pub host_api_supported: bool,
+    pub runtime_supported: bool,
+    pub contributions_supported: bool,
+    #[serde(default)]
+    pub unsupported_capabilities: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginPackageFileDigest {
+    pub path: String,
+    pub size: u64,
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginPackageHash {
+    pub algorithm: String,
+    pub version: u32,
+    pub sha256: String,
+    pub total_bytes: u64,
+    pub entries: Vec<PluginPackageFileDigest>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StagedPluginPackage {
+    pub path: PathBuf,
+    pub normalized_manifest: NormalizedPluginManifest,
+    pub package_hash: PluginPackageHash,
+}
+
 impl PluginManifest {
     pub fn filter_descriptors(&self) -> Vec<FilterDescriptor> {
-        self.contributions
-            .filters
+        self.contributions.filter_descriptors()
+    }
+}
+
+impl PluginContributions {
+    pub fn filter_descriptors(&self) -> Vec<FilterDescriptor> {
+        self.filters
             .iter()
             .map(|filter| FilterDescriptor {
                 id: filter.id.clone(),
@@ -126,11 +521,19 @@ impl PluginManifest {
 }
 
 pub fn load_manifest(package_dir: &Path) -> Result<PluginManifest> {
-    let path = package_dir.join(MANIFEST_FILE_NAME);
-    let raw = std::fs::read_to_string(&path).map_err(|error| {
-        PluginRuntimeError::InvalidManifest(format!("cannot read {}: {error}", path.display()))
+    let raw = read_manifest_bytes(package_dir)?;
+    let value: Value = serde_json::from_slice(&raw).map_err(|error| {
+        PluginRuntimeError::InvalidManifest(format!("cannot parse manifest: {error}"))
     })?;
-    let manifest: PluginManifest = serde_json::from_str(&raw).map_err(|error| {
+    let version = manifest_version(&value)?;
+    if version != MANIFEST_VERSION_V1 {
+        return Err(PluginRuntimeError::UnsupportedVersion {
+            component: "manifest".to_string(),
+            version,
+        });
+    }
+    validate_manifest_shape(&value, version)?;
+    let manifest: PluginManifest = serde_json::from_value(value).map_err(|error| {
         PluginRuntimeError::InvalidManifest(format!("cannot parse manifest: {error}"))
     })?;
     validate_manifest(&manifest, package_dir)?;
@@ -138,11 +541,11 @@ pub fn load_manifest(package_dir: &Path) -> Result<PluginManifest> {
 }
 
 pub fn validate_manifest(manifest: &PluginManifest, package_dir: &Path) -> Result<()> {
-    if manifest.manifest_version != 1 {
-        return Err(PluginRuntimeError::InvalidManifest(format!(
-            "unsupported manifestVersion {}",
-            manifest.manifest_version
-        )));
+    if manifest.manifest_version != MANIFEST_VERSION_V1 {
+        return Err(PluginRuntimeError::UnsupportedVersion {
+            component: "manifest".to_string(),
+            version: manifest.manifest_version,
+        });
     }
     require_id(&manifest.id, "plugin id")?;
     if manifest.id.starts_with("builtin.") {
@@ -150,83 +553,35 @@ pub fn validate_manifest(manifest: &PluginManifest, package_dir: &Path) -> Resul
             "plugin id must not use the builtin. prefix".to_string(),
         ));
     }
-    if manifest.display_name.trim().is_empty() {
-        return Err(PluginRuntimeError::InvalidManifest(
-            "displayName must not be empty".to_string(),
-        ));
-    }
-    if manifest.version.trim().is_empty() {
-        return Err(PluginRuntimeError::InvalidManifest(
-            "version must not be empty".to_string(),
-        ));
-    }
-    if manifest.api_version_min > manifest.api_version {
-        return Err(PluginRuntimeError::InvalidManifest(
-            "apiVersionMin must be <= apiVersion".to_string(),
-        ));
-    }
-    if HOST_API_VERSION < manifest.api_version_min || HOST_API_VERSION > manifest.api_version {
-        return Err(PluginRuntimeError::InvalidManifest(format!(
-            "host API {HOST_API_VERSION} outside plugin range {}..={}",
-            manifest.api_version_min, manifest.api_version
-        )));
-    }
+    require_text(
+        &manifest.display_name,
+        "displayName",
+        MAX_DISPLAY_NAME_BYTES,
+    )?;
+    require_semver(&manifest.version, "version")?;
+    validate_api_range(manifest.api_version_min, manifest.api_version, "host API")?;
     if manifest.tier != PluginTier::Process {
         return Err(PluginRuntimeError::InvalidManifest(
-            "only process tier is supported in v1".to_string(),
+            "manifestVersion 1 requires process tier".to_string(),
         ));
     }
-    if manifest.entry.path.trim().is_empty()
-        || Path::new(&manifest.entry.path).is_absolute()
-        || manifest.entry.path.contains("..")
-    {
-        return Err(PluginRuntimeError::InvalidManifest(
-            "entry.path must be a relative path without '..'".to_string(),
-        ));
-    }
-    let entry_path = package_dir.join(&manifest.entry.path);
-    if !entry_path.is_file() {
-        return Err(PluginRuntimeError::InvalidManifest(format!(
-            "entry file missing: {}",
-            manifest.entry.path
-        )));
-    }
+    let entry_path = normalize_relative_path(&manifest.entry.path, "entry.path")?;
+    ensure_regular_package_file(package_dir, &entry_path, "entry.path")?;
     if manifest.contributions.filters.is_empty() {
         return Err(PluginRuntimeError::InvalidManifest(
             "at least one filter contribution is required in v1".to_string(),
         ));
     }
-    let mut seen = BTreeMap::new();
+    if manifest.contributions.filters.len() > MAX_CONTRIBUTION_COUNT {
+        return Err(PluginRuntimeError::InvalidManifest(
+            "too many filter contributions".to_string(),
+        ));
+    }
+    let mut seen = BTreeSet::new();
     for filter in &manifest.contributions.filters {
-        require_id(&filter.id, "filter contribution id")?;
-        if filter.id.starts_with("builtin.") {
-            return Err(PluginRuntimeError::InvalidManifest(format!(
-                "filter id {} must not use builtin. prefix",
-                filter.id
-            )));
-        }
-        if seen.insert(filter.id.clone(), ()).is_some() {
-            return Err(PluginRuntimeError::InvalidManifest(format!(
-                "duplicate filter contribution id {}",
-                filter.id
-            )));
-        }
-        if filter.version.trim().is_empty() || filter.display_name.trim().is_empty() {
-            return Err(PluginRuntimeError::InvalidManifest(format!(
-                "filter {} needs version and displayName",
-                filter.id
-            )));
-        }
-        if filter.extensions.is_empty() {
-            return Err(PluginRuntimeError::InvalidManifest(format!(
-                "filter {} needs at least one extension",
-                filter.id
-            )));
-        }
+        validate_filter_v1(filter, &mut seen)?;
     }
-    for permission in &manifest.permissions {
-        validate_permission_name(permission)?;
-    }
+    validate_permissions(&manifest.permissions)?;
     Ok(())
 }
 
@@ -235,6 +590,12 @@ fn require_id(value: &str, label: &str) -> Result<()> {
     if trimmed.is_empty() || trimmed != value {
         return Err(PluginRuntimeError::InvalidManifest(format!(
             "{label} must be non-empty without surrounding whitespace"
+        )));
+    }
+    if trimmed.len() > MAX_ID_BYTES {
+        return Err(PluginRuntimeError::InvalidManifest(format!(
+            "{label} exceeds {} bytes",
+            MAX_ID_BYTES
         )));
     }
     if !trimmed
@@ -249,9 +610,25 @@ fn require_id(value: &str, label: &str) -> Result<()> {
 }
 
 pub fn validate_permission_name(permission: &str) -> Result<()> {
+    if permission.is_empty()
+        || permission.len() > MAX_PERMISSION_BYTES
+        || permission.trim() != permission
+    {
+        return Err(PluginRuntimeError::InvalidManifest(
+            "permission name is empty, oversized, or padded".to_string(),
+        ));
+    }
     match permission {
         "file.read:source" | "file.write:output" => Ok(()),
-        other if other.starts_with("network:") && other.len() > "network:".len() => Ok(()),
+        other
+            if other.starts_with("network:")
+                && other.len() > "network:".len()
+                && other["network:".len()..].chars().all(|ch| {
+                    ch.is_ascii_alphanumeric() || matches!(ch, '.' | ':' | '-' | '_')
+                }) =>
+        {
+            Ok(())
+        }
         other => Err(PluginRuntimeError::InvalidManifest(format!(
             "unsupported permission {other}"
         ))),
@@ -266,6 +643,798 @@ pub fn ensure_permissions(required: &[String], granted: &[String]) -> Result<()>
         }
     }
     Ok(())
+}
+
+impl NormalizedPluginManifest {
+    pub fn filter_descriptors(&self) -> Vec<FilterDescriptor> {
+        self.contributions
+            .iter()
+            .filter_map(|contribution| match contribution {
+                PluginContributionDescriptor::Filter(filter) => Some(FilterDescriptor {
+                    id: filter.id.clone(),
+                    version: filter.version.clone(),
+                    display_name: filter.display_name.clone(),
+                    extensions: filter.extensions.clone(),
+                    capabilities: filter.capabilities.clone(),
+                }),
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub fn to_legacy_process_manifest(&self) -> Result<PluginManifest> {
+        let (entry_kind, entry_path) = match &self.runtime {
+            PluginRuntimeDescriptor::Process { entry, .. } => match entry {
+                ProcessRuntimeEntry::Node { path } => (PluginEntryKind::Node, path.clone()),
+                ProcessRuntimeEntry::Executable { path } => {
+                    (PluginEntryKind::Executable, path.clone())
+                }
+            },
+            _ => {
+                return Err(PluginRuntimeError::CapabilityUnsupported(
+                    "only process runtime can attach to the Tier 3 host".to_string(),
+                ));
+            }
+        };
+        let filters = self
+            .contributions
+            .iter()
+            .filter_map(|contribution| match contribution {
+                PluginContributionDescriptor::Filter(filter) => Some(PluginFilterContribution {
+                    id: filter.id.clone(),
+                    version: filter.version.clone(),
+                    display_name: filter.display_name.clone(),
+                    extensions: filter.extensions.clone(),
+                    capabilities: filter.capabilities.clone(),
+                }),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        if filters.is_empty() {
+            return Err(PluginRuntimeError::CapabilityUnsupported(
+                "process runtime requires a filter contribution for the Tier 3 host".to_string(),
+            ));
+        }
+        Ok(PluginManifest {
+            manifest_version: MANIFEST_VERSION_V1,
+            id: self.id.clone(),
+            display_name: self.display_name.clone(),
+            version: self.version.clone(),
+            api_version: self.host_api.max,
+            api_version_min: self.host_api.min,
+            tier: PluginTier::Process,
+            entry: PluginEntry {
+                kind: entry_kind,
+                path: entry_path,
+            },
+            contributions: PluginContributions { filters },
+            permissions: self.requested_permissions.clone(),
+        })
+    }
+
+    pub fn supports_process_filter_host(&self) -> bool {
+        matches!(self.runtime, PluginRuntimeDescriptor::Process { .. })
+            && self
+                .contributions
+                .iter()
+                .all(|contribution| matches!(contribution, PluginContributionDescriptor::Filter(_)))
+    }
+
+    pub fn compatibility(&self) -> PluginCompatibility {
+        let host_api_supported =
+            self.host_api.min <= HOST_API_VERSION && HOST_API_VERSION <= self.host_api.max;
+        let runtime_supported = matches!(self.runtime, PluginRuntimeDescriptor::Process { .. });
+        let contributions_supported = self
+            .contributions
+            .iter()
+            .all(|contribution| matches!(contribution, PluginContributionDescriptor::Filter(_)));
+        let mut unsupported_capabilities = Vec::new();
+        if !runtime_supported {
+            unsupported_capabilities.push(format!(
+                "runtime.{}",
+                match self.runtime.tier() {
+                    PluginTier::Declarative => "declarative",
+                    PluginTier::Sandbox => "sandbox",
+                    PluginTier::Process => "process",
+                }
+            ));
+        }
+        for contribution in &self.contributions {
+            if !matches!(contribution, PluginContributionDescriptor::Filter(_)) {
+                unsupported_capabilities.push(format!(
+                    "contribution.{}:{}",
+                    contribution_kind_name(contribution.kind()),
+                    contribution.id()
+                ));
+            }
+        }
+        PluginCompatibility {
+            compatible: host_api_supported && runtime_supported && contributions_supported,
+            host_api_supported,
+            runtime_supported,
+            contributions_supported,
+            unsupported_capabilities,
+        }
+    }
+}
+
+pub fn load_normalized_manifest(package_dir: &Path) -> Result<NormalizedPluginManifest> {
+    let raw = read_manifest_bytes(package_dir)?;
+    decode_normalized_manifest(&raw, package_dir)
+}
+
+pub fn decode_normalized_manifest(
+    raw: &[u8],
+    package_dir: &Path,
+) -> Result<NormalizedPluginManifest> {
+    if raw.len() as u64 > MAX_MANIFEST_BYTES {
+        return Err(PluginRuntimeError::PackageInvalid(
+            "manifest exceeds the configured byte limit".to_string(),
+        ));
+    }
+    let value: Value = serde_json::from_slice(raw).map_err(|error| {
+        PluginRuntimeError::InvalidManifest(format!("cannot parse manifest: {error}"))
+    })?;
+    let source_version = manifest_version(&value)?;
+    validate_manifest_shape(&value, source_version)?;
+    let normalized = match source_version {
+        MANIFEST_VERSION_V1 => {
+            let manifest: RawPluginManifestV1 =
+                serde_json::from_value(value.clone()).map_err(|error| {
+                    PluginRuntimeError::InvalidManifest(format!("cannot parse manifest: {error}"))
+                })?;
+            validate_manifest(&manifest, package_dir)?;
+            NormalizedPluginManifest {
+                normalized_version: NORMALIZED_MANIFEST_VERSION,
+                source_manifest_version: MANIFEST_VERSION_V1,
+                id: manifest.id.clone(),
+                display_name: manifest.display_name.clone(),
+                version: manifest.version.clone(),
+                host_api: PluginApiRange {
+                    min: manifest.api_version_min,
+                    max: manifest.api_version,
+                },
+                runtime: PluginRuntimeDescriptor::Process {
+                    runtime_version: RUNTIME_DESCRIPTOR_VERSION,
+                    protocol_version: PROCESS_PROTOCOL_VERSION,
+                    entry: match manifest.entry.kind {
+                        PluginEntryKind::Node => ProcessRuntimeEntry::Node {
+                            path: normalize_relative_path(&manifest.entry.path, "entry.path")?,
+                        },
+                        PluginEntryKind::Executable => ProcessRuntimeEntry::Executable {
+                            path: normalize_relative_path(&manifest.entry.path, "entry.path")?,
+                        },
+                    },
+                },
+                contributions: manifest
+                    .contributions
+                    .filters
+                    .iter()
+                    .map(|filter| {
+                        PluginContributionDescriptor::Filter(FilterContributionDescriptor {
+                            descriptor_version: CONTRIBUTION_DESCRIPTOR_VERSION,
+                            id: filter.id.clone(),
+                            version: filter.version.clone(),
+                            display_name: filter.display_name.clone(),
+                            extensions: filter.extensions.clone(),
+                            capabilities: filter.capabilities.clone(),
+                        })
+                    })
+                    .collect(),
+                requested_permissions: manifest.permissions.clone(),
+                original_manifest_json: value,
+            }
+        }
+        MANIFEST_VERSION_V2 => {
+            let manifest: RawPluginManifestV2 =
+                serde_json::from_value(value.clone()).map_err(|error| {
+                    PluginRuntimeError::InvalidManifest(format!("cannot parse manifest: {error}"))
+                })?;
+            validate_manifest_v2(&manifest, package_dir)?;
+            NormalizedPluginManifest {
+                normalized_version: NORMALIZED_MANIFEST_VERSION,
+                source_manifest_version: MANIFEST_VERSION_V2,
+                id: manifest.id,
+                display_name: manifest.display_name,
+                version: manifest.version,
+                host_api: manifest.host_api,
+                runtime: manifest.runtime,
+                contributions: manifest.contributions,
+                requested_permissions: manifest.permissions,
+                original_manifest_json: value,
+            }
+        }
+        version => {
+            return Err(PluginRuntimeError::UnsupportedVersion {
+                component: "manifest".to_string(),
+                version,
+            });
+        }
+    };
+    Ok(normalized)
+}
+
+fn contribution_kind_name(kind: PluginContributionKind) -> &'static str {
+    match kind {
+        PluginContributionKind::Filter => "filter",
+        PluginContributionKind::EngineConnector => "engineConnector",
+        PluginContributionKind::QaRule => "qaRule",
+        PluginContributionKind::PipelineStep => "pipelineStep",
+        PluginContributionKind::AiAction => "aiAction",
+        PluginContributionKind::UiPanel => "uiPanel",
+        PluginContributionKind::ExternalConnector => "externalConnector",
+    }
+}
+
+fn read_manifest_bytes(package_dir: &Path) -> Result<Vec<u8>> {
+    let path = package_dir.join(MANIFEST_FILE_NAME);
+    let metadata = std::fs::symlink_metadata(&path).map_err(|error| {
+        PluginRuntimeError::InvalidManifest(format!("cannot read {}: {error}", path.display()))
+    })?;
+    if metadata.file_type().is_symlink() || is_reparse_point(&metadata) || !metadata.is_file() {
+        return Err(PluginRuntimeError::PackageInvalid(
+            "manifest.json must be a regular file".to_string(),
+        ));
+    }
+    if metadata.len() > MAX_MANIFEST_BYTES {
+        return Err(PluginRuntimeError::PackageInvalid(
+            "manifest exceeds the configured byte limit".to_string(),
+        ));
+    }
+    let mut file = File::open(&path)?;
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
+fn manifest_version(value: &Value) -> Result<u32> {
+    let object = value.as_object().ok_or_else(|| {
+        PluginRuntimeError::InvalidManifest("manifest must be a JSON object".to_string())
+    })?;
+    let version = object.get("manifestVersion").ok_or_else(|| {
+        PluginRuntimeError::InvalidManifest("manifestVersion is required".to_string())
+    })?;
+    let version = version.as_u64().ok_or_else(|| {
+        PluginRuntimeError::InvalidManifest("manifestVersion must be an integer".to_string())
+    })?;
+    u32::try_from(version).map_err(|_| PluginRuntimeError::UnsupportedVersion {
+        component: "manifest".to_string(),
+        version: u32::MAX,
+    })
+}
+
+fn validate_manifest_shape(value: &Value, version: u32) -> Result<()> {
+    validate_json_shape(value, "manifest", 0)?;
+    let Some(object) = value.as_object() else {
+        return Err(PluginRuntimeError::InvalidManifest(
+            "manifest must be a JSON object".to_string(),
+        ));
+    };
+    if object.len() > MAX_MAP_ENTRIES {
+        return Err(PluginRuntimeError::PackageInvalid(
+            "manifest contains too many fields".to_string(),
+        ));
+    }
+    if version != MANIFEST_VERSION_V1 && version != MANIFEST_VERSION_V2 {
+        return Err(PluginRuntimeError::UnsupportedVersion {
+            component: "manifest".to_string(),
+            version,
+        });
+    }
+    Ok(())
+}
+
+fn validate_json_shape(value: &Value, label: &str, depth: usize) -> Result<()> {
+    if depth > MAX_JSON_DEPTH {
+        return Err(PluginRuntimeError::PackageInvalid(format!(
+            "{label} exceeds JSON nesting limit"
+        )));
+    }
+    match value {
+        Value::String(text) => {
+            if text.len() > MAX_LONG_STRING_BYTES {
+                return Err(PluginRuntimeError::PackageInvalid(format!(
+                    "{label} contains an oversized string"
+                )));
+            }
+        }
+        Value::Array(items) => {
+            if items.len() > MAX_LIST_ITEMS {
+                return Err(PluginRuntimeError::PackageInvalid(format!(
+                    "{label} contains too many array items"
+                )));
+            }
+            for item in items {
+                validate_json_shape(item, label, depth + 1)?;
+            }
+        }
+        Value::Object(items) => {
+            if items.len() > MAX_MAP_ENTRIES {
+                return Err(PluginRuntimeError::PackageInvalid(format!(
+                    "{label} contains too many object fields"
+                )));
+            }
+            for (key, item) in items {
+                if key.len() > MAX_SHORT_STRING_BYTES {
+                    return Err(PluginRuntimeError::PackageInvalid(format!(
+                        "{label} contains an oversized field name"
+                    )));
+                }
+                validate_json_shape(item, label, depth + 1)?;
+            }
+        }
+        _ => {}
+    }
+    let encoded_len = serde_json::to_vec(value)
+        .map(|bytes| bytes.len())
+        .unwrap_or(usize::MAX);
+    if encoded_len > MAX_JSON_DESCRIPTOR_BYTES && depth == 0 {
+        return Err(PluginRuntimeError::PackageInvalid(format!(
+            "{label} exceeds the configured JSON byte limit"
+        )));
+    }
+    Ok(())
+}
+
+fn require_text(value: &str, label: &str, max_bytes: usize) -> Result<()> {
+    if value.trim().is_empty() || value.trim() != value {
+        return Err(PluginRuntimeError::InvalidManifest(format!(
+            "{label} must be non-empty without surrounding whitespace"
+        )));
+    }
+    if value.len() > max_bytes || value.chars().any(char::is_control) {
+        return Err(PluginRuntimeError::InvalidManifest(format!(
+            "{label} exceeds its size or character limit"
+        )));
+    }
+    Ok(())
+}
+
+fn require_semver(value: &str, label: &str) -> Result<()> {
+    require_text(value, label, MAX_VERSION_BYTES)?;
+    let core = value.split(['+', '-']).next().unwrap_or_default();
+    let parts = core.split('.').collect::<Vec<_>>();
+    if parts.len() != 3
+        || parts.iter().any(|part| {
+            part.is_empty()
+                || (part.len() > 1 && part.starts_with('0'))
+                || !part.chars().all(|ch| ch.is_ascii_digit())
+        })
+    {
+        return Err(PluginRuntimeError::InvalidManifest(format!(
+            "{label} must be a semantic version"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_api_range(min: u32, max: u32, label: &str) -> Result<()> {
+    if min > max {
+        return Err(PluginRuntimeError::InvalidManifest(format!(
+            "{label} range is inverted"
+        )));
+    }
+    if HOST_API_VERSION < min || HOST_API_VERSION > max {
+        return Err(PluginRuntimeError::IncompatibleHost {
+            min,
+            max,
+            host: HOST_API_VERSION,
+        });
+    }
+    Ok(())
+}
+
+fn validate_filter_v1(
+    filter: &PluginFilterContribution,
+    seen: &mut BTreeSet<String>,
+) -> Result<()> {
+    require_id(&filter.id, "filter contribution id")?;
+    if filter.id.starts_with("builtin.") {
+        return Err(PluginRuntimeError::InvalidManifest(format!(
+            "filter id {} must not use builtin. prefix",
+            filter.id
+        )));
+    }
+    if !seen.insert(filter.id.clone()) {
+        return Err(PluginRuntimeError::InvalidManifest(format!(
+            "duplicate filter contribution id {}",
+            filter.id
+        )));
+    }
+    require_semver(&filter.version, "filter version")?;
+    require_text(
+        &filter.display_name,
+        "filter displayName",
+        MAX_DISPLAY_NAME_BYTES,
+    )?;
+    validate_extensions(&filter.extensions)?;
+    Ok(())
+}
+
+fn validate_extensions(extensions: &[String]) -> Result<()> {
+    if extensions.is_empty() || extensions.len() > MAX_LIST_ITEMS {
+        return Err(PluginRuntimeError::InvalidManifest(
+            "a filter needs between one and 256 extensions".to_string(),
+        ));
+    }
+    let mut seen = BTreeSet::new();
+    for extension in extensions {
+        require_text(extension, "extension", MAX_SHORT_STRING_BYTES)?;
+        if extension.contains('/') || extension.contains('\\') || !seen.insert(extension) {
+            return Err(PluginRuntimeError::InvalidManifest(
+                "extensions must be unique relative names".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_permissions(permissions: &[String]) -> Result<()> {
+    if permissions.len() > MAX_PERMISSION_COUNT {
+        return Err(PluginRuntimeError::PackageInvalid(
+            "too many requested permissions".to_string(),
+        ));
+    }
+    let mut seen = BTreeSet::new();
+    for permission in permissions {
+        validate_permission_name(permission)?;
+        if !seen.insert(permission) {
+            return Err(PluginRuntimeError::InvalidManifest(
+                "duplicate requested permission".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_manifest_v2(manifest: &RawPluginManifestV2, package_dir: &Path) -> Result<()> {
+    if manifest.manifest_version != MANIFEST_VERSION_V2 {
+        return Err(PluginRuntimeError::UnsupportedVersion {
+            component: "manifest".to_string(),
+            version: manifest.manifest_version,
+        });
+    }
+    require_id(&manifest.id, "plugin id")?;
+    if manifest.id.starts_with("builtin.") {
+        return Err(PluginRuntimeError::InvalidManifest(
+            "plugin id must not use the builtin. prefix".to_string(),
+        ));
+    }
+    require_text(
+        &manifest.display_name,
+        "displayName",
+        MAX_DISPLAY_NAME_BYTES,
+    )?;
+    require_semver(&manifest.version, "version")?;
+    validate_api_range(manifest.host_api.min, manifest.host_api.max, "host API")?;
+    validate_runtime_descriptor(&manifest.runtime, package_dir)?;
+    if manifest.contributions.is_empty() {
+        return Err(PluginRuntimeError::InvalidManifest(
+            "at least one contribution is required in v2".to_string(),
+        ));
+    }
+    if manifest.contributions.len() > MAX_CONTRIBUTION_COUNT {
+        return Err(PluginRuntimeError::PackageInvalid(
+            "too many contributions".to_string(),
+        ));
+    }
+    let mut seen = BTreeSet::new();
+    for contribution in &manifest.contributions {
+        validate_contribution(contribution, &mut seen)?;
+        if !contribution_allowed(manifest.runtime.tier(), contribution.kind()) {
+            return Err(PluginRuntimeError::InvalidManifest(format!(
+                "{} contribution {} is not valid for {} runtime",
+                contribution_kind_name(contribution.kind()),
+                contribution.id(),
+                contribution_kind_name(match manifest.runtime.tier() {
+                    PluginTier::Declarative => PluginContributionKind::PipelineStep,
+                    PluginTier::Sandbox => PluginContributionKind::EngineConnector,
+                    PluginTier::Process => PluginContributionKind::ExternalConnector,
+                })
+            )));
+        }
+    }
+    validate_permissions(&manifest.permissions)?;
+    Ok(())
+}
+
+fn validate_runtime_descriptor(
+    runtime: &PluginRuntimeDescriptor,
+    package_dir: &Path,
+) -> Result<()> {
+    match runtime {
+        PluginRuntimeDescriptor::Declarative {
+            runtime_version,
+            entry: DeclarativeRuntimeEntry::Manifest,
+        } => {
+            ensure_descriptor_version("runtime", *runtime_version, RUNTIME_DESCRIPTOR_VERSION)?;
+        }
+        PluginRuntimeDescriptor::Sandbox {
+            runtime_version,
+            entry: SandboxRuntimeEntry::Javascript { path, export_name },
+        } => {
+            ensure_descriptor_version("runtime", *runtime_version, RUNTIME_DESCRIPTOR_VERSION)?;
+            let path = normalize_relative_path(path, "runtime.entry.path")?;
+            ensure_regular_package_file(package_dir, &path, "runtime.entry.path")?;
+            if let Some(name) = export_name {
+                require_text(name, "runtime.entry.exportName", MAX_SHORT_STRING_BYTES)?;
+            }
+        }
+        PluginRuntimeDescriptor::Process {
+            runtime_version,
+            protocol_version,
+            entry,
+        } => {
+            ensure_descriptor_version("runtime", *runtime_version, RUNTIME_DESCRIPTOR_VERSION)?;
+            ensure_descriptor_version("protocol", *protocol_version, PROCESS_PROTOCOL_VERSION)?;
+            let path = match entry {
+                ProcessRuntimeEntry::Node { path } | ProcessRuntimeEntry::Executable { path } => {
+                    normalize_relative_path(path, "runtime.entry.path")?
+                }
+            };
+            ensure_regular_package_file(package_dir, &path, "runtime.entry.path")?;
+        }
+    }
+    Ok(())
+}
+
+fn ensure_descriptor_version(component: &str, actual: u32, expected: u32) -> Result<()> {
+    if actual != expected {
+        return Err(PluginRuntimeError::UnsupportedVersion {
+            component: component.to_string(),
+            version: actual,
+        });
+    }
+    Ok(())
+}
+
+fn contribution_allowed(tier: PluginTier, kind: PluginContributionKind) -> bool {
+    match tier {
+        PluginTier::Declarative => matches!(
+            kind,
+            PluginContributionKind::Filter
+                | PluginContributionKind::QaRule
+                | PluginContributionKind::PipelineStep
+        ),
+        PluginTier::Sandbox => true,
+        PluginTier::Process => !matches!(kind, PluginContributionKind::UiPanel),
+    }
+}
+
+fn validate_contribution(
+    contribution: &PluginContributionDescriptor,
+    seen: &mut BTreeSet<(PluginContributionKind, String)>,
+) -> Result<()> {
+    ensure_descriptor_version(
+        &format!(
+            "{} contribution",
+            contribution_kind_name(contribution.kind())
+        ),
+        contribution.descriptor_version(),
+        CONTRIBUTION_DESCRIPTOR_VERSION,
+    )?;
+    require_id(contribution.id(), "contribution id")?;
+    if contribution.id().starts_with("builtin.") {
+        return Err(PluginRuntimeError::InvalidManifest(
+            "contribution id must not use the builtin. prefix".to_string(),
+        ));
+    }
+    if !seen.insert((contribution.kind(), contribution.id().to_string())) {
+        return Err(PluginRuntimeError::InvalidManifest(format!(
+            "duplicate {} contribution id {}",
+            contribution_kind_name(contribution.kind()),
+            contribution.id()
+        )));
+    }
+    require_semver(contribution.version(), "contribution version")?;
+    require_text(
+        contribution.display_name(),
+        "contribution displayName",
+        MAX_DISPLAY_NAME_BYTES,
+    )?;
+    match contribution {
+        PluginContributionDescriptor::Filter(value) => validate_filter_v2(value),
+        PluginContributionDescriptor::EngineConnector(value) => {
+            require_text(
+                &value.protocol,
+                "connector protocol",
+                MAX_SHORT_STRING_BYTES,
+            )?;
+            validate_string_list(&value.operations, "connector operations")?;
+            if value.config_schema_version == 0 {
+                return Err(PluginRuntimeError::InvalidManifest(
+                    "connector configSchemaVersion must be positive".to_string(),
+                ));
+            }
+            Ok(())
+        }
+        PluginContributionDescriptor::QaRule(value) => {
+            require_text(&value.rule_type, "QA ruleType", MAX_SHORT_STRING_BYTES)?;
+            require_text(&value.severity, "QA severity", MAX_SHORT_STRING_BYTES)?;
+            validate_json_shape(&value.definition, "QA definition", 0)?;
+            if let Some(config) = &value.config {
+                validate_json_shape(config, "QA config", 0)?;
+            }
+            Ok(())
+        }
+        PluginContributionDescriptor::PipelineStep(value) => {
+            if value.config_schema_version == 0 {
+                return Err(PluginRuntimeError::InvalidManifest(
+                    "pipeline configSchemaVersion must be positive".to_string(),
+                ));
+            }
+            validate_json_shape(&value.input, "pipeline input", 0)?;
+            validate_json_shape(&value.output, "pipeline output", 0)?;
+            Ok(())
+        }
+        PluginContributionDescriptor::AiAction(value) => {
+            require_text(&value.label, "AI action label", MAX_DISPLAY_NAME_BYTES)?;
+            require_text(
+                &value.placement,
+                "AI action placement",
+                MAX_SHORT_STRING_BYTES,
+            )?;
+            require_text(
+                &value.prompt_template,
+                "AI action promptTemplate",
+                MAX_LONG_STRING_BYTES,
+            )?;
+            validate_json_shape(&value.input, "AI action input", 0)
+        }
+        PluginContributionDescriptor::UiPanel(value) => {
+            require_text(&value.label, "UI panel label", MAX_DISPLAY_NAME_BYTES)?;
+            require_text(
+                &value.placement,
+                "UI panel placement",
+                MAX_SHORT_STRING_BYTES,
+            )?;
+            require_text(&value.surface, "UI panel surface", MAX_SHORT_STRING_BYTES)?;
+            if value.bridge_version == 0 {
+                return Err(PluginRuntimeError::InvalidManifest(
+                    "UI panel bridgeVersion must be positive".to_string(),
+                ));
+            }
+            Ok(())
+        }
+        PluginContributionDescriptor::ExternalConnector(value) => {
+            validate_string_list(&value.transports, "external connector transports")?;
+            if value.checkpoint_version == 0 {
+                return Err(PluginRuntimeError::InvalidManifest(
+                    "external connector checkpointVersion must be positive".to_string(),
+                ));
+            }
+            if value.capabilities.len() > MAX_MAP_ENTRIES {
+                return Err(PluginRuntimeError::PackageInvalid(
+                    "external connector has too many capabilities".to_string(),
+                ));
+            }
+            Ok(())
+        }
+    }
+}
+
+fn validate_filter_v2(value: &FilterContributionDescriptor) -> Result<()> {
+    validate_extensions(&value.extensions)
+}
+
+fn validate_string_list(values: &[String], label: &str) -> Result<()> {
+    if values.is_empty() || values.len() > MAX_LIST_ITEMS {
+        return Err(PluginRuntimeError::InvalidManifest(format!(
+            "{label} must contain between one and 256 items"
+        )));
+    }
+    let mut seen = BTreeSet::new();
+    for value in values {
+        require_text(value, label, MAX_SHORT_STRING_BYTES)?;
+        if !seen.insert(value) {
+            return Err(PluginRuntimeError::InvalidManifest(format!(
+                "{label} must not contain duplicates"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn normalize_relative_path(value: &str, label: &str) -> Result<String> {
+    if value.is_empty() || value.len() > MAX_PACKAGE_PATH_BYTES || value.contains('\0') {
+        return Err(PluginRuntimeError::PackageInvalid(format!(
+            "{label} is empty or oversized"
+        )));
+    }
+    let normalized = value.replace('\\', "/");
+    if normalized.starts_with('/')
+        || normalized.contains(":")
+        || Path::new(&normalized).is_absolute()
+    {
+        return Err(PluginRuntimeError::PackageInvalid(format!(
+            "{label} must be a relative path"
+        )));
+    }
+    let mut output = Vec::new();
+    for component in normalized.split('/') {
+        if component.is_empty() || component == "." {
+            continue;
+        }
+        if component == ".." {
+            return Err(PluginRuntimeError::PackageInvalid(format!(
+                "{label} contains an escaping path component"
+            )));
+        }
+        if component.len() > MAX_PACKAGE_PATH_BYTES {
+            return Err(PluginRuntimeError::PackageInvalid(format!(
+                "{label} component is oversized"
+            )));
+        }
+        output.push(component);
+    }
+    if output.is_empty() {
+        return Err(PluginRuntimeError::PackageInvalid(format!(
+            "{label} must contain a file path"
+        )));
+    }
+    if output.len() > MAX_PACKAGE_DEPTH {
+        return Err(PluginRuntimeError::PackageInvalid(format!(
+            "{label} exceeds package nesting limit"
+        )));
+    }
+    Ok(output.join("/"))
+}
+
+fn ensure_regular_package_file(root: &Path, relative: &str, label: &str) -> Result<()> {
+    let mut current = root.to_path_buf();
+    reject_reparse(&current, label)?;
+    let components = relative.split('/').collect::<Vec<_>>();
+    for (index, component) in components.iter().enumerate() {
+        current.push(component);
+        let metadata = std::fs::symlink_metadata(&current).map_err(|error| {
+            if label.ends_with("entry.path") {
+                PluginRuntimeError::InvalidManifest(format!(
+                    "entry file missing: {relative} ({error})"
+                ))
+            } else {
+                PluginRuntimeError::InvalidManifest(format!("{label} is missing: {error}"))
+            }
+        })?;
+        if metadata.file_type().is_symlink() || is_reparse_point(&metadata) {
+            return Err(PluginRuntimeError::PackageInvalid(format!(
+                "{label} traverses a symlink or reparse point"
+            )));
+        }
+        if index + 1 < components.len() && !metadata.is_dir() {
+            return Err(PluginRuntimeError::PackageInvalid(format!(
+                "{label} has a non-directory parent"
+            )));
+        }
+        if index + 1 == components.len() && !metadata.is_file() {
+            return Err(PluginRuntimeError::InvalidManifest(format!(
+                "{label} must be a regular file"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn reject_reparse(path: &Path, label: &str) -> Result<()> {
+    let metadata = std::fs::symlink_metadata(path).map_err(|error| {
+        PluginRuntimeError::PackageInvalid(format!("{label} is unavailable: {error}"))
+    })?;
+    if metadata.file_type().is_symlink() || is_reparse_point(&metadata) {
+        return Err(PluginRuntimeError::PackageInvalid(format!(
+            "{label} is a symlink or reparse point"
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    metadata.file_attributes() & 0x400 != 0
+}
+
+#[cfg(not(windows))]
+fn is_reparse_point(_metadata: &std::fs::Metadata) -> bool {
+    false
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -416,6 +1585,14 @@ impl PluginProcess {
                 "handshake apiVersion {} unsupported",
                 handshake.api_version
             )));
+        }
+        let expected_contributions = self.manifest.filter_descriptors();
+        let actual_contributions = handshake.contributions.filter_descriptors();
+        if actual_contributions != expected_contributions {
+            self.stop();
+            return Err(PluginRuntimeError::Protocol(
+                "plugin handshake contribution inventory does not match the manifest".to_string(),
+            ));
         }
         Ok(())
     }
@@ -830,7 +2007,14 @@ impl ProcessDocumentFilter {
                     PluginRuntimeError::Process(_)
                     | PluginRuntimeError::InvalidManifest(_)
                     | PluginRuntimeError::NotFound(_)
-                    | PluginRuntimeError::Conflict(_) => PluginProcessFailureKind::Crash,
+                    | PluginRuntimeError::Conflict(_)
+                    | PluginRuntimeError::UnsupportedVersion { .. }
+                    | PluginRuntimeError::IncompatibleHost { .. }
+                    | PluginRuntimeError::CapabilityUnsupported(_)
+                    | PluginRuntimeError::PackageInvalid(_)
+                    | PluginRuntimeError::PackageHashMismatch { .. } => {
+                        PluginProcessFailureKind::Crash
+                    }
                     PluginRuntimeError::PermissionDenied(_) | PluginRuntimeError::Remote(_) => {
                         unreachable!("handled above")
                     }
@@ -922,24 +2106,250 @@ fn path_string(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CanonicalPackageHash<'a> {
+    algorithm: &'a str,
+    version: u32,
+    entries: &'a [PluginPackageFileDigest],
+}
+
+/// Hash every regular file in a package using the canonical package identity
+/// described by the multi-tier control-plane contract.  The manifest is
+/// included in the same sorted entry list as all other files.
+pub fn hash_plugin_package(package_dir: &Path) -> Result<PluginPackageHash> {
+    reject_reparse(package_dir, "package root")?;
+    if !package_dir.is_dir() {
+        return Err(PluginRuntimeError::PackageInvalid(
+            "package root must be a directory".to_string(),
+        ));
+    }
+    let mut entries = Vec::new();
+    let mut seen_paths = BTreeSet::new();
+    let mut total_bytes = 0_u64;
+    collect_package_files(
+        package_dir,
+        package_dir,
+        0,
+        &mut entries,
+        &mut seen_paths,
+        &mut total_bytes,
+    )?;
+    if entries.is_empty() {
+        return Err(PluginRuntimeError::PackageInvalid(
+            "package contains no regular files".to_string(),
+        ));
+    }
+    entries.sort_by(|left, right| left.path.as_bytes().cmp(right.path.as_bytes()));
+    let canonical = CanonicalPackageHash {
+        algorithm: PACKAGE_HASH_ALGORITHM,
+        version: PACKAGE_HASH_VERSION,
+        entries: &entries,
+    };
+    let bytes = serde_json::to_vec(&canonical)?;
+    let sha256 = hex_digest(&Sha256::digest(&bytes));
+    Ok(PluginPackageHash {
+        algorithm: PACKAGE_HASH_ALGORITHM.to_string(),
+        version: PACKAGE_HASH_VERSION,
+        sha256,
+        total_bytes,
+        entries,
+    })
+}
+
+fn collect_package_files(
+    root: &Path,
+    directory: &Path,
+    depth: usize,
+    entries: &mut Vec<PluginPackageFileDigest>,
+    seen_paths: &mut BTreeSet<String>,
+    total_bytes: &mut u64,
+) -> Result<()> {
+    if depth > MAX_PACKAGE_DEPTH {
+        return Err(PluginRuntimeError::PackageInvalid(
+            "package exceeds directory nesting limit".to_string(),
+        ));
+    }
+    reject_reparse(directory, "package directory")?;
+    let mut children = std::fs::read_dir(directory)
+        .map_err(PluginRuntimeError::Io)?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    children.sort_by_key(|entry| entry.file_name());
+    for entry in children {
+        let path = entry.path();
+        let metadata = std::fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_symlink() || is_reparse_point(&metadata) {
+            return Err(PluginRuntimeError::PackageInvalid(format!(
+                "package contains a symlink or reparse point: {}",
+                path.display()
+            )));
+        }
+        if metadata.is_dir() {
+            collect_package_files(root, &path, depth + 1, entries, seen_paths, total_bytes)?;
+            continue;
+        }
+        if !metadata.is_file() {
+            return Err(PluginRuntimeError::PackageInvalid(format!(
+                "package contains a non-regular entry: {}",
+                path.display()
+            )));
+        }
+        if entries.len() >= MAX_PACKAGE_FILES {
+            return Err(PluginRuntimeError::PackageInvalid(
+                "package contains too many files".to_string(),
+            ));
+        }
+        let relative = path
+            .strip_prefix(root)
+            .map_err(|_| PluginRuntimeError::PackageInvalid("package path escaped root".into()))?;
+        let relative = normalize_relative_path(&relative.to_string_lossy(), "package path")?;
+        if !seen_paths.insert(relative.clone()) {
+            return Err(PluginRuntimeError::PackageInvalid(format!(
+                "package contains duplicate normalized path: {relative}"
+            )));
+        }
+        let mut file = File::open(&path)?;
+        let mut hasher = Sha256::new();
+        let mut buffer = [0_u8; 64 * 1024];
+        let mut size = 0_u64;
+        loop {
+            let read = file.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            size = size.saturating_add(read as u64);
+            *total_bytes = total_bytes.saturating_add(read as u64);
+            if *total_bytes > MAX_PACKAGE_TOTAL_BYTES {
+                return Err(PluginRuntimeError::PackageInvalid(
+                    "package exceeds total byte limit".to_string(),
+                ));
+            }
+            hasher.update(&buffer[..read]);
+        }
+        entries.push(PluginPackageFileDigest {
+            path: relative,
+            size,
+            sha256: hex_digest(&hasher.finalize()),
+        });
+    }
+    Ok(())
+}
+
+fn hex_digest(bytes: &[u8]) -> String {
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        use std::fmt::Write as _;
+        let _ = write!(output, "{byte:02x}");
+    }
+    output
+}
+
+pub fn inspect_plugin_package(
+    package_dir: &Path,
+) -> Result<(NormalizedPluginManifest, PluginPackageHash)> {
+    let normalized = load_normalized_manifest(package_dir)?;
+    let package_hash = hash_plugin_package(package_dir)?;
+    Ok((normalized, package_hash))
+}
+
+/// Copy a source package into a unique staging directory and hash the staged
+/// bytes.  The destination is created with `create_dir`, so an existing path
+/// can never be clobbered.
+pub fn stage_plugin_package(source: &Path, staging_root: &Path) -> Result<StagedPluginPackage> {
+    reject_reparse(source, "plugin source")?;
+    if !source.is_dir() {
+        return Err(PluginRuntimeError::PackageInvalid(
+            "plugin source must be a directory".to_string(),
+        ));
+    }
+    std::fs::create_dir_all(staging_root)?;
+    let staging = staging_root.join(format!("stage-{}", Uuid::now_v7()));
+    std::fs::create_dir(&staging).map_err(|error| {
+        PluginRuntimeError::PackageInvalid(format!("cannot reserve staging directory: {error}"))
+    })?;
+    if let Err(error) = copy_dir_secure(source, &staging, 0) {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(error);
+    }
+    let result = inspect_plugin_package(&staging);
+    match result {
+        Ok((normalized_manifest, package_hash)) => Ok(StagedPluginPackage {
+            path: staging,
+            normalized_manifest,
+            package_hash,
+        }),
+        Err(error) => {
+            let _ = std::fs::remove_dir_all(&staging);
+            Err(error)
+        }
+    }
+}
+
+pub fn publish_staged_package(staged: &Path, destination: &Path) -> Result<()> {
+    if destination.exists() {
+        return Err(PluginRuntimeError::Conflict(format!(
+            "managed package destination already exists: {}",
+            destination.display()
+        )));
+    }
+    let parent = destination.parent().ok_or_else(|| {
+        PluginRuntimeError::PackageInvalid("managed package destination has no parent".into())
+    })?;
+    std::fs::create_dir_all(parent)?;
+    std::fs::rename(staged, destination)?;
+    Ok(())
+}
+
+pub fn verify_plugin_package_hash(package_dir: &Path, expected: &str) -> Result<PluginPackageHash> {
+    let actual = hash_plugin_package(package_dir)?;
+    if actual.sha256 != expected {
+        return Err(PluginRuntimeError::PackageHashMismatch {
+            expected: expected.to_string(),
+            actual: actual.sha256.clone(),
+        });
+    }
+    Ok(actual)
+}
+
 /// Recursively copy a plugin package into the managed data directory.
 pub fn copy_package(source: &Path, destination: &Path) -> Result<()> {
     if destination.exists() {
         std::fs::remove_dir_all(destination)?;
     }
-    copy_dir_all(source, destination)
+    copy_dir_secure(source, destination, 0)
 }
 
-fn copy_dir_all(source: &Path, destination: &Path) -> Result<()> {
+fn copy_dir_secure(source: &Path, destination: &Path, depth: usize) -> Result<()> {
+    if depth > MAX_PACKAGE_DEPTH {
+        return Err(PluginRuntimeError::PackageInvalid(
+            "package exceeds directory nesting limit".to_string(),
+        ));
+    }
+    reject_reparse(source, "plugin source directory")?;
     std::fs::create_dir_all(destination)?;
-    for entry in std::fs::read_dir(source)? {
-        let entry = entry?;
-        let target = destination.join(entry.file_name());
-        let file_type = entry.file_type()?;
-        if file_type.is_dir() {
-            copy_dir_all(&entry.path(), &target)?;
-        } else if file_type.is_file() {
-            std::fs::copy(entry.path(), &target)?;
+    let mut entries = std::fs::read_dir(source)
+        .map_err(PluginRuntimeError::Io)?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
+        let source_path = entry.path();
+        let target_path = destination.join(entry.file_name());
+        let metadata = std::fs::symlink_metadata(&source_path)?;
+        if metadata.file_type().is_symlink() || is_reparse_point(&metadata) {
+            return Err(PluginRuntimeError::PackageInvalid(format!(
+                "package contains a symlink or reparse point: {}",
+                source_path.display()
+            )));
+        }
+        if metadata.is_dir() {
+            copy_dir_secure(&source_path, &target_path, depth + 1)?;
+        } else if metadata.is_file() {
+            std::fs::copy(&source_path, &target_path)?;
+        } else {
+            return Err(PluginRuntimeError::PackageInvalid(format!(
+                "package contains a non-regular entry: {}",
+                source_path.display()
+            )));
         }
     }
     Ok(())
@@ -958,9 +2368,231 @@ mod tests {
     use std::fs;
     use tempfile::tempdir;
 
+    fn v2_contributions() -> Vec<Value> {
+        vec![
+            json!({
+                "kind": "filter",
+                "descriptorVersion": 1,
+                "id": "example.v2.filter",
+                "version": "1.0.0",
+                "displayName": "V2 filter",
+                "extensions": ["v2"],
+                "capabilities": {
+                    "import": true, "export": true, "validate": true,
+                    "inlineTags": false, "notes": false, "degradationReport": true
+                }
+            }),
+            json!({
+                "kind": "engineConnector",
+                "descriptorVersion": 1,
+                "id": "example.v2.engine",
+                "version": "1.0.0",
+                "displayName": "V2 engine",
+                "protocol": "local",
+                "operations": ["lookup"],
+                "configSchemaVersion": 1
+            }),
+            json!({
+                "kind": "qaRule",
+                "descriptorVersion": 1,
+                "id": "example.v2.qa",
+                "version": "1.0.0",
+                "displayName": "V2 QA",
+                "ruleType": "style",
+                "severity": "warning",
+                "definition": {"pattern": "v2"}
+            }),
+            json!({
+                "kind": "pipelineStep",
+                "descriptorVersion": 1,
+                "id": "example.v2.step",
+                "version": "1.0.0",
+                "displayName": "V2 step",
+                "input": {"type": "text"},
+                "output": {"type": "text"},
+                "configSchemaVersion": 1,
+                "resumable": true,
+                "cancellable": true
+            }),
+            json!({
+                "kind": "aiAction",
+                "descriptorVersion": 1,
+                "id": "example.v2.action",
+                "version": "1.0.0",
+                "displayName": "V2 action",
+                "label": "Explain",
+                "placement": "selection",
+                "input": {"type": "string"},
+                "promptTemplate": "Explain this"
+            }),
+            json!({
+                "kind": "uiPanel",
+                "descriptorVersion": 1,
+                "id": "example.v2.panel",
+                "version": "1.0.0",
+                "displayName": "V2 panel",
+                "label": "Panel",
+                "placement": "sidebar",
+                "surface": "workbench",
+                "bridgeVersion": 1
+            }),
+            json!({
+                "kind": "externalConnector",
+                "descriptorVersion": 1,
+                "id": "example.v2.external",
+                "version": "1.0.0",
+                "displayName": "V2 external",
+                "transports": ["http"],
+                "checkpointVersion": 1,
+                "capabilities": {"read": true}
+            }),
+        ]
+    }
+
+    fn v2_manifest(runtime: Value, contributions: Vec<Value>) -> Value {
+        json!({
+            "manifestVersion": 2,
+            "id": "example.v2",
+            "displayName": "V2 fixture",
+            "version": "1.0.0",
+            "hostApi": {"min": 1, "max": 1},
+            "runtime": runtime,
+            "contributions": contributions,
+            "permissions": []
+        })
+    }
+
     fn write_manifest(dir: &Path, body: &str) {
         fs::write(dir.join(MANIFEST_FILE_NAME), body).expect("write manifest");
         fs::write(dir.join("entry.mjs"), "console.log('ok')").expect("write entry");
+    }
+
+    #[test]
+    fn relative_paths_normalize_dot_and_duplicate_components() {
+        assert_eq!(
+            normalize_relative_path("./bin//./entry.mjs", "entry.path").expect("normalize path"),
+            "bin/entry.mjs"
+        );
+        assert!(normalize_relative_path("../entry.mjs", "entry.path").is_err());
+        assert!(normalize_relative_path("/entry.mjs", "entry.path").is_err());
+    }
+
+    #[test]
+    fn v2_all_tiers_and_contribution_families_normalize_with_camel_case_wire_fields() {
+        let all = v2_contributions();
+        let sandbox_dir = tempdir().expect("sandbox package");
+        fs::write(sandbox_dir.path().join("entry.mjs"), "export default {};")
+            .expect("write sandbox entry");
+        let sandbox = v2_manifest(
+            json!({
+                "tier": "sandbox",
+                "runtimeVersion": 1,
+                "entry": {"kind": "javascript", "path": "entry.mjs", "exportName": "default"}
+            }),
+            all.clone(),
+        );
+        let normalized = decode_normalized_manifest(
+            &serde_json::to_vec(&sandbox).expect("serialize sandbox manifest"),
+            sandbox_dir.path(),
+        )
+        .expect("normalize sandbox manifest");
+        assert_eq!(normalized.source_manifest_version, 2);
+        assert_eq!(normalized.contributions.len(), 7);
+        assert_eq!(normalized.runtime.tier(), PluginTier::Sandbox);
+        assert!(!normalized.compatibility().compatible);
+        assert_eq!(
+            serde_json::to_value(&normalized.runtime).expect("serialize normalized runtime")["runtimeVersion"],
+            1
+        );
+
+        let process_dir = tempdir().expect("process package");
+        fs::write(process_dir.path().join("entry.mjs"), "export default {};")
+            .expect("write process entry");
+        let process = v2_manifest(
+            json!({
+                "tier": "process",
+                "runtimeVersion": 1,
+                "protocolVersion": 1,
+                "entry": {"kind": "node", "path": "entry.mjs"}
+            }),
+            all.iter()
+                .filter(|value| value["kind"] != "uiPanel")
+                .cloned()
+                .collect(),
+        );
+        let normalized_process = decode_normalized_manifest(
+            &serde_json::to_vec(&process).expect("serialize process manifest"),
+            process_dir.path(),
+        )
+        .expect("normalize process manifest");
+        assert_eq!(normalized_process.runtime.tier(), PluginTier::Process);
+        assert!(!normalized_process.compatibility().compatible);
+        assert!(
+            normalized_process
+                .contributions
+                .iter()
+                .all(|value| !matches!(value, PluginContributionDescriptor::UiPanel(_)))
+        );
+
+        let declarative_dir = tempdir().expect("declarative package");
+        let declarative = v2_manifest(
+            json!({
+                "tier": "declarative",
+                "runtimeVersion": 1,
+                "entry": {"kind": "manifest"}
+            }),
+            all.into_iter()
+                .filter(|value| {
+                    matches!(
+                        value["kind"].as_str(),
+                        Some("filter" | "qaRule" | "pipelineStep")
+                    )
+                })
+                .collect(),
+        );
+        let normalized_declarative = decode_normalized_manifest(
+            &serde_json::to_vec(&declarative).expect("serialize declarative manifest"),
+            declarative_dir.path(),
+        )
+        .expect("normalize declarative manifest");
+        assert_eq!(
+            normalized_declarative.runtime.tier(),
+            PluginTier::Declarative
+        );
+        assert_eq!(normalized_declarative.contributions.len(), 3);
+    }
+
+    #[test]
+    fn v2_duplicate_and_unknown_descriptor_versions_fail_closed() {
+        let directory = tempdir().expect("v2 package");
+        fs::write(directory.path().join("entry.mjs"), "export default {};").expect("write entry");
+        let duplicate_filter = v2_contributions().remove(0);
+        let mut duplicate = v2_manifest(
+            json!({
+                "tier": "sandbox",
+                "runtimeVersion": 1,
+                "entry": {"kind": "javascript", "path": "entry.mjs"}
+            }),
+            vec![duplicate_filter.clone(), duplicate_filter],
+        );
+        let duplicate_error = decode_normalized_manifest(
+            &serde_json::to_vec(&duplicate).expect("serialize duplicate"),
+            directory.path(),
+        )
+        .expect_err("duplicate contribution must fail");
+        assert!(duplicate_error.to_string().contains("duplicate"));
+
+        duplicate["runtime"]["runtimeVersion"] = json!(2);
+        let version_error = decode_normalized_manifest(
+            &serde_json::to_vec(&duplicate).expect("serialize unknown runtime version"),
+            directory.path(),
+        )
+        .expect_err("unknown runtime version must fail");
+        assert!(matches!(
+            version_error,
+            PluginRuntimeError::UnsupportedVersion { component, version }
+                if component == "runtime" && version == 2
+        ));
     }
 
     #[test]
@@ -1168,7 +2800,7 @@ rl.on("line", (line) => {
   const request = JSON.parse(line);
   if (request.method === "test.timeout") return;
   const result = request.method === "plugin.handshake"
-    ? { apiVersion: 1, pluginId: "example.timeout", contributions: { filters: [] } }
+    ? { apiVersion: 1, pluginId: "example.timeout", contributions: { filters: [{ id: "example.timeout", version: "0.1.0", displayName: "Timeout fixture", extensions: ["timeout"], capabilities: { import: true, export: false, validate: false, inlineTags: false, notes: false, degradationReport: false } }] } }
     : request.method === "test.path"
       ? (process.env.PATH ?? null)
       : {};
@@ -1312,7 +2944,7 @@ const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
 rl.on("line", (line) => {
   const request = JSON.parse(line);
   const result = request.method === "plugin.handshake"
-    ? { apiVersion: 1, pluginId: "example.backpressure", contributions: { filters: [] } }
+    ? { apiVersion: 1, pluginId: "example.backpressure", contributions: { filters: [{ id: "example.backpressure", version: "0.1.0", displayName: "Backpressure fixture", extensions: ["blocked"], capabilities: { import: true, export: false, validate: false, inlineTags: false, notes: false, degradationReport: false } }] } }
     : "recovered";
   process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
   if (request.method === "plugin.handshake" && blockThisGeneration) {

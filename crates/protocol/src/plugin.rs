@@ -2,6 +2,8 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use translunar_filter_core::FilterCapabilities;
 use translunar_filter_core::FilterDescriptor;
 
 use crate::{default_actor, default_page_size};
@@ -9,6 +11,8 @@ use crate::{default_actor, default_page_size};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum PluginTier {
+    Declarative,
+    Sandbox,
     Process,
 }
 
@@ -19,6 +23,198 @@ pub enum PluginStatus {
     Enabled,
     Disabled,
     Degraded,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginApiRange {
+    pub min: u32,
+    pub max: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum PluginDeclarativeEntry {
+    Manifest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum PluginSandboxEntry {
+    Javascript {
+        path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        export_name: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum PluginProcessEntry {
+    Node { path: String },
+    Executable { path: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "tier",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum PluginRuntimeDescriptor {
+    Declarative {
+        runtime_version: u32,
+        entry: PluginDeclarativeEntry,
+    },
+    Sandbox {
+        runtime_version: u32,
+        entry: PluginSandboxEntry,
+    },
+    Process {
+        runtime_version: u32,
+        protocol_version: u32,
+        entry: PluginProcessEntry,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum PluginContributionDescriptor {
+    Filter {
+        descriptor_version: u32,
+        id: String,
+        version: String,
+        display_name: String,
+        extensions: Vec<String>,
+        capabilities: FilterCapabilities,
+    },
+    EngineConnector {
+        descriptor_version: u32,
+        id: String,
+        version: String,
+        display_name: String,
+        protocol: String,
+        operations: Vec<String>,
+        config_schema_version: u32,
+    },
+    QaRule {
+        descriptor_version: u32,
+        id: String,
+        version: String,
+        display_name: String,
+        rule_type: String,
+        severity: String,
+        definition: Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        config: Option<Value>,
+    },
+    PipelineStep {
+        descriptor_version: u32,
+        id: String,
+        version: String,
+        display_name: String,
+        input: Value,
+        output: Value,
+        config_schema_version: u32,
+        resumable: bool,
+        cancellable: bool,
+    },
+    AiAction {
+        descriptor_version: u32,
+        id: String,
+        version: String,
+        display_name: String,
+        label: String,
+        placement: String,
+        input: Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prompt_template: Option<String>,
+    },
+    UiPanel {
+        descriptor_version: u32,
+        id: String,
+        version: String,
+        display_name: String,
+        label: String,
+        placement: String,
+        surface: String,
+        bridge_version: u32,
+    },
+    ExternalConnector {
+        descriptor_version: u32,
+        id: String,
+        version: String,
+        display_name: String,
+        transports: Vec<String>,
+        checkpoint_version: u32,
+        capabilities: Value,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NormalizedPluginManifest {
+    pub normalized_version: u32,
+    pub source_manifest_version: u32,
+    pub id: String,
+    pub display_name: String,
+    pub version: String,
+    pub host_api: PluginApiRange,
+    pub runtime: PluginRuntimeDescriptor,
+    pub contributions: Vec<PluginContributionDescriptor>,
+    pub requested_permissions: Vec<String>,
+    pub original_manifest_json: Value,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum PluginDiagnosticSeverity {
+    Info,
+    Warning,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginDiagnostic {
+    pub code: String,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub severity: Option<PluginDiagnosticSeverity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginCompatibility {
+    pub compatible: bool,
+    pub host_api_supported: bool,
+    pub runtime_supported: bool,
+    pub contributions_supported: bool,
+    #[serde(default)]
+    pub unsupported_capabilities: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -34,6 +230,12 @@ pub struct PluginListParams {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PluginIdParams {
     pub plugin_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginInspectParams {
+    pub source_path: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -69,6 +271,46 @@ fn default_mutation_reason() -> String {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginVersionListParams {
+    pub plugin_id: String,
+    #[serde(default)]
+    pub offset: u32,
+    #[serde(default = "default_page_size")]
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginUpgradeParams {
+    pub plugin_id: String,
+    pub source_path: String,
+    pub expected_revision: u64,
+    pub actor: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginRollbackParams {
+    pub plugin_id: String,
+    pub version_id: String,
+    pub expected_revision: u64,
+    pub actor: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginInspection {
+    pub normalized_manifest: NormalizedPluginManifest,
+    pub package_sha256: String,
+    pub compatibility: PluginCompatibility,
+    pub diagnostics: Vec<PluginDiagnostic>,
+    pub can_install: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginSummary {
     pub id: String,
@@ -81,6 +323,18 @@ pub struct PluginSummary {
     pub requested_permissions: Vec<String>,
     pub granted_permissions: Vec<String>,
     pub filters: Vec<FilterDescriptor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_version_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<PluginRuntimeDescriptor>,
+    #[serde(default)]
+    pub contributions: Vec<PluginContributionDescriptor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compatibility: Option<PluginCompatibility>,
+    #[serde(default)]
+    pub diagnostics: Vec<PluginDiagnostic>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
     pub crash_count: u32,
@@ -101,4 +355,165 @@ pub struct PluginPage {
 #[serde(rename_all = "camelCase")]
 pub struct PluginMutationResult {
     pub plugin: PluginSummary,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum PluginVersionState {
+    Validated,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginVersionSummary {
+    pub id: String,
+    pub plugin_id: String,
+    pub version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package_sha256: Option<String>,
+    pub package_path: String,
+    pub tier: PluginTier,
+    pub runtime: PluginRuntimeDescriptor,
+    pub contribution_count: u32,
+    pub state: PluginVersionState,
+    pub compatibility: PluginCompatibility,
+    pub diagnostics: Vec<PluginDiagnostic>,
+    pub installed_at_ms: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activated_at_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deactivated_at_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failed_at_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginVersionPage {
+    pub items: Vec<PluginVersionSummary>,
+    pub total: u32,
+    pub offset: u32,
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum PluginLifecycleAction {
+    Upgraded,
+    RolledBack,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginLifecycleResult {
+    pub plugin: PluginSummary,
+    pub active_version_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_version_id: Option<String>,
+    pub action: PluginLifecycleAction,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn capabilities() -> FilterCapabilities {
+        FilterCapabilities {
+            import: true,
+            export: true,
+            validate: true,
+            inline_tags: false,
+            notes: false,
+            degradation_report: true,
+        }
+    }
+
+    #[test]
+    fn runtime_and_contribution_unions_use_camel_case_discriminators() {
+        let runtime = PluginRuntimeDescriptor::Sandbox {
+            runtime_version: 1,
+            entry: PluginSandboxEntry::Javascript {
+                path: "dist/plugin.mjs".to_string(),
+                export_name: Some("activate".to_string()),
+            },
+        };
+        assert_eq!(
+            serde_json::to_value(runtime).expect("serialize sandbox runtime"),
+            json!({
+                "tier": "sandbox",
+                "runtimeVersion": 1,
+                "entry": {
+                    "kind": "javascript",
+                    "path": "dist/plugin.mjs",
+                    "exportName": "activate"
+                }
+            })
+        );
+
+        let contribution = PluginContributionDescriptor::Filter {
+            descriptor_version: 1,
+            id: "example.filter".to_string(),
+            version: "1.0.0".to_string(),
+            display_name: "Example".to_string(),
+            extensions: vec!["srt".to_string()],
+            capabilities: capabilities(),
+        };
+        let serialized = serde_json::to_value(contribution).expect("serialize contribution");
+        assert_eq!(serialized["kind"], "filter");
+        assert_eq!(serialized["descriptorVersion"], 1);
+        assert_eq!(serialized["displayName"], "Example");
+    }
+
+    #[test]
+    fn required_lifecycle_revisions_and_exact_request_casing_are_stable() {
+        let upgrade: PluginUpgradeParams = serde_json::from_value(json!({
+            "pluginId": "example.filter",
+            "sourcePath": "candidate",
+            "expectedRevision": 7,
+            "actor": "tester",
+            "reason": "upgrade"
+        }))
+        .expect("deserialize upgrade request");
+        assert_eq!(upgrade.expected_revision, 7);
+
+        assert!(
+            serde_json::from_value::<PluginRollbackParams>(json!({
+                "pluginId": "example.filter",
+                "versionId": "version-1",
+                "actor": "tester",
+                "reason": "rollback"
+            }))
+            .is_err(),
+            "expectedRevision is required"
+        );
+    }
+
+    #[test]
+    fn legacy_plugin_summary_payload_defaults_new_projections() {
+        let legacy: PluginSummary = serde_json::from_value(json!({
+            "id": "example.filter",
+            "displayName": "Example",
+            "version": "1.0.0",
+            "tier": "process",
+            "status": "installed",
+            "packagePath": "plugins/example.filter",
+            "revision": 1,
+            "requestedPermissions": [],
+            "grantedPermissions": [],
+            "filters": [],
+            "crashCount": 0,
+            "installedAtMs": 1,
+            "updatedAtMs": 1
+        }))
+        .expect("deserialize legacy summary");
+        assert!(legacy.active_version_id.is_none());
+        assert!(legacy.package_sha256.is_none());
+        assert!(legacy.runtime.is_none());
+        assert!(legacy.contributions.is_empty());
+        assert!(legacy.compatibility.is_none());
+        assert!(legacy.diagnostics.is_empty());
+    }
 }

@@ -2,7 +2,7 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use crate::{Result, StorageError};
 
-pub(crate) const LATEST_SCHEMA_VERSION: u32 = 17;
+pub(crate) const LATEST_SCHEMA_VERSION: u32 = 18;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -1785,7 +1785,216 @@ CREATE INDEX collab_op_log_project_idx
     ON collab_op_log(project_id, sequence);
 "#;
 
-const MIGRATIONS: [(u32, &str); 17] = [
+/// Tier-neutral plugin installation projection and immutable package history.
+///
+/// Migration 16 is released and intentionally remains byte-for-byte unchanged.
+/// The old table is copied rather than altered because its `tier` CHECK only
+/// accepts `process`.  Filesystem-dependent normalization is performed by
+/// `Store::open` after this SQL migration has committed.
+const MIGRATION_18: &str = r#"
+ALTER TABLE plugin_installations RENAME TO plugin_installations_v16;
+DROP INDEX plugin_installations_status_idx;
+
+CREATE TABLE plugin_installations (
+    id TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL CHECK (length(trim(display_name)) > 0),
+    version TEXT NOT NULL CHECK (length(trim(version)) > 0),
+    tier TEXT NOT NULL CHECK (length(trim(tier)) > 0),
+    status TEXT NOT NULL CHECK (status IN ('installed', 'enabled', 'disabled', 'degraded')),
+    package_path TEXT NOT NULL CHECK (length(trim(package_path)) > 0),
+    entry_json TEXT NOT NULL CHECK (json_valid(entry_json) AND json_type(entry_json) = 'object'),
+    manifest_json TEXT NOT NULL CHECK (json_valid(manifest_json) AND json_type(manifest_json) = 'object'),
+    contributions_json TEXT NOT NULL CHECK (
+        json_valid(contributions_json) AND json_type(contributions_json) = 'object'
+    ),
+    requested_permissions_json TEXT NOT NULL CHECK (
+        json_valid(requested_permissions_json) AND json_type(requested_permissions_json) = 'array'
+    ),
+    granted_permissions_json TEXT NOT NULL CHECK (
+        json_valid(granted_permissions_json) AND json_type(granted_permissions_json) = 'array'
+    ),
+    last_error TEXT,
+    crash_count INTEGER NOT NULL DEFAULT 0 CHECK (crash_count >= 0),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    installed_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    active_version_id TEXT,
+    package_sha256 TEXT CHECK (
+        package_sha256 IS NULL OR (
+            length(package_sha256) = 64
+            AND package_sha256 = lower(package_sha256)
+            AND package_sha256 NOT GLOB '*[^0-9a-f]*'
+        )
+    ),
+    runtime_json TEXT NOT NULL DEFAULT '{}' CHECK (
+        json_valid(runtime_json) AND json_type(runtime_json) = 'object'
+    ),
+    normalized_manifest_json TEXT NOT NULL DEFAULT '{}' CHECK (
+        json_valid(normalized_manifest_json) AND json_type(normalized_manifest_json) = 'object'
+    ),
+    compatibility_json TEXT NOT NULL DEFAULT '{"compatible":true}' CHECK (
+        json_valid(compatibility_json) AND json_type(compatibility_json) = 'object'
+    ),
+    diagnostics_json TEXT NOT NULL DEFAULT '[]' CHECK (
+        json_valid(diagnostics_json) AND json_type(diagnostics_json) = 'array'
+    ),
+    FOREIGN KEY (id, active_version_id)
+        REFERENCES plugin_versions(plugin_id, id)
+        ON DELETE RESTRICT
+) STRICT;
+
+CREATE TABLE plugin_versions (
+    id TEXT PRIMARY KEY CHECK (length(trim(id)) > 0),
+    plugin_id TEXT NOT NULL REFERENCES plugin_installations(id) ON DELETE CASCADE,
+    version TEXT NOT NULL CHECK (length(trim(version)) > 0),
+    package_sha256 TEXT CHECK (
+        package_sha256 IS NULL OR (
+            length(package_sha256) = 64
+            AND package_sha256 = lower(package_sha256)
+            AND package_sha256 NOT GLOB '*[^0-9a-f]*'
+        )
+    ),
+    package_path TEXT NOT NULL CHECK (length(trim(package_path)) > 0),
+    managed_package_path TEXT,
+    manifest_version INTEGER NOT NULL CHECK (manifest_version > 0),
+    original_manifest_json TEXT NOT NULL CHECK (
+        json_valid(original_manifest_json) AND json_type(original_manifest_json) = 'object'
+    ),
+    runtime_json TEXT NOT NULL CHECK (
+        json_valid(runtime_json) AND json_type(runtime_json) = 'object'
+    ),
+    normalized_manifest_json TEXT NOT NULL CHECK (
+        json_valid(normalized_manifest_json) AND json_type(normalized_manifest_json) = 'object'
+    ),
+    contributions_json TEXT NOT NULL CHECK (
+        json_valid(contributions_json)
+        AND json_type(contributions_json) IN ('array', 'object')
+    ),
+    compatibility_json TEXT NOT NULL CHECK (
+        json_valid(compatibility_json) AND json_type(compatibility_json) = 'object'
+    ),
+    diagnostics_json TEXT NOT NULL CHECK (
+        json_valid(diagnostics_json) AND json_type(diagnostics_json) = 'array'
+    ),
+    state TEXT NOT NULL CHECK (state IN ('validated', 'failed')),
+    installed_at_ms INTEGER NOT NULL,
+    activated_at_ms INTEGER,
+    deactivated_at_ms INTEGER,
+    failed_at_ms INTEGER,
+    UNIQUE(plugin_id, id),
+    UNIQUE(plugin_id, version)
+) STRICT;
+
+INSERT INTO plugin_installations (
+    id, display_name, version, tier, status, package_path, entry_json,
+    manifest_json, contributions_json, requested_permissions_json,
+    granted_permissions_json, last_error, crash_count, revision,
+    installed_at_ms, updated_at_ms, active_version_id, package_sha256,
+    runtime_json, normalized_manifest_json, compatibility_json, diagnostics_json
+)
+SELECT id, display_name, version, tier, status, package_path, entry_json,
+       manifest_json, contributions_json, requested_permissions_json,
+       granted_permissions_json, last_error, crash_count, revision,
+       installed_at_ms, updated_at_ms, NULL, NULL,
+       json_object('tier', tier, 'entry', json(entry_json)),
+       manifest_json,
+       json_object('compatible', json('true'), 'source', 'legacy-v16'),
+       '[]'
+FROM plugin_installations_v16;
+
+INSERT INTO plugin_versions (
+    id, plugin_id, version, package_sha256, package_path, managed_package_path,
+    manifest_version, original_manifest_json, runtime_json,
+    normalized_manifest_json, contributions_json, compatibility_json,
+    diagnostics_json, state, installed_at_ms, activated_at_ms,
+    deactivated_at_ms, failed_at_ms
+)
+SELECT 'legacy-v16:' || id, id, version, NULL, package_path, package_path,
+       COALESCE(json_extract(manifest_json, '$.manifestVersion'), 1),
+       manifest_json,
+       json_object('tier', tier, 'entry', json(entry_json)),
+       manifest_json,
+       contributions_json,
+       json_object('compatible', json('true'), 'source', 'legacy-v16'),
+       '[]',
+       'validated',
+       installed_at_ms,
+       CASE WHEN status = 'enabled' THEN updated_at_ms ELSE NULL END,
+       CASE WHEN status IN ('disabled', 'degraded') THEN updated_at_ms ELSE NULL END,
+       NULL
+FROM plugin_installations_v16;
+
+UPDATE plugin_installations
+SET active_version_id = 'legacy-v16:' || id;
+
+CREATE UNIQUE INDEX plugin_versions_plugin_hash_uq
+    ON plugin_versions(plugin_id, package_sha256)
+    WHERE package_sha256 IS NOT NULL;
+CREATE INDEX plugin_versions_plugin_install_idx
+    ON plugin_versions(plugin_id, installed_at_ms, id);
+CREATE INDEX plugin_versions_state_idx
+    ON plugin_versions(plugin_id, state, installed_at_ms DESC, id);
+CREATE INDEX plugin_installations_status_idx
+    ON plugin_installations(status, updated_at_ms DESC, id);
+CREATE INDEX plugin_installations_active_version_idx
+    ON plugin_installations(active_version_id, id);
+
+CREATE TRIGGER plugin_versions_prevent_active_delete
+BEFORE DELETE ON plugin_versions
+WHEN EXISTS (
+    SELECT 1 FROM plugin_installations
+    WHERE id = OLD.plugin_id AND active_version_id = OLD.id
+)
+BEGIN
+    SELECT RAISE(ABORT, 'active plugin version cannot be deleted');
+END;
+
+CREATE TRIGGER plugin_versions_immutable_identity
+BEFORE UPDATE OF id, plugin_id, version, manifest_version,
+    package_path, managed_package_path, original_manifest_json, package_sha256
+ON plugin_versions
+WHEN OLD.id IS NOT NEW.id
+  OR OLD.plugin_id IS NOT NEW.plugin_id
+  OR OLD.version IS NOT NEW.version
+  OR OLD.manifest_version IS NOT NEW.manifest_version
+  OR OLD.package_path IS NOT NEW.package_path
+  OR (OLD.managed_package_path IS NOT NULL
+      AND OLD.managed_package_path IS NOT NEW.managed_package_path)
+  OR OLD.original_manifest_json IS NOT NEW.original_manifest_json
+  OR (OLD.package_sha256 IS NOT NULL
+      AND OLD.package_sha256 IS NOT NEW.package_sha256)
+BEGIN
+    SELECT RAISE(ABORT, 'plugin version identity is immutable');
+END;
+
+CREATE TRIGGER plugin_versions_immutable_projection
+BEFORE UPDATE OF runtime_json, normalized_manifest_json, contributions_json
+ON plugin_versions
+WHEN OLD.package_sha256 IS NOT NULL
+ AND (
+    OLD.runtime_json IS NOT NEW.runtime_json
+    OR OLD.normalized_manifest_json IS NOT NEW.normalized_manifest_json
+    OR OLD.contributions_json IS NOT NEW.contributions_json
+ )
+BEGIN
+    SELECT RAISE(ABORT, 'plugin version projections are immutable');
+END;
+
+CREATE TRIGGER plugin_installations_active_version_valid
+BEFORE UPDATE OF active_version_id ON plugin_installations
+WHEN NEW.active_version_id IS NOT NULL
+ AND NOT EXISTS (
+    SELECT 1 FROM plugin_versions
+    WHERE plugin_id = NEW.id AND id = NEW.active_version_id AND state = 'validated'
+ )
+BEGIN
+    SELECT RAISE(ABORT, 'active plugin version must be validated and belong to plugin');
+END;
+
+DROP TABLE plugin_installations_v16;
+"#;
+
+const MIGRATIONS: [(u32, &str); 18] = [
     (1_u32, MIGRATION_1),
     (2_u32, MIGRATION_2),
     (3_u32, MIGRATION_3),
@@ -1803,6 +2012,7 @@ const MIGRATIONS: [(u32, &str); 17] = [
     (15_u32, MIGRATION_15),
     (16_u32, MIGRATION_16),
     (17_u32, MIGRATION_17),
+    (18_u32, MIGRATION_18),
 ];
 
 pub(crate) fn configure_connection(connection: &Connection) -> Result<()> {
@@ -1874,6 +2084,10 @@ mod tests {
 
     fn create_v14(connection: &mut Connection) {
         migrate_from_to(connection, 0, 14).expect("create schema v14");
+    }
+
+    fn create_v17(connection: &mut Connection) {
+        migrate_from_to(connection, 0, 17).expect("create schema v17");
     }
 
     #[test]
@@ -3028,5 +3242,266 @@ mod tests {
             )
             .expect("check rolled-back curation tables");
         assert_eq!(new_table_count, 0);
+    }
+
+    #[test]
+    fn migration_18_creates_tier_neutral_version_schema_on_fresh_database() {
+        let mut connection = Connection::open_in_memory().expect("open migration database");
+        configure_connection(&connection).expect("configure migration database");
+        migrate(&mut connection).expect("create latest schema");
+
+        let version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read latest schema version");
+        assert_eq!(version, 18);
+        let version_columns = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('plugin_versions')",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("count version columns");
+        assert_eq!(version_columns, 18);
+        let projection_columns = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('plugin_installations')
+                 WHERE name IN (
+                    'active_version_id', 'package_sha256', 'runtime_json',
+                    'normalized_manifest_json', 'compatibility_json', 'diagnostics_json'
+                 )",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("count projection columns");
+        assert_eq!(projection_columns, 6);
+    }
+
+    #[test]
+    fn migration_18_preserves_v16_rows_and_seeds_deterministic_history() {
+        let temp = tempfile::tempdir().expect("temporary migration directory");
+        let database = temp.path().join("translunar.sqlite3");
+        let mut connection = Connection::open(&database).expect("open v17 database");
+        configure_connection(&connection).expect("configure v17 database");
+        create_v17(&mut connection);
+        let manifest = r#"{"manifestVersion":1,"id":"placeholder","displayName":"Legacy","version":"0.1.0","apiVersion":1,"apiVersionMin":1,"tier":"process","entry":{"kind":"node","path":"entry.mjs"},"contributions":{"filters":[]},"permissions":["file.read:source"]}"#;
+        let entry = r#"{"kind":"node","path":"entry.mjs"}"#;
+        let contributions = r#"{"filters":[]}"#;
+        for (ordinal, status) in ["installed", "enabled", "disabled", "degraded"]
+            .into_iter()
+            .enumerate()
+        {
+            let id = format!("legacy-{status}");
+            let row_manifest = manifest.replace("placeholder", &id);
+            connection
+                .execute(
+                    "INSERT INTO plugin_installations (
+                        id, display_name, version, tier, status, package_path,
+                        entry_json, manifest_json, contributions_json,
+                        requested_permissions_json, granted_permissions_json,
+                        last_error, crash_count, revision, installed_at_ms, updated_at_ms
+                     ) VALUES (?1, ?2, ?3, 'process', ?4, ?5, ?6, ?7, ?8,
+                               '[\"file.read:source\"]', '[\"file.read:source\"]',
+                               ?9, ?10, ?11, ?12, ?13)",
+                    rusqlite::params![
+                        id,
+                        format!("Legacy {status}"),
+                        format!("0.1.{ordinal}"),
+                        status,
+                        format!("plugins/legacy-{status}"),
+                        entry,
+                        row_manifest,
+                        contributions,
+                        if status == "degraded" {
+                            Some("legacy crash")
+                        } else {
+                            None
+                        },
+                        ordinal as i64,
+                        (ordinal + 7) as i64,
+                        100_i64 + ordinal as i64,
+                        200_i64 + ordinal as i64,
+                    ],
+                )
+                .expect("insert legacy plugin row");
+        }
+
+        migrate_from_to(&mut connection, 17, 18).expect("upgrade plugin schema");
+        let rows = connection
+            .query_row("SELECT COUNT(*) FROM plugin_installations", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .expect("count migrated installations");
+        assert_eq!(rows, 4);
+        let versions = connection
+            .query_row("SELECT COUNT(*) FROM plugin_versions", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .expect("count seeded versions");
+        assert_eq!(versions, 4);
+        let degraded = connection
+            .query_row(
+                "SELECT i.status, i.package_path, i.granted_permissions_json,
+                        i.last_error, i.crash_count, i.revision, i.installed_at_ms,
+                        i.updated_at_ms, i.active_version_id, v.version,
+                        v.original_manifest_json
+                 FROM plugin_installations i
+                 JOIN plugin_versions v
+                   ON v.plugin_id = i.id AND v.id = i.active_version_id
+                 WHERE i.id = 'legacy-degraded'",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, i64>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, i64>(6)?,
+                        row.get::<_, i64>(7)?,
+                        row.get::<_, String>(8)?,
+                        row.get::<_, String>(9)?,
+                        row.get::<_, String>(10)?,
+                    ))
+                },
+            )
+            .expect("read migrated degraded row");
+        assert_eq!(degraded.0, "degraded");
+        assert_eq!(degraded.1, "plugins/legacy-degraded");
+        assert_eq!(degraded.2, r#"["file.read:source"]"#);
+        assert_eq!(degraded.3.as_deref(), Some("legacy crash"));
+        assert_eq!(degraded.4, 3);
+        assert_eq!(degraded.5, 10);
+        assert_eq!(degraded.6, 103);
+        assert_eq!(degraded.7, 203);
+        assert_eq!(degraded.8, "legacy-v16:legacy-degraded");
+        assert_eq!(degraded.9, "0.1.3");
+        assert!(degraded.10.contains("legacy-degraded"));
+        drop(connection);
+
+        let mut reopened = Connection::open(database).expect("reopen migrated database");
+        configure_connection(&reopened).expect("configure reopened database");
+        migrate(&mut reopened).expect("reopen at schema 18");
+        let counts = reopened
+            .query_row(
+                "SELECT
+                    (SELECT COUNT(*) FROM plugin_installations),
+                    (SELECT COUNT(*) FROM plugin_versions)",
+                [],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .expect("count reopened plugin rows");
+        assert_eq!(counts, (4, 4));
+    }
+
+    #[test]
+    fn migration_18_enforces_active_ownership_hash_uniqueness_and_immutability() {
+        let mut connection = Connection::open_in_memory().expect("open migration database");
+        configure_connection(&connection).expect("configure migration database");
+        create_v17(&mut connection);
+        for id in ["plugin-a", "plugin-b"] {
+            connection
+                .execute(
+                    "INSERT INTO plugin_installations (
+                        id, display_name, version, tier, status, package_path,
+                        entry_json, manifest_json, contributions_json,
+                        requested_permissions_json, granted_permissions_json,
+                        installed_at_ms, updated_at_ms
+                     ) VALUES (?1, ?1, '1.0.0', 'process', 'installed', ?1,
+                               '{\"kind\":\"node\",\"path\":\"entry.mjs\"}',
+                               '{\"manifestVersion\":1}', '{\"filters\":[]}',
+                               '[]', '[]', 1, 1)",
+                    [id],
+                )
+                .expect("insert legacy plugin");
+        }
+        migrate_from_to(&mut connection, 17, 18).expect("upgrade plugin schema");
+        assert!(
+            connection
+                .execute(
+                    "UPDATE plugin_installations
+                     SET active_version_id = 'legacy-v16:plugin-b'
+                     WHERE id = 'plugin-a'",
+                    [],
+                )
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute(
+                    "DELETE FROM plugin_versions
+                     WHERE id = 'legacy-v16:plugin-a'",
+                    [],
+                )
+                .is_err()
+        );
+        connection
+            .execute(
+                "UPDATE plugin_versions SET package_sha256 = ?1
+                 WHERE id = 'legacy-v16:plugin-a'",
+                ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+            )
+            .expect("fill legacy hash once");
+        assert!(
+            connection
+                .execute(
+                    "UPDATE plugin_versions SET package_sha256 = ?1
+                     WHERE id = 'legacy-v16:plugin-a'",
+                    ["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],
+                )
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO plugin_versions (
+                        id, plugin_id, version, package_sha256, package_path,
+                        manifest_version, original_manifest_json, runtime_json,
+                        normalized_manifest_json, contributions_json,
+                        compatibility_json, diagnostics_json, state, installed_at_ms
+                     ) VALUES ('duplicate-version', 'plugin-a', '1.0.0', NULL,
+                               'other', 1, '{}', '{}', '{}', '[]', '{}', '[]',
+                               'validated', 2)",
+                    [],
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn migration_18_rolls_back_table_copy_when_a_late_object_conflicts() {
+        let mut connection = Connection::open_in_memory().expect("open migration database");
+        configure_connection(&connection).expect("configure migration database");
+        create_v17(&mut connection);
+        connection
+            .execute(
+                "CREATE TABLE plugin_versions (id TEXT PRIMARY KEY) STRICT",
+                [],
+            )
+            .expect("create conflicting version table");
+
+        assert!(migrate_from_to(&mut connection, 17, 18).is_err());
+        let version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read rolled-back schema version");
+        assert_eq!(version, 17);
+        let legacy_tier_sql = connection
+            .query_row(
+                "SELECT sql FROM sqlite_master
+                 WHERE type = 'table' AND name = 'plugin_installations'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("read restored plugin table");
+        assert!(legacy_tier_sql.contains("tier IN ('process')"));
+        let renamed_count = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name = 'plugin_installations_v16'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("check rolled-back table rename");
+        assert_eq!(renamed_count, 0);
     }
 }

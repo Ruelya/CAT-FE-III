@@ -148,3 +148,31 @@ staged paths.
   an unselected local segment remains unchanged.
 - Bad: write selected rows in separate transactions, calculate the digest in
   React, or delete staging before the status transaction commits.
+
+## Plugin version history and staged package storage
+
+Migration 18 is an append-only extension after the released migrations 16 and
+17. It keeps the migration-16 installation projection for wire compatibility
+and stores immutable candidate history in `plugin_versions`. The active version
+foreign key is constrained to the same plugin; version rows, package hashes,
+and normalized JSON projections are not updated in place. Any future plugin
+schema change must add a migration rather than editing 16, 17, or 18.
+
+Plugin package writes follow the same storage transaction boundary as other
+mutable state:
+
+- package bytes are copied to a unique staging directory and hashed there;
+- the canonical hash covers sorted regular-file paths, sizes, and streamed
+  SHA-256 digests, including `manifest.json`;
+- a successful activation uses one `TransactionBehavior::Immediate` CAS over
+  the installation revision and active-version pointer;
+- failed candidates remain diagnosable without replacing the prior active
+  package, and rollback selects a validated version belonging to the same id;
+- uninstall quarantines the managed root before deleting rows and leaves the
+  quarantine recoverable when cleanup fails.
+
+Filesystem-aware normalization during `Store::open` is idempotent. Missing or
+tampered managed packages retain their durable installation/version rows and
+receive bounded diagnostics; normalization never silently deletes history.
+The tested concurrency boundary is SQLite CAS plus the serialized Engine
+dispatcher, not ownership by multiple independent Engine processes.

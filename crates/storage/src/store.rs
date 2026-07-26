@@ -177,6 +177,17 @@ impl DataPaths {
         };
         self.sources.join(format!("{document_id}.{extension}"))
     }
+
+    /// Resolve a persisted plugin package path at the storage boundary.  New
+    /// rows may carry an absolute managed path for compatibility, while
+    /// migration-16 rows can retain a workspace-relative value verbatim.
+    pub fn resolve_plugin_path(&self, path: &Path) -> PathBuf {
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            self.root.join(path)
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -611,6 +622,7 @@ impl Store {
             create_pre_migration_backup(&connection, &paths, current_version)?;
         }
         migrate(&mut connection)?;
+        plugin::normalize_plugin_versions(&mut connection, &paths)?;
         normalize_managed_source_paths(&mut connection, &paths)?;
         backfill_asset_keys(&mut connection)?;
         if recover_orphaned_runs {

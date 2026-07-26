@@ -1,4 +1,5 @@
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -2091,6 +2092,18 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
   writeFileSync(sourcePath, srtBody, "utf8");
   writeFileSync(crashSourcePath, "crash fixture", "utf8");
 
+  const inspection = await processHandle.call("plugin.inspect", {
+    sourcePath: pluginSource,
+  });
+  assert(
+    inspection.canInstall,
+    "valid plugin inspection should be installable",
+  );
+  assert(
+    inspection.compatibility.compatible,
+    "hello plugin should be compatible",
+  );
+
   const installed = await processHandle.call("plugin.install", {
     sourcePath: pluginSource,
     grantRequested: true,
@@ -2099,6 +2112,13 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
   });
   assert(installed.plugin.id === "example.hello-srt", "install id");
   assert(installed.plugin.status === "installed", "install status");
+  const initialHistory = await processHandle.call("plugin.version.list", {
+    pluginId: installed.plugin.id,
+    offset: 0,
+    limit: 20,
+  });
+  assert(initialHistory.total === 1, "install should seed one version");
+  const originalVersionId = initialHistory.items[0].id;
 
   const enabled = await processHandle.call("plugin.enable", {
     pluginId: "example.hello-srt",
@@ -2152,6 +2172,120 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
     "enabled contribution survives restart",
   );
 
+  const upgradeSource = join(fixtureDirectory, "hello-srt-v2");
+  cpSync(pluginSource, upgradeSource, { recursive: true });
+  const upgradeManifestPath = join(upgradeSource, "manifest.json");
+  const upgradeManifest = JSON.parse(readFileSync(upgradeManifestPath, "utf8"));
+  upgradeManifest.version = "0.2.0";
+  writeFileSync(
+    upgradeManifestPath,
+    JSON.stringify(upgradeManifest, null, 2),
+    "utf8",
+  );
+  const upgraded = await processHandle.call("plugin.upgrade", {
+    pluginId: "example.hello-srt",
+    sourcePath: upgradeSource,
+    expectedRevision: restartedPlugin.revision,
+    actor: "plugin-smoke",
+    reason: "blue-green upgrade",
+  });
+  assert(upgraded.action === "upgraded", "successful upgrade action");
+  assert(
+    upgraded.previousVersionId === originalVersionId,
+    "upgrade returns previous version",
+  );
+  const upgradedHistory = await processHandle.call("plugin.version.list", {
+    pluginId: "example.hello-srt",
+    offset: 0,
+    limit: 20,
+  });
+  assert(
+    upgradedHistory.total === 2,
+    "successful upgrade retains prior version",
+  );
+  assert(
+    existsSync(upgraded.plugin.packagePath),
+    "active upgraded package exists",
+  );
+
+  await processHandle.restart();
+  await processHandle.call("engine.initialize", {
+    protocolVersion: 1,
+    client: { name: "plugin-upgrade-restart", version: "0.1.0" },
+  });
+  const upgradedAfterRestart = await processHandle.call("plugin.get", {
+    pluginId: "example.hello-srt",
+  });
+  assert(
+    upgradedAfterRestart.activeVersionId === upgraded.activeVersionId &&
+      upgradedAfterRestart.status === "enabled",
+    "upgrade survives restart",
+  );
+
+  const failedUpgradeSource = join(fixtureDirectory, "hello-srt-failed");
+  cpSync(pluginSource, failedUpgradeSource, { recursive: true });
+  const failedManifestPath = join(failedUpgradeSource, "manifest.json");
+  const failedManifest = JSON.parse(readFileSync(failedManifestPath, "utf8"));
+  failedManifest.version = "0.3.0";
+  writeFileSync(
+    failedManifestPath,
+    JSON.stringify(failedManifest, null, 2),
+    "utf8",
+  );
+  writeFileSync(
+    join(failedUpgradeSource, "bin", "hello-srt.mjs"),
+    'import { createInterface } from "node:readline";\nconst lines = createInterface({ input: process.stdin, crlfDelay: Infinity });\nlines.on("line", (line) => { const request = JSON.parse(line); if (request.id !== undefined) process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, error: { code: -32000, message: "candidate rejected" } })}\\n`); });\n',
+    "utf8",
+  );
+  let failedUpgradeError;
+  try {
+    await processHandle.call("plugin.upgrade", {
+      pluginId: "example.hello-srt",
+      sourcePath: failedUpgradeSource,
+      expectedRevision: upgradedAfterRestart.revision,
+      actor: "plugin-smoke",
+      reason: "retain failed candidate",
+    });
+  } catch (error) {
+    failedUpgradeError = error;
+  }
+  assert(
+    failedUpgradeError?.code === "plugin_upgrade_failed",
+    "failed upgrade is typed",
+  );
+  const afterFailedUpgrade = await processHandle.call("plugin.get", {
+    pluginId: "example.hello-srt",
+  });
+  assert(
+    afterFailedUpgrade.activeVersionId ===
+      upgradedAfterRestart.activeVersionId &&
+      afterFailedUpgrade.revision === upgradedAfterRestart.revision,
+    "failed candidate leaves active projection unchanged",
+  );
+  const failedHistory = await processHandle.call("plugin.version.list", {
+    pluginId: "example.hello-srt",
+    offset: 0,
+    limit: 20,
+  });
+  assert(
+    failedHistory.total === 3 &&
+      failedHistory.items.some((item) => item.state === "failed"),
+    "failed candidate is retained in version history",
+  );
+
+  const rolledBack = await processHandle.call("plugin.rollback", {
+    pluginId: "example.hello-srt",
+    versionId: originalVersionId,
+    expectedRevision: afterFailedUpgrade.revision,
+    actor: "plugin-smoke",
+    reason: "rollback original version",
+  });
+  assert(rolledBack.action === "rolledBack", "rollback action");
+  assert(
+    rolledBack.activeVersionId === originalVersionId,
+    "rollback selects original version",
+  );
+
   const project = await processHandle.call("project.create", {
     name: "Plugin smoke",
     sourceLocale: "en-US",
@@ -2188,6 +2322,75 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
     limit: 20,
   });
   assert(listed.total >= 1, "plugin list total");
+
+  const unsupportedSource = join(fixtureDirectory, "declarative-plugin");
+  mkdirSync(unsupportedSource, { recursive: true });
+  writeFileSync(
+    join(unsupportedSource, "manifest.json"),
+    JSON.stringify(
+      {
+        manifestVersion: 2,
+        id: "example.declarative-smoke",
+        displayName: "Declarative smoke",
+        version: "1.0.0",
+        hostApi: { min: 1, max: 1 },
+        runtime: {
+          tier: "declarative",
+          runtimeVersion: 1,
+          entry: { kind: "manifest" },
+        },
+        contributions: [
+          {
+            kind: "qaRule",
+            descriptorVersion: 1,
+            id: "example.declarative-smoke.rule",
+            version: "1.0.0",
+            displayName: "Smoke rule",
+            ruleType: "style",
+            severity: "warning",
+            definition: { pattern: "smoke" },
+          },
+        ],
+        permissions: [],
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+  const unsupportedInspection = await processHandle.call("plugin.inspect", {
+    sourcePath: unsupportedSource,
+  });
+  assert(
+    unsupportedInspection.canInstall === false &&
+      unsupportedInspection.compatibility.compatible === false,
+    "unsupported package is inspectable but not attachable",
+  );
+  const unsupportedInstalled = await processHandle.call("plugin.install", {
+    sourcePath: unsupportedSource,
+    actor: "plugin-smoke",
+    reason: "inventory unsupported package",
+  });
+  let unsupportedEnableError;
+  try {
+    await processHandle.call("plugin.enable", {
+      pluginId: unsupportedInstalled.plugin.id,
+      expectedRevision: unsupportedInstalled.plugin.revision,
+      actor: "plugin-smoke",
+      reason: "unsupported enable must fail",
+    });
+  } catch (error) {
+    unsupportedEnableError = error;
+  }
+  assert(
+    unsupportedEnableError?.code === "plugin_capability_unsupported",
+    "unsupported enable returns capability error",
+  );
+  await processHandle.call("plugin.uninstall", {
+    pluginId: unsupportedInstalled.plugin.id,
+    actor: "plugin-smoke",
+    reason: "remove unsupported inventory",
+  });
 
   const crashInstalled = await processHandle.call("plugin.install", {
     sourcePath: crashPluginSource,

@@ -198,6 +198,27 @@ pub enum EngineError {
     #[error("plugin manifest invalid: {0}")]
     PluginInvalidManifest(String),
 
+    #[error("plugin schema or protocol version is unsupported: {0}")]
+    PluginUnsupportedVersion(String),
+
+    #[error("plugin is incompatible with this host: {0}")]
+    PluginIncompatibleHost(String),
+
+    #[error("plugin capability is unavailable: {0}")]
+    PluginCapabilityUnsupported(String),
+
+    #[error("plugin identity or version conflicts with existing state: {0}")]
+    PluginConflict(String),
+
+    #[error("plugin package is invalid: {0}")]
+    PluginPackageInvalid(String),
+
+    #[error("plugin package hash mismatch: {0}")]
+    PluginPackageHashMismatch(String),
+
+    #[error("plugin upgrade failed: {0}")]
+    PluginUpgradeFailed(String),
+
     #[error("plugin permission denied: {0}")]
     PluginPermissionDenied(String),
 
@@ -313,6 +334,16 @@ fn engine_error_code(error: &EngineError) -> &'static str {
         EngineError::Import(FilterError::PluginProcessFailed { .. })
         | EngineError::CorpusImport(FilterError::PluginProcessFailed { .. })
         | EngineError::Export(FilterError::PluginProcessFailed { .. }) => "plugin_process_failed",
+        EngineError::PluginInvalidManifest(_) => "plugin_invalid_manifest",
+        EngineError::PluginUnsupportedVersion(_) => "plugin_unsupported_version",
+        EngineError::PluginIncompatibleHost(_) => "plugin_incompatible_host",
+        EngineError::PluginCapabilityUnsupported(_) => "plugin_capability_unsupported",
+        EngineError::PluginConflict(_) => "plugin_conflict",
+        EngineError::PluginPackageInvalid(_) => "plugin_package_invalid",
+        EngineError::PluginPackageHashMismatch(_) => "plugin_package_hash_mismatch",
+        EngineError::PluginUpgradeFailed(_) => "plugin_upgrade_failed",
+        EngineError::PluginPermissionDenied(_) => "plugin_permission_denied",
+        EngineError::PluginProcessFailed(_) => "plugin_process_failed",
         EngineError::Import(_) => "unsupported_document",
         EngineError::CorpusImport(FilterError::NotFound(_)) => "not_found",
         EngineError::CorpusImport(_) | EngineError::CorpusInput(_) => "unsupported_corpus_input",
@@ -6263,6 +6294,20 @@ impl RpcDispatcher {
                 self.service
                     .uninstall_plugin(parse_params(request.params)?)?,
             ),
+            methods::PLUGIN_INSPECT => {
+                serialize_result(self.service.inspect_plugin(parse_params(request.params)?)?)
+            }
+            methods::PLUGIN_VERSION_LIST => serialize_result(
+                self.service
+                    .list_plugin_versions(parse_params(request.params)?)?,
+            ),
+            methods::PLUGIN_UPGRADE => {
+                serialize_result(self.service.upgrade_plugin(parse_params(request.params)?)?)
+            }
+            methods::PLUGIN_ROLLBACK => serialize_result(
+                self.service
+                    .rollback_plugin(parse_params(request.params)?)?,
+            ),
             methods::TM_LOOKUP_EXACT => {
                 serialize_result(self.service.lookup_exact(parse_params(request.params)?)?)
             }
@@ -6614,6 +6659,11 @@ impl RpcDispatcher {
                 "plugin.process.v1".to_string(),
                 "plugin.filter.v1".to_string(),
                 "plugin.local-install".to_string(),
+                "plugin.control-plane.v1".to_string(),
+                "plugin.manifest.v2".to_string(),
+                "plugin.version-history.v1".to_string(),
+                "plugin.upgrade.v1".to_string(),
+                "plugin.rollback.v1".to_string(),
                 "collab.local.v1".to_string(),
                 "translation-memory.exact".to_string(),
                 "translation-memory.library".to_string(),
@@ -6765,6 +6815,41 @@ fn rpc_error(error: EngineError) -> RpcError {
         },
         EngineError::PluginInvalidManifest(message) => RpcError {
             code: ErrorCode::PluginInvalidManifest,
+            message,
+            data: None,
+        },
+        EngineError::PluginUnsupportedVersion(message) => RpcError {
+            code: ErrorCode::PluginUnsupportedVersion,
+            message,
+            data: None,
+        },
+        EngineError::PluginIncompatibleHost(message) => RpcError {
+            code: ErrorCode::PluginIncompatibleHost,
+            message,
+            data: None,
+        },
+        EngineError::PluginCapabilityUnsupported(message) => RpcError {
+            code: ErrorCode::PluginCapabilityUnsupported,
+            message,
+            data: None,
+        },
+        EngineError::PluginConflict(message) => RpcError {
+            code: ErrorCode::PluginConflict,
+            message,
+            data: None,
+        },
+        EngineError::PluginPackageInvalid(message) => RpcError {
+            code: ErrorCode::PluginPackageInvalid,
+            message,
+            data: None,
+        },
+        EngineError::PluginPackageHashMismatch(message) => RpcError {
+            code: ErrorCode::PluginPackageHashMismatch,
+            message,
+            data: None,
+        },
+        EngineError::PluginUpgradeFailed(message) => RpcError {
+            code: ErrorCode::PluginUpgradeFailed,
             message,
             data: None,
         },

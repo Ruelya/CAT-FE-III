@@ -193,6 +193,10 @@ pub mod methods {
     pub const PLUGIN_ENABLE: &str = "plugin.enable";
     pub const PLUGIN_DISABLE: &str = "plugin.disable";
     pub const PLUGIN_UNINSTALL: &str = "plugin.uninstall";
+    pub const PLUGIN_INSPECT: &str = "plugin.inspect";
+    pub const PLUGIN_VERSION_LIST: &str = "plugin.version.list";
+    pub const PLUGIN_UPGRADE: &str = "plugin.upgrade";
+    pub const PLUGIN_ROLLBACK: &str = "plugin.rollback";
     pub const COLLAB_MEMBER_LIST: &str = "collab.member.list";
     pub const COLLAB_MEMBER_ADD: &str = "collab.member.add";
     pub const COLLAB_MEMBER_REMOVE: &str = "collab.member.remove";
@@ -330,6 +334,13 @@ pub enum ErrorCode {
     ResourceLimitExceeded,
     ResourceLimit,
     PluginInvalidManifest,
+    PluginUnsupportedVersion,
+    PluginIncompatibleHost,
+    PluginCapabilityUnsupported,
+    PluginConflict,
+    PluginPackageInvalid,
+    PluginPackageHashMismatch,
+    PluginUpgradeFailed,
     PluginPermissionDenied,
     PluginProcessFailed,
     InternalError,
@@ -2048,6 +2059,14 @@ pub struct RpcMethodCatalog {
     pub plugin_disable: MethodContract<PluginMutationParams, PluginMutationResult>,
     #[serde(rename = "plugin.uninstall")]
     pub plugin_uninstall: MethodContract<PluginMutationParams, PluginMutationResult>,
+    #[serde(rename = "plugin.inspect")]
+    pub plugin_inspect: MethodContract<PluginInspectParams, PluginInspection>,
+    #[serde(rename = "plugin.version.list")]
+    pub plugin_version_list: MethodContract<PluginVersionListParams, PluginVersionPage>,
+    #[serde(rename = "plugin.upgrade")]
+    pub plugin_upgrade: MethodContract<PluginUpgradeParams, PluginLifecycleResult>,
+    #[serde(rename = "plugin.rollback")]
+    pub plugin_rollback: MethodContract<PluginRollbackParams, PluginLifecycleResult>,
     #[serde(rename = "collab.member.list")]
     pub collab_member_list: MethodContract<CollabProjectParams, CollabMemberListResult>,
     #[serde(rename = "collab.member.add")]
@@ -2324,11 +2343,25 @@ pub struct ProtocolCatalog {
     pub collab_op_log_page: CollabOpLogPage,
     pub plugin_list_params: PluginListParams,
     pub plugin_id_params: PluginIdParams,
+    pub plugin_inspect_params: PluginInspectParams,
+    pub plugin_version_list_params: PluginVersionListParams,
+    pub plugin_upgrade_params: PluginUpgradeParams,
+    pub plugin_rollback_params: PluginRollbackParams,
     pub plugin_install_params: PluginInstallParams,
     pub plugin_mutation_params: PluginMutationParams,
     pub plugin_summary: PluginSummary,
     pub plugin_page: PluginPage,
     pub plugin_mutation_result: PluginMutationResult,
+    pub plugin_inspection: PluginInspection,
+    pub plugin_api_range: PluginApiRange,
+    pub plugin_runtime_descriptor: PluginRuntimeDescriptor,
+    pub plugin_contribution_descriptor: PluginContributionDescriptor,
+    pub normalized_plugin_manifest: NormalizedPluginManifest,
+    pub plugin_compatibility: PluginCompatibility,
+    pub plugin_diagnostic: PluginDiagnostic,
+    pub plugin_version_summary: PluginVersionSummary,
+    pub plugin_version_page: PluginVersionPage,
+    pub plugin_lifecycle_result: PluginLifecycleResult,
     pub operation_page: OperationPage,
     pub create_backup_params: CreateBackupParams,
     pub backup_result: BackupResult,
@@ -2437,6 +2470,51 @@ mod tests {
                 .expect("serialize policy denial error code"),
             "\"policy_denied\""
         );
+        let plugin_codes = [
+            (
+                ErrorCode::PluginUnsupportedVersion,
+                "plugin_unsupported_version",
+            ),
+            (
+                ErrorCode::PluginIncompatibleHost,
+                "plugin_incompatible_host",
+            ),
+            (
+                ErrorCode::PluginCapabilityUnsupported,
+                "plugin_capability_unsupported",
+            ),
+            (ErrorCode::PluginConflict, "plugin_conflict"),
+            (ErrorCode::PluginPackageInvalid, "plugin_package_invalid"),
+            (
+                ErrorCode::PluginPackageHashMismatch,
+                "plugin_package_hash_mismatch",
+            ),
+            (ErrorCode::PluginUpgradeFailed, "plugin_upgrade_failed"),
+        ];
+        for (code, expected) in plugin_codes {
+            assert_eq!(
+                serde_json::to_string(&code).expect("serialize plugin error code"),
+                format!("\"{expected}\"")
+            );
+        }
+    }
+
+    #[test]
+    fn plugin_methods_are_present_in_the_rust_catalog_schema() {
+        let schema = serde_json::to_value(schemars::schema_for!(RpcMethodCatalog))
+            .expect("serialize method catalog schema");
+        let properties = schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .expect("method catalog properties");
+        for method in [
+            "plugin.inspect",
+            "plugin.version.list",
+            "plugin.upgrade",
+            "plugin.rollback",
+        ] {
+            assert!(properties.contains_key(method), "missing method {method}");
+        }
     }
 
     #[test]

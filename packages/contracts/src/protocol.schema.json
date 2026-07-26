@@ -249,6 +249,9 @@
     "named_project_snapshot": {
       "$ref": "#/$defs/NamedProjectSnapshot"
     },
+    "normalized_plugin_manifest": {
+      "$ref": "#/$defs/NormalizedPluginManifest"
+    },
     "operation_page": {
       "$ref": "#/$defs/OperationPage"
     },
@@ -282,11 +285,32 @@
     "pipeline_validation_result": {
       "$ref": "#/$defs/PipelineValidationResult"
     },
+    "plugin_api_range": {
+      "$ref": "#/$defs/PluginApiRange"
+    },
+    "plugin_compatibility": {
+      "$ref": "#/$defs/PluginCompatibility"
+    },
+    "plugin_contribution_descriptor": {
+      "$ref": "#/$defs/PluginContributionDescriptor"
+    },
+    "plugin_diagnostic": {
+      "$ref": "#/$defs/PluginDiagnostic"
+    },
     "plugin_id_params": {
       "$ref": "#/$defs/PluginIdParams"
     },
+    "plugin_inspect_params": {
+      "$ref": "#/$defs/PluginInspectParams"
+    },
+    "plugin_inspection": {
+      "$ref": "#/$defs/PluginInspection"
+    },
     "plugin_install_params": {
       "$ref": "#/$defs/PluginInstallParams"
+    },
+    "plugin_lifecycle_result": {
+      "$ref": "#/$defs/PluginLifecycleResult"
     },
     "plugin_list_params": {
       "$ref": "#/$defs/PluginListParams"
@@ -300,8 +324,26 @@
     "plugin_page": {
       "$ref": "#/$defs/PluginPage"
     },
+    "plugin_rollback_params": {
+      "$ref": "#/$defs/PluginRollbackParams"
+    },
+    "plugin_runtime_descriptor": {
+      "$ref": "#/$defs/PluginRuntimeDescriptor"
+    },
     "plugin_summary": {
       "$ref": "#/$defs/PluginSummary"
+    },
+    "plugin_upgrade_params": {
+      "$ref": "#/$defs/PluginUpgradeParams"
+    },
+    "plugin_version_list_params": {
+      "$ref": "#/$defs/PluginVersionListParams"
+    },
+    "plugin_version_page": {
+      "$ref": "#/$defs/PluginVersionPage"
+    },
+    "plugin_version_summary": {
+      "$ref": "#/$defs/PluginVersionSummary"
     },
     "project_analytics_params": {
       "$ref": "#/$defs/ProjectAnalyticsParams"
@@ -665,11 +707,25 @@
     "collab_op_log_page",
     "plugin_list_params",
     "plugin_id_params",
+    "plugin_inspect_params",
+    "plugin_version_list_params",
+    "plugin_upgrade_params",
+    "plugin_rollback_params",
     "plugin_install_params",
     "plugin_mutation_params",
     "plugin_summary",
     "plugin_page",
     "plugin_mutation_result",
+    "plugin_inspection",
+    "plugin_api_range",
+    "plugin_runtime_descriptor",
+    "plugin_contribution_descriptor",
+    "normalized_plugin_manifest",
+    "plugin_compatibility",
+    "plugin_diagnostic",
+    "plugin_version_summary",
+    "plugin_version_page",
+    "plugin_lifecycle_result",
     "operation_page",
     "create_backup_params",
     "backup_result",
@@ -8095,6 +8151,13 @@
         "resource_limit_exceeded",
         "resource_limit",
         "plugin_invalid_manifest",
+        "plugin_unsupported_version",
+        "plugin_incompatible_host",
+        "plugin_capability_unsupported",
+        "plugin_conflict",
+        "plugin_package_invalid",
+        "plugin_package_hash_mismatch",
+        "plugin_upgrade_failed",
         "plugin_permission_denied",
         "plugin_process_failed",
         "internal_error"
@@ -9780,10 +9843,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabProjectParams"
+          "$ref": "#/$defs/PluginInspectParams"
         },
         "result": {
-          "$ref": "#/$defs/CollabMemberListResult"
+          "$ref": "#/$defs/PluginInspection"
         }
       },
       "required": [
@@ -9795,10 +9858,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabMemberAddParams"
+          "$ref": "#/$defs/PluginVersionListParams"
         },
         "result": {
-          "$ref": "#/$defs/CollabMember"
+          "$ref": "#/$defs/PluginVersionPage"
         }
       },
       "required": [
@@ -9810,10 +9873,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabMemberRemoveParams"
+          "$ref": "#/$defs/PluginUpgradeParams"
         },
         "result": {
-          "$ref": "#/$defs/EmptyResult"
+          "$ref": "#/$defs/PluginLifecycleResult"
         }
       },
       "required": [
@@ -9825,10 +9888,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabLockAcquireParams"
+          "$ref": "#/$defs/PluginRollbackParams"
         },
         "result": {
-          "$ref": "#/$defs/CollabLock"
+          "$ref": "#/$defs/PluginLifecycleResult"
         }
       },
       "required": [
@@ -9840,10 +9903,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabLockActorParams"
+          "$ref": "#/$defs/CollabProjectParams"
         },
         "result": {
-          "$ref": "#/$defs/EmptyResult"
+          "$ref": "#/$defs/CollabMemberListResult"
         }
       },
       "required": [
@@ -9870,6 +9933,66 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/CollabMemberAddParams"
+        },
+        "result": {
+          "$ref": "#/$defs/CollabMember"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract151": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CollabMemberRemoveParams"
+        },
+        "result": {
+          "$ref": "#/$defs/EmptyResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract152": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CollabLockAcquireParams"
+        },
+        "result": {
+          "$ref": "#/$defs/CollabLock"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract153": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CollabLockActorParams"
+        },
+        "result": {
+          "$ref": "#/$defs/EmptyResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract154": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/CollabLockActorParams"
         },
         "result": {
@@ -9881,7 +10004,7 @@
         "result"
       ]
     },
-    "MethodContract151": {
+    "MethodContract155": {
       "type": "object",
       "properties": {
         "params": {
@@ -9896,7 +10019,7 @@
         "result"
       ]
     },
-    "MethodContract152": {
+    "MethodContract156": {
       "type": "object",
       "properties": {
         "params": {
@@ -9911,7 +10034,7 @@
         "result"
       ]
     },
-    "MethodContract153": {
+    "MethodContract157": {
       "type": "object",
       "properties": {
         "params": {
@@ -9926,7 +10049,7 @@
         "result"
       ]
     },
-    "MethodContract154": {
+    "MethodContract158": {
       "type": "object",
       "properties": {
         "params": {
@@ -9941,7 +10064,7 @@
         "result"
       ]
     },
-    "MethodContract155": {
+    "MethodContract159": {
       "type": "object",
       "properties": {
         "params": {
@@ -9949,66 +10072,6 @@
         },
         "result": {
           "$ref": "#/$defs/CollabAssignment"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract156": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/CollabAssignmentCompleteParams"
-        },
-        "result": {
-          "$ref": "#/$defs/CollabAssignment"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract157": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/CollabOpLogListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/CollabOpLogPage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract158": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/HistoryListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/OperationPage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract159": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/EmptyParams"
-        },
-        "result": {
-          "$ref": "#/$defs/DataHealthReport"
         }
       },
       "required": [
@@ -10035,6 +10098,66 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/CollabAssignmentCompleteParams"
+        },
+        "result": {
+          "$ref": "#/$defs/CollabAssignment"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract161": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CollabOpLogListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/CollabOpLogPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract162": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/HistoryListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/OperationPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract163": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/EmptyParams"
+        },
+        "result": {
+          "$ref": "#/$defs/DataHealthReport"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract164": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/CreateBackupParams"
         },
         "result": {
@@ -10046,7 +10169,7 @@
         "result"
       ]
     },
-    "MethodContract161": {
+    "MethodContract165": {
       "type": "object",
       "properties": {
         "params": {
@@ -10061,7 +10184,7 @@
         "result"
       ]
     },
-    "MethodContract162": {
+    "MethodContract166": {
       "type": "object",
       "properties": {
         "params": {
@@ -10076,7 +10199,7 @@
         "result"
       ]
     },
-    "MethodContract163": {
+    "MethodContract167": {
       "type": "object",
       "properties": {
         "params": {
@@ -10091,7 +10214,7 @@
         "result"
       ]
     },
-    "MethodContract164": {
+    "MethodContract168": {
       "type": "object",
       "properties": {
         "params": {
@@ -10106,7 +10229,7 @@
         "result"
       ]
     },
-    "MethodContract165": {
+    "MethodContract169": {
       "type": "object",
       "properties": {
         "params": {
@@ -10114,66 +10237,6 @@
         },
         "result": {
           "$ref": "#/$defs/PipelineValidationResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract166": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/RunPipelineParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineRunSnapshot"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract167": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/PipelineRunListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineRunPage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract168": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/PipelineRunIdParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineRunSnapshot"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract169": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/PipelineRunRevisionParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineRunSnapshot"
         }
       },
       "required": [
@@ -10200,6 +10263,66 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/RunPipelineParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineRunSnapshot"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract171": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/PipelineRunListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineRunPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract172": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/PipelineRunIdParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineRunSnapshot"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract173": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/PipelineRunRevisionParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineRunSnapshot"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract174": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/AiProviderCatalogParams"
         },
         "result": {
@@ -10211,7 +10334,7 @@
         "result"
       ]
     },
-    "MethodContract171": {
+    "MethodContract175": {
       "type": "object",
       "properties": {
         "params": {
@@ -10226,7 +10349,7 @@
         "result"
       ]
     },
-    "MethodContract172": {
+    "MethodContract176": {
       "type": "object",
       "properties": {
         "params": {
@@ -10241,7 +10364,7 @@
         "result"
       ]
     },
-    "MethodContract173": {
+    "MethodContract177": {
       "type": "object",
       "properties": {
         "params": {
@@ -10256,7 +10379,7 @@
         "result"
       ]
     },
-    "MethodContract174": {
+    "MethodContract178": {
       "type": "object",
       "properties": {
         "params": {
@@ -10271,7 +10394,7 @@
         "result"
       ]
     },
-    "MethodContract175": {
+    "MethodContract179": {
       "type": "object",
       "properties": {
         "params": {
@@ -10279,66 +10402,6 @@
         },
         "result": {
           "$ref": "#/$defs/AiProviderTestResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract176": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiProfileIdParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiCredentialStatus"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract177": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiSettingsGetParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiSettings"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract178": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiSettingsUpdateParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiSettings"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract179": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiGroundingPreviewParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiGroundingPreviewResult"
         }
       },
       "required": [
@@ -10365,10 +10428,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiRunStartParams"
+          "$ref": "#/$defs/AiProfileIdParams"
         },
         "result": {
-          "$ref": "#/$defs/AiRun"
+          "$ref": "#/$defs/AiCredentialStatus"
         }
       },
       "required": [
@@ -10380,10 +10443,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiRunIdParams"
+          "$ref": "#/$defs/AiSettingsGetParams"
         },
         "result": {
-          "$ref": "#/$defs/AiRun"
+          "$ref": "#/$defs/AiSettings"
         }
       },
       "required": [
@@ -10395,10 +10458,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiRunListParams"
+          "$ref": "#/$defs/AiSettingsUpdateParams"
         },
         "result": {
-          "$ref": "#/$defs/AiRunPage"
+          "$ref": "#/$defs/AiSettings"
         }
       },
       "required": [
@@ -10410,10 +10473,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiRunEventsParams"
+          "$ref": "#/$defs/AiGroundingPreviewParams"
         },
         "result": {
-          "$ref": "#/$defs/AiRunEventPage"
+          "$ref": "#/$defs/AiGroundingPreviewResult"
         }
       },
       "required": [
@@ -10425,7 +10488,7 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiRunRevisionParams"
+          "$ref": "#/$defs/AiRunStartParams"
         },
         "result": {
           "$ref": "#/$defs/AiRun"
@@ -10440,10 +10503,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiResultApplyParams"
+          "$ref": "#/$defs/AiRunIdParams"
         },
         "result": {
-          "$ref": "#/$defs/EditorMutationResult"
+          "$ref": "#/$defs/AiRun"
         }
       },
       "required": [
@@ -10455,10 +10518,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiBatchStartParams"
+          "$ref": "#/$defs/AiRunListParams"
         },
         "result": {
-          "$ref": "#/$defs/AiBatchRun"
+          "$ref": "#/$defs/AiRunPage"
         }
       },
       "required": [
@@ -10470,10 +10533,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiBatchIdParams"
+          "$ref": "#/$defs/AiRunEventsParams"
         },
         "result": {
-          "$ref": "#/$defs/AiBatchRun"
+          "$ref": "#/$defs/AiRunEventPage"
         }
       },
       "required": [
@@ -10485,10 +10548,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiBatchListParams"
+          "$ref": "#/$defs/AiRunRevisionParams"
         },
         "result": {
-          "$ref": "#/$defs/AiBatchPage"
+          "$ref": "#/$defs/AiRun"
         }
       },
       "required": [
@@ -10500,10 +10563,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiBatchItemsParams"
+          "$ref": "#/$defs/AiResultApplyParams"
         },
         "result": {
-          "$ref": "#/$defs/AiBatchItemPage"
+          "$ref": "#/$defs/EditorMutationResult"
         }
       },
       "required": [
@@ -10530,7 +10593,7 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiBatchRevisionParams"
+          "$ref": "#/$defs/AiBatchStartParams"
         },
         "result": {
           "$ref": "#/$defs/AiBatchRun"
@@ -10545,6 +10608,66 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/AiBatchIdParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiBatchRun"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract192": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiBatchListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiBatchPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract193": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiBatchItemsParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiBatchItemPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract194": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiBatchRevisionParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiBatchRun"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract195": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/AiUsageQueryParams"
         },
         "result": {
@@ -10556,7 +10679,7 @@
         "result"
       ]
     },
-    "MethodContract192": {
+    "MethodContract196": {
       "type": "object",
       "properties": {
         "params": {
@@ -10571,7 +10694,7 @@
         "result"
       ]
     },
-    "MethodContract193": {
+    "MethodContract197": {
       "type": "object",
       "properties": {
         "params": {
@@ -10586,7 +10709,7 @@
         "result"
       ]
     },
-    "MethodContract194": {
+    "MethodContract198": {
       "type": "object",
       "properties": {
         "params": {
@@ -10601,7 +10724,7 @@
         "result"
       ]
     },
-    "MethodContract195": {
+    "MethodContract199": {
       "type": "object",
       "properties": {
         "params": {
@@ -10609,51 +10732,6 @@
         },
         "result": {
           "$ref": "#/$defs/AiConversationPage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract196": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiConversationCreateParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiConversation"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract197": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiConversationUpdateParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiConversation"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract198": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiConversationMessagesParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiConversationMessagePage"
         }
       },
       "required": [
@@ -10684,6 +10762,51 @@
         },
         "result": {
           "$ref": "#/$defs/DiscussionMessage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract200": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiConversationCreateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiConversation"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract201": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiConversationUpdateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiConversation"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract202": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiConversationMessagesParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiConversationMessagePage"
         }
       },
       "required": [
@@ -12041,6 +12164,62 @@
         "reason"
       ]
     },
+    "NormalizedPluginManifest": {
+      "type": "object",
+      "properties": {
+        "contributions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PluginContributionDescriptor"
+          }
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "hostApi": {
+          "$ref": "#/$defs/PluginApiRange"
+        },
+        "id": {
+          "type": "string"
+        },
+        "normalizedVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "originalManifestJson": true,
+        "requestedPermissions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "runtime": {
+          "$ref": "#/$defs/PluginRuntimeDescriptor"
+        },
+        "sourceManifestVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "normalizedVersion",
+        "sourceManifestVersion",
+        "id",
+        "displayName",
+        "version",
+        "hostApi",
+        "runtime",
+        "contributions",
+        "requestedPermissions",
+        "originalManifestJson"
+      ]
+    },
     "NumberEvidence": {
       "type": "object",
       "properties": {
@@ -12913,6 +13092,441 @@
         "candidateValue"
       ]
     },
+    "PluginApiRange": {
+      "type": "object",
+      "properties": {
+        "max": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "min": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "min",
+        "max"
+      ]
+    },
+    "PluginCompatibility": {
+      "type": "object",
+      "properties": {
+        "compatible": {
+          "type": "boolean"
+        },
+        "contributionsSupported": {
+          "type": "boolean"
+        },
+        "hostApiSupported": {
+          "type": "boolean"
+        },
+        "runtimeSupported": {
+          "type": "boolean"
+        },
+        "unsupportedCapabilities": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "compatible",
+        "hostApiSupported",
+        "runtimeSupported",
+        "contributionsSupported"
+      ]
+    },
+    "PluginContributionDescriptor": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "capabilities": {
+              "$ref": "#/$defs/FilterCapabilities"
+            },
+            "descriptorVersion": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "extensions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "filter"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "descriptorVersion",
+            "id",
+            "version",
+            "displayName",
+            "extensions",
+            "capabilities"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "configSchemaVersion": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "descriptorVersion": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "engineConnector"
+            },
+            "operations": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "protocol": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "descriptorVersion",
+            "id",
+            "version",
+            "displayName",
+            "protocol",
+            "operations",
+            "configSchemaVersion"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "config": true,
+            "definition": true,
+            "descriptorVersion": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "qaRule"
+            },
+            "ruleType": {
+              "type": "string"
+            },
+            "severity": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "descriptorVersion",
+            "id",
+            "version",
+            "displayName",
+            "ruleType",
+            "severity",
+            "definition"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "cancellable": {
+              "type": "boolean"
+            },
+            "configSchemaVersion": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "descriptorVersion": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "input": true,
+            "kind": {
+              "type": "string",
+              "const": "pipelineStep"
+            },
+            "output": true,
+            "resumable": {
+              "type": "boolean"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "descriptorVersion",
+            "id",
+            "version",
+            "displayName",
+            "input",
+            "output",
+            "configSchemaVersion",
+            "resumable",
+            "cancellable"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "descriptorVersion": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "input": true,
+            "kind": {
+              "type": "string",
+              "const": "aiAction"
+            },
+            "label": {
+              "type": "string"
+            },
+            "placement": {
+              "type": "string"
+            },
+            "promptTemplate": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "descriptorVersion",
+            "id",
+            "version",
+            "displayName",
+            "label",
+            "placement",
+            "input"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "bridgeVersion": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "descriptorVersion": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "uiPanel"
+            },
+            "label": {
+              "type": "string"
+            },
+            "placement": {
+              "type": "string"
+            },
+            "surface": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "descriptorVersion",
+            "id",
+            "version",
+            "displayName",
+            "label",
+            "placement",
+            "surface",
+            "bridgeVersion"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "capabilities": true,
+            "checkpointVersion": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "descriptorVersion": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "externalConnector"
+            },
+            "transports": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "descriptorVersion",
+            "id",
+            "version",
+            "displayName",
+            "transports",
+            "checkpointVersion",
+            "capabilities"
+          ]
+        }
+      ]
+    },
+    "PluginDeclarativeEntry": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "manifest"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
+    "PluginDiagnostic": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "phase": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "severity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PluginDiagnosticSeverity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message"
+      ]
+    },
+    "PluginDiagnosticSeverity": {
+      "type": "string",
+      "enum": [
+        "info",
+        "warning",
+        "error"
+      ]
+    },
     "PluginIdParams": {
       "type": "object",
       "properties": {
@@ -12923,6 +13537,48 @@
       "additionalProperties": false,
       "required": [
         "pluginId"
+      ]
+    },
+    "PluginInspectParams": {
+      "type": "object",
+      "properties": {
+        "sourcePath": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "sourcePath"
+      ]
+    },
+    "PluginInspection": {
+      "type": "object",
+      "properties": {
+        "canInstall": {
+          "type": "boolean"
+        },
+        "compatibility": {
+          "$ref": "#/$defs/PluginCompatibility"
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PluginDiagnostic"
+          }
+        },
+        "normalizedManifest": {
+          "$ref": "#/$defs/NormalizedPluginManifest"
+        },
+        "packageSha256": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "normalizedManifest",
+        "packageSha256",
+        "compatibility",
+        "diagnostics",
+        "canInstall"
       ]
     },
     "PluginInstallParams": {
@@ -12947,6 +13603,38 @@
       "additionalProperties": false,
       "required": [
         "sourcePath"
+      ]
+    },
+    "PluginLifecycleAction": {
+      "type": "string",
+      "enum": [
+        "upgraded",
+        "rolledBack"
+      ]
+    },
+    "PluginLifecycleResult": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/PluginLifecycleAction"
+        },
+        "activeVersionId": {
+          "type": "string"
+        },
+        "plugin": {
+          "$ref": "#/$defs/PluginSummary"
+        },
+        "previousVersionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "plugin",
+        "activeVersionId",
+        "action"
       ]
     },
     "PluginListParams": {
@@ -13039,6 +13727,180 @@
         "limit"
       ]
     },
+    "PluginProcessEntry": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "node"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "path"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "executable"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "path"
+          ]
+        }
+      ]
+    },
+    "PluginRollbackParams": {
+      "type": "object",
+      "properties": {
+        "actor": {
+          "type": "string"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "pluginId": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "versionId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "pluginId",
+        "versionId",
+        "expectedRevision",
+        "actor",
+        "reason"
+      ]
+    },
+    "PluginRuntimeDescriptor": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "entry": {
+              "$ref": "#/$defs/PluginDeclarativeEntry"
+            },
+            "runtimeVersion": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "tier": {
+              "type": "string",
+              "const": "declarative"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "tier",
+            "runtimeVersion",
+            "entry"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "entry": {
+              "$ref": "#/$defs/PluginSandboxEntry"
+            },
+            "runtimeVersion": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "tier": {
+              "type": "string",
+              "const": "sandbox"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "tier",
+            "runtimeVersion",
+            "entry"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "entry": {
+              "$ref": "#/$defs/PluginProcessEntry"
+            },
+            "protocolVersion": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "runtimeVersion": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "tier": {
+              "type": "string",
+              "const": "process"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "tier",
+            "runtimeVersion",
+            "protocolVersion",
+            "entry"
+          ]
+        }
+      ]
+    },
+    "PluginSandboxEntry": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "exportName": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "const": "javascript"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "path"
+          ]
+        }
+      ]
+    },
     "PluginStatus": {
       "type": "string",
       "enum": [
@@ -13051,10 +13913,40 @@
     "PluginSummary": {
       "type": "object",
       "properties": {
+        "activeVersionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "compatibility": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PluginCompatibility"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "contributions": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PluginContributionDescriptor"
+          }
+        },
         "crashCount": {
           "type": "integer",
           "format": "uint32",
           "minimum": 0
+        },
+        "diagnostics": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PluginDiagnostic"
+          }
         },
         "displayName": {
           "type": "string"
@@ -13087,6 +13979,12 @@
         "packagePath": {
           "type": "string"
         },
+        "packageSha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "requestedPermissions": {
           "type": "array",
           "items": {
@@ -13097,6 +13995,16 @@
           "type": "integer",
           "format": "uint64",
           "minimum": 0
+        },
+        "runtime": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PluginRuntimeDescriptor"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "status": {
           "$ref": "#/$defs/PluginStatus"
@@ -13131,7 +14039,186 @@
     "PluginTier": {
       "type": "string",
       "enum": [
+        "declarative",
+        "sandbox",
         "process"
+      ]
+    },
+    "PluginUpgradeParams": {
+      "type": "object",
+      "properties": {
+        "actor": {
+          "type": "string"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "pluginId": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "sourcePath": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "pluginId",
+        "sourcePath",
+        "expectedRevision",
+        "actor",
+        "reason"
+      ]
+    },
+    "PluginVersionListParams": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 200,
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        },
+        "pluginId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "pluginId"
+      ]
+    },
+    "PluginVersionPage": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PluginVersionSummary"
+          }
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "items",
+        "total",
+        "offset",
+        "limit"
+      ]
+    },
+    "PluginVersionState": {
+      "type": "string",
+      "enum": [
+        "validated",
+        "failed"
+      ]
+    },
+    "PluginVersionSummary": {
+      "type": "object",
+      "properties": {
+        "activatedAtMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "compatibility": {
+          "$ref": "#/$defs/PluginCompatibility"
+        },
+        "contributionCount": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "deactivatedAtMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PluginDiagnostic"
+          }
+        },
+        "failedAtMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "id": {
+          "type": "string"
+        },
+        "installedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "packagePath": {
+          "type": "string"
+        },
+        "packageSha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pluginId": {
+          "type": "string"
+        },
+        "runtime": {
+          "$ref": "#/$defs/PluginRuntimeDescriptor"
+        },
+        "state": {
+          "$ref": "#/$defs/PluginVersionState"
+        },
+        "tier": {
+          "$ref": "#/$defs/PluginTier"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "pluginId",
+        "version",
+        "packagePath",
+        "tier",
+        "runtime",
+        "contributionCount",
+        "state",
+        "compatibility",
+        "diagnostics",
+        "installedAtMs"
       ]
     },
     "ProductivitySummary": {
@@ -16916,100 +18003,100 @@
       "type": "object",
       "properties": {
         "ai.batch.cancel": {
-          "$ref": "#/$defs/MethodContract190"
-        },
-        "ai.batch.get": {
-          "$ref": "#/$defs/MethodContract187"
-        },
-        "ai.batch.items": {
-          "$ref": "#/$defs/MethodContract189"
-        },
-        "ai.batch.list": {
-          "$ref": "#/$defs/MethodContract188"
-        },
-        "ai.batch.resume": {
-          "$ref": "#/$defs/MethodContract190"
-        },
-        "ai.batch.start": {
-          "$ref": "#/$defs/MethodContract186"
-        },
-        "ai.conversation.create": {
-          "$ref": "#/$defs/MethodContract196"
-        },
-        "ai.conversation.list": {
-          "$ref": "#/$defs/MethodContract195"
-        },
-        "ai.conversation.messages": {
-          "$ref": "#/$defs/MethodContract198"
-        },
-        "ai.conversation.update": {
-          "$ref": "#/$defs/MethodContract197"
-        },
-        "ai.credential.delete": {
-          "$ref": "#/$defs/MethodContract176"
-        },
-        "ai.credential.status": {
-          "$ref": "#/$defs/MethodContract176"
-        },
-        "ai.grounding.preview": {
-          "$ref": "#/$defs/MethodContract179"
-        },
-        "ai.provider.catalog": {
-          "$ref": "#/$defs/MethodContract170"
-        },
-        "ai.provider.create": {
-          "$ref": "#/$defs/MethodContract172"
-        },
-        "ai.provider.delete": {
-          "$ref": "#/$defs/MethodContract174"
-        },
-        "ai.provider.list": {
-          "$ref": "#/$defs/MethodContract171"
-        },
-        "ai.provider.test": {
-          "$ref": "#/$defs/MethodContract175"
-        },
-        "ai.provider.update": {
-          "$ref": "#/$defs/MethodContract173"
-        },
-        "ai.quality.extractTerms": {
           "$ref": "#/$defs/MethodContract194"
         },
-        "ai.quality.scoreDocument": {
-          "$ref": "#/$defs/MethodContract192"
+        "ai.batch.get": {
+          "$ref": "#/$defs/MethodContract191"
         },
-        "ai.quality.semanticQa": {
+        "ai.batch.items": {
           "$ref": "#/$defs/MethodContract193"
         },
-        "ai.result.apply": {
-          "$ref": "#/$defs/MethodContract185"
+        "ai.batch.list": {
+          "$ref": "#/$defs/MethodContract192"
         },
-        "ai.run.cancel": {
-          "$ref": "#/$defs/MethodContract184"
+        "ai.batch.resume": {
+          "$ref": "#/$defs/MethodContract194"
         },
-        "ai.run.events": {
-          "$ref": "#/$defs/MethodContract183"
+        "ai.batch.start": {
+          "$ref": "#/$defs/MethodContract190"
         },
-        "ai.run.get": {
-          "$ref": "#/$defs/MethodContract181"
+        "ai.conversation.create": {
+          "$ref": "#/$defs/MethodContract200"
         },
-        "ai.run.list": {
-          "$ref": "#/$defs/MethodContract182"
+        "ai.conversation.list": {
+          "$ref": "#/$defs/MethodContract199"
         },
-        "ai.run.resume": {
-          "$ref": "#/$defs/MethodContract184"
+        "ai.conversation.messages": {
+          "$ref": "#/$defs/MethodContract202"
         },
-        "ai.run.start": {
+        "ai.conversation.update": {
+          "$ref": "#/$defs/MethodContract201"
+        },
+        "ai.credential.delete": {
           "$ref": "#/$defs/MethodContract180"
         },
-        "ai.settings.get": {
-          "$ref": "#/$defs/MethodContract177"
+        "ai.credential.status": {
+          "$ref": "#/$defs/MethodContract180"
         },
-        "ai.settings.update": {
+        "ai.grounding.preview": {
+          "$ref": "#/$defs/MethodContract183"
+        },
+        "ai.provider.catalog": {
+          "$ref": "#/$defs/MethodContract174"
+        },
+        "ai.provider.create": {
+          "$ref": "#/$defs/MethodContract176"
+        },
+        "ai.provider.delete": {
           "$ref": "#/$defs/MethodContract178"
         },
+        "ai.provider.list": {
+          "$ref": "#/$defs/MethodContract175"
+        },
+        "ai.provider.test": {
+          "$ref": "#/$defs/MethodContract179"
+        },
+        "ai.provider.update": {
+          "$ref": "#/$defs/MethodContract177"
+        },
+        "ai.quality.extractTerms": {
+          "$ref": "#/$defs/MethodContract198"
+        },
+        "ai.quality.scoreDocument": {
+          "$ref": "#/$defs/MethodContract196"
+        },
+        "ai.quality.semanticQa": {
+          "$ref": "#/$defs/MethodContract197"
+        },
+        "ai.result.apply": {
+          "$ref": "#/$defs/MethodContract189"
+        },
+        "ai.run.cancel": {
+          "$ref": "#/$defs/MethodContract188"
+        },
+        "ai.run.events": {
+          "$ref": "#/$defs/MethodContract187"
+        },
+        "ai.run.get": {
+          "$ref": "#/$defs/MethodContract185"
+        },
+        "ai.run.list": {
+          "$ref": "#/$defs/MethodContract186"
+        },
+        "ai.run.resume": {
+          "$ref": "#/$defs/MethodContract188"
+        },
+        "ai.run.start": {
+          "$ref": "#/$defs/MethodContract184"
+        },
+        "ai.settings.get": {
+          "$ref": "#/$defs/MethodContract181"
+        },
+        "ai.settings.update": {
+          "$ref": "#/$defs/MethodContract182"
+        },
         "ai.usage.query": {
-          "$ref": "#/$defs/MethodContract191"
+          "$ref": "#/$defs/MethodContract195"
         },
         "alignment.session.apply": {
           "$ref": "#/$defs/MethodContract92"
@@ -17042,43 +18129,43 @@
           "$ref": "#/$defs/MethodContract98"
         },
         "collab.assignment.complete": {
-          "$ref": "#/$defs/MethodContract156"
+          "$ref": "#/$defs/MethodContract160"
         },
         "collab.assignment.create": {
-          "$ref": "#/$defs/MethodContract155"
+          "$ref": "#/$defs/MethodContract159"
         },
         "collab.assignment.list": {
-          "$ref": "#/$defs/MethodContract154"
+          "$ref": "#/$defs/MethodContract158"
         },
         "collab.lock.acquire": {
-          "$ref": "#/$defs/MethodContract148"
-        },
-        "collab.lock.heartbeat": {
-          "$ref": "#/$defs/MethodContract150"
-        },
-        "collab.lock.list": {
-          "$ref": "#/$defs/MethodContract151"
-        },
-        "collab.lock.release": {
-          "$ref": "#/$defs/MethodContract149"
-        },
-        "collab.member.add": {
-          "$ref": "#/$defs/MethodContract146"
-        },
-        "collab.member.list": {
-          "$ref": "#/$defs/MethodContract145"
-        },
-        "collab.member.remove": {
-          "$ref": "#/$defs/MethodContract147"
-        },
-        "collab.opLog.list": {
-          "$ref": "#/$defs/MethodContract157"
-        },
-        "collab.presence.heartbeat": {
           "$ref": "#/$defs/MethodContract152"
         },
-        "collab.presence.list": {
+        "collab.lock.heartbeat": {
+          "$ref": "#/$defs/MethodContract154"
+        },
+        "collab.lock.list": {
+          "$ref": "#/$defs/MethodContract155"
+        },
+        "collab.lock.release": {
           "$ref": "#/$defs/MethodContract153"
+        },
+        "collab.member.add": {
+          "$ref": "#/$defs/MethodContract150"
+        },
+        "collab.member.list": {
+          "$ref": "#/$defs/MethodContract149"
+        },
+        "collab.member.remove": {
+          "$ref": "#/$defs/MethodContract151"
+        },
+        "collab.opLog.list": {
+          "$ref": "#/$defs/MethodContract161"
+        },
+        "collab.presence.heartbeat": {
+          "$ref": "#/$defs/MethodContract156"
+        },
+        "collab.presence.list": {
+          "$ref": "#/$defs/MethodContract157"
         },
         "corpus.fromAlignment": {
           "$ref": "#/$defs/MethodContract95"
@@ -17117,10 +18204,10 @@
           "$ref": "#/$defs/MethodContract100"
         },
         "data.checkHealth": {
-          "$ref": "#/$defs/MethodContract159"
+          "$ref": "#/$defs/MethodContract163"
         },
         "data.createBackup": {
-          "$ref": "#/$defs/MethodContract160"
+          "$ref": "#/$defs/MethodContract164"
         },
         "dictionary.add": {
           "$ref": "#/$defs/MethodContract68"
@@ -17198,7 +18285,7 @@
           "$ref": "#/$defs/MethodContract140"
         },
         "history.list": {
-          "$ref": "#/$defs/MethodContract158"
+          "$ref": "#/$defs/MethodContract162"
         },
         "interop.review.apply": {
           "$ref": "#/$defs/MethodContract79"
@@ -17225,34 +18312,34 @@
           "$ref": "#/$defs/MethodContract84"
         },
         "pipeline.create": {
-          "$ref": "#/$defs/MethodContract162"
-        },
-        "pipeline.get": {
-          "$ref": "#/$defs/MethodContract164"
-        },
-        "pipeline.list": {
-          "$ref": "#/$defs/MethodContract163"
-        },
-        "pipeline.run": {
           "$ref": "#/$defs/MethodContract166"
         },
-        "pipeline.run.cancel": {
-          "$ref": "#/$defs/MethodContract169"
-        },
-        "pipeline.run.get": {
+        "pipeline.get": {
           "$ref": "#/$defs/MethodContract168"
         },
-        "pipeline.run.list": {
+        "pipeline.list": {
           "$ref": "#/$defs/MethodContract167"
         },
+        "pipeline.run": {
+          "$ref": "#/$defs/MethodContract170"
+        },
+        "pipeline.run.cancel": {
+          "$ref": "#/$defs/MethodContract173"
+        },
+        "pipeline.run.get": {
+          "$ref": "#/$defs/MethodContract172"
+        },
+        "pipeline.run.list": {
+          "$ref": "#/$defs/MethodContract171"
+        },
         "pipeline.run.resume": {
-          "$ref": "#/$defs/MethodContract169"
+          "$ref": "#/$defs/MethodContract173"
         },
         "pipeline.step.list": {
-          "$ref": "#/$defs/MethodContract161"
+          "$ref": "#/$defs/MethodContract165"
         },
         "pipeline.validate": {
-          "$ref": "#/$defs/MethodContract165"
+          "$ref": "#/$defs/MethodContract169"
         },
         "plugin.disable": {
           "$ref": "#/$defs/MethodContract144"
@@ -17263,14 +18350,26 @@
         "plugin.get": {
           "$ref": "#/$defs/MethodContract142"
         },
+        "plugin.inspect": {
+          "$ref": "#/$defs/MethodContract145"
+        },
         "plugin.install": {
           "$ref": "#/$defs/MethodContract143"
         },
         "plugin.list": {
           "$ref": "#/$defs/MethodContract141"
         },
+        "plugin.rollback": {
+          "$ref": "#/$defs/MethodContract148"
+        },
         "plugin.uninstall": {
           "$ref": "#/$defs/MethodContract144"
+        },
+        "plugin.upgrade": {
+          "$ref": "#/$defs/MethodContract147"
+        },
+        "plugin.version.list": {
+          "$ref": "#/$defs/MethodContract146"
         },
         "project.analytics.get": {
           "$ref": "#/$defs/MethodContract46"
@@ -17692,6 +18791,10 @@
         "plugin.enable",
         "plugin.disable",
         "plugin.uninstall",
+        "plugin.inspect",
+        "plugin.version.list",
+        "plugin.upgrade",
+        "plugin.rollback",
         "collab.member.list",
         "collab.member.add",
         "collab.member.remove",
