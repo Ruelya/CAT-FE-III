@@ -672,3 +672,36 @@ Completed fail-closed Tier 3 plugin runtime, typed timeout and crash handling, S
 ### Next Steps
 
 - None - task complete
+
+
+## Session 20: Complete plugin multi-tier runtime control plane
+
+**Date**: 2026-07-26
+**Task**: Complete plugin multi-tier runtime control plane
+**Branch**: `master`
+
+### Summary
+
+Implemented and verified the tier-aware plugin control plane: v1/v2 normalized manifests, bounded runtime/contribution validation, staged SHA-256 package hashing, migration-18 immutable version history, CAS blue-green upgrade/rollback, unsupported-tier inventory isolation, additive protocol/generated contracts, SDK projections, and real plugin smoke coverage. Focused runtime/storage/engine tests, full workspace tests, contracts, lint, typecheck, build, and desktop E2E passed. The unscoped engine smoke and one desktop PDF test remain dependent on optional pdfinfo/pdftoppm/tesseract tools absent from this workstation; this limitation is recorded in task evidence. Archived 07-26-plugin-multitier-runtime and returned to the plugin-runtime-sdk parent.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `dc228a7` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
