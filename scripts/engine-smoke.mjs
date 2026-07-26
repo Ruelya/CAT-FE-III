@@ -2072,6 +2072,7 @@ async function exerciseFocusedApiCliSmoke(dataDirectory) {
 async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
   const root = resolve(import.meta.dirname, "..");
   const pluginSource = join(root, "examples", "plugins", "hello-srt");
+  const tier1PluginSource = join(root, "examples", "plugins", "tier1-toolkit");
   const crashPluginSource = join(root, "fixtures", "plugins", "crash-filter");
   const fixtureDirectory = mkdtempSync(
     join(tmpdir(), "translunar-plugin-smoke-"),
@@ -2362,6 +2363,146 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
     limit: 20,
   });
   assert(listed.total >= 1, "plugin list total");
+
+  const tier1Inspection = await processHandle.call("plugin.inspect", {
+    sourcePath: tier1PluginSource,
+  });
+  assert(
+    tier1Inspection.canInstall && tier1Inspection.compatibility.compatible,
+    "typed Tier 1 toolkit should be installable",
+  );
+  const tier1Installed = await processHandle.call("plugin.install", {
+    sourcePath: tier1PluginSource,
+    actor: "plugin-smoke",
+    reason: "install manifest-only Tier 1 toolkit",
+  });
+  await grantRequiredPluginCapabilities(
+    processHandle,
+    tier1Installed.plugin.id,
+    "grant Tier 1 toolkit capabilities",
+  );
+  const tier1Enabled = await processHandle.call("plugin.enable", {
+    pluginId: tier1Installed.plugin.id,
+    expectedRevision: tier1Installed.plugin.revision,
+    actor: "plugin-smoke",
+    reason: "enable manifest-only Tier 1 toolkit",
+  });
+  assert(tier1Enabled.plugin.status === "enabled", "Tier 1 enable status");
+  const tier1Filters = await processHandle.call("filter.list", {});
+  assert(
+    tier1Filters.filters.some((item) => item.id === "example.tier1.lines"),
+    "Tier 1 filter should attach",
+  );
+  const tier1Steps = await processHandle.call("pipeline.step.list", {});
+  assert(
+    tier1Steps.steps.some((item) => item.id === "example.tier1.normalize"),
+    "Tier 1 pipeline step should attach",
+  );
+  const tier1Project = await processHandle.call("project.create", {
+    name: "Tier 1 smoke",
+    sourceLocale: "en",
+    targetLocale: "fr",
+    domain: "general",
+  });
+  const tier1Imported = await processHandle.call("document.import", {
+    projectId: tier1Project.id,
+    sourcePath: join(tier1PluginSource, "sample.catlines"),
+    filterId: "example.tier1.lines",
+  });
+  const tier1Segments = await processHandle.call("segment.list", {
+    documentId: tier1Imported.document.id,
+    offset: 0,
+    limit: 100,
+  });
+  await processHandle.call("segment.updateTarget", {
+    segmentId: tier1Segments.items[0].id,
+    targetText: "TODO",
+    expectedRevision: tier1Segments.items[0].revision,
+  });
+  const tier1QaRun = await processHandle.call("qa.run", {
+    projectId: tier1Project.id,
+    documentId: tier1Imported.document.id,
+  });
+  const tier1Issues = await processHandle.call("qa.issue.list", {
+    projectId: tier1Project.id,
+    documentId: tier1Imported.document.id,
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    tier1Issues.items.some((issue) =>
+      issue.ruleId.startsWith("qa.regex:plugin.qa.example.tier1-toolkit."),
+    ),
+    "Tier 1 QA pack should emit namespaced findings",
+  );
+  const tier1Pipeline = await processHandle.call("pipeline.create", {
+    projectId: tier1Project.id,
+    name: "Tier 1 transform",
+    steps: [
+      { key: "normalize", stepId: "example.tier1.normalize", config: null },
+    ],
+  });
+  const tier1PipelineRun = await processHandle.call("pipeline.run", {
+    definitionId: tier1Pipeline.id,
+    projectId: tier1Project.id,
+    input: { schemaVersion: 1, status: "draft", title: "A   title" },
+  });
+  let tier1PipelineSnapshot = tier1PipelineRun;
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (
+      ["succeeded", "failed", "canceled"].includes(
+        tier1PipelineSnapshot.run.status,
+      )
+    ) {
+      break;
+    }
+    await delay(10);
+    tier1PipelineSnapshot = await processHandle.call("pipeline.run.get", {
+      runId: tier1PipelineRun.run.id,
+    });
+  }
+  assert(
+    tier1PipelineSnapshot.run.status === "succeeded" &&
+      tier1PipelineSnapshot.run.output.status === "ready" &&
+      tier1PipelineSnapshot.run.output.title === "A title",
+    "Tier 1 pipeline should execute deterministically",
+  );
+  await processHandle.restart();
+  await processHandle.call("engine.initialize", {
+    protocolVersion: 1,
+    client: { name: "tier1-plugin-restart", version: "0.1.0" },
+  });
+  const tier1AfterRestart = await processHandle.call("plugin.get", {
+    pluginId: tier1Enabled.plugin.id,
+  });
+  const tier1RestartFilters = await processHandle.call("filter.list", {});
+  const tier1RestartSteps = await processHandle.call("pipeline.step.list", {});
+  assert(
+    tier1AfterRestart.status === "enabled" &&
+      tier1RestartFilters.filters.some(
+        (item) => item.id === "example.tier1.lines",
+      ) &&
+      tier1RestartSteps.steps.some(
+        (item) => item.id === "example.tier1.normalize",
+      ),
+    "Tier 1 contributions should restore after restart",
+  );
+  const historicTier1Qa = await processHandle.call("qa.run.get", {
+    runId: tier1QaRun.id,
+  });
+  assert(historicTier1Qa.id === tier1QaRun.id, "Tier 1 QA run is durable");
+  const tier1Disabled = await processHandle.call("plugin.disable", {
+    pluginId: tier1AfterRestart.id,
+    expectedRevision: tier1AfterRestart.revision,
+    actor: "plugin-smoke",
+    reason: "detach Tier 1 toolkit",
+  });
+  await processHandle.call("plugin.uninstall", {
+    pluginId: tier1Disabled.plugin.id,
+    expectedRevision: tier1Disabled.plugin.revision,
+    actor: "plugin-smoke",
+    reason: "uninstall Tier 1 toolkit",
+  });
 
   const unsupportedSource = join(fixtureDirectory, "declarative-plugin");
   mkdirSync(unsupportedSource, { recursive: true });

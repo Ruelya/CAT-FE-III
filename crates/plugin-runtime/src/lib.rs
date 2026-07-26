@@ -1,5 +1,13 @@
 //! Local plugin manifest validation, process host, and filter adapters.
 
+mod declarative;
+
+pub use declarative::{
+    DECLARATIVE_DEFINITION_VERSION, DeclarativeDocumentFilter, DeclarativeFilterDefinitionV1,
+    DeclarativeFilterLimits, DeclarativePipelineDefinitionV1, DeclarativePipelineOperation,
+    DeclarativeQaPackDefinitionV1,
+};
+
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -633,6 +641,13 @@ pub trait PluginCapabilityAuthorizer: Send + Sync + std::fmt::Debug {
         &self,
         check: &PluginCapabilityCheck,
     ) -> std::result::Result<(), Box<PluginCapabilityDenial>>;
+
+    fn authorize_registration(
+        &self,
+        check: &PluginCapabilityCheck,
+    ) -> std::result::Result<(), Box<PluginCapabilityDenial>> {
+        self.authorize(check)
+    }
 }
 
 /// Convert the released string permission vocabulary into typed requests.
@@ -948,6 +963,8 @@ pub struct FilterContributionDescriptor {
     pub display_name: String,
     pub extensions: Vec<String>,
     pub capabilities: FilterCapabilities,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declarative: Option<DeclarativeFilterDefinitionV1>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -973,6 +990,8 @@ pub struct QaRuleContributionDescriptor {
     pub severity: String,
     pub definition: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declarative: Option<DeclarativeQaPackDefinitionV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub config: Option<Value>,
 }
 
@@ -988,6 +1007,8 @@ pub struct PipelineStepContributionDescriptor {
     pub config_schema_version: u32,
     pub resumable: bool,
     pub cancellable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declarative: Option<DeclarativePipelineDefinitionV1>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1423,11 +1444,21 @@ impl NormalizedPluginManifest {
     pub fn compatibility(&self) -> PluginCompatibility {
         let host_api_supported =
             self.host_api.min <= HOST_API_VERSION && HOST_API_VERSION <= self.host_api.max;
-        let runtime_supported = matches!(self.runtime, PluginRuntimeDescriptor::Process { .. });
-        let contributions_supported = self
-            .contributions
-            .iter()
-            .all(|contribution| matches!(contribution, PluginContributionDescriptor::Filter(_)));
+        let runtime_supported = matches!(
+            self.runtime,
+            PluginRuntimeDescriptor::Process { .. } | PluginRuntimeDescriptor::Declarative { .. }
+        );
+        let contribution_supported =
+            |contribution: &PluginContributionDescriptor| match &self.runtime {
+                PluginRuntimeDescriptor::Process { .. } => {
+                    matches!(contribution, PluginContributionDescriptor::Filter(_))
+                }
+                PluginRuntimeDescriptor::Declarative { .. } => {
+                    validate_tier_contribution(PluginTier::Declarative, contribution, true).is_ok()
+                }
+                PluginRuntimeDescriptor::Sandbox { .. } => false,
+            };
+        let contributions_supported = self.contributions.iter().all(contribution_supported);
         let mut unsupported_capabilities = Vec::new();
         if !runtime_supported {
             unsupported_capabilities.push(format!(
@@ -1440,7 +1471,7 @@ impl NormalizedPluginManifest {
             ));
         }
         for contribution in &self.contributions {
-            if !matches!(contribution, PluginContributionDescriptor::Filter(_)) {
+            if !contribution_supported(contribution) {
                 unsupported_capabilities.push(format!(
                     "contribution.{}:{}",
                     contribution_kind_name(contribution.kind()),
@@ -1518,6 +1549,7 @@ pub fn decode_normalized_manifest(
                             display_name: filter.display_name.clone(),
                             extensions: filter.extensions.clone(),
                             capabilities: filter.capabilities.clone(),
+                            declarative: None,
                         })
                     })
                     .collect(),
@@ -1859,6 +1891,7 @@ fn validate_manifest_v2(manifest: &RawPluginManifestV2, package_dir: &Path) -> R
                 })
             )));
         }
+        validate_tier_contribution(manifest.runtime.tier(), contribution, false)?;
     }
     validate_permissions(&manifest.permissions)?;
     validate_capability_requests(&manifest.capabilities)?;
@@ -1925,6 +1958,87 @@ fn contribution_allowed(tier: PluginTier, kind: PluginContributionKind) -> bool 
         ),
         PluginTier::Sandbox => true,
         PluginTier::Process => !matches!(kind, PluginContributionKind::UiPanel),
+    }
+}
+
+fn validate_tier_contribution(
+    tier: PluginTier,
+    contribution: &PluginContributionDescriptor,
+    require_definition: bool,
+) -> Result<()> {
+    if tier != PluginTier::Declarative {
+        return Ok(());
+    }
+    match contribution {
+        PluginContributionDescriptor::Filter(value) => {
+            let Some(definition) = value.declarative.as_ref() else {
+                return if require_definition {
+                    Err(PluginRuntimeError::InvalidManifest(format!(
+                        "declarative filter {} requires a typed declarative definition",
+                        value.id
+                    )))
+                } else {
+                    Ok(())
+                };
+            };
+            if !value.capabilities.import
+                || !value.capabilities.validate
+                || value.capabilities.inline_tags
+                || value.capabilities.notes
+                || value.capabilities.degradation_report
+            {
+                return Err(PluginRuntimeError::InvalidManifest(format!(
+                    "declarative filter {} must support import/validate and cannot advertise inline tags, notes, or degradation",
+                    value.id
+                )));
+            }
+            definition.validate()
+        }
+        PluginContributionDescriptor::QaRule(value) => {
+            let Some(definition) = value.declarative.as_ref() else {
+                return if require_definition {
+                    Err(PluginRuntimeError::InvalidManifest(format!(
+                        "declarative QA contribution {} requires a typed declarative definition",
+                        value.id
+                    )))
+                } else {
+                    Ok(())
+                };
+            };
+            if value.rule_type != "regexPack" {
+                return Err(PluginRuntimeError::InvalidManifest(format!(
+                    "declarative QA contribution {} must use ruleType regexPack",
+                    value.id
+                )));
+            }
+            definition.validate()
+        }
+        PluginContributionDescriptor::PipelineStep(value) => {
+            let Some(definition) = value.declarative.as_ref() else {
+                return if require_definition {
+                    Err(PluginRuntimeError::InvalidManifest(format!(
+                        "declarative pipeline contribution {} requires a typed declarative definition",
+                        value.id
+                    )))
+                } else {
+                    Ok(())
+                };
+            };
+            if value.resumable || !value.cancellable {
+                return Err(PluginRuntimeError::InvalidManifest(format!(
+                    "declarative pipeline contribution {} must be non-resumable and cancellable",
+                    value.id
+                )));
+            }
+            definition.validate_for_descriptor(
+                &value.input,
+                &value.output,
+                value.config_schema_version,
+            )
+        }
+        _ => Err(PluginRuntimeError::InvalidManifest(
+            "unsupported declarative contribution".to_string(),
+        )),
     }
 }
 

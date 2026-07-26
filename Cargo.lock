@@ -2522,6 +2522,7 @@ dependencies = [
  "clap",
  "csv",
  "keyring",
+ "regex",
  "rusqlite",
  "serde",
  "serde_json",
@@ -2709,6 +2710,7 @@ dependencies = [
 name = "translunar-plugin-runtime"
 version = "0.1.0"
 dependencies = [
+ "regex",
  "schemars",
  "serde",
  "serde_json",
@@ -2718,6 +2720,8 @@ dependencies = [
  "tracing",
  "translunar-domain",
  "translunar-filter-core",
+ "translunar-pipeline",
+ "translunar-qa-core",
  "uuid",
 ]
 

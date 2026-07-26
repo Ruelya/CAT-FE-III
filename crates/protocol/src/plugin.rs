@@ -6,6 +6,7 @@ use serde_json::Value;
 use translunar_filter_core::FilterCapabilities;
 use translunar_filter_core::FilterDescriptor;
 pub use translunar_plugin_runtime::{
+    DeclarativeFilterDefinitionV1, DeclarativePipelineDefinitionV1, DeclarativeQaPackDefinitionV1,
     PluginCapabilityAuditEvent, PluginCapabilityDecision, PluginCapabilityId,
     PluginCapabilityRequest, PluginCapabilityScope, PluginFileArea,
 };
@@ -112,6 +113,8 @@ pub enum PluginContributionDescriptor {
         display_name: String,
         extensions: Vec<String>,
         capabilities: FilterCapabilities,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        declarative: Option<DeclarativeFilterDefinitionV1>,
     },
     EngineConnector {
         descriptor_version: u32,
@@ -131,6 +134,8 @@ pub enum PluginContributionDescriptor {
         severity: String,
         definition: Value,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        declarative: Option<DeclarativeQaPackDefinitionV1>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         config: Option<Value>,
     },
     PipelineStep {
@@ -143,6 +148,8 @@ pub enum PluginContributionDescriptor {
         config_schema_version: u32,
         resumable: bool,
         cancellable: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        declarative: Option<DeclarativePipelineDefinitionV1>,
     },
     AiAction {
         descriptor_version: u32,
@@ -635,6 +642,7 @@ mod tests {
             display_name: "Example".to_string(),
             extensions: vec!["srt".to_string()],
             capabilities: capabilities(),
+            declarative: None,
         };
         let serialized = serde_json::to_value(contribution).expect("serialize contribution");
         assert_eq!(serialized["kind"], "filter");

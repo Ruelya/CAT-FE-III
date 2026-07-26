@@ -16,6 +16,61 @@ use translunar_storage::{NewQaProfile, QaIssueFilter, QaProfileUpdate};
 use super::{EngineError, EngineService, Result, bounded_page_size};
 
 impl EngineService {
+    pub(crate) fn plugin_qa_rules(&self) -> Result<Vec<translunar_qa_core::QaRegexRule>> {
+        let mut rules = Vec::new();
+        for pack in self.plugin_qa_packs.values() {
+            let authorized = pack
+                .authorized_rules()
+                .map_err(EngineError::PluginCapabilityDenied)?;
+            let requested_scope = translunar_plugin_runtime::PluginCapabilityScope::Contributions {
+                contribution_ids: vec![pack.contribution_id.clone()],
+            };
+            let grants = self.store.list_plugin_capability_requests(
+                &pack.plugin_id,
+                Some(&pack.version_id),
+                0,
+                200,
+            )?;
+            let grant = grants
+                .items
+                .iter()
+                .filter(|request| {
+                    request.request.capability_id
+                        == translunar_plugin_runtime::PluginCapabilityId::QaRegister
+                        && request.decision
+                            == translunar_plugin_runtime::PluginCapabilityDecision::Granted
+                        && request
+                            .request
+                            .contribution_id
+                            .as_deref()
+                            .is_none_or(|id| id == pack.contribution_id.as_str())
+                        && request
+                            .granted_scope
+                            .as_ref()
+                            .is_some_and(|scope| scope.allows(&requested_scope))
+                })
+                .min_by_key(|request| {
+                    (
+                        request.request.contribution_id.as_deref()
+                            != Some(pack.contribution_id.as_str()),
+                        request.id.as_str(),
+                    )
+                })
+                .ok_or_else(|| {
+                    EngineError::InvalidState(format!(
+                        "authorized QA pack {} has no matching durable grant",
+                        pack.contribution_id
+                    ))
+                })?;
+            rules.extend(authorized.into_iter().map(|mut rule| {
+                rule.id = format!("{}.grant.{}.r{}", rule.id, grant.id, grant.revision);
+                rule
+            }));
+        }
+        rules.sort_by(|left, right| left.id.cmp(&right.id));
+        Ok(rules)
+    }
+
     pub fn list_qa_profiles(&self, params: QaProfileListParams) -> Result<QaProfilePage> {
         let limit = bounded_page_size(params.limit)?;
         let (items, total) =
@@ -70,10 +125,12 @@ impl EngineService {
     }
 
     pub fn run_qa(&mut self, params: QaRunParams) -> Result<QaRunResult> {
-        Ok(self.store.run_qa(
+        let plugin_rules = self.plugin_qa_rules()?;
+        Ok(self.store.run_qa_with_rules(
             &params.project_id,
             params.document_id.as_deref(),
             params.profile_id.as_deref(),
+            &plugin_rules,
         )?)
     }
 
@@ -181,10 +238,12 @@ impl EngineService {
         &mut self,
         params: QaGateCheckParams,
     ) -> Result<translunar_qa_core::QaGateResult> {
-        Ok(self.store.check_qa_gate(
+        let plugin_rules = self.plugin_qa_rules()?;
+        Ok(self.store.check_qa_gate_with_rules(
             &params.project_id,
             &params.document_id,
             params.profile_id.as_deref(),
+            &plugin_rules,
         )?)
     }
 

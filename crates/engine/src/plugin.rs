@@ -3,12 +3,15 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde_json::{Value, json};
-use translunar_filter_core::{FilterError, FilterRegistry};
+use translunar_filter_core::{DocumentFilter, FilterDescriptor, FilterError, FilterRegistry};
+use translunar_pipeline::StepDescriptor;
 use translunar_plugin_runtime::{
-    NormalizedPluginManifest as RuntimeNormalizedPluginManifest, PluginContributions, PluginEntry,
-    PluginEntryKind, PluginFilterContribution, PluginManifest, PluginProcess,
-    ProcessDocumentFilter, StagedPluginPackage, inspect_plugin_package, publish_staged_package,
-    remove_package, stage_plugin_package,
+    DeclarativeDocumentFilter, NormalizedPluginManifest as RuntimeNormalizedPluginManifest,
+    PluginCapabilityAuthorizer, PluginCapabilityCheck, PluginCapabilityId, PluginCapabilityScope,
+    PluginContributionDescriptor, PluginContributions, PluginEntry, PluginEntryKind,
+    PluginFileArea, PluginFilterContribution, PluginManifest, PluginProcess,
+    PluginRuntimeDescriptor, ProcessDocumentFilter, StagedPluginPackage, inspect_plugin_package,
+    publish_staged_package, remove_package, stage_plugin_package,
 };
 use translunar_protocol::{
     NormalizedPluginManifest, PluginCompatibility, PluginDiagnostic, PluginIdParams,
@@ -19,12 +22,14 @@ use translunar_protocol::{
     PluginUpgradeParams, PluginVersionListParams, PluginVersionPage,
     PluginVersionState as WirePluginVersionState, PluginVersionSummary,
 };
+use translunar_qa_core::{CompiledQaProfile, QaProfileDefinition, QaRuleSettings};
 use translunar_storage::{
     NewPluginVersion, PluginInstallationRecord, PluginStatus, PluginVersionRecord,
     PluginVersionState, Store, UpsertNormalizedPluginInstallation,
 };
 use uuid::Uuid;
 
+use crate::plugin_declarative::{DeclarativePipelineStep, PluginQaPack};
 use crate::{EngineError, EngineService, Result};
 
 impl EngineService {
@@ -161,7 +166,7 @@ impl EngineService {
             ));
         }
 
-        let legacy_manifest = if compatibility.compatible {
+        let legacy_manifest = if staged.normalized_manifest.supports_process_filter_host() {
             staged
                 .normalized_manifest
                 .to_legacy_process_manifest()
@@ -239,7 +244,7 @@ impl EngineService {
             && let Err(error) = self.register_plugin_filters(&activation.installation)
         {
             let message = error.to_string();
-            self.compensate_failed_upgrade(&params.plugin_id, &activation, &message);
+            self.compensate_failed_version_switch(&params.plugin_id, &activation, &message, true);
             return Err(EngineError::PluginUpgradeFailed(message));
         }
         Ok(PluginLifecycleResult {
@@ -290,9 +295,12 @@ impl EngineService {
             &params.version_id,
         )?;
         self.unregister_plugin_filters(&params.plugin_id);
-        if activation.installation.status == PluginStatus::Enabled {
-            self.register_plugin_filters(&activation.installation)
-                .map_err(|error| EngineError::PluginUpgradeFailed(error.to_string()))?;
+        if activation.installation.status == PluginStatus::Enabled
+            && let Err(error) = self.register_plugin_filters(&activation.installation)
+        {
+            let message = error.to_string();
+            self.compensate_failed_version_switch(&params.plugin_id, &activation, &message, false);
+            return Err(EngineError::PluginUpgradeFailed(message));
         }
         Ok(PluginLifecycleResult {
             plugin: to_summary(activation.installation),
@@ -370,6 +378,18 @@ impl EngineService {
 
     pub fn enable_plugin(&mut self, params: PluginMutationParams) -> Result<PluginMutationResult> {
         let record = self.store.get_plugin_installation(&params.plugin_id)?;
+        if let Some(expected) = params.expected_revision
+            && expected != record.revision
+        {
+            return Err(EngineError::Storage(
+                translunar_storage::StorageError::EntityConflict {
+                    entity: "plugin",
+                    id: params.plugin_id.clone(),
+                    expected_revision: expected,
+                    actual_revision: record.revision,
+                },
+            ));
+        }
         self.ensure_plugin_capabilities(&record, "plugin.enable")?;
         if let Some(compatibility) = parse_compatibility(&record.compatibility_json)
             && !compatibility.compatible
@@ -390,38 +410,65 @@ impl EngineService {
                 // Allow re-enable of the same plugin's already-registered filter.
                 let owner = self.plugin_filter_owners.get(&filter.id).cloned();
                 if owner.as_deref() != Some(record.id.as_str()) {
-                    return Err(EngineError::InvalidState(format!(
+                    return Err(EngineError::PluginConflict(format!(
                         "filter id {} is already registered",
                         filter.id
                     )));
                 }
             }
         }
-        let updated = self.store.set_plugin_status(
+        if record.tier == translunar_plugin_runtime::PluginTier::Process {
+            let updated = self.store.set_plugin_status(
+                &params.plugin_id,
+                PluginStatus::Enabled,
+                params.expected_revision,
+                None,
+            )?;
+            self.unregister_plugin_filters(&params.plugin_id);
+            return match self.register_plugin_filters(&updated) {
+                Ok(()) => {
+                    let _ = (&params.actor, &params.reason);
+                    Ok(PluginMutationResult {
+                        plugin: to_summary(updated),
+                    })
+                }
+                Err(error) => {
+                    let message = error.to_string();
+                    let _ = self.store.record_plugin_crash(
+                        &params.plugin_id,
+                        updated.revision,
+                        message,
+                    );
+                    self.unregister_plugin_filters(&params.plugin_id);
+                    Err(error)
+                }
+            };
+        }
+        self.unregister_plugin_filters(&params.plugin_id);
+        let mut candidate = record.clone();
+        candidate.revision = candidate.revision.saturating_add(1);
+        if let Err(error) = self.register_plugin_filters(&candidate) {
+            self.unregister_plugin_filters(&params.plugin_id);
+            return Err(error);
+        }
+        let updated = match self.store.set_plugin_status(
             &params.plugin_id,
             PluginStatus::Enabled,
             params.expected_revision,
             None,
-        )?;
-        self.unregister_plugin_filters(&params.plugin_id);
-        match self.register_plugin_filters(&updated) {
-            Ok(()) => {
-                let _ = (&params.actor, &params.reason);
-                Ok(PluginMutationResult {
-                    plugin: to_summary(updated),
-                })
-            }
+        ) {
+            Ok(updated) => updated,
             Err(error) => {
-                let message = error.to_string();
-                let _ = self.store.record_plugin_crash(
-                    &params.plugin_id,
-                    updated.revision,
-                    message.clone(),
-                );
                 self.unregister_plugin_filters(&params.plugin_id);
-                Err(error)
+                return Err(error.into());
             }
-        }
+        };
+        self.plugin_activation_revisions
+            .insert(params.plugin_id.clone(), updated.revision);
+        let _ = (&params.actor, &params.reason);
+        Ok(PluginMutationResult {
+            plugin: to_summary(updated),
+        })
     }
 
     pub fn disable_plugin(&mut self, params: PluginMutationParams) -> Result<PluginMutationResult> {
@@ -508,6 +555,198 @@ impl EngineService {
             .clone()
             .ok_or_else(|| EngineError::InvalidState("plugin has no active version".to_string()))?;
         let authorizer = self.plugin_capabilities.authorizer();
+        if record.tier == translunar_plugin_runtime::PluginTier::Declarative {
+            let normalized: RuntimeNormalizedPluginManifest = serde_json::from_value(
+                record.normalized_manifest_json.clone(),
+            )
+            .map_err(|error| {
+                EngineError::PluginInvalidManifest(format!(
+                    "stored normalized declarative manifest is invalid: {error}"
+                ))
+            })?;
+            if !matches!(
+                normalized.runtime,
+                PluginRuntimeDescriptor::Declarative { .. }
+            ) {
+                return Err(EngineError::InvalidState(
+                    "declarative plugin has a mismatched runtime projection".to_string(),
+                ));
+            }
+
+            let mut filters: Vec<(String, Arc<dyn DocumentFilter>)> = Vec::new();
+            let mut qa_packs = Vec::new();
+            let mut pipeline_steps = Vec::new();
+            for contribution in &normalized.contributions {
+                match contribution {
+                    PluginContributionDescriptor::Filter(value) => {
+                        let definition = value.declarative.clone().ok_or_else(|| {
+                            EngineError::PluginInvalidManifest(format!(
+                                "declarative filter {} has no definition",
+                                value.id
+                            ))
+                        })?;
+                        authorize_contribution(
+                            &authorizer,
+                            record,
+                            &version_id,
+                            PluginCapabilityId::FileRead,
+                            PluginCapabilityScope::File {
+                                areas: vec![PluginFileArea::Source],
+                            },
+                            &value.id,
+                            "filter.register",
+                        )?;
+                        if value.capabilities.export {
+                            authorize_contribution(
+                                &authorizer,
+                                record,
+                                &version_id,
+                                PluginCapabilityId::FileWrite,
+                                PluginCapabilityScope::File {
+                                    areas: vec![PluginFileArea::Output],
+                                },
+                                &value.id,
+                                "filter.register",
+                            )?;
+                        }
+                        let descriptor = FilterDescriptor {
+                            id: value.id.clone(),
+                            version: value.version.clone(),
+                            display_name: value.display_name.clone(),
+                            extensions: value.extensions.clone(),
+                            capabilities: value.capabilities.clone(),
+                        };
+                        let filter = DeclarativeDocumentFilter::new(
+                            &record.id,
+                            &version_id,
+                            descriptor,
+                            definition,
+                            Arc::clone(&authorizer),
+                        )
+                        .map_err(map_plugin_error)?;
+                        filters.push((value.id.clone(), Arc::new(filter)));
+                    }
+                    PluginContributionDescriptor::QaRule(value) => {
+                        authorize_contribution(
+                            &authorizer,
+                            record,
+                            &version_id,
+                            PluginCapabilityId::QaRegister,
+                            PluginCapabilityScope::Contributions {
+                                contribution_ids: vec![value.id.clone()],
+                            },
+                            &value.id,
+                            "qa.register",
+                        )?;
+                        let definition = value.declarative.as_ref().ok_or_else(|| {
+                            EngineError::PluginInvalidManifest(format!(
+                                "declarative QA contribution {} has no definition",
+                                value.id
+                            ))
+                        })?;
+                        qa_packs.push((
+                            value.id.clone(),
+                            PluginQaPack::new(
+                                &record.id,
+                                &version_id,
+                                &value.id,
+                                definition,
+                                Arc::clone(&authorizer),
+                            ),
+                        ));
+                    }
+                    PluginContributionDescriptor::PipelineStep(value) => {
+                        authorize_contribution(
+                            &authorizer,
+                            record,
+                            &version_id,
+                            PluginCapabilityId::PipelineRegister,
+                            PluginCapabilityScope::Contributions {
+                                contribution_ids: vec![value.id.clone()],
+                            },
+                            &value.id,
+                            "pipeline.register",
+                        )?;
+                        let definition = value.declarative.as_ref().ok_or_else(|| {
+                            EngineError::PluginInvalidManifest(format!(
+                                "declarative pipeline contribution {} has no definition",
+                                value.id
+                            ))
+                        })?;
+                        let step = DeclarativePipelineStep::new(
+                            &record.id,
+                            &version_id,
+                            &value.id,
+                            StepDescriptor {
+                                id: value.id.clone(),
+                                version: value.version.clone(),
+                                display_name: value.display_name.clone(),
+                                input: definition.input,
+                                output: definition.output,
+                                config_schema_version: value.config_schema_version,
+                                resumable: value.resumable,
+                                cancellable: value.cancellable,
+                            },
+                            definition,
+                            Arc::clone(&authorizer),
+                        )
+                        .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+                        pipeline_steps.push((value.id.clone(), Arc::new(step)));
+                    }
+                    _ => {
+                        return Err(EngineError::PluginCapabilityUnsupported(format!(
+                            "unsupported declarative contribution {}",
+                            contribution.id()
+                        )));
+                    }
+                }
+            }
+
+            for (id, _) in &filters {
+                if self.filters.contains(id) {
+                    return Err(EngineError::PluginConflict(format!(
+                        "filter id {id} is already registered"
+                    )));
+                }
+            }
+            for (id, _) in &qa_packs {
+                if self.plugin_qa_packs.contains_key(id) {
+                    return Err(EngineError::PluginConflict(format!(
+                        "QA contribution id {id} is already registered"
+                    )));
+                }
+            }
+            preflight_qa_packs(&self.plugin_qa_packs, &qa_packs)?;
+            for (id, _) in &pipeline_steps {
+                if self.pipeline.registry.contains(id) {
+                    return Err(EngineError::PluginConflict(format!(
+                        "pipeline step id {id} is already registered"
+                    )));
+                }
+            }
+
+            for (id, filter) in filters {
+                if let Err(error) = self.filters.register(filter) {
+                    self.unregister_plugin_filters(&record.id);
+                    return Err(EngineError::InvalidState(error.to_string()));
+                }
+                self.plugin_filter_owners.insert(id, record.id.clone());
+            }
+            for (id, pack) in qa_packs {
+                self.plugin_qa_packs.insert(id, pack);
+            }
+            for (id, step) in pipeline_steps {
+                if let Err(error) = self.pipeline.registry.register(step) {
+                    self.unregister_plugin_filters(&record.id);
+                    return Err(EngineError::InvalidState(error.to_string()));
+                }
+                self.plugin_pipeline_owners.insert(id, record.id.clone());
+            }
+            self.plugin_activation_revisions
+                .insert(record.id.clone(), record.revision);
+            return Ok(());
+        }
+
         let descriptors = record.filter_descriptors();
         for descriptor in &descriptors {
             if descriptor.id.starts_with("builtin.") {
@@ -571,6 +810,17 @@ impl EngineService {
             let _ = self.filters.unregister(&filter_id);
             self.plugin_filter_owners.remove(&filter_id);
         }
+        self.plugin_qa_packs
+            .retain(|_, pack| pack.plugin_id != plugin_id);
+        let pipeline_steps = self
+            .plugin_pipeline_owners
+            .iter()
+            .filter_map(|(step_id, owner)| (owner == plugin_id).then_some(step_id.clone()))
+            .collect::<Vec<_>>();
+        for step_id in pipeline_steps {
+            let _ = self.pipeline.registry.unregister(&step_id);
+            self.plugin_pipeline_owners.remove(&step_id);
+        }
         if let Some(process) = self.plugin_processes.remove(plugin_id) {
             process.stop();
         }
@@ -587,11 +837,12 @@ impl EngineService {
         }
     }
 
-    fn compensate_failed_upgrade(
+    fn compensate_failed_version_switch(
         &mut self,
         plugin_id: &str,
         activation: &translunar_storage::PluginActivationResult,
         message: &str,
+        mark_target_failed: bool,
     ) {
         self.unregister_plugin_filters(plugin_id);
         let Some(previous_version_id) = activation.previous_version_id.as_deref() else {
@@ -623,15 +874,17 @@ impl EngineService {
                 {
                     tracing::error!(plugin_id, error = %error, "failed to reattach previous plugin version");
                 }
-                if let Err(error) = self.store.mark_plugin_version_failed(
-                    plugin_id,
-                    activation.active_version.id.as_str(),
-                    json!([{
-                        "code": "plugin_upgrade_failed",
-                        "message": bounded_plugin_message(message),
-                        "phase": "attach"
-                    }]),
-                ) {
+                if mark_target_failed
+                    && let Err(error) = self.store.mark_plugin_version_failed(
+                        plugin_id,
+                        activation.active_version.id.as_str(),
+                        json!([{
+                            "code": "plugin_upgrade_failed",
+                            "message": bounded_plugin_message(message),
+                            "phase": "attach"
+                        }]),
+                    )
+                {
                     tracing::warn!(plugin_id, error = %error, "failed to retain attach-failed candidate");
                 }
             }
@@ -701,6 +954,53 @@ impl EngineService {
         }
         error
     }
+}
+
+fn authorize_contribution(
+    authorizer: &Arc<dyn PluginCapabilityAuthorizer>,
+    record: &PluginInstallationRecord,
+    version_id: &str,
+    capability_id: PluginCapabilityId,
+    scope: PluginCapabilityScope,
+    contribution_id: &str,
+    operation: &str,
+) -> Result<()> {
+    authorizer
+        .authorize_registration(&PluginCapabilityCheck {
+            plugin_id: record.id.clone(),
+            version_id: version_id.to_string(),
+            capability_id,
+            scope,
+            operation: operation.to_string(),
+            contribution_id: Some(contribution_id.to_string()),
+        })
+        .map_err(EngineError::PluginCapabilityDenied)
+}
+
+fn preflight_qa_packs(
+    active: &BTreeMap<String, PluginQaPack>,
+    candidates: &[(String, PluginQaPack)],
+) -> Result<()> {
+    let rules = active
+        .values()
+        .flat_map(|pack| pack.rules.iter().cloned())
+        .chain(
+            candidates
+                .iter()
+                .flat_map(|(_, pack)| pack.rules.iter().cloned()),
+        )
+        .collect::<Vec<_>>();
+    let enabled_rule_ids = rules.iter().map(|rule| rule.id.clone()).collect();
+    CompiledQaProfile::compile(QaProfileDefinition {
+        id: "plugin.qa.registry".to_string(),
+        name: "Plugin QA registry".to_string(),
+        enabled_rule_ids,
+        severity_overrides: Default::default(),
+        settings: QaRuleSettings::default(),
+        regex_rules: rules,
+    })
+    .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+    Ok(())
 }
 
 fn checked_source_path(value: &str) -> Result<PathBuf> {
@@ -1176,6 +1476,12 @@ mod tests {
             .join("examples/plugins/hello-srt")
     }
 
+    fn tier1_toolkit_source() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("examples/plugins/tier1-toolkit")
+    }
+
     fn grant_required_capabilities(service: &mut EngineService, plugin_id: &str) {
         let requests = service
             .list_plugin_capability_requests(
@@ -1202,6 +1508,654 @@ mod tests {
                 })
                 .expect("grant required capability");
         }
+    }
+
+    #[test]
+    fn declarative_toolkit_runs_without_a_process_and_survives_restart() {
+        let data = tempdir().expect("data directory");
+        let mut service = EngineService::open(data.path()).expect("open engine");
+        let installed = service
+            .install_plugin(PluginInstallParams {
+                source_path: tier1_toolkit_source().to_string_lossy().into_owned(),
+                grant_requested: false,
+                actor: "test".to_string(),
+                reason: "install declarative toolkit".to_string(),
+            })
+            .expect("install declarative toolkit")
+            .plugin;
+        assert_eq!(installed.status, WirePluginStatus::Installed);
+        assert!(
+            installed
+                .compatibility
+                .as_ref()
+                .is_some_and(|value| value.compatible)
+        );
+        assert!(!service.plugin_processes.contains_key(&installed.id));
+        let denied = service
+            .enable_plugin(PluginMutationParams {
+                plugin_id: installed.id.clone(),
+                expected_revision: Some(installed.revision),
+                actor: "test".to_string(),
+                reason: "prove default deny".to_string(),
+            })
+            .expect_err("ungranted enable must fail");
+        assert!(matches!(denied, EngineError::PluginCapabilityDenied(_)));
+        assert!(!service.filters.contains("example.tier1.lines"));
+        assert!(
+            !service
+                .pipeline
+                .registry
+                .contains("example.tier1.normalize")
+        );
+        assert!(service.plugin_qa_packs.is_empty());
+
+        grant_required_capabilities(&mut service, &installed.id);
+        let inactive_operation = service
+            .plugin_capabilities
+            .authorizer()
+            .authorize(&PluginCapabilityCheck {
+                plugin_id: installed.id.clone(),
+                version_id: installed
+                    .active_version_id
+                    .clone()
+                    .expect("installed active version"),
+                capability_id: PluginCapabilityId::FileRead,
+                scope: PluginCapabilityScope::File {
+                    areas: vec![PluginFileArea::Source],
+                },
+                operation: "untrusted.register".to_string(),
+                contribution_id: Some("example.tier1.lines".to_string()),
+            })
+            .expect_err("an operation name cannot opt into registration preflight");
+        assert_eq!(
+            inactive_operation.code,
+            translunar_plugin_runtime::PluginCapabilityDenialCode::Revoked
+        );
+        let enabled = service
+            .enable_plugin(PluginMutationParams {
+                plugin_id: installed.id.clone(),
+                expected_revision: Some(installed.revision),
+                actor: "test".to_string(),
+                reason: "enable declarative toolkit".to_string(),
+            })
+            .expect("enable declarative toolkit")
+            .plugin;
+        assert_eq!(enabled.status, WirePluginStatus::Enabled);
+        assert!(service.filters.contains("example.tier1.lines"));
+        assert!(
+            service
+                .pipeline
+                .registry
+                .contains("example.tier1.normalize")
+        );
+        assert!(service.plugin_qa_packs.contains_key("example.tier1.qa"));
+        assert!(!service.plugin_processes.contains_key(&enabled.id));
+
+        let project = service
+            .create_project(translunar_protocol::CreateProjectParams {
+                name: "Tier 1 project".to_string(),
+                source_locale: "en".to_string(),
+                target_locale: "fr".to_string(),
+                domain: "test".to_string(),
+            })
+            .expect("create project");
+        let imported = service
+            .import_document(translunar_protocol::ImportDocumentParams {
+                project_id: project.id.clone(),
+                source_path: tier1_toolkit_source()
+                    .join("sample.catlines")
+                    .to_string_lossy()
+                    .into_owned(),
+                relative_path: None,
+                filter_id: Some("example.tier1.lines".to_string()),
+                options: Default::default(),
+            })
+            .expect("import declarative document");
+        let profile_before = service
+            .store
+            .resolve_qa_profile(&project.id, None)
+            .expect("resolve profile before plugin QA");
+        let segments = service
+            .store
+            .all_segments(&imported.document.id)
+            .expect("list imported segments");
+        assert_eq!(segments.len(), 2);
+        service
+            .update_target(translunar_protocol::UpdateTargetParams {
+                segment_id: segments[0].id.clone(),
+                target_text: "TODO".to_string(),
+                expected_revision: segments[0].revision,
+            })
+            .expect("update target");
+        let qa_run = service
+            .run_qa(translunar_protocol::QaRunParams {
+                project_id: project.id.clone(),
+                document_id: Some(imported.document.id.clone()),
+                profile_id: None,
+            })
+            .expect("run plugin QA");
+        let profile_after = service
+            .store
+            .resolve_qa_profile(&project.id, None)
+            .expect("resolve profile after plugin QA");
+        assert_eq!(profile_after.definition, profile_before.definition);
+        let base_profile_hash = translunar_domain::sha256_hex(
+            serde_json::to_string(&profile_before.definition)
+                .expect("serialize base profile")
+                .as_bytes(),
+        );
+        assert_ne!(qa_run.profile_snapshot_hash, base_profile_hash);
+        let issues = service
+            .list_qa_issues(translunar_protocol::QaIssueListParams {
+                project_id: project.id,
+                document_id: Some(imported.document.id.clone()),
+                segment_id: None,
+                severity: None,
+                category: None,
+                disposition: None,
+                rule_id: None,
+                offset: 0,
+                limit: 200,
+            })
+            .expect("list QA issues");
+        assert!(issues.items.iter().any(|issue| {
+            issue
+                .rule_id
+                .starts_with("qa.regex:plugin.qa.example.tier1-toolkit.")
+                && issue.rule_id.contains(".example.tier1.qa.todo-placeholder")
+        }));
+
+        let step = service
+            .pipeline
+            .registry
+            .resolve("example.tier1.normalize")
+            .expect("resolve declarative step");
+        let transformed = step
+            .execute(translunar_pipeline::StepExecutionContext {
+                run_id: "test-run".to_string(),
+                project_id: "test-project".to_string(),
+                document_id: None,
+                input: json!({
+                    "schemaVersion": 1,
+                    "status": "draft",
+                    "title": "A   title"
+                }),
+                config: Value::Null,
+                checkpoint: None,
+                cancellation: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            })
+            .expect("execute declarative step");
+        assert_eq!(transformed.output["status"], "ready");
+        assert_eq!(transformed.output["title"], "A title");
+
+        drop(service);
+        let mut service = EngineService::open(data.path()).expect("restart engine");
+        assert!(service.filters.contains("example.tier1.lines"));
+        assert!(
+            service
+                .pipeline
+                .registry
+                .contains("example.tier1.normalize")
+        );
+        assert!(service.plugin_qa_packs.contains_key("example.tier1.qa"));
+        assert!(service.plugin_processes.is_empty());
+        assert_eq!(
+            service
+                .store
+                .get_qa_run(&qa_run.id)
+                .expect("historic QA run")
+                .id,
+            qa_run.id
+        );
+
+        let qa_request = service
+            .list_plugin_capability_requests(
+                translunar_protocol::PluginCapabilityRequestListParams {
+                    plugin_id: enabled.id.clone(),
+                    version_id: enabled.active_version_id.clone(),
+                    offset: 0,
+                    limit: 200,
+                },
+            )
+            .expect("list Tier 1 grants")
+            .items
+            .into_iter()
+            .find(|request| request.capability_id == PluginCapabilityId::QaRegister)
+            .expect("QA registration grant");
+        let revoked = service
+            .revoke_plugin_capability(translunar_protocol::PluginCapabilityDecisionParams {
+                plugin_id: enabled.id.clone(),
+                request_id: qa_request.id.clone(),
+                expected_revision: qa_request.revision,
+                actor: "test".to_string(),
+                reason: "revoke Tier 1 QA pack".to_string(),
+            })
+            .expect("revoke Tier 1 QA pack");
+        assert!(revoked.detached);
+        assert_eq!(revoked.plugin.status, WirePluginStatus::Disabled);
+        assert!(!service.filters.contains("example.tier1.lines"));
+        assert!(
+            !service
+                .pipeline
+                .registry
+                .contains("example.tier1.normalize")
+        );
+        assert!(service.plugin_qa_packs.is_empty());
+        assert!(service.store.get_qa_run(&qa_run.id).is_ok());
+
+        let granted = service
+            .grant_plugin_capability(translunar_protocol::PluginCapabilityGrantParams {
+                plugin_id: enabled.id.clone(),
+                request_id: revoked.request.id,
+                expected_revision: revoked.request.revision,
+                scope: revoked.request.requested_scope,
+                actor: "test".to_string(),
+                reason: "restore Tier 1 QA pack".to_string(),
+            })
+            .expect("restore Tier 1 QA pack");
+        let reenabled = service
+            .enable_plugin(PluginMutationParams {
+                plugin_id: enabled.id.clone(),
+                expected_revision: Some(granted.plugin.revision),
+                actor: "test".to_string(),
+                reason: "reenable declarative toolkit".to_string(),
+            })
+            .expect("reenable declarative toolkit")
+            .plugin;
+        let disabled = service
+            .disable_plugin(PluginMutationParams {
+                plugin_id: enabled.id.clone(),
+                expected_revision: Some(reenabled.revision),
+                actor: "test".to_string(),
+                reason: "disable declarative toolkit".to_string(),
+            })
+            .expect("disable declarative toolkit")
+            .plugin;
+        assert!(!service.filters.contains("example.tier1.lines"));
+        assert!(
+            !service
+                .pipeline
+                .registry
+                .contains("example.tier1.normalize")
+        );
+        assert!(service.plugin_qa_packs.is_empty());
+        assert!(service.store.get_qa_run(&qa_run.id).is_ok());
+        service
+            .uninstall_plugin(PluginMutationParams {
+                plugin_id: disabled.id,
+                expected_revision: Some(disabled.revision),
+                actor: "test".to_string(),
+                reason: "uninstall declarative toolkit".to_string(),
+            })
+            .expect("uninstall declarative toolkit");
+        assert!(service.store.get_qa_run(&qa_run.id).is_ok());
+    }
+
+    #[test]
+    fn declarative_collision_rolls_back_without_detaching_the_owner() {
+        let data = tempdir().expect("data directory");
+        let second_source = tempdir().expect("second plugin package");
+        copy_package(&tier1_toolkit_source(), second_source.path()).expect("copy Tier 1 package");
+        let manifest_path = second_source.path().join("manifest.json");
+        let mut manifest: Value =
+            serde_json::from_slice(&std::fs::read(&manifest_path).expect("read second manifest"))
+                .expect("parse second manifest");
+        manifest["id"] = json!("example.tier1-collision");
+        manifest["displayName"] = json!("Tier 1 collision");
+        std::fs::write(
+            &manifest_path,
+            serde_json::to_vec_pretty(&manifest).expect("serialize second manifest"),
+        )
+        .expect("write second manifest");
+
+        let mut service = EngineService::open(data.path()).expect("open engine");
+        let first = service
+            .install_plugin(PluginInstallParams {
+                source_path: tier1_toolkit_source().to_string_lossy().into_owned(),
+                grant_requested: false,
+                actor: "test".to_string(),
+                reason: "install owner".to_string(),
+            })
+            .expect("install owner")
+            .plugin;
+        grant_required_capabilities(&mut service, &first.id);
+        let first = service
+            .enable_plugin(PluginMutationParams {
+                plugin_id: first.id,
+                expected_revision: Some(first.revision),
+                actor: "test".to_string(),
+                reason: "enable owner".to_string(),
+            })
+            .expect("enable owner")
+            .plugin;
+
+        let second = service
+            .install_plugin(PluginInstallParams {
+                source_path: second_source.path().to_string_lossy().into_owned(),
+                grant_requested: false,
+                actor: "test".to_string(),
+                reason: "install collision".to_string(),
+            })
+            .expect("install collision")
+            .plugin;
+        grant_required_capabilities(&mut service, &second.id);
+        let error = service
+            .enable_plugin(PluginMutationParams {
+                plugin_id: second.id.clone(),
+                expected_revision: Some(second.revision),
+                actor: "test".to_string(),
+                reason: "collision must fail".to_string(),
+            })
+            .expect_err("collision must fail");
+        assert!(matches!(error, EngineError::PluginConflict(_)));
+        assert!(service.filters.contains("example.tier1.lines"));
+        assert!(
+            service
+                .pipeline
+                .registry
+                .contains("example.tier1.normalize")
+        );
+        assert_eq!(
+            service
+                .plugin_qa_packs
+                .get("example.tier1.qa")
+                .map(|pack| pack.plugin_id.as_str()),
+            Some(first.id.as_str())
+        );
+        assert_eq!(
+            service
+                .get_plugin(PluginIdParams {
+                    plugin_id: second.id,
+                })
+                .expect("collision inventory")
+                .status,
+            WirePluginStatus::Installed
+        );
+    }
+
+    #[test]
+    fn declarative_upgrade_and_rollback_replace_every_adapter_version() {
+        let data = tempdir().expect("data directory");
+        let upgrade_source = tempdir().expect("upgrade package");
+        copy_package(&tier1_toolkit_source(), upgrade_source.path()).expect("copy Tier 1 package");
+        let manifest_path = upgrade_source.path().join("manifest.json");
+        let mut manifest: Value =
+            serde_json::from_slice(&std::fs::read(&manifest_path).expect("read upgrade manifest"))
+                .expect("parse upgrade manifest");
+        manifest["version"] = json!("2.0.0");
+        for contribution in manifest["contributions"]
+            .as_array_mut()
+            .expect("contributions")
+        {
+            contribution["version"] = json!("2.0.0");
+            if contribution["kind"] == "pipelineStep" {
+                contribution["declarative"]["operations"][1]["value"] = json!("upgraded");
+            }
+        }
+        std::fs::write(
+            &manifest_path,
+            serde_json::to_vec_pretty(&manifest).expect("serialize upgrade manifest"),
+        )
+        .expect("write upgrade manifest");
+
+        let mut service = EngineService::open(data.path()).expect("open engine");
+        let installed = service
+            .install_plugin(PluginInstallParams {
+                source_path: tier1_toolkit_source().to_string_lossy().into_owned(),
+                grant_requested: false,
+                actor: "test".to_string(),
+                reason: "install Tier 1 v1".to_string(),
+            })
+            .expect("install Tier 1 v1")
+            .plugin;
+        let original_version_id = installed
+            .active_version_id
+            .clone()
+            .expect("original version id");
+        grant_required_capabilities(&mut service, &installed.id);
+        let enabled = service
+            .enable_plugin(PluginMutationParams {
+                plugin_id: installed.id,
+                expected_revision: Some(installed.revision),
+                actor: "test".to_string(),
+                reason: "enable Tier 1 v1".to_string(),
+            })
+            .expect("enable Tier 1 v1")
+            .plugin;
+        let upgraded = service
+            .upgrade_plugin(PluginUpgradeParams {
+                plugin_id: enabled.id.clone(),
+                source_path: upgrade_source.path().to_string_lossy().into_owned(),
+                expected_revision: enabled.revision,
+                actor: "test".to_string(),
+                reason: "upgrade Tier 1 adapters".to_string(),
+            })
+            .expect("upgrade Tier 1 adapters");
+        assert_eq!(upgraded.plugin.version, "2.0.0");
+        assert_eq!(execute_tier1_pipeline(&service)["status"], "upgraded");
+
+        let rolled_back = service
+            .rollback_plugin(PluginRollbackParams {
+                plugin_id: enabled.id,
+                version_id: original_version_id,
+                expected_revision: upgraded.plugin.revision,
+                actor: "test".to_string(),
+                reason: "rollback Tier 1 adapters".to_string(),
+            })
+            .expect("rollback Tier 1 adapters");
+        assert_eq!(rolled_back.plugin.version, "1.0.0");
+        assert_eq!(execute_tier1_pipeline(&service)["status"], "ready");
+        assert!(service.filters.contains("example.tier1.lines"));
+        assert!(service.plugin_qa_packs.contains_key("example.tier1.qa"));
+    }
+
+    #[test]
+    fn declarative_rollback_attach_failure_restores_current_version() {
+        let data = tempdir().expect("data directory");
+        let upgrade_source = tempdir().expect("upgrade package");
+        let collision_source = tempdir().expect("collision package");
+        copy_package(&tier1_toolkit_source(), upgrade_source.path()).expect("copy upgrade package");
+        copy_package(&tier1_toolkit_source(), collision_source.path())
+            .expect("copy collision package");
+
+        let upgrade_manifest_path = upgrade_source.path().join("manifest.json");
+        let mut upgrade_manifest: Value = serde_json::from_slice(
+            &std::fs::read(&upgrade_manifest_path).expect("read upgrade manifest"),
+        )
+        .expect("parse upgrade manifest");
+        upgrade_manifest["version"] = json!("2.0.0");
+        let remapped_ids = [
+            ("example.tier1.lines", "example.tier1.v2.lines"),
+            ("example.tier1.qa", "example.tier1.v2.qa"),
+            ("example.tier1.normalize", "example.tier1.v2.normalize"),
+        ];
+        for contribution in upgrade_manifest["contributions"]
+            .as_array_mut()
+            .expect("upgrade contributions")
+        {
+            contribution["version"] = json!("2.0.0");
+            let current_id = contribution["id"].as_str().expect("contribution id");
+            let next_id = remapped_ids
+                .iter()
+                .find_map(|(old, new)| (*old == current_id).then_some(*new))
+                .expect("remapped contribution id");
+            contribution["id"] = json!(next_id);
+            if contribution["kind"] == "pipelineStep" {
+                contribution["declarative"]["operations"][1]["value"] = json!("upgraded");
+            }
+        }
+        for capability in upgrade_manifest["capabilities"]
+            .as_array_mut()
+            .expect("upgrade capabilities")
+        {
+            let current_id = capability["contributionId"]
+                .as_str()
+                .expect("capability contribution id");
+            let next_id = remapped_ids
+                .iter()
+                .find_map(|(old, new)| (*old == current_id).then_some(*new))
+                .expect("remapped capability contribution id");
+            capability["contributionId"] = json!(next_id);
+            if capability["scope"]["kind"] == "contributions" {
+                capability["scope"]["contributionIds"] = json!([next_id]);
+            }
+        }
+        std::fs::write(
+            &upgrade_manifest_path,
+            serde_json::to_vec_pretty(&upgrade_manifest).expect("serialize upgrade manifest"),
+        )
+        .expect("write upgrade manifest");
+
+        let collision_manifest_path = collision_source.path().join("manifest.json");
+        let mut collision_manifest: Value = serde_json::from_slice(
+            &std::fs::read(&collision_manifest_path).expect("read collision manifest"),
+        )
+        .expect("parse collision manifest");
+        collision_manifest["id"] = json!("example.tier1-rollback-collision");
+        collision_manifest["displayName"] = json!("Tier 1 rollback collision");
+        std::fs::write(
+            &collision_manifest_path,
+            serde_json::to_vec_pretty(&collision_manifest).expect("serialize collision manifest"),
+        )
+        .expect("write collision manifest");
+
+        let mut service = EngineService::open(data.path()).expect("open engine");
+        let installed = service
+            .install_plugin(PluginInstallParams {
+                source_path: tier1_toolkit_source().to_string_lossy().into_owned(),
+                grant_requested: false,
+                actor: "test".to_string(),
+                reason: "install rollback owner".to_string(),
+            })
+            .expect("install rollback owner")
+            .plugin;
+        let original_version_id = installed
+            .active_version_id
+            .clone()
+            .expect("original version id");
+        grant_required_capabilities(&mut service, &installed.id);
+        let enabled = service
+            .enable_plugin(PluginMutationParams {
+                plugin_id: installed.id,
+                expected_revision: Some(installed.revision),
+                actor: "test".to_string(),
+                reason: "enable rollback owner".to_string(),
+            })
+            .expect("enable rollback owner")
+            .plugin;
+        let disabled = service
+            .disable_plugin(PluginMutationParams {
+                plugin_id: enabled.id,
+                expected_revision: Some(enabled.revision),
+                actor: "test".to_string(),
+                reason: "prepare remapped upgrade".to_string(),
+            })
+            .expect("disable rollback owner")
+            .plugin;
+        let upgraded = service
+            .upgrade_plugin(PluginUpgradeParams {
+                plugin_id: disabled.id.clone(),
+                source_path: upgrade_source.path().to_string_lossy().into_owned(),
+                expected_revision: disabled.revision,
+                actor: "test".to_string(),
+                reason: "activate remapped version".to_string(),
+            })
+            .expect("upgrade while disabled");
+        grant_required_capabilities(&mut service, &disabled.id);
+        let upgraded_enabled = service
+            .enable_plugin(PluginMutationParams {
+                plugin_id: disabled.id.clone(),
+                expected_revision: Some(upgraded.plugin.revision),
+                actor: "test".to_string(),
+                reason: "enable remapped version".to_string(),
+            })
+            .expect("enable remapped version")
+            .plugin;
+
+        let collision = service
+            .install_plugin(PluginInstallParams {
+                source_path: collision_source.path().to_string_lossy().into_owned(),
+                grant_requested: false,
+                actor: "test".to_string(),
+                reason: "install old-id owner".to_string(),
+            })
+            .expect("install old-id owner")
+            .plugin;
+        grant_required_capabilities(&mut service, &collision.id);
+        let collision = service
+            .enable_plugin(PluginMutationParams {
+                plugin_id: collision.id,
+                expected_revision: Some(collision.revision),
+                actor: "test".to_string(),
+                reason: "claim old contribution ids".to_string(),
+            })
+            .expect("enable old-id owner")
+            .plugin;
+
+        let error = service
+            .rollback_plugin(PluginRollbackParams {
+                plugin_id: upgraded_enabled.id.clone(),
+                version_id: original_version_id,
+                expected_revision: upgraded_enabled.revision,
+                actor: "test".to_string(),
+                reason: "rollback must compensate on collision".to_string(),
+            })
+            .expect_err("rollback attachment must fail");
+        assert!(matches!(error, EngineError::PluginUpgradeFailed(_)));
+
+        let restored = service
+            .get_plugin(PluginIdParams {
+                plugin_id: upgraded_enabled.id,
+            })
+            .expect("restored current version");
+        assert_eq!(restored.version, "2.0.0");
+        assert_eq!(restored.status, WirePluginStatus::Enabled);
+        assert_eq!(restored.active_version_id, Some(upgraded.active_version_id));
+        assert!(service.filters.contains("example.tier1.v2.lines"));
+        assert!(service.plugin_qa_packs.contains_key("example.tier1.v2.qa"));
+        assert!(
+            service
+                .pipeline
+                .registry
+                .contains("example.tier1.v2.normalize")
+        );
+        assert_eq!(
+            service
+                .plugin_filter_owners
+                .get("example.tier1.lines")
+                .map(String::as_str),
+            Some(collision.id.as_str())
+        );
+        assert_eq!(
+            service
+                .plugin_qa_packs
+                .get("example.tier1.qa")
+                .map(|pack| pack.plugin_id.as_str()),
+            Some(collision.id.as_str())
+        );
+    }
+
+    fn execute_tier1_pipeline(service: &EngineService) -> Value {
+        service
+            .pipeline
+            .registry
+            .resolve("example.tier1.normalize")
+            .expect("resolve Tier 1 pipeline")
+            .execute(translunar_pipeline::StepExecutionContext {
+                run_id: "test-run".to_string(),
+                project_id: "test-project".to_string(),
+                document_id: None,
+                input: json!({
+                    "schemaVersion": 1,
+                    "status": "draft",
+                    "title": "A   title"
+                }),
+                config: Value::Null,
+                checkpoint: None,
+                cancellation: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            })
+            .expect("execute Tier 1 pipeline")
+            .output
     }
 
     #[test]

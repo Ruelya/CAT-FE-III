@@ -3,6 +3,26 @@ Full PRD gap matrix
 
 ## Executive summary
 
+### Status update: 2026-07-27
+
+The audit below remains the historical baseline that triggered the Full PRD
+remediation. The plugin row is no longer current in three areas:
+
+- the runtime now normalizes Tier 1 declarative, Tier 2 sandbox, and Tier 3
+  process inventory with immutable versions and upgrade/rollback lifecycle;
+- scoped capability review, explicit grant/deny/revoke, operation-time checks,
+  detach, and immutable audit are implemented; `grantRequested` grants no
+  authority;
+- the executable Tier 1 host now provides bounded UTF-8 filters, regex QA
+  packs, deterministic JSON pipeline transforms, generated contracts, public
+  SDK builders, a manifest-only official example, focused stdio smoke, and
+  real Electron lifecycle evidence.
+
+Tier 1 does not close the whole plugin parent. Engine connectors, AI actions,
+UI panels, Tier 2 sandbox execution, and external connectors remain owned by
+their dedicated child tasks. Treat the older "Missing required P1 items"
+section as dated audit evidence, not the current implementation inventory.
+
 The five children were implemented as narrow foundations rather than their parent-assigned full PRD scope:
 
 | Child                   | Current state                                                | Main gap                                                     |

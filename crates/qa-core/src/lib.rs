@@ -16,6 +16,7 @@ pub const STANDARD_PROFILE_ID: &str = "builtin.qa.standard";
 pub const CJK_PROFILE_ID: &str = "builtin.qa.cjk-professional";
 pub const MAX_REGEX_RULES: usize = 100;
 pub const MAX_REGEX_PATTERN_BYTES: usize = 4_096;
+pub const MAX_REGEX_RULE_ID_BYTES: usize = 2_048;
 pub const MAX_EVIDENCE_VALUES: usize = 32;
 pub const MAX_EVIDENCE_VALUE_CHARS: usize = 256;
 
@@ -76,7 +77,7 @@ pub enum QaField {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QaRegexRule {
     pub id: String,
     pub label: String,
@@ -889,15 +890,14 @@ pub fn validate_profile(profile: &QaProfileDefinition) -> Result<(), QaCoreError
     let mut ids = BTreeSet::new();
     for rule in &profile.regex_rules {
         if rule.id.trim().is_empty()
-            || rule.id.len() > 96
-            || !rule
-                .id
-                .chars()
-                .all(|value| value.is_ascii_alphanumeric() || matches!(value, '.' | '_' | '-'))
+            || rule.id.len() > MAX_REGEX_RULE_ID_BYTES
+            || !rule.id.chars().all(|value| {
+                value.is_ascii_alphanumeric() || matches!(value, '.' | '_' | '-' | ':')
+            })
         {
-            return Err(QaCoreError::InvalidProfile(
-                "regex rule ID must be 1..96 safe ASCII characters".to_string(),
-            ));
+            return Err(QaCoreError::InvalidProfile(format!(
+                "regex rule ID must be 1..{MAX_REGEX_RULE_ID_BYTES} safe ASCII characters"
+            )));
         }
         if !ids.insert(rule.id.as_str()) {
             return Err(QaCoreError::InvalidProfile(format!(

@@ -163,6 +163,7 @@ mod local_api;
 mod local_auth;
 mod plugin;
 mod plugin_capability;
+mod plugin_declarative;
 pub use local_api::{LocalApiConfig, run_pipeline, serve as serve_local_api, validate_bind};
 pub use local_auth::{LocalApiTokenStore, default_token_store, ensure_token, rotate_token};
 mod qa;
@@ -2282,6 +2283,8 @@ pub struct EngineService {
         std::sync::Arc<translunar_plugin_runtime::PluginProcess>,
     >,
     plugin_filter_owners: std::collections::BTreeMap<String, String>,
+    plugin_qa_packs: std::collections::BTreeMap<String, plugin_declarative::PluginQaPack>,
+    plugin_pipeline_owners: std::collections::BTreeMap<String, String>,
     plugin_activation_revisions: std::collections::BTreeMap<String, u64>,
     plugin_capabilities: plugin_capability::PluginCapabilityService,
 }
@@ -2343,6 +2346,8 @@ impl EngineService {
             ai,
             plugin_processes: std::collections::BTreeMap::new(),
             plugin_filter_owners: std::collections::BTreeMap::new(),
+            plugin_qa_packs: std::collections::BTreeMap::new(),
+            plugin_pipeline_owners: std::collections::BTreeMap::new(),
             plugin_activation_revisions: std::collections::BTreeMap::new(),
             plugin_capabilities,
         };
@@ -4973,8 +4978,13 @@ impl EngineService {
 
     pub fn run_document_qa(&mut self, document_id: &str) -> Result<QaListResult> {
         let document = self.store.get_document(document_id)?;
-        self.store
-            .run_qa(&document.document.project_id, Some(document_id), None)?;
+        let plugin_rules = self.plugin_qa_rules()?;
+        self.store.run_qa_with_rules(
+            &document.document.project_id,
+            Some(document_id),
+            None,
+            &plugin_rules,
+        )?;
         Ok(QaListResult {
             issues: self.store.list_qa(document_id, false)?,
         })
@@ -5426,9 +5436,13 @@ impl EngineService {
         let document = self.store.get_document(&params.document_id)?;
         let segments = self.store.all_segments(&params.document_id)?;
         let output_path = PathBuf::from(&params.output_path);
-        let gate =
-            self.store
-                .check_qa_gate(&document.document.project_id, &params.document_id, None)?;
+        let plugin_rules = self.plugin_qa_rules()?;
+        let gate = self.store.check_qa_gate_with_rules(
+            &document.document.project_id,
+            &params.document_id,
+            None,
+            &plugin_rules,
+        )?;
         let override_id = if gate.clear {
             if params.qa_override.is_some() {
                 return Err(EngineError::InvalidRequest(

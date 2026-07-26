@@ -121,25 +121,25 @@ qualified Tier 3 foundation.
 
 ## Acceptance Criteria
 
-- [ ] AC1: A valid manifest-only Tier 1 package installs as pending inventory,
+- [x] AC1: A valid manifest-only Tier 1 package installs as pending inventory,
       grants no implicit authority, and starts no process or script runtime.
-- [ ] AC2: After exact grants, enable atomically registers its declarative
+- [x] AC2: After exact grants, enable atomically registers its declarative
       filter, QA pack, and pipeline step; restart restores the same inventory.
-- [ ] AC3: The filter probes/imports/exports a real fixture deterministically,
+- [x] AC3: The filter probes/imports/exports a real fixture deterministically,
       preserves unowned bytes, and rejects malformed/drifted/oversized input
       without partial document or output state.
-- [ ] AC4: Plugin regex QA findings use namespaced rules and reproducible
+- [x] AC4: Plugin regex QA findings use namespaced rules and reproducible
       plugin/version provenance; disable/revoke stops future findings without
       changing historic run evidence or user profiles.
-- [ ] AC5: The pipeline transform validates artifact/config shape, honors
+- [x] AC5: The pipeline transform validates artifact/config shape, honors
       cancellation and bounds, produces deterministic output, and has no I/O,
       network, clock, environment, AI, or Engine-service access.
-- [ ] AC6: Missing, stale, denied, revoked, unsupported, or out-of-scope
+- [x] AC6: Missing, stale, denied, revoked, unsupported, or out-of-scope
       authority blocks registration/operation with typed audit evidence and no
       effect on built-ins or unrelated plugins.
-- [ ] AC7: Upgrade/rollback carries only exact grants, replaces all owned
+- [x] AC7: Upgrade/rollback carries only exact grants, replaces all owned
       adapters atomically, and restores the correct version after restart.
-- [ ] AC8: Rust schema, generated contracts, SDK validation/build, the official
+- [x] AC8: Rust schema, generated contracts, SDK validation/build, the official
       Tier 1 example, focused Engine smoke, full relevant tests, and real
       Electron lifecycle E2E pass.
 

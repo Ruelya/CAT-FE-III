@@ -1397,6 +1397,10 @@ and contribution descriptors.
 - Renderer code uses generated `plugin.*` method types and the shared structured
   invoke envelope. It never imports plugin code, reads manifests, opens SQLite,
   infers status, or registers contributions.
+- Declarative rows render the generated `tier: "declarative"` projection and
+  the same Engine-owned lifecycle controls as process rows. A manifest-only
+  package never needs an entry script, process status, or renderer evaluator;
+  its filter, QA, and pipeline inventory appears only after Engine enable.
 - Install, enable, disable, and uninstall expose one busy state, clear the
   previous alert, invoke Engine, reload summaries, and refresh owning project
   data. Cancellation changes nothing.
@@ -1418,6 +1422,8 @@ and contribution descriptors.
 | Install/lifecycle RPC fails | Named alert shows formatted error; busy state clears |
 | Plugin process crashes during document import | Structured rejection retains code/data; Refresh shows degraded row and safe lastError |
 | Degraded plugin after Engine restart | Row remains degraded and contribution is absent from `filter.list` |
+| Tier 1 package is installed without grants | Show installed/pending review; no contribution appears and no process starts |
+| Tier 1 grant is revoked | Reload Engine-owned disabled status; filter, QA, and pipeline adapters are absent |
 | Empty list | Render localized empty state, not a placeholder plugin |
 | Long diagnostics/permissions at 1250x744 | Wrap inside row with no document overflow or action overlap |
 
@@ -1434,6 +1440,9 @@ and contribution descriptors.
 
 - Real-Engine E2E covers empty/install/enabled/restart/disabled/uninstalled and
   crash/degraded/restart paths.
+- The Tier 1 real-Engine flow installs the official manifest-only toolkit,
+  reviews and grants every request, enables without a child process, survives
+  app restart, and then disables and uninstalls with no page/console errors.
 - Assert the exact typed failure code/data, absence from `filter.list`, visible
   safe lastError, a subsequent ordinary RPC, and no stderr leakage.
 - Assert every button/tab/region has an accessible name and console/page error

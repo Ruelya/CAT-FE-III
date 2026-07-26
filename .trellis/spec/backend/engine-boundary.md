@@ -2630,7 +2630,9 @@ an allowed request record or a structured `PluginCapabilityDenial`.
 - `PluginCapabilityService` is the central durable authorizer. Host startup,
   contribution registration, and every privileged host call must re-check the
   active plugin version and requested/granted scope; adapters do not cache a
-  grant across operations.
+  grant across operations. Pre-enable attachment uses the explicit
+  `authorize_registration` entry point. An operation name ending in
+  `.register` does not opt into registration authority.
 - Grant, deny, and revoke use request revision compare-and-swap. Deny/revoke of
   an active enabled request disables the plugin and unregisters its filters;
   unrelated plugins and Engine RPCs remain available.
@@ -2697,6 +2699,120 @@ authorizer.authorize(&PluginCapabilityCheck {
     operation,
 })?;
 run_privileged_operation()?;
+```
+
+## Tier 1 Declarative Plugin Host
+
+### 1. Scope / Trigger
+
+Use this contract when changing a declarative plugin definition, manifest-only
+filter, plugin QA pack, deterministic pipeline transform, declarative lifecycle
+attachment, generated plugin contract, SDK builder, or Tier 1 process/Electron
+evidence. Tier 1 executes Rust-owned data only and must never load package code
+or start a `PluginProcess`.
+
+### 2. Signatures
+
+The normalized manifest contribution union carries these optional typed
+definitions; they are required for an executable declarative contribution:
+
+```text
+DeclarativeFilterDefinitionV1   { definitionVersion=1, encoding=utf8,
+                                  probeHeaderPattern?, unitPattern, limits }
+DeclarativeQaPackDefinitionV1   { definitionVersion=1, rules[] }
+DeclarativePipelineDefinitionV1 { definitionVersion=1, input, output,
+                                  operations[], maxInputBytes, maxOutputBytes }
+
+operations = select | set | assert | regexReplace
+```
+
+`DocumentFilter`, `PluginQaPack`, and `PipelineStep` remain the executable
+Engine interfaces. `StepRegistry::unregister(id)` removes exactly one step.
+`PluginCapabilityAuthorizer::authorize_registration(check)` is the only path
+that may validate an installed or disabled active version before its enable
+status CAS; `authorize(check)` requires the active version to be enabled.
+
+### 3. Contracts
+
+- Definition structs and operation variants deny unknown fields, require
+  version 1, compile regexes with explicit DFA/program limits, and bound every
+  string, collection, source/output size, operation count, replacement count,
+  JSON path, literal, and execution nesting depth.
+- A declarative filter authorizes every probe/import/validate/export, reads
+  bounded UTF-8, extracts the required named `source` capture, and emits stable
+  ordinal/hash structural paths. Export reparses the immutable source, checks
+  segment identity and source text, applies owned ranges in reverse order,
+  reparses staged output, and publishes with no-clobber semantics.
+- QA packs are held in an Engine-owned registry and join a cloned compiled
+  profile only for the current run. Rule IDs include plugin, version,
+  contribution, exact grant ID, and grant revision; that rule set enters the
+  persisted profile snapshot hash. User profile rows and historic run items
+  are never rewritten.
+- Pipeline adapters authorize at each execution, accept empty configuration
+  only, check cancellation between operations, enforce input/output byte and
+  nesting bounds, and expose no filesystem, network, clock, environment, AI,
+  process, or Engine-service handle.
+- Declarative enable prepares and attaches all filter, QA, and pipeline
+  adapters before the durable enabled CAS. Any compile, grant, collision, or
+  registration failure removes only adapters owned by that plugin. Upgrade and
+  rollback compensate an attach failure by restoring the previous active
+  version and all of its adapters.
+- Disable, revoke/deny, uninstall, degradation, and restart detach or restore
+  by plugin owner and active version. Built-ins and unrelated plugins remain
+  untouched. Legacy manifest v1 and Tier 3 process behavior remain compatible.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Missing/unknown definition version, field, or unsafe bound | `plugin_invalid_manifest`; no adapter or process |
+| Required grant is pending, stale, revoked, or out of scope | `plugin_permission_denied`; denied audit; no side effect |
+| Ordinary operation is named `*.register` while plugin is inactive | Denied; operation text cannot select registration mode |
+| Filter UTF-8/match/identity/count/size validation fails | Typed filter error; no document/output partial state |
+| QA/filter/pipeline ID collides | `plugin_conflict`; owner and built-ins remain attached |
+| Pipeline is canceled or exceeds byte/depth/replacement bounds | `canceled` or typed execution failure; no checkpoint/output commit |
+| Upgrade or rollback target cannot attach | Restore prior durable version and its complete adapter set; return typed lifecycle failure |
+
+### 5. Good / Base / Bad Cases
+
+- Good: install the manifest-only toolkit, grant exact scopes, enable all three
+  contribution families, execute them, restart, revoke, and inspect the old QA
+  run after detach.
+- Base: retain an older declarative inventory record without typed definitions
+  as incompatible and inspectable; do not silently assign executable behavior.
+- Bad: infer registration mode from an operation suffix, mutate a user QA
+  profile, cache a grant in an adapter, publish an export before staged reparse,
+  or leave the durable version pointer on a rollback target that failed attach.
+
+### 6. Tests Required
+
+- Runtime tests cover strict decoding, all limits, regex/capture failures,
+  malformed UTF-8, source drift, reverse replacement, staged reparse, and
+  no-clobber output.
+- Engine/storage tests cover default deny, explicit registration authorization,
+  misleading `.register` operation denial, atomic multi-registry attach,
+  collision isolation, restart, revoke/detach, deterministic QA provenance,
+  pipeline cancellation/depth/size, upgrade, rollback, and rollback-attach
+  compensation.
+- Run strict clippy, the Rust workspace, generated-contract drift, SDK tests,
+  focused real stdio plugin smoke, and the real Electron Tier 1 lifecycle. The
+  full Engine E2E remains required when its PDF/OCR toolchain is installed.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+let registration = check.operation.ends_with(".register");
+authorize_inactive_version(check, registration)?;
+```
+
+#### Correct
+
+```rust
+authorizer.authorize_registration(&registration_check)?;
+publish_prepared_adapters()?;
+let enabled = store.set_plugin_status(plugin_id, Enabled, expected_revision)?;
 ```
 
 ## Local API and CLI

@@ -6998,6 +6998,252 @@
         "checkedAtMs"
       ]
     },
+    "DeclarativeFilterDefinitionV1": {
+      "type": "object",
+      "properties": {
+        "definitionVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "encoding": {
+          "$ref": "#/$defs/DeclarativeTextEncoding"
+        },
+        "limits": {
+          "$ref": "#/$defs/DeclarativeFilterLimits"
+        },
+        "probeHeaderPattern": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unitPattern": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "definitionVersion",
+        "encoding",
+        "unitPattern",
+        "limits"
+      ]
+    },
+    "DeclarativeFilterLimits": {
+      "type": "object",
+      "properties": {
+        "maxCaptureBytes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "maxOutputBytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "maxSourceBytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "maxUnitBytes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "maxUnits": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "probeHeaderBytes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "maxSourceBytes",
+        "maxOutputBytes",
+        "maxUnits",
+        "maxUnitBytes",
+        "maxCaptureBytes",
+        "probeHeaderBytes"
+      ]
+    },
+    "DeclarativePipelineDefinitionV1": {
+      "type": "object",
+      "properties": {
+        "definitionVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "input": {
+          "$ref": "#/$defs/ArtifactKind"
+        },
+        "maxInputBytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "maxOutputBytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DeclarativePipelineOperation"
+          }
+        },
+        "output": {
+          "$ref": "#/$defs/ArtifactKind"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "definitionVersion",
+        "input",
+        "output",
+        "operations",
+        "maxInputBytes",
+        "maxOutputBytes"
+      ]
+    },
+    "DeclarativePipelineOperation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "operation": {
+              "type": "string",
+              "const": "select"
+            },
+            "path": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "operation",
+            "path"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "operation": {
+              "type": "string",
+              "const": "set"
+            },
+            "path": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "value": true
+          },
+          "additionalProperties": false,
+          "required": [
+            "operation",
+            "path",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "equals": true,
+            "operation": {
+              "type": "string",
+              "const": "assert"
+            },
+            "path": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "operation",
+            "path",
+            "equals"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "maxReplacements": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "operation": {
+              "type": "string",
+              "const": "regexReplace"
+            },
+            "path": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "pattern": {
+              "type": "string"
+            },
+            "replacement": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "operation",
+            "path",
+            "pattern",
+            "replacement",
+            "maxReplacements"
+          ]
+        }
+      ]
+    },
+    "DeclarativeQaPackDefinitionV1": {
+      "type": "object",
+      "properties": {
+        "definitionVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/QaRegexRule"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "definitionVersion",
+        "rules"
+      ]
+    },
+    "DeclarativeTextEncoding": {
+      "type": "string",
+      "enum": [
+        "utf8"
+      ]
+    },
     "DegradationFinding": {
       "type": "object",
       "properties": {
@@ -13936,6 +14182,16 @@
             "capabilities": {
               "$ref": "#/$defs/FilterCapabilities"
             },
+            "declarative": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DeclarativeFilterDefinitionV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "descriptorVersion": {
               "type": "integer",
               "format": "uint32",
@@ -14024,6 +14280,16 @@
           "type": "object",
           "properties": {
             "config": true,
+            "declarative": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DeclarativeQaPackDefinitionV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "definition": true,
             "descriptorVersion": {
               "type": "integer",
@@ -14072,6 +14338,16 @@
               "type": "integer",
               "format": "uint32",
               "minimum": 0
+            },
+            "declarative": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DeclarativePipelineDefinitionV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "descriptorVersion": {
               "type": "integer",
@@ -17018,6 +17294,7 @@
           "$ref": "#/$defs/QaSeverity"
         }
       },
+      "additionalProperties": false,
       "required": [
         "id",
         "label",

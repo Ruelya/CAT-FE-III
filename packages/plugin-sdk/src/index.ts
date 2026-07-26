@@ -7,6 +7,7 @@ export const NORMALIZED_MANIFEST_VERSION = 1;
 export const RUNTIME_DESCRIPTOR_VERSION = 1;
 export const CONTRIBUTION_DESCRIPTOR_VERSION = 1;
 export const PROCESS_PROTOCOL_VERSION = 1;
+export const DECLARATIVE_DEFINITION_VERSION = 1;
 
 export interface FilterCapabilities {
   import: boolean;
@@ -101,6 +102,64 @@ export type PluginRuntimeDescriptor =
 export interface FilterContributionDescriptor extends FilterDescriptor {
   kind: "filter";
   descriptorVersion: 1;
+  declarative?: DeclarativeFilterDefinitionV1;
+}
+
+export interface DeclarativeFilterDefinitionV1 {
+  definitionVersion: 1;
+  encoding: "utf8";
+  probeHeaderPattern?: string;
+  unitPattern: string;
+  limits: {
+    maxSourceBytes: number;
+    maxOutputBytes: number;
+    maxUnits: number;
+    maxUnitBytes: number;
+    maxCaptureBytes: number;
+    probeHeaderBytes: number;
+  };
+}
+
+export type QaField = "source" | "target" | "both";
+export type QaSeverity = "error" | "warning" | "info";
+
+export interface DeclarativeQaRegexRule {
+  id: string;
+  label: string;
+  field: QaField;
+  pattern: string;
+  severity: QaSeverity;
+  message: string;
+  replacementHint?: string;
+}
+
+export interface DeclarativeQaPackDefinitionV1 {
+  definitionVersion: 1;
+  rules: DeclarativeQaRegexRule[];
+}
+
+export type ArtifactKind =
+  "none" | "project" | "document" | "segments" | "qaFindings" | "json";
+
+export type DeclarativePipelineOperation =
+  | { operation: "select"; path: string[] }
+  | { operation: "set"; path: string[]; value: unknown }
+  | { operation: "assert"; path: string[]; equals: unknown }
+  | {
+      operation: "regexReplace";
+      path: string[];
+      pattern: string;
+      replacement: string;
+      maxReplacements: number;
+    };
+
+export interface DeclarativePipelineDefinitionV1 {
+  definitionVersion: 1;
+  input: ArtifactKind;
+  output: ArtifactKind;
+  operations: DeclarativePipelineOperation[];
+  maxInputBytes: number;
+  maxOutputBytes: number;
 }
 
 export interface EngineConnectorContributionDescriptor {
@@ -123,6 +182,7 @@ export interface QaRuleContributionDescriptor {
   ruleType: string;
   severity: string;
   definition: Record<string, unknown>;
+  declarative?: DeclarativeQaPackDefinitionV1;
   config?: Record<string, unknown>;
 }
 
@@ -132,11 +192,12 @@ export interface PipelineStepContributionDescriptor {
   id: string;
   version: string;
   displayName: string;
-  input: Record<string, unknown>;
-  output: Record<string, unknown>;
+  input: unknown;
+  output: unknown;
   configSchemaVersion: number;
   resumable: boolean;
   cancellable: boolean;
+  declarative?: DeclarativePipelineDefinitionV1;
 }
 
 export interface AiActionContributionDescriptor {
@@ -207,6 +268,71 @@ export interface NormalizedPluginManifest {
   requestedPermissions: string[];
   requestedCapabilities: PluginCapabilityRequest[];
   originalManifestJson: Record<string, unknown>;
+}
+
+export function defineDeclarativeFilter(
+  contribution: Omit<
+    FilterContributionDescriptor,
+    "kind" | "descriptorVersion"
+  > & { declarative: DeclarativeFilterDefinitionV1 },
+): FilterContributionDescriptor {
+  return {
+    kind: "filter",
+    descriptorVersion: CONTRIBUTION_DESCRIPTOR_VERSION,
+    ...contribution,
+  };
+}
+
+export function defineDeclarativeQaPack(
+  contribution: Omit<
+    QaRuleContributionDescriptor,
+    "kind" | "descriptorVersion" | "ruleType"
+  > & { declarative: DeclarativeQaPackDefinitionV1 },
+): QaRuleContributionDescriptor {
+  return {
+    kind: "qaRule",
+    descriptorVersion: CONTRIBUTION_DESCRIPTOR_VERSION,
+    ruleType: "regexPack",
+    ...contribution,
+  };
+}
+
+export function defineDeclarativePipelineStep(
+  contribution: Omit<
+    PipelineStepContributionDescriptor,
+    | "kind"
+    | "descriptorVersion"
+    | "input"
+    | "output"
+    | "configSchemaVersion"
+    | "resumable"
+    | "cancellable"
+  > & { declarative: DeclarativePipelineDefinitionV1 },
+): PipelineStepContributionDescriptor {
+  return {
+    kind: "pipelineStep",
+    descriptorVersion: CONTRIBUTION_DESCRIPTOR_VERSION,
+    input: contribution.declarative.input,
+    output: contribution.declarative.output,
+    configSchemaVersion: DECLARATIVE_DEFINITION_VERSION,
+    resumable: false,
+    cancellable: true,
+    ...contribution,
+  };
+}
+
+export function defineDeclarativeManifest(
+  manifest: Omit<PluginManifestV2, "manifestVersion" | "runtime">,
+): PluginManifestV2 {
+  return {
+    manifestVersion: 2,
+    runtime: {
+      tier: "declarative",
+      runtimeVersion: RUNTIME_DESCRIPTOR_VERSION,
+      entry: { kind: "manifest" },
+    },
+    ...manifest,
+  };
 }
 
 export interface PluginCompatibility {
@@ -344,6 +470,9 @@ export function validateNormalizedManifest(
     ) {
       errors.push(`filter ${contribution.id} needs at least one extension`);
     }
+    if (runtime.tier === "declarative") {
+      validateDeclarativeContribution(contribution, errors);
+    }
   }
   for (const permission of manifest.requestedPermissions ?? []) {
     if (!isSupportedPermission(permission)) {
@@ -360,14 +489,27 @@ export function compatibilityForManifest(
   const hostApiSupported =
     HOST_API_VERSION >= manifest.hostApi.min &&
     HOST_API_VERSION <= manifest.hostApi.max;
-  const runtimeSupported = manifest.runtime.tier === "process";
+  const runtimeSupported =
+    manifest.runtime.tier === "process" ||
+    manifest.runtime.tier === "declarative";
+  const contributionSupported = (
+    contribution: PluginContributionDescriptor,
+  ): boolean => {
+    if (manifest.runtime.tier === "process") {
+      return contribution.kind === "filter";
+    }
+    if (manifest.runtime.tier !== "declarative") return false;
+    const errors: string[] = [];
+    validateDeclarativeContribution(contribution, errors);
+    return errors.length === 0;
+  };
   const contributionsSupported = manifest.contributions.every(
-    (contribution) => contribution.kind === "filter",
+    contributionSupported,
   );
   const unsupportedCapabilities = [
     ...(runtimeSupported ? [] : [`runtime.${manifest.runtime.tier}`]),
     ...manifest.contributions
-      .filter((contribution) => contribution.kind !== "filter")
+      .filter((contribution) => !contributionSupported(contribution))
       .map(
         (contribution) =>
           `contribution.${contribution.kind}:${contribution.id}`,
@@ -404,6 +546,199 @@ function isRelativePackagePath(value: string): boolean {
     !value.includes("..") &&
     !/^(?:[A-Za-z]:[\\/]|[\\/])/.test(value)
   );
+}
+
+function validateDeclarativeContribution(
+  contribution: PluginContributionDescriptor,
+  errors: string[],
+): void {
+  if (contribution.kind === "filter") {
+    const definition = contribution.declarative;
+    if (!definition) {
+      errors.push(`declarative filter ${contribution.id} needs a definition`);
+      return;
+    }
+    if (definition.definitionVersion !== DECLARATIVE_DEFINITION_VERSION) {
+      errors.push(
+        `declarative filter ${contribution.id} definitionVersion must be 1`,
+      );
+    }
+    if (!definition.unitPattern.includes("(?<source>")) {
+      errors.push(
+        `declarative filter ${contribution.id} needs a named source capture`,
+      );
+    }
+    validatePattern(definition.unitPattern, "unitPattern", errors);
+    if (definition.probeHeaderPattern !== undefined) {
+      validatePattern(
+        definition.probeHeaderPattern,
+        "probeHeaderPattern",
+        errors,
+      );
+    }
+    const limits = definition.limits;
+    validateIntegerRange(
+      limits.maxSourceBytes,
+      1,
+      64 * 1024 * 1024,
+      "maxSourceBytes",
+      errors,
+    );
+    validateIntegerRange(
+      limits.maxOutputBytes,
+      1,
+      64 * 1024 * 1024,
+      "maxOutputBytes",
+      errors,
+    );
+    validateIntegerRange(limits.maxUnits, 1, 100_000, "maxUnits", errors);
+    validateIntegerRange(
+      limits.maxUnitBytes,
+      1,
+      1024 * 1024,
+      "maxUnitBytes",
+      errors,
+    );
+    validateIntegerRange(
+      limits.maxCaptureBytes,
+      1,
+      4_096,
+      "maxCaptureBytes",
+      errors,
+    );
+    validateIntegerRange(
+      limits.probeHeaderBytes,
+      1,
+      64 * 1024,
+      "probeHeaderBytes",
+      errors,
+    );
+    if (
+      !contribution.capabilities.import ||
+      !contribution.capabilities.validate ||
+      contribution.capabilities.inlineTags ||
+      contribution.capabilities.notes ||
+      contribution.capabilities.degradationReport
+    ) {
+      errors.push(
+        `declarative filter ${contribution.id} has unsupported capabilities`,
+      );
+    }
+    return;
+  }
+  if (contribution.kind === "qaRule") {
+    const definition = contribution.declarative;
+    if (!definition || contribution.ruleType !== "regexPack") {
+      errors.push(
+        `declarative QA contribution ${contribution.id} needs a regexPack definition`,
+      );
+      return;
+    }
+    if (
+      definition.definitionVersion !== DECLARATIVE_DEFINITION_VERSION ||
+      definition.rules.length < 1 ||
+      definition.rules.length > 100
+    ) {
+      errors.push(
+        `declarative QA contribution ${contribution.id} has invalid bounds`,
+      );
+    }
+    const ids = new Set<string>();
+    for (const rule of definition.rules) {
+      if (!/^[A-Za-z0-9._:-]{1,96}$/.test(rule.id) || ids.has(rule.id)) {
+        errors.push(
+          `declarative QA contribution ${contribution.id} has invalid rule ids`,
+        );
+      }
+      ids.add(rule.id);
+      validatePattern(rule.pattern, `QA rule ${rule.id}`, errors);
+    }
+    return;
+  }
+  if (contribution.kind === "pipelineStep") {
+    const definition = contribution.declarative;
+    if (!definition) {
+      errors.push(`declarative pipeline ${contribution.id} needs a definition`);
+      return;
+    }
+    if (
+      definition.definitionVersion !== DECLARATIVE_DEFINITION_VERSION ||
+      definition.input === "none" ||
+      definition.output === "none" ||
+      definition.operations.length < 1 ||
+      definition.operations.length > 128 ||
+      contribution.input !== definition.input ||
+      contribution.output !== definition.output ||
+      contribution.configSchemaVersion !== DECLARATIVE_DEFINITION_VERSION ||
+      contribution.resumable ||
+      !contribution.cancellable
+    ) {
+      errors.push(
+        `declarative pipeline ${contribution.id} has invalid descriptor or bounds`,
+      );
+    }
+    validateIntegerRange(
+      definition.maxInputBytes,
+      1,
+      16 * 1024 * 1024,
+      "maxInputBytes",
+      errors,
+    );
+    validateIntegerRange(
+      definition.maxOutputBytes,
+      1,
+      16 * 1024 * 1024,
+      "maxOutputBytes",
+      errors,
+    );
+    for (const operation of definition.operations) {
+      if (
+        operation.path.length < 1 ||
+        operation.path.length > 32 ||
+        operation.path.some(
+          (segment) => segment.length < 1 || segment.length > 128,
+        )
+      ) {
+        errors.push(
+          `declarative pipeline ${contribution.id} has an invalid path`,
+        );
+      }
+      if (operation.operation === "regexReplace") {
+        validatePattern(operation.pattern, "regexReplace pattern", errors);
+        validateIntegerRange(
+          operation.maxReplacements,
+          1,
+          100_000,
+          "maxReplacements",
+          errors,
+        );
+      }
+    }
+    return;
+  }
+  errors.push(`${contribution.kind} is not executable by the declarative host`);
+}
+
+function validatePattern(
+  pattern: string,
+  label: string,
+  errors: string[],
+): void {
+  if (pattern.length < 1 || new TextEncoder().encode(pattern).length > 4_096) {
+    errors.push(`${label} must contain between 1 and 4096 bytes`);
+  }
+}
+
+function validateIntegerRange(
+  value: number,
+  min: number,
+  max: number,
+  label: string,
+  errors: string[],
+): void {
+  if (!Number.isSafeInteger(value) || value < min || value > max) {
+    errors.push(`${label} must be an integer between ${min} and ${max}`);
+  }
 }
 
 function isContributionAllowed(

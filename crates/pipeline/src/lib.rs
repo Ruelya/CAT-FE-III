@@ -236,6 +236,16 @@ impl StepRegistry {
             .ok_or_else(|| PipelineError::UnknownStep(id.to_string()))
     }
 
+    pub fn unregister(&mut self, id: &str) -> Result<Arc<dyn PipelineStep>, PipelineError> {
+        self.steps
+            .remove(id)
+            .ok_or_else(|| PipelineError::UnknownStep(id.to_string()))
+    }
+
+    pub fn contains(&self, id: &str) -> bool {
+        self.steps.contains_key(id)
+    }
+
     pub fn descriptors(&self) -> Vec<StepDescriptor> {
         self.steps.values().map(|step| step.descriptor()).collect()
     }
@@ -398,6 +408,29 @@ mod tests {
             ]))
             .expect_err("incompatible artifacts");
         assert!(matches!(error, PipelineError::InvalidDefinition(_)));
+    }
+
+    #[test]
+    fn unregister_removes_only_the_requested_step() {
+        let mut registry = StepRegistry::default();
+        registry
+            .register(step("first", ArtifactKind::Json, ArtifactKind::Json))
+            .expect("register first");
+        registry
+            .register(step("second", ArtifactKind::Json, ArtifactKind::Json))
+            .expect("register second");
+        assert!(registry.contains("first"));
+        assert_eq!(
+            registry
+                .unregister("first")
+                .expect("unregister first")
+                .descriptor()
+                .id,
+            "first"
+        );
+        assert!(!registry.contains("first"));
+        assert!(registry.contains("second"));
+        assert!(registry.unregister("first").is_err());
     }
 
     #[test]

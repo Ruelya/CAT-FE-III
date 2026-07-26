@@ -1119,6 +1119,107 @@ test("manages a local process plugin through Project Insights with the real Engi
   }
 });
 
+test("manages a manifest-only Tier 1 toolkit through the real Electron lifecycle", async ({
+  browserName,
+}) => {
+  expect(browserName).toBe("chromium");
+  test.setTimeout(120_000);
+  const workspaceRoot = resolve(process.cwd(), "..", "..");
+  const pluginSource = join(
+    workspaceRoot,
+    "examples",
+    "plugins",
+    "tier1-toolkit",
+  );
+  const harness = await launchHarness("plugin-tier1", { pluginSource });
+  const { page, consoleErrors } = harness;
+  const attachedContributions = () =>
+    page.evaluate(async () => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      const [filters, steps, plugin] = await Promise.all([
+        api.invoke("filter.list", {}),
+        api.invoke("pipeline.step.list", {}),
+        api.invoke("plugin.get", { pluginId: "example.tier1-toolkit" }),
+      ]);
+      return {
+        filter: filters.filters.some(
+          (filter) => filter.id === "example.tier1.lines",
+        ),
+        pipeline: steps.steps.some(
+          (step) => step.id === "example.tier1.normalize",
+        ),
+        qa:
+          plugin.contributions?.some(
+            (contribution) =>
+              contribution.kind === "qaRule" &&
+              contribution.id === "example.tier1.qa",
+          ) ?? false,
+      };
+    });
+
+  try {
+    await importFixture(page);
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "Project insights" }).click();
+    await page.getByRole("tab", { name: "Plugins" }).click();
+    const panel = page.locator(".plugins-panel");
+    await panel.getByRole("button", { name: "Install package…" }).click();
+    await grantInstalledPluginPermissions(page);
+
+    let pluginRow = panel.locator(".plugins-panel__item", {
+      hasText: "Tier 1 Toolkit",
+    });
+    await expect(pluginRow.locator('[data-status="installed"]')).toHaveText(
+      "installed",
+    );
+    await expect(pluginRow).toContainText("declarative");
+    await pluginRow.getByRole("button", { name: "Enable" }).click();
+    await expect(pluginRow.locator('[data-status="enabled"]')).toHaveText(
+      "enabled",
+    );
+    await expect.poll(attachedContributions).toEqual({
+      filter: true,
+      pipeline: true,
+      qa: true,
+    });
+
+    await page.evaluate("window.translunar.restartEngine()");
+    await page.reload();
+    await expect(
+      page.getByRole("region", { name: "Translation segments" }),
+    ).toBeVisible();
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "Project insights" }).click();
+    await page.getByRole("tab", { name: "Plugins" }).click();
+    pluginRow = page.locator(".plugins-panel__item", {
+      hasText: "Tier 1 Toolkit",
+    });
+    await expect(pluginRow.locator('[data-status="enabled"]')).toHaveText(
+      "enabled",
+    );
+    await expect.poll(attachedContributions).toEqual({
+      filter: true,
+      pipeline: true,
+      qa: true,
+    });
+
+    await pluginRow.getByRole("button", { name: "Disable" }).click();
+    await expect(pluginRow.locator('[data-status="disabled"]')).toHaveText(
+      "disabled",
+    );
+    await expect.poll(attachedContributions).toEqual({
+      filter: false,
+      pipeline: false,
+      qa: true,
+    });
+    await pluginRow.getByRole("button", { name: "Uninstall" }).click();
+    await expect(panel.locator(".plugins-panel__item")).toHaveCount(0);
+    expect(consoleErrors).toEqual([]);
+  } finally {
+    await closeHarness(harness);
+  }
+});
+
 test("isolates a crashed process plugin and shows its durable degraded state", async ({
   browserName,
 }, testInfo) => {

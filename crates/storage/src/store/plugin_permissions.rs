@@ -639,6 +639,21 @@ impl Store {
         &mut self,
         check: &PluginCapabilityCheck,
     ) -> Result<PluginCapabilityAuthorization> {
+        self.authorize_plugin_capability_inner(check, false)
+    }
+
+    pub fn authorize_plugin_registration(
+        &mut self,
+        check: &PluginCapabilityCheck,
+    ) -> Result<PluginCapabilityAuthorization> {
+        self.authorize_plugin_capability_inner(check, true)
+    }
+
+    fn authorize_plugin_capability_inner(
+        &mut self,
+        check: &PluginCapabilityCheck,
+        registration_preflight: bool,
+    ) -> Result<PluginCapabilityAuthorization> {
         let normalized_scope = match check.scope.normalized() {
             Ok(scope) => scope,
             Err(_) => {
@@ -662,8 +677,11 @@ impl Store {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?;
-        let active_and_enabled = active.as_ref().is_some_and(|(version_id, status)| {
-            version_id.as_deref() == Some(check.version_id.as_str()) && status == "enabled"
+        let active_and_authorized = active.as_ref().is_some_and(|(version_id, status)| {
+            version_id.as_deref() == Some(check.version_id.as_str())
+                && (status == "enabled"
+                    || (registration_preflight
+                        && matches!(status.as_str(), "installed" | "disabled")))
         });
         let query = format!(
             "SELECT {REQUEST_COLUMNS} FROM plugin_capability_requests
@@ -685,7 +703,7 @@ impl Store {
             .collect::<std::result::Result<Vec<_>, _>>()?;
         drop(statement);
 
-        let allowed = if active_and_enabled {
+        let allowed = if active_and_authorized {
             candidates.iter().find(|record| {
                 record.decision == PluginCapabilityDecision::Granted
                     && record
@@ -719,7 +737,7 @@ impl Store {
             return Ok(PluginCapabilityAuthorization::Allowed(Box::new(record)));
         }
 
-        let (code, request_id, request_revision) = if !active_and_enabled {
+        let (code, request_id, request_revision) = if !active_and_authorized {
             (PluginCapabilityDenialCode::Revoked, None, None)
         } else if candidates.is_empty() {
             (PluginCapabilityDenialCode::NotRequested, None, None)

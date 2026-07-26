@@ -43,6 +43,37 @@ struct DurablePluginCapabilityAuthorizer {
     store: Mutex<Store>,
 }
 
+impl DurablePluginCapabilityAuthorizer {
+    fn authorize_with_mode(
+        &self,
+        check: &PluginCapabilityCheck,
+        registration_preflight: bool,
+    ) -> std::result::Result<(), Box<PluginCapabilityDenial>> {
+        let mut store = self
+            .store
+            .lock()
+            .map_err(|_| Box::new(service_denial(check)))?;
+        let authorization = if registration_preflight {
+            store.authorize_plugin_registration(check)
+        } else {
+            store.authorize_plugin_capability(check)
+        };
+        match authorization {
+            Ok(PluginCapabilityAuthorization::Allowed(_)) => Ok(()),
+            Ok(PluginCapabilityAuthorization::Denied(denial)) => Err(Box::new(denial)),
+            Err(error) => {
+                tracing::error!(
+                    plugin_id = %check.plugin_id,
+                    capability_id = %check.capability_id,
+                    error = %error,
+                    "plugin capability authorization failed closed"
+                );
+                Err(Box::new(service_denial(check)))
+            }
+        }
+    }
+}
+
 impl std::fmt::Debug for DurablePluginCapabilityAuthorizer {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -56,23 +87,14 @@ impl PluginCapabilityAuthorizer for DurablePluginCapabilityAuthorizer {
         &self,
         check: &PluginCapabilityCheck,
     ) -> std::result::Result<(), Box<PluginCapabilityDenial>> {
-        let mut store = self
-            .store
-            .lock()
-            .map_err(|_| Box::new(service_denial(check)))?;
-        match store.authorize_plugin_capability(check) {
-            Ok(PluginCapabilityAuthorization::Allowed(_)) => Ok(()),
-            Ok(PluginCapabilityAuthorization::Denied(denial)) => Err(Box::new(denial)),
-            Err(error) => {
-                tracing::error!(
-                    plugin_id = %check.plugin_id,
-                    capability_id = %check.capability_id,
-                    error = %error,
-                    "plugin capability authorization failed closed"
-                );
-                Err(Box::new(service_denial(check)))
-            }
-        }
+        self.authorize_with_mode(check, false)
+    }
+
+    fn authorize_registration(
+        &self,
+        check: &PluginCapabilityCheck,
+    ) -> std::result::Result<(), Box<PluginCapabilityDenial>> {
+        self.authorize_with_mode(check, true)
     }
 }
 

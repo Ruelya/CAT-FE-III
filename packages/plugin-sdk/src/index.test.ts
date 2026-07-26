@@ -11,16 +11,29 @@ import { describe, expect, it } from "vitest";
 import {
   HOST_API_VERSION,
   capabilityScopeContains,
+  compatibilityForManifest,
+  defineDeclarativeFilter,
+  defineDeclarativeManifest,
+  defineDeclarativePipelineStep,
+  defineDeclarativeQaPack,
   normalizeCapabilityRequests,
   normalizeManifest,
   validateManifest,
+  validateNormalizedManifest,
   type PluginCapabilityRequest,
   type PluginManifest,
+  type PluginManifestV2,
 } from "./index.js";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const workspaceRoot = resolve(packageRoot, "..", "..");
 const exampleRoot = resolve(workspaceRoot, "examples", "plugins", "hello-srt");
+const tier1ExampleRoot = resolve(
+  workspaceRoot,
+  "examples",
+  "plugins",
+  "tier1-toolkit",
+);
 
 const base: PluginManifest = {
   manifestVersion: 1,
@@ -269,6 +282,130 @@ describe("plugin capability vocabulary", () => {
         capabilities: [{ ...optional, capabilityId: "future capability" }],
       }).join(" "),
     ).toContain("capability id is empty, oversized, or malformed");
+  });
+});
+
+describe("Tier 1 declarative SDK", () => {
+  it("validates the official manifest-only toolkit as executable", async () => {
+    const manifest = JSON.parse(
+      await readFile(resolve(tier1ExampleRoot, "manifest.json"), "utf8"),
+    ) as PluginManifestV2;
+    const normalized = normalizeManifest(manifest);
+    expect(validateNormalizedManifest(normalized)).toEqual([]);
+    expect(compatibilityForManifest(normalized)).toMatchObject({
+      compatible: true,
+      runtimeSupported: true,
+      contributionsSupported: true,
+    });
+    await expect(
+      readFile(resolve(tier1ExampleRoot, "sample.catlines"), "utf8"),
+    ).resolves.toContain("CAT1");
+  });
+
+  it("builds exact typed filter, QA, pipeline, and manifest descriptors", () => {
+    const filter = defineDeclarativeFilter({
+      id: "example.filter",
+      version: "1.0.0",
+      displayName: "Example filter",
+      extensions: ["example"],
+      capabilities: {
+        import: true,
+        export: true,
+        validate: true,
+        inlineTags: false,
+        notes: false,
+        degradationReport: false,
+      },
+      declarative: {
+        definitionVersion: 1,
+        encoding: "utf8",
+        unitPattern: "(?<source>.+)",
+        limits: {
+          maxSourceBytes: 1024,
+          maxOutputBytes: 1024,
+          maxUnits: 10,
+          maxUnitBytes: 256,
+          maxCaptureBytes: 64,
+          probeHeaderBytes: 64,
+        },
+      },
+    });
+    const qa = defineDeclarativeQaPack({
+      id: "example.qa",
+      version: "1.0.0",
+      displayName: "Example QA",
+      severity: "warning",
+      definition: {},
+      declarative: {
+        definitionVersion: 1,
+        rules: [
+          {
+            id: "placeholder",
+            label: "Placeholder",
+            field: "target",
+            pattern: "TODO",
+            severity: "warning",
+            message: "Placeholder remains.",
+          },
+        ],
+      },
+    });
+    const pipeline = defineDeclarativePipelineStep({
+      id: "example.pipeline",
+      version: "1.0.0",
+      displayName: "Example pipeline",
+      declarative: {
+        definitionVersion: 1,
+        input: "json",
+        output: "json",
+        operations: [{ operation: "set", path: ["status"], value: "ready" }],
+        maxInputBytes: 1024,
+        maxOutputBytes: 1024,
+      },
+    });
+    const manifest = defineDeclarativeManifest({
+      id: "example.toolkit",
+      displayName: "Example toolkit",
+      version: "1.0.0",
+      hostApi: { min: 1, max: 1 },
+      contributions: [filter, qa, pipeline],
+      permissions: [],
+      capabilities: [],
+    });
+    expect(validateNormalizedManifest(normalizeManifest(manifest))).toEqual([]);
+    expect(pipeline).toMatchObject({
+      input: "json",
+      output: "json",
+      configSchemaVersion: 1,
+      resumable: false,
+      cancellable: true,
+    });
+  });
+
+  it("keeps untyped declarative inventory incompatible", () => {
+    const manifest = defineDeclarativeManifest({
+      id: "example.inventory",
+      displayName: "Inventory only",
+      version: "1.0.0",
+      hostApi: { min: 1, max: 1 },
+      contributions: [
+        {
+          kind: "filter",
+          descriptorVersion: 1,
+          id: "example.inventory.filter",
+          version: "1.0.0",
+          displayName: "Inventory filter",
+          extensions: ["inventory"],
+          capabilities: baseFilter.capabilities,
+        },
+      ],
+      permissions: [],
+    });
+    const normalized = normalizeManifest(manifest);
+    expect(validateNormalizedManifest(normalized).join(" ")).toContain(
+      "needs a definition",
+    );
+    expect(compatibilityForManifest(normalized).compatible).toBe(false);
   });
 });
 

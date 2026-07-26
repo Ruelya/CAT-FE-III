@@ -164,6 +164,7 @@ export type ArtifactKind = "none" | "project" | "document" | "segments" | "qaFin
 export type PluginContributionDescriptor =
   | {
       capabilities: FilterCapabilities;
+      declarative?: DeclarativeFilterDefinitionV1 | null;
       descriptorVersion: number;
       displayName: string;
       extensions: string[];
@@ -183,6 +184,7 @@ export type PluginContributionDescriptor =
     }
   | {
       config?: unknown;
+      declarative?: DeclarativeQaPackDefinitionV1 | null;
       definition: unknown;
       descriptorVersion: number;
       displayName: string;
@@ -195,6 +197,7 @@ export type PluginContributionDescriptor =
   | {
       cancellable: boolean;
       configSchemaVersion: number;
+      declarative?: DeclarativePipelineDefinitionV1 | null;
       descriptorVersion: number;
       displayName: string;
       id: string;
@@ -235,6 +238,30 @@ export type PluginContributionDescriptor =
       kind: "externalConnector";
       transports: string[];
       version: string;
+    };
+export type DeclarativeTextEncoding = "utf8";
+export type QaField = "source" | "target" | "both";
+export type DeclarativePipelineOperation =
+  | {
+      operation: "select";
+      path: string[];
+    }
+  | {
+      operation: "set";
+      path: string[];
+      value: unknown;
+    }
+  | {
+      equals: unknown;
+      operation: "assert";
+      path: string[];
+    }
+  | {
+      maxReplacements: number;
+      operation: "regexReplace";
+      path: string[];
+      pattern: string;
+      replacement: string;
     };
 export type PluginDiagnosticSeverity = "info" | "warning" | "error";
 export type PluginRuntimeDescriptor =
@@ -332,7 +359,6 @@ export type QaCategory =
   | "custom";
 export type QaIssueDisposition = "open" | "waived" | "resolved";
 export type QaOverrideStatus = "pending" | "succeeded" | "failed";
-export type QaField = "source" | "target" | "both";
 export type QaReportFormat = "html" | "xlsx";
 export type ReviewStatus = "pending" | "accepted" | "rejected";
 export type ChineseConversionProfile =
@@ -3584,6 +3610,42 @@ export interface PluginCompatibility {
   runtimeSupported: boolean;
   unsupportedCapabilities?: string[];
 }
+export interface DeclarativeFilterDefinitionV1 {
+  definitionVersion: number;
+  encoding: DeclarativeTextEncoding;
+  limits: DeclarativeFilterLimits;
+  probeHeaderPattern?: string | null;
+  unitPattern: string;
+}
+export interface DeclarativeFilterLimits {
+  maxCaptureBytes: number;
+  maxOutputBytes: number;
+  maxSourceBytes: number;
+  maxUnitBytes: number;
+  maxUnits: number;
+  probeHeaderBytes: number;
+}
+export interface DeclarativeQaPackDefinitionV1 {
+  definitionVersion: number;
+  rules: QaRegexRule[];
+}
+export interface QaRegexRule {
+  field: QaField;
+  id: string;
+  label: string;
+  message: string;
+  pattern: string;
+  replacementHint?: string | null;
+  severity: QaSeverity;
+}
+export interface DeclarativePipelineDefinitionV1 {
+  definitionVersion: number;
+  input: ArtifactKind;
+  maxInputBytes: number;
+  maxOutputBytes: number;
+  operations: DeclarativePipelineOperation[];
+  output: ArtifactKind;
+}
 export interface PluginDiagnostic {
   code: string;
   message: string;
@@ -4575,16 +4637,6 @@ export interface QaProfileDefinition {
   severityOverrides?: {
     [k: string]: QaSeverity;
   };
-  [k: string]: unknown;
-}
-export interface QaRegexRule {
-  field: QaField;
-  id: string;
-  label: string;
-  message: string;
-  pattern: string;
-  replacementHint?: string | null;
-  severity: QaSeverity;
   [k: string]: unknown;
 }
 export interface QaRuleSettings {

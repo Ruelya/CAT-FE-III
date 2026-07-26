@@ -228,8 +228,25 @@ impl Store {
         document_id: Option<&str>,
         requested_profile_id: Option<&str>,
     ) -> Result<QaRun> {
+        self.run_qa_with_rules(project_id, document_id, requested_profile_id, &[])
+    }
+
+    pub fn run_qa_with_rules(
+        &mut self,
+        project_id: &str,
+        document_id: Option<&str>,
+        requested_profile_id: Option<&str>,
+        additional_rules: &[translunar_qa_core::QaRegexRule],
+    ) -> Result<QaRun> {
         let project = self.get_project(project_id)?.project;
-        let profile = self.resolve_qa_profile(project_id, requested_profile_id)?;
+        let mut profile = self.resolve_qa_profile(project_id, requested_profile_id)?;
+        for rule in additional_rules {
+            profile
+                .definition
+                .enabled_rule_ids
+                .insert(format!("qa.regex:{}", rule.id));
+            profile.definition.regex_rules.push(rule.clone());
+        }
         let compiled = CompiledQaProfile::compile(profile.definition.clone())
             .map_err(|error| StorageError::InvalidState(error.to_string()))?;
         let profile_json = serde_json::to_string(&profile.definition)?;
@@ -727,7 +744,18 @@ impl Store {
         document_id: &str,
         profile_id: Option<&str>,
     ) -> Result<QaGateResult> {
-        let run = self.run_qa(project_id, Some(document_id), profile_id)?;
+        self.check_qa_gate_with_rules(project_id, document_id, profile_id, &[])
+    }
+
+    pub fn check_qa_gate_with_rules(
+        &mut self,
+        project_id: &str,
+        document_id: &str,
+        profile_id: Option<&str>,
+        additional_rules: &[translunar_qa_core::QaRegexRule],
+    ) -> Result<QaGateResult> {
+        let run =
+            self.run_qa_with_rules(project_id, Some(document_id), profile_id, additional_rules)?;
         let blocker_issue_ids = self
             .connection
             .prepare(
