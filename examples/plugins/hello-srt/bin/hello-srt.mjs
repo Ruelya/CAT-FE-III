@@ -85,7 +85,11 @@ async function dispatch(method, params) {
     case "filter.import":
       return importSrt(params.sourcePath);
     case "filter.export":
-      return exportSrt(params.sourcePath, params.outputPath, params.segments ?? []);
+      return exportSrt(
+        params.sourcePath,
+        params.outputPath,
+        params.segments ?? [],
+      );
     case "filter.validate": {
       const events = importSrt(params.sourcePath);
       return { valid: events.length > 0, findings: [] };
@@ -129,7 +133,10 @@ function importSrt(sourcePath) {
     if (/^\d+$/.test(lines[0] ?? "")) index = 1;
     const timing = lines[index] ?? "";
     if (!timing.includes("-->")) continue;
-    const body = lines.slice(index + 1).join("\n").trim();
+    const body = lines
+      .slice(index + 1)
+      .join("\n")
+      .trim();
     if (!body) continue;
     events.push({
       type: "startUnit",
@@ -161,7 +168,10 @@ function exportSrt(sourcePath, outputPath, segments) {
     .map((block) => block.trim())
     .filter(Boolean);
   const targets = new Map(
-    segments.map((segment) => [Number(segment.ordinal), segment.targetText ?? ""]),
+    segments.map((segment) => [
+      Number(segment.ordinal),
+      segment.targetText ?? "",
+    ]),
   );
   const outBlocks = [];
   let cueIndex = 0;

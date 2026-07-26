@@ -76,7 +76,9 @@ describe("shell-error localization mapping", () => {
       t,
       "error.backupFailed",
     );
-    expect(localized).toBe(formatMessage("zh-CN", "shellError.insufficientSpace"));
+    expect(localized).toBe(
+      formatMessage("zh-CN", "shellError.insufficientSpace"),
+    );
     // The raw English detail is never surfaced.
     expect(localized).not.toContain("disk space");
   });

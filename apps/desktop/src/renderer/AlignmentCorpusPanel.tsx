@@ -1951,7 +1951,9 @@ function CorpusWorkflow({
                   </code>
                   <details>
                     <summary>{t("common.provenance")}</summary>
-                    <code>{formatCorpusProvenance(hit.entry.provenance, t)}</code>
+                    <code>
+                      {formatCorpusProvenance(hit.entry.provenance, t)}
+                    </code>
                   </details>
                 </footer>
               </article>

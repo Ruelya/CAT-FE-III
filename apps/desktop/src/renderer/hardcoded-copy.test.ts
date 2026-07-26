@@ -95,9 +95,7 @@ function findHardCodedCopy(sourceText: string, fileName: string): string[] {
     } else if (ts.isJsxAttribute(node)) {
       const attribute = stringAttributeValue(node);
       if (attribute && !looksTechnical(attribute.value)) {
-        offenders.push(
-          `${fileName}: ${attribute.name}="${attribute.value}"`,
-        );
+        offenders.push(`${fileName}: ${attribute.name}="${attribute.value}"`);
       }
     }
     ts.forEachChild(node, visit);

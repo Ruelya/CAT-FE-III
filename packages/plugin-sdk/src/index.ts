@@ -34,7 +34,14 @@ export interface PluginManifest {
 }
 
 export type PluginFilterEvent =
-  | { type: "startDocument"; metadata: { format: string; sourceLocale?: string; properties?: Record<string, string> } }
+  | {
+      type: "startDocument";
+      metadata: {
+        format: string;
+        sourceLocale?: string;
+        properties?: Record<string, string>;
+      };
+    }
   | { type: "startUnit"; ordinal: number; structuralPath: string }
   | { type: "text"; text: string }
   | { type: "targetText"; text: string }
@@ -120,7 +127,8 @@ export function validateManifest(manifest: PluginManifest): string[] {
   const errors: string[] = [];
   if (manifest.manifestVersion !== 1) errors.push("manifestVersion must be 1");
   if (!manifest.id?.trim()) errors.push("id is required");
-  if (manifest.id?.startsWith("builtin.")) errors.push("id must not use builtin. prefix");
+  if (manifest.id?.startsWith("builtin."))
+    errors.push("id must not use builtin. prefix");
   if (!manifest.contributions?.filters?.length) {
     errors.push("at least one filter contribution is required");
   }

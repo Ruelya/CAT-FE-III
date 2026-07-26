@@ -405,7 +405,9 @@ test("Engine crash recovery: kill, bounded reconnect, projection reload, draft r
 
     // Requirement 4: the mounted DraftRecoveryDialog opens after reconnect.
     await expect(draftDialog).toBeVisible({ timeout: 10_000 });
-    await expect(draftDialog.getByText("Draft text before crash")).toBeVisible();
+    await expect(
+      draftDialog.getByText("Draft text before crash"),
+    ).toBeVisible();
 
     // Requirement 5: a non-stale restore applies through segment.updateTarget
     // with the expected revision, clears the journal, refreshes the workspace,
@@ -496,7 +498,9 @@ test("Engine crash recovery: kill, bounded reconnect, projection reload, draft r
 
     // Requirement 6: copy returns the draft text for review (read through
     // Electron main's clipboard, not renderer navigator permissions).
-    await draftDialog.getByRole("button", { name: /^(Copy text|复制文本)$/ }).click();
+    await draftDialog
+      .getByRole("button", { name: /^(Copy text|复制文本)$/ })
+      .click();
     await expectPoll(async () => {
       const text = await readMainClipboard(application);
       if (text !== "Seeded stale draft") {
@@ -506,9 +510,7 @@ test("Engine crash recovery: kill, bounded reconnect, projection reload, draft r
 
     // Requirement 6: discard removes only that journal record and preserves the
     // authoritative Engine text.
-    await draftDialog
-      .getByRole("button", { name: /^(Discard|丢弃)$/ })
-      .click();
+    await draftDialog.getByRole("button", { name: /^(Discard|丢弃)$/ }).click();
     await expect(draftDialog.getByText("Seeded stale draft")).toHaveCount(0, {
       timeout: 5_000,
     });
@@ -519,9 +521,9 @@ test("Engine crash recovery: kill, bounded reconnect, projection reload, draft r
       }
     });
     const finalEngine = await listSegments(page, documentId);
-    expect(
-      finalEngine.find((item) => item.id === firstId)?.targetText,
-    ).toBe("Authoritative text wins");
+    expect(finalEngine.find((item) => item.id === firstId)?.targetText).toBe(
+      "Authoritative text wins",
+    );
 
     // Requirement 3 + 6: the still-mounted editor shows the authoritative text
     // (not the discarded stale draft and not the pre-crash value). This proves

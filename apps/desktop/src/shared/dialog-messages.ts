@@ -143,7 +143,5 @@ export function dialogFilterName(
   key: DialogFilterKey,
 ): string {
   const normalized = normalizeDialogLocale(locale);
-  return (
-    filterCatalogs[normalized][key] ?? filterCatalogs["en-US"][key] ?? key
-  );
+  return filterCatalogs[normalized][key] ?? filterCatalogs["en-US"][key] ?? key;
 }

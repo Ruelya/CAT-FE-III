@@ -1832,12 +1832,16 @@ async function main() {
   }
 }
 
-
-
 async function exerciseFocusedCollabSmoke(processHandle) {
-  const fixtureDirectory = mkdtempSync(join(tmpdir(), "translunar-collab-smoke-"));
+  const fixtureDirectory = mkdtempSync(
+    join(tmpdir(), "translunar-collab-smoke-"),
+  );
   const sourcePath = join(fixtureDirectory, "sample.txt");
-  writeFileSync(sourcePath, ["Hello collab.", "", "Second."].join(String.fromCharCode(10)), "utf8");
+  writeFileSync(
+    sourcePath,
+    ["Hello collab.", "", "Second."].join(String.fromCharCode(10)),
+    "utf8",
+  );
   const project = await processHandle.call("project.create", {
     name: "Collab smoke",
     sourceLocale: "en-US",
@@ -1867,7 +1871,9 @@ async function exerciseFocusedCollabSmoke(processHandle) {
     role: "member",
     actingActor: "alice",
   });
-  const members = await processHandle.call("collab.member.list", { projectId: project.id });
+  const members = await processHandle.call("collab.member.list", {
+    projectId: project.id,
+  });
   assert(members.items.length >= 2, "members");
   const lock = await processHandle.call("collab.lock.acquire", {
     projectId: project.id,
@@ -1895,8 +1901,13 @@ async function exerciseFocusedCollabSmoke(processHandle) {
     documentId: imported.document.id,
     segmentId: segments.items[0].id,
   });
-  const presence = await processHandle.call("collab.presence.list", { projectId: project.id });
-  assert(presence.items.some((item) => item.actorId === "alice"), "presence");
+  const presence = await processHandle.call("collab.presence.list", {
+    projectId: project.id,
+  });
+  assert(
+    presence.items.some((item) => item.actorId === "alice"),
+    "presence",
+  );
   const assignment = await processHandle.call("collab.assignment.create", {
     projectId: project.id,
     documentId: imported.document.id,
@@ -1923,7 +1934,9 @@ async function exerciseFocusedCollabSmoke(processHandle) {
 }
 
 async function exerciseFocusedAiQualitySmoke(processHandle) {
-  const fixtureDirectory = mkdtempSync(join(tmpdir(), "translunar-ai-quality-smoke-"));
+  const fixtureDirectory = mkdtempSync(
+    join(tmpdir(), "translunar-ai-quality-smoke-"),
+  );
   const sourcePath = join(fixtureDirectory, "sample.txt");
   const sourceBody = [
     "Replace the actuator housing now.",
@@ -1972,7 +1985,9 @@ async function exerciseFocusedAiQualitySmoke(processHandle) {
     documentId: imported.document.id,
   });
   assert(
-    semantic.findings.some((item) => item.code === "semantic.source_equals_target"),
+    semantic.findings.some(
+      (item) => item.code === "semantic.source_equals_target",
+    ),
     "semantic equal finding",
   );
   const terms = await processHandle.call("ai.quality.extractTerms", {
@@ -1994,15 +2009,14 @@ async function exerciseFocusedApiCliSmoke(dataDirectory) {
     process.platform === "win32" ? "translunar.exe" : "translunar",
   );
   assert(existsSync(cli), `missing translunar CLI at ${cli}`);
-  const fixtureDirectory = mkdtempSync(join(tmpdir(), "translunar-api-cli-smoke-"));
+  const fixtureDirectory = mkdtempSync(
+    join(tmpdir(), "translunar-api-cli-smoke-"),
+  );
   const sourcePath = join(fixtureDirectory, "sample.txt");
   const outputPath = join(fixtureDirectory, "out.txt");
-  const sourceBody = [
-    "Hello API CLI smoke.",
-    "",
-    "Second unit.",
-    "",
-  ].join(String.fromCharCode(10));
+  const sourceBody = ["Hello API CLI smoke.", "", "Second unit.", ""].join(
+    String.fromCharCode(10),
+  );
   writeFileSync(sourcePath, sourceBody, "utf8");
 
   const run = spawnSync(
@@ -2046,7 +2060,10 @@ async function exerciseFocusedApiCliSmoke(dataDirectory) {
       },
     },
   );
-  assert(token.status === 0, `token ensure failed: ${token.stderr || token.stdout}`);
+  assert(
+    token.status === 0,
+    `token ensure failed: ${token.stderr || token.stdout}`,
+  );
   const tokenJson = JSON.parse(token.stdout);
   assert(tokenJson.token, "token present");
 }
@@ -2054,7 +2071,9 @@ async function exerciseFocusedApiCliSmoke(dataDirectory) {
 async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
   const root = resolve(import.meta.dirname, "..");
   const pluginSource = join(root, "examples", "plugins", "hello-srt");
-  const fixtureDirectory = mkdtempSync(join(tmpdir(), "translunar-plugin-smoke-"));
+  const fixtureDirectory = mkdtempSync(
+    join(tmpdir(), "translunar-plugin-smoke-"),
+  );
   const sourcePath = join(fixtureDirectory, "sample.srt");
   const srtBody = [
     "1",
@@ -2103,7 +2122,10 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
   });
   assert(imported.document.segmentCount >= 2, "imported srt cues");
 
-  const listed = await processHandle.call("plugin.list", { offset: 0, limit: 20 });
+  const listed = await processHandle.call("plugin.list", {
+    offset: 0,
+    limit: 20,
+  });
   assert(listed.total >= 1, "plugin list total");
 
   const disabled = await processHandle.call("plugin.disable", {
@@ -2123,7 +2145,10 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
     actor: "smoke",
     reason: "uninstall hello-srt",
   });
-  const after = await processHandle.call("plugin.list", { offset: 0, limit: 20 });
+  const after = await processHandle.call("plugin.list", {
+    offset: 0,
+    limit: 20,
+  });
   assert(
     !after.items.some((item) => item.id === "example.hello-srt"),
     "plugin uninstalled",

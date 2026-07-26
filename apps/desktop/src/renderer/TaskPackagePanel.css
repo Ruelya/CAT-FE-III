@@ -376,7 +376,8 @@
 }
 
 .task-package-row[data-disposition="tagInvalid"] .task-package-disposition,
-.task-package-row[data-disposition="missingDependency"] .task-package-disposition {
+.task-package-row[data-disposition="missingDependency"]
+  .task-package-disposition {
   color: var(--error);
 }
 

@@ -5,7 +5,8 @@ function validateManifest(manifest) {
   const errors = [];
   if (manifest.manifestVersion !== 1) errors.push("manifestVersion must be 1");
   if (!manifest.id?.trim()) errors.push("id is required");
-  if (manifest.id?.startsWith("builtin.")) errors.push("id must not use builtin. prefix");
+  if (manifest.id?.startsWith("builtin."))
+    errors.push("id must not use builtin. prefix");
   if (!manifest.contributions?.filters?.length) {
     errors.push("at least one filter contribution is required");
   }

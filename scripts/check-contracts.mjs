@@ -22,7 +22,8 @@ const committedTypes = join(
   "protocol.generated.ts",
 );
 const pnpm = process.platform === "win32" ? "cmd.exe" : "pnpm";
-const pnpmPrefix = process.platform === "win32" ? ["/d", "/s", "/c", "pnpm.cmd"] : [];
+const pnpmPrefix =
+  process.platform === "win32" ? ["/d", "/s", "/c", "pnpm.cmd"] : [];
 
 try {
   run("cargo", [

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { HOST_API_VERSION, validateManifest, type PluginManifest } from "./index.js";
+import {
+  HOST_API_VERSION,
+  validateManifest,
+  type PluginManifest,
+} from "./index.js";
 
 const base: PluginManifest = {
   manifestVersion: 1,

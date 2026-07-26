@@ -12,7 +12,9 @@ import {
   type Page,
 } from "playwright";
 
-export const DESKTOP_APP_PATH = fileURLToPath(new URL("../../", import.meta.url));
+export const DESKTOP_APP_PATH = fileURLToPath(
+  new URL("../../", import.meta.url),
+);
 export const WORKSPACE_ROOT = resolve(DESKTOP_APP_PATH, "..", "..");
 
 export const VIEWPORTS = [
@@ -175,10 +177,7 @@ export async function resizeWindow(
  * shared visual stylesheet is owned by a separate task; contrast remains a
  * manual acceptance check in `docs/accessibility-matrix.md`.
  */
-export async function runScopedAxe(
-  page: Page,
-  include: string,
-): Promise<void> {
+export async function runScopedAxe(page: Page, include: string): Promise<void> {
   const results = await new AxeBuilder({ page })
     .setLegacyMode(true)
     .include(include)
