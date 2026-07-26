@@ -234,8 +234,9 @@ Get-ChildItem -Recurse -File apps/desktop/src/renderer -Include *.woff2 | Measur
       complete; no claim is made that the inherited native/manual lanes ran.
 - [x] Update stale task/spec evidence only when it records a verified executable
       contract; do not turn aspirational visual choices into coding specs.
-- [ ] Commit this task separately, finish it, and archive it immediately after the
-      quality gate. Do not leave a completed visual task in the active task list.
+- [x] Commit this task separately (`fb566cd`), finish it, and archive it
+      immediately after the quality gate. Do not leave a completed visual task
+      in the active task list.
 
 ## Final handoff checklist
 
