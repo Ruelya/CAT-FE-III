@@ -47,6 +47,14 @@ pnpm bootstrap   # frozen install + Rust engine build + desktop build
 pnpm dev:desktop # Vite/tsc watches + Electron
 ```
 
+The main-process E2E delay seam uses three process-only environment keys:
+
+| Key | Value |
+| --- | --- |
+| `TRANSLUNAR_TEST_ENGINE_DELAY_METHODS` | Comma-separated generated Engine method names |
+| `TRANSLUNAR_TEST_ENGINE_DELAY_MS` | Requested delay in milliseconds; runtime-capped at 10,000 |
+| `TRANSLUNAR_TEST_ENGINE_DELAY_LIMIT` | Maximum number of matching invocations to delay |
+
 ## 3. Contracts
 
 - BrowserWindow uses `contextIsolation: true`, `nodeIntegration: false`, and
@@ -96,6 +104,12 @@ pnpm dev:desktop # Vite/tsc watches + Electron
   `project.update`. When it is false, a translation-to-signed command opens an
   actor/reason dialog and sends both through `segment.workflow.set`; closing or
   failing that dialog must not imply a successful sign-off.
+- Loading-state E2E may use the three `TRANSLUNAR_TEST_ENGINE_DELAY_*` keys to
+  pause selected calls immediately before the real `Engine.call`. The seam
+  never replaces IPC, changes request/response payloads, adds a renderer API,
+  or bypasses the stdio Engine. A matching call consumes one delay from the
+  process-local limit; absent, non-finite, non-positive, exhausted, or
+  non-matching configuration adds no delay.
 
 ## 4. Validation & Error Matrix
 
@@ -113,6 +127,8 @@ pnpm dev:desktop # Vite/tsc watches + Electron
 | Navigation encounters a pending-save failure      | Stay in Workbench and show the typed save error                 |
 | Stored panel preference is missing or invalid     | Use docked/docked, 200px, and follow-active defaults            |
 | A panel enters `collapsed`                         | Hide it from AT/tab order, animate it out, then focus expand     |
+| Test delay is absent, invalid, or exhausted        | Invoke the real Engine immediately                              |
+| Test delay exceeds 10,000 ms                       | Delay at most 10,000 ms, then invoke the real Engine            |
 
 ## 5. Good / Base / Bad Cases
 
@@ -133,6 +149,11 @@ pnpm dev:desktop # Vite/tsc watches + Electron
   and accessible state become discontinuous.
 - Bad: exact CSS string checks such as `width === "48px"`; Windows DPI can
   return `47.9911px`. Assert a numeric tolerance or geometry boundary.
+- Good: delay only `tm.lookupExact` for one bounded invocation, observe the
+  runtime loading region, then assert the settled real Engine projection.
+- Base: omit all delay keys and preserve normal production timing.
+- Bad: mock `DesktopApi.invoke` or return synthetic Engine data merely to keep
+  a loading screenshot stable.
 
 ## 6. Tests Required
 
@@ -161,8 +182,33 @@ pnpm dev:desktop # Vite/tsc watches + Electron
 - The E2E harness may set `TRANSLUNAR_ENGINE_PATH` to a synchronized test
   binary; the default path remains the workspace debug engine. This override
   must not add a renderer API or bypass the real stdio process.
+- Tests using the Engine delay seam must name generated methods, set a finite
+  positive delay and limit, assert the runtime loading state before settlement,
+  and still assert the final real Engine result. At least one test must verify
+  that the configured limit is bounded to the intended invocation count.
 
 ## 7. Wrong vs Correct
+
+### Deterministic runtime loading evidence
+
+#### Wrong
+
+```typescript
+await page.addInitScript(() => {
+  window.translunar.invoke = async () => ({ items: [] });
+});
+```
+
+#### Correct
+
+```typescript
+env: {
+  TRANSLUNAR_TEST_ENGINE_DELAY_METHODS: "tm.lookupExact",
+  TRANSLUNAR_TEST_ENGINE_DELAY_MS: "6000",
+  TRANSLUNAR_TEST_ENGINE_DELAY_LIMIT: "1",
+}
+// The test observes loading, then awaits the real Engine-backed result.
+```
 
 ### Electron startup and asset loading
 

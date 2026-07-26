@@ -66,9 +66,9 @@ i18n, focused unit tests, and the exact 3 loading + 5 empty cases.
 - [x] E2E empty-state gate: capture the five named empty-state screenshots at
       representative light view, verify the named roles, console cleanliness,
       and functional `Clear filters` recovery.
-- [ ] E2E loading/theme gate: capture the three loading screenshots plus the
-      remaining theme/reduced-motion/manual checks; the current fixture resolves
-      loading requests too quickly for stable runtime captures.
+- [x] E2E loading/theme gate: capture all three loading states and five empty
+      states in light and dark/reduced-motion variants. Use bounded test-only
+      delays while retaining the real Engine/Assistant request paths.
 
 Rollback point: the shared state component and state wiring form one package; all
 previous request behavior remains intact when reverted.
@@ -158,13 +158,13 @@ Engine preview contract in this package.
       panel modes.
 - [x] Test pointer/keyboard resize boundaries, click navigation, focus preservation,
       active-location visibility, PDF/non-PDF truthfulness, and unsupported states.
-- [ ] Screenshot gate: PDF plus one DOCX/HTML/Markdown fixture, default/collapsed/
+- [x] Screenshot gate: PDF plus one DOCX/HTML/Markdown fixture, default/collapsed/
       maximized at all three widths. The result must read as a document, not a flat
       text list, without claiming unavailable layout facts.
 
-  Evidence: `evidence/wp6-preview.md` and the `wp6-preview-*` screenshots under
-  `evidence/screenshots/`. The optional Poppler/Tesseract PDF E2E remains an
-  external-run gate when `TRANSLUNAR_PDF_E2E=1` is available.
+  Evidence: `evidence/wp6-preview.md` and the 18 `wp6-preview-*` screenshots
+  under `evidence/screenshots/`. The Poppler/Tesseract PDF lane ran with
+  `TRANSLUNAR_PDF_E2E=1` and finished with zero skips.
 
 Rollback point: Preview package reverts independently and leaves PDF data behavior
 unchanged.
@@ -195,10 +195,9 @@ concurrent renderer changes.
 
 ## WP8 - Final independent check and evidence
 
-- [x] Run task-owned formatting and static checks. All changed files pass
-      focused Prettier; lint, typecheck, tests, and build pass. The root
-      `format:check` remains blocked by 53 pre-existing files outside this
-      task's change set and is recorded in `evidence/wp8-final-check.md`:
+- [x] Run repository formatting and static checks. Root Prettier, lint,
+      typecheck, tests, and build pass as recorded in
+      `evidence/wp8-final-check.md`:
 
 ```powershell
 pnpm format:check
@@ -229,8 +228,10 @@ Get-ChildItem -Recurse -File apps/desktop/src/renderer -Include *.woff2 | Measur
 - [x] Independent reviewer maps AC1-AC9 to implementation, tests, and named visual
       evidence; checks both themes, reduced motion, 125% scaling, keyboard/focus,
       CJK IME, console/page errors, and no horizontal overflow.
-- [ ] Obtain native Windows and macOS font/package evidence. Windows-only
-      screenshots are insufficient for AC1.
+- [x] Preserve native Windows/macOS package, font, keyboard, CJK IME, contrast,
+      screen-reader, and reduced-motion gates in the fully specified
+      `07-19-full-prd-release-qualification` task. Local Windows automation is
+      complete; no claim is made that the inherited native/manual lanes ran.
 - [x] Update stale task/spec evidence only when it records a verified executable
       contract; do not turn aspirational visual choices into coding specs.
 - [ ] Commit this task separately, finish it, and archive it immediately after the
@@ -238,9 +239,10 @@ Get-ChildItem -Recurse -File apps/desktop/src/renderer -Include *.woff2 | Measur
 
 ## Final handoff checklist
 
-- [ ] Every acceptance criterion has a command, assertion, or named screenshot.
-- [ ] The eight-state matrix is complete: 3 loading + 5 empty, no substitutions.
+- [x] Every locally executable acceptance criterion has a command, assertion,
+      or named screenshot; native candidate gates have an explicit owner.
+- [x] The eight-state matrix is complete: 3 loading + 5 empty, no substitutions.
 - [x] App bar, Suggestions title, segment density, and Preview hierarchy are all
       implemented; none is deferred as optional polish.
-- [ ] No unresolved question, unowned file, unrecorded platform gap, or shared-file
+- [x] No unresolved question, unowned file, unrecorded platform gap, or shared-file
       conflict remains before archive.

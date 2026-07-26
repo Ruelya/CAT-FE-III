@@ -41,19 +41,23 @@ fake page label, keyboard navigation to a real editor row, mounted
 collapsed/inert state, no horizontal overflow, and clean renderer console at
 1250x744, 1680x942, and 1920x1080.
 
-The existing `apps/desktop/tests/e2e/pdf-workbench.spec.ts` remains the real
-PDF/OCR qualification test. It is intentionally skipped unless the host
-provides Poppler/Tesseract (`TRANSLUNAR_PDF_E2E=1`); this Windows lane did not
-have those optional tools, so no local claim is made for the PDF screenshot
-gate.
+The PDF lane ran against Poppler 26.02.0 and Tesseract on this Windows host with
+`TRANSLUNAR_PDF_E2E=1`. It creates the current project through the production
+setup flow, waits for a decoded real page image after every resize/mode change,
+checks loading-state geometry against the status bar, exercises OCR correction
+and the export-review override flow, and finishes with a clean console.
 
 ## Visual evidence
 
-| Fixture / viewport | Screenshot |
+| Fixture / mode | Viewports and screenshots |
 | --- | --- |
-| DOCX ordered flow, 1250x744 | `screenshots/wp6-preview-nonpdf-1250x744.png` |
-| DOCX ordered flow, 1680x942 | `screenshots/wp6-preview-nonpdf-1680x942.png` |
-| DOCX ordered flow, 1920x1080 | `screenshots/wp6-preview-nonpdf-1920x1080.png` |
+| DOCX ordered flow / default | `screenshots/wp6-preview-nonpdf-{1250x744,1680x942,1920x1080}.png` |
+| DOCX ordered flow / collapsed | `screenshots/wp6-preview-nonpdf-collapsed-{1250x744,1680x942,1920x1080}.png` |
+| DOCX ordered flow / maximized | `screenshots/wp6-preview-nonpdf-maximized-{1250x744,1680x942,1920x1080}.png` |
+| Scanned PDF / default | `screenshots/wp6-preview-pdf-default-{1250x744,1680x942,1920x1080}.png` |
+| Scanned PDF / collapsed | `screenshots/wp6-preview-pdf-collapsed-{1250x744,1680x942,1920x1080}.png` |
+| Scanned PDF / maximized | `screenshots/wp6-preview-pdf-maximized-{1250x744,1680x942,1920x1080}.png` |
 
-PDF screenshots remain owned by the optional `pdf-workbench.spec.ts` run and
-must be attached before AC6/AC9 are marked fully complete.
+The durable matrix contains 18 nonblank screenshots. The PDF loading label is
+kept below the page skeleton and above the status bar; bounding-box assertions
+guard that geometry at runtime.

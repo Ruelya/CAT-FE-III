@@ -405,6 +405,18 @@ function createWindow(): void {
 }
 
 function registerIpc(): void {
+  const testEngineDelayMs = Number(
+    process.env.TRANSLUNAR_TEST_ENGINE_DELAY_MS ?? "0",
+  );
+  const testEngineDelayMethods = new Set(
+    (process.env.TRANSLUNAR_TEST_ENGINE_DELAY_METHODS ?? "")
+      .split(",")
+      .map((method) => method.trim())
+      .filter(Boolean),
+  );
+  let remainingTestEngineDelays = Number(
+    process.env.TRANSLUNAR_TEST_ENGINE_DELAY_LIMIT ?? "0",
+  );
   ipcMain.handle(
     IPC_CHANNELS.invoke,
     async (event: IpcMainInvokeEvent, method: unknown, params: unknown) => {
@@ -413,6 +425,17 @@ function registerIpc(): void {
         throw new Error("Unsupported engine method.");
       const activeEngine = requireEngine();
       try {
+        if (
+          Number.isFinite(testEngineDelayMs) &&
+          testEngineDelayMs > 0 &&
+          remainingTestEngineDelays > 0 &&
+          testEngineDelayMethods.has(method)
+        ) {
+          remainingTestEngineDelays -= 1;
+          await new Promise<void>((resolveDelay) => {
+            setTimeout(resolveDelay, Math.min(testEngineDelayMs, 10_000));
+          });
+        }
         const result = await activeEngine.call(
           method,
           params as EngineParams<typeof method>,
@@ -507,10 +530,7 @@ function registerIpc(): void {
       }
       const locale = await currentDialogLocale();
       const result = await dialog.showSaveDialog(requireWindow(), {
-        title: dialogTitle(
-          locale,
-          "dialog.selectProjectArchiveDestination",
-        ),
+        title: dialogTitle(locale, "dialog.selectProjectArchiveDestination"),
         defaultPath: join(app.getPath("documents"), safeName),
         filters: [
           {

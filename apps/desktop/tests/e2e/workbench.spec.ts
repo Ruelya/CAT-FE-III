@@ -23,7 +23,11 @@ import {
 } from "@playwright/test";
 import { errors as playwrightErrors } from "playwright";
 import AxeBuilder from "@axe-core/playwright";
-import type { Project, ProjectTemplate } from "@translunar/contracts";
+import type {
+  EngineMethod,
+  Project,
+  ProjectTemplate,
+} from "@translunar/contracts";
 
 import type { DesktopApi } from "../../src/shared/desktop-api.js";
 
@@ -53,6 +57,11 @@ interface HarnessOptions {
   taskPackageInput?: string;
   taskPackageDestination?: string;
   locale?: "en-US" | "zh-CN";
+  engineDelay?: {
+    methods: EngineMethod[];
+    milliseconds: number;
+    limit: number;
+  };
 }
 
 async function launchHarness(
@@ -134,6 +143,18 @@ async function launchHarness(
           : {}),
         TRANSLUNAR_AI_TEST_MODE: "1",
         TRANSLUNAR_AI_TEST_CREDENTIAL: "desktop-ai-secret",
+        ...(options.engineDelay
+          ? {
+              TRANSLUNAR_TEST_ENGINE_DELAY_METHODS:
+                options.engineDelay.methods.join(","),
+              TRANSLUNAR_TEST_ENGINE_DELAY_MS: String(
+                options.engineDelay.milliseconds,
+              ),
+              TRANSLUNAR_TEST_ENGINE_DELAY_LIMIT: String(
+                options.engineDelay.limit,
+              ),
+            }
+          : {}),
       },
     });
     const page = await application.firstWindow();
@@ -260,6 +281,132 @@ async function resizeWindow(
 
 async function waitForPanelMotion(page: Page): Promise<void> {
   await page.waitForTimeout(270);
+}
+
+async function setWorkbenchTheme(
+  page: Page,
+  theme: "light" | "dark",
+): Promise<void> {
+  await page.locator(".segment-row.active textarea").focus();
+  await page.keyboard.press("Control+,");
+  const preferences = page.getByRole("dialog", {
+    name: "Editor preferences",
+  });
+  await expect(preferences).toBeVisible();
+  await preferences.locator(".preference-controls select").selectOption(theme);
+  await expect(page.locator(".workbench-app")).toHaveClass(
+    new RegExp(`theme-${theme}`, "u"),
+  );
+  await preferences
+    .getByRole("button", { name: "Close editor preferences" })
+    .click();
+}
+
+async function measureContrast(
+  page: Page,
+  foregroundSelector: string,
+  backgroundSelector: string,
+): Promise<number> {
+  return page.evaluate(
+    ({ foregroundSelectorValue, backgroundSelectorValue }) => {
+      interface RgbaColor {
+        red: number;
+        green: number;
+        blue: number;
+        alpha: number;
+      }
+      const parseColor = (value: string): RgbaColor => {
+        const normalizedValue = value.trim();
+        if (
+          !normalizedValue.startsWith("rgb") &&
+          !normalizedValue.startsWith("color(srgb ")
+        ) {
+          throw new Error(`Unsupported computed color space: ${value}`);
+        }
+        const channels = value.match(/[\d.]+/gu)?.map(Number);
+        if (!channels || channels.length < 3) {
+          throw new Error(`Cannot parse computed color: ${value}`);
+        }
+        const channelScale = normalizedValue.startsWith("color(srgb ")
+          ? 255
+          : 1;
+        return {
+          red: (channels[0] ?? 0) * channelScale,
+          green: (channels[1] ?? 0) * channelScale,
+          blue: (channels[2] ?? 0) * channelScale,
+          alpha: channels[3] ?? 1,
+        };
+      };
+      const luminance = (color: RgbaColor) => {
+        const linear = [color.red, color.green, color.blue].map((channel) => {
+          const normalized = channel / 255;
+          return normalized <= 0.04045
+            ? normalized / 12.92
+            : ((normalized + 0.055) / 1.055) ** 2.4;
+        });
+        return (
+          0.2126 * (linear[0] ?? 0) +
+          0.7152 * (linear[1] ?? 0) +
+          0.0722 * (linear[2] ?? 0)
+        );
+      };
+      const foreground = document.querySelector<HTMLElement>(
+        foregroundSelectorValue,
+      );
+      const background = document.querySelector<HTMLElement>(
+        backgroundSelectorValue,
+      );
+      if (!foreground || !background) {
+        throw new Error(
+          `Contrast evidence target is missing: ${foregroundSelectorValue}`,
+        );
+      }
+      const foregroundColor = parseColor(getComputedStyle(foreground).color);
+      const backgroundColor = parseColor(
+        getComputedStyle(background).backgroundColor,
+      );
+      const compositedForeground = {
+        red:
+          foregroundColor.red * foregroundColor.alpha +
+          backgroundColor.red * (1 - foregroundColor.alpha),
+        green:
+          foregroundColor.green * foregroundColor.alpha +
+          backgroundColor.green * (1 - foregroundColor.alpha),
+        blue:
+          foregroundColor.blue * foregroundColor.alpha +
+          backgroundColor.blue * (1 - foregroundColor.alpha),
+        alpha: 1,
+      };
+      const lighter = Math.max(
+        luminance(compositedForeground),
+        luminance(backgroundColor),
+      );
+      const darker = Math.min(
+        luminance(compositedForeground),
+        luminance(backgroundColor),
+      );
+      return (lighter + 0.05) / (darker + 0.05);
+    },
+    {
+      foregroundSelectorValue: foregroundSelector,
+      backgroundSelectorValue: backgroundSelector,
+    },
+  );
+}
+
+async function expectMinimumFontSize(
+  locator: Locator,
+  minimumPixels: number,
+): Promise<void> {
+  const fontSizes = await locator.evaluateAll((elements) =>
+    elements.map((element) =>
+      Number.parseFloat(getComputedStyle(element).fontSize),
+    ),
+  );
+  expect(fontSizes.length).toBeGreaterThan(0);
+  for (const fontSize of fontSizes) {
+    expect(fontSize).toBeGreaterThanOrEqual(minimumPixels);
+  }
 }
 
 async function openApplicationMenu(page: Page): Promise<void> {
@@ -557,7 +704,7 @@ interface AlignmentFixturePayload {
   targetSegments: Array<{ id: string }>;
 }
 
-async function startAiFixture(): Promise<AiFixture> {
+async function startAiFixture(firstChunkDelayMs = 0): Promise<AiFixture> {
   let requestCount = 0;
   const server: Server = createServer((request, response) => {
     requestCount += 1;
@@ -603,12 +750,19 @@ async function startAiFixture(): Promise<AiFixture> {
         "data: [DONE]",
         "",
       ].join("\n\n");
-      response.writeHead(200, {
-        "content-type": "text/event-stream",
-        "content-length": Buffer.byteLength(events),
-        connection: "close",
-      });
-      response.end(events);
+      const finishResponse = () => {
+        response.writeHead(200, {
+          "content-type": "text/event-stream",
+          "content-length": Buffer.byteLength(events),
+          connection: "close",
+        });
+        response.end(events);
+      };
+      if (firstChunkDelayMs > 0) {
+        setTimeout(finishResponse, firstChunkDelayMs);
+      } else {
+        finishResponse();
+      }
     });
   });
   await new Promise<void>((resolvePromise, rejectPromise) => {
@@ -1328,9 +1482,19 @@ test("manages the offline Assistant and real workspace projections", async () =>
 });
 
 test("configures BYOK AI, streams a grounded run, applies its diff, and reports usage", async () => {
-  const fixture = await startAiFixture();
+  const fixture = await startAiFixture(6_000);
   const harness = await launchHarness("live-ai");
   const { application, page, consoleErrors } = harness;
+  const evidenceDirectory = resolve(
+    process.cwd(),
+    "..",
+    "..",
+    ".trellis",
+    "tasks",
+    "07-21-workbench-visual-identity",
+    "evidence",
+    "screenshots",
+  );
 
   try {
     await importFixture(page);
@@ -1406,11 +1570,92 @@ test("configures BYOK AI, streams a grounded run, applies its diff, and reports 
     await expect(page.getByLabel("Requested model")).toContainText(
       "Desktop fixture",
     );
+    mkdirSync(evidenceDirectory, { recursive: true });
+    await resizeWindow(application, 1250, 744);
     await page.getByRole("button", { name: /Translate/u }).click();
+    const assistantLoading = page.getByRole("status", {
+      name: "Waiting for the first Assistant response…",
+    });
+    await expect(assistantLoading).toBeVisible();
     await expect(page.locator(".grounding-inspector")).toBeVisible();
+    const [groundingBox, transcriptBox, composerBox] = await Promise.all([
+      page.locator(".grounding-inspector").boundingBox(),
+      page.locator(".assistant-transcript").boundingBox(),
+      page.locator(".assistant-composer").boundingBox(),
+    ]);
+    expect(groundingBox).not.toBeNull();
+    expect(transcriptBox).not.toBeNull();
+    expect(composerBox).not.toBeNull();
+    expect(
+      (groundingBox?.y ?? 0) + (groundingBox?.height ?? 0),
+    ).toBeLessThanOrEqual((transcriptBox?.y ?? 0) + 1);
+    expect(
+      (transcriptBox?.y ?? 0) + (transcriptBox?.height ?? 0),
+    ).toBeLessThanOrEqual((composerBox?.y ?? 0) + 1);
+    await expectMinimumFontSize(
+      page.locator(
+        ".grounding-inspector summary, .grounding-sections header strong, " +
+          ".grounding-sections header small, .grounding-sections pre, " +
+          ".stream-controls button",
+      ),
+      11,
+    );
+    await page.screenshot({
+      path: join(evidenceDirectory, "wp2-loading-assistant-1250x744-light.png"),
+    });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await setWorkbenchTheme(page, "dark");
+    await expect(assistantLoading).toBeVisible();
+    await expect(
+      assistantLoading.locator(".state-skeleton-assistant i").first(),
+    ).toHaveCSS("animation-name", "none");
+    expect(
+      await measureContrast(
+        page,
+        ".streaming-message .assistant-message-role",
+        ".streaming-message",
+      ),
+    ).toBeGreaterThanOrEqual(4.5);
+    expect(
+      await measureContrast(
+        page,
+        ".streaming-message .workbench-state-label",
+        ".streaming-message",
+      ),
+    ).toBeGreaterThanOrEqual(4.5);
+    await page.screenshot({
+      path: join(
+        evidenceDirectory,
+        "wp2-loading-assistant-1250x744-dark-reduced.png",
+      ),
+    });
+    await setWorkbenchTheme(page, "light");
+    await page.emulateMedia({ reducedMotion: "no-preference" });
     await expect(page.locator(".ai-diff-proposal")).toBeVisible({
       timeout: 15_000,
     });
+    const [settledTranscriptBox, diffBox, settledComposerBox] =
+      await Promise.all([
+        page.locator(".assistant-transcript").boundingBox(),
+        page.locator(".ai-diff-proposal").boundingBox(),
+        page.locator(".assistant-composer").boundingBox(),
+      ]);
+    expect(settledTranscriptBox).not.toBeNull();
+    expect(diffBox).not.toBeNull();
+    expect(settledComposerBox).not.toBeNull();
+    expect(
+      (settledTranscriptBox?.y ?? 0) + (settledTranscriptBox?.height ?? 0),
+    ).toBeLessThanOrEqual((diffBox?.y ?? 0) + 1);
+    expect((diffBox?.y ?? 0) + (diffBox?.height ?? 0)).toBeLessThanOrEqual(
+      (settledComposerBox?.y ?? 0) + 1,
+    );
+    await expectMinimumFontSize(
+      page.locator(
+        ".ai-diff-proposal header span, .ai-diff-proposal header strong, " +
+          ".ai-diff-proposal button",
+      ),
+      11,
+    );
     await expect(page.locator(".assistant-metric")).toHaveCount(7);
     for (const viewport of [
       { width: 1250, height: 744, label: "1250x744" },
@@ -3427,7 +3672,13 @@ test("exposes the five named Workbench empty states with a real grid recovery ac
   browserName,
 }) => {
   expect(browserName).toBe("chromium");
-  const harness = await launchHarness("visual-states-empty");
+  const harness = await launchHarness("visual-states-empty", {
+    engineDelay: {
+      methods: ["tm.lookupExact"],
+      milliseconds: 8_000,
+      limit: 10,
+    },
+  });
   const { application, page, consoleErrors } = harness;
   const evidenceDirectory = resolve(
     process.cwd(),
@@ -3448,6 +3699,21 @@ test("exposes the five named Workbench empty states with a real grid recovery ac
   try {
     await importFixture(page);
     await resizeWindow(application, 1250, 744);
+
+    const tmLoading = page.getByRole("status", {
+      name: "Checking exact TM matches…",
+    });
+    await expect(tmLoading).toBeVisible();
+    await capture("wp2-loading-tm-match-1250x744-light");
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await setWorkbenchTheme(page, "dark");
+    await expect(tmLoading).toBeVisible();
+    await expect(
+      tmLoading.locator(".state-skeleton-lines i").first(),
+    ).toHaveCSS("animation-name", "none");
+    await capture("wp2-loading-tm-match-1250x744-dark-reduced");
+    await setWorkbenchTheme(page, "light");
+    await page.emulateMedia({ reducedMotion: "no-preference" });
 
     await expect(
       page.getByRole("region", {
@@ -3492,6 +3758,44 @@ test("exposes the five named Workbench empty states with a real grid recovery ac
     await gridEmpty.getByRole("button", { name: "Clear filters" }).click();
     await expect(documentSearch).toHaveValue("");
     await expect(page.locator(".segment-row").first()).toBeVisible();
+
+    await resizeWindow(application, 1250, 744);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await setWorkbenchTheme(page, "dark");
+    await page.getByRole("tab", { name: /^Matches/u }).click();
+    await expect(
+      page.getByRole("region", {
+        name: "No exact TM match for this segment.",
+      }),
+    ).toBeVisible();
+    await capture("wp2-empty-no-tm-match-1250x744-dark-reduced");
+
+    await page.getByRole("tab", { name: /^Terms/u }).click();
+    await expect(
+      page.getByRole("region", { name: "No term hit in this segment." }),
+    ).toBeVisible();
+    await capture("wp2-empty-no-term-hit-1250x744-dark-reduced");
+
+    await page.getByRole("tab", { name: /^QA/u }).click();
+    await expect(
+      page.getByRole("region", { name: "No open QA issue." }),
+    ).toBeVisible();
+    await capture("wp2-empty-no-open-qa-1250x744-dark-reduced");
+
+    await page.getByRole("tab", { name: /Assistant/u }).click();
+    await page.locator(".conversation-trigger").click();
+    await expect(conversationPopover).toBeVisible();
+    await conversationPopover.locator(".conversation-new").click();
+    await expect(
+      page.getByRole("region", { name: "No Assistant conversation yet." }),
+    ).toBeVisible();
+    await capture("wp2-empty-no-assistant-conversation-1250x744-dark-reduced");
+
+    await resizeWindow(application, 1680, 942);
+    await documentSearch.fill("__wp2_no_segment_result_dark__");
+    await expect(gridEmpty).toBeVisible();
+    await capture("wp2-empty-grid-filters-1680x942-dark-reduced");
+    await gridEmpty.getByRole("button", { name: "Clear filters" }).click();
 
     expect(consoleErrors).toEqual([]);
   } finally {
@@ -4215,6 +4519,28 @@ test("keeps non-PDF Preview truthful, mounted, and navigable", async ({
           `wp6-preview-nonpdf-${viewport.label}.png`,
         ),
       });
+      await page.getByRole("button", { name: "Collapse preview" }).click();
+      await waitForPanelMotion(page);
+      await expect(preview).toHaveAttribute("data-preview-mode", "collapsed");
+      await page.screenshot({
+        path: join(
+          evidenceDirectory,
+          `wp6-preview-nonpdf-collapsed-${viewport.label}.png`,
+        ),
+      });
+      await page.getByRole("button", { name: "Open preview" }).click();
+      await waitForPanelMotion(page);
+      await page.getByRole("button", { name: "Maximize preview" }).click();
+      await waitForPanelMotion(page);
+      await expect(preview).toHaveAttribute("data-preview-mode", "maximized");
+      await page.screenshot({
+        path: join(
+          evidenceDirectory,
+          `wp6-preview-nonpdf-maximized-${viewport.label}.png`,
+        ),
+      });
+      await page.getByRole("button", { name: "Restore preview" }).click();
+      await waitForPanelMotion(page);
     }
     expect(consoleErrors).toEqual([]);
   } finally {
@@ -4240,30 +4566,12 @@ test("applies the workbench visual polish in light and dark themes", async ({
     "screenshots",
   );
 
-  const setTheme = async (theme: "light" | "dark") => {
-    await page.locator(".segment-row textarea").first().focus();
-    await page.keyboard.press("Control+,");
-    const preferences = page.getByRole("dialog", {
-      name: "Editor preferences",
-    });
-    await expect(preferences).toBeVisible();
-    await preferences
-      .locator(".preference-controls select")
-      .selectOption(theme);
-    await expect(page.locator(".workbench-app")).toHaveClass(
-      new RegExp(`theme-${theme}`, "u"),
-    );
-    await preferences
-      .getByRole("button", { name: "Close editor preferences" })
-      .click();
-  };
-
   try {
     await importFixture(page);
     mkdirSync(evidenceDirectory, { recursive: true });
 
     for (const theme of ["light", "dark"] as const) {
-      await setTheme(theme);
+      await setWorkbenchTheme(page, theme);
       const appBackground = await page
         .locator(".workbench-app")
         .evaluate((element) => getComputedStyle(element).backgroundImage);
@@ -4390,7 +4698,7 @@ test("applies the workbench visual polish in light and dark themes", async ({
       }
     }
 
-    await setTheme("light");
+    await setWorkbenchTheme(page, "light");
     const firstRow = page.locator(".segment-row").first();
     const firstTarget = firstRow.locator("textarea");
     const paintEvidence = await page.evaluate(() => {

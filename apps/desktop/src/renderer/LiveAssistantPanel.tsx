@@ -601,36 +601,38 @@ export function LiveAssistantPanel({
         ))}
       </div>
 
-      {selectedModel !== "local-preview" && grounding ? (
-        <details
-          className="grounding-inspector"
-          open={showGrounding}
-          onToggle={(event) => setShowGrounding(event.currentTarget.open)}
-        >
-          <summary>
-            <Eye size={13} /> {t("assistant.groundingContext")}{" "}
-            <span>
-              {grounding.totalChars.toLocaleString()}{" "}
-              {t("assistant.characters")} · {grounding.sections.length}{" "}
-              {t("assistant.sections")}
-            </span>
-          </summary>
-          <div className="grounding-sections">
-            {grounding.sections.map((section) => (
-              <article key={section.id}>
-                <header>
-                  <strong>{section.label}</strong>
-                  <small>
-                    {section.itemCount} items
-                    {section.truncated ? " · truncated" : ""}
-                  </small>
-                </header>
-                <pre>{section.text}</pre>
-              </article>
-            ))}
-          </div>
-        </details>
-      ) : null}
+      <div className="assistant-grounding-slot">
+        {selectedModel !== "local-preview" && grounding ? (
+          <details
+            className="grounding-inspector"
+            open={showGrounding}
+            onToggle={(event) => setShowGrounding(event.currentTarget.open)}
+          >
+            <summary>
+              <Eye size={13} /> {t("assistant.groundingContext")}{" "}
+              <span>
+                {grounding.totalChars.toLocaleString()}{" "}
+                {t("assistant.characters")} · {grounding.sections.length}{" "}
+                {t("assistant.sections")}
+              </span>
+            </summary>
+            <div className="grounding-sections">
+              {grounding.sections.map((section) => (
+                <article key={section.id}>
+                  <header>
+                    <strong>{section.label}</strong>
+                    <small>
+                      {section.itemCount} items
+                      {section.truncated ? " · truncated" : ""}
+                    </small>
+                  </header>
+                  <pre>{section.text}</pre>
+                </article>
+              ))}
+            </div>
+          </details>
+        ) : null}
+      </div>
 
       <div className="assistant-transcript">
         {messages.length ? (
@@ -716,38 +718,44 @@ export function LiveAssistantPanel({
         ) : null}
       </div>
 
-      {run?.status === "succeeded" && run.proposalText ? (
-        <DiffProposal
-          source={activeSegment?.targetText ?? ""}
-          target={run.proposalText}
-          onApply={() => void apply()}
-          onDiscard={() => setRun(null)}
-          disabled={busy}
-        />
-      ) : null}
-      {run &&
-      (run.status === "failed" ||
-        run.status === "interrupted" ||
-        run.status === "canceled") ? (
-        <div className="run-recovery">
-          <AlertCircle size={14} />
-          <span>
-            {run.errorMessage ??
-              t("assistant.runStatus", { status: run.status })}
-          </span>
-          {run.status !== "canceled" ? (
-            <button type="button" disabled={busy} onClick={() => void resume()}>
-              <RotateCcw size={13} />
-              {t("action.retry")}
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-      {error ? (
-        <div className="assistant-error" role="alert">
-          {error}
-        </div>
-      ) : null}
+      <div className="assistant-run-status">
+        {run?.status === "succeeded" && run.proposalText ? (
+          <DiffProposal
+            source={activeSegment?.targetText ?? ""}
+            target={run.proposalText}
+            onApply={() => void apply()}
+            onDiscard={() => setRun(null)}
+            disabled={busy}
+          />
+        ) : null}
+        {run &&
+        (run.status === "failed" ||
+          run.status === "interrupted" ||
+          run.status === "canceled") ? (
+          <div className="run-recovery">
+            <AlertCircle size={14} />
+            <span>
+              {run.errorMessage ??
+                t("assistant.runStatus", { status: run.status })}
+            </span>
+            {run.status !== "canceled" ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void resume()}
+              >
+                <RotateCcw size={13} />
+                {t("action.retry")}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {error ? (
+          <div className="assistant-error" role="alert">
+            {error}
+          </div>
+        ) : null}
+      </div>
 
       <div className="assistant-composer">
         <textarea

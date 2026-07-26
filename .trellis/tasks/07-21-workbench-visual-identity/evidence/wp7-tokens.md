@@ -17,6 +17,9 @@ renderer.
   the spacing scale where the value represents layout spacing.
 - Raised task-owned Workbench metadata to an 11px floor. Source and target
   content remain 14px or larger and no type was reduced to avoid wrapping.
+- Included the online Assistant grounding inspector, stream/recovery controls,
+  diff header/actions, and error state in that floor. The real AI E2E reads the
+  covered computed font sizes and requires every value to be at least 11px.
 
 Off-scale values retained in those groups are control geometry, border width,
 the Suggestions cut-terminal dimensions, scrollbar geometry, optical
@@ -47,8 +50,8 @@ audit and are not presented as migrated.
 
 The focused E2E verifies 125% editor density and IME behavior, panel geometry,
 truthful Preview navigation and mounted/inert collapse behavior, light/dark
-contrast, reduced motion, focus treatment, clean renderer logs, and supported
-viewport boundaries.
+contrast (including Assistant cards), reduced motion, focus treatment, clean
+renderer logs, and supported viewport boundaries.
 
 ## Visual evidence
 
