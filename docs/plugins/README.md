@@ -1,6 +1,6 @@
 # Plugin SDK
 
-Translunar CAT exposes a versioned local plugin contract with two currently
+Translunar CAT exposes a versioned local plugin contract with three currently
 executable runtime tiers:
 
 - **Tier 1 declarative** packages contain only a manifest. The Rust host
@@ -8,9 +8,13 @@ executable runtime tiers:
   pipeline transforms. No plugin code or child process is loaded.
 - **Tier 3 process** packages use newline-framed JSON-RPC over stdio for
   process-isolated document filters.
+- **Tier 2 sandbox** packages run JavaScript ES modules in an Engine-owned
+  QuickJS runtime and may expose isolated desktop panel documents. They never
+  run through Node or the Tier 3 process host.
 
-Tier 2 sandboxed JavaScript and the remaining connector, AI action, and UI
-panel hosts are separate runtime surfaces and are not implied by Tier 1.
+Engine connector, QA/pipeline adapter, AI action placement, and external
+connector hosts remain separate contribution surfaces; their descriptors do
+not imply executable support in Tier 2.
 
 ## Package layouts
 
@@ -23,11 +27,76 @@ my-toolkit/
 my-filter/
   manifest.json
   bin/entry.mjs
+
+# Tier 2: sandboxed logic and panel
+my-sandbox-toolkit/
+  manifest.json
+  entry.mjs
+  lib/helper.mjs
+  panel/index.html
+  panel/panel.mjs
+  panel/panel.css
 ```
 
 See `examples/plugins/tier1-toolkit` for a complete Tier 1 filter, QA pack,
 and pipeline transform. See `examples/plugins/hello-srt` for the Tier 3 SRT
 filter built with `@translunar/plugin-sdk`.
+
+See `examples/plugins/sandbox-toolkit` for the official Tier 2 package. It uses
+only public SDK types, a relative module, a deterministic invocation, and a
+static panel.
+
+## Tier 2 contract
+
+The SDK exports `defineSandboxManifest`, `SandboxPluginV1`, lifecycle,
+invocation/result, safe error, host-call, panel message, and limit contracts.
+The selected entry export is `default` unless `exportName` is set. It must be
+an object with `invoke`; optional `activate` and `deactivate` hooks may return a
+promise. All values crossing the runtime boundary are finite JSON values.
+Functions, symbols, BigInt, cycles, accessors, custom prototypes, native
+handles, and values deeper than 16 levels are rejected.
+
+Sandbox modules must use explicit relative `.js` or `.mjs` specifiers. Bare
+packages, URLs, absolute/drive/UNC paths, traversal, extension inference,
+directory indexes, links/reparse points, and files outside the immutable
+active package are rejected on validation and again on load.
+
+The fixed host policy is:
+
+| Resource | Limit |
+| --- | ---: |
+| QuickJS heap / stack | 32 MiB / 512 KiB |
+| Initialization / invocation / shutdown | 1,000 / 2,000 / 500 ms |
+| Module / graph source | 1 MiB / 8 MiB |
+| Module count / queued requests | 128 / 32 |
+| Invocation / host-call JSON | 1 MiB / 256 KiB |
+| JSON depth / host calls per invocation | 16 / 256 |
+| Safe diagnostic | 4 KiB |
+
+Deadline, cancellation, and shutdown use the runtime interrupt path. A failed
+runtime is discarded and only its active plugin version becomes degraded.
+The runtime has no Node, filesystem, network, environment, process, shell,
+native module, or generic Engine invoke global.
+
+Host calls use a closed method table. The host derives plugin/version,
+contribution, operation, capability, and scope; plugin parameters cannot name
+an Engine method or manufacture authority. Every call rechecks the durable
+grant. Unknown methods, stale authority, duplicate IDs, post-cancel results,
+and calls beyond the fixed bounds fail closed with a typed safe error.
+
+The initial method is `diagnostics.summary`. It accepts only
+`{ "category": "summary" }` during `filter.validate`, is bound to the invoking
+filter contribution, and requires that contribution's exact
+`diagnostics.read` / `summary` grant. Its result contains bounded host-derived
+runtime status and contribution metadata; it never returns logs, paths,
+document content, environment values, or a generic Engine method result.
+
+Panel files load only from an opaque, expiring `translunar-plugin://` session.
+The iframe has `sandbox="allow-scripts"` without `allow-same-origin`, preload,
+Node, Electron IPC, or `window.translunar`. A fresh 256-bit nonce and transferred
+`MessagePort` negotiate bridge version 1. Only closed, bounded message schemas
+are accepted; navigation, close, reload, disable, revoke, upgrade, revision
+change, expiry, or protocol failure closes the port and asset session.
 
 ## Tier 1 contract
 
@@ -68,13 +137,25 @@ Runtime operations check the durable grant again. Tier 1 filters use
 `pipeline.register`. Allowed and denied operations are written to the
 immutable capability audit.
 
+For Tier 2, enable constructs and activates the candidate runtime before its
+adapters become visible. Upgrade keeps the prior version usable until the
+candidate is ready. Any attach failure compensates the candidate completely.
+Restart always creates a fresh JavaScript heap, asset token, nonce, and port;
+none of those values are persisted.
+
 ## Develop
 
 ```powershell
 pnpm --filter @translunar/plugin-sdk test
+cargo test -p translunar-plugin-runtime
 $env:TRANSLUNAR_SMOKE_SCOPE='plugin'; node scripts/engine-smoke.mjs
 pnpm test:e2e:desktop
 ```
+
+To try the official package, open Plugins, install
+`examples/plugins/sandbox-toolkit`, review and grant its exact `ui.panel`
+request, enable it, then use **Preview panel**. Disable or revoke the grant to
+close the preview immediately.
 
 TypeScript helpers live in `@translunar/plugin-sdk`. Rust protocol schema and
 generated TypeScript contracts must remain synchronized with

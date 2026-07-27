@@ -1,0 +1,65 @@
+{
+  "manifestVersion": 2,
+  "id": "example.sandbox-toolkit",
+  "displayName": "Sandbox Toolkit",
+  "version": "0.1.0",
+  "hostApi": { "min": 1, "max": 1 },
+  "runtime": {
+    "tier": "sandbox",
+    "runtimeVersion": 1,
+    "entry": { "kind": "javascript", "path": "entry.mjs" }
+  },
+  "contributions": [
+    {
+      "kind": "filter",
+      "descriptorVersion": 1,
+      "id": "example.sandbox-toolkit.echo",
+      "version": "0.1.0",
+      "displayName": "Sandbox Echo",
+      "extensions": ["sandbox-echo"],
+      "capabilities": {
+        "import": false,
+        "export": false,
+        "validate": true,
+        "inlineTags": false,
+        "notes": false,
+        "degradationReport": false
+      }
+    },
+    {
+      "kind": "uiPanel",
+      "descriptorVersion": 1,
+      "id": "example.sandbox-toolkit.panel",
+      "version": "0.1.0",
+      "displayName": "Sandbox Toolkit Panel",
+      "label": "Sandbox Toolkit",
+      "placement": "plugins.preview",
+      "surface": "panel/index.html",
+      "bridgeVersion": 1
+    }
+  ],
+  "permissions": [],
+  "capabilities": [
+    {
+      "capabilityId": "file.read",
+      "required": true,
+      "scope": { "kind": "file", "areas": ["source"] },
+      "contributionId": "example.sandbox-toolkit.echo"
+    },
+    {
+      "capabilityId": "diagnostics.read",
+      "required": true,
+      "scope": { "kind": "diagnostics", "categories": ["summary"] },
+      "contributionId": "example.sandbox-toolkit.echo"
+    },
+    {
+      "capabilityId": "ui.panel",
+      "required": true,
+      "scope": {
+        "kind": "contributions",
+        "contributionIds": ["example.sandbox-toolkit.panel"]
+      },
+      "contributionId": "example.sandbox-toolkit.panel"
+    }
+  ]
+}

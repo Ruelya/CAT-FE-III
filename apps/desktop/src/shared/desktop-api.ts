@@ -29,6 +29,20 @@ export interface DesktopEngineError {
 export type DesktopEngineInvokeResponse<Result = unknown> =
   { ok: true; result: Result } | { ok: false; error: DesktopEngineError };
 
+export interface PluginPanelSessionRequest {
+  pluginId: string;
+  contributionId: string;
+  revision: number;
+}
+
+export interface PluginPanelSession {
+  sessionId: string;
+  url: string;
+  expiresAtMs: number;
+  revision: number;
+  bridgeVersion: 1;
+}
+
 export interface DesktopApi {
   invoke<Method extends EngineMethod>(
     method: Method,
@@ -46,6 +60,11 @@ export interface DesktopApi {
   selectTaskPackageInput(): Promise<string | null>;
   selectCorpusInput(): Promise<string | null>;
   selectPluginPackage(): Promise<string | null>;
+  issuePluginPanelSession(
+    request: PluginPanelSessionRequest,
+  ): Promise<PluginPanelSession>;
+  revokePluginPanelSession(sessionId: string): Promise<boolean>;
+  onPluginPanelRevoked(listener: (pluginId: string | null) => void): () => void;
   resolveDroppedPaths(files: readonly File[]): string[];
   restartEngine(): Promise<void>;
   setAiCredential(profileId: string, secret: string): Promise<void>;

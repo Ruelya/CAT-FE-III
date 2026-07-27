@@ -230,6 +230,9 @@ pub enum EngineError {
     #[error("plugin process failed: {0}")]
     PluginProcessFailed(String),
 
+    #[error("plugin sandbox failed: {0}")]
+    PluginSandboxFailed(String),
+
     #[error("engine I/O failed: {0}")]
     Io(#[from] std::io::Error),
 
@@ -2282,6 +2285,13 @@ pub struct EngineService {
         String,
         std::sync::Arc<translunar_plugin_runtime::PluginProcess>,
     >,
+    plugin_sandbox_runtimes: translunar_plugin_runtime::SandboxRuntimeRegistry,
+    plugin_sandbox_keys:
+        std::collections::BTreeMap<String, translunar_plugin_runtime::SandboxRuntimeKey>,
+    pending_sandbox_workers: std::collections::BTreeMap<
+        translunar_plugin_runtime::SandboxRuntimeKey,
+        plugin::PreparedSandboxActivation,
+    >,
     plugin_filter_owners: std::collections::BTreeMap<String, String>,
     plugin_qa_packs: std::collections::BTreeMap<String, plugin_declarative::PluginQaPack>,
     plugin_pipeline_owners: std::collections::BTreeMap<String, String>,
@@ -2345,6 +2355,9 @@ impl EngineService {
             pipeline: PipelineManager::new(data_dir, ai.clone())?,
             ai,
             plugin_processes: std::collections::BTreeMap::new(),
+            plugin_sandbox_runtimes: translunar_plugin_runtime::SandboxRuntimeRegistry::default(),
+            plugin_sandbox_keys: std::collections::BTreeMap::new(),
+            pending_sandbox_workers: std::collections::BTreeMap::new(),
             plugin_filter_owners: std::collections::BTreeMap::new(),
             plugin_qa_packs: std::collections::BTreeMap::new(),
             plugin_pipeline_owners: std::collections::BTreeMap::new(),
@@ -6923,6 +6936,11 @@ fn rpc_error(error: EngineError) -> RpcError {
             message,
             data: None,
         },
+        EngineError::PluginSandboxFailed(message) => RpcError {
+            code: ErrorCode::PluginSandboxFailed,
+            message,
+            data: None,
+        },
         EngineError::Import(FilterError::PluginPermissionDenied {
             plugin_id,
             filter_id,
@@ -6947,6 +6965,44 @@ fn rpc_error(error: EngineError) -> RpcError {
                 "pluginId": plugin_id,
                 "filterId": filter_id,
                 "operation": operation,
+            })),
+        },
+        EngineError::Import(FilterError::PluginSandboxFailed {
+            plugin_id,
+            filter_id,
+            operation,
+            kind,
+            message,
+            ..
+        })
+        | EngineError::CorpusImport(FilterError::PluginSandboxFailed {
+            plugin_id,
+            filter_id,
+            operation,
+            kind,
+            message,
+            ..
+        })
+        | EngineError::Export(FilterError::PluginSandboxFailed {
+            plugin_id,
+            filter_id,
+            operation,
+            kind,
+            message,
+            ..
+        }) => RpcError {
+            code: ErrorCode::PluginSandboxFailed,
+            message,
+            data: Some(json!({
+                "pluginId": plugin_id,
+                "filterId": filter_id,
+                "operation": operation,
+                "failureKind": kind.as_str(),
+                "retryable": matches!(
+                    kind,
+                    translunar_filter_core::PluginSandboxFailureKind::Timeout
+                        | translunar_filter_core::PluginSandboxFailureKind::Cancelled
+                ),
             })),
         },
         EngineError::Import(FilterError::PluginProcessFailed {

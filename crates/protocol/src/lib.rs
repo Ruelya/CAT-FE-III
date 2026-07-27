@@ -349,6 +349,7 @@ pub enum ErrorCode {
     PluginUpgradeFailed,
     PluginPermissionDenied,
     PluginProcessFailed,
+    PluginSandboxFailed,
     InternalError,
 }
 

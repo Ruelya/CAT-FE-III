@@ -1119,6 +1119,300 @@ test("manages a local process plugin through Project Insights with the real Engi
   }
 });
 
+test("hosts a Tier 2 sandbox panel through an opaque revocable session", async ({
+  browserName,
+}, testInfo) => {
+  expect(browserName).toBe("chromium");
+  test.setTimeout(120_000);
+  const workspaceRoot = resolve(process.cwd(), "..", "..");
+  const pluginSource = join(
+    workspaceRoot,
+    "examples",
+    "plugins",
+    "sandbox-toolkit",
+  );
+  const evidenceDirectory = join(
+    workspaceRoot,
+    ".trellis",
+    "tasks",
+    "07-27-plugin-tier2-sandbox",
+    "evidence",
+    "screenshots",
+  );
+  const harness = await launchHarness("plugin-sandbox", { pluginSource });
+  const { application, page, consoleErrors } = harness;
+
+  const currentPlugin = () =>
+    page.evaluate(async () => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      return api.invoke("plugin.get", { pluginId: "example.sandbox-toolkit" });
+    });
+  const hasSandboxFilter = () =>
+    page.evaluate(async () => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      const filters = await api.invoke("filter.list", {});
+      return filters.filters.some(
+        (filter) => filter.id === "example.sandbox-toolkit.echo",
+      );
+    });
+  const sessionStatus = (url: string) =>
+    application.evaluate(async ({ session }, sessionUrl) => {
+      const response = await session.defaultSession.fetch(sessionUrl);
+      return response.status;
+    }, url);
+  try {
+    await importFixture(page);
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "Project insights" }).click();
+    await page.getByRole("tab", { name: "Plugins" }).click();
+
+    const panel = page.locator(".plugins-panel");
+    await panel.getByRole("button", { name: "Install package…" }).click();
+    await grantInstalledPluginPermissions(page);
+    let pluginRow = panel.locator(".plugins-panel__item", {
+      hasText: "Sandbox Toolkit",
+    });
+    await expect(pluginRow.locator('[data-status="installed"]')).toHaveText(
+      "installed",
+    );
+    await expect(pluginRow).toContainText("sandbox");
+    expect(await hasSandboxFilter()).toBe(false);
+
+    await pluginRow.getByRole("button", { name: "Enable" }).click();
+    await expect(pluginRow.locator('[data-status="enabled"]')).toHaveText(
+      "enabled",
+    );
+    expect(await hasSandboxFilter()).toBe(true);
+    await pluginRow.getByRole("button", { name: "Preview panel" }).click();
+
+    let preview = page.getByRole("dialog", { name: "Sandbox Toolkit Panel" });
+    await expect(preview).toBeVisible();
+    let iframe = preview.locator("iframe");
+    await expect(iframe).toHaveAttribute("sandbox", "allow-scripts");
+    await expect(iframe).toHaveAttribute("referrerpolicy", "no-referrer");
+    const firstUrl = await iframe.getAttribute("src");
+    expect(firstUrl).toMatch(
+      /^translunar-plugin:\/\/[a-f0-9]{64}\/panel\/index\.html$/u,
+    );
+    expect(firstUrl).not.toContain(pluginSource);
+    await expect
+      .poll(() => ({
+        urls: page.frames().map((candidate) => candidate.url()),
+        errors: [...consoleErrors],
+      }))
+      .toEqual({
+        urls: expect.arrayContaining([firstUrl]),
+        errors: [],
+      });
+    let frameLocator = iframe.contentFrame();
+    await expect(frameLocator.locator("#status")).toHaveText("Connected");
+    await expect(frameLocator.locator("#plugin-name")).toHaveText(
+      "Sandbox Toolkit",
+    );
+    await expect(frameLocator.locator("#contribution-name")).toHaveText(
+      "Sandbox Toolkit Panel",
+    );
+    await captureResponsiveSurface(
+      harness,
+      testInfo,
+      "plugin-tier2-panel",
+      evidenceDirectory,
+      ".plugin-panel-host",
+    );
+    const firstScriptUrl = firstUrl!.replace("index.html", "panel.mjs");
+    const traversalUrl = firstUrl!.replace(
+      "panel/index.html",
+      "panel/../manifest.json",
+    );
+    await expect.poll(() => sessionStatus(firstUrl!)).toBe(404);
+    await expect.poll(() => sessionStatus(firstScriptUrl)).toBe(200);
+    await expect.poll(() => sessionStatus(traversalUrl)).toBe(404);
+    let frame = page.frames().find((candidate) => candidate.url() === firstUrl);
+    expect(frame).toBeDefined();
+    const isolation = await frame!.evaluate(() => {
+      let parentDocument: boolean;
+      try {
+        void window.parent.document;
+        parentDocument = true;
+      } catch {
+        parentDocument = false;
+      }
+      return {
+        process: typeof (globalThis as { process?: unknown }).process,
+        require: typeof (globalThis as { require?: unknown }).require,
+        translunar: typeof (globalThis as { translunar?: unknown }).translunar,
+        parentDocument,
+      };
+    });
+    expect(isolation).toEqual({
+      process: "undefined",
+      require: "undefined",
+      translunar: "undefined",
+      parentDocument: false,
+    });
+    const consoleBeforeNetwork = consoleErrors.length;
+    await expect(
+      frame!.evaluate(async () => {
+        try {
+          await fetch("https://example.com/sandbox-probe");
+          return false;
+        } catch {
+          return true;
+        }
+      }),
+    ).resolves.toBe(true);
+    expect(
+      consoleErrors
+        .slice(consoleBeforeNetwork)
+        .some((message) =>
+          /content security policy|refused to connect/iu.test(message),
+        ),
+    ).toBe(true);
+
+    await frame!.evaluate(() => {
+      window.location.href = "about:blank";
+    });
+    await expect(preview.getByRole("alert")).toContainText("session has ended");
+    await expect.poll(() => sessionStatus(firstScriptUrl)).toBe(404);
+    await preview.getByRole("button", { name: "Close", exact: true }).click();
+
+    pluginRow = panel.locator(".plugins-panel__item", {
+      hasText: "Sandbox Toolkit",
+    });
+    await pluginRow.getByRole("button", { name: "Preview panel" }).click();
+    preview = page.getByRole("dialog", { name: "Sandbox Toolkit Panel" });
+    iframe = preview.locator("iframe");
+    const secondUrl = await iframe.getAttribute("src");
+    expect(secondUrl).not.toBe(firstUrl);
+    const secondScriptUrl = secondUrl!.replace("index.html", "panel.mjs");
+    frameLocator = iframe.contentFrame();
+    await expect(frameLocator.locator("#status")).toHaveText("Connected");
+    frame = page.frames().find((candidate) => candidate.url() === secondUrl);
+    expect(frame).toBeDefined();
+
+    const enabled = await currentPlugin();
+    await page.evaluate(async (plugin) => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      await api.invoke("plugin.disable", {
+        pluginId: plugin.id,
+        expectedRevision: plugin.revision,
+        actor: "desktop-e2e",
+        reason: "verify active sandbox revocation",
+      });
+    }, enabled);
+    await expect(preview.getByRole("alert")).toContainText("session has ended");
+    await expect.poll(() => sessionStatus(secondScriptUrl)).toBe(404);
+    expect(await hasSandboxFilter()).toBe(false);
+
+    await preview.getByRole("button", { name: "Close", exact: true }).click();
+    await panel.getByRole("button", { name: "Refresh" }).click();
+    pluginRow = panel.locator(".plugins-panel__item", {
+      hasText: "Sandbox Toolkit",
+    });
+    await pluginRow.getByRole("button", { name: "Enable" }).click();
+    await pluginRow.getByRole("button", { name: "Preview panel" }).click();
+    preview = page.getByRole("dialog", { name: "Sandbox Toolkit Panel" });
+    iframe = preview.locator("iframe");
+    frameLocator = iframe.contentFrame();
+    await expect(frameLocator.locator("#status")).toHaveText("Connected");
+    const restartUrl = await iframe.getAttribute("src");
+    const restartScriptUrl = restartUrl!.replace("index.html", "panel.mjs");
+    await page.evaluate("window.translunar.restartEngine()");
+    await expect(preview.getByRole("alert")).toContainText("session has ended");
+    await expect.poll(() => sessionStatus(restartScriptUrl)).toBe(404);
+
+    await preview.getByRole("button", { name: "Close", exact: true }).click();
+    await panel.getByRole("button", { name: "Refresh" }).click();
+    pluginRow = panel.locator(".plugins-panel__item", {
+      hasText: "Sandbox Toolkit",
+    });
+    await expect(pluginRow.locator('[data-status="enabled"]')).toHaveText(
+      "enabled",
+    );
+    expect(await hasSandboxFilter()).toBe(true);
+    await pluginRow.getByRole("button", { name: "Preview panel" }).click();
+    preview = page.getByRole("dialog", { name: "Sandbox Toolkit Panel" });
+    iframe = preview.locator("iframe");
+    const reloadUrl = await iframe.getAttribute("src");
+    expect(reloadUrl).not.toBe(restartUrl);
+    const reloadScriptUrl = reloadUrl!.replace("index.html", "panel.mjs");
+    await expect(iframe.contentFrame().locator("#status")).toHaveText(
+      "Connected",
+    );
+
+    await page.reload();
+    await expect(
+      page.getByRole("region", { name: "Translation segments" }),
+    ).toBeVisible();
+    await expect.poll(() => sessionStatus(reloadScriptUrl)).toBe(404);
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "Project insights" }).click();
+    await page.getByRole("tab", { name: "Plugins" }).click();
+    pluginRow = page.locator(".plugins-panel__item", {
+      hasText: "Sandbox Toolkit",
+    });
+    await pluginRow.getByRole("button", { name: "Preview panel" }).click();
+    preview = page.getByRole("dialog", { name: "Sandbox Toolkit Panel" });
+    iframe = preview.locator("iframe");
+    const closeUrl = await iframe.getAttribute("src");
+    const closeScriptUrl = closeUrl!.replace("index.html", "panel.mjs");
+    await expect(iframe.contentFrame().locator("#status")).toHaveText(
+      "Connected",
+    );
+    await preview.getByRole("button", { name: "Close", exact: true }).click();
+    await expect.poll(() => sessionStatus(closeScriptUrl)).toBe(404);
+
+    await pluginRow.getByRole("button", { name: "Preview panel" }).click();
+    preview = page.getByRole("dialog", { name: "Sandbox Toolkit Panel" });
+    iframe = preview.locator("iframe");
+    const revokeUrl = await iframe.getAttribute("src");
+    const revokeScriptUrl = revokeUrl!.replace("index.html", "panel.mjs");
+    await expect(iframe.contentFrame().locator("#status")).toHaveText(
+      "Connected",
+    );
+    await page.evaluate(async () => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      const requests = await api.invoke("plugin.permission.request.list", {
+        pluginId: "example.sandbox-toolkit",
+        offset: 0,
+        limit: 20,
+      });
+      const diagnostics = requests.items.find(
+        (request) => request.capabilityId === "diagnostics.read",
+      );
+      if (!diagnostics) throw new Error("diagnostics permission is missing");
+      await api.invoke("plugin.permission.revoke", {
+        pluginId: "example.sandbox-toolkit",
+        requestId: diagnostics.id,
+        expectedRevision: diagnostics.revision,
+        actor: "desktop-e2e",
+        reason: "verify sandbox panel permission revocation",
+      });
+    });
+    await expect(preview.getByRole("alert")).toContainText("session has ended");
+    await expect.poll(() => sessionStatus(revokeScriptUrl)).toBe(404);
+    await preview.getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByRole("button", { name: "Refresh", exact: true }).click();
+    pluginRow = page.locator(".plugins-panel__item", {
+      hasText: "Sandbox Toolkit",
+    });
+    await expect(pluginRow.locator('[data-status="disabled"]')).toHaveText(
+      "disabled",
+    );
+    await pluginRow.getByRole("button", { name: "Uninstall" }).click();
+    await expect(panel.locator(".plugins-panel__item")).toHaveCount(0);
+    expect(await hasSandboxFilter()).toBe(false);
+    expect(
+      consoleErrors.filter(
+        (message) =>
+          !/content security policy|refused to connect/iu.test(message),
+      ),
+    ).toEqual([]);
+  } finally {
+    await closeHarness(harness);
+  }
+});
+
 test("manages a manifest-only Tier 1 toolkit through the real Electron lifecycle", async ({
   browserName,
 }) => {

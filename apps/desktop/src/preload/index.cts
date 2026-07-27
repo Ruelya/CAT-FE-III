@@ -28,6 +28,9 @@ const IPC_CHANNELS = {
   selectTaskPackageInput: "translunar:dialog:task-package-input",
   selectCorpusInput: "translunar:dialog:corpus-input",
   selectPluginPackage: "translunar:dialog:plugin-package",
+  issuePluginPanelSession: "translunar:plugin:panel:issue",
+  revokePluginPanelSession: "translunar:plugin:panel:revoke",
+  pluginPanelRevoked: "translunar:plugin:panel:revoked",
   restartEngine: "translunar:engine:restart",
   setAiCredential: "translunar:ai:credential:set",
   editorCommand: "translunar:editor:command",
@@ -123,6 +126,25 @@ const api: DesktopApi = {
     electron.ipcRenderer.invoke(IPC_CHANNELS.selectCorpusInput),
   selectPluginPackage: () =>
     electron.ipcRenderer.invoke(IPC_CHANNELS.selectPluginPackage),
+  issuePluginPanelSession: (request) =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.issuePluginPanelSession, request),
+  revokePluginPanelSession: (sessionId) =>
+    electron.ipcRenderer.invoke(
+      IPC_CHANNELS.revokePluginPanelSession,
+      sessionId,
+    ),
+  onPluginPanelRevoked: (listener) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      pluginId: string | null,
+    ) => listener(pluginId);
+    electron.ipcRenderer.on(IPC_CHANNELS.pluginPanelRevoked, handler);
+    return () =>
+      electron.ipcRenderer.removeListener(
+        IPC_CHANNELS.pluginPanelRevoked,
+        handler,
+      );
+  },
   resolveDroppedPaths: (files) =>
     files
       .slice(0, 500)

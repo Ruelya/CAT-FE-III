@@ -16,14 +16,114 @@ import {
   defineDeclarativeManifest,
   defineDeclarativePipelineStep,
   defineDeclarativeQaPack,
+  defineSandboxManifest,
   normalizeCapabilityRequests,
   normalizeManifest,
+  parsePluginPanelMessageV1,
+  SANDBOX_LIMITS,
+  validateSandboxJsonValue,
   validateManifest,
   validateNormalizedManifest,
   type PluginCapabilityRequest,
   type PluginManifest,
   type PluginManifestV2,
 } from "./index.js";
+
+describe("sandbox SDK contract", () => {
+  it("defines an executable sandbox manifest with bounded public limits", () => {
+    const manifest = defineSandboxManifest({
+      id: "example.sandbox",
+      displayName: "Sandbox",
+      version: "0.1.0",
+      hostApi: { min: 1, max: 1 },
+      entry: { path: "entry.mjs" },
+      contributions: [
+        {
+          kind: "uiPanel",
+          descriptorVersion: 1,
+          id: "example.sandbox.panel",
+          version: "0.1.0",
+          displayName: "Panel",
+          label: "Panel",
+          placement: "plugins.preview",
+          surface: "panel/index.html",
+          bridgeVersion: 1,
+        },
+      ],
+      permissions: [],
+    });
+    const normalized = normalizeManifest(manifest);
+    expect(validateNormalizedManifest(normalized)).toEqual([]);
+    expect(compatibilityForManifest(normalized)).toMatchObject({
+      compatible: true,
+      runtimeSupported: true,
+      contributionsSupported: true,
+    });
+    expect(SANDBOX_LIMITS).toMatchObject({
+      heapBytes: 32 * 1024 * 1024,
+      stackBytes: 512 * 1024,
+      invocationMs: 2_000,
+      moduleCount: 128,
+      pendingRequests: 32,
+      jsonDepth: 16,
+      hostCallsPerInvocation: 256,
+    });
+  });
+
+  it("rejects unsafe entries, surfaces, values, and bridge envelopes", () => {
+    const manifest = defineSandboxManifest({
+      id: "example.sandbox",
+      displayName: "Sandbox",
+      version: "0.1.0",
+      hostApi: { min: 1, max: 1 },
+      entry: { path: "entry.ts" },
+      contributions: [
+        {
+          kind: "uiPanel",
+          descriptorVersion: 1,
+          id: "example.sandbox.panel",
+          version: "0.1.0",
+          displayName: "Panel",
+          label: "Panel",
+          placement: "plugins.preview",
+          surface: "panel/index.svg",
+          bridgeVersion: 2,
+        },
+      ],
+      permissions: [],
+    });
+    expect(validateNormalizedManifest(normalizeManifest(manifest))).toEqual(
+      expect.arrayContaining([
+        "sandbox runtime entry must end in .js or .mjs",
+        expect.stringContaining("relative .html surface"),
+      ]),
+    );
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    expect(validateSandboxJsonValue(cyclic)).toBe(false);
+    expect(validateSandboxJsonValue(new Date())).toBe(false);
+    expect(validateSandboxJsonValue(Number.NaN)).toBe(false);
+    expect(
+      parsePluginPanelMessageV1({
+        version: 1,
+        type: "request",
+        id: "request-1",
+        method: "panel.context",
+        params: {},
+      }),
+    ).not.toBeNull();
+    expect(
+      parsePluginPanelMessageV1({
+        version: 1,
+        type: "request",
+        id: "request-1",
+        method: "panel.context",
+        params: {},
+        extra: true,
+      }),
+    ).toBeNull();
+  });
+});
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const workspaceRoot = resolve(packageRoot, "..", "..");

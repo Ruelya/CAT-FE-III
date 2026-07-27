@@ -6,10 +6,12 @@ import type {
   PluginCapabilityRequestView,
   PluginCapabilityReview,
   PluginCapabilityScope,
+  PluginContributionDescriptor,
   PluginSummary,
 } from "@translunar/contracts";
 import {
   Ban,
+  Eye,
   PackagePlus,
   Puzzle,
   RefreshCw,
@@ -25,6 +27,7 @@ import { useFocusTrap } from "./useFocusTrap";
 import "./PluginsPanel.css";
 import { useLocale } from "./i18n/LocaleProvider";
 import type { MessageKey } from "./i18n/messages";
+import { PluginPanelHost } from "./PluginPanelHost";
 
 interface PluginsPanelProps {
   onRefresh(): Promise<void>;
@@ -67,6 +70,10 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
     Record<string, PluginCapabilityScope>
   >({});
   const [reason, setReason] = useState("");
+  const [panelPreview, setPanelPreview] = useState<{
+    plugin: PluginSummary;
+    contribution: Extract<PluginContributionDescriptor, { kind: "uiPanel" }>;
+  } | null>(null);
   const dialogRef = useRef<HTMLElement>(null);
 
   const closeReview = useCallback(() => {
@@ -159,6 +166,9 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
     setBusyId(plugin.id);
     setError(null);
     try {
+      if (method !== "plugin.enable" && panelPreview?.plugin.id === plugin.id) {
+        setPanelPreview(null);
+      }
       await window.translunar.invoke(method, {
         pluginId: plugin.id,
         expectedRevision: plugin.revision,
@@ -249,66 +259,110 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
         <p className="plugins-panel__empty">{t("plugins.empty")}</p>
       ) : (
         <ul className="plugins-panel__list">
-          {plugins.map((plugin) => (
-            <li key={plugin.id} className="plugins-panel__item">
-              <div className="plugins-panel__identity">
-                <strong>{plugin.displayName}</strong>
-                <div className="plugins-panel__meta">
-                  <span>{plugin.id}</span>
-                  <span>v{plugin.version}</span>
-                  <span>{plugin.tier}</span>
-                  <span data-status={plugin.status}>{plugin.status}</span>
+          {plugins.map((plugin) => {
+            const panel = (plugin.contributions ?? []).find(
+              (
+                contribution,
+              ): contribution is Extract<
+                PluginContributionDescriptor,
+                { kind: "uiPanel" }
+              > => contribution.kind === "uiPanel",
+            );
+            return (
+              <li key={plugin.id} className="plugins-panel__item">
+                <div className="plugins-panel__identity">
+                  <strong>{plugin.displayName}</strong>
+                  <div className="plugins-panel__meta">
+                    <span>{plugin.id}</span>
+                    <span>v{plugin.version}</span>
+                    <span>{plugin.tier}</span>
+                    <span data-status={plugin.status}>{plugin.status}</span>
+                  </div>
+                  <div className="plugins-panel__meta">
+                    {t("plugins.permissions", {
+                      list:
+                        plugin.grantedPermissions.join(", ") ||
+                        t("plugins.permissionsNone"),
+                    })}
+                  </div>
+                  {plugin.lastError ? (
+                    <p className="plugins-panel__error">{plugin.lastError}</p>
+                  ) : null}
                 </div>
-                <div className="plugins-panel__meta">
-                  {t("plugins.permissions", {
-                    list:
-                      plugin.grantedPermissions.join(", ") ||
-                      t("plugins.permissionsNone"),
-                  })}
-                </div>
-                {plugin.lastError ? (
-                  <p className="plugins-panel__error">{plugin.lastError}</p>
-                ) : null}
-              </div>
-              <div className="plugins-panel__item-actions">
-                <button
-                  type="button"
-                  disabled={busyId !== null}
-                  onClick={() => void openReview(plugin.id)}
-                >
-                  <ShieldEllipsis size={14} aria-hidden />
-                  {t("plugins.review")}
-                </button>
-                {plugin.status === "enabled" ? (
+                <div className="plugins-panel__item-actions">
+                  {plugin.status === "enabled" &&
+                  plugin.tier === "sandbox" &&
+                  panel ? (
+                    <button
+                      type="button"
+                      disabled={busyId !== null}
+                      onClick={() =>
+                        setPanelPreview({ plugin, contribution: panel })
+                      }
+                    >
+                      <Eye size={14} aria-hidden />
+                      {t("plugins.previewPanel")}
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     disabled={busyId !== null}
-                    onClick={() => void mutate(plugin, "plugin.disable")}
+                    onClick={() => void openReview(plugin.id)}
                   >
-                    {t("plugins.disable")}
+                    <ShieldEllipsis size={14} aria-hidden />
+                    {t("plugins.review")}
                   </button>
-                ) : (
+                  {plugin.status === "enabled" ? (
+                    <button
+                      type="button"
+                      disabled={busyId !== null}
+                      onClick={() => void mutate(plugin, "plugin.disable")}
+                    >
+                      {t("plugins.disable")}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={busyId !== null}
+                      onClick={() => void mutate(plugin, "plugin.enable")}
+                    >
+                      {t("common.enable")}
+                    </button>
+                  )}
                   <button
                     type="button"
+                    className="danger"
                     disabled={busyId !== null}
-                    onClick={() => void mutate(plugin, "plugin.enable")}
+                    onClick={() => void mutate(plugin, "plugin.uninstall")}
                   >
-                    {t("common.enable")}
+                    {t("plugins.uninstall")}
                   </button>
-                )}
-                <button
-                  type="button"
-                  className="danger"
-                  disabled={busyId !== null}
-                  onClick={() => void mutate(plugin, "plugin.uninstall")}
-                >
-                  {t("plugins.uninstall")}
-                </button>
-              </div>
-            </li>
-          ))}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
+
+      {panelPreview ? (
+        <div className="surface-dialog-backdrop" role="presentation">
+          <section
+            className="surface-dialog plugins-panel-preview"
+            role="dialog"
+            aria-modal="true"
+            aria-label={panelPreview.contribution.displayName}
+          >
+            <PluginPanelHost
+              pluginId={panelPreview.plugin.id}
+              pluginName={panelPreview.plugin.displayName}
+              contributionId={panelPreview.contribution.id}
+              contributionName={panelPreview.contribution.displayName}
+              revision={panelPreview.plugin.revision}
+              onClose={() => setPanelPreview(null)}
+            />
+          </section>
+        </div>
+      ) : null}
 
       {review ? (
         <div className="surface-dialog-backdrop" role="presentation">

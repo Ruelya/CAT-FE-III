@@ -178,6 +178,33 @@ pub enum PluginProcessFailureKind {
     Io,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PluginSandboxFailureKind {
+    Cancelled,
+    Timeout,
+    ResourceLimit,
+    Module,
+    Codec,
+    Script,
+    Disconnected,
+    HostCallDenied,
+}
+
+impl PluginSandboxFailureKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Cancelled => "cancelled",
+            Self::Timeout => "timeout",
+            Self::ResourceLimit => "resource_limit",
+            Self::Module => "module",
+            Self::Codec => "codec",
+            Self::Script => "script",
+            Self::Disconnected => "disconnected",
+            Self::HostCallDenied => "host_call_denied",
+        }
+    }
+}
+
 impl PluginProcessFailureKind {
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -220,6 +247,15 @@ pub enum FilterError {
         operation: String,
         activation_revision: u64,
         kind: PluginProcessFailureKind,
+        message: String,
+    },
+    #[error("plugin {plugin_id} sandbox {kind:?} during {operation}: {message}")]
+    PluginSandboxFailed {
+        plugin_id: String,
+        filter_id: String,
+        operation: String,
+        activation_revision: u64,
+        kind: PluginSandboxFailureKind,
         message: String,
     },
     #[error("no filter matched the source: {0}")]

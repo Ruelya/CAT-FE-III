@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use serde_json::{Value, json};
 use translunar_filter_core::{DocumentFilter, FilterDescriptor, FilterError, FilterRegistry};
@@ -10,8 +10,10 @@ use translunar_plugin_runtime::{
     PluginCapabilityAuthorizer, PluginCapabilityCheck, PluginCapabilityId, PluginCapabilityScope,
     PluginContributionDescriptor, PluginContributions, PluginEntry, PluginEntryKind,
     PluginFileArea, PluginFilterContribution, PluginManifest, PluginProcess,
-    PluginRuntimeDescriptor, ProcessDocumentFilter, StagedPluginPackage, inspect_plugin_package,
-    publish_staged_package, remove_package, stage_plugin_package,
+    PluginRuntimeDescriptor, ProcessDocumentFilter, SandboxDocumentFilter, SandboxError,
+    SandboxHostCallRegistry, SandboxHostMethod, SandboxRuntimeConfig, SandboxRuntimeKey,
+    SandboxWorkerHandle, StagedPluginPackage, inspect_plugin_package, publish_staged_package,
+    remove_package, sandbox_safe_diagnostic, stage_plugin_package,
 };
 use translunar_protocol::{
     NormalizedPluginManifest, PluginCompatibility, PluginDiagnostic, PluginIdParams,
@@ -32,6 +34,12 @@ use uuid::Uuid;
 use crate::plugin_declarative::{DeclarativePipelineStep, PluginQaPack};
 use crate::{EngineError, EngineService, Result};
 
+pub(crate) struct PreparedSandboxActivation {
+    key: SandboxRuntimeKey,
+    worker: SandboxWorkerHandle,
+    filters: Vec<(String, Arc<dyn DocumentFilter>)>,
+}
+
 impl EngineService {
     pub(crate) fn reload_enabled_plugins(&mut self) -> Result<()> {
         let enabled = self.store.list_enabled_plugins()?;
@@ -43,7 +51,7 @@ impl EngineService {
                 continue;
             }
             if let Err(error) = self.register_plugin_filters(&record) {
-                let message = error.to_string();
+                let message = bounded_plugin_message(&error.to_string());
                 let _ = self
                     .store
                     .record_plugin_crash(&record.id, record.revision, message);
@@ -226,7 +234,45 @@ impl EngineService {
                 staged.normalized_manifest.version, staged.package_hash.sha256
             ),
         )?;
+        if current.status == PluginStatus::Enabled
+            && staged.normalized_manifest.supports_sandbox_host()
+        {
+            let version = match self.store.insert_plugin_version(input.clone()) {
+                Ok(version) => version,
+                Err(error) => {
+                    let _ = remove_package(&candidate_destination);
+                    return Err(error.into());
+                }
+            };
+            let candidate = candidate_installation_from_version(
+                &current,
+                &version,
+                &staged.normalized_manifest,
+                &legacy_manifest,
+                current.revision.saturating_add(1),
+            )?;
+            match self.prepare_sandbox_activation(&candidate) {
+                Ok(prepared) => {
+                    self.pending_sandbox_workers
+                        .insert(prepared.key.clone(), prepared);
+                }
+                Err(error) => {
+                    let message = bounded_plugin_message(&error.to_string());
+                    let _ = self.store.mark_plugin_version_failed(
+                        &params.plugin_id,
+                        &version.id,
+                        json!([{
+                            "code": "plugin_sandbox_failed",
+                            "message": message,
+                            "phase": "initialize"
+                        }]),
+                    );
+                    return Err(EngineError::PluginUpgradeFailed(message));
+                }
+            }
+        }
         let target_status = current.status;
+        let candidate_version_id = input.id.clone();
         let activation = match self.store.cas_activate_plugin_version(
             &params.plugin_id,
             params.expected_revision,
@@ -235,11 +281,24 @@ impl EngineService {
         ) {
             Ok(value) => value,
             Err(error) => {
-                let _ = remove_package(&candidate_destination);
+                if let Some(prepared) = self.pending_sandbox_workers.remove(&SandboxRuntimeKey {
+                    plugin_id: params.plugin_id.clone(),
+                    version_id: candidate_version_id,
+                }) {
+                    let _ = prepared.worker.shutdown();
+                }
                 return Err(error.into());
             }
         };
+        let pending = self.pending_sandbox_workers.remove(&SandboxRuntimeKey {
+            plugin_id: params.plugin_id.clone(),
+            version_id: activation.active_version.id.clone(),
+        });
         self.unregister_plugin_filters(&params.plugin_id);
+        if let Some(prepared) = pending {
+            self.pending_sandbox_workers
+                .insert(prepared.key.clone(), prepared);
+        }
         if activation.installation.status == PluginStatus::Enabled
             && let Err(error) = self.register_plugin_filters(&activation.installation)
         {
@@ -259,7 +318,7 @@ impl EngineService {
         &mut self,
         params: PluginRollbackParams,
     ) -> Result<PluginLifecycleResult> {
-        let _current = self.store.get_plugin_installation(&params.plugin_id)?;
+        let current = self.store.get_plugin_installation(&params.plugin_id)?;
         let version = self
             .store
             .get_plugin_version(&params.plugin_id, &params.version_id)?;
@@ -289,12 +348,45 @@ impl EngineService {
                 compatibility.unsupported_capabilities.join(", "),
             ));
         }
-        let activation = self.store.rollback_plugin_version(
+        if current.status == PluginStatus::Enabled && normalized.supports_sandbox_host() {
+            ensure_candidate_filter_slots(self, &params.plugin_id, &normalized)?;
+            let legacy_manifest = legacy_inventory_manifest(&normalized);
+            let candidate = candidate_installation_from_version(
+                &current,
+                &version,
+                &normalized,
+                &legacy_manifest,
+                current.revision.saturating_add(1),
+            )?;
+            let prepared = self.prepare_sandbox_activation(&candidate)?;
+            self.pending_sandbox_workers
+                .insert(prepared.key.clone(), prepared);
+        }
+        let activation = match self.store.rollback_plugin_version(
             &params.plugin_id,
             params.expected_revision,
             &params.version_id,
-        )?;
+        ) {
+            Ok(activation) => activation,
+            Err(error) => {
+                if let Some(prepared) = self.pending_sandbox_workers.remove(&SandboxRuntimeKey {
+                    plugin_id: params.plugin_id.clone(),
+                    version_id: params.version_id.clone(),
+                }) {
+                    let _ = prepared.worker.shutdown();
+                }
+                return Err(error.into());
+            }
+        };
+        let pending = self.pending_sandbox_workers.remove(&SandboxRuntimeKey {
+            plugin_id: params.plugin_id.clone(),
+            version_id: activation.active_version.id.clone(),
+        });
         self.unregister_plugin_filters(&params.plugin_id);
+        if let Some(prepared) = pending {
+            self.pending_sandbox_workers
+                .insert(prepared.key.clone(), prepared);
+        }
         if activation.installation.status == PluginStatus::Enabled
             && let Err(error) = self.register_plugin_filters(&activation.installation)
         {
@@ -747,6 +839,15 @@ impl EngineService {
             return Ok(());
         }
 
+        if record.tier == translunar_plugin_runtime::PluginTier::Sandbox {
+            return self.register_sandbox_contributions(record);
+        }
+        if record.tier != translunar_plugin_runtime::PluginTier::Process {
+            return Err(EngineError::InvalidState(
+                "plugin runtime has no executable host".to_string(),
+            ));
+        }
+
         let descriptors = record.filter_descriptors();
         for descriptor in &descriptors {
             if descriptor.id.starts_with("builtin.") {
@@ -794,6 +895,182 @@ impl EngineService {
         Ok(())
     }
 
+    fn prepare_sandbox_activation(
+        &self,
+        record: &PluginInstallationRecord,
+    ) -> Result<PreparedSandboxActivation> {
+        let normalized: RuntimeNormalizedPluginManifest =
+            serde_json::from_value(record.normalized_manifest_json.clone()).map_err(|_| {
+                EngineError::PluginInvalidManifest(
+                    "stored normalized sandbox manifest is invalid".to_string(),
+                )
+            })?;
+        if !normalized.supports_sandbox_host() {
+            return Err(EngineError::PluginCapabilityUnsupported(
+                "sandbox package contains an unsupported contribution".to_string(),
+            ));
+        }
+        let version_id = record
+            .active_version_id
+            .as_deref()
+            .ok_or_else(|| EngineError::InvalidState("plugin has no active version".to_string()))?;
+        let authorizer = self.plugin_capabilities.authorizer();
+        for contribution in &normalized.contributions {
+            match contribution {
+                PluginContributionDescriptor::Filter(value) => {
+                    authorize_contribution(
+                        &authorizer,
+                        record,
+                        version_id,
+                        PluginCapabilityId::FileRead,
+                        PluginCapabilityScope::File {
+                            areas: vec![PluginFileArea::Source],
+                        },
+                        &value.id,
+                        "filter.register",
+                    )?;
+                    if value.capabilities.export {
+                        authorize_contribution(
+                            &authorizer,
+                            record,
+                            version_id,
+                            PluginCapabilityId::FileWrite,
+                            PluginCapabilityScope::File {
+                                areas: vec![PluginFileArea::Output],
+                            },
+                            &value.id,
+                            "filter.register",
+                        )?;
+                    }
+                }
+                PluginContributionDescriptor::UiPanel(value) => {
+                    authorize_contribution(
+                        &authorizer,
+                        record,
+                        version_id,
+                        PluginCapabilityId::UiPanel,
+                        PluginCapabilityScope::Contributions {
+                            contribution_ids: vec![value.id.clone()],
+                        },
+                        &value.id,
+                        "ui.panel.register",
+                    )?;
+                }
+                _ => {
+                    return Err(EngineError::PluginCapabilityUnsupported(format!(
+                        "unsupported sandbox contribution {}",
+                        contribution.id()
+                    )));
+                }
+            }
+        }
+        let (entry_path, export_name) = match &normalized.runtime {
+            PluginRuntimeDescriptor::Sandbox {
+                entry:
+                    translunar_plugin_runtime::SandboxRuntimeEntry::Javascript { path, export_name },
+                ..
+            } => (path.clone(), export_name.clone()),
+            _ => {
+                return Err(EngineError::InvalidState(
+                    "sandbox plugin has a mismatched runtime projection".to_string(),
+                ));
+            }
+        };
+        let activation_revision = i64::try_from(record.revision).map_err(|_| {
+            EngineError::InvalidState("plugin activation revision is out of range".to_string())
+        })?;
+        let package_root =
+            resolve_managed_path(self.store.paths().root.as_path(), &record.package_path);
+        let mut config = SandboxRuntimeConfig::new(
+            record.id.clone(),
+            version_id.to_string(),
+            activation_revision,
+            package_root,
+            entry_path,
+            export_name,
+        );
+        config.expected_package_hash = record.package_sha256.clone();
+        let host_calls = sandbox_host_call_registry(&normalized)?;
+        let worker = self
+            .plugin_sandbox_runtimes
+            .prepare(config, host_calls, Arc::clone(&authorizer))
+            .map_err(map_sandbox_error)?;
+        let mut filters: Vec<(String, Arc<dyn DocumentFilter>)> = Vec::new();
+        for contribution in &normalized.contributions {
+            if let PluginContributionDescriptor::Filter(value) = contribution {
+                let descriptor = FilterDescriptor {
+                    id: value.id.clone(),
+                    version: value.version.clone(),
+                    display_name: value.display_name.clone(),
+                    extensions: value.extensions.clone(),
+                    capabilities: value.capabilities.clone(),
+                };
+                let adapter = SandboxDocumentFilter::new(
+                    worker.clone(),
+                    descriptor,
+                    record.id.clone(),
+                    version_id.to_string(),
+                    record.revision,
+                    value.id.clone(),
+                    Arc::clone(&authorizer),
+                )
+                .map_err(map_sandbox_error)?;
+                filters.push((value.id.clone(), Arc::new(adapter)));
+            }
+        }
+        Ok(PreparedSandboxActivation {
+            key: worker.key().clone(),
+            worker,
+            filters,
+        })
+    }
+
+    fn register_sandbox_contributions(&mut self, record: &PluginInstallationRecord) -> Result<()> {
+        let version_id = record
+            .active_version_id
+            .clone()
+            .ok_or_else(|| EngineError::InvalidState("plugin has no active version".to_string()))?;
+        let key = SandboxRuntimeKey {
+            plugin_id: record.id.clone(),
+            version_id: version_id.clone(),
+        };
+        let prepared = match self.pending_sandbox_workers.remove(&key) {
+            Some(prepared) => prepared,
+            None => self.prepare_sandbox_activation(record)?,
+        };
+        for (id, _) in &prepared.filters {
+            if self.filters.contains(id)
+                && self.plugin_filter_owners.get(id).map(String::as_str) != Some(record.id.as_str())
+            {
+                let _ = prepared.worker.shutdown();
+                return Err(EngineError::PluginConflict(format!(
+                    "filter id {id} is already registered"
+                )));
+            }
+        }
+        self.plugin_sandbox_runtimes
+            .attach(prepared.worker.clone())
+            .map_err(map_sandbox_error)?;
+        let mut registered: Vec<String> = Vec::new();
+        for (id, adapter) in prepared.filters {
+            if let Err(error) = self.filters.register(adapter) {
+                for registered_id in &registered {
+                    let _ = self.filters.unregister(registered_id);
+                    self.plugin_filter_owners.remove(registered_id);
+                }
+                let _ = self.plugin_sandbox_runtimes.detach(&key);
+                return Err(EngineError::InvalidState(error.to_string()));
+            }
+            self.plugin_filter_owners
+                .insert(id.clone(), record.id.clone());
+            registered.push(id);
+        }
+        self.plugin_sandbox_keys.insert(record.id.clone(), key);
+        self.plugin_activation_revisions
+            .insert(record.id.clone(), record.revision);
+        Ok(())
+    }
+
     pub(crate) fn unregister_plugin_filters(&mut self, plugin_id: &str) {
         let owned: Vec<String> = self
             .plugin_filter_owners
@@ -823,6 +1100,20 @@ impl EngineService {
         }
         if let Some(process) = self.plugin_processes.remove(plugin_id) {
             process.stop();
+        }
+        if let Some(key) = self.plugin_sandbox_keys.remove(plugin_id) {
+            let _ = self.plugin_sandbox_runtimes.detach(&key);
+        }
+        let pending = self
+            .pending_sandbox_workers
+            .keys()
+            .filter(|key| key.plugin_id == plugin_id)
+            .cloned()
+            .collect::<Vec<_>>();
+        for key in pending {
+            if let Some(prepared) = self.pending_sandbox_workers.remove(&key) {
+                let _ = prepared.worker.shutdown();
+            }
         }
         self.plugin_activation_revisions.remove(plugin_id);
     }
@@ -922,10 +1213,41 @@ impl EngineService {
             }) => Some((
                 plugin_id.clone(),
                 *activation_revision,
-                format!(
+                bounded_plugin_message(&format!(
                     "{operation} for {filter_id} failed ({}): {message}",
                     kind.as_str()
-                ),
+                )),
+            )),
+            EngineError::Import(FilterError::PluginSandboxFailed {
+                plugin_id,
+                filter_id,
+                operation,
+                activation_revision,
+                kind,
+                message,
+            })
+            | EngineError::CorpusImport(FilterError::PluginSandboxFailed {
+                plugin_id,
+                filter_id,
+                operation,
+                activation_revision,
+                kind,
+                message,
+            })
+            | EngineError::Export(FilterError::PluginSandboxFailed {
+                plugin_id,
+                filter_id,
+                operation,
+                activation_revision,
+                kind,
+                message,
+            }) => Some((
+                plugin_id.clone(),
+                *activation_revision,
+                bounded_plugin_message(&format!(
+                    "{operation} for {filter_id} failed ({}): {message}",
+                    kind.as_str()
+                )),
             )),
             _ => None,
         };
@@ -1123,7 +1445,39 @@ fn ensure_candidate_filter_slots(
 }
 
 fn bounded_plugin_message(message: &str) -> String {
-    message.chars().take(512).collect()
+    const MAX_BYTES: usize = 4 * 1024;
+    static PATH: OnceLock<regex::Regex> = OnceLock::new();
+    static SECRET: OnceLock<regex::Regex> = OnceLock::new();
+    let path = PATH.get_or_init(|| {
+        regex::Regex::new(r"(?i)(?:[a-z]:[\\/]|/(?:[^\s/:]+/)+)[^\s]*")
+            .expect("plugin diagnostic path regex")
+    });
+    let secret = SECRET.get_or_init(|| {
+        regex::Regex::new(
+            r"(?i)(?:token|secret|password|authorization|api[_-]?key)\s*[:=]\s*[^\s,;]+",
+        )
+        .expect("plugin diagnostic secret regex")
+    });
+    let flattened = message
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect::<String>();
+    let without_paths = path.replace_all(&flattened, "[path]");
+    let sanitized = secret.replace_all(&without_paths, "[credential]");
+    let mut bounded = String::new();
+    for character in sanitized.chars() {
+        if bounded.len() + character.len_utf8() > MAX_BYTES {
+            break;
+        }
+        bounded.push(character);
+    }
+    bounded
 }
 
 fn resolve_managed_path(root: &Path, path: &Path) -> PathBuf {
@@ -1312,6 +1666,47 @@ fn new_version_from_staged(
     })
 }
 
+fn candidate_installation_from_version(
+    current: &PluginInstallationRecord,
+    version: &PluginVersionRecord,
+    normalized: &RuntimeNormalizedPluginManifest,
+    legacy_manifest: &PluginManifest,
+    revision: u64,
+) -> Result<PluginInstallationRecord> {
+    if version.plugin_id != current.id || normalized.id != current.id {
+        return Err(EngineError::PluginConflict(
+            "candidate version belongs to another plugin".to_string(),
+        ));
+    }
+    Ok(PluginInstallationRecord {
+        id: current.id.clone(),
+        display_name: normalized.display_name.clone(),
+        version: normalized.version.clone(),
+        tier: normalized.runtime.tier(),
+        status: current.status,
+        package_path: version
+            .managed_package_path
+            .clone()
+            .unwrap_or_else(|| version.package_path.clone()),
+        entry: legacy_manifest.entry.clone(),
+        manifest: legacy_manifest.clone(),
+        contributions: legacy_manifest.contributions.clone(),
+        requested_permissions: normalized.requested_permissions.clone(),
+        granted_permissions: current.granted_permissions.clone(),
+        last_error: None,
+        crash_count: current.crash_count,
+        revision,
+        installed_at_ms: current.installed_at_ms,
+        updated_at_ms: current.updated_at_ms,
+        active_version_id: Some(version.id.clone()),
+        package_sha256: version.package_sha256.clone(),
+        runtime_json: version.runtime_json.clone(),
+        normalized_manifest_json: version.normalized_manifest_json.clone(),
+        compatibility_json: version.compatibility_json.clone(),
+        diagnostics_json: version.diagnostics_json.clone(),
+    })
+}
+
 pub(crate) fn to_summary(record: PluginInstallationRecord) -> PluginSummary {
     let runtime = parse_wire_runtime_projection(
         &record.runtime_json,
@@ -1453,6 +1848,68 @@ fn map_plugin_error(error: translunar_plugin_runtime::PluginRuntimeError) -> Eng
     }
 }
 
+fn map_sandbox_error(error: SandboxError) -> EngineError {
+    EngineError::PluginSandboxFailed(sandbox_safe_diagnostic(
+        &error,
+        translunar_plugin_runtime::DEFAULT_SANDBOX_LIMITS.diagnostic_bytes,
+    ))
+}
+
+fn sandbox_host_call_registry(
+    manifest: &RuntimeNormalizedPluginManifest,
+) -> Result<Arc<SandboxHostCallRegistry>> {
+    let filter_ids = manifest
+        .contributions
+        .iter()
+        .filter_map(|contribution| match contribution {
+            PluginContributionDescriptor::Filter(filter) => Some(filter.id.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let registry = Arc::new(SandboxHostCallRegistry::default());
+    if filter_ids.is_empty() {
+        return Ok(registry);
+    }
+
+    let method = SandboxHostMethod::new(
+        "diagnostics.summary",
+        PluginCapabilityId::DiagnosticsRead,
+        PluginCapabilityScope::Diagnostics {
+            categories: vec!["summary".to_string()],
+        },
+        ["filter.validate".to_string()],
+        |context, _params| {
+            Ok(json!({
+                "protocolVersion": 1,
+                "status": "ready",
+                "activationRevision": context.activation_revision,
+                "contributionId": context.contribution_id,
+                "operation": context.operation,
+            }))
+        },
+    )
+    .map_err(map_sandbox_error)?
+    .with_contributions(filter_ids)
+    .map_err(map_sandbox_error)?
+    .with_scope_deriver(|params| {
+        let category = params
+            .as_object()
+            .filter(|value| value.len() == 1)
+            .and_then(|value| value.get("category"))
+            .and_then(Value::as_str);
+        if category != Some("summary") {
+            return Err(SandboxError::Codec {
+                reason: "diagnostics summary params",
+            });
+        }
+        Ok(PluginCapabilityScope::Diagnostics {
+            categories: vec!["summary".to_string()],
+        })
+    });
+    registry.register(method).map_err(map_sandbox_error)?;
+    Ok(registry)
+}
+
 // Silence unused import warnings for path helpers kept for clarity.
 #[allow(dead_code)]
 fn _path_anchor(path: &Path, _store: &Store, _registry: &FilterRegistry) -> PathBuf {
@@ -1468,7 +1925,7 @@ mod tests {
     use serde_json::json;
     use tempfile::tempdir;
     use translunar_plugin_runtime::copy_package;
-    use translunar_protocol::ErrorCode;
+    use translunar_protocol::{ErrorCode, PluginCapabilityAuditEvent};
 
     fn hello_srt_source() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1480,6 +1937,12 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
             .join("examples/plugins/tier1-toolkit")
+    }
+
+    fn sandbox_toolkit_source() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("examples/plugins/sandbox-toolkit")
     }
 
     fn grant_required_capabilities(service: &mut EngineService, plugin_id: &str) {
@@ -1508,6 +1971,514 @@ mod tests {
                 })
                 .expect("grant required capability");
         }
+    }
+
+    #[test]
+    fn sandbox_toolkit_uses_bounded_runtime_and_detaches_cleanly() {
+        let data = tempdir().expect("data directory");
+        let mut service = EngineService::open(data.path()).expect("open engine");
+        let installed = service
+            .install_plugin(PluginInstallParams {
+                source_path: sandbox_toolkit_source().to_string_lossy().into_owned(),
+                grant_requested: false,
+                actor: "test".to_string(),
+                reason: "install sandbox toolkit".to_string(),
+            })
+            .expect("install sandbox toolkit")
+            .plugin;
+        assert_eq!(installed.tier, WirePluginTier::Sandbox);
+        assert!(
+            installed
+                .compatibility
+                .as_ref()
+                .is_some_and(|value| value.compatible)
+        );
+        assert!(!service.filters.contains("example.sandbox-toolkit.echo"));
+        assert!(service.plugin_processes.is_empty());
+        assert!(service.plugin_sandbox_runtimes.is_empty());
+
+        grant_required_capabilities(&mut service, &installed.id);
+        let before_enable = service
+            .get_plugin(PluginIdParams {
+                plugin_id: installed.id.clone(),
+            })
+            .expect("sandbox before enable");
+        let enabled = service
+            .enable_plugin(PluginMutationParams {
+                plugin_id: installed.id.clone(),
+                expected_revision: Some(before_enable.revision),
+                actor: "test".to_string(),
+                reason: "enable sandbox toolkit".to_string(),
+            })
+            .expect("enable sandbox toolkit")
+            .plugin;
+        assert_eq!(enabled.status, WirePluginStatus::Enabled);
+        assert!(service.plugin_processes.is_empty());
+        assert_eq!(service.plugin_sandbox_runtimes.len(), 1);
+        let source = data.path().join("sandbox-validate.txt");
+        std::fs::write(&source, "bounded input").expect("write sandbox input");
+        let report = service
+            .filters
+            .resolve("example.sandbox-toolkit.echo")
+            .expect("sandbox filter")
+            .validate(&source)
+            .expect("sandbox validate");
+        assert!(report.valid);
+        let audit = service
+            .list_plugin_capability_audit(translunar_protocol::PluginCapabilityAuditListParams {
+                plugin_id: installed.id.clone(),
+                request_id: None,
+                offset: 0,
+                limit: 200,
+            })
+            .expect("list sandbox capability audit");
+        assert!(audit.items.iter().any(|entry| {
+            entry.capability_id == PluginCapabilityId::DiagnosticsRead
+                && entry.event == PluginCapabilityAuditEvent::OperationAllowed
+                && entry.operation == "filter.validate"
+                && entry.scope
+                    == (PluginCapabilityScope::Diagnostics {
+                        categories: vec!["summary".to_string()],
+                    })
+        }));
+
+        drop(service);
+        let mut reopened = EngineService::open(data.path()).expect("reopen engine");
+        assert_eq!(reopened.plugin_sandbox_runtimes.len(), 1);
+        assert!(reopened.plugin_processes.is_empty());
+        let current = reopened
+            .get_plugin(PluginIdParams {
+                plugin_id: installed.id.clone(),
+            })
+            .expect("reopened sandbox");
+        let disabled = reopened
+            .disable_plugin(PluginMutationParams {
+                plugin_id: installed.id.clone(),
+                expected_revision: Some(current.revision),
+                actor: "test".to_string(),
+                reason: "disable sandbox toolkit".to_string(),
+            })
+            .expect("disable sandbox toolkit")
+            .plugin;
+        assert!(reopened.plugin_sandbox_runtimes.is_empty());
+        assert!(!reopened.filters.contains("example.sandbox-toolkit.echo"));
+        let enabled_again = reopened
+            .enable_plugin(PluginMutationParams {
+                plugin_id: installed.id.clone(),
+                expected_revision: Some(disabled.revision),
+                actor: "test".to_string(),
+                reason: "re-enable sandbox toolkit".to_string(),
+            })
+            .expect("re-enable sandbox toolkit")
+            .plugin;
+        assert_eq!(enabled_again.status, WirePluginStatus::Enabled);
+        let request = reopened
+            .list_plugin_capability_requests(
+                translunar_protocol::PluginCapabilityRequestListParams {
+                    plugin_id: installed.id.clone(),
+                    version_id: None,
+                    offset: 0,
+                    limit: 200,
+                },
+            )
+            .expect("list sandbox requests")
+            .items
+            .into_iter()
+            .find(|request| request.required)
+            .expect("required sandbox request");
+        let revoked = reopened
+            .revoke_plugin_capability(translunar_protocol::PluginCapabilityDecisionParams {
+                plugin_id: installed.id.clone(),
+                request_id: request.id,
+                expected_revision: request.revision,
+                actor: "test".to_string(),
+                reason: "revoke sandbox capability".to_string(),
+            })
+            .expect("revoke sandbox capability");
+        assert!(revoked.detached);
+        assert_eq!(revoked.plugin.status, WirePluginStatus::Disabled);
+        assert!(reopened.plugin_sandbox_runtimes.is_empty());
+        assert!(!reopened.filters.contains("example.sandbox-toolkit.echo"));
+
+        grant_required_capabilities(&mut reopened, &installed.id);
+        let before_final_enable = reopened
+            .get_plugin(PluginIdParams {
+                plugin_id: installed.id.clone(),
+            })
+            .expect("sandbox before final enable");
+        let final_enabled = reopened
+            .enable_plugin(PluginMutationParams {
+                plugin_id: installed.id.clone(),
+                expected_revision: Some(before_final_enable.revision),
+                actor: "test".to_string(),
+                reason: "enable before uninstall".to_string(),
+            })
+            .expect("enable before uninstall")
+            .plugin;
+        reopened
+            .uninstall_plugin(PluginMutationParams {
+                plugin_id: installed.id.clone(),
+                expected_revision: Some(final_enabled.revision),
+                actor: "test".to_string(),
+                reason: "uninstall sandbox toolkit".to_string(),
+            })
+            .expect("uninstall sandbox toolkit");
+        assert!(reopened.plugin_sandbox_runtimes.is_empty());
+        assert!(!reopened.filters.contains("example.sandbox-toolkit.echo"));
+        assert!(
+            reopened
+                .get_plugin(PluginIdParams {
+                    plugin_id: installed.id,
+                })
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn sandbox_upgrade_initialization_failure_keeps_active_version_usable() {
+        let data = tempdir().expect("data directory");
+        let mut service = EngineService::open(data.path()).expect("open engine");
+        let installed = service
+            .install_plugin(PluginInstallParams {
+                source_path: sandbox_toolkit_source().to_string_lossy().into_owned(),
+                grant_requested: false,
+                actor: "test".to_string(),
+                reason: "install sandbox toolkit".to_string(),
+            })
+            .expect("install sandbox toolkit")
+            .plugin;
+        grant_required_capabilities(&mut service, &installed.id);
+        let installed = service
+            .get_plugin(PluginIdParams {
+                plugin_id: installed.id.clone(),
+            })
+            .expect("sandbox after grants");
+        let enabled = service
+            .enable_plugin(PluginMutationParams {
+                plugin_id: installed.id.clone(),
+                expected_revision: Some(installed.revision),
+                actor: "test".to_string(),
+                reason: "enable sandbox toolkit".to_string(),
+            })
+            .expect("enable sandbox toolkit")
+            .plugin;
+        let old_version_id = enabled.active_version_id.clone();
+
+        let candidate = tempdir().expect("candidate source");
+        copy_package(&sandbox_toolkit_source(), candidate.path()).expect("copy candidate");
+        let manifest_path = candidate.path().join("manifest.json");
+        let mut manifest: Value = serde_json::from_slice(
+            &std::fs::read(&manifest_path).expect("read candidate manifest"),
+        )
+        .expect("parse candidate manifest");
+        manifest["version"] = json!("0.2.0");
+        for contribution in manifest["contributions"]
+            .as_array_mut()
+            .expect("candidate contributions")
+        {
+            contribution["version"] = json!("0.2.0");
+        }
+        std::fs::write(
+            &manifest_path,
+            serde_json::to_vec_pretty(&manifest).expect("serialize candidate manifest"),
+        )
+        .expect("write candidate manifest");
+        std::fs::write(
+            candidate.path().join("entry.mjs"),
+            "export default { activate() { throw new Error('private path C:\\\\secret'); }, invoke() {} };",
+        )
+        .expect("write failing candidate entry");
+        let error = service
+            .upgrade_plugin(PluginUpgradeParams {
+                plugin_id: enabled.id.clone(),
+                source_path: candidate.path().to_string_lossy().into_owned(),
+                expected_revision: enabled.revision,
+                actor: "test".to_string(),
+                reason: "reject failing sandbox candidate".to_string(),
+            })
+            .expect_err("candidate initialization must fail");
+        assert!(matches!(error, EngineError::PluginUpgradeFailed(_)));
+        let after = service
+            .get_plugin(PluginIdParams {
+                plugin_id: enabled.id.clone(),
+            })
+            .expect("sandbox after failed upgrade");
+        assert_eq!(after.revision, enabled.revision);
+        assert_eq!(after.active_version_id, old_version_id);
+        assert_eq!(service.plugin_sandbox_runtimes.len(), 1);
+        let source = data.path().join("still-usable.txt");
+        std::fs::write(&source, "still usable").expect("write validation source");
+        assert!(
+            service
+                .filters
+                .resolve("example.sandbox-toolkit.echo")
+                .expect("old sandbox filter")
+                .validate(&source)
+                .expect("old sandbox remains usable")
+                .valid
+        );
+    }
+
+    #[test]
+    fn sandbox_upgrade_and_rollback_swap_prepared_runtimes() {
+        let data = tempdir().expect("data directory");
+        let mut service = EngineService::open(data.path()).expect("open engine");
+        let installed = service
+            .install_plugin(PluginInstallParams {
+                source_path: sandbox_toolkit_source().to_string_lossy().into_owned(),
+                grant_requested: false,
+                actor: "test".to_string(),
+                reason: "install sandbox toolkit".to_string(),
+            })
+            .expect("install sandbox toolkit")
+            .plugin;
+        grant_required_capabilities(&mut service, &installed.id);
+        let installed = service
+            .get_plugin(PluginIdParams {
+                plugin_id: installed.id.clone(),
+            })
+            .expect("sandbox after grants");
+        let enabled = service
+            .enable_plugin(PluginMutationParams {
+                plugin_id: installed.id.clone(),
+                expected_revision: Some(installed.revision),
+                actor: "test".to_string(),
+                reason: "enable sandbox toolkit".to_string(),
+            })
+            .expect("enable sandbox toolkit")
+            .plugin;
+        let original_version_id = enabled
+            .active_version_id
+            .clone()
+            .expect("original active version");
+
+        let candidate = tempdir().expect("candidate source");
+        copy_package(&sandbox_toolkit_source(), candidate.path()).expect("copy candidate");
+        let manifest_path = candidate.path().join("manifest.json");
+        let mut manifest: Value = serde_json::from_slice(
+            &std::fs::read(&manifest_path).expect("read candidate manifest"),
+        )
+        .expect("parse candidate manifest");
+        manifest["version"] = json!("0.2.0");
+        for contribution in manifest["contributions"]
+            .as_array_mut()
+            .expect("candidate contributions")
+        {
+            contribution["version"] = json!("0.2.0");
+        }
+        std::fs::write(
+            &manifest_path,
+            serde_json::to_vec_pretty(&manifest).expect("serialize candidate manifest"),
+        )
+        .expect("write candidate manifest");
+        let upgraded = service
+            .upgrade_plugin(PluginUpgradeParams {
+                plugin_id: enabled.id.clone(),
+                source_path: candidate.path().to_string_lossy().into_owned(),
+                expected_revision: enabled.revision,
+                actor: "test".to_string(),
+                reason: "upgrade sandbox toolkit".to_string(),
+            })
+            .expect("upgrade sandbox toolkit");
+        assert_eq!(upgraded.plugin.version, "0.2.0");
+        assert_ne!(upgraded.active_version_id, original_version_id);
+        assert_eq!(service.plugin_sandbox_runtimes.len(), 1);
+        assert_eq!(service.plugin_sandbox_keys.len(), 1);
+
+        let rolled_back = service
+            .rollback_plugin(PluginRollbackParams {
+                plugin_id: enabled.id.clone(),
+                version_id: original_version_id.clone(),
+                expected_revision: upgraded.plugin.revision,
+                actor: "test".to_string(),
+                reason: "rollback sandbox toolkit".to_string(),
+            })
+            .expect("rollback sandbox toolkit");
+        assert_eq!(rolled_back.active_version_id, original_version_id);
+        assert_eq!(rolled_back.plugin.version, "0.1.0");
+        assert_eq!(service.plugin_sandbox_runtimes.len(), 1);
+        let source = data.path().join("rollback-usable.txt");
+        std::fs::write(&source, "rollback usable").expect("write rollback source");
+        assert!(
+            service
+                .filters
+                .resolve("example.sandbox-toolkit.echo")
+                .expect("rolled back sandbox filter")
+                .validate(&source)
+                .expect("rolled back sandbox usable")
+                .valid
+        );
+    }
+
+    #[test]
+    fn sandbox_timeout_degrades_only_its_plugin_and_keeps_engine_healthy() {
+        let data = tempdir().expect("data directory");
+        let package = tempdir().expect("sandbox timeout package");
+        copy_package(&sandbox_toolkit_source(), package.path()).expect("copy timeout package");
+        std::fs::write(
+            package.path().join("entry.mjs"),
+            "export default { invoke() { while (true) {} } };",
+        )
+        .expect("write timeout entry");
+        let mut service = EngineService::open(data.path()).expect("open engine");
+        let installed = service
+            .install_plugin(PluginInstallParams {
+                source_path: package.path().to_string_lossy().into_owned(),
+                grant_requested: false,
+                actor: "test".to_string(),
+                reason: "install timeout sandbox".to_string(),
+            })
+            .expect("install timeout sandbox")
+            .plugin;
+        grant_required_capabilities(&mut service, &installed.id);
+        let installed = service
+            .get_plugin(PluginIdParams {
+                plugin_id: installed.id.clone(),
+            })
+            .expect("timeout sandbox after grants");
+        service
+            .enable_plugin(PluginMutationParams {
+                plugin_id: installed.id.clone(),
+                expected_revision: Some(installed.revision),
+                actor: "test".to_string(),
+                reason: "enable timeout sandbox".to_string(),
+            })
+            .expect("enable timeout sandbox");
+        let source = data.path().join("timeout-source.txt");
+        std::fs::write(&source, "bounded source").expect("write timeout source");
+        let failure = service
+            .filters
+            .resolve("example.sandbox-toolkit.echo")
+            .expect("timeout sandbox filter")
+            .validate(&source)
+            .expect_err("infinite loop must time out");
+        assert!(matches!(
+            &failure,
+            FilterError::PluginSandboxFailed {
+                kind: translunar_filter_core::PluginSandboxFailureKind::Timeout,
+                ..
+            }
+        ));
+        let error = service.handle_plugin_filter_failure(EngineError::Import(failure));
+        let degraded = service
+            .get_plugin(PluginIdParams {
+                plugin_id: installed.id.clone(),
+            })
+            .expect("degraded timeout sandbox");
+        assert_eq!(degraded.status, WirePluginStatus::Degraded);
+        assert_eq!(degraded.crash_count, 1);
+        assert!(
+            degraded
+                .last_error
+                .as_deref()
+                .is_some_and(|message| message.len() <= 4 * 1024 && !message.contains("source.txt"))
+        );
+        assert!(service.plugin_sandbox_runtimes.is_empty());
+        assert!(!service.filters.contains("example.sandbox-toolkit.echo"));
+        assert!(service.filters.contains("builtin.txt"));
+        service
+            .create_project(translunar_protocol::CreateProjectParams {
+                name: "Healthy after sandbox timeout".to_string(),
+                source_locale: "en".to_string(),
+                target_locale: "zh".to_string(),
+                domain: "test".to_string(),
+            })
+            .expect("ordinary Engine RPC remains healthy");
+        assert_eq!(crate::rpc_error(error).code, ErrorCode::PluginSandboxFailed);
+    }
+
+    #[test]
+    fn sandbox_filter_collision_rejects_candidate_without_detaching_owner() {
+        let data = tempdir().expect("data directory");
+        let mut service = EngineService::open(data.path()).expect("open engine");
+        let first = service
+            .install_plugin(PluginInstallParams {
+                source_path: sandbox_toolkit_source().to_string_lossy().into_owned(),
+                grant_requested: false,
+                actor: "test".to_string(),
+                reason: "install sandbox owner".to_string(),
+            })
+            .expect("install sandbox owner")
+            .plugin;
+        grant_required_capabilities(&mut service, &first.id);
+        let first = service
+            .get_plugin(PluginIdParams {
+                plugin_id: first.id.clone(),
+            })
+            .expect("sandbox owner after grants");
+        service
+            .enable_plugin(PluginMutationParams {
+                plugin_id: first.id.clone(),
+                expected_revision: Some(first.revision),
+                actor: "test".to_string(),
+                reason: "enable sandbox owner".to_string(),
+            })
+            .expect("enable sandbox owner");
+
+        let collision = tempdir().expect("collision source");
+        copy_package(&sandbox_toolkit_source(), collision.path()).expect("copy collision package");
+        let manifest_path = collision.path().join("manifest.json");
+        let mut manifest: Value = serde_json::from_slice(
+            &std::fs::read(&manifest_path).expect("read collision manifest"),
+        )
+        .expect("parse collision manifest");
+        manifest["id"] = json!("example.sandbox-collision");
+        manifest["displayName"] = json!("Sandbox Collision");
+        manifest["contributions"][1]["id"] = json!("example.sandbox-collision.panel");
+        let panel_capability = manifest["capabilities"]
+            .as_array_mut()
+            .expect("capability array")
+            .iter_mut()
+            .find(|capability| capability["capabilityId"] == "ui.panel")
+            .expect("panel capability");
+        panel_capability["scope"]["contributionIds"] = json!(["example.sandbox-collision.panel"]);
+        panel_capability["contributionId"] = json!("example.sandbox-collision.panel");
+        std::fs::write(
+            &manifest_path,
+            serde_json::to_vec_pretty(&manifest).expect("serialize collision manifest"),
+        )
+        .expect("write collision manifest");
+        let second = service
+            .install_plugin(PluginInstallParams {
+                source_path: collision.path().to_string_lossy().into_owned(),
+                grant_requested: false,
+                actor: "test".to_string(),
+                reason: "install sandbox collision".to_string(),
+            })
+            .expect("install sandbox collision")
+            .plugin;
+        grant_required_capabilities(&mut service, &second.id);
+        let second = service
+            .get_plugin(PluginIdParams {
+                plugin_id: second.id.clone(),
+            })
+            .expect("sandbox collision after grants");
+        let error = service
+            .enable_plugin(PluginMutationParams {
+                plugin_id: second.id.clone(),
+                expected_revision: Some(second.revision),
+                actor: "test".to_string(),
+                reason: "reject sandbox collision".to_string(),
+            })
+            .expect_err("sandbox collision must fail");
+        assert!(matches!(error, EngineError::PluginConflict(_)));
+        assert_eq!(service.plugin_sandbox_runtimes.len(), 1);
+        assert_eq!(
+            service
+                .plugin_filter_owners
+                .get("example.sandbox-toolkit.echo")
+                .map(String::as_str),
+            Some("example.sandbox-toolkit")
+        );
+        assert_eq!(
+            service
+                .get_plugin(PluginIdParams {
+                    plugin_id: second.id,
+                })
+                .expect("collision remains installed")
+                .status,
+            WirePluginStatus::Installed
+        );
     }
 
     #[test]

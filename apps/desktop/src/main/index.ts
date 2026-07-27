@@ -1,11 +1,13 @@
 import { access } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import {
   app,
   BrowserWindow,
   dialog,
   ipcMain,
+  protocol,
   shell,
   type IpcMainInvokeEvent,
 } from "electron";
@@ -13,6 +15,7 @@ import {
   ENGINE_METHODS,
   type EngineMethod,
   type EngineParams,
+  type PluginSummary,
 } from "@translunar/contracts";
 
 import {
@@ -44,6 +47,24 @@ import {
   releaseSmokeReadinessRequested,
   writeReleaseSmokeReadiness,
 } from "./release-smoke-readiness.js";
+import {
+  PLUGIN_ASSET_SCHEME,
+  PluginAssetSessionRegistry,
+} from "./plugin-asset-sessions.js";
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: PLUGIN_ASSET_SCHEME,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      codeCache: false,
+      corsEnabled: true,
+    },
+  },
+]);
 
 const IPC_CHANNELS = {
   invoke: "translunar:engine:invoke",
@@ -58,6 +79,9 @@ const IPC_CHANNELS = {
   selectTaskPackageInput: "translunar:dialog:task-package-input",
   selectCorpusInput: "translunar:dialog:corpus-input",
   selectPluginPackage: "translunar:dialog:plugin-package",
+  issuePluginPanelSession: "translunar:plugin:panel:issue",
+  revokePluginPanelSession: "translunar:plugin:panel:revoke",
+  pluginPanelRevoked: "translunar:plugin:panel:revoked",
   restartEngine: "translunar:engine:restart",
   setAiCredential: "translunar:ai:credential:set",
   editorCommand: "translunar:editor:command",
@@ -99,6 +123,7 @@ let draftJournal: DraftJournal | null = null;
 let updateManager: UpdateManager | null = null;
 let engineExecutable = "";
 const allowedMethods = new Set<string>(ENGINE_METHODS);
+const pluginAssetSessions = new PluginAssetSessionRegistry();
 
 let engineStoppedForQuit = false;
 
@@ -115,6 +140,9 @@ void bootstrap().catch((error: unknown) => {
 
 async function bootstrap(): Promise<void> {
   await app.whenReady();
+  protocol.handle(PLUGIN_ASSET_SCHEME, (request) =>
+    pluginAssetSessions.handle(request),
+  );
   shellSettings = new ShellSettingsStore(
     shellSettingsPath(app.getPath("userData")),
   );
@@ -123,6 +151,8 @@ async function bootstrap(): Promise<void> {
   const resolvedDataDir = resolveInitialDataDirectory(settings);
   engine = new EngineClient(engineExecutable, resolvedDataDir.path, {
     onUnexpectedExit: ({ attempt, stderrTail }) => {
+      pluginAssetSessions.revokeAll();
+      mainWindow?.webContents.send(IPC_CHANNELS.pluginPanelRevoked, null);
       mainWindow?.webContents.send(IPC_CHANNELS.engineStatus, {
         type: "reconnecting",
         attempt,
@@ -130,6 +160,8 @@ async function bootstrap(): Promise<void> {
       });
     },
     onReconnected: ({ attempt }) => {
+      pluginAssetSessions.revokeAll();
+      mainWindow?.webContents.send(IPC_CHANNELS.pluginPanelRevoked, null);
       mainWindow?.webContents.send(IPC_CHANNELS.engineReconnected);
       mainWindow?.webContents.send(IPC_CHANNELS.engineStatus, {
         type: "reconnected",
@@ -371,8 +403,22 @@ function createWindow(): void {
     },
   });
   mainWindow.once("ready-to-show", () => mainWindow?.show());
+  const windowWebContentsId = mainWindow.webContents.id;
+  const revokeWindowPluginSessions = (): void => {
+    pluginAssetSessions.revokeOwner(windowWebContentsId);
+  };
   mainWindow.on("closed", () => {
+    revokeWindowPluginSessions();
     mainWindow = null;
+  });
+  mainWindow.webContents.on(
+    "did-start-navigation",
+    (_event, _url, isInPlace, isMainFrame) => {
+      if (isMainFrame && !isInPlace) revokeWindowPluginSessions();
+    },
+  );
+  mainWindow.webContents.on("render-process-gone", () => {
+    revokeWindowPluginSessions();
   });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   mainWindow.webContents.on("before-input-event", (event, input) => {
@@ -440,9 +486,14 @@ function registerIpc(): void {
           method,
           params as EngineParams<typeof method>,
         );
+        invalidatePluginSessionsAfterMutation(method, params);
         return { ok: true, result } satisfies DesktopEngineInvokeResponse;
       } catch (error) {
         if (!(error instanceof EngineProcessError)) throw error;
+        if (error.code === "plugin_sandbox_failed") {
+          pluginAssetSessions.revokeAll();
+          mainWindow?.webContents.send(IPC_CHANNELS.pluginPanelRevoked, null);
+        }
         return {
           ok: false,
           error: {
@@ -698,8 +749,76 @@ function registerIpc(): void {
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
+  ipcMain.handle(
+    IPC_CHANNELS.issuePluginPanelSession,
+    async (event, input: unknown) => {
+      assertTrustedSender(event);
+      const request = parsePluginPanelSessionRequest(input);
+      const activeEngine = requireEngine();
+      const plugin = await activeEngine.call("plugin.get", {
+        pluginId: request.pluginId,
+      });
+      if (!matchesPluginPanelRequest(plugin, request)) {
+        throw new Error(
+          "Plugin panel is not available for this active revision.",
+        );
+      }
+      const activeVersionId = plugin.activeVersionId;
+      if (!activeVersionId) {
+        throw new Error(
+          "Plugin panel is not available for this active revision.",
+        );
+      }
+      const contribution = (plugin.contributions ?? []).find(
+        (item) => item.kind === "uiPanel" && item.id === request.contributionId,
+      );
+      if (
+        !contribution ||
+        contribution.kind !== "uiPanel" ||
+        contribution.bridgeVersion !== 1
+      ) {
+        throw new Error("Plugin panel contribution is not available.");
+      }
+      const issued = await pluginAssetSessions.issue({
+        ownerWebContentsId: event.sender.id,
+        pluginId: plugin.id,
+        versionId: activeVersionId,
+        revision: plugin.revision,
+        contributionId: contribution.id,
+        bridgeVersion: 1,
+        packageRoot: plugin.packagePath,
+        surface: contribution.surface,
+      });
+      try {
+        const current = await activeEngine.call("plugin.get", {
+          pluginId: request.pluginId,
+        });
+        if (!matchesPluginPanelRequest(current, request)) {
+          throw new Error("stale plugin panel request");
+        }
+        return issued;
+      } catch {
+        pluginAssetSessions.revoke(issued.sessionId, event.sender.id);
+        throw new Error(
+          "Plugin panel is not available for this active revision.",
+        );
+      }
+    },
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.revokePluginPanelSession,
+    (event, sessionId: unknown) => {
+      assertTrustedSender(event);
+      if (typeof sessionId !== "string" || !/^[a-f0-9]{64}$/u.test(sessionId)) {
+        return false;
+      }
+      return pluginAssetSessions.revoke(sessionId, event.sender.id);
+    },
+  );
   ipcMain.handle(IPC_CHANNELS.restartEngine, async (event) => {
     assertTrustedSender(event);
+    pluginAssetSessions.revokeAll();
+    mainWindow?.webContents.send(IPC_CHANNELS.pluginPanelRevoked, null);
     await requireEngine().restart();
   });
   ipcMain.handle(
@@ -1070,6 +1189,63 @@ function registerIpc(): void {
   });
 }
 
+function parsePluginPanelSessionRequest(input: unknown): {
+  pluginId: string;
+  contributionId: string;
+  revision: number;
+} {
+  if (!input || Array.isArray(input) || typeof input !== "object") {
+    throw new Error("Invalid plugin panel session request.");
+  }
+  const record = input as Record<string, unknown>;
+  if (
+    Object.keys(record).length !== 3 ||
+    typeof record.pluginId !== "string" ||
+    !/^[A-Za-z0-9._:-]{1,128}$/u.test(record.pluginId) ||
+    typeof record.contributionId !== "string" ||
+    !/^[A-Za-z0-9._:-]{1,128}$/u.test(record.contributionId) ||
+    !Number.isSafeInteger(record.revision) ||
+    Number(record.revision) < 0
+  ) {
+    throw new Error("Invalid plugin panel session request.");
+  }
+  return {
+    pluginId: record.pluginId,
+    contributionId: record.contributionId,
+    revision: Number(record.revision),
+  };
+}
+
+function invalidatePluginSessionsAfterMutation(
+  method: EngineMethod,
+  params: unknown,
+): void {
+  if (
+    method !== "plugin.enable" &&
+    method !== "plugin.disable" &&
+    method !== "plugin.uninstall" &&
+    method !== "plugin.upgrade" &&
+    method !== "plugin.rollback" &&
+    method !== "plugin.permission.grant" &&
+    method !== "plugin.permission.deny" &&
+    method !== "plugin.permission.revoke"
+  ) {
+    return;
+  }
+  if (
+    params &&
+    typeof params === "object" &&
+    "pluginId" in params &&
+    typeof (params as { pluginId?: unknown }).pluginId === "string"
+  ) {
+    pluginAssetSessions.revokePlugin((params as { pluginId: string }).pluginId);
+    mainWindow?.webContents.send(
+      IPC_CHANNELS.pluginPanelRevoked,
+      (params as { pluginId: string }).pluginId,
+    );
+  }
+}
+
 async function currentDialogLocale(): Promise<string> {
   try {
     if (shellSettings) {
@@ -1110,9 +1286,55 @@ function supportedDocumentFilter(locale: string): Electron.FileFilter {
 }
 
 function assertTrustedSender(event: IpcMainInvokeEvent): void {
-  if (!mainWindow || event.sender !== mainWindow.webContents) {
+  if (
+    !mainWindow ||
+    event.sender !== mainWindow.webContents ||
+    event.senderFrame !== event.sender.mainFrame ||
+    !isTrustedRendererUrl(event.senderFrame.url)
+  ) {
     throw new Error("Rejected IPC from an unknown renderer.");
   }
+}
+
+function isTrustedRendererUrl(value: string): boolean {
+  try {
+    const candidate = new URL(value);
+    const expected = process.env.VITE_DEV_SERVER_URL
+      ? new URL(process.env.VITE_DEV_SERVER_URL)
+      : new URL(
+          pathToFileURL(
+            join(app.getAppPath(), "dist", "renderer", "index.html"),
+          ).href,
+        );
+    return (
+      candidate.protocol === expected.protocol &&
+      candidate.host === expected.host &&
+      candidate.pathname === expected.pathname &&
+      candidate.search === expected.search
+    );
+  } catch {
+    return false;
+  }
+}
+
+function matchesPluginPanelRequest(
+  plugin: PluginSummary,
+  request: { pluginId: string; contributionId: string; revision: number },
+): boolean {
+  return (
+    plugin.id === request.pluginId &&
+    plugin.status === "enabled" &&
+    plugin.tier === "sandbox" &&
+    plugin.revision === request.revision &&
+    typeof plugin.activeVersionId === "string" &&
+    plugin.activeVersionId.length > 0 &&
+    (plugin.contributions ?? []).some(
+      (contribution) =>
+        contribution.kind === "uiPanel" &&
+        contribution.id === request.contributionId &&
+        contribution.bridgeVersion === 1,
+    )
+  );
 }
 
 function requireWindow(): BrowserWindow {

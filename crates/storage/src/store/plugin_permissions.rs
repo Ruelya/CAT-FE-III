@@ -683,6 +683,18 @@ impl Store {
                     || (registration_preflight
                         && matches!(status.as_str(), "installed" | "disabled")))
         });
+        let validated_candidate = registration_preflight
+            && !active_and_authorized
+            && tx
+                .query_row(
+                    "SELECT 1 FROM plugin_versions
+                     WHERE plugin_id = ?1 AND id = ?2 AND state = 'validated'",
+                    params![check.plugin_id, check.version_id],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_some();
+        let active_and_authorized = active_and_authorized || validated_candidate;
         let query = format!(
             "SELECT {REQUEST_COLUMNS} FROM plugin_capability_requests
              WHERE plugin_id = ?1 AND version_id = ?2 AND capability_id = ?3

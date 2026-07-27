@@ -8,6 +8,101 @@ export const RUNTIME_DESCRIPTOR_VERSION = 1;
 export const CONTRIBUTION_DESCRIPTOR_VERSION = 1;
 export const PROCESS_PROTOCOL_VERSION = 1;
 export const DECLARATIVE_DEFINITION_VERSION = 1;
+export const SANDBOX_PROTOCOL_VERSION = 1;
+export const SANDBOX_BRIDGE_VERSION = 1;
+
+export const SANDBOX_LIMITS = Object.freeze({
+  heapBytes: 32 * 1024 * 1024,
+  stackBytes: 512 * 1024,
+  initializationMs: 1_000,
+  invocationMs: 2_000,
+  shutdownMs: 500,
+  moduleBytes: 1024 * 1024,
+  aggregateModuleBytes: 8 * 1024 * 1024,
+  moduleCount: 128,
+  pendingRequests: 32,
+  invocationJsonBytes: 1024 * 1024,
+  hostCallJsonBytes: 256 * 1024,
+  jsonDepth: 16,
+  hostCallsPerInvocation: 256,
+  diagnosticBytes: 4 * 1024,
+} as const);
+
+export type JsonPrimitive = null | boolean | number | string;
+export type JsonValue =
+  JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
+
+export type SandboxErrorCode =
+  | "plugin_sandbox_failed"
+  | "sandbox_cancelled"
+  | "sandbox_timeout"
+  | "sandbox_overloaded"
+  | "sandbox_resource_limit"
+  | "sandbox_invalid_module"
+  | "sandbox_invalid_message"
+  | "host_method_unsupported"
+  | "host_call_denied";
+
+export interface SafePluginErrorV1 {
+  code: SandboxErrorCode;
+  message: string;
+  retryable: boolean;
+}
+
+export interface SandboxLifecycleContextV1 {
+  protocolVersion: 1;
+  pluginId: string;
+  version: string;
+}
+
+export interface SandboxInvocationV1 {
+  protocolVersion: 1;
+  invocationId: string;
+  contributionId: string;
+  operation: string;
+  input: JsonValue;
+}
+
+export type SandboxResultV1 =
+  | { protocolVersion: 1; ok: true; output: JsonValue }
+  | { protocolVersion: 1; ok: false; error: SafePluginErrorV1 };
+
+export interface SandboxHostCallV1 {
+  protocolVersion: 1;
+  requestId: string;
+  method: string;
+  params: JsonValue;
+}
+
+export interface SandboxHostV1 {
+  call(request: SandboxHostCallV1): Promise<JsonValue>;
+}
+
+export interface SandboxPluginV1 {
+  activate?(context: SandboxLifecycleContextV1): void | Promise<void>;
+  invoke(
+    request: SandboxInvocationV1,
+    host: SandboxHostV1,
+  ): unknown | Promise<unknown>;
+  deactivate?(context: SandboxLifecycleContextV1): void | Promise<void>;
+}
+
+export type PluginPanelMessageV1 =
+  | { version: 1; type: "ready"; nonce: string }
+  | {
+      version: 1;
+      type: "request";
+      id: string;
+      method: string;
+      params: JsonValue;
+    }
+  | { version: 1; type: "cancel"; id: string };
+
+export type HostPanelMessageV1 =
+  | { version: 1; type: "context"; context: JsonValue }
+  | { version: 1; type: "result"; id: string; result: JsonValue }
+  | { version: 1; type: "error"; id: string; error: SafePluginErrorV1 }
+  | { version: 1; type: "revoked"; reason: string };
 
 export interface FilterCapabilities {
   import: boolean;
@@ -335,6 +430,127 @@ export function defineDeclarativeManifest(
   };
 }
 
+export function defineSandboxManifest(
+  manifest: Omit<PluginManifestV2, "manifestVersion" | "runtime"> & {
+    entry: { path: string; exportName?: string };
+  },
+): PluginManifestV2 {
+  const { entry, ...rest } = manifest;
+  return {
+    manifestVersion: 2,
+    runtime: {
+      tier: "sandbox",
+      runtimeVersion: SANDBOX_PROTOCOL_VERSION,
+      entry: {
+        kind: "javascript",
+        path: entry.path,
+        ...(entry.exportName === undefined
+          ? {}
+          : { exportName: entry.exportName }),
+      },
+    },
+    ...rest,
+  };
+}
+
+export function validateSandboxJsonValue(
+  value: unknown,
+  maxBytes = SANDBOX_LIMITS.invocationJsonBytes,
+): value is JsonValue {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) return false;
+  const seen = new Set<object>();
+  const visit = (candidate: unknown, depth: number): boolean => {
+    if (depth > SANDBOX_LIMITS.jsonDepth) return false;
+    if (
+      candidate === null ||
+      typeof candidate === "string" ||
+      typeof candidate === "boolean"
+    ) {
+      return true;
+    }
+    if (typeof candidate === "number") return Number.isFinite(candidate);
+    if (typeof candidate !== "object" || seen.has(candidate)) return false;
+    const prototype = Object.getPrototypeOf(candidate);
+    if (!Array.isArray(candidate) && prototype !== Object.prototype) {
+      return false;
+    }
+    seen.add(candidate);
+    const valid = Array.isArray(candidate)
+      ? candidate.every((item) => visit(item, depth + 1))
+      : Object.entries(candidate).every(
+          ([key, item]) =>
+            key.length <= 256 &&
+            !/[\u0000-\u001f\u007f]/u.test(key) &&
+            visit(item, depth + 1),
+        );
+    seen.delete(candidate);
+    return valid;
+  };
+  if (!visit(value, 0)) return false;
+  try {
+    return new TextEncoder().encode(JSON.stringify(value)).length <= maxBytes;
+  } catch {
+    return false;
+  }
+}
+
+export function parsePluginPanelMessageV1(
+  value: unknown,
+): PluginPanelMessageV1 | null {
+  if (!validateSandboxJsonValue(value, SANDBOX_LIMITS.hostCallJsonBytes)) {
+    return null;
+  }
+  if (!value || Array.isArray(value) || typeof value !== "object") return null;
+  const message = value as Record<string, JsonValue>;
+  if (message.version !== SANDBOX_BRIDGE_VERSION) return null;
+  if (message.type === "ready") {
+    return Object.keys(message).length === 3 && isBridgeText(message.nonce, 128)
+      ? { version: 1, type: "ready", nonce: message.nonce }
+      : null;
+  }
+  if (message.type === "cancel") {
+    return Object.keys(message).length === 3 && isBridgeId(message.id)
+      ? { version: 1, type: "cancel", id: message.id }
+      : null;
+  }
+  if (message.type === "request") {
+    return Object.keys(message).length === 5 &&
+      isBridgeId(message.id) &&
+      isBridgeText(message.method, 96) &&
+      validateSandboxJsonValue(message.params, SANDBOX_LIMITS.hostCallJsonBytes)
+      ? {
+          version: 1,
+          type: "request",
+          id: message.id,
+          method: message.method,
+          params: message.params,
+        }
+      : null;
+  }
+  return null;
+}
+
+function isBridgeId(value: JsonValue | undefined): value is string {
+  return (
+    typeof value === "string" &&
+    value.length >= 1 &&
+    value.length <= 96 &&
+    /^[A-Za-z0-9._:-]+$/u.test(value)
+  );
+}
+
+function isBridgeText(
+  value: JsonValue | undefined,
+  maxLength: number,
+): value is string {
+  return (
+    typeof value === "string" &&
+    value.length >= 1 &&
+    value.length <= maxLength &&
+    !/[\u0000-\u001f\u007f]/u.test(value)
+  );
+}
+
 export interface PluginCompatibility {
   compatible: boolean;
   hostApiSupported: boolean;
@@ -439,6 +655,9 @@ export function validateNormalizedManifest(
   ) {
     errors.push("runtime entry must be a relative path");
   }
+  if (runtime.tier === "sandbox" && !/\.(?:m?js)$/u.test(runtime.entry.path)) {
+    errors.push("sandbox runtime entry must end in .js or .mjs");
+  }
   if (manifest.contributions.length === 0) {
     errors.push("at least one contribution is required");
   }
@@ -473,6 +692,17 @@ export function validateNormalizedManifest(
     if (runtime.tier === "declarative") {
       validateDeclarativeContribution(contribution, errors);
     }
+    if (contribution.kind === "uiPanel") {
+      if (
+        contribution.bridgeVersion !== SANDBOX_BRIDGE_VERSION ||
+        !isRelativePackagePath(contribution.surface) ||
+        !/\.html$/u.test(contribution.surface)
+      ) {
+        errors.push(
+          `UI panel ${contribution.id} needs bridgeVersion 1 and a relative .html surface`,
+        );
+      }
+    }
   }
   for (const permission of manifest.requestedPermissions ?? []) {
     if (!isSupportedPermission(permission)) {
@@ -489,14 +719,15 @@ export function compatibilityForManifest(
   const hostApiSupported =
     HOST_API_VERSION >= manifest.hostApi.min &&
     HOST_API_VERSION <= manifest.hostApi.max;
-  const runtimeSupported =
-    manifest.runtime.tier === "process" ||
-    manifest.runtime.tier === "declarative";
+  const runtimeSupported = true;
   const contributionSupported = (
     contribution: PluginContributionDescriptor,
   ): boolean => {
     if (manifest.runtime.tier === "process") {
       return contribution.kind === "filter";
+    }
+    if (manifest.runtime.tier === "sandbox") {
+      return contribution.kind === "filter" || contribution.kind === "uiPanel";
     }
     if (manifest.runtime.tier !== "declarative") return false;
     const errors: string[] = [];

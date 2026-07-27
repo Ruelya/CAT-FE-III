@@ -417,6 +417,7 @@ export type ErrorCode =
   | "plugin_upgrade_failed"
   | "plugin_permission_denied"
   | "plugin_process_failed"
+  | "plugin_sandbox_failed"
   | "internal_error";
 
 export interface ProtocolCatalog {

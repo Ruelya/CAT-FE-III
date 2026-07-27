@@ -1,11 +1,20 @@
 //! Local plugin manifest validation, process host, and filter adapters.
 
 mod declarative;
+mod sandbox;
 
 pub use declarative::{
     DECLARATIVE_DEFINITION_VERSION, DeclarativeDocumentFilter, DeclarativeFilterDefinitionV1,
     DeclarativeFilterLimits, DeclarativePipelineDefinitionV1, DeclarativePipelineOperation,
     DeclarativeQaPackDefinitionV1,
+};
+pub use sandbox::{
+    DEFAULT_SANDBOX_LIMITS, SANDBOX_PROTOCOL_VERSION, SandboxCancellationToken,
+    SandboxDocumentFilter, SandboxError, SandboxFailureKind, SandboxHostCallContext,
+    SandboxHostCallRegistry, SandboxHostCallV1, SandboxHostMethod, SandboxInvocationV1,
+    SandboxLifecycleContextV1, SandboxLimits, SandboxPluginErrorV1, SandboxResultV1,
+    SandboxRuntimeConfig, SandboxRuntimeKey, SandboxRuntimeRegistry, SandboxWorkerHandle,
+    SandboxWorkerState, sandbox_safe_diagnostic,
 };
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -1441,23 +1450,40 @@ impl NormalizedPluginManifest {
                 .all(|contribution| matches!(contribution, PluginContributionDescriptor::Filter(_)))
     }
 
+    pub fn supports_sandbox_host(&self) -> bool {
+        matches!(self.runtime, PluginRuntimeDescriptor::Sandbox { .. })
+            && self.contributions.iter().all(|contribution| {
+                matches!(
+                    contribution,
+                    PluginContributionDescriptor::Filter(_)
+                        | PluginContributionDescriptor::UiPanel(_)
+                )
+            })
+    }
+
     pub fn compatibility(&self) -> PluginCompatibility {
         let host_api_supported =
             self.host_api.min <= HOST_API_VERSION && HOST_API_VERSION <= self.host_api.max;
         let runtime_supported = matches!(
             self.runtime,
-            PluginRuntimeDescriptor::Process { .. } | PluginRuntimeDescriptor::Declarative { .. }
+            PluginRuntimeDescriptor::Process { .. }
+                | PluginRuntimeDescriptor::Declarative { .. }
+                | PluginRuntimeDescriptor::Sandbox { .. }
         );
-        let contribution_supported =
-            |contribution: &PluginContributionDescriptor| match &self.runtime {
-                PluginRuntimeDescriptor::Process { .. } => {
-                    matches!(contribution, PluginContributionDescriptor::Filter(_))
-                }
-                PluginRuntimeDescriptor::Declarative { .. } => {
-                    validate_tier_contribution(PluginTier::Declarative, contribution, true).is_ok()
-                }
-                PluginRuntimeDescriptor::Sandbox { .. } => false,
-            };
+        let contribution_supported = |contribution: &PluginContributionDescriptor| match &self
+            .runtime
+        {
+            PluginRuntimeDescriptor::Process { .. } => {
+                matches!(contribution, PluginContributionDescriptor::Filter(_))
+            }
+            PluginRuntimeDescriptor::Declarative { .. } => {
+                validate_tier_contribution(PluginTier::Declarative, contribution, true).is_ok()
+            }
+            PluginRuntimeDescriptor::Sandbox { .. } => matches!(
+                contribution,
+                PluginContributionDescriptor::Filter(_) | PluginContributionDescriptor::UiPanel(_)
+            ),
+        };
         let contributions_supported = self.contributions.iter().all(contribution_supported);
         let mut unsupported_capabilities = Vec::new();
         if !runtime_supported {
@@ -1879,6 +1905,26 @@ fn validate_manifest_v2(manifest: &RawPluginManifestV2, package_dir: &Path) -> R
     let mut seen = BTreeSet::new();
     for contribution in &manifest.contributions {
         validate_contribution(contribution, &mut seen)?;
+        if matches!(manifest.runtime, PluginRuntimeDescriptor::Sandbox { .. })
+            && let PluginContributionDescriptor::UiPanel(panel) = contribution
+        {
+            let surface = normalize_relative_path(&panel.surface, "UI panel surface")?;
+            if Path::new(&surface)
+                .extension()
+                .and_then(|value| value.to_str())
+                != Some("html")
+            {
+                return Err(PluginRuntimeError::InvalidManifest(
+                    "sandbox UI panel surface must use a .html extension".to_string(),
+                ));
+            }
+            ensure_regular_package_file(package_dir, &surface, "UI panel surface")?;
+            ensure_descriptor_version(
+                "UI panel bridge",
+                panel.bridge_version,
+                SANDBOX_PROTOCOL_VERSION,
+            )?;
+        }
         if !contribution_allowed(manifest.runtime.tier(), contribution.kind()) {
             return Err(PluginRuntimeError::InvalidManifest(format!(
                 "{} contribution {} is not valid for {} runtime",
@@ -1915,6 +1961,16 @@ fn validate_runtime_descriptor(
         } => {
             ensure_descriptor_version("runtime", *runtime_version, RUNTIME_DESCRIPTOR_VERSION)?;
             let path = normalize_relative_path(path, "runtime.entry.path")?;
+            if !matches!(
+                Path::new(&path)
+                    .extension()
+                    .and_then(|value| value.to_str()),
+                Some("js" | "mjs")
+            ) {
+                return Err(PluginRuntimeError::InvalidManifest(
+                    "sandbox runtime entry must use a .js or .mjs extension".to_string(),
+                ));
+            }
             ensure_regular_package_file(package_dir, &path, "runtime.entry.path")?;
             if let Some(name) = export_name {
                 require_text(name, "runtime.entry.exportName", MAX_SHORT_STRING_BYTES)?;
@@ -3318,7 +3374,7 @@ mod tests {
                 "displayName": "V2 panel",
                 "label": "Panel",
                 "placement": "sidebar",
-                "surface": "workbench",
+                "surface": "panel.html",
                 "bridgeVersion": 1
             }),
             json!({
@@ -3368,6 +3424,8 @@ mod tests {
         let sandbox_dir = tempdir().expect("sandbox package");
         fs::write(sandbox_dir.path().join("entry.mjs"), "export default {};")
             .expect("write sandbox entry");
+        fs::write(sandbox_dir.path().join("panel.html"), "<!doctype html>")
+            .expect("write sandbox panel");
         let sandbox = v2_manifest(
             json!({
                 "tier": "sandbox",
@@ -3445,6 +3503,54 @@ mod tests {
             PluginTier::Declarative
         );
         assert_eq!(normalized_declarative.contributions.len(), 3);
+    }
+
+    #[test]
+    fn sandbox_filter_and_html_panel_are_compatible_but_other_shapes_fail_closed() {
+        let directory = tempdir().expect("sandbox package");
+        fs::write(directory.path().join("entry.mjs"), "export default {};").expect("write entry");
+        fs::write(directory.path().join("panel.html"), "<!doctype html>").expect("write panel");
+        let contributions = v2_contributions()
+            .into_iter()
+            .filter(|value| matches!(value["kind"].as_str(), Some("filter" | "uiPanel")))
+            .collect();
+        let manifest = v2_manifest(
+            json!({
+                "tier": "sandbox",
+                "runtimeVersion": 1,
+                "entry": {"kind": "javascript", "path": "entry.mjs"}
+            }),
+            contributions,
+        );
+        let normalized = decode_normalized_manifest(
+            &serde_json::to_vec(&manifest).expect("serialize"),
+            directory.path(),
+        )
+        .expect("normalize executable sandbox");
+        assert!(normalized.supports_sandbox_host());
+        assert!(normalized.compatibility().compatible);
+
+        let mut invalid_entry = manifest.clone();
+        fs::write(directory.path().join("entry.ts"), "export default {};")
+            .expect("write TypeScript entry");
+        invalid_entry["runtime"]["entry"]["path"] = json!("entry.ts");
+        assert!(
+            decode_normalized_manifest(
+                &serde_json::to_vec(&invalid_entry).expect("serialize invalid entry"),
+                directory.path(),
+            )
+            .is_err()
+        );
+
+        let mut invalid_surface = manifest;
+        invalid_surface["contributions"][1]["surface"] = json!("panel.js");
+        assert!(
+            decode_normalized_manifest(
+                &serde_json::to_vec(&invalid_surface).expect("serialize invalid surface"),
+                directory.path(),
+            )
+            .is_err()
+        );
     }
 
     #[test]

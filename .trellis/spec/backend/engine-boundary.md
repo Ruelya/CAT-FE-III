@@ -2815,6 +2815,123 @@ publish_prepared_adapters()?;
 let enabled = store.set_plugin_status(plugin_id, Enabled, expected_revision)?;
 ```
 
+## Tier 2 Sandboxed Plugin Host
+
+### 1. Scope / Trigger
+
+Use this contract when changing a sandbox runtime descriptor, JavaScript module
+loader, QuickJS worker, sandbox filter adapter, host-call method, or sandbox
+lifecycle transition. Tier 2 is application-level isolation inside the Engine
+process; it is not an OS security boundary and must never fall back to Node or
+the Tier 3 child-process protocol.
+
+### 2. Signatures
+
+The public runtime entry is `runtimeVersion: 1`, `kind: "javascript"`, a
+package-relative `.js`/`.mjs` path, and an optional export name. The selected
+export implements `activate?`, `invoke`, and `deactivate?`. Every invocation and
+result carries `protocolVersion: 1` and JSON-only input/output.
+
+The Rust ownership boundary is:
+
+```rust
+SandboxWorkerHandle::spawn(config, host_calls, authorizer)
+SandboxWorkerHandle::invoke_with_cancellation(request, token)
+SandboxWorkerHandle::shutdown()
+SandboxRuntimeRegistry::{prepare, attach, get, detach}
+SandboxDocumentFilter::new(worker, plugin_id, version_id, filter_id, ...)
+SandboxHostCallRegistry::register(SandboxHostMethod)
+```
+
+`SandboxHostMethod` declares its exact capability, allowed contribution IDs and
+operations, scope derivation, input/output codecs, and handler. The production
+registry currently exposes only `diagnostics.summary`, bound to
+`filter.validate` and the invoking filter contribution.
+
+### 3. Contracts
+
+- `rquickjs` is pinned to `0.12.1`. Each active plugin version owns one worker
+  with a 32 MiB heap, 512 KiB stack, 1,000 ms initialization deadline, 2,000 ms
+  invocation deadline, 500 ms shutdown deadline, and queue capacity 32.
+- The loader accepts relative `.js`/`.mjs` imports only. It rejects bare/URL/
+  absolute/drive/UNC/query/fragment/traversal paths, extension inference,
+  directories, symlinks/reparse points, non-files, modules over 1 MiB, graphs
+  over 128 modules, and aggregate source over 8 MiB.
+- The JSON boundary is checked before and after JavaScript: at most 1 MiB per
+  invocation, 256 KiB per host call, depth 16, and 256 host calls. Cycles,
+  accessors, custom prototypes, functions, symbols, BigInt, and native handles
+  are invalid.
+- Interrupt-driven timeout, cancellation, and shutdown remove a failed worker
+  before degrading the exact activation. Diagnostics are bounded to 4 KiB and
+  contain no source, document text, path, stack, credential, or runtime value.
+- A host call never accepts a plugin-selected capability or raw Engine method.
+  The host derives the exact active version, contribution, operation, and
+  scope, then calls the durable authorizer. `diagnostics.summary` additionally
+  validates empty params, requires `diagnostics.read` with `summary` scope,
+  and records an `operation_allowed` audit event.
+- Enable prepares the worker and every adapter, attaches them, then persists
+  enabled state. Disable, revoke/deny, uninstall, degradation, restart,
+  upgrade, rollback, and shutdown use owner/version-bound idempotent teardown.
+  Candidate failure restores the prior active version and its adapters.
+- `SandboxDocumentFilter` is the production attachment for probe/import/
+  export/validate. It passes bounded bytes and structural data, never a host
+  filesystem path, and maps a fatal runtime failure to
+  `plugin_sandbox_failed` without affecting built-ins or another plugin.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Invalid entry/import graph, runtime version, module/JSON/resource limit | Typed sandbox/manifest failure; no worker or adapter leak |
+| Infinite loop, unresolved promise, cancellation, or shutdown deadline | Interrupt worker, detach exact activation, return bounded `plugin_sandbox_failed` |
+| Unknown host method, duplicate request ID, excess calls, late result | Reject/discard inside the invocation; no Engine method dispatch |
+| Wrong contribution/operation/version or missing/narrow/revoked grant | `plugin_permission_denied`; denied audit; no handler side effect |
+| Invalid `diagnostics.summary` params or non-`filter.validate` call | Closed-codec failure; no diagnostics result |
+| Candidate attach/upgrade/rollback failure | Remove candidate and restore previous durable/live activation exactly |
+| Fatal failure from an old activation | Do not degrade or detach the current activation |
+
+### 5. Good / Base / Bad Cases
+
+- Good: grant the official sandbox filter exact diagnostics summary scope,
+  enable it, validate through the real adapter, observe an allowed audit,
+  restart, then disable and confirm complete teardown.
+- Base: install a valid sandbox package without grants; it remains inspectable
+  and inactive until every required request is granted.
+- Bad: inject `engine.invoke`, trust requested capability/scope, expose a path
+  to JavaScript, load a symlink, retain a timed-out worker, or degrade a newer
+  activation from a late failure.
+
+### 6. Tests Required
+
+- Runtime tests cover lifecycle/promise jobs, missing Node globals, every limit
+  boundary, infinite loop, cancellation, codec hazards, path/import/reparse
+  escape, duplicate IDs, late results, and idempotent shutdown.
+- Engine tests cover grant/enable/invoke/restart/disable/uninstall, exact
+  `diagnostics.summary` operation and audit, collision isolation, timeout
+  degradation, revoke detach, successful upgrade, failed-candidate
+  compensation, and continued built-in/other-plugin health.
+- The public SDK example must compile from public types and call the production
+  handler. Strict Clippy, workspace tests, contract drift, SDK tests, focused
+  plugin stdio smoke, and the real Electron Tier 2 flow are release gates.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+// Plugin input chooses both authority and the Engine method.
+engine.invoke(call.method, call.params)?;
+```
+
+#### Correct
+
+```rust
+let method = host_calls.lookup("diagnostics.summary")?;
+method.validate_context(&active_version, "filter.validate", filter_id)?;
+authorizer.authorize(&method.derive_check(context, params)?)?;
+method.call_bounded(context, params)?;
+```
+
 ## Local API and CLI
 
 - `translunar` CLI and loopback HTTP API call `EngineService` directly; they must

@@ -1577,6 +1577,124 @@ await openReview(pluginId, true);
 await load();
 ```
 
+## Tier 2 Plugin Panel Isolation
+
+### 1. Scope / Trigger
+
+Use this contract when changing `translunar-plugin://`, plugin panel session
+IPC, renderer/navigation teardown, the Plugins panel preview, or the
+`MessageChannel` bridge. The iframe is untrusted package content with an opaque
+origin; only Electron main may translate an Engine-validated UI contribution
+into a short-lived asset session.
+
+### 2. Signatures
+
+The trusted preload exposes only:
+
+```typescript
+issuePluginPanelSession({ pluginId, contributionId, revision }):
+  Promise<{ sessionId: string; url: string; expiresAtMs: number;
+            revision: number; bridgeVersion: 1 }>;
+revokePluginPanelSession(sessionId: string): Promise<boolean>;
+onPluginPanelRevoked(listener: (pluginId: string | null) => void): () => void;
+```
+
+`PluginAssetSessionRegistry` owns `issue`, `handle`, `revoke`, `revokeOwner`,
+`revokePlugin`, and `revokeAll`. `PluginPanelHost` renders
+`<iframe sandbox="allow-scripts">`; `createPanelBridge` accepts only version 1
+`ready`, `request`, and `cancel` messages. The only request method is
+`panel.context` with an exact empty object.
+
+### 3. Contracts
+
+- Main accepts issue/revoke IPC only when `senderFrame === sender.mainFrame`
+  and the top-level frame URL is the trusted renderer URL. After Engine returns
+  surface metadata, main re-reads authoritative plugin status, active version,
+  revision, contribution, and bridge version before issuing the session.
+- A 256-bit opaque token is bound to webContents owner, plugin, active version/
+  revision, contribution, canonical package root, surface, expiry, and bridge
+  version. Global, owner, and plugin generation epochs make a concurrent issue
+  fail when reload, navigation, crash, lifecycle mutation, or shutdown revoked
+  its authority.
+- Session state is `issued -> binding -> bound -> revoked`. The HTML entry may
+  be fetched exactly once. A bound session may fetch only non-entry files below
+  that entry's directory. Every asynchronous realpath/stat/read is followed by
+  a session identity/state/expiry check, closing issue/serve versus revoke
+  TOCTOU windows.
+- The handler accepts GET without credentials, port, query, fragment, Range,
+  encoded separator, raw/decoded dot component, traversal, symlink/reparse,
+  directory, unknown MIME, or file over the configured limit. It returns
+  no-store, nosniff, no-referrer and a closed CSP. ES-module assets use the
+  custom scheme as the same opaque resource boundary; no network fallback is
+  allowed.
+- Renderer reload, main-frame navigation, render-process loss, window close,
+  plugin disable/revoke/upgrade/uninstall, Engine sandbox failure, expiry, and
+  app shutdown revoke matching sessions before later requests can succeed.
+- The iframe receives no preload, Node, Electron IPC, same-origin authority,
+  navigation, popup, form, download, worker, or network capability. Because its
+  origin is opaque, the one-time initialization targets `*`; authority is the
+  transferred port plus a fresh 256-bit nonce, not a `window.message` origin.
+- The bridge requires the exact nonce/version handshake, unique IDs, at most 32
+  pending requests, 3,000 ms deadlines, 256 KiB UTF-8 payloads, depth 16, 4,096
+  nodes/items, 1,024 object entries, 256-byte keys, and strict discriminants.
+  Unknown cancel, duplicate/unknown fields, bad version/nonce/codec, timeout,
+  reload, or navigation closes the port and revokes the asset session.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Subframe/untrusted sender or stale Engine revision | Reject issue/revoke; no token or path disclosed |
+| Revoke occurs during issue, realpath, stat, or read | Epoch/identity recheck denies response; session cannot revive |
+| Entry replay or asset outside the entry directory | Generic denial and no bytes |
+| Raw/encoded/normalized traversal, symlink, bad MIME, Range, query | Generic denial with no path/plugin diagnostic |
+| Second iframe load, navigation, renderer reload/crash | Close bridge and revoke owner session |
+| Wrong nonce/version/message shape, deep/large payload, unknown cancel | Fail closed: clear timers, close port, revoke session |
+| Bridge request exceeds deadline | Return bounded timeout when possible, then close and revoke |
+| Plugin lifecycle or runtime failure revokes panel | Render localized revoked state; do not retain iframe authority |
+
+### 5. Good / Base / Bad Cases
+
+- Good: issue from the trusted top frame, consume entry once, load local module/
+  CSS assets, complete nonce handshake, request context, then revoke on disable.
+- Base: close the preview before issuance completes; the late token is revoked
+  immediately and never rendered.
+- Bad: use `allow-same-origin`, trust `event.origin`, serve the entry twice,
+  allow the whole package tree after binding, skip post-read state checks, or
+  leave a port alive after an unknown cancellation.
+
+### 6. Tests Required
+
+- Main unit tests cover issue/revoke epochs, single-use entry, surface subtree,
+  expiry, owner/plugin/global revoke, asynchronous TOCTOU, raw and normalized
+  traversal, symlink/reparse, MIME/header/CSP, and generic denial.
+- Renderer unit tests cover iframe attributes, nonce/version handshake, exact
+  `panel.context` codec, message byte/depth/node/key/collection limits,
+  duplicate IDs, unknown cancel, timeout, external revoke, timer cleanup, and
+  idempotent close.
+- Real Electron E2E installs/grants/enables the official example, asserts a
+  nonblank Connected iframe and real bridge exchange, blocked dangerous APIs/
+  network/navigation, fresh session after restart, revoke/disable/uninstall,
+  zero page/console/protocol errors, and no overflow at 1250x744, 1680x942, and
+  1920x1080.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```typescript
+iframe.setAttribute("sandbox", "allow-scripts allow-same-origin");
+window.addEventListener("message", (event) => trust(event.origin, event.data));
+```
+
+#### Correct
+
+```typescript
+const channel = new MessageChannel();
+frameWindow.postMessage({ version: 1, type: "translunar.plugin.initialize", nonce }, "*", [channel.port2]);
+// Only the transferred port may complete the exact nonce/version handshake.
+```
+
 ## Packaging and localization shell
 
 - Package with `apps/desktop/electron-builder.yml`; unsigned artifacts are valid

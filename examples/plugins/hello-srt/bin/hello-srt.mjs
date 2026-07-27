@@ -8,6 +8,22 @@ import { basename, extname } from "node:path";
 import { createInterface } from "node:readline";
 import { stdin as input, stdout as output } from "node:process";
 var HOST_API_VERSION = 1;
+var SANDBOX_LIMITS = Object.freeze({
+  heapBytes: 32 * 1024 * 1024,
+  stackBytes: 512 * 1024,
+  initializationMs: 1e3,
+  invocationMs: 2e3,
+  shutdownMs: 500,
+  moduleBytes: 1024 * 1024,
+  aggregateModuleBytes: 8 * 1024 * 1024,
+  moduleCount: 128,
+  pendingRequests: 32,
+  invocationJsonBytes: 1024 * 1024,
+  hostCallJsonBytes: 256 * 1024,
+  jsonDepth: 16,
+  hostCallsPerInvocation: 256,
+  diagnosticBytes: 4 * 1024,
+});
 var PLUGIN_CAPABILITY_IDS = [
   "file.read",
   "file.write",

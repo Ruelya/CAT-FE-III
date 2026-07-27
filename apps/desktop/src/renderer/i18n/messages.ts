@@ -390,6 +390,14 @@ export type MessageKey =
   | "plugins.permissions"
   | "plugins.permissionsNone"
   | "plugins.review"
+  | "plugins.previewPanel"
+  | "plugins.panel.loading"
+  | "plugins.panel.connecting"
+  | "plugins.panel.ready"
+  | "plugins.panel.error"
+  | "plugins.panel.revoked"
+  | "plugins.panel.connectionFailed"
+  | "plugins.panel.sessionEnded"
   | "plugins.permissionKicker"
   | "plugins.reviewTitle"
   | "plugins.versionChanges"
@@ -2069,6 +2077,15 @@ const enUs: MessageCatalog = {
   "plugins.permissions": "permissions: {list}",
   "plugins.permissionsNone": "none",
   "plugins.review": "Review permissions",
+  "plugins.previewPanel": "Preview panel",
+  "plugins.panel.loading": "Loading",
+  "plugins.panel.connecting": "Connecting",
+  "plugins.panel.ready": "Ready",
+  "plugins.panel.error": "Error",
+  "plugins.panel.revoked": "Revoked",
+  "plugins.panel.connectionFailed":
+    "The plugin panel could not establish a secure connection.",
+  "plugins.panel.sessionEnded": "This plugin panel session has ended.",
   "plugins.permissionKicker": "Explicit authority",
   "plugins.reviewTitle": "Permission review",
   "plugins.versionChanges": "Version changes",
@@ -3798,6 +3815,14 @@ const zhCn: MessageCatalog = {
   "plugins.permissions": "权限：{list}",
   "plugins.permissionsNone": "无",
   "plugins.review": "审查权限",
+  "plugins.previewPanel": "预览面板",
+  "plugins.panel.loading": "正在加载",
+  "plugins.panel.connecting": "正在连接",
+  "plugins.panel.ready": "已连接",
+  "plugins.panel.error": "错误",
+  "plugins.panel.revoked": "已撤销",
+  "plugins.panel.connectionFailed": "插件面板无法建立安全连接。",
+  "plugins.panel.sessionEnded": "此插件面板会话已结束。",
   "plugins.permissionKicker": "明确授权",
   "plugins.reviewTitle": "插件权限审查",
   "plugins.versionChanges": "版本变更",
