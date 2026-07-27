@@ -3,17 +3,25 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+use translunar_ai_core::{
+    ENGINE_CONNECTOR_CONTRACT_VERSION, EngineConnector, EngineConnectorDescriptor,
+    EngineConnectorOperation, EngineConnectorRegistration, EngineConnectorSource,
+    PluginConnectorOwner,
+};
 use translunar_filter_core::{DocumentFilter, FilterDescriptor, FilterError, FilterRegistry};
 use translunar_pipeline::StepDescriptor;
 use translunar_plugin_runtime::{
-    DeclarativeDocumentFilter, NormalizedPluginManifest as RuntimeNormalizedPluginManifest,
-    PluginCapabilityAuthorizer, PluginCapabilityCheck, PluginCapabilityId, PluginCapabilityScope,
-    PluginContributionDescriptor, PluginContributions, PluginEntry, PluginEntryKind,
-    PluginFileArea, PluginFilterContribution, PluginManifest, PluginProcess,
-    PluginRuntimeDescriptor, ProcessDocumentFilter, SandboxDocumentFilter, SandboxError,
-    SandboxHostCallRegistry, SandboxHostMethod, SandboxRuntimeConfig, SandboxRuntimeKey,
-    SandboxWorkerHandle, StagedPluginPackage, inspect_plugin_package, publish_staged_package,
-    remove_package, sandbox_safe_diagnostic, stage_plugin_package,
+    DeclarativeConnectorAuthenticationV1, DeclarativeConnectorResponseMappingV1,
+    DeclarativeDocumentFilter, EngineConnectorConfigV1, EngineConnectorContributionDescriptor,
+    NormalizedPluginManifest as RuntimeNormalizedPluginManifest, PluginCapabilityAuthorizer,
+    PluginCapabilityCheck, PluginCapabilityId, PluginCapabilityScope, PluginContributionDescriptor,
+    PluginContributions, PluginEntry, PluginEntryKind, PluginFileArea, PluginFilterContribution,
+    PluginManifest, PluginProcess, PluginRuntimeDescriptor, ProcessDocumentFilter,
+    SandboxDocumentFilter, SandboxError, SandboxHostCallRegistry, SandboxHostMethod,
+    SandboxRuntimeConfig, SandboxRuntimeKey, SandboxWorkerHandle, StagedPluginPackage,
+    inspect_plugin_package, publish_staged_package, remove_package, sandbox_safe_diagnostic,
+    stage_plugin_package,
 };
 use translunar_protocol::{
     NormalizedPluginManifest, PluginCompatibility, PluginDiagnostic, PluginIdParams,
@@ -26,21 +34,52 @@ use translunar_protocol::{
 };
 use translunar_qa_core::{CompiledQaProfile, QaProfileDefinition, QaRuleSettings};
 use translunar_storage::{
-    NewPluginVersion, PluginInstallationRecord, PluginStatus, PluginVersionRecord,
-    PluginVersionState, Store, UpsertNormalizedPluginInstallation,
+    AiPluginConnectorProfileRebind, NewPluginVersion, PluginInstallationRecord, PluginStatus,
+    PluginVersionRecord, PluginVersionState, Store, UpsertNormalizedPluginInstallation,
 };
 use uuid::Uuid;
 
+use crate::plugin_connector::{
+    DeclarativePluginEngineConnector, ProcessPluginEngineConnector,
+    ReqwestDeclarativeConnectorTransport, SandboxPluginEngineConnector,
+};
 use crate::plugin_declarative::{DeclarativePipelineStep, PluginQaPack};
 use crate::{EngineError, EngineService, Result};
+
+#[cfg(test)]
+std::thread_local! {
+    static FAIL_UNINSTALL_AFTER_DETACH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
 
 pub(crate) struct PreparedSandboxActivation {
     key: SandboxRuntimeKey,
     worker: SandboxWorkerHandle,
     filters: Vec<(String, Arc<dyn DocumentFilter>)>,
+    connectors: Vec<EngineConnectorRegistration>,
+    connector_metadata: crate::ai::PluginConnectorCatalog,
 }
 
 impl EngineService {
+    pub(crate) fn shutdown_plugin_runtimes(&mut self) {
+        let mut plugin_ids = self.plugin_processes.keys().cloned().collect::<Vec<_>>();
+        plugin_ids.extend(self.plugin_sandbox_keys.keys().cloned());
+        plugin_ids.extend(
+            self.plugin_connector_catalog
+                .values()
+                .filter_map(|metadata| {
+                    metadata
+                        .source
+                        .plugin_owner()
+                        .map(|owner| owner.plugin_id.clone())
+                }),
+        );
+        plugin_ids.sort();
+        plugin_ids.dedup();
+        for plugin_id in plugin_ids {
+            self.unregister_plugin_filters(&plugin_id);
+        }
+    }
+
     pub(crate) fn reload_enabled_plugins(&mut self) -> Result<()> {
         let enabled = self.store.list_enabled_plugins()?;
         for record in enabled {
@@ -234,6 +273,17 @@ impl EngineService {
                 staged.normalized_manifest.version, staged.package_hash.sha256
             ),
         )?;
+        let rebind_plan = match self.plan_connector_profile_rebinds(
+            &current,
+            &input.id,
+            &staged.normalized_manifest,
+        ) {
+            Ok(plan) => plan,
+            Err(error) => {
+                let _ = remove_package(&candidate_destination);
+                return Err(error);
+            }
+        };
         if current.status == PluginStatus::Enabled
             && staged.normalized_manifest.supports_sandbox_host()
         {
@@ -294,7 +344,11 @@ impl EngineService {
             plugin_id: params.plugin_id.clone(),
             version_id: activation.active_version.id.clone(),
         });
-        self.unregister_plugin_filters(&params.plugin_id);
+        if activation.installation.status == PluginStatus::Enabled {
+            self.unregister_plugin_runtime(&params.plugin_id, false);
+        } else {
+            self.unregister_plugin_filters(&params.plugin_id);
+        }
         if let Some(prepared) = pending {
             self.pending_sandbox_workers
                 .insert(prepared.key.clone(), prepared);
@@ -303,6 +357,11 @@ impl EngineService {
             && let Err(error) = self.register_plugin_filters(&activation.installation)
         {
             let message = error.to_string();
+            self.compensate_failed_version_switch(&params.plugin_id, &activation, &message, true);
+            return Err(EngineError::PluginUpgradeFailed(message));
+        }
+        if let Err(error) = self.apply_connector_profile_rebinds(&rebind_plan) {
+            let message = bounded_plugin_message(&error.to_string());
             self.compensate_failed_version_switch(&params.plugin_id, &activation, &message, true);
             return Err(EngineError::PluginUpgradeFailed(message));
         }
@@ -348,6 +407,8 @@ impl EngineService {
                 compatibility.unsupported_capabilities.join(", "),
             ));
         }
+        let rebind_plan =
+            self.plan_connector_profile_rebinds(&current, &version.id, &normalized)?;
         if current.status == PluginStatus::Enabled && normalized.supports_sandbox_host() {
             ensure_candidate_filter_slots(self, &params.plugin_id, &normalized)?;
             let legacy_manifest = legacy_inventory_manifest(&normalized);
@@ -382,7 +443,11 @@ impl EngineService {
             plugin_id: params.plugin_id.clone(),
             version_id: activation.active_version.id.clone(),
         });
-        self.unregister_plugin_filters(&params.plugin_id);
+        if activation.installation.status == PluginStatus::Enabled {
+            self.unregister_plugin_runtime(&params.plugin_id, false);
+        } else {
+            self.unregister_plugin_filters(&params.plugin_id);
+        }
         if let Some(prepared) = pending {
             self.pending_sandbox_workers
                 .insert(prepared.key.clone(), prepared);
@@ -391,6 +456,11 @@ impl EngineService {
             && let Err(error) = self.register_plugin_filters(&activation.installation)
         {
             let message = error.to_string();
+            self.compensate_failed_version_switch(&params.plugin_id, &activation, &message, false);
+            return Err(EngineError::PluginUpgradeFailed(message));
+        }
+        if let Err(error) = self.apply_connector_profile_rebinds(&rebind_plan) {
+            let message = bounded_plugin_message(&error.to_string());
             self.compensate_failed_version_switch(&params.plugin_id, &activation, &message, false);
             return Err(EngineError::PluginUpgradeFailed(message));
         }
@@ -594,11 +664,18 @@ impl EngineService {
                 },
             ));
         }
-        self.unregister_plugin_filters(&params.plugin_id);
         let package_roots = collect_plugin_package_roots(&self.store, &params.plugin_id, &record)?;
-        let summary = to_summary(record);
+        let summary = to_summary(record.clone());
         let quarantine_root = self.store.paths().temporary.join("plugin-quarantine");
         std::fs::create_dir_all(&quarantine_root)?;
+        self.unregister_plugin_filters(&params.plugin_id);
+        #[cfg(test)]
+        if FAIL_UNINSTALL_AFTER_DETACH.with(std::cell::Cell::take) {
+            self.restore_plugin_after_failed_uninstall(&record)?;
+            return Err(EngineError::InvalidState(
+                "injected uninstall failure after runtime detach".to_string(),
+            ));
+        }
         let mut moved: Vec<(PathBuf, PathBuf)> = Vec::new();
         for (index, package_root) in package_roots.iter().enumerate() {
             if !package_root.exists() {
@@ -611,6 +688,7 @@ impl EngineService {
                     let _ = std::fs::create_dir_all(original.parent().unwrap_or(Path::new(".")));
                     let _ = std::fs::rename(moved_path, original);
                 }
+                self.restore_plugin_after_failed_uninstall(&record)?;
                 return Err(EngineError::PluginPackageInvalid(format!(
                     "cannot quarantine plugin package before uninstall: {error}"
                 )));
@@ -626,6 +704,7 @@ impl EngineService {
                 let _ = std::fs::create_dir_all(original.parent().unwrap_or(Path::new(".")));
                 let _ = std::fs::rename(moved_path, original);
             }
+            self.restore_plugin_after_failed_uninstall(&record)?;
             return Err(error.into());
         }
         for (_, quarantine) in moved {
@@ -638,6 +717,236 @@ impl EngineService {
         }
         let _ = (&params.actor, &params.reason);
         Ok(PluginMutationResult { plugin: summary })
+    }
+
+    fn restore_plugin_after_failed_uninstall(
+        &mut self,
+        record: &PluginInstallationRecord,
+    ) -> Result<()> {
+        if record.status == PluginStatus::Enabled {
+            self.register_plugin_filters(record)?;
+        }
+        Ok(())
+    }
+
+    fn plan_connector_profile_rebinds(
+        &self,
+        current: &PluginInstallationRecord,
+        candidate_version_id: &str,
+        candidate: &RuntimeNormalizedPluginManifest,
+    ) -> Result<Vec<AiPluginConnectorProfileRebind>> {
+        let current_version_id = current
+            .active_version_id
+            .as_deref()
+            .ok_or_else(|| EngineError::InvalidState("plugin has no active version".to_string()))?;
+        let active: RuntimeNormalizedPluginManifest =
+            serde_json::from_value(current.normalized_manifest_json.clone()).map_err(|_| {
+                EngineError::PluginInvalidManifest(
+                    "stored active connector manifest is invalid".to_string(),
+                )
+            })?;
+        let mut plan = Vec::new();
+        for contribution in &active.contributions {
+            let PluginContributionDescriptor::EngineConnector(previous) = contribution else {
+                continue;
+            };
+            let previous_contract = previous.contract_version.ok_or_else(|| {
+                EngineError::PluginInvalidManifest(
+                    "active connector is missing contractVersion".to_string(),
+                )
+            })?;
+            let previous_source = EngineConnectorSource::Plugin {
+                owner: PluginConnectorOwner {
+                    plugin_id: current.id.clone(),
+                    version_id: current_version_id.to_string(),
+                },
+                contribution_id: previous.id.clone(),
+                contract_version: previous_contract,
+            };
+            let (_, total) =
+                self.store
+                    .list_ai_plugin_connector_profile_references(&previous_source, 0, 1)?;
+            if total == 0 {
+                continue;
+            }
+            let candidate_descriptor = candidate
+                .contributions
+                .iter()
+                .find_map(|contribution| match contribution {
+                    PluginContributionDescriptor::EngineConnector(value)
+                        if value.id == previous.id =>
+                    {
+                        Some(value)
+                    }
+                    _ => None,
+                })
+                .ok_or_else(|| {
+                    EngineError::PluginUpgradeFailed(format!(
+                        "connector {} still has provider profiles and cannot be removed",
+                        previous.id
+                    ))
+                })?;
+            if active.runtime.tier() != candidate.runtime.tier()
+                || !connector_descriptors_profile_compatible(previous, candidate_descriptor)
+            {
+                return Err(EngineError::PluginUpgradeFailed(format!(
+                    "connector {} changes schema, operations, origin, or runtime tier and requires explicit profile migration",
+                    previous.id
+                )));
+            }
+            let config_schema = candidate_descriptor.config_schema.as_ref().ok_or_else(|| {
+                EngineError::PluginInvalidManifest(
+                    "candidate connector is missing configSchema".to_string(),
+                )
+            })?;
+            let mut offset = 0;
+            loop {
+                let (profiles, profile_total) = self
+                    .store
+                    .list_ai_plugin_connector_profile_references(&previous_source, offset, 100)?;
+                for profile in profiles {
+                    let configuration: EngineConnectorConfigV1 =
+                        serde_json::from_value(profile.configuration).map_err(|_| {
+                            EngineError::PluginUpgradeFailed(format!(
+                                "connector {} has an invalid stored profile configuration",
+                                previous.id
+                            ))
+                        })?;
+                    config_schema.validate_config(&configuration).map_err(|_| {
+                        EngineError::PluginUpgradeFailed(format!(
+                            "connector {} profile configuration is incompatible with the candidate",
+                            previous.id
+                        ))
+                    })?;
+                }
+                offset = offset.saturating_add(100);
+                if offset >= profile_total {
+                    break;
+                }
+            }
+            let candidate_contract = candidate_descriptor.contract_version.ok_or_else(|| {
+                EngineError::PluginInvalidManifest(
+                    "candidate connector is missing contractVersion".to_string(),
+                )
+            })?;
+            plan.push(AiPluginConnectorProfileRebind {
+                previous_source,
+                candidate_source: EngineConnectorSource::Plugin {
+                    owner: PluginConnectorOwner {
+                        plugin_id: current.id.clone(),
+                        version_id: candidate_version_id.to_string(),
+                    },
+                    contribution_id: candidate_descriptor.id.clone(),
+                    contract_version: candidate_contract,
+                },
+                config_schema_version: candidate_descriptor.config_schema_version,
+                previous_descriptor_hash: plugin_connector_descriptor_hash(previous)?,
+                candidate_descriptor_hash: plugin_connector_descriptor_hash(candidate_descriptor)?,
+            });
+        }
+        Ok(plan)
+    }
+
+    fn apply_connector_profile_rebinds(
+        &mut self,
+        plan: &[AiPluginConnectorProfileRebind],
+    ) -> Result<()> {
+        self.store.rebind_ai_plugin_connector_profiles_batch(plan)?;
+        Ok(())
+    }
+
+    fn attach_plugin_connectors(
+        &mut self,
+        candidate_owner: PluginConnectorOwner,
+        registrations: Vec<EngineConnectorRegistration>,
+        metadata: crate::ai::PluginConnectorCatalog,
+    ) -> Result<()> {
+        if registrations.len() != metadata.len()
+            || registrations.iter().any(|registration| {
+                registration.descriptor.source.plugin_owner() != Some(&candidate_owner)
+                    || !metadata
+                        .get(&registration.descriptor.id)
+                        .is_some_and(|item| item.source == registration.descriptor.source)
+            })
+        {
+            return Err(EngineError::InvalidState(
+                "plugin connector activation metadata is inconsistent".to_string(),
+            ));
+        }
+        let previous_owner = {
+            let candidate = &candidate_owner;
+            self.ai.connectors.snapshot().ok().and_then(|leases| {
+                leases.into_iter().find_map(|lease| {
+                    lease
+                        .descriptor
+                        .source
+                        .plugin_owner()
+                        .filter(|owner| {
+                            owner.plugin_id == candidate.plugin_id && *owner != candidate
+                        })
+                        .cloned()
+                })
+            })
+        };
+        if let Some(previous_owner) = previous_owner.as_ref() {
+            let replacement = self
+                .ai
+                .connectors
+                .replace_plugin_owner(previous_owner, &candidate_owner, registrations)
+                .map_err(|error| EngineError::PluginConflict(error.to_string()))?;
+            self.ai.cancel_plugin_connector_owner(previous_owner);
+            for lease in replacement.detached {
+                let _ = lease.shutdown();
+            }
+            self.plugin_connector_catalog
+                .retain(|_, item| item.source.plugin_owner() != Some(previous_owner));
+        } else {
+            self.ai
+                .connectors
+                .preflight(&registrations)
+                .map_err(|error| EngineError::PluginConflict(error.to_string()))?;
+            self.ai
+                .connectors
+                .attach_all(registrations)
+                .map_err(|error| EngineError::PluginConflict(error.to_string()))?;
+        }
+        self.plugin_connector_catalog.extend(metadata);
+        Ok(())
+    }
+
+    fn detach_plugin_connectors(&mut self, plugin_id: &str) {
+        let owners = self
+            .ai
+            .connectors
+            .snapshot()
+            .map(|leases| {
+                leases
+                    .into_iter()
+                    .filter_map(|lease| match &lease.descriptor.source {
+                        EngineConnectorSource::Plugin { owner, .. }
+                            if owner.plugin_id == plugin_id =>
+                        {
+                            Some((owner.version_id.clone(), owner.clone()))
+                        }
+                        _ => None,
+                    })
+                    .collect::<BTreeMap<_, _>>()
+            })
+            .unwrap_or_default();
+        for owner in owners.into_values() {
+            self.ai.cancel_plugin_connector_owner(&owner);
+            if let Ok(detached) = self.ai.connectors.detach_plugin_owner(&owner) {
+                for lease in detached {
+                    let _ = lease.shutdown();
+                }
+            }
+        }
+        self.plugin_connector_catalog.retain(|_, metadata| {
+            !matches!(
+                &metadata.source,
+                EngineConnectorSource::Plugin { owner, .. } if owner.plugin_id == plugin_id
+            )
+        });
     }
 
     fn register_plugin_filters(&mut self, record: &PluginInstallationRecord) -> Result<()> {
@@ -668,6 +977,8 @@ impl EngineService {
             let mut filters: Vec<(String, Arc<dyn DocumentFilter>)> = Vec::new();
             let mut qa_packs = Vec::new();
             let mut pipeline_steps = Vec::new();
+            let mut connectors = Vec::new();
+            let mut connector_metadata = crate::ai::PluginConnectorCatalog::new();
             for contribution in &normalized.contributions {
                 match contribution {
                     PluginContributionDescriptor::Filter(value) => {
@@ -717,6 +1028,43 @@ impl EngineService {
                         )
                         .map_err(map_plugin_error)?;
                         filters.push((value.id.clone(), Arc::new(filter)));
+                    }
+                    PluginContributionDescriptor::EngineConnector(value) => {
+                        authorize_connector_registration(&authorizer, record, &version_id, value)?;
+                        let owner = PluginConnectorOwner {
+                            plugin_id: record.id.clone(),
+                            version_id: version_id.clone(),
+                        };
+                        let adapter = DeclarativePluginEngineConnector::new(
+                            owner,
+                            value.id.clone(),
+                            value.config_schema.clone().ok_or_else(|| {
+                                EngineError::PluginInvalidManifest(
+                                    "declarative connector is missing configSchema".to_string(),
+                                )
+                            })?,
+                            value.limits.clone().ok_or_else(|| {
+                                EngineError::PluginInvalidManifest(
+                                    "declarative connector is missing limits".to_string(),
+                                )
+                            })?,
+                            value.declarative.as_deref().cloned().ok_or_else(|| {
+                                EngineError::PluginInvalidManifest(
+                                    "declarative connector is missing its definition".to_string(),
+                                )
+                            })?,
+                            Arc::clone(&authorizer),
+                            Arc::new(ReqwestDeclarativeConnectorTransport),
+                        )
+                        .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+                        let (registration, metadata) = plugin_connector_registration(
+                            record,
+                            &version_id,
+                            value,
+                            Arc::new(adapter),
+                        )?;
+                        connector_metadata.insert(value.id.clone(), metadata);
+                        connectors.push(registration);
                     }
                     PluginContributionDescriptor::QaRule(value) => {
                         authorize_contribution(
@@ -817,6 +1165,15 @@ impl EngineService {
                 }
             }
 
+            self.attach_plugin_connectors(
+                PluginConnectorOwner {
+                    plugin_id: record.id.clone(),
+                    version_id: version_id.clone(),
+                },
+                connectors,
+                connector_metadata,
+            )?;
+
             for (id, filter) in filters {
                 if let Err(error) = self.filters.register(filter) {
                     self.unregister_plugin_filters(&record.id);
@@ -848,6 +1205,29 @@ impl EngineService {
             ));
         }
 
+        let normalized: RuntimeNormalizedPluginManifest =
+            serde_json::from_value(record.normalized_manifest_json.clone()).map_err(|_| {
+                EngineError::PluginInvalidManifest(
+                    "stored normalized process manifest is invalid".to_string(),
+                )
+            })?;
+        if !matches!(normalized.runtime, PluginRuntimeDescriptor::Process { .. }) {
+            return Err(EngineError::InvalidState(
+                "process plugin has a mismatched runtime projection".to_string(),
+            ));
+        }
+        let connector_descriptors = normalized
+            .contributions
+            .iter()
+            .filter_map(|contribution| match contribution {
+                PluginContributionDescriptor::EngineConnector(value) => Some(value.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        for descriptor in &connector_descriptors {
+            authorize_connector_registration(&authorizer, record, &version_id, descriptor)?;
+        }
+
         let descriptors = record.filter_descriptors();
         for descriptor in &descriptors {
             if descriptor.id.starts_with("builtin.") {
@@ -863,9 +1243,10 @@ impl EngineService {
                 )));
             }
         }
-        let process = Arc::new(PluginProcess::new(
+        let process = Arc::new(PluginProcess::new_with_connector_descriptors(
             resolve_managed_path(self.store.paths().root.as_path(), &record.package_path),
             record.manifest.clone(),
+            connector_descriptors.clone(),
         ));
         process.ensure_started().map_err(map_plugin_error)?;
         let mut registered: Vec<String> = Vec::new();
@@ -889,7 +1270,56 @@ impl EngineService {
                 .insert(descriptor.id.clone(), record.id.clone());
             registered.push(descriptor.id);
         }
-        self.plugin_processes.insert(record.id.clone(), process);
+        let mut connector_registrations = Vec::new();
+        let mut connector_metadata = crate::ai::PluginConnectorCatalog::new();
+        for descriptor in &connector_descriptors {
+            let adapter = ProcessPluginEngineConnector::new(
+                PluginConnectorOwner {
+                    plugin_id: record.id.clone(),
+                    version_id: version_id.clone(),
+                },
+                descriptor.id.clone(),
+                descriptor.config_schema.clone().ok_or_else(|| {
+                    EngineError::PluginInvalidManifest(
+                        "process connector is missing configSchema".to_string(),
+                    )
+                })?,
+                descriptor.limits.clone().ok_or_else(|| {
+                    EngineError::PluginInvalidManifest(
+                        "process connector is missing limits".to_string(),
+                    )
+                })?,
+                Arc::clone(&authorizer),
+                Arc::clone(&process),
+            )
+            .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+            let (registration, metadata) =
+                plugin_connector_registration(record, &version_id, descriptor, Arc::new(adapter))?;
+            connector_metadata.insert(descriptor.id.clone(), metadata);
+            connector_registrations.push(registration);
+        }
+        if let Err(error) = self.attach_plugin_connectors(
+            PluginConnectorOwner {
+                plugin_id: record.id.clone(),
+                version_id: version_id.clone(),
+            },
+            connector_registrations,
+            connector_metadata,
+        ) {
+            for filter_id in &registered {
+                let _ = self.filters.unregister(filter_id);
+                self.plugin_filter_owners.remove(filter_id);
+            }
+            process.stop();
+            return Err(error);
+        }
+        if let Some(previous) = self
+            .plugin_processes
+            .insert(record.id.clone(), Arc::clone(&process))
+            && !Arc::ptr_eq(&previous, &process)
+        {
+            previous.stop();
+        }
         self.plugin_activation_revisions
             .insert(record.id.clone(), record.revision);
         Ok(())
@@ -956,6 +1386,9 @@ impl EngineService {
                         "ui.panel.register",
                     )?;
                 }
+                PluginContributionDescriptor::EngineConnector(value) => {
+                    authorize_connector_registration(&authorizer, record, version_id, value)?;
+                }
                 _ => {
                     return Err(EngineError::PluginCapabilityUnsupported(format!(
                         "unsupported sandbox contribution {}",
@@ -996,32 +1429,70 @@ impl EngineService {
             .prepare(config, host_calls, Arc::clone(&authorizer))
             .map_err(map_sandbox_error)?;
         let mut filters: Vec<(String, Arc<dyn DocumentFilter>)> = Vec::new();
+        let mut connectors = Vec::new();
+        let mut connector_metadata = crate::ai::PluginConnectorCatalog::new();
         for contribution in &normalized.contributions {
-            if let PluginContributionDescriptor::Filter(value) = contribution {
-                let descriptor = FilterDescriptor {
-                    id: value.id.clone(),
-                    version: value.version.clone(),
-                    display_name: value.display_name.clone(),
-                    extensions: value.extensions.clone(),
-                    capabilities: value.capabilities.clone(),
-                };
-                let adapter = SandboxDocumentFilter::new(
-                    worker.clone(),
-                    descriptor,
-                    record.id.clone(),
-                    version_id.to_string(),
-                    record.revision,
-                    value.id.clone(),
-                    Arc::clone(&authorizer),
-                )
-                .map_err(map_sandbox_error)?;
-                filters.push((value.id.clone(), Arc::new(adapter)));
+            match contribution {
+                PluginContributionDescriptor::Filter(value) => {
+                    let descriptor = FilterDescriptor {
+                        id: value.id.clone(),
+                        version: value.version.clone(),
+                        display_name: value.display_name.clone(),
+                        extensions: value.extensions.clone(),
+                        capabilities: value.capabilities.clone(),
+                    };
+                    let adapter = SandboxDocumentFilter::new(
+                        worker.clone(),
+                        descriptor,
+                        record.id.clone(),
+                        version_id.to_string(),
+                        record.revision,
+                        value.id.clone(),
+                        Arc::clone(&authorizer),
+                    )
+                    .map_err(map_sandbox_error)?;
+                    filters.push((value.id.clone(), Arc::new(adapter)));
+                }
+                PluginContributionDescriptor::EngineConnector(value) => {
+                    let adapter = SandboxPluginEngineConnector::new(
+                        PluginConnectorOwner {
+                            plugin_id: record.id.clone(),
+                            version_id: version_id.to_string(),
+                        },
+                        value.id.clone(),
+                        value.config_schema.clone().ok_or_else(|| {
+                            EngineError::PluginInvalidManifest(
+                                "sandbox connector is missing configSchema".to_string(),
+                            )
+                        })?,
+                        value.limits.clone().ok_or_else(|| {
+                            EngineError::PluginInvalidManifest(
+                                "sandbox connector is missing limits".to_string(),
+                            )
+                        })?,
+                        Arc::clone(&authorizer),
+                        worker.clone(),
+                    )
+                    .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+                    let (registration, metadata) = plugin_connector_registration(
+                        record,
+                        version_id,
+                        value,
+                        Arc::new(adapter),
+                    )?;
+                    connector_metadata.insert(value.id.clone(), metadata);
+                    connectors.push(registration);
+                }
+                PluginContributionDescriptor::UiPanel(_) => {}
+                _ => unreachable!("sandbox host compatibility was checked before preparation"),
             }
         }
         Ok(PreparedSandboxActivation {
             key: worker.key().clone(),
             worker,
             filters,
+            connectors,
+            connector_metadata,
         })
     }
 
@@ -1051,6 +1522,17 @@ impl EngineService {
         self.plugin_sandbox_runtimes
             .attach(prepared.worker.clone())
             .map_err(map_sandbox_error)?;
+        if let Err(error) = self.attach_plugin_connectors(
+            PluginConnectorOwner {
+                plugin_id: record.id.clone(),
+                version_id: version_id.clone(),
+            },
+            prepared.connectors,
+            prepared.connector_metadata,
+        ) {
+            let _ = self.plugin_sandbox_runtimes.detach(&key);
+            return Err(error);
+        }
         let mut registered: Vec<String> = Vec::new();
         for (id, adapter) in prepared.filters {
             if let Err(error) = self.filters.register(adapter) {
@@ -1059,19 +1541,33 @@ impl EngineService {
                     self.plugin_filter_owners.remove(registered_id);
                 }
                 let _ = self.plugin_sandbox_runtimes.detach(&key);
+                self.detach_plugin_connectors(&record.id);
                 return Err(EngineError::InvalidState(error.to_string()));
             }
             self.plugin_filter_owners
                 .insert(id.clone(), record.id.clone());
             registered.push(id);
         }
-        self.plugin_sandbox_keys.insert(record.id.clone(), key);
+        if let Some(previous_key) = self
+            .plugin_sandbox_keys
+            .insert(record.id.clone(), key.clone())
+            && previous_key != key
+        {
+            let _ = self.plugin_sandbox_runtimes.detach(&previous_key);
+        }
         self.plugin_activation_revisions
             .insert(record.id.clone(), record.revision);
         Ok(())
     }
 
     pub(crate) fn unregister_plugin_filters(&mut self, plugin_id: &str) {
+        self.unregister_plugin_runtime(plugin_id, true);
+    }
+
+    fn unregister_plugin_runtime(&mut self, plugin_id: &str, detach_connectors: bool) {
+        if detach_connectors {
+            self.detach_plugin_connectors(plugin_id);
+        }
         let owned: Vec<String> = self
             .plugin_filter_owners
             .iter()
@@ -1098,11 +1594,13 @@ impl EngineService {
             let _ = self.pipeline.registry.unregister(&step_id);
             self.plugin_pipeline_owners.remove(&step_id);
         }
-        if let Some(process) = self.plugin_processes.remove(plugin_id) {
-            process.stop();
-        }
-        if let Some(key) = self.plugin_sandbox_keys.remove(plugin_id) {
-            let _ = self.plugin_sandbox_runtimes.detach(&key);
+        if detach_connectors {
+            if let Some(process) = self.plugin_processes.remove(plugin_id) {
+                process.stop();
+            }
+            if let Some(key) = self.plugin_sandbox_keys.remove(plugin_id) {
+                let _ = self.plugin_sandbox_runtimes.detach(&key);
+            }
         }
         let pending = self
             .pending_sandbox_workers
@@ -1297,6 +1795,183 @@ fn authorize_contribution(
             contribution_id: Some(contribution_id.to_string()),
         })
         .map_err(EngineError::PluginCapabilityDenied)
+}
+
+fn plugin_connector_registration(
+    record: &PluginInstallationRecord,
+    version_id: &str,
+    descriptor: &EngineConnectorContributionDescriptor,
+    connector: Arc<dyn EngineConnector>,
+) -> Result<(
+    EngineConnectorRegistration,
+    crate::ai::PluginConnectorCatalogMetadata,
+)> {
+    descriptor
+        .validate_executable_v1(record.tier)
+        .map_err(map_plugin_error)?;
+    let contract_version = descriptor.contract_version.ok_or_else(|| {
+        EngineError::PluginInvalidManifest(
+            "plugin connector is missing contractVersion".to_string(),
+        )
+    })?;
+    if contract_version != ENGINE_CONNECTOR_CONTRACT_VERSION {
+        return Err(EngineError::PluginCapabilityUnsupported(format!(
+            "connector contract version {contract_version} is unsupported"
+        )));
+    }
+    let config_schema = descriptor.config_schema.clone().ok_or_else(|| {
+        EngineError::PluginInvalidManifest("plugin connector is missing configSchema".to_string())
+    })?;
+    let mut operations = descriptor
+        .operations
+        .iter()
+        .map(|operation| match operation.as_str() {
+            "validateConfig" => Ok(EngineConnectorOperation::ValidateConfig),
+            "test" => Ok(EngineConnectorOperation::Test),
+            "models.list" => Ok(EngineConnectorOperation::ModelsList),
+            "generate" => Ok(EngineConnectorOperation::Generate),
+            _ => Err(EngineError::PluginInvalidManifest(
+                "plugin connector declares an unknown operation".to_string(),
+            )),
+        })
+        .collect::<Result<Vec<_>>>()?;
+    operations.sort();
+    operations.dedup();
+    let owner = PluginConnectorOwner {
+        plugin_id: record.id.clone(),
+        version_id: version_id.to_string(),
+    };
+    let source = EngineConnectorSource::Plugin {
+        owner,
+        contribution_id: descriptor.id.clone(),
+        contract_version,
+    };
+    let (default_base_url, supports_streaming, reports_usage, credential_hint) = descriptor
+        .declarative
+        .as_deref()
+        .map(|definition| {
+            let supports_streaming = matches!(
+                definition.response,
+                DeclarativeConnectorResponseMappingV1::ServerSentEvents { .. }
+            );
+            let reports_usage = match &definition.response {
+                DeclarativeConnectorResponseMappingV1::Json { usage, .. }
+                | DeclarativeConnectorResponseMappingV1::ServerSentEvents { usage, .. } => {
+                    usage.is_some()
+                }
+            };
+            let credential_hint = match definition.authentication {
+                DeclarativeConnectorAuthenticationV1::None => "Not required",
+                DeclarativeConnectorAuthenticationV1::Bearer
+                | DeclarativeConnectorAuthenticationV1::Header { .. } => "Connector credential",
+            };
+            (
+                definition.endpoint.destination_origin.clone(),
+                supports_streaming,
+                reports_usage,
+                credential_hint.to_string(),
+            )
+        })
+        .unwrap_or_else(|| {
+            (
+                String::new(),
+                true,
+                true,
+                "Connector credential".to_string(),
+            )
+        });
+    let registry_descriptor = EngineConnectorDescriptor {
+        id: descriptor.id.clone(),
+        display_name: descriptor.display_name.clone(),
+        source: source.clone(),
+        config_schema_version: descriptor.config_schema_version,
+        operations,
+        protocol: None,
+        default_base_url,
+        default_model: String::new(),
+        supports_streaming,
+        reports_usage,
+        credential_hint,
+    };
+    let descriptor_hash = plugin_connector_descriptor_hash(descriptor)?;
+    Ok((
+        EngineConnectorRegistration {
+            descriptor: registry_descriptor,
+            connector,
+        },
+        crate::ai::PluginConnectorCatalogMetadata {
+            source,
+            config_schema,
+            descriptor_hash,
+        },
+    ))
+}
+
+fn plugin_connector_descriptor_hash(
+    descriptor: &EngineConnectorContributionDescriptor,
+) -> Result<String> {
+    let descriptor_bytes = serde_json::to_vec(descriptor)
+        .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+    Ok(format!("{:x}", Sha256::digest(descriptor_bytes)))
+}
+
+fn connector_descriptors_profile_compatible(
+    previous: &EngineConnectorContributionDescriptor,
+    candidate: &EngineConnectorContributionDescriptor,
+) -> bool {
+    let mut previous_operations = previous.operations.clone();
+    previous_operations.sort();
+    let mut candidate_operations = candidate.operations.clone();
+    candidate_operations.sort();
+    let previous_origin = previous
+        .declarative
+        .as_deref()
+        .map(|definition| definition.endpoint.destination_origin.as_str());
+    let candidate_origin = candidate
+        .declarative
+        .as_deref()
+        .map(|definition| definition.endpoint.destination_origin.as_str());
+    previous.protocol == candidate.protocol
+        && previous.contract_version == candidate.contract_version
+        && previous.config_schema_version == candidate.config_schema_version
+        && previous.config_schema == candidate.config_schema
+        && previous_operations == candidate_operations
+        && previous_origin == candidate_origin
+}
+
+fn authorize_connector_registration(
+    authorizer: &Arc<dyn PluginCapabilityAuthorizer>,
+    record: &PluginInstallationRecord,
+    version_id: &str,
+    descriptor: &EngineConnectorContributionDescriptor,
+) -> Result<()> {
+    for operation in &descriptor.operations {
+        authorize_contribution(
+            authorizer,
+            record,
+            version_id,
+            PluginCapabilityId::EngineConnector,
+            PluginCapabilityScope::Operations {
+                operations: vec![operation.clone()],
+            },
+            &descriptor.id,
+            "connector.register",
+        )?;
+    }
+    if let Some(definition) = descriptor.declarative.as_deref() {
+        authorize_contribution(
+            authorizer,
+            record,
+            version_id,
+            PluginCapabilityId::NetworkConnect,
+            PluginCapabilityScope::Network {
+                origins: vec![definition.endpoint.destination_origin.clone()],
+            },
+            &descriptor.id,
+            "connector.register",
+        )?;
+    }
+    Ok(())
 }
 
 fn preflight_qa_packs(
@@ -1925,7 +2600,7 @@ mod tests {
     use serde_json::json;
     use tempfile::tempdir;
     use translunar_plugin_runtime::copy_package;
-    use translunar_protocol::{ErrorCode, PluginCapabilityAuditEvent};
+    use translunar_protocol::{AiConnectorAvailability, ErrorCode, PluginCapabilityAuditEvent};
 
     fn hello_srt_source() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1943,6 +2618,40 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
             .join("examples/plugins/sandbox-toolkit")
+    }
+
+    fn declarative_connector_source() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("examples/plugins/connector-openai-compatible")
+    }
+
+    fn declarative_connector_version_source(
+        version: &str,
+        mutate: impl FnOnce(&mut Value),
+    ) -> tempfile::TempDir {
+        let source = tempdir().expect("connector version source");
+        copy_package(&declarative_connector_source(), source.path())
+            .expect("copy connector package");
+        let manifest_path = source.path().join("manifest.json");
+        let mut manifest: Value = serde_json::from_slice(
+            &std::fs::read(&manifest_path).expect("read connector manifest"),
+        )
+        .expect("parse connector manifest");
+        manifest["version"] = json!(version);
+        for contribution in manifest["contributions"]
+            .as_array_mut()
+            .expect("connector contributions")
+        {
+            contribution["version"] = json!(version);
+        }
+        mutate(&mut manifest);
+        std::fs::write(
+            manifest_path,
+            serde_json::to_vec_pretty(&manifest).expect("serialize connector manifest"),
+        )
+        .expect("write connector manifest");
+        source
     }
 
     fn grant_required_capabilities(service: &mut EngineService, plugin_id: &str) {
@@ -1971,6 +2680,383 @@ mod tests {
                 })
                 .expect("grant required capability");
         }
+    }
+
+    #[test]
+    fn declarative_connector_lifecycle_restores_exact_catalog_and_profile_availability() {
+        let data = tempdir().expect("data directory");
+        let (plugin_id, profile_id, source) = {
+            let mut service = EngineService::open(data.path()).expect("open connector engine");
+            let installed = service
+                .install_plugin(PluginInstallParams {
+                    source_path: declarative_connector_source()
+                        .to_string_lossy()
+                        .into_owned(),
+                    grant_requested: false,
+                    actor: "test".to_string(),
+                    reason: "install declarative connector".to_string(),
+                })
+                .expect("install declarative connector")
+                .plugin;
+            grant_required_capabilities(&mut service, &installed.id);
+            let enabled = service
+                .enable_plugin(PluginMutationParams {
+                    plugin_id: installed.id.clone(),
+                    expected_revision: Some(installed.revision),
+                    actor: "test".to_string(),
+                    reason: "enable declarative connector".to_string(),
+                })
+                .expect("enable declarative connector")
+                .plugin;
+            let catalog = service
+                .ai_provider_catalog(translunar_protocol::AiProviderCatalogParams::default())
+                .expect("list connector catalog");
+            let connector = catalog
+                .items
+                .into_iter()
+                .find(|item| item.id == "example.connector-openai-compatible.chat")
+                .expect("active declarative connector catalog item");
+            assert_eq!(connector.availability, AiConnectorAvailability::Available);
+            assert!(connector.config_schema.is_some());
+            assert_eq!(
+                connector.operations,
+                vec![
+                    EngineConnectorOperation::ValidateConfig,
+                    EngineConnectorOperation::Test,
+                    EngineConnectorOperation::Generate,
+                ]
+            );
+            let profile = service
+                .create_ai_provider(translunar_protocol::AiProviderCreateParams {
+                    name: "Declarative connector profile".to_string(),
+                    kind: None,
+                    source: Some(connector.source.clone()),
+                    base_url: connector.default_base_url,
+                    model: "fixture-model".to_string(),
+                    timeout_ms: 5_000,
+                    max_response_bytes: 1_048_576,
+                    enabled: true,
+                    config_schema_version: Some(connector.config_schema_version),
+                    configuration: json!({
+                        "maxOutputTokens": 1024,
+                        "responseMode": "stream"
+                    }),
+                })
+                .expect("create declarative connector profile");
+            assert_eq!(profile.source, connector.source);
+            assert_eq!(profile.kind, None);
+            (enabled.id, profile.id, profile.source)
+        };
+
+        let mut restarted = EngineService::open(data.path()).expect("restart connector engine");
+        let catalog = restarted
+            .ai_provider_catalog(translunar_protocol::AiProviderCatalogParams::default())
+            .expect("list restarted connector catalog");
+        assert!(catalog.items.iter().any(|item| item.source == source));
+        let profile = restarted
+            .list_ai_providers(translunar_protocol::AiProviderListParams {
+                offset: 0,
+                limit: 100,
+            })
+            .expect("list restarted connector profiles")
+            .items
+            .into_iter()
+            .find(|profile| profile.id == profile_id)
+            .expect("restarted connector profile");
+        assert_eq!(profile.availability, AiConnectorAvailability::Available);
+
+        let current = restarted
+            .get_plugin(PluginIdParams {
+                plugin_id: plugin_id.clone(),
+            })
+            .expect("read connector plugin before disable");
+        FAIL_UNINSTALL_AFTER_DETACH.with(|fail| fail.set(true));
+        let uninstall_error = restarted
+            .uninstall_plugin(PluginMutationParams {
+                plugin_id: plugin_id.clone(),
+                expected_revision: Some(current.revision),
+                actor: "test".to_string(),
+                reason: "inject post-detach uninstall failure".to_string(),
+            })
+            .expect_err("failed uninstall must restore the live connector");
+        assert!(matches!(uninstall_error, EngineError::InvalidState(_)));
+        let restored_catalog = restarted
+            .ai_provider_catalog(translunar_protocol::AiProviderCatalogParams::default())
+            .expect("list catalog after failed uninstall");
+        assert!(
+            restored_catalog
+                .items
+                .iter()
+                .any(|item| item.source == source)
+        );
+        assert!(restored_catalog.items.iter().any(|item| {
+            item.source
+                == EngineConnectorSource::Builtin {
+                    provider: translunar_ai_core::AiProviderKind::Openai,
+                }
+        }));
+        let current = restarted
+            .get_plugin(PluginIdParams {
+                plugin_id: plugin_id.clone(),
+            })
+            .expect("read restored connector plugin");
+        assert_eq!(current.status, WirePluginStatus::Enabled);
+        restarted
+            .disable_plugin(PluginMutationParams {
+                plugin_id: plugin_id.clone(),
+                expected_revision: Some(current.revision),
+                actor: "test".to_string(),
+                reason: "disable connector".to_string(),
+            })
+            .expect("disable declarative connector");
+        assert!(
+            restarted
+                .ai_provider_catalog(translunar_protocol::AiProviderCatalogParams::default())
+                .expect("list detached connector catalog")
+                .items
+                .iter()
+                .all(|item| item.source != source)
+        );
+        let profile = restarted
+            .list_ai_providers(translunar_protocol::AiProviderListParams {
+                offset: 0,
+                limit: 100,
+            })
+            .expect("list unavailable connector profiles")
+            .items
+            .into_iter()
+            .find(|profile| profile.id == profile_id)
+            .expect("preserved unavailable connector profile");
+        assert_eq!(profile.availability, AiConnectorAvailability::Unavailable);
+
+        let disabled = restarted
+            .get_plugin(PluginIdParams {
+                plugin_id: plugin_id.clone(),
+            })
+            .expect("read disabled connector");
+        let reenabled = restarted
+            .enable_plugin(PluginMutationParams {
+                plugin_id: plugin_id.clone(),
+                expected_revision: Some(disabled.revision),
+                actor: "test".to_string(),
+                reason: "re-enable before revocation".to_string(),
+            })
+            .expect("re-enable connector")
+            .plugin;
+        let connector_request = restarted
+            .list_plugin_capability_requests(
+                translunar_protocol::PluginCapabilityRequestListParams {
+                    plugin_id: plugin_id.clone(),
+                    version_id: reenabled.active_version_id.clone(),
+                    offset: 0,
+                    limit: 200,
+                },
+            )
+            .expect("list connector capability requests")
+            .items
+            .into_iter()
+            .find(|request| request.capability_id == PluginCapabilityId::EngineConnector)
+            .expect("engine connector capability request");
+        let revoked = restarted
+            .revoke_plugin_capability(translunar_protocol::PluginCapabilityDecisionParams {
+                plugin_id: plugin_id.clone(),
+                request_id: connector_request.id,
+                expected_revision: connector_request.revision,
+                actor: "test".to_string(),
+                reason: "revoke connector authority".to_string(),
+            })
+            .expect("revoke connector capability");
+        assert!(revoked.detached);
+        assert_eq!(revoked.plugin.status, WirePluginStatus::Disabled);
+        assert!(
+            restarted
+                .ai
+                .connectors
+                .lookup_source(&source)
+                .expect("lookup revoked source")
+                .is_none()
+        );
+
+        restarted
+            .uninstall_plugin(PluginMutationParams {
+                plugin_id: plugin_id.clone(),
+                expected_revision: Some(revoked.plugin.revision),
+                actor: "test".to_string(),
+                reason: "uninstall revoked connector".to_string(),
+            })
+            .expect("uninstall connector");
+        assert!(restarted.get_plugin(PluginIdParams { plugin_id }).is_err());
+        let preserved_profile = restarted
+            .list_ai_providers(translunar_protocol::AiProviderListParams {
+                offset: 0,
+                limit: 100,
+            })
+            .expect("list profiles after uninstall")
+            .items
+            .into_iter()
+            .find(|profile| profile.id == profile_id)
+            .expect("profile preserved after uninstall");
+        assert_eq!(
+            preserved_profile.availability,
+            AiConnectorAvailability::Unavailable
+        );
+    }
+
+    #[test]
+    fn connector_upgrade_rebinds_compatible_profiles_and_rollback_restores_owner() {
+        let data = tempdir().expect("data directory");
+        let incompatible = declarative_connector_version_source("2.0.0", |manifest| {
+            let connector = &mut manifest["contributions"][0];
+            connector["declarative"]["endpoint"]["destinationOrigin"] =
+                json!("http://127.0.0.1:43124");
+            connector["declarative"]["endpoint"]["urlTemplate"] =
+                json!("http://127.0.0.1:43124/v1/chat/completions");
+            manifest["capabilities"][1]["scope"]["origins"] = json!(["http://127.0.0.1:43124"]);
+        });
+        let compatible = declarative_connector_version_source("2.0.0", |_| {});
+        let mut service = EngineService::open(data.path()).expect("open connector engine");
+        let installed = service
+            .install_plugin(PluginInstallParams {
+                source_path: declarative_connector_source()
+                    .to_string_lossy()
+                    .into_owned(),
+                grant_requested: false,
+                actor: "test".to_string(),
+                reason: "install connector v1".to_string(),
+            })
+            .expect("install connector v1")
+            .plugin;
+        let original_version_id = installed
+            .active_version_id
+            .clone()
+            .expect("original connector version");
+        grant_required_capabilities(&mut service, &installed.id);
+        let enabled = service
+            .enable_plugin(PluginMutationParams {
+                plugin_id: installed.id.clone(),
+                expected_revision: Some(installed.revision),
+                actor: "test".to_string(),
+                reason: "enable connector v1".to_string(),
+            })
+            .expect("enable connector v1")
+            .plugin;
+        let original_connector = service
+            .ai_provider_catalog(translunar_protocol::AiProviderCatalogParams::default())
+            .expect("list connector catalog")
+            .items
+            .into_iter()
+            .find(|item| item.id == "example.connector-openai-compatible.chat")
+            .expect("connector catalog item");
+        let profile = service
+            .create_ai_provider(translunar_protocol::AiProviderCreateParams {
+                name: "Versioned connector profile".to_string(),
+                kind: None,
+                source: Some(original_connector.source.clone()),
+                base_url: original_connector.default_base_url,
+                model: "fixture-model".to_string(),
+                timeout_ms: 5_000,
+                max_response_bytes: 1_048_576,
+                enabled: true,
+                config_schema_version: Some(original_connector.config_schema_version),
+                configuration: json!({
+                    "maxOutputTokens": 1024,
+                    "responseMode": "stream"
+                }),
+            })
+            .expect("create versioned connector profile");
+
+        let incompatible_error = service
+            .upgrade_plugin(PluginUpgradeParams {
+                plugin_id: enabled.id.clone(),
+                source_path: incompatible.path().to_string_lossy().into_owned(),
+                expected_revision: enabled.revision,
+                actor: "test".to_string(),
+                reason: "reject origin expansion".to_string(),
+            })
+            .expect_err("origin expansion requires explicit migration");
+        assert!(matches!(
+            incompatible_error,
+            EngineError::PluginUpgradeFailed(_)
+        ));
+        let after_rejection = service
+            .get_plugin(PluginIdParams {
+                plugin_id: enabled.id.clone(),
+            })
+            .expect("read connector after rejected upgrade");
+        assert_eq!(
+            after_rejection.active_version_id,
+            Some(original_version_id.clone())
+        );
+        assert_eq!(after_rejection.revision, enabled.revision);
+        assert_eq!(
+            service
+                .store
+                .get_ai_connector_profile(&profile.id)
+                .expect("profile after rejected upgrade")
+                .source,
+            original_connector.source
+        );
+
+        let upgraded = service
+            .upgrade_plugin(PluginUpgradeParams {
+                plugin_id: enabled.id.clone(),
+                source_path: compatible.path().to_string_lossy().into_owned(),
+                expected_revision: enabled.revision,
+                actor: "test".to_string(),
+                reason: "compatible connector upgrade".to_string(),
+            })
+            .expect("upgrade compatible connector");
+        let upgraded_profile = service
+            .store
+            .get_ai_connector_profile(&profile.id)
+            .expect("profile rebound to candidate");
+        assert_eq!(
+            upgraded_profile
+                .source
+                .plugin_owner()
+                .map(|owner| owner.version_id.as_str()),
+            Some(upgraded.active_version_id.as_str())
+        );
+        assert!(
+            service
+                .ai
+                .connectors
+                .lookup_source(&upgraded_profile.source)
+                .expect("candidate lookup")
+                .is_some()
+        );
+        assert!(
+            service
+                .ai
+                .connectors
+                .lookup_source(&original_connector.source)
+                .expect("previous lookup")
+                .is_none()
+        );
+
+        let rolled_back = service
+            .rollback_plugin(PluginRollbackParams {
+                plugin_id: enabled.id,
+                version_id: original_version_id.clone(),
+                expected_revision: upgraded.plugin.revision,
+                actor: "test".to_string(),
+                reason: "restore connector v1".to_string(),
+            })
+            .expect("rollback connector");
+        assert_eq!(rolled_back.active_version_id, original_version_id);
+        let restored_profile = service
+            .store
+            .get_ai_connector_profile(&profile.id)
+            .expect("profile rebound to original");
+        assert_eq!(restored_profile.source, original_connector.source);
+        assert!(
+            service
+                .ai
+                .connectors
+                .lookup_source(&restored_profile.source)
+                .expect("restored lookup")
+                .is_some()
+        );
     }
 
     #[test]

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
+  AiConnectorCatalogItem,
+  AiProviderProfile,
   PluginCapabilityAuditEntry,
   PluginCapabilityChangeKind,
   PluginCapabilityId,
@@ -61,6 +63,15 @@ const CHANGE_KEYS: Record<PluginCapabilityChangeKind, MessageKey> = {
 export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
   const { t, formatDate } = useLocale();
   const [plugins, setPlugins] = useState<PluginSummary[]>([]);
+  const [providerProfiles, setProviderProfiles] = useState<AiProviderProfile[]>(
+    [],
+  );
+  const [connectorCatalog, setConnectorCatalog] = useState<
+    AiConnectorCatalogItem[]
+  >([]);
+  const [connectorPermissions, setConnectorPermissions] = useState<
+    Record<string, PluginCapabilityRequestView[] | null>
+  >({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -89,11 +100,39 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
     setLoading(true);
     if (!preserveError) setError(null);
     try {
-      const page = await window.translunar.invoke("plugin.list", {
-        offset: 0,
-        limit: 100,
-      });
+      const [page, profiles, catalog] = await Promise.all([
+        window.translunar.invoke("plugin.list", {
+          offset: 0,
+          limit: 100,
+        }),
+        window.translunar.invoke("ai.provider.list", {
+          offset: 0,
+          limit: 100,
+        }),
+        window.translunar.invoke("ai.provider.catalog", {}),
+      ]);
+      const connectorPlugins = page.items.filter((plugin) =>
+        (plugin.contributions ?? []).some(
+          (contribution) => contribution.kind === "engineConnector",
+        ),
+      );
+      const permissionEntries = await Promise.all(
+        connectorPlugins.map(async (plugin) => {
+          try {
+            const nextReview = await window.translunar.invoke(
+              "plugin.permission.review",
+              { pluginId: plugin.id },
+            );
+            return [plugin.id, nextReview.requests] as const;
+          } catch {
+            return [plugin.id, null] as const;
+          }
+        }),
+      );
       setPlugins(page.items);
+      setProviderProfiles(profiles.items);
+      setConnectorCatalog(catalog.items);
+      setConnectorPermissions(Object.fromEntries(permissionEntries));
     } catch (cause) {
       setError(formatError(cause));
     } finally {
@@ -268,6 +307,14 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
                 { kind: "uiPanel" }
               > => contribution.kind === "uiPanel",
             );
+            const connectors = (plugin.contributions ?? []).filter(
+              (
+                contribution,
+              ): contribution is Extract<
+                PluginContributionDescriptor,
+                { kind: "engineConnector" }
+              > => contribution.kind === "engineConnector",
+            );
             return (
               <li key={plugin.id} className="plugins-panel__item">
                 <div className="plugins-panel__identity">
@@ -287,6 +334,146 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
                   </div>
                   {plugin.lastError ? (
                     <p className="plugins-panel__error">{plugin.lastError}</p>
+                  ) : null}
+                  {connectors.length ? (
+                    <div className="plugins-connector-list">
+                      {connectors.map((connector) => {
+                        const catalogItem = connectorCatalog.find(
+                          (item) =>
+                            item.source.kind === "plugin" &&
+                            item.source.owner.pluginId === plugin.id &&
+                            item.source.owner.versionId ===
+                              plugin.activeVersionId &&
+                            item.source.contributionId === connector.id,
+                        );
+                        const references = providerProfiles.filter(
+                          (profile) =>
+                            profile.source.kind === "plugin" &&
+                            profile.source.owner.pluginId === plugin.id &&
+                            profile.source.owner.versionId ===
+                              plugin.activeVersionId &&
+                            profile.source.contributionId === connector.id &&
+                            (catalogItem?.source.kind !== "plugin" ||
+                              profile.source.contractVersion ===
+                                catalogItem.source.contractVersion),
+                        );
+                        const permissionRequests =
+                          connectorPermissions[plugin.id];
+                        const authority = permissionRequests?.find(
+                          (request) =>
+                            request.capabilityId === "engine.connector" &&
+                            request.contributionId === connector.id,
+                        );
+                        const networkRequests = permissionRequests?.filter(
+                          (request) =>
+                            request.capabilityId === "network.connect" &&
+                            request.contributionId === connector.id,
+                        );
+                        const origins = (networkRequests ?? []).flatMap(
+                          (request) =>
+                            request.decision === "granted" &&
+                            request.grantedScope?.kind === "network"
+                              ? request.grantedScope.origins
+                              : [],
+                        );
+                        const grantedOperations =
+                          authority?.decision === "granted" &&
+                          authority.grantedScope?.kind === "operations"
+                            ? authority.grantedScope.operations
+                            : [];
+                        const authorityState = [
+                          authority?.decision ??
+                            t("plugins.connectorNotRequested"),
+                          ...grantedOperations,
+                        ].join(" · ");
+                        const originState = [
+                          ...(networkRequests ?? []).map(
+                            (request) => request.decision,
+                          ),
+                          origins.join(", ") ||
+                            t("plugins.connectorOriginNone"),
+                        ].join(" · ");
+                        const exactVersion = `${
+                          catalogItem?.source.kind === "plugin"
+                            ? catalogItem.source.owner.versionId
+                            : (plugin.activeVersionId ?? plugin.version)
+                        }:${connector.version}/v${
+                          catalogItem?.source.kind === "plugin"
+                            ? catalogItem.source.contractVersion
+                            : 1
+                        }`;
+                        return (
+                          <article key={connector.id}>
+                            <header>
+                              <strong>{connector.displayName}</strong>
+                              <span
+                                className="plugins-connector-availability"
+                                data-availability={
+                                  catalogItem?.availability ?? "unavailable"
+                                }
+                              >
+                                {catalogItem?.availability === "available"
+                                  ? t("ai.connectorAvailable")
+                                  : catalogItem?.availability === "degraded"
+                                    ? t("ai.connectorDegraded")
+                                    : t("ai.connectorUnavailable")}
+                              </span>
+                            </header>
+                            <code title={connector.id}>{connector.id}</code>
+                            <dl>
+                              <div>
+                                <dt>{t("plugins.connectorVersion")}</dt>
+                                <dd title={exactVersion}>{exactVersion}</dd>
+                              </div>
+                              <div>
+                                <dt>{t("plugins.connectorOperations")}</dt>
+                                <dd>{connector.operations.join(" · ")}</dd>
+                              </div>
+                            </dl>
+                            <div className="plugins-connector-status">
+                              <span>
+                                {t("plugins.connectorProfiles", {
+                                  count: references.length,
+                                })}
+                              </span>
+                              {permissionRequests === null ||
+                              permissionRequests === undefined ? (
+                                <span>
+                                  {t("plugins.connectorPermissionUnknown")}
+                                </span>
+                              ) : (
+                                <>
+                                  <span
+                                    data-decision={
+                                      authority?.decision ?? "not-requested"
+                                    }
+                                  >
+                                    {t("plugins.connectorAuthority", {
+                                      state: authorityState,
+                                    })}
+                                  </span>
+                                  <span title={originState}>
+                                    {t("plugins.connectorOrigins", {
+                                      list: originState,
+                                    })}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                            {catalogItem?.safeFailure ? (
+                              <p
+                                className="plugins-connector-failure"
+                                role="status"
+                              >
+                                {t("plugins.connectorFailure", {
+                                  message: catalogItem.safeFailure,
+                                })}
+                              </p>
+                            ) : null}
+                          </article>
+                        );
+                      })}
+                    </div>
                   ) : null}
                 </div>
                 <div className="plugins-panel__item-actions">

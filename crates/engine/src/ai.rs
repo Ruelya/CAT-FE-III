@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -11,10 +11,13 @@ use translunar_ai_core::{
     ALIGNMENT_REFINEMENT_ACTION, AiAction, AiBatchItemStatus, AiBatchRun, AiBatchStatus,
     AiConversation, AiConversationRole, AiCoreError, AiCredentialStatus, AiEventSink, AiMessage,
     AiMessageRole, AiProviderKind, AiProviderProfile, AiProviderProtocol, AiRun, AiRunKind,
-    AiRunRequest, AiRunStatus, AlignmentRefinementRunContext, GroundingContextSegment,
-    GroundingCorpusMatch, GroundingCorpusMatchedSide, GroundingInput, GroundingOptions,
-    GroundingTerm, GroundingTmMatch, PromptBundle, ProviderRequest, SecretString,
-    build_grounded_prompt, execute_provider, provider_catalog, provider_descriptor,
+    AiRunRequest, AiRunStatus, AlignmentRefinementRunContext, ConnectorConfigurationRequest,
+    ConnectorGenerationRequest, ConnectorRequestContext, ENGINE_CONNECTOR_CONTRACT_VERSION,
+    EngineConnectorEvent, EngineConnectorEventSink, EngineConnectorFailure, EngineConnectorLease,
+    EngineConnectorRegistry, EngineConnectorRequest, EngineConnectorResult, EngineConnectorSource,
+    GroundingContextSegment, GroundingCorpusMatch, GroundingCorpusMatchedSide, GroundingInput,
+    GroundingOptions, GroundingTerm, GroundingTmMatch, PluginConnectorOwner, PromptBundle,
+    ProviderRequest, SecretString, build_grounded_prompt, provider_descriptor,
 };
 use translunar_curation_core::{
     CurationError, CurationUnit, MAX_PROVIDER_ENVELOPE_BYTES, SemanticAnnotation,
@@ -22,23 +25,27 @@ use translunar_curation_core::{
 };
 use translunar_domain::{EditorWorkflowState, SegmentState, TagKind};
 use translunar_editor_core::validate_target_tags;
+use translunar_plugin_runtime::{EngineConnectorConfigSchemaV1, EngineConnectorConfigV1};
 use translunar_protocol::{
     AiBatchIdParams, AiBatchItemPage, AiBatchItemsParams, AiBatchListParams, AiBatchPage,
-    AiBatchRevisionParams, AiBatchStartParams, AiConversationCreateParams,
-    AiConversationListParams, AiConversationMessagePage, AiConversationMessagesParams,
-    AiConversationPage, AiConversationUpdateParams, AiGroundingPreviewParams,
-    AiGroundingPreviewResult, AiProfileIdParams, AiProfileRevisionParams, AiProviderCatalogParams,
-    AiProviderCatalogResult, AiProviderCreateParams, AiProviderListParams, AiProviderPage,
-    AiProviderTestResult, AiProviderUpdateParams, AiResultApplyParams, AiRunEventPage,
-    AiRunEventsParams, AiRunIdParams, AiRunListParams, AiRunPage, AiRunRevisionParams,
-    AiRunStartParams, AiSettingsGetParams, AiSettingsUpdateParams, AiUsageQueryParams,
-    AiUsageQueryResult, EditorMutationResult, EmptyResult, SetAiCredentialParams,
+    AiBatchRevisionParams, AiBatchStartParams, AiConnectorAvailability, AiConnectorCatalogItem,
+    AiConversationCreateParams, AiConversationListParams, AiConversationMessagePage,
+    AiConversationMessagesParams, AiConversationPage, AiConversationUpdateParams,
+    AiGroundingPreviewParams, AiGroundingPreviewResult, AiProfileIdParams, AiProfileRevisionParams,
+    AiProviderCatalogParams, AiProviderCatalogResult, AiProviderCreateParams, AiProviderListParams,
+    AiProviderPage, AiProviderProfile as AiProviderProfileView, AiProviderTestResult,
+    AiProviderUpdateParams, AiResultApplyParams, AiRunEventPage, AiRunEventsParams, AiRunIdParams,
+    AiRunListParams, AiRunPage, AiRunRevisionParams, AiRunStartParams, AiSettingsGetParams,
+    AiSettingsUpdateParams, AiUsageQueryParams, AiUsageQueryResult, EditorMutationResult,
+    EmptyResult, SetAiCredentialParams,
 };
 use translunar_storage::{
+    AiConnectorProfileRecord, AiConnectorProvenanceInput, AiPluginConnectorProfileUpdate,
     AiProviderProfileUpdate, AiSettingsUpdate, AlignmentRefinementSelection, NewAiBatchItem,
-    NewAiBatchRun, NewAiProviderProfile, NewAiRun, ReferenceCorpusMatchedSide,
-    ReferenceCorpusSearchHit, ReferenceCorpusSearchRequest, ReferenceCorpusSearchSide,
-    ReferenceCorpusSourceKind, StorageError, Store, TermSearchRequest, TmSearchRequest,
+    NewAiBatchRun, NewAiPluginConnectorProfile, NewAiProviderProfile, NewAiRun,
+    ReferenceCorpusMatchedSide, ReferenceCorpusSearchHit, ReferenceCorpusSearchRequest,
+    ReferenceCorpusSearchSide, ReferenceCorpusSourceKind, StorageError, Store, TermSearchRequest,
+    TmSearchRequest,
 };
 
 use crate::{EngineError, EngineService, Result};
@@ -46,6 +53,34 @@ use crate::{EngineError, EngineService, Result};
 const CREDENTIAL_SERVICE: &str = "translunar-cat.ai";
 const MAX_RUN_POLL_SLEEP_MS: u64 = 250;
 const CURATION_PROVIDER_EXCERPT_CHARS: usize = 1_000;
+
+#[derive(Debug, Clone)]
+pub(super) struct PluginConnectorCatalogMetadata {
+    pub(super) source: EngineConnectorSource,
+    pub(super) config_schema: EngineConnectorConfigSchemaV1,
+    pub(super) descriptor_hash: String,
+}
+
+pub(super) type PluginConnectorCatalog = BTreeMap<String, PluginConnectorCatalogMetadata>;
+
+struct PluginProfileBindingRequest<'a> {
+    source: &'a EngineConnectorSource,
+    requested_schema_version: Option<u32>,
+    configuration: &'a serde_json::Value,
+    base_url: &'a str,
+    model: &'a str,
+    timeout_ms: u32,
+    max_response_bytes: u32,
+}
+
+struct ProfileConnectorInvocation<'a> {
+    request: &'a ProviderRequest,
+    source: &'a EngineConnectorSource,
+    configuration: &'a serde_json::Value,
+    credential: &'a SecretString,
+    request_id: &'a str,
+    test: bool,
+}
 
 #[derive(Debug, Clone)]
 pub struct AlignmentRefinementStart {
@@ -179,8 +214,23 @@ impl CredentialStore for MemoryCredentialStore {
 pub(super) struct AiManager {
     data_dir: std::path::PathBuf,
     credentials: Arc<dyn CredentialStore>,
-    active_runs: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
-    active_batches: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
+    pub(super) connectors: Arc<EngineConnectorRegistry>,
+    active_runs: Arc<Mutex<HashMap<String, Arc<ActiveConnectorWork>>>>,
+    active_batches: Arc<Mutex<HashMap<String, Arc<ActiveConnectorWork>>>>,
+}
+
+struct ActiveConnectorWork {
+    cancellation: Arc<AtomicBool>,
+    source: Mutex<Option<EngineConnectorSource>>,
+}
+
+impl ActiveConnectorWork {
+    fn new() -> Self {
+        Self {
+            cancellation: Arc::new(AtomicBool::new(false)),
+            source: Mutex::new(None),
+        }
+    }
 }
 
 impl AiManager {
@@ -193,19 +243,22 @@ impl AiManager {
             } else {
                 Arc::new(KeyringCredentialStore)
             };
-        Ok(Self::with_credentials(data_dir, credentials))
+        Self::with_credentials(data_dir, credentials)
     }
 
     fn with_credentials(
         data_dir: std::path::PathBuf,
         credentials: Arc<dyn CredentialStore>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        let connectors = EngineConnectorRegistry::with_builtins()
+            .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+        Ok(Self {
             data_dir,
             credentials,
+            connectors: Arc::new(connectors),
             active_runs: Arc::new(Mutex::new(HashMap::new())),
             active_batches: Arc::new(Mutex::new(HashMap::new())),
-        }
+        })
     }
 
     fn spawn_run(&self, run_id: String) {
@@ -217,24 +270,24 @@ impl AiManager {
     }
 
     fn spawn_run_inner(&self, run_id: String, replace_terminal_worker: bool) {
-        let token = Arc::new(AtomicBool::new(false));
+        let work = Arc::new(ActiveConnectorWork::new());
         if let Ok(mut active) = self.active_runs.lock() {
             if !replace_terminal_worker && active.contains_key(&run_id) {
                 return;
             }
-            if let Some(previous) = active.insert(run_id.clone(), Arc::clone(&token)) {
-                previous.store(true, Ordering::Relaxed);
+            if let Some(previous) = active.insert(run_id.clone(), Arc::clone(&work)) {
+                previous.cancellation.store(true, Ordering::Relaxed);
             }
         } else {
             return;
         }
         let manager = self.clone();
         thread::spawn(move || {
-            manager.execute_run(&run_id, &token);
+            manager.execute_run(&run_id, work.cancellation.as_ref(), Some(&work.source));
             if let Ok(mut active) = manager.active_runs.lock() {
                 let owns_registration = active
                     .get(&run_id)
-                    .is_some_and(|current| Arc::ptr_eq(current, &token));
+                    .is_some_and(|current| Arc::ptr_eq(current, &work));
                 if owns_registration {
                     active.remove(&run_id);
                 }
@@ -244,13 +297,18 @@ impl AiManager {
 
     fn cancel_run(&self, run_id: &str) {
         if let Ok(active) = self.active_runs.lock()
-            && let Some(token) = active.get(run_id)
+            && let Some(work) = active.get(run_id)
         {
-            token.store(true, Ordering::Relaxed);
+            work.cancellation.store(true, Ordering::Relaxed);
         }
     }
 
-    fn execute_run(&self, run_id: &str, token: &AtomicBool) {
+    fn execute_run(
+        &self,
+        run_id: &str,
+        token: &AtomicBool,
+        active_source: Option<&Mutex<Option<EngineConnectorSource>>>,
+    ) {
         let mut store = match Store::open_worker(&self.data_dir) {
             Ok(store) => store,
             Err(_) => return,
@@ -272,7 +330,7 @@ impl AiManager {
                 return;
             }
         };
-        let profile = match store.get_ai_provider_profile(&profile_id) {
+        let profile_record = match store.get_ai_connector_profile(&profile_id) {
             Ok(profile) => profile,
             Err(_) => {
                 let _ = store.fail_ai_run(
@@ -285,6 +343,25 @@ impl AiManager {
                 return;
             }
         };
+        let profile = profile_record.profile.clone();
+        let provenance_matches = store
+            .get_ai_run_connector_provenance(run_id)
+            .map(|provenance| {
+                provenance.source.as_ref() == Some(&profile_record.source)
+                    && provenance.config_schema_version == profile_record.config_schema_version
+                    && provenance.descriptor_hash == profile_record.descriptor_hash
+                    && provenance.config_hash == profile_record.config_hash
+            })
+            .unwrap_or(false);
+        if !provenance_matches {
+            let _ = store.fail_ai_run(run_id, "connector_profile_stale", false, profile.kind, 0);
+            return;
+        }
+        if let Some(active_source) = active_source
+            && let Ok(mut active_source) = active_source.lock()
+        {
+            *active_source = Some(profile_record.source.clone());
+        }
         let secret = match self.credentials.get(&profile_id) {
             Ok(secret) => match SecretString::new(secret) {
                 Ok(secret) => secret,
@@ -329,18 +406,43 @@ impl AiManager {
                 }
             };
             let started = Instant::now();
+            let connector_operation_is_test = run.kind == AiRunKind::ProviderTest;
             let completion = if run.request.alignment_refinement.is_some() {
                 let mut sink = CancellationEventSink {
                     cancellation: token,
                 };
-                execute_provider(&request, &secret, token, &mut sink)
+                invoke_profile_connector(
+                    self,
+                    ProfileConnectorInvocation {
+                        request: &request,
+                        source: &profile_record.source,
+                        configuration: &profile_record.configuration,
+                        credential: &secret,
+                        request_id: run_id,
+                        test: connector_operation_is_test,
+                    },
+                    token,
+                    &mut sink,
+                )
             } else {
                 let mut sink = StoreEventSink {
                     store: &mut store,
                     run_id,
                     cancellation: token,
                 };
-                execute_provider(&request, &secret, token, &mut sink)
+                invoke_profile_connector(
+                    self,
+                    ProfileConnectorInvocation {
+                        request: &request,
+                        source: &profile_record.source,
+                        configuration: &profile_record.configuration,
+                        credential: &secret,
+                        request_id: run_id,
+                        test: connector_operation_is_test,
+                    },
+                    token,
+                    &mut sink,
+                )
             };
             match completion {
                 Ok(completion) => {
@@ -441,24 +543,24 @@ impl AiManager {
     }
 
     fn spawn_batch_inner(&self, batch_id: String, replace_terminal_worker: bool) {
-        let token = Arc::new(AtomicBool::new(false));
+        let work = Arc::new(ActiveConnectorWork::new());
         if let Ok(mut active) = self.active_batches.lock() {
             if !replace_terminal_worker && active.contains_key(&batch_id) {
                 return;
             }
-            if let Some(previous) = active.insert(batch_id.clone(), Arc::clone(&token)) {
-                previous.store(true, Ordering::Relaxed);
+            if let Some(previous) = active.insert(batch_id.clone(), Arc::clone(&work)) {
+                previous.cancellation.store(true, Ordering::Relaxed);
             }
         } else {
             return;
         }
         let manager = self.clone();
         thread::spawn(move || {
-            manager.execute_batch(&batch_id, &token);
+            manager.execute_batch(&batch_id, &work);
             if let Ok(mut active) = manager.active_batches.lock() {
                 let owns_registration = active
                     .get(&batch_id)
-                    .is_some_and(|current| Arc::ptr_eq(current, &token));
+                    .is_some_and(|current| Arc::ptr_eq(current, &work));
                 if owns_registration {
                     active.remove(&batch_id);
                 }
@@ -468,13 +570,63 @@ impl AiManager {
 
     pub(super) fn cancel_batch(&self, batch_id: &str) {
         if let Ok(active) = self.active_batches.lock()
-            && let Some(token) = active.get(batch_id)
+            && let Some(work) = active.get(batch_id)
         {
-            token.store(true, Ordering::Relaxed);
+            work.cancellation.store(true, Ordering::Relaxed);
         }
     }
 
-    fn execute_batch(&self, batch_id: &str, token: &Arc<AtomicBool>) {
+    pub(super) fn cancel_plugin_connector_owner(&self, owner: &PluginConnectorOwner) {
+        for active in [&self.active_runs, &self.active_batches] {
+            if let Ok(active) = active.lock() {
+                for work in active.values() {
+                    let matches_owner = work
+                        .source
+                        .lock()
+                        .ok()
+                        .and_then(|source| source.clone())
+                        .and_then(|source| source.plugin_owner().cloned())
+                        .is_some_and(|active_owner| active_owner == *owner);
+                    if matches_owner {
+                        work.cancellation.store(true, Ordering::Release);
+                    }
+                }
+            }
+        }
+    }
+
+    fn isolate_fatal_plugin_connector_failure(&self, lease: &EngineConnectorLease) {
+        let Some(owner) = lease.descriptor.source.plugin_owner() else {
+            return;
+        };
+        if !matches!(self.connectors.is_current(lease), Ok(true)) {
+            return;
+        }
+        let degraded = Store::open_worker(&self.data_dir)
+            .and_then(|mut store| {
+                let current = store.get_plugin_installation(&owner.plugin_id)?;
+                store.record_plugin_crash_for_version(
+                    &owner.plugin_id,
+                    Some(&owner.version_id),
+                    current.revision,
+                    "plugin connector host unavailable",
+                )
+            })
+            .ok()
+            .flatten();
+        if degraded.is_none() {
+            return;
+        }
+        let Ok(detached) = self.connectors.detach_plugin_owner(owner) else {
+            return;
+        };
+        self.cancel_plugin_connector_owner(owner);
+        for detached_lease in detached {
+            let _ = detached_lease.shutdown();
+        }
+    }
+
+    fn execute_batch(&self, batch_id: &str, work: &ActiveConnectorWork) {
         let mut store = match Store::open_worker(&self.data_dir) {
             Ok(store) => store,
             Err(_) => return,
@@ -483,6 +635,13 @@ impl AiManager {
             Ok(batch) => batch,
             Err(_) => return,
         };
+        let source = store
+            .get_ai_batch_connector_provenance(batch_id)
+            .ok()
+            .and_then(|provenance| provenance.source);
+        if let Ok(mut active_source) = work.source.lock() {
+            *active_source = source;
+        }
         drop(store);
 
         let gate = Arc::new(Mutex::new(Instant::now() - Duration::from_secs(60)));
@@ -490,7 +649,7 @@ impl AiManager {
         for _ in 0..batch.concurrency {
             let manager = self.clone();
             let batch_id = batch_id.to_string();
-            let token = Arc::clone(token);
+            let token = Arc::clone(&work.cancellation);
             let gate = Arc::clone(&gate);
             workers.push(thread::spawn(move || {
                 manager.batch_worker(&batch_id, &token, &gate);
@@ -557,28 +716,59 @@ impl AiManager {
                     continue;
                 }
             };
-            let profile = match store.get_ai_provider_profile(&batch.profile_id) {
+            let profile_record = match store.get_ai_connector_profile(&batch.profile_id) {
                 Ok(profile) => profile,
                 Err(_) => return,
             };
-            let run = match store.create_ai_run(NewAiRun {
-                kind: AiRunKind::BatchItem,
-                project_id: Some(batch.project_id.clone()),
-                document_id: Some(built.row.segment.document_id.clone()),
-                segment_id: Some(item.segment_id.clone()),
-                profile_id: Some(profile.id.clone()),
-                model: profile.model,
-                action: "translate".to_string(),
-                prompt_hash: built.bundle.prompt_hash,
-                request: AiRunRequest {
-                    grounding_options: batch.grounding_options.clone(),
-                    freeform_prompt: String::new(),
-                    conversation_id: None,
-                    alignment_refinement: None,
+            let batch_provenance = match store.get_ai_batch_connector_provenance(batch_id) {
+                Ok(provenance) => provenance,
+                Err(_) => return,
+            };
+            let provenance_matches = batch_provenance.source.as_ref()
+                == Some(&profile_record.source)
+                && batch_provenance.config_schema_version == profile_record.config_schema_version
+                && batch_provenance.descriptor_hash == profile_record.descriptor_hash
+                && batch_provenance.config_hash == profile_record.config_hash;
+            if !provenance_matches {
+                let _ = store.finish_ai_batch_item(
+                    batch_id,
+                    &item.segment_id,
+                    AiBatchItemStatus::Failed,
+                    None,
+                    Some("connector_profile_stale"),
+                );
+                continue;
+            }
+            let Some(batch_source) = batch_provenance.source else {
+                return;
+            };
+            let profile = profile_record.profile;
+            let run = match store.create_ai_run_with_connector_provenance(
+                NewAiRun {
+                    kind: AiRunKind::BatchItem,
+                    project_id: Some(batch.project_id.clone()),
+                    document_id: Some(built.row.segment.document_id.clone()),
+                    segment_id: Some(item.segment_id.clone()),
+                    profile_id: Some(profile.id.clone()),
+                    model: profile.model,
+                    action: "translate".to_string(),
+                    prompt_hash: built.bundle.prompt_hash,
+                    request: AiRunRequest {
+                        grounding_options: batch.grounding_options.clone(),
+                        freeform_prompt: String::new(),
+                        conversation_id: None,
+                        alignment_refinement: None,
+                    },
+                    base_segment_revision: Some(item.expected_revision),
+                    max_attempts: u32::from(batch.max_attempts),
                 },
-                base_segment_revision: Some(item.expected_revision),
-                max_attempts: u32::from(batch.max_attempts),
-            }) {
+                AiConnectorProvenanceInput {
+                    source: batch_source,
+                    config_schema_version: batch_provenance.config_schema_version,
+                    descriptor_hash: batch_provenance.descriptor_hash,
+                    config_hash: batch_provenance.config_hash,
+                },
+            ) {
                 Ok(run) => run,
                 Err(_) => return,
             };
@@ -589,7 +779,7 @@ impl AiManager {
                 return;
             }
             drop(store);
-            self.execute_run(&run.id, token);
+            self.execute_run(&run.id, token, None);
             let mut store = match Store::open_worker(&self.data_dir) {
                 Ok(store) => store,
                 Err(_) => return,
@@ -676,7 +866,8 @@ impl EngineService {
     ) -> Result<Vec<SemanticAnnotation>> {
         enforce_ai_policy(&self.store, true, false)?;
         crate::allowlist::enforce_project_engine_allowlist(&self.store, project_id, profile_id)?;
-        let mut profile = self.store.get_ai_provider_profile(profile_id)?;
+        let mut profile_record = self.store.get_ai_connector_profile(profile_id)?;
+        ensure_connector_available(self.ai.connectors.as_ref(), &profile_record.source)?;
         let credential_present = self
             .ai
             .credentials
@@ -687,17 +878,16 @@ impl EngineService {
                 "provider credential is missing".to_string(),
             ));
         }
-        profile.credential_present = true;
-        enforce_profile_policy(&self.store, &profile)?;
-        ensure_structured_refinement_profile(&profile)?;
-        profile.max_response_bytes =
-            profile
-                .max_response_bytes
-                .min(u32::try_from(MAX_PROVIDER_ENVELOPE_BYTES).map_err(|_| {
-                    EngineError::InvalidState(
-                        "curation provider response limit does not fit u32".to_string(),
-                    )
-                })?);
+        profile_record.profile.credential_present = true;
+        enforce_profile_policy(&self.store, &profile_record.profile)?;
+        ensure_structured_refinement_profile(&profile_record.profile)?;
+        profile_record.profile.max_response_bytes = profile_record.profile.max_response_bytes.min(
+            u32::try_from(MAX_PROVIDER_ENVELOPE_BYTES).map_err(|_| {
+                EngineError::InvalidState(
+                    "curation provider response limit does not fit u32".to_string(),
+                )
+            })?,
+        );
 
         let secret = self
             .ai
@@ -707,7 +897,7 @@ impl EngineService {
             .and_then(|secret| SecretString::new(secret).map_err(EngineError::Ai))?;
         let messages = build_curation_provider_messages(units)?;
         let request = ProviderRequest {
-            profile,
+            profile: profile_record.profile,
             messages,
             source_text: String::new(),
             source_locale: "und".to_string(),
@@ -717,7 +907,19 @@ impl EngineService {
         let mut sink = CancellationEventSink {
             cancellation: &cancellation,
         };
-        let completion = execute_provider(&request, &secret, &cancellation, &mut sink)?;
+        let completion = invoke_profile_connector(
+            &self.ai,
+            ProfileConnectorInvocation {
+                request: &request,
+                source: &profile_record.source,
+                configuration: &profile_record.configuration,
+                credential: &secret,
+                request_id: "curation-semantic-annotations",
+                test: false,
+            },
+            &cancellation,
+            &mut sink,
+        )?;
         let known_unit_ids = units
             .iter()
             .map(|unit| unit.id.clone())
@@ -752,14 +954,52 @@ impl EngineService {
         &self,
         _params: AiProviderCatalogParams,
     ) -> Result<AiProviderCatalogResult> {
-        Ok(AiProviderCatalogResult {
-            items: provider_catalog(),
-        })
+        let items = self
+            .ai
+            .connectors
+            .snapshot()
+            .map_err(|error| EngineError::InvalidState(error.to_string()))?
+            .into_iter()
+            .map(|lease| {
+                let plugin_metadata = self
+                    .plugin_connector_catalog
+                    .get(&lease.descriptor.id)
+                    .filter(|metadata| metadata.source == lease.descriptor.source);
+                let kind = match &lease.descriptor.source {
+                    EngineConnectorSource::Builtin { provider } => Some(*provider),
+                    EngineConnectorSource::Plugin { .. } => None,
+                };
+                AiConnectorCatalogItem {
+                    id: lease.descriptor.id.clone(),
+                    source: lease.descriptor.source.clone(),
+                    kind,
+                    display_name: lease.descriptor.display_name.clone(),
+                    protocol: lease.descriptor.protocol,
+                    config_schema_version: lease.descriptor.config_schema_version,
+                    operations: lease.descriptor.operations.clone(),
+                    config_schema: plugin_metadata.map(|metadata| metadata.config_schema.clone()),
+                    default_base_url: lease.descriptor.default_base_url.clone(),
+                    default_model: lease.descriptor.default_model.clone(),
+                    supports_streaming: lease.descriptor.supports_streaming,
+                    reports_usage: lease.descriptor.reports_usage,
+                    credential_hint: lease.descriptor.credential_hint.clone(),
+                    availability: AiConnectorAvailability::Available,
+                    safe_failure: None,
+                }
+            })
+            .collect();
+        Ok(AiProviderCatalogResult { items })
     }
 
     pub fn list_ai_providers(&self, params: AiProviderListParams) -> Result<AiProviderPage> {
         let limit = params.limit.clamp(1, 100);
-        let (items, total) = self.store.list_ai_provider_profiles(params.offset, limit)?;
+        let (profiles, total) = self
+            .store
+            .list_ai_connector_profiles(params.offset, limit)?;
+        let items = profiles
+            .into_iter()
+            .map(|profile| profile_view(self.ai.connectors.as_ref(), profile))
+            .collect::<Result<Vec<_>>>()?;
         Ok(AiProviderPage {
             items,
             total,
@@ -771,47 +1011,228 @@ impl EngineService {
     pub fn create_ai_provider(
         &mut self,
         params: AiProviderCreateParams,
-    ) -> Result<AiProviderProfile> {
-        Ok(self
-            .store
-            .create_ai_provider_profile(NewAiProviderProfile {
-                name: params.name,
-                kind: params.kind,
-                base_url: params.base_url,
-                model: params.model,
-                timeout_ms: params.timeout_ms,
-                max_response_bytes: params.max_response_bytes,
-                enabled: params.enabled,
-            })?)
+    ) -> Result<AiProviderProfileView> {
+        let source = connector_source_from_input(params.kind, params.source.as_ref())?;
+        let profile = match source {
+            EngineConnectorSource::Builtin { provider } => {
+                ensure_empty_builtin_configuration(
+                    params.config_schema_version,
+                    &params.configuration,
+                )?;
+                AiConnectorProfileRecord {
+                    profile: self
+                        .store
+                        .create_ai_provider_profile(NewAiProviderProfile {
+                            name: params.name,
+                            kind: provider,
+                            base_url: params.base_url,
+                            model: params.model,
+                            timeout_ms: params.timeout_ms,
+                            max_response_bytes: params.max_response_bytes,
+                            enabled: params.enabled,
+                        })?,
+                    source: EngineConnectorSource::Builtin { provider },
+                    config_schema_version: None,
+                    configuration: serde_json::json!({}),
+                    descriptor_hash: None,
+                    config_hash: None,
+                }
+            }
+            source @ EngineConnectorSource::Plugin { .. } => {
+                let (config_schema_version, descriptor_hash) = self
+                    .validate_plugin_profile_binding(PluginProfileBindingRequest {
+                        source: &source,
+                        requested_schema_version: params.config_schema_version,
+                        configuration: &params.configuration,
+                        base_url: &params.base_url,
+                        model: &params.model,
+                        timeout_ms: params.timeout_ms,
+                        max_response_bytes: params.max_response_bytes,
+                    })?;
+                self.store
+                    .create_ai_plugin_connector_profile(NewAiPluginConnectorProfile {
+                        name: params.name,
+                        source,
+                        base_url: params.base_url,
+                        model: params.model,
+                        timeout_ms: params.timeout_ms,
+                        max_response_bytes: params.max_response_bytes,
+                        enabled: params.enabled,
+                        config_schema_version,
+                        configuration: params.configuration,
+                        descriptor_hash,
+                    })?
+            }
+        };
+        profile_view(self.ai.connectors.as_ref(), profile)
     }
 
     pub fn update_ai_provider(
         &mut self,
         params: AiProviderUpdateParams,
-    ) -> Result<AiProviderProfile> {
-        Ok(self.store.update_ai_provider_profile(
-            &params.profile_id,
-            AiProviderProfileUpdate {
-                name: params.name,
-                kind: params.kind,
-                base_url: params.base_url,
-                model: params.model,
-                timeout_ms: params.timeout_ms,
-                max_response_bytes: params.max_response_bytes,
-                enabled: params.enabled,
-                expected_revision: params.expected_revision,
+    ) -> Result<AiProviderProfileView> {
+        let current = self.store.get_ai_connector_profile(&params.profile_id)?;
+        let source = connector_source_from_input(params.kind, params.source.as_ref())?;
+        let profile = match (&current.source, &source) {
+            (
+                EngineConnectorSource::Builtin { provider: current },
+                EngineConnectorSource::Builtin { provider },
+            ) if current == provider => {
+                ensure_empty_builtin_configuration(
+                    params.config_schema_version,
+                    &params.configuration,
+                )?;
+                AiConnectorProfileRecord {
+                    profile: self.store.update_ai_provider_profile(
+                        &params.profile_id,
+                        AiProviderProfileUpdate {
+                            name: params.name,
+                            kind: *provider,
+                            base_url: params.base_url,
+                            model: params.model,
+                            timeout_ms: params.timeout_ms,
+                            max_response_bytes: params.max_response_bytes,
+                            enabled: params.enabled,
+                            expected_revision: params.expected_revision,
+                        },
+                    )?,
+                    source,
+                    config_schema_version: None,
+                    configuration: serde_json::json!({}),
+                    descriptor_hash: None,
+                    config_hash: None,
+                }
+            }
+            (EngineConnectorSource::Plugin { .. }, EngineConnectorSource::Plugin { .. }) => {
+                let (config_schema_version, descriptor_hash) = self
+                    .validate_plugin_profile_binding(PluginProfileBindingRequest {
+                        source: &source,
+                        requested_schema_version: params.config_schema_version,
+                        configuration: &params.configuration,
+                        base_url: &params.base_url,
+                        model: &params.model,
+                        timeout_ms: params.timeout_ms,
+                        max_response_bytes: params.max_response_bytes,
+                    })?;
+                self.store.update_ai_plugin_connector_profile(
+                    &params.profile_id,
+                    AiPluginConnectorProfileUpdate {
+                        name: params.name,
+                        source,
+                        base_url: params.base_url,
+                        model: params.model,
+                        timeout_ms: params.timeout_ms,
+                        max_response_bytes: params.max_response_bytes,
+                        enabled: params.enabled,
+                        config_schema_version,
+                        configuration: params.configuration,
+                        descriptor_hash,
+                        expected_revision: params.expected_revision,
+                    },
+                )?
+            }
+            _ => {
+                return Err(EngineError::InvalidRequest(
+                    "AI provider profile source cannot change between built-in and plugin"
+                        .to_string(),
+                ));
+            }
+        };
+        profile_view(self.ai.connectors.as_ref(), profile)
+    }
+
+    fn validate_plugin_profile_binding(
+        &self,
+        binding: PluginProfileBindingRequest<'_>,
+    ) -> Result<(u32, String)> {
+        let metadata = self
+            .plugin_connector_catalog
+            .get(binding.source.connector_id())
+            .filter(|metadata| metadata.source == *binding.source)
+            .ok_or_else(|| {
+                EngineError::InvalidState(
+                    "the exact plugin connector version is not active".to_string(),
+                )
+            })?;
+        let schema_version = binding.requested_schema_version.ok_or_else(|| {
+            EngineError::InvalidRequest(
+                "plugin connector profiles require configSchemaVersion".to_string(),
+            )
+        })?;
+        if schema_version != metadata.config_schema.schema_version {
+            return Err(EngineError::InvalidRequest(
+                "plugin connector config schema version does not match the active descriptor"
+                    .to_string(),
+            ));
+        }
+        let typed_configuration: EngineConnectorConfigV1 =
+            serde_json::from_value(binding.configuration.clone()).map_err(|_| {
+                EngineError::InvalidRequest(
+                    "plugin connector configuration must contain only typed fields".to_string(),
+                )
+            })?;
+        metadata
+            .config_schema
+            .validate_config(&typed_configuration)
+            .map_err(|_| {
+                EngineError::InvalidRequest(
+                    "plugin connector configuration does not match its schema".to_string(),
+                )
+            })?;
+        let lease = self
+            .ai
+            .connectors
+            .lookup_source(binding.source)
+            .map_err(|error| EngineError::InvalidState(error.to_string()))?
+            .ok_or_else(|| {
+                EngineError::InvalidState(
+                    "the exact plugin connector version is not active".to_string(),
+                )
+            })?;
+        if lease.descriptor.config_schema_version != schema_version {
+            return Err(EngineError::InvalidState(
+                "active connector metadata is inconsistent".to_string(),
+            ));
+        }
+        let deadline_ms = Utc::now()
+            .timestamp_millis()
+            .saturating_add(i64::from(binding.timeout_ms));
+        let request = EngineConnectorRequest::ValidateConfig {
+            request: ConnectorConfigurationRequest {
+                context: ConnectorRequestContext {
+                    contract_version: ENGINE_CONNECTOR_CONTRACT_VERSION,
+                    request_id: format!("profile-validate-{}", uuid::Uuid::now_v7()),
+                    deadline_ms,
+                },
+                base_url: binding.base_url.to_string(),
+                model: binding.model.to_string(),
+                timeout_ms: binding.timeout_ms,
+                max_response_bytes: binding.max_response_bytes,
+                configuration: binding.configuration.clone(),
             },
-        )?)
+        };
+        let canceled = AtomicBool::new(false);
+        let mut sink = RejectConnectorEventSink;
+        match lease.invoke(&request, None, &canceled, &mut sink) {
+            Ok(EngineConnectorResult::ValidateConfig) => {}
+            Ok(_) => {
+                return Err(EngineError::InvalidState(
+                    "plugin connector returned the wrong validation result".to_string(),
+                ));
+            }
+            Err(error) => return Err(EngineError::Ai(ai_core_error_from_connector(error))),
+        }
+        Ok((schema_version, metadata.descriptor_hash.clone()))
     }
 
     pub fn delete_ai_provider(&mut self, params: AiProfileRevisionParams) -> Result<EmptyResult> {
-        let profile = self.store.get_ai_provider_profile(&params.profile_id)?;
-        if profile.revision != params.expected_revision {
+        let profile = self.store.get_ai_connector_profile(&params.profile_id)?;
+        if profile.profile.revision != params.expected_revision {
             return Err(EngineError::Storage(StorageError::EntityConflict {
                 entity: "ai_provider_profile",
-                id: profile.id,
+                id: profile.profile.id,
                 expected_revision: params.expected_revision,
-                actual_revision: profile.revision,
+                actual_revision: profile.profile.revision,
             }));
         }
         self.ai
@@ -827,14 +1248,14 @@ impl EngineService {
         &mut self,
         params: SetAiCredentialParams,
     ) -> Result<AiCredentialStatus> {
-        self.store.get_ai_provider_profile(&params.profile_id)?;
+        self.store.get_ai_connector_profile(&params.profile_id)?;
         let secret = SecretString::new(params.secret)?;
         self.ai
             .credentials
             .set(&params.profile_id, secret.expose())
             .map_err(credential_engine_error)?;
         self.store
-            .set_ai_provider_credential_present(&params.profile_id, true)?;
+            .set_ai_connector_credential_present(&params.profile_id, true)?;
         Ok(AiCredentialStatus {
             available: true,
             present: true,
@@ -846,13 +1267,13 @@ impl EngineService {
         &mut self,
         params: AiProfileIdParams,
     ) -> Result<AiCredentialStatus> {
-        self.store.get_ai_provider_profile(&params.profile_id)?;
+        self.store.get_ai_connector_profile(&params.profile_id)?;
         self.ai
             .credentials
             .delete(&params.profile_id)
             .map_err(credential_engine_error)?;
         self.store
-            .set_ai_provider_credential_present(&params.profile_id, false)?;
+            .set_ai_connector_credential_present(&params.profile_id, false)?;
         Ok(AiCredentialStatus {
             available: true,
             present: false,
@@ -864,11 +1285,11 @@ impl EngineService {
         &mut self,
         params: AiProfileIdParams,
     ) -> Result<AiCredentialStatus> {
-        self.store.get_ai_provider_profile(&params.profile_id)?;
+        self.store.get_ai_connector_profile(&params.profile_id)?;
         match self.ai.credentials.status(&params.profile_id) {
             Ok(present) => {
                 self.store
-                    .set_ai_provider_credential_present(&params.profile_id, present)?;
+                    .set_ai_connector_credential_present(&params.profile_id, present)?;
                 Ok(AiCredentialStatus {
                     available: true,
                     present,
@@ -894,7 +1315,8 @@ impl EngineService {
             self.ai.credentials.as_ref(),
             &params.profile_id,
         )?;
-        ensure_profile_ready(&profile)?;
+        ensure_connector_available(self.ai.connectors.as_ref(), &profile.source)?;
+        ensure_profile_ready(&profile.profile)?;
         let messages = vec![
             AiMessage {
                 role: AiMessageRole::System,
@@ -911,8 +1333,8 @@ impl EngineService {
             project_id: None,
             document_id: None,
             segment_id: None,
-            profile_id: Some(profile.id),
-            model: profile.model,
+            profile_id: Some(profile.profile.id),
+            model: profile.profile.model,
             action: "provider_test".to_string(),
             prompt_hash,
             request: AiRunRequest {
@@ -987,8 +1409,9 @@ impl EngineService {
             self.ai.credentials.as_ref(),
             &params.profile_id,
         )?;
-        enforce_profile_policy(&self.store, &profile)?;
-        ensure_structured_refinement_profile(&profile)?;
+        ensure_connector_available(self.ai.connectors.as_ref(), &profile.source)?;
+        enforce_profile_policy(&self.store, &profile.profile)?;
+        ensure_structured_refinement_profile(&profile.profile)?;
         let selection = self.store.prepare_alignment_refinement(&params.context)?;
         crate::allowlist::enforce_project_engine_allowlist(
             &self.store,
@@ -1002,8 +1425,8 @@ impl EngineService {
             project_id: Some(selection.session.project_id),
             document_id: None,
             segment_id: None,
-            profile_id: Some(profile.id),
-            model: profile.model,
+            profile_id: Some(profile.profile.id),
+            model: profile.profile.model,
             action: ALIGNMENT_REFINEMENT_ACTION.to_string(),
             prompt_hash,
             request: AiRunRequest {
@@ -1026,7 +1449,8 @@ impl EngineService {
             self.ai.credentials.as_ref(),
             &params.profile_id,
         )?;
-        enforce_profile_policy(&self.store, &profile)?;
+        ensure_connector_available(self.ai.connectors.as_ref(), &profile.source)?;
+        enforce_profile_policy(&self.store, &profile.profile)?;
         crate::allowlist::enforce_project_engine_allowlist(
             &self.store,
             &params.project_id,
@@ -1082,8 +1506,8 @@ impl EngineService {
             project_id: Some(params.project_id),
             document_id: Some(built.row.segment.document_id.clone()),
             segment_id: Some(params.segment_id),
-            profile_id: Some(profile.id),
-            model: profile.model,
+            profile_id: Some(profile.profile.id),
+            model: profile.profile.model,
             action: action_text(params.action).to_string(),
             prompt_hash: built.bundle.prompt_hash,
             request: AiRunRequest {
@@ -1856,6 +2280,162 @@ struct CancellationEventSink<'a> {
     cancellation: &'a AtomicBool,
 }
 
+struct ConnectorEventBridge<'a> {
+    registry: &'a EngineConnectorRegistry,
+    lease: &'a EngineConnectorLease,
+    cancellation: &'a AtomicBool,
+    inner: &'a mut dyn AiEventSink,
+}
+
+struct RejectConnectorEventSink;
+
+impl EngineConnectorEventSink for RejectConnectorEventSink {
+    fn event(
+        &mut self,
+        _event: &EngineConnectorEvent,
+    ) -> std::result::Result<(), EngineConnectorFailure> {
+        Err(EngineConnectorFailure::Protocol)
+    }
+}
+
+impl EngineConnectorEventSink for ConnectorEventBridge<'_> {
+    fn event(
+        &mut self,
+        event: &EngineConnectorEvent,
+    ) -> std::result::Result<(), EngineConnectorFailure> {
+        self.ensure_current()?;
+        let result = match event {
+            EngineConnectorEvent::TextDelta { text } => {
+                self.inner.delta(text).map_err(EngineConnectorFailure::from)
+            }
+            EngineConnectorEvent::Usage { .. } | EngineConnectorEvent::Completion => Ok(()),
+        };
+        result.and_then(|()| self.ensure_current())
+    }
+}
+
+impl ConnectorEventBridge<'_> {
+    fn ensure_current(&self) -> std::result::Result<(), EngineConnectorFailure> {
+        if self.cancellation.load(Ordering::Acquire) {
+            return Err(EngineConnectorFailure::Canceled);
+        }
+        match self.registry.is_current(self.lease) {
+            Ok(true) => Ok(()),
+            Ok(false) | Err(_) => Err(EngineConnectorFailure::Unavailable { retryable: false }),
+        }
+    }
+}
+
+fn invoke_profile_connector(
+    manager: &AiManager,
+    invocation: ProfileConnectorInvocation<'_>,
+    cancellation: &AtomicBool,
+    sink: &mut dyn AiEventSink,
+) -> std::result::Result<translunar_ai_core::ProviderCompletion, AiCoreError> {
+    if cancellation.load(Ordering::Acquire) {
+        return Err(AiCoreError::Canceled);
+    }
+    let lease = manager
+        .connectors
+        .lookup_source(invocation.source)
+        .map_err(|_| AiCoreError::Unavailable { retryable: false })?
+        .ok_or(AiCoreError::Unavailable { retryable: false })?;
+    let deadline_ms = Utc::now()
+        .timestamp_millis()
+        .saturating_add(i64::from(invocation.request.profile.timeout_ms));
+    let generation = ConnectorGenerationRequest {
+        configuration: ConnectorConfigurationRequest {
+            context: ConnectorRequestContext {
+                contract_version: ENGINE_CONNECTOR_CONTRACT_VERSION,
+                request_id: invocation.request_id.to_string(),
+                deadline_ms,
+            },
+            base_url: invocation.request.profile.base_url.clone(),
+            model: invocation.request.profile.model.clone(),
+            timeout_ms: invocation.request.profile.timeout_ms,
+            max_response_bytes: invocation.request.profile.max_response_bytes,
+            configuration: invocation.configuration.clone(),
+        },
+        messages: invocation.request.messages.clone(),
+        source_text: invocation.request.source_text.clone(),
+        source_locale: invocation.request.source_locale.clone(),
+        target_locale: invocation.request.target_locale.clone(),
+    };
+    let connector_request = if invocation.test {
+        EngineConnectorRequest::Test {
+            request: generation,
+        }
+    } else {
+        EngineConnectorRequest::Generate {
+            request: generation,
+        }
+    };
+    let mut bridge = ConnectorEventBridge {
+        registry: manager.connectors.as_ref(),
+        lease: &lease,
+        cancellation,
+        inner: sink,
+    };
+    let result = match lease.invoke(
+        &connector_request,
+        Some(invocation.credential),
+        cancellation,
+        &mut bridge,
+    ) {
+        Ok(result) => result,
+        Err(_) if cancellation.load(Ordering::Acquire) => return Err(AiCoreError::Canceled),
+        Err(error) => {
+            if matches!(
+                error,
+                EngineConnectorFailure::Unavailable { retryable: false }
+            ) {
+                manager.isolate_fatal_plugin_connector_failure(&lease);
+            }
+            return Err(ai_core_error_from_connector(error));
+        }
+    };
+    if cancellation.load(Ordering::Acquire) {
+        return Err(AiCoreError::Canceled);
+    }
+    if !manager
+        .connectors
+        .is_current(&lease)
+        .map_err(|_| AiCoreError::Unavailable { retryable: false })?
+    {
+        return Err(AiCoreError::Unavailable { retryable: false });
+    }
+    match result {
+        EngineConnectorResult::Test { completion }
+        | EngineConnectorResult::Generate { completion } => {
+            Ok(translunar_ai_core::ProviderCompletion {
+                text: completion.text,
+                usage: completion.usage,
+                elapsed_ms: completion.elapsed_ms,
+            })
+        }
+        EngineConnectorResult::ValidateConfig | EngineConnectorResult::ModelsList { .. } => {
+            Err(AiCoreError::Protocol)
+        }
+    }
+}
+
+fn ai_core_error_from_connector(error: EngineConnectorFailure) -> AiCoreError {
+    match error {
+        EngineConnectorFailure::InvalidRequest | EngineConnectorFailure::UnsupportedOperation => {
+            AiCoreError::Protocol
+        }
+        EngineConnectorFailure::Authentication => AiCoreError::Authentication,
+        EngineConnectorFailure::RateLimited { retry_after_ms } => {
+            AiCoreError::RateLimited { retry_after_ms }
+        }
+        EngineConnectorFailure::Timeout => AiCoreError::Timeout,
+        EngineConnectorFailure::Unavailable { retryable } => AiCoreError::Unavailable { retryable },
+        EngineConnectorFailure::Protocol => AiCoreError::Protocol,
+        EngineConnectorFailure::ResponseTooLarge => AiCoreError::ResponseTooLarge,
+        EngineConnectorFailure::Canceled => AiCoreError::Canceled,
+    }
+}
+
 impl AiEventSink for CancellationEventSink<'_> {
     fn delta(&mut self, _text: &str) -> std::result::Result<(), AiCoreError> {
         if self.cancellation.load(Ordering::Relaxed) {
@@ -1990,6 +2570,97 @@ fn enforce_ai_policy(store: &Store, interactive: bool, batch: bool) -> Result<()
     Ok(())
 }
 
+fn connector_source_from_input(
+    kind: Option<AiProviderKind>,
+    source: Option<&EngineConnectorSource>,
+) -> Result<EngineConnectorSource> {
+    match (kind, source) {
+        (Some(kind), None) => Ok(EngineConnectorSource::Builtin { provider: kind }),
+        (Some(kind), Some(EngineConnectorSource::Builtin { provider })) if kind == *provider => {
+            Ok(EngineConnectorSource::Builtin { provider: kind })
+        }
+        (None, Some(source)) => Ok(source.clone()),
+        (Some(_), Some(EngineConnectorSource::Plugin { .. })) => Err(EngineError::InvalidRequest(
+            "plugin connector profiles must not submit a built-in provider kind".to_string(),
+        )),
+        (None, None) | (Some(_), Some(EngineConnectorSource::Builtin { .. })) => {
+            Err(EngineError::InvalidRequest(
+                "AI provider kind and connector source do not match".to_string(),
+            ))
+        }
+    }
+}
+
+fn ensure_connector_available(
+    registry: &EngineConnectorRegistry,
+    source: &EngineConnectorSource,
+) -> Result<()> {
+    if registry
+        .lookup_source(source)
+        .map_err(|error| EngineError::InvalidState(error.to_string()))?
+        .is_none()
+    {
+        return Err(EngineError::InvalidState(
+            "the exact AI connector version is unavailable".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_empty_builtin_configuration(
+    config_schema_version: Option<u32>,
+    configuration: &serde_json::Value,
+) -> Result<()> {
+    let empty = configuration.is_null()
+        || configuration
+            .as_object()
+            .is_some_and(serde_json::Map::is_empty);
+    if !empty || config_schema_version.is_some() {
+        return Err(EngineError::InvalidRequest(
+            "built-in AI providers do not accept plugin connector configuration".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn profile_view(
+    registry: &EngineConnectorRegistry,
+    record: AiConnectorProfileRecord,
+) -> Result<AiProviderProfileView> {
+    let availability = if registry
+        .lookup_source(&record.source)
+        .map_err(|error| EngineError::InvalidState(error.to_string()))?
+        .is_some()
+    {
+        AiConnectorAvailability::Available
+    } else {
+        AiConnectorAvailability::Unavailable
+    };
+    let profile = record.profile;
+    let kind =
+        matches!(record.source, EngineConnectorSource::Builtin { .. }).then_some(profile.kind);
+    Ok(AiProviderProfileView {
+        id: profile.id,
+        name: profile.name,
+        source: record.source,
+        kind,
+        base_url: profile.base_url,
+        model: profile.model,
+        timeout_ms: profile.timeout_ms,
+        max_response_bytes: profile.max_response_bytes,
+        enabled: profile.enabled,
+        credential_present: profile.credential_present,
+        config_schema_version: record.config_schema_version,
+        configuration: record.configuration,
+        descriptor_hash: record.descriptor_hash,
+        config_hash: record.config_hash,
+        availability,
+        revision: profile.revision,
+        created_at_ms: profile.created_at_ms,
+        updated_at_ms: profile.updated_at_ms,
+    })
+}
+
 fn enforce_profile_policy(store: &Store, profile: &AiProviderProfile) -> Result<()> {
     ensure_profile_ready(profile)?;
     let settings = store.get_ai_settings()?;
@@ -2033,7 +2704,8 @@ pub(super) fn create_and_spawn_ai_batch(
     enforce_ai_policy(store, false, true)?;
     let profile =
         reconcile_profile_credential(store, manager.credentials.as_ref(), &params.profile_id)?;
-    enforce_profile_policy(store, &profile)?;
+    ensure_connector_available(manager.connectors.as_ref(), &profile.source)?;
+    enforce_profile_policy(store, &profile.profile)?;
     crate::allowlist::enforce_project_engine_allowlist(
         store,
         &params.project_id,
@@ -2098,16 +2770,16 @@ fn reconcile_profile_credential(
     store: &mut Store,
     credentials: &dyn CredentialStore,
     profile_id: &str,
-) -> Result<AiProviderProfile> {
-    let mut profile = store.get_ai_provider_profile(profile_id)?;
+) -> Result<AiConnectorProfileRecord> {
+    let mut profile = store.get_ai_connector_profile(profile_id)?;
     let present = credentials
         .status(profile_id)
         .map_err(credential_engine_error)?;
-    if profile.credential_present != present {
-        store.set_ai_provider_credential_present(profile_id, present)?;
-        profile = store.get_ai_provider_profile(profile_id)?;
+    if profile.profile.credential_present != present {
+        store.set_ai_connector_credential_present(profile_id, present)?;
+        profile = store.get_ai_connector_profile(profile_id)?;
     }
-    ensure_profile_ready(&profile)?;
+    ensure_profile_ready(&profile.profile)?;
     Ok(profile)
 }
 
@@ -2278,19 +2950,23 @@ mod tests {
 
     use serde_json::{Value, json};
     use tempfile::tempdir;
-    use translunar_ai_core::AlignmentRefinementLinkRevision;
+    use translunar_ai_core::{AlignmentRefinementLinkRevision, EngineConnectorOperation};
     use translunar_alignment_core::{AlignmentLinkStatus, AlignmentOptions, AlignmentOrigin};
     use translunar_asset_core::TmExchangeUnit;
     use translunar_pipeline::{PipelineRunStatus, PipelineStepDefinition};
+    use translunar_plugin_runtime::{
+        PluginContributions, PluginEntry, PluginEntryKind, PluginManifest, PluginTier,
+    };
     use translunar_protocol::{
-        AiBatchStartParams, AiProfileIdParams, AiProviderCreateParams, AiProviderUpdateParams,
-        AiRunListParams, AiRunStartParams, AiSettingsUpdateParams, ConfirmSegmentParams,
-        CreatePipelineParams, CurationRunParams, ImportDocumentParams, PipelineRunIdParams,
-        ProjectAnalyticsParams, RunPipelineParams, UpdateProjectParams, UpdateTargetParams,
+        AiBatchStartParams, AiProfileIdParams, AiProviderCreateParams, AiProviderListParams,
+        AiProviderUpdateParams, AiRunListParams, AiRunStartParams, AiSettingsUpdateParams,
+        ConfirmSegmentParams, CreatePipelineParams, CurationRunParams, ImportDocumentParams,
+        PipelineRunIdParams, ProjectAnalyticsParams, RunPipelineParams, UpdateProjectParams,
+        UpdateTargetParams,
     };
     use translunar_storage::{
         AlignmentLinkRecord, AlignmentSessionRecord, NewAlignmentSession, NewTmLibrary,
-        ReferenceCorpusKind,
+        PluginStatus, ReferenceCorpusKind, UpsertPluginInstallation,
     };
 
     use super::*;
@@ -2560,7 +3236,8 @@ mod tests {
 
     fn open_alignment_test_service(root: &std::path::Path) -> EngineService {
         let credentials = Arc::new(MemoryCredentialStore::default());
-        let manager = AiManager::with_credentials(root.to_path_buf(), credentials);
+        let manager = AiManager::with_credentials(root.to_path_buf(), credentials)
+            .expect("create AI manager");
         EngineService::open_with_ai(root.to_path_buf(), manager).expect("open alignment AI engine")
     }
 
@@ -2634,16 +3311,19 @@ mod tests {
     fn configure_alignment_provider(
         service: &mut EngineService,
         base_url: String,
-    ) -> AiProviderProfile {
+    ) -> AiProviderProfileView {
         let profile = service
             .create_ai_provider(AiProviderCreateParams {
                 name: "Alignment fixture".to_string(),
-                kind: AiProviderKind::OpenaiCompatible,
+                kind: Some(AiProviderKind::OpenaiCompatible),
+                source: None,
                 base_url,
                 model: "alignment-fixture".to_string(),
                 timeout_ms: 5_000,
                 max_response_bytes: 1_048_576,
                 enabled: true,
+                config_schema_version: None,
+                configuration: serde_json::Value::Null,
             })
             .expect("create alignment provider");
         service
@@ -2726,7 +3406,8 @@ mod tests {
     fn curation_provider_annotations_are_strict_and_persist_only_after_validation() {
         let root = tempdir().expect("provider curation directory");
         let credentials = Arc::new(MemoryCredentialStore::default());
-        let manager = AiManager::with_credentials(root.path().to_path_buf(), credentials);
+        let manager = AiManager::with_credentials(root.path().to_path_buf(), credentials)
+            .expect("create AI manager");
         let mut service = EngineService::open_with_ai(root.path().to_path_buf(), manager)
             .expect("open provider curation engine");
         let (project, library) = seed_curation_library(&mut service);
@@ -2772,7 +3453,8 @@ mod tests {
         let invalid_root = tempdir().expect("invalid provider curation directory");
         let invalid_credentials = Arc::new(MemoryCredentialStore::default());
         let invalid_manager =
-            AiManager::with_credentials(invalid_root.path().to_path_buf(), invalid_credentials);
+            AiManager::with_credentials(invalid_root.path().to_path_buf(), invalid_credentials)
+                .expect("create invalid AI manager");
         let mut invalid_service =
             EngineService::open_with_ai(invalid_root.path().to_path_buf(), invalid_manager)
                 .expect("open invalid provider engine");
@@ -2820,7 +3502,8 @@ mod tests {
     fn curation_provider_stale_library_revision_has_zero_curation_writes() {
         let root = tempdir().expect("stale provider curation directory");
         let credentials = Arc::new(MemoryCredentialStore::default());
-        let manager = AiManager::with_credentials(root.path().to_path_buf(), credentials);
+        let manager = AiManager::with_credentials(root.path().to_path_buf(), credentials)
+            .expect("create AI manager");
         let mut service = EngineService::open_with_ai(root.path().to_path_buf(), manager)
             .expect("open stale provider engine");
         let (project, library) = seed_curation_library(&mut service);
@@ -2936,7 +3619,8 @@ mod tests {
     fn grounded_streaming_run_applies_through_editor_without_secret_persistence() {
         let root = tempdir().expect("AI engine directory");
         let credentials = Arc::new(MemoryCredentialStore::default());
-        let manager = AiManager::with_credentials(root.path().to_path_buf(), credentials.clone());
+        let manager = AiManager::with_credentials(root.path().to_path_buf(), credentials.clone())
+            .expect("create AI manager");
         let mut service = EngineService::open_with_ai(root.path().to_path_buf(), manager)
             .expect("open AI engine");
         let project = service
@@ -2968,12 +3652,15 @@ mod tests {
         let profile = service
             .create_ai_provider(AiProviderCreateParams {
                 name: "Fixture".to_string(),
-                kind: AiProviderKind::OpenaiCompatible,
+                kind: Some(AiProviderKind::OpenaiCompatible),
+                source: None,
                 base_url: fixture_server(),
                 model: "fixture-model".to_string(),
                 timeout_ms: 5_000,
                 max_response_bytes: 1_048_576,
                 enabled: true,
+                config_schema_version: None,
+                configuration: serde_json::Value::Null,
             })
             .expect("create AI profile");
         assert!(matches!(
@@ -2987,11 +3674,14 @@ mod tests {
                 profile_id: profile.id.clone(),
                 name: "Fixture updated".to_string(),
                 kind: profile.kind,
+                source: Some(profile.source.clone()),
                 base_url: profile.base_url.clone(),
                 model: profile.model.clone(),
                 timeout_ms: profile.timeout_ms,
                 max_response_bytes: profile.max_response_bytes,
                 enabled: true,
+                config_schema_version: profile.config_schema_version,
+                configuration: profile.configuration.clone(),
                 expected_revision: profile.revision,
             })
             .expect("update AI profile");
@@ -3000,11 +3690,14 @@ mod tests {
                 profile_id: profile.id.clone(),
                 name: profile.name.clone(),
                 kind: profile.kind,
+                source: Some(profile.source.clone()),
                 base_url: profile.base_url.clone(),
                 model: profile.model.clone(),
                 timeout_ms: profile.timeout_ms,
                 max_response_bytes: profile.max_response_bytes,
                 enabled: true,
+                config_schema_version: profile.config_schema_version,
+                configuration: profile.configuration.clone(),
                 expected_revision: profile.revision - 1,
             }),
             Err(EngineError::Storage(StorageError::EntityConflict { .. }))
@@ -3320,18 +4013,22 @@ mod tests {
         let manager = AiManager::with_credentials(
             root.path().to_path_buf(),
             Arc::clone(&credentials) as Arc<dyn CredentialStore>,
-        );
+        )
+        .expect("create AI manager");
         let mut service = EngineService::open_with_ai(root.path().to_path_buf(), manager)
             .expect("open credential engine");
         let profile = service
             .create_ai_provider(AiProviderCreateParams {
                 name: "Credential lifecycle".to_string(),
-                kind: AiProviderKind::OpenaiCompatible,
+                kind: Some(AiProviderKind::OpenaiCompatible),
+                source: None,
                 base_url: "http://127.0.0.1:9".to_string(),
                 model: "fixture-model".to_string(),
                 timeout_ms: 1_000,
                 max_response_bytes: 1_048_576,
                 enabled: true,
+                config_schema_version: None,
+                configuration: serde_json::Value::Null,
             })
             .expect("create credential profile");
         service
@@ -3345,7 +4042,8 @@ mod tests {
         let manager = AiManager::with_credentials(
             root.path().to_path_buf(),
             credentials as Arc<dyn CredentialStore>,
-        );
+        )
+        .expect("recreate AI manager");
         let mut restarted = EngineService::open_with_ai(root.path().to_path_buf(), manager)
             .expect("restart credential engine");
         let status = restarted
@@ -3371,18 +4069,22 @@ mod tests {
         let manager = AiManager::with_credentials(
             root.path().to_path_buf(),
             Arc::new(UnavailableCredentialStore),
-        );
+        )
+        .expect("create AI manager");
         let mut service = EngineService::open_with_ai(root.path().to_path_buf(), manager)
             .expect("open unavailable credential engine");
         let profile = service
             .create_ai_provider(AiProviderCreateParams {
                 name: "Unavailable credential".to_string(),
-                kind: AiProviderKind::OpenaiCompatible,
+                kind: Some(AiProviderKind::OpenaiCompatible),
+                source: None,
                 base_url: "http://127.0.0.1:9".to_string(),
                 model: "fixture-model".to_string(),
                 timeout_ms: 1_000,
                 max_response_bytes: 1_048_576,
                 enabled: true,
+                config_schema_version: None,
+                configuration: serde_json::Value::Null,
             })
             .expect("create unavailable profile");
         assert!(matches!(
@@ -3412,7 +4114,8 @@ mod tests {
     fn batch_pretranslation_prefers_tm_and_counts_network_usage_once() {
         let root = tempdir().expect("AI batch engine directory");
         let credentials = Arc::new(MemoryCredentialStore::default());
-        let manager = AiManager::with_credentials(root.path().to_path_buf(), credentials);
+        let manager = AiManager::with_credentials(root.path().to_path_buf(), credentials)
+            .expect("create AI manager");
         let mut service = EngineService::open_with_ai(root.path().to_path_buf(), manager)
             .expect("open AI batch engine");
         let project = service
@@ -3473,12 +4176,15 @@ mod tests {
         let profile = service
             .create_ai_provider(AiProviderCreateParams {
                 name: "Batch fixture".to_string(),
-                kind: AiProviderKind::OpenaiCompatible,
+                kind: Some(AiProviderKind::OpenaiCompatible),
+                source: None,
                 base_url: fixture_server_with_count(Arc::clone(&request_count)),
                 model: "fixture-model".to_string(),
                 timeout_ms: 5_000,
                 max_response_bytes: 1_048_576,
                 enabled: true,
+                config_schema_version: None,
+                configuration: serde_json::Value::Null,
             })
             .expect("create batch profile");
         service
@@ -3546,18 +4252,22 @@ mod tests {
     fn canceling_a_streaming_run_is_durable_and_idempotent() {
         let root = tempdir().expect("AI cancel engine directory");
         let credentials = Arc::new(MemoryCredentialStore::default());
-        let manager = AiManager::with_credentials(root.path().to_path_buf(), credentials);
+        let manager = AiManager::with_credentials(root.path().to_path_buf(), credentials)
+            .expect("create AI manager");
         let mut service = EngineService::open_with_ai(root.path().to_path_buf(), manager)
             .expect("open AI cancel engine");
         let profile = service
             .create_ai_provider(AiProviderCreateParams {
                 name: "Cancel fixture".to_string(),
-                kind: AiProviderKind::OpenaiCompatible,
+                kind: Some(AiProviderKind::OpenaiCompatible),
+                source: None,
                 base_url: delayed_fixture_server(),
                 model: "fixture-model".to_string(),
                 timeout_ms: 5_000,
                 max_response_bytes: 1_048_576,
                 enabled: true,
+                config_schema_version: None,
+                configuration: serde_json::Value::Null,
             })
             .expect("create cancel profile");
         service
@@ -3866,7 +4576,8 @@ mod tests {
     fn ai_pipeline_step_delegates_to_the_durable_batch_service() {
         let root = tempdir().expect("AI pipeline directory");
         let credentials = Arc::new(MemoryCredentialStore::default());
-        let manager = AiManager::with_credentials(root.path().to_path_buf(), credentials);
+        let manager = AiManager::with_credentials(root.path().to_path_buf(), credentials)
+            .expect("create AI manager");
         let mut service = EngineService::open_with_ai(root.path().to_path_buf(), manager)
             .expect("open AI pipeline engine");
         let project = service
@@ -3905,12 +4616,15 @@ mod tests {
         let profile = service
             .create_ai_provider(AiProviderCreateParams {
                 name: "Pipeline fixture".to_string(),
-                kind: AiProviderKind::OpenaiCompatible,
+                kind: Some(AiProviderKind::OpenaiCompatible),
+                source: None,
                 base_url: "http://127.0.0.1:9".to_string(),
                 model: "fixture-model".to_string(),
                 timeout_ms: 1_000,
                 max_response_bytes: 1_048_576,
                 enabled: true,
+                config_schema_version: None,
+                configuration: serde_json::Value::Null,
             })
             .expect("create pipeline profile");
         service
@@ -3976,6 +4690,580 @@ mod tests {
             thread::sleep(Duration::from_millis(10));
         }
         panic!("AI pipeline did not finish");
+    }
+
+    #[derive(Debug)]
+    struct FixturePluginConnector;
+
+    impl translunar_ai_core::EngineConnector for FixturePluginConnector {
+        fn invoke(
+            &self,
+            request: &EngineConnectorRequest,
+            _credential: Option<&SecretString>,
+            _cancellation: &AtomicBool,
+            sink: &mut dyn EngineConnectorEventSink,
+        ) -> std::result::Result<EngineConnectorResult, EngineConnectorFailure> {
+            match request {
+                EngineConnectorRequest::ValidateConfig { .. } => {
+                    Ok(EngineConnectorResult::ValidateConfig)
+                }
+                EngineConnectorRequest::Test { .. } | EngineConnectorRequest::Generate { .. } => {
+                    let usage = translunar_ai_core::AiUsage {
+                        input_tokens: Some(1),
+                        output_tokens: Some(1),
+                        ..translunar_ai_core::AiUsage::default()
+                    };
+                    sink.event(&EngineConnectorEvent::TextDelta {
+                        text: "OK".to_string(),
+                    })?;
+                    sink.event(&EngineConnectorEvent::Usage {
+                        usage: usage.clone(),
+                    })?;
+                    sink.event(&EngineConnectorEvent::Completion)?;
+                    let completion = translunar_ai_core::ConnectorCompletion {
+                        text: "OK".to_string(),
+                        usage,
+                        elapsed_ms: 1,
+                    };
+                    if matches!(request, EngineConnectorRequest::Test { .. }) {
+                        Ok(EngineConnectorResult::Test { completion })
+                    } else {
+                        Ok(EngineConnectorResult::Generate { completion })
+                    }
+                }
+                EngineConnectorRequest::ModelsList { .. } => {
+                    Err(EngineConnectorFailure::UnsupportedOperation)
+                }
+            }
+        }
+    }
+
+    struct ReplacingPluginConnector {
+        registry: Arc<EngineConnectorRegistry>,
+        previous_owner: PluginConnectorOwner,
+        candidate_source: EngineConnectorSource,
+    }
+
+    impl translunar_ai_core::EngineConnector for ReplacingPluginConnector {
+        fn invoke(
+            &self,
+            request: &EngineConnectorRequest,
+            _credential: Option<&SecretString>,
+            _cancellation: &AtomicBool,
+            sink: &mut dyn EngineConnectorEventSink,
+        ) -> std::result::Result<EngineConnectorResult, EngineConnectorFailure> {
+            if matches!(request, EngineConnectorRequest::ValidateConfig { .. }) {
+                return Ok(EngineConnectorResult::ValidateConfig);
+            }
+            sink.event(&EngineConnectorEvent::TextDelta {
+                text: "early".to_string(),
+            })?;
+            self.registry
+                .replace_plugin_owner(
+                    &self.previous_owner,
+                    self.candidate_source
+                        .plugin_owner()
+                        .expect("candidate plugin owner"),
+                    vec![fixture_plugin_connector_registration(
+                        self.candidate_source.clone(),
+                        Arc::new(FixturePluginConnector),
+                    )],
+                )
+                .expect("replace connector owner during invocation");
+            sink.event(&EngineConnectorEvent::TextDelta {
+                text: "late".to_string(),
+            })?;
+            sink.event(&EngineConnectorEvent::Completion)?;
+            let completion = translunar_ai_core::ConnectorCompletion {
+                text: "earlylate".to_string(),
+                usage: translunar_ai_core::AiUsage::default(),
+                elapsed_ms: 1,
+            };
+            if matches!(request, EngineConnectorRequest::Test { .. }) {
+                Ok(EngineConnectorResult::Test { completion })
+            } else {
+                Ok(EngineConnectorResult::Generate { completion })
+            }
+        }
+    }
+
+    #[derive(Debug)]
+    struct FatalPluginConnector {
+        shutdowns: Arc<AtomicUsize>,
+    }
+
+    impl translunar_ai_core::EngineConnector for FatalPluginConnector {
+        fn invoke(
+            &self,
+            _request: &EngineConnectorRequest,
+            _credential: Option<&SecretString>,
+            _cancellation: &AtomicBool,
+            _sink: &mut dyn EngineConnectorEventSink,
+        ) -> std::result::Result<EngineConnectorResult, EngineConnectorFailure> {
+            Err(EngineConnectorFailure::Unavailable { retryable: false })
+        }
+
+        fn shutdown(&self) -> std::result::Result<(), EngineConnectorFailure> {
+            self.shutdowns.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    fn fixture_plugin_source(
+        plugin_id: &str,
+        version_id: &str,
+        contribution_id: &str,
+    ) -> EngineConnectorSource {
+        EngineConnectorSource::Plugin {
+            owner: PluginConnectorOwner {
+                plugin_id: plugin_id.to_string(),
+                version_id: version_id.to_string(),
+            },
+            contribution_id: contribution_id.to_string(),
+            contract_version: ENGINE_CONNECTOR_CONTRACT_VERSION,
+        }
+    }
+
+    fn fixture_plugin_connector_registration(
+        source: EngineConnectorSource,
+        connector: Arc<dyn translunar_ai_core::EngineConnector>,
+    ) -> translunar_ai_core::EngineConnectorRegistration {
+        translunar_ai_core::EngineConnectorRegistration {
+            descriptor: translunar_ai_core::EngineConnectorDescriptor {
+                id: source.connector_id().to_string(),
+                display_name: source.connector_id().to_string(),
+                source,
+                config_schema_version: 1,
+                operations: vec![
+                    EngineConnectorOperation::ValidateConfig,
+                    EngineConnectorOperation::Test,
+                    EngineConnectorOperation::Generate,
+                ],
+                protocol: None,
+                default_base_url: "http://127.0.0.1:43123".to_string(),
+                default_model: "fixture-model".to_string(),
+                supports_streaming: true,
+                reports_usage: true,
+                credential_hint: "Connector credential".to_string(),
+            },
+            connector,
+        }
+    }
+
+    fn fixture_provider_request() -> ProviderRequest {
+        ProviderRequest {
+            profile: AiProviderProfile {
+                id: "fixture-profile".to_string(),
+                name: "Fixture profile".to_string(),
+                kind: AiProviderKind::OpenaiCompatible,
+                base_url: "http://127.0.0.1:43123".to_string(),
+                model: "fixture-model".to_string(),
+                timeout_ms: 1_000,
+                max_response_bytes: 65_536,
+                enabled: true,
+                credential_present: true,
+                revision: 0,
+                created_at_ms: 0,
+                updated_at_ms: 0,
+            },
+            messages: vec![AiMessage {
+                role: AiMessageRole::User,
+                text: "OK".to_string(),
+            }],
+            source_text: "OK".to_string(),
+            source_locale: "en".to_string(),
+            target_locale: "zh".to_string(),
+        }
+    }
+
+    #[test]
+    fn replaced_connector_generation_rejects_late_stream_and_proposal() {
+        let root = tempdir().expect("temporary replaced connector engine");
+        let manager = AiManager::with_credentials(
+            root.path().to_path_buf(),
+            Arc::new(MemoryCredentialStore::with_fallback(None)),
+        )
+        .expect("create replaced connector AI manager");
+        let registry = Arc::clone(&manager.connectors);
+        let mut service = EngineService::open_with_ai(root.path().to_path_buf(), manager)
+            .expect("open replaced connector engine");
+        let previous_source = fixture_plugin_source(
+            "org.example.generation",
+            "version-1",
+            "example.generation.connector",
+        );
+        let candidate_source = fixture_plugin_source(
+            "org.example.generation",
+            "version-2",
+            "example.generation.connector",
+        );
+        let previous_owner = previous_source
+            .plugin_owner()
+            .expect("previous plugin owner")
+            .clone();
+        service
+            .ai
+            .connectors
+            .attach_all(vec![fixture_plugin_connector_registration(
+                previous_source.clone(),
+                Arc::new(ReplacingPluginConnector {
+                    registry,
+                    previous_owner,
+                    candidate_source: candidate_source.clone(),
+                }),
+            )])
+            .expect("attach generation replacing connector");
+        let schema: EngineConnectorConfigSchemaV1 = serde_json::from_value(json!({
+            "schemaVersion": 1,
+            "fields": []
+        }))
+        .expect("decode empty connector config schema");
+        service.plugin_connector_catalog.insert(
+            previous_source.connector_id().to_string(),
+            PluginConnectorCatalogMetadata {
+                source: previous_source.clone(),
+                config_schema: schema,
+                descriptor_hash: "d".repeat(64),
+            },
+        );
+        let profile = service
+            .create_ai_provider(AiProviderCreateParams {
+                name: "Replacing plugin profile".to_string(),
+                kind: None,
+                source: Some(previous_source),
+                base_url: "http://127.0.0.1:43123".to_string(),
+                model: "fixture-model".to_string(),
+                timeout_ms: 1_000,
+                max_response_bytes: 65_536,
+                enabled: true,
+                config_schema_version: Some(1),
+                configuration: json!({}),
+            })
+            .expect("create replacing plugin profile");
+        service
+            .set_ai_credential(SetAiCredentialParams {
+                profile_id: profile.id.clone(),
+                secret: "fixture-secret".to_string(),
+            })
+            .expect("set replacing connector credential");
+        let test = service
+            .test_ai_provider(AiProfileIdParams {
+                profile_id: profile.id,
+            })
+            .expect("start replacing connector test");
+        let failed = wait_for_run(&service, &test.run.id);
+
+        assert_eq!(failed.status, AiRunStatus::Failed);
+        assert_eq!(failed.error_code.as_deref(), Some("provider_unavailable"));
+        assert!(failed.proposal_text.is_none());
+        let deltas = service
+            .store
+            .list_ai_run_events(&failed.id, 0, 50)
+            .expect("list replaced connector events")
+            .into_iter()
+            .filter_map(|event| event.delta_text)
+            .collect::<Vec<_>>();
+        assert_eq!(deltas, vec!["early"]);
+        assert!(
+            service
+                .ai
+                .connectors
+                .lookup_source(&candidate_source)
+                .expect("lookup candidate connector")
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn fatal_plugin_host_failure_detaches_only_current_owner_and_cancels_its_work() {
+        let root = tempdir().expect("temporary fatal connector engine");
+        let mut store = Store::open_worker(root.path()).expect("open fatal connector store");
+        let installed = store
+            .upsert_plugin_installation(UpsertPluginInstallation {
+                manifest: PluginManifest {
+                    manifest_version: 1,
+                    id: "org.example.failed".to_string(),
+                    display_name: "Failed connector".to_string(),
+                    version: "1.0.0".to_string(),
+                    api_version: 1,
+                    api_version_min: 1,
+                    tier: PluginTier::Process,
+                    entry: PluginEntry {
+                        kind: PluginEntryKind::Executable,
+                        path: "connector.exe".to_string(),
+                    },
+                    contributions: PluginContributions::default(),
+                    permissions: Vec::new(),
+                    capabilities: Vec::new(),
+                },
+                package_path: root.path().join("failed-connector-package"),
+                status: PluginStatus::Enabled,
+                granted_permissions: Vec::new(),
+                last_error: None,
+            })
+            .expect("seed enabled connector installation");
+        let failed_version_id = installed
+            .active_version_id
+            .clone()
+            .expect("active failed connector version");
+        drop(store);
+        let manager = AiManager::with_credentials(
+            root.path().to_path_buf(),
+            Arc::new(MemoryCredentialStore::with_fallback(None)),
+        )
+        .expect("create fatal connector AI manager");
+        let failed_source = fixture_plugin_source(
+            "org.example.failed",
+            &failed_version_id,
+            "example.failed.connector",
+        );
+        let sibling_source = fixture_plugin_source(
+            "org.example.failed",
+            &failed_version_id,
+            "example.failed.sibling",
+        );
+        let healthy_source = fixture_plugin_source(
+            "org.example.healthy",
+            "version-1",
+            "example.healthy.connector",
+        );
+        let shutdowns = Arc::new(AtomicUsize::new(0));
+        manager
+            .connectors
+            .attach_all(vec![
+                fixture_plugin_connector_registration(
+                    failed_source.clone(),
+                    Arc::new(FatalPluginConnector {
+                        shutdowns: Arc::clone(&shutdowns),
+                    }),
+                ),
+                fixture_plugin_connector_registration(
+                    sibling_source.clone(),
+                    Arc::new(FatalPluginConnector {
+                        shutdowns: Arc::clone(&shutdowns),
+                    }),
+                ),
+                fixture_plugin_connector_registration(
+                    healthy_source.clone(),
+                    Arc::new(FixturePluginConnector),
+                ),
+            ])
+            .expect("attach failure isolation connectors");
+        let failed_work = Arc::new(ActiveConnectorWork::new());
+        *failed_work.source.lock().expect("failed work source") = Some(failed_source.clone());
+        manager
+            .active_runs
+            .lock()
+            .expect("active runs")
+            .insert("failed-run".to_string(), Arc::clone(&failed_work));
+        let healthy_work = Arc::new(ActiveConnectorWork::new());
+        *healthy_work.source.lock().expect("healthy work source") = Some(healthy_source.clone());
+        manager
+            .active_batches
+            .lock()
+            .expect("active batches")
+            .insert("healthy-batch".to_string(), Arc::clone(&healthy_work));
+        let request = fixture_provider_request();
+        let credential =
+            SecretString::new("fixture-secret".to_string()).expect("create connector credential");
+        let cancellation = AtomicBool::new(false);
+        let mut sink = CancellationEventSink {
+            cancellation: &cancellation,
+        };
+        let failure = invoke_profile_connector(
+            &manager,
+            ProfileConnectorInvocation {
+                request: &request,
+                source: &failed_source,
+                configuration: &json!({}),
+                credential: &credential,
+                request_id: "fatal-connector-request",
+                test: false,
+            },
+            &cancellation,
+            &mut sink,
+        )
+        .expect_err("fatal connector host failure");
+
+        assert!(matches!(
+            failure,
+            AiCoreError::Unavailable { retryable: false }
+        ));
+        assert!(failed_work.cancellation.load(Ordering::Acquire));
+        assert!(!healthy_work.cancellation.load(Ordering::Acquire));
+        assert_eq!(shutdowns.load(Ordering::SeqCst), 2);
+        assert!(
+            manager
+                .connectors
+                .lookup_source(&failed_source)
+                .expect("lookup failed connector")
+                .is_none()
+        );
+        assert!(
+            manager
+                .connectors
+                .lookup_source(&sibling_source)
+                .expect("lookup failed sibling connector")
+                .is_none()
+        );
+        assert!(
+            manager
+                .connectors
+                .lookup_source(&healthy_source)
+                .expect("lookup healthy connector")
+                .is_some()
+        );
+        assert!(
+            manager
+                .connectors
+                .lookup_source(&EngineConnectorSource::Builtin {
+                    provider: AiProviderKind::OpenaiCompatible,
+                })
+                .expect("lookup builtin connector")
+                .is_some()
+        );
+        drop(manager);
+        let reopened = Store::open_worker(root.path()).expect("reopen degraded connector store");
+        let degraded = reopened
+            .get_plugin_installation("org.example.failed")
+            .expect("reload degraded connector installation");
+        assert_eq!(degraded.status, PluginStatus::Degraded);
+        assert_eq!(
+            degraded.active_version_id.as_deref(),
+            Some(failed_version_id.as_str())
+        );
+        assert!(
+            reopened
+                .list_enabled_plugins()
+                .expect("list restart-enabled plugins")
+                .iter()
+                .all(|plugin| plugin.id != degraded.id)
+        );
+    }
+
+    #[test]
+    fn plugin_connector_profile_uses_exact_registry_source_config_and_provenance() {
+        let root = tempdir().expect("temporary plugin connector AI engine");
+        let manager = AiManager::with_credentials(
+            root.path().to_path_buf(),
+            Arc::new(MemoryCredentialStore::with_fallback(None)),
+        )
+        .expect("create plugin connector AI manager");
+        let mut service = EngineService::open_with_ai(root.path().to_path_buf(), manager)
+            .expect("open plugin connector AI engine");
+        let owner = PluginConnectorOwner {
+            plugin_id: "org.example.ai".to_string(),
+            version_id: "version-1".to_string(),
+        };
+        let source = EngineConnectorSource::Plugin {
+            owner: owner.clone(),
+            contribution_id: "example.ai.connector".to_string(),
+            contract_version: ENGINE_CONNECTOR_CONTRACT_VERSION,
+        };
+        let schema: EngineConnectorConfigSchemaV1 = serde_json::from_value(json!({
+            "schemaVersion": 1,
+            "fields": [{
+                "key": "temperature",
+                "label": "Temperature",
+                "fieldType": "integer",
+                "required": true,
+                "min": 0,
+                "max": 2
+            }]
+        }))
+        .expect("decode connector config schema");
+        service
+            .ai
+            .connectors
+            .attach_all(vec![translunar_ai_core::EngineConnectorRegistration {
+                descriptor: translunar_ai_core::EngineConnectorDescriptor {
+                    id: "example.ai.connector".to_string(),
+                    display_name: "Example AI Connector".to_string(),
+                    source: source.clone(),
+                    config_schema_version: 1,
+                    operations: vec![
+                        EngineConnectorOperation::ValidateConfig,
+                        EngineConnectorOperation::Test,
+                        EngineConnectorOperation::Generate,
+                    ],
+                    protocol: None,
+                    default_base_url: "http://127.0.0.1:43123".to_string(),
+                    default_model: "fixture-model".to_string(),
+                    supports_streaming: true,
+                    reports_usage: true,
+                    credential_hint: "Connector credential".to_string(),
+                },
+                connector: Arc::new(FixturePluginConnector),
+            }])
+            .expect("attach fixture plugin connector");
+        service.plugin_connector_catalog.insert(
+            "example.ai.connector".to_string(),
+            PluginConnectorCatalogMetadata {
+                source: source.clone(),
+                config_schema: schema,
+                descriptor_hash: "d".repeat(64),
+            },
+        );
+
+        let profile = service
+            .create_ai_provider(AiProviderCreateParams {
+                name: "Plugin profile".to_string(),
+                kind: None,
+                source: Some(source.clone()),
+                base_url: "http://127.0.0.1:43123".to_string(),
+                model: "fixture-model".to_string(),
+                timeout_ms: 1_000,
+                max_response_bytes: 65_536,
+                enabled: true,
+                config_schema_version: Some(1),
+                configuration: json!({ "temperature": 1 }),
+            })
+            .expect("create exact plugin connector profile");
+        assert_eq!(profile.source, source);
+        assert_eq!(profile.kind, None);
+        assert_eq!(profile.configuration, json!({ "temperature": 1 }));
+        service
+            .set_ai_credential(SetAiCredentialParams {
+                profile_id: profile.id.clone(),
+                secret: "fixture-secret".to_string(),
+            })
+            .expect("set connector credential");
+        let test = service
+            .test_ai_provider(AiProfileIdParams {
+                profile_id: profile.id.clone(),
+            })
+            .expect("start plugin connector test");
+        let completed = wait_for_run(&service, &test.run.id);
+        assert_eq!(completed.status, AiRunStatus::Succeeded);
+        assert_eq!(completed.proposal_text.as_deref(), Some("OK"));
+        assert_eq!(
+            service
+                .store
+                .get_ai_run_connector_provenance(&completed.id)
+                .expect("read plugin connector run provenance")
+                .source,
+            Some(source.clone())
+        );
+
+        for lease in service
+            .ai
+            .connectors
+            .detach_plugin_owner(&owner)
+            .expect("detach exact plugin connector")
+        {
+            lease.shutdown().expect("shutdown fixture connector");
+        }
+        let listed = service
+            .list_ai_providers(AiProviderListParams {
+                offset: 0,
+                limit: 100,
+            })
+            .expect("list unavailable connector profile");
+        assert_eq!(
+            listed.items[0].availability,
+            AiConnectorAvailability::Unavailable
+        );
+        assert_eq!(listed.items[0].source, source);
     }
 
     fn wait_for_run(service: &EngineService, run_id: &str) -> AiRun {

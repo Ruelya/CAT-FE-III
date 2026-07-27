@@ -779,6 +779,116 @@ const bundle = await previewGrounding(action, prompt, conversation);
 applyEditorMutation(mutation); // merges returned rows into the current page
 ```
 
+## Plugin Connector Catalog And Profiles
+
+### 1. Scope / Trigger
+
+Use this contract when the Desktop displays connector inventory, creates or
+edits a plugin-backed provider profile, accepts a credential, tests a profile,
+or reflects plugin enable/revoke/upgrade/uninstall state. The renderer is a
+projection of Engine-owned generated contracts and never loads plugin code or
+derives lifecycle state.
+
+### 2. Signatures
+
+Public renderer calls use generated `DesktopApi.invoke` methods for
+`ai.provider.*` and `plugin.*`. The only secret-bearing signature remains the
+trusted preload bridge:
+
+```ts
+setAiCredential(profileId: string, secret: string): Promise<void>;
+```
+
+Catalog/profile projections distinguish sources explicitly:
+
+```ts
+type ConnectorSource =
+  | { source: "builtin" }
+  | {
+      source: "plugin";
+      pluginId: string;
+      versionId: string;
+      contributionId: string;
+      contractVersion: number;
+      configSchemaVersion: number;
+    };
+```
+
+### 3. Contracts
+
+- AI Control merges built-in and plugin catalog entries while labeling source,
+  exact owner/version/contract, schema version, capabilities, and authoritative
+  available/degraded state.
+- Plugin profile configuration renders only Engine-projected bounded schema
+  fields with typed text, number, select, and boolean controls. There is no raw
+  JSON editor and renderer validation is only an ergonomic preview; Engine
+  validation remains authoritative.
+- Credential input is a password control. Its value crosses only
+  `setAiCredential`, is cleared only after success, and never appears in React
+  durable state, catalog/profile data, status, diagnostics, or error text.
+- Plugins inventory shows connector operations, exact profile-reference count,
+  permission/origin decision state, and safe failure data. After every
+  mutation it reloads Engine state rather than updating registry status
+  optimistically.
+- Detached profiles remain visible as unavailable and cannot be tested or used;
+  their historical identity is not rewritten and the connector is absent from
+  new-profile choices.
+- Long owner/version/contribution IDs wrap without overlapping controls or
+  causing horizontal overflow at 1250x744, 1680x942, and 1920x1080. Focus,
+  keyboard operation, accessible names, and localized status remain intact.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Plugin connector unavailable/degraded | Show exact status; disable test/use; do not fall back to a built-in |
+| Schema field is unknown or unsupported | Do not invent an editor; surface the Engine-compatible unavailability/error state |
+| Config or profile mutation fails | Keep user-entered non-secret fields and show the typed safe error |
+| Credential write fails | Keep the password for correction in the current control only; never echo it in status/error |
+| Credential write succeeds | Clear the control and reload credential-presence state |
+| Revoke/disable/uninstall completes | Reload catalog, profiles, and plugin inventory; referenced profiles remain visible/unavailable |
+| Exact owner ID exceeds available width | Wrap/break safely with no page or panel horizontal overflow |
+
+### 5. Good / Base / Bad Cases
+
+- Good: install/grant/enable an official connector, create a schema-driven
+  profile, store and test its credential, use it, restart, then revoke and
+  observe the same profile become unavailable.
+- Base: inspect a connector with zero profiles or an unavailable connector with
+  retained references; the inventory remains truthful and actionable.
+- Bad: render arbitrary descriptor JSON, store the password in profile config,
+  infer enabled state from a click, hide exact version identity, or remove an
+  unavailable profile from history.
+
+### 6. Tests Required
+
+- Renderer unit tests cover source labels, long identifiers, schema control
+  types/defaults/bounds, unavailable states, profile references, safe errors,
+  and secret absence.
+- Production Electron E2E uses the official loopback connector for permission
+  review, enable, profile creation, credential set/test/use, restart, lifecycle
+  mutation, and uninstall. It fails on page/console errors.
+- Capture and inspect connector/profile surfaces at 1250x744, 1680x942, and
+  1920x1080 with explicit horizontal-overflow assertions.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+setCatalog((rows) => rows.map((row) =>
+  row.id === connectorId ? { ...row, available: true } : row));
+<textarea value={JSON.stringify(descriptor.config)} />
+```
+
+#### Correct
+
+```tsx
+await window.translunar.invoke("plugin.enable", { pluginId, expectedRevision });
+await Promise.all([reloadPluginInventory(), reloadProviderCatalog()]);
+return <ConnectorConfigFields fields={connector.configFields} />;
+```
+
 ## Bilingual Review And Table Interop Surface
 
 ### 1. Scope / Trigger

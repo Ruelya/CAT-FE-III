@@ -3,7 +3,7 @@
   "name": "plugin-engine-connectors",
   "title": "Plugin Engine connector SDK",
   "description": "Add the versioned public Engine connector registry, tier adapters, scoped network and credential authority, SDK examples, lifecycle compensation, and full qualification.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

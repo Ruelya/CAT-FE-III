@@ -8,6 +8,30 @@ import { basename, extname } from "node:path";
 import { createInterface } from "node:readline";
 import { stdin as input, stdout as output } from "node:process";
 var HOST_API_VERSION = 1;
+var MAX_ENGINE_CONNECTOR_CREDENTIAL_BYTES = 16 * 1024;
+var ENGINE_CONNECTOR_LIMITS = Object.freeze({
+  configBytes: 64 * 1024,
+  configFields: 64,
+  configKeyBytes: 64,
+  configValueBytes: 4 * 1024,
+  messages: 128,
+  messageBytes: 64 * 1024,
+  sourceTextBytes: 1024 * 1024,
+  outputBytes: 4 * 1024 * 1024,
+  events: 8192,
+  models: 256,
+  modelIdBytes: 256,
+  deadlineMs: 12e4,
+  requestIdBytes: 128,
+  localeBytes: 64,
+  errorMessageBytes: 1024,
+  endpointBytes: 2048,
+  headers: 32,
+  headerNameBytes: 128,
+  headerValueBytes: 1024,
+  jsonPathDepth: 16,
+  jsonPathSegmentBytes: 128,
+});
 var SANDBOX_LIMITS = Object.freeze({
   heapBytes: 32 * 1024 * 1024,
   stackBytes: 512 * 1024,

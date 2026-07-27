@@ -389,6 +389,15 @@ export type MessageKey =
   | "plugins.empty"
   | "plugins.permissions"
   | "plugins.permissionsNone"
+  | "plugins.connectorProfiles"
+  | "plugins.connectorVersion"
+  | "plugins.connectorOperations"
+  | "plugins.connectorAuthority"
+  | "plugins.connectorOrigins"
+  | "plugins.connectorOriginNone"
+  | "plugins.connectorNotRequested"
+  | "plugins.connectorPermissionUnknown"
+  | "plugins.connectorFailure"
   | "plugins.review"
   | "plugins.previewPanel"
   | "plugins.panel.loading"
@@ -650,6 +659,13 @@ export type MessageKey =
   | "ai.originsPlaceholder"
   | "ai.viewsAria"
   | "ai.connectorCatalog"
+  | "ai.chooseConnector"
+  | "ai.connectorAvailable"
+  | "ai.connectorUnavailable"
+  | "ai.connectorDegraded"
+  | "ai.connectorBuiltin"
+  | "ai.connectorPlugin"
+  | "ai.connectorSchemaVersion"
   | "ai.addProvider"
   | "ai.configured"
   | "ai.providerProfiles"
@@ -2076,6 +2092,15 @@ const enUs: MessageCatalog = {
     "No plugins installed. Choose a package directory that contains manifest.json.",
   "plugins.permissions": "permissions: {list}",
   "plugins.permissionsNone": "none",
+  "plugins.connectorProfiles": "{count} provider profiles",
+  "plugins.connectorVersion": "Active version",
+  "plugins.connectorOperations": "Operations",
+  "plugins.connectorAuthority": "Connector authority: {state}",
+  "plugins.connectorOrigins": "Origins: {list}",
+  "plugins.connectorOriginNone": "none granted",
+  "plugins.connectorNotRequested": "not requested",
+  "plugins.connectorPermissionUnknown": "Permission state unavailable",
+  "plugins.connectorFailure": "Last safe failure: {message}",
   "plugins.review": "Review permissions",
   "plugins.previewPanel": "Preview panel",
   "plugins.panel.loading": "Loading",
@@ -2366,6 +2391,13 @@ const enUs: MessageCatalog = {
   "ai.originsPlaceholder": "Empty allows validated profile origins",
   "ai.viewsAria": "AI control views",
   "ai.connectorCatalog": "Connector catalog",
+  "ai.chooseConnector": "Choose a connector",
+  "ai.connectorAvailable": "Available",
+  "ai.connectorUnavailable": "Unavailable",
+  "ai.connectorDegraded": "Degraded",
+  "ai.connectorBuiltin": "Built-in",
+  "ai.connectorPlugin": "Plugin",
+  "ai.connectorSchemaVersion": "Config schema v{version}",
   "ai.addProvider": "Add provider",
   "ai.configured": "Configured",
   "ai.providerProfiles": "Provider profiles",
@@ -3814,6 +3846,15 @@ const zhCn: MessageCatalog = {
   "plugins.empty": "尚未安装插件。请选择包含 manifest.json 的包目录。",
   "plugins.permissions": "权限：{list}",
   "plugins.permissionsNone": "无",
+  "plugins.connectorProfiles": "{count} 个提供方配置",
+  "plugins.connectorVersion": "当前版本",
+  "plugins.connectorOperations": "操作",
+  "plugins.connectorAuthority": "连接器权限：{state}",
+  "plugins.connectorOrigins": "来源：{list}",
+  "plugins.connectorOriginNone": "未授予",
+  "plugins.connectorNotRequested": "未请求",
+  "plugins.connectorPermissionUnknown": "无法读取权限状态",
+  "plugins.connectorFailure": "最近一次安全故障：{message}",
   "plugins.review": "审查权限",
   "plugins.previewPanel": "预览面板",
   "plugins.panel.loading": "正在加载",
@@ -4086,6 +4127,13 @@ const zhCn: MessageCatalog = {
   "ai.originsPlaceholder": "留空表示允许已验证的配置来源",
   "ai.viewsAria": "AI 控制视图",
   "ai.connectorCatalog": "连接器目录",
+  "ai.chooseConnector": "选择连接器",
+  "ai.connectorAvailable": "可用",
+  "ai.connectorUnavailable": "不可用",
+  "ai.connectorDegraded": "已降级",
+  "ai.connectorBuiltin": "内置",
+  "ai.connectorPlugin": "插件",
+  "ai.connectorSchemaVersion": "配置架构 v{version}",
   "ai.addProvider": "添加提供方",
   "ai.configured": "已配置",
   "ai.providerProfiles": "提供方配置",

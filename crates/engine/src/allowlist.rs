@@ -61,7 +61,7 @@ mod tests {
         service: &mut EngineService,
     ) -> (
         translunar_domain::Project,
-        translunar_ai_core::AiProviderProfile,
+        translunar_protocol::AiProviderProfile,
     ) {
         let project = service
             .create_project(CreateProjectParams {
@@ -74,12 +74,15 @@ mod tests {
         let profile = service
             .create_ai_provider(AiProviderCreateParams {
                 name: "Allowlist fixture".to_string(),
-                kind: AiProviderKind::OpenaiCompatible,
+                kind: Some(AiProviderKind::OpenaiCompatible),
+                source: None,
                 base_url: "https://example.test/v1".to_string(),
                 model: "fixture-model".to_string(),
                 timeout_ms: 5_000,
                 max_response_bytes: 1_048_576,
                 enabled: true,
+                config_schema_version: None,
+                configuration: serde_json::Value::Null,
             })
             .expect("create AI provider");
         (project, profile)
@@ -136,12 +139,15 @@ mod tests {
         let other = service
             .create_ai_provider(AiProviderCreateParams {
                 name: "Other fixture".to_string(),
-                kind: AiProviderKind::OpenaiCompatible,
+                kind: Some(AiProviderKind::OpenaiCompatible),
+                source: None,
                 base_url: "https://other.test/v1".to_string(),
                 model: "other-model".to_string(),
                 timeout_ms: 5_000,
                 max_response_bytes: 1_048_576,
                 enabled: true,
+                config_schema_version: None,
+                configuration: serde_json::Value::Null,
             })
             .expect("create other AI provider");
         let project = set_engine_allowlist(&mut service, &project, vec![other.id.clone()]);

@@ -51,8 +51,10 @@ mod qa;
 mod snapshot;
 mod task_package;
 pub use ai::{
-    AiProviderProfileUpdate, AiSettingsUpdate, NewAiBatchItem, NewAiBatchRun, NewAiProviderProfile,
-    NewAiRun,
+    AiConnectorProfileRecord, AiConnectorProvenanceInput, AiConnectorProvenanceRecord,
+    AiPluginConnectorProfileRebind, AiPluginConnectorProfileUpdate, AiProviderProfileUpdate,
+    AiSettingsUpdate, NewAiBatchItem, NewAiBatchRun, NewAiPluginConnectorProfile,
+    NewAiProviderProfile, NewAiRun,
 };
 pub use alignment::{
     AlignmentApplyDuplicate, AlignmentApplyResult, AlignmentLinkRecord, AlignmentMutationResult,

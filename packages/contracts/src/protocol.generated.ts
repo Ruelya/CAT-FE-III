@@ -120,6 +120,9 @@ export type AiConversationRole = "user" | "assistant";
 export type AiAction =
   "translate" | "improve" | "formal" | "conversational" | "shorten" | "expand" | "literal" | "freeform";
 export type AiMessageRole = "system" | "user" | "assistant";
+export type AiConnectorAvailability = "available" | "unavailable" | "degraded";
+export type EngineConnectorConfigValueV1 = string | boolean | number;
+export type EngineConnectorConfigFieldTypeV1 = "text" | "boolean" | "integer" | "select";
 export type AiProviderKind =
   | "openai"
   | "anthropic"
@@ -131,8 +134,20 @@ export type AiProviderKind =
   | "kimi"
   | "volcengine"
   | "openaiCompatible";
+export type EngineConnectorOperation = "validateConfig" | "test" | "models.list" | "generate";
 export type AiProviderProtocol =
   "openaiChatCompletions" | "anthropicMessages" | "geminiGenerateContent" | "deeplTranslate";
+export type EngineConnectorSource =
+  | {
+      kind: "builtin";
+      provider: AiProviderKind;
+    }
+  | {
+      contractVersion: number;
+      contributionId: string;
+      kind: "plugin";
+      owner: PluginConnectorOwner;
+    };
 export type AiRunKind = "interactive" | "action" | "providerTest" | "batchItem";
 export type AiRunStatus =
   "queued" | "running" | "retrying" | "interrupted" | "canceling" | "canceled" | "succeeded" | "failed";
@@ -173,11 +188,15 @@ export type PluginContributionDescriptor =
       version: string;
     }
   | {
+      configSchema?: EngineConnectorConfigSchemaV1 | null;
       configSchemaVersion: number;
+      contractVersion?: number | null;
+      declarative?: DeclarativeEngineConnectorDefinitionV1 | null;
       descriptorVersion: number;
       displayName: string;
       id: string;
       kind: "engineConnector";
+      limits?: EngineConnectorLimitsV1 | null;
       operations: string[];
       protocol: string;
       version: string;
@@ -240,6 +259,43 @@ export type PluginContributionDescriptor =
       version: string;
     };
 export type DeclarativeTextEncoding = "utf8";
+export type DeclarativeConnectorAuthenticationV1 =
+  | {
+      kind: "none";
+    }
+  | {
+      kind: "bearer";
+    }
+  | {
+      kind: "header";
+      name: string;
+    };
+export type DeclarativeConnectorHttpMethodV1 = "POST";
+export type EngineConnectorFailureCodeV1 =
+  | "invalidConfig"
+  | "authentication"
+  | "rateLimit"
+  | "timeout"
+  | "unavailable"
+  | "protocol"
+  | "responseSize"
+  | "cancelled"
+  | "hostCrash";
+export type DeclarativeConnectorResponseMappingV1 =
+  | {
+      finishReasonPath?: string[] | null;
+      kind: "json";
+      textPath: string[];
+      usage?: DeclarativeConnectorUsageMappingV1 | null;
+    }
+  | {
+      deltaPath: string[];
+      doneMarker: string;
+      finishReasonPath?: string[] | null;
+      kind: "serverSentEvents";
+      maxLineBytes: number;
+      usage?: DeclarativeConnectorUsageMappingV1 | null;
+    };
 export type QaField = "source" | "target" | "both";
 export type DeclarativePipelineOperation =
   | {
@@ -2160,19 +2216,48 @@ export interface MethodContract179 {
 }
 export interface AiProviderCatalogParams {}
 export interface AiProviderCatalogResult {
-  items: AiProviderDescriptor[];
+  items: AiConnectorCatalogItem[];
   [k: string]: unknown;
 }
-export interface AiProviderDescriptor {
+export interface AiConnectorCatalogItem {
+  availability: AiConnectorAvailability;
+  configSchema?: EngineConnectorConfigSchemaV1 | null;
+  configSchemaVersion: number;
   credentialHint: string;
   defaultBaseUrl: string;
   defaultModel: string;
   displayName: string;
-  kind: AiProviderKind;
-  protocol: AiProviderProtocol;
+  id: string;
+  kind?: AiProviderKind | null;
+  operations: EngineConnectorOperation[];
+  protocol?: AiProviderProtocol | null;
   reportsUsage: boolean;
+  safeFailure?: string | null;
+  source: EngineConnectorSource;
   supportsStreaming: boolean;
-  [k: string]: unknown;
+}
+export interface EngineConnectorConfigSchemaV1 {
+  fields: EngineConnectorConfigFieldV1[];
+  schemaVersion: number;
+}
+export interface EngineConnectorConfigFieldV1 {
+  defaultValue?: EngineConnectorConfigValueV1 | null;
+  description?: string | null;
+  fieldType: EngineConnectorConfigFieldTypeV1;
+  key: string;
+  label: string;
+  max?: number | null;
+  min?: number | null;
+  options?: EngineConnectorConfigOptionV1[];
+  required: boolean;
+}
+export interface EngineConnectorConfigOptionV1 {
+  label: string;
+  value: string;
+}
+export interface PluginConnectorOwner {
+  pluginId: string;
+  versionId: string;
 }
 export interface MethodContract181 {
   params: AiProviderCreateParams;
@@ -2181,27 +2266,39 @@ export interface MethodContract181 {
 }
 export interface AiProviderCreateParams {
   baseUrl: string;
+  configSchemaVersion?: number | null;
+  configuration?: {
+    [k: string]: unknown;
+  };
   enabled?: boolean;
-  kind: AiProviderKind;
+  kind?: AiProviderKind | null;
   maxResponseBytes?: number;
   model: string;
   name: string;
+  source?: EngineConnectorSource | null;
   timeoutMs?: number;
 }
 export interface AiProviderProfile {
+  availability: AiConnectorAvailability;
   baseUrl: string;
+  configHash?: string | null;
+  configSchemaVersion?: number | null;
+  configuration?: {
+    [k: string]: unknown;
+  };
   createdAtMs: number;
   credentialPresent: boolean;
+  descriptorHash?: string | null;
   enabled: boolean;
   id: string;
-  kind: AiProviderKind;
+  kind?: AiProviderKind | null;
   maxResponseBytes: number;
   model: string;
   name: string;
   revision: number;
+  source: EngineConnectorSource;
   timeoutMs: number;
   updatedAtMs: number;
-  [k: string]: unknown;
 }
 export interface MethodContract183 {
   params: AiProfileRevisionParams;
@@ -2295,13 +2392,18 @@ export interface MethodContract182 {
 }
 export interface AiProviderUpdateParams {
   baseUrl: string;
+  configSchemaVersion?: number | null;
+  configuration?: {
+    [k: string]: unknown;
+  };
   enabled: boolean;
   expectedRevision: number;
-  kind: AiProviderKind;
+  kind?: AiProviderKind | null;
   maxResponseBytes: number;
   model: string;
   name: string;
   profileId: string;
+  source?: EngineConnectorSource | null;
   timeoutMs: number;
 }
 export interface MethodContract203 {
@@ -3625,6 +3727,56 @@ export interface DeclarativeFilterLimits {
   maxUnitBytes: number;
   maxUnits: number;
   probeHeaderBytes: number;
+}
+export interface DeclarativeEngineConnectorDefinitionV1 {
+  authentication: DeclarativeConnectorAuthenticationV1;
+  definitionVersion: number;
+  endpoint: DeclarativeConnectorEndpointV1;
+  failures?: DeclarativeConnectorFailureMappingV1[];
+  fixedHeaders?: DeclarativeConnectorHeaderV1[];
+  request: DeclarativeConnectorRequestMappingV1;
+  response: DeclarativeConnectorResponseMappingV1;
+}
+export interface DeclarativeConnectorEndpointV1 {
+  destinationOrigin: string;
+  method: DeclarativeConnectorHttpMethodV1;
+  urlTemplate: string;
+}
+export interface DeclarativeConnectorFailureMappingV1 {
+  code: EngineConnectorFailureCodeV1;
+  retryable: boolean;
+  status: number;
+}
+export interface DeclarativeConnectorHeaderV1 {
+  name: string;
+  value: string;
+}
+export interface DeclarativeConnectorRequestMappingV1 {
+  fixedBody?: {
+    [k: string]: unknown;
+  };
+  messagesPath: string[];
+  modelPath: string[];
+  sourceLocalePath?: string[] | null;
+  sourceTextPath?: string[] | null;
+  streamPath?: string[] | null;
+  targetLocalePath?: string[] | null;
+}
+export interface DeclarativeConnectorUsageMappingV1 {
+  inputTokensPath?: string[] | null;
+  outputTokensPath?: string[] | null;
+  totalTokensPath?: string[] | null;
+}
+export interface EngineConnectorLimitsV1 {
+  maxConfigBytes: number;
+  maxDeadlineMs: number;
+  maxEvents: number;
+  maxMessageBytes: number;
+  maxMessages: number;
+  maxModelIdBytes: number;
+  maxModels: number;
+  maxOutputBytes: number;
+  maxSourceTextBytes: number;
 }
 export interface DeclarativeQaPackDefinitionV1 {
   definitionVersion: number;

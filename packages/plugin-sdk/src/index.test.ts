@@ -12,11 +12,18 @@ import {
   HOST_API_VERSION,
   capabilityScopeContains,
   compatibilityForManifest,
+  createSandboxEngineConnectorPlugin,
   defineDeclarativeFilter,
+  defineDeclarativeEngineConnector,
   defineDeclarativeManifest,
   defineDeclarativePipelineStep,
   defineDeclarativeQaPack,
   defineSandboxManifest,
+  defineEngineConnector,
+  defaultEngineConnectorLimits,
+  ENGINE_CONNECTOR_PROTOCOL_V1,
+  EngineConnectorEventSequenceValidatorV1,
+  MAX_ENGINE_CONNECTOR_CREDENTIAL_BYTES,
   normalizeCapabilityRequests,
   normalizeManifest,
   parsePluginPanelMessageV1,
@@ -24,9 +31,19 @@ import {
   validateSandboxJsonValue,
   validateManifest,
   validateNormalizedManifest,
+  validateEngineConnectorConfig,
+  validateEngineConnectorDescriptor,
+  validateEngineConnectorEvent,
+  validateEngineConnectorFailure,
+  validateEngineConnectorRequest,
+  validateEngineConnectorResult,
+  type EngineConnectorContributionDescriptorV1,
+  type EngineConnectorHandlerV1,
+  type EngineConnectorInvocationContextV1,
   type PluginCapabilityRequest,
   type PluginManifest,
   type PluginManifestV2,
+  type SandboxInvocationContextV1,
 } from "./index.js";
 
 describe("sandbox SDK contract", () => {
@@ -122,6 +139,378 @@ describe("sandbox SDK contract", () => {
         extra: true,
       }),
     ).toBeNull();
+  });
+});
+
+describe("engine connector V1 SDK", () => {
+  const configSchema = {
+    schemaVersion: 1 as const,
+    fields: [
+      {
+        key: "mode",
+        label: "Mode",
+        fieldType: "select" as const,
+        required: true,
+        defaultValue: "deterministic",
+        options: [{ value: "deterministic", label: "Deterministic" }],
+      },
+      {
+        key: "temperature",
+        label: "Temperature",
+        fieldType: "integer" as const,
+        required: false,
+        defaultValue: 0,
+        min: 0,
+        max: 2,
+      },
+    ],
+  };
+
+  const connector = (): EngineConnectorContributionDescriptorV1 =>
+    defineEngineConnector({
+      id: "example.connector.fixture",
+      version: "1.0.0",
+      displayName: "Fixture connector",
+      configSchemaVersion: 1,
+      configSchema,
+      operations: ["validateConfig", "test", "models.list", "generate"],
+    });
+
+  it("builds a strict descriptor and keeps skeletal inventory incompatible", () => {
+    const descriptor = connector();
+    expect(descriptor.protocol).toBe(ENGINE_CONNECTOR_PROTOCOL_V1);
+    expect(validateEngineConnectorDescriptor(descriptor, "sandbox")).toEqual(
+      [],
+    );
+    const manifest = defineSandboxManifest({
+      id: "example.connector",
+      displayName: "Connector",
+      version: "1.0.0",
+      hostApi: { min: 1, max: 1 },
+      entry: { path: "entry.mjs" },
+      contributions: [descriptor],
+      permissions: [],
+      capabilities: [],
+    });
+    const normalized = normalizeManifest(manifest);
+    expect(validateNormalizedManifest(normalized)).toEqual([]);
+    expect(compatibilityForManifest(normalized)).toMatchObject({
+      compatible: true,
+      contributionsSupported: true,
+    });
+
+    const legacy: PluginManifestV2 = {
+      ...manifest,
+      contributions: [
+        {
+          kind: "engineConnector",
+          descriptorVersion: 1,
+          id: "example.connector.legacy",
+          version: "1.0.0",
+          displayName: "Legacy inventory",
+          protocol: "local",
+          operations: ["lookup"],
+          configSchemaVersion: 1,
+        },
+      ],
+    };
+    expect(validateNormalizedManifest(normalizeManifest(legacy))).toEqual([]);
+    expect(compatibilityForManifest(normalizeManifest(legacy)).compatible).toBe(
+      false,
+    );
+  });
+
+  it("rejects unknown fields, versions, operations, config, and every request bound", () => {
+    expect(
+      validateEngineConnectorDescriptor({ ...connector(), extra: true }).join(
+        " ",
+      ),
+    ).toContain("unknown field extra");
+    expect(
+      validateEngineConnectorDescriptor({
+        ...connector(),
+        operations: ["validateConfig", "test", "lookup", "generate"],
+      }).join(" "),
+    ).toContain("unsupported connector operation lookup");
+    expect(
+      validateEngineConnectorDescriptor({
+        ...connector(),
+        contractVersion: 2,
+      }).join(" "),
+    ).toContain("contractVersion must be 1");
+    expect(
+      validateEngineConnectorConfig(configSchema, {
+        mode: "unknown",
+        secret: "must-not-be-configurable",
+      }).join(" "),
+    ).toContain("unknown connector config field secret");
+
+    const request = {
+      operation: "generate",
+      contractVersion: 1,
+      requestId: "request-1",
+      sourceLocale: "en",
+      targetLocale: "ja",
+      sourceText: "Hello",
+      messages: [{ role: "user", content: "Hello" }],
+      model: "fixture-1",
+      config: { mode: "deterministic" },
+      deadlineMs: 1_000,
+    };
+    expect(validateEngineConnectorRequest(request)).toEqual([]);
+    expect(
+      validateEngineConnectorRequest({
+        ...request,
+        operation: "engine.rpc",
+      }).join(" "),
+    ).toContain("operation is unsupported");
+    expect(
+      validateEngineConnectorRequest({ ...request, extra: true }).join(" "),
+    ).toContain("unknown field extra");
+    expect(
+      validateEngineConnectorRequest({
+        ...request,
+        credential: "must-not-be-a-public-request-field",
+      }).join(" "),
+    ).toContain("unknown field credential");
+    expect(
+      validateEngineConnectorRequest({
+        ...request,
+        sourceText: "x".repeat(1024 * 1024 + 1),
+      }).join(" "),
+    ).toContain("sourceText");
+  });
+
+  it("validates ordered event/result/failure payload shapes", () => {
+    const result = {
+      outputText: "Konnichiwa",
+      model: "fixture-1",
+      finishReason: "stop" as const,
+      usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
+    };
+    expect(validateEngineConnectorResult(result)).toEqual([]);
+    expect(
+      validateEngineConnectorEvent({
+        kind: "completed",
+        contractVersion: 1,
+        requestId: "request-1",
+        sequence: 1,
+        result,
+      }),
+    ).toEqual([]);
+    const sequence = new EngineConnectorEventSequenceValidatorV1("request-1");
+    expect(
+      sequence.accept({
+        kind: "delta",
+        contractVersion: 1,
+        requestId: "request-1",
+        sequence: 0,
+        text: "Konnichi",
+      }),
+    ).toEqual([]);
+    expect(
+      sequence.accept({
+        kind: "completed",
+        contractVersion: 1,
+        requestId: "request-1",
+        sequence: 1,
+        result,
+      }),
+    ).toEqual([]);
+    expect(
+      sequence
+        .accept({
+          kind: "delta",
+          contractVersion: 1,
+          requestId: "request-1",
+          sequence: 2,
+          text: "late",
+        })
+        .join(" "),
+    ).toContain("after completion");
+    expect(
+      validateEngineConnectorResult({
+        ...result,
+        usage: { inputTokens: 2, outputTokens: 3, totalTokens: 4 },
+      }).join(" "),
+    ).toContain("totalTokens");
+    expect(
+      validateEngineConnectorFailure({
+        contractVersion: 1,
+        requestId: "request-1",
+        code: "authentication",
+        message: "authentication failed",
+        retryable: false,
+        retryAfterMs: 100,
+      }).join(" "),
+    ).toContain("retryAfterMs requires");
+  });
+
+  it("defines a confined Tier 1 OpenAI-compatible mapping", () => {
+    const descriptor = defineDeclarativeEngineConnector({
+      id: "example.connector.declarative",
+      version: "1.0.0",
+      displayName: "Declarative fixture",
+      configSchemaVersion: 1,
+      configSchema,
+      declarative: {
+        definitionVersion: 1,
+        endpoint: {
+          destinationOrigin: "http://127.0.0.1:43123",
+          urlTemplate: "http://127.0.0.1:43123/v1/chat/completions",
+          method: "POST",
+        },
+        fixedHeaders: [{ name: "x-client", value: "translunar-fixture" }],
+        authentication: { kind: "bearer" },
+        request: {
+          modelPath: ["model"],
+          messagesPath: ["messages"],
+          streamPath: ["stream"],
+        },
+        response: {
+          kind: "serverSentEvents",
+          deltaPath: ["choices", "delta", "content"],
+          finishReasonPath: ["choices", "finish_reason"],
+          usage: {
+            inputTokensPath: ["usage", "prompt_tokens"],
+            outputTokensPath: ["usage", "completion_tokens"],
+            totalTokensPath: ["usage", "total_tokens"],
+          },
+          doneMarker: "[DONE]",
+          maxLineBytes: 64 * 1024,
+        },
+        failures: [
+          { status: 401, code: "authentication", retryable: false },
+          { status: 429, code: "rateLimit", retryable: true },
+        ],
+      },
+    });
+    expect(
+      validateEngineConnectorDescriptor(descriptor, "declarative"),
+    ).toEqual([]);
+    expect(
+      validateEngineConnectorDescriptor(
+        {
+          ...descriptor,
+          declarative: {
+            ...descriptor.declarative,
+            endpoint: {
+              ...descriptor.declarative!.endpoint,
+              urlTemplate: "https://other.example.test/v1",
+            },
+          },
+        },
+        "declarative",
+      ).join(" "),
+    ).toContain("remain under destinationOrigin");
+  });
+
+  it("adapts a public handler for the Tier 2 sandbox contract", async () => {
+    let shutdown = false;
+    const retainedContexts: EngineConnectorInvocationContextV1[] = [];
+    const observedCredentials: Array<string | undefined> = [];
+    const handler: EngineConnectorHandlerV1 = {
+      validateConfig: () => ({ valid: true, issues: [] }),
+      test: () => ({ ok: true, latencyMs: 1, model: "fixture-1" }),
+      listModels: () => ({
+        models: [{ id: "fixture-1", displayName: "Fixture 1" }],
+      }),
+      async *generate(request, context) {
+        retainedContexts.push(context);
+        observedCredentials.push(context.credential);
+        yield {
+          kind: "delta",
+          contractVersion: 1,
+          requestId: request.requestId,
+          sequence: 0,
+          text: "Translated",
+        };
+        yield {
+          kind: "completed",
+          contractVersion: 1,
+          requestId: request.requestId,
+          sequence: 1,
+          result: {
+            outputText: "Translated",
+            model: request.model,
+            finishReason: "stop",
+          },
+        };
+      },
+      cancel: () => {},
+      shutdown: () => {
+        shutdown = true;
+      },
+    };
+    const plugin = createSandboxEngineConnectorPlugin({
+      contributionId: connector().id,
+      handler,
+      limits: defaultEngineConnectorLimits(),
+    });
+    const invocation = {
+      protocolVersion: 1 as const,
+      invocationId: "invocation-1",
+      contributionId: connector().id,
+      operation: "connector.generate",
+      input: {
+        operation: "generate",
+        contractVersion: 1,
+        requestId: "request-1",
+        sourceLocale: "en",
+        targetLocale: "ja",
+        sourceText: "Hello",
+        messages: [],
+        model: "fixture-1",
+        config: { mode: "deterministic" },
+        deadlineMs: 1_000,
+      },
+    };
+    const host = { call: async () => ({}) };
+    const credential = "ephemeral-tier2-secret";
+    expect(JSON.stringify(invocation)).not.toContain(credential);
+    await expect(
+      plugin.invoke(invocation, host, { credential }),
+    ).resolves.toMatchObject({
+      events: [{ kind: "delta" }, { kind: "completed" }],
+    });
+    expect(observedCredentials).toEqual([credential]);
+    expect(retainedContexts[0]).not.toHaveProperty("credential");
+
+    await expect(
+      plugin.invoke(
+        {
+          ...invocation,
+          invocationId: "invocation-2",
+          input: { ...invocation.input, requestId: "request-2" },
+        },
+        host,
+      ),
+    ).resolves.toMatchObject({
+      events: [{ kind: "delta" }, { kind: "completed" }],
+    });
+    expect(observedCredentials).toEqual([credential, undefined]);
+    expect(retainedContexts[1]).not.toHaveProperty("credential");
+
+    await expect(
+      plugin.invoke(invocation, host, {
+        credential: "x".repeat(MAX_ENGINE_CONNECTOR_CREDENTIAL_BYTES + 1),
+      }),
+    ).rejects.toThrow("invalid sandbox invocation context");
+    await expect(
+      plugin.invoke(invocation, host, { credential: "invalid\0credential" }),
+    ).rejects.toThrow("invalid sandbox invocation context");
+    await expect(
+      plugin.invoke(invocation, host, {
+        credential: "bounded",
+        extra: true,
+      } as SandboxInvocationContextV1),
+    ).rejects.toThrow("unknown field extra");
+    await plugin.deactivate?.({
+      protocolVersion: 1,
+      pluginId: "example.connector",
+      version: "1.0.0",
+    });
+    expect(shutdown).toBe(true);
   });
 });
 

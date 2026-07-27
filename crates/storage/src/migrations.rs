@@ -2,7 +2,7 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use crate::{Result, StorageError};
 
-pub(crate) const LATEST_SCHEMA_VERSION: u32 = 19;
+pub(crate) const LATEST_SCHEMA_VERSION: u32 = 20;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -2192,7 +2192,173 @@ SELECT
 FROM plugin_capability_requests requests;
 "#;
 
-const MIGRATIONS: [(u32, &str); 19] = [
+/// Exact plugin connector profile bindings and immutable execution provenance.
+/// Existing provider rows remain valid built-in profiles; plugin bindings live
+/// separately so an uninstall cannot erase historical connector identity.
+const MIGRATION_20: &str = r#"
+CREATE TABLE ai_plugin_connector_profiles (
+    profile_id TEXT PRIMARY KEY
+        REFERENCES ai_provider_profiles(id) ON DELETE CASCADE,
+    plugin_id TEXT NOT NULL CHECK (
+        length(trim(plugin_id)) BETWEEN 1 AND 128 AND
+        plugin_id NOT GLOB '*[^A-Za-z0-9._-]*'
+    ),
+    version_id TEXT NOT NULL CHECK (
+        length(trim(version_id)) BETWEEN 1 AND 384 AND
+        version_id NOT GLOB '*[^A-Za-z0-9._:-]*'
+    ),
+    contribution_id TEXT NOT NULL
+        CHECK (
+            length(trim(contribution_id)) BETWEEN 1 AND 128 AND
+            contribution_id NOT GLOB '*[^A-Za-z0-9._-]*'
+        ),
+    contract_version INTEGER NOT NULL CHECK (contract_version = 1),
+    config_schema_version INTEGER NOT NULL CHECK (config_schema_version >= 1),
+    config_json TEXT NOT NULL CHECK (
+        length(CAST(config_json AS BLOB)) <= 65536 AND
+        json_valid(config_json) AND json_type(config_json) = 'object'
+    ),
+    descriptor_hash TEXT NOT NULL CHECK (
+        length(descriptor_hash) = 64 AND descriptor_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    config_hash TEXT NOT NULL CHECK (
+        length(config_hash) = 64 AND config_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX ai_plugin_connector_profiles_owner_idx
+    ON ai_plugin_connector_profiles(plugin_id, version_id, contribution_id, profile_id);
+
+CREATE TABLE ai_connector_run_provenance (
+    run_id TEXT PRIMARY KEY REFERENCES ai_runs(id) ON DELETE CASCADE,
+    source_kind TEXT NOT NULL CHECK (
+        source_kind IN ('builtin', 'plugin', 'legacy_unknown')
+    ),
+    provider_kind TEXT CHECK (provider_kind IS NULL OR provider_kind IN (
+        'openai', 'anthropic', 'gemini', 'deepl', 'deepseek', 'qwen', 'glm',
+        'kimi', 'volcengine', 'openai_compatible'
+    )),
+    plugin_id TEXT,
+    version_id TEXT,
+    contribution_id TEXT,
+    contract_version INTEGER,
+    config_schema_version INTEGER,
+    descriptor_hash TEXT,
+    config_hash TEXT,
+    created_at_ms INTEGER NOT NULL,
+    CHECK (
+        (source_kind = 'builtin' AND provider_kind IS NOT NULL AND
+         plugin_id IS NULL AND version_id IS NULL AND contribution_id IS NULL AND
+         contract_version IS NULL AND config_schema_version IS NULL AND
+         descriptor_hash IS NULL AND config_hash IS NULL)
+        OR
+        (source_kind = 'plugin' AND provider_kind IS NULL AND
+         plugin_id IS NOT NULL AND version_id IS NOT NULL AND
+         contribution_id IS NOT NULL AND contract_version IS NOT NULL AND
+         config_schema_version IS NOT NULL AND descriptor_hash IS NOT NULL AND
+         config_hash IS NOT NULL AND
+         length(trim(plugin_id)) BETWEEN 1 AND 128 AND
+         length(trim(version_id)) BETWEEN 1 AND 384 AND
+         length(trim(contribution_id)) BETWEEN 1 AND 128 AND
+         plugin_id NOT GLOB '*[^A-Za-z0-9._-]*' AND
+         version_id NOT GLOB '*[^A-Za-z0-9._:-]*' AND
+         contribution_id NOT GLOB '*[^A-Za-z0-9._-]*' AND
+         contract_version = 1 AND config_schema_version >= 1 AND
+         length(descriptor_hash) = 64 AND descriptor_hash NOT GLOB '*[^0-9a-f]*' AND
+         length(config_hash) = 64 AND config_hash NOT GLOB '*[^0-9a-f]*')
+        OR
+        (source_kind = 'legacy_unknown' AND provider_kind IS NULL AND
+         plugin_id IS NULL AND version_id IS NULL AND contribution_id IS NULL AND
+         contract_version IS NULL AND config_schema_version IS NULL AND
+         descriptor_hash IS NULL AND config_hash IS NULL)
+    )
+) STRICT;
+
+CREATE INDEX ai_connector_run_provenance_owner_idx
+    ON ai_connector_run_provenance(plugin_id, version_id, contribution_id, run_id);
+
+CREATE TRIGGER ai_connector_run_provenance_immutable_update
+BEFORE UPDATE ON ai_connector_run_provenance
+BEGIN
+    SELECT RAISE(ABORT, 'AI connector run provenance is immutable');
+END;
+
+CREATE TABLE ai_connector_batch_provenance (
+    batch_id TEXT PRIMARY KEY REFERENCES ai_batch_runs(id) ON DELETE CASCADE,
+    source_kind TEXT NOT NULL CHECK (
+        source_kind IN ('builtin', 'plugin', 'legacy_unknown')
+    ),
+    provider_kind TEXT CHECK (provider_kind IS NULL OR provider_kind IN (
+        'openai', 'anthropic', 'gemini', 'deepl', 'deepseek', 'qwen', 'glm',
+        'kimi', 'volcengine', 'openai_compatible'
+    )),
+    plugin_id TEXT,
+    version_id TEXT,
+    contribution_id TEXT,
+    contract_version INTEGER,
+    config_schema_version INTEGER,
+    descriptor_hash TEXT,
+    config_hash TEXT,
+    created_at_ms INTEGER NOT NULL,
+    CHECK (
+        (source_kind = 'builtin' AND provider_kind IS NOT NULL AND
+         plugin_id IS NULL AND version_id IS NULL AND contribution_id IS NULL AND
+         contract_version IS NULL AND config_schema_version IS NULL AND
+         descriptor_hash IS NULL AND config_hash IS NULL)
+        OR
+        (source_kind = 'plugin' AND provider_kind IS NULL AND
+         plugin_id IS NOT NULL AND version_id IS NOT NULL AND
+         contribution_id IS NOT NULL AND contract_version IS NOT NULL AND
+         config_schema_version IS NOT NULL AND descriptor_hash IS NOT NULL AND
+         config_hash IS NOT NULL AND
+         length(trim(plugin_id)) BETWEEN 1 AND 128 AND
+         length(trim(version_id)) BETWEEN 1 AND 384 AND
+         length(trim(contribution_id)) BETWEEN 1 AND 128 AND
+         plugin_id NOT GLOB '*[^A-Za-z0-9._-]*' AND
+         version_id NOT GLOB '*[^A-Za-z0-9._:-]*' AND
+         contribution_id NOT GLOB '*[^A-Za-z0-9._-]*' AND
+         contract_version = 1 AND config_schema_version >= 1 AND
+         length(descriptor_hash) = 64 AND descriptor_hash NOT GLOB '*[^0-9a-f]*' AND
+         length(config_hash) = 64 AND config_hash NOT GLOB '*[^0-9a-f]*')
+        OR
+        (source_kind = 'legacy_unknown' AND provider_kind IS NULL AND
+         plugin_id IS NULL AND version_id IS NULL AND contribution_id IS NULL AND
+         contract_version IS NULL AND config_schema_version IS NULL AND
+         descriptor_hash IS NULL AND config_hash IS NULL)
+    )
+) STRICT;
+
+CREATE INDEX ai_connector_batch_provenance_owner_idx
+    ON ai_connector_batch_provenance(plugin_id, version_id, contribution_id, batch_id);
+
+CREATE TRIGGER ai_connector_batch_provenance_immutable_update
+BEFORE UPDATE ON ai_connector_batch_provenance
+BEGIN
+    SELECT RAISE(ABORT, 'AI connector batch provenance is immutable');
+END;
+
+INSERT INTO ai_connector_run_provenance (
+    run_id, source_kind, provider_kind, created_at_ms
+)
+SELECT runs.id,
+       CASE WHEN profiles.id IS NULL THEN 'legacy_unknown' ELSE 'builtin' END,
+       profiles.kind,
+       runs.created_at_ms
+FROM ai_runs runs
+LEFT JOIN ai_provider_profiles profiles ON profiles.id = runs.profile_id;
+
+INSERT INTO ai_connector_batch_provenance (
+    batch_id, source_kind, provider_kind, created_at_ms
+)
+SELECT batches.id, 'builtin', profiles.kind, batches.created_at_ms
+FROM ai_batch_runs batches
+JOIN ai_provider_profiles profiles ON profiles.id = batches.profile_id;
+"#;
+
+const MIGRATIONS: [(u32, &str); 20] = [
     (1_u32, MIGRATION_1),
     (2_u32, MIGRATION_2),
     (3_u32, MIGRATION_3),
@@ -2212,6 +2378,7 @@ const MIGRATIONS: [(u32, &str); 19] = [
     (17_u32, MIGRATION_17),
     (18_u32, MIGRATION_18),
     (19_u32, MIGRATION_19),
+    (20_u32, MIGRATION_20),
 ];
 
 pub(crate) fn configure_connection(connection: &Connection) -> Result<()> {
@@ -2808,6 +2975,15 @@ mod tests {
                         created_at_ms, updated_at_ms
                      ) VALUES ('invalid-empty', 'strict-session', 0, '[]', '[]', '', '',
                                0, '[]', 'deterministic', 'proposed', 1, 1)",
+                    [],
+                )
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute(
+                    "UPDATE ai_connector_batch_provenance
+                     SET provider_kind = 'anthropic' WHERE batch_id = 'batch-builtin'",
                     [],
                 )
                 .is_err()
@@ -3810,5 +3986,165 @@ mod tests {
             })
             .expect("count idempotent audit rows");
         assert_eq!(audit_count, 14);
+    }
+
+    #[test]
+    fn migration_20_preserves_builtin_ai_and_adds_connector_provenance() {
+        let mut connection = Connection::open_in_memory().expect("open migration database");
+        configure_connection(&connection).expect("configure migration database");
+        migrate_from_to(&mut connection, 0, 19).expect("create schema v19");
+        connection
+            .execute(
+                "INSERT INTO projects (
+                    id, name, source_locale, target_locale, domain,
+                    created_at_ms, updated_at_ms
+                 ) VALUES ('project-ai', 'AI', 'en', 'zh-CN', '', 10, 10)",
+                [],
+            )
+            .expect("insert project");
+        connection
+            .execute(
+                "INSERT INTO ai_provider_profiles (
+                    id, name, kind, base_url, model, timeout_ms,
+                    max_response_bytes, enabled, created_at_ms, updated_at_ms
+                 ) VALUES (
+                    'profile-builtin', 'Built-in', 'openai',
+                    'https://api.openai.com/v1', 'model', 30000,
+                    1048576, 1, 20, 20
+                 )",
+                [],
+            )
+            .expect("insert profile");
+        connection
+            .execute(
+                "INSERT INTO ai_runs (
+                    id, kind, profile_id, model, action, prompt_hash,
+                    status, created_at_ms, updated_at_ms
+                 ) VALUES (
+                    'run-builtin', 'provider_test', 'profile-builtin', 'model',
+                    'provider_test', 'hash', 'succeeded', 30, 30
+                 )",
+                [],
+            )
+            .expect("insert run");
+        connection
+            .execute(
+                "INSERT INTO ai_runs (
+                    id, kind, model, action, prompt_hash,
+                    status, created_at_ms, updated_at_ms
+                 ) VALUES (
+                    'run-orphaned', 'provider_test', 'removed-model',
+                    'provider_test', 'hash', 'succeeded', 31, 31
+                 )",
+                [],
+            )
+            .expect("insert run whose profile was already removed");
+        connection
+            .execute(
+                "INSERT INTO ai_batch_runs (
+                    id, project_id, profile_id, status, tm_threshold,
+                    concurrency, requests_per_minute, max_attempts,
+                    created_at_ms, updated_at_ms
+                 ) VALUES (
+                    'batch-builtin', 'project-ai', 'profile-builtin', 'succeeded',
+                    70, 1, 60, 1, 40, 40
+                 )",
+                [],
+            )
+            .expect("insert batch");
+
+        migrate_from_to(&mut connection, 19, 20).expect("migrate connector schema");
+        let version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read schema version");
+        assert_eq!(version, 20);
+        let run_source = connection
+            .query_row(
+                "SELECT source_kind, provider_kind
+                 FROM ai_connector_run_provenance WHERE run_id = 'run-builtin'",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .expect("read run provenance");
+        assert_eq!(run_source, ("builtin".to_string(), "openai".to_string()));
+        let orphaned_source = connection
+            .query_row(
+                "SELECT source_kind, provider_kind
+                 FROM ai_connector_run_provenance WHERE run_id = 'run-orphaned'",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+            )
+            .expect("read unknown legacy provenance");
+        assert_eq!(orphaned_source, ("legacy_unknown".to_string(), None));
+        let batch_source = connection
+            .query_row(
+                "SELECT source_kind, provider_kind
+                 FROM ai_connector_batch_provenance WHERE batch_id = 'batch-builtin'",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .expect("read batch provenance");
+        assert_eq!(batch_source, ("builtin".to_string(), "openai".to_string()));
+
+        let digest = "a".repeat(64);
+        connection
+            .execute(
+                "INSERT INTO ai_plugin_connector_profiles (
+                    profile_id, plugin_id, version_id, contribution_id,
+                    contract_version, config_schema_version, config_json,
+                    descriptor_hash, config_hash, created_at_ms, updated_at_ms
+                 ) VALUES (?1, 'example.connector', 'version-1', 'example.engine',
+                    1, 1, '{}', ?2, ?2, 50, 50)",
+                rusqlite::params!["profile-builtin", digest],
+            )
+            .expect("insert exact plugin binding");
+        assert!(
+            connection
+                .execute(
+                    "UPDATE ai_connector_run_provenance
+                     SET provider_kind = 'anthropic' WHERE run_id = 'run-builtin'",
+                    [],
+                )
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute(
+                    "UPDATE ai_plugin_connector_profiles
+                     SET config_json = '[]' WHERE profile_id = 'profile-builtin'",
+                    [],
+                )
+                .is_err()
+        );
+        migrate_from_to(&mut connection, 20, 20).expect("reopen connector schema");
+    }
+
+    #[test]
+    fn migration_20_rolls_back_every_prior_statement_on_failure() {
+        let mut connection = Connection::open_in_memory().expect("open migration database");
+        configure_connection(&connection).expect("configure migration database");
+        migrate_from_to(&mut connection, 0, 19).expect("create schema v19");
+        connection
+            .execute_batch(
+                "CREATE TABLE ai_connector_batch_provenance (
+                    batch_id TEXT PRIMARY KEY
+                 ) STRICT;",
+            )
+            .expect("create late migration conflict");
+
+        assert!(migrate_from_to(&mut connection, 19, 20).is_err());
+        let version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read rolled back schema version");
+        assert_eq!(version, 19);
+        let prior_statement_count = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name = 'ai_plugin_connector_profiles'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("count rolled back connector profile table");
+        assert_eq!(prior_statement_count, 0);
     }
 }

@@ -396,24 +396,30 @@ fn provider_curation_enforces_project_allowlist() {
         .service
         .create_ai_provider(AiProviderCreateParams {
             name: "Allowed curation provider".to_string(),
-            kind: AiProviderKind::OpenaiCompatible,
+            kind: Some(AiProviderKind::OpenaiCompatible),
+            source: None,
             base_url: "https://allowed.test/v1".to_string(),
             model: "allowed-model".to_string(),
             timeout_ms: 5_000,
             max_response_bytes: 1_048_576,
             enabled: true,
+            config_schema_version: None,
+            configuration: serde_json::Value::Null,
         })
         .expect("create allowed provider");
     let disallowed_profile = fixture
         .service
         .create_ai_provider(AiProviderCreateParams {
             name: "Disallowed curation provider".to_string(),
-            kind: AiProviderKind::OpenaiCompatible,
+            kind: Some(AiProviderKind::OpenaiCompatible),
+            source: None,
             base_url: "https://disallowed.test/v1".to_string(),
             model: "disallowed-model".to_string(),
             timeout_ms: 5_000,
             max_response_bytes: 1_048_576,
             enabled: true,
+            config_schema_version: None,
+            configuration: serde_json::Value::Null,
         })
         .expect("create disallowed provider");
 

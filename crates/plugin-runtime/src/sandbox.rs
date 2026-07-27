@@ -26,10 +26,12 @@ use translunar_filter_core::{
     publish_bytes_noclobber,
 };
 use uuid::Uuid;
+use zeroize::Zeroize;
 
 use crate::{
-    PluginCapabilityAuthorizer, PluginCapabilityCheck, PluginCapabilityDenialCode,
-    PluginCapabilityId, PluginCapabilityScope, PluginFileArea, PluginFilterEvent,
+    MAX_CONNECTOR_CREDENTIAL_BYTES, PluginCapabilityAuthorizer, PluginCapabilityCheck,
+    PluginCapabilityDenialCode, PluginCapabilityId, PluginCapabilityScope, PluginFileArea,
+    PluginFilterEvent,
 };
 
 pub const SANDBOX_PROTOCOL_VERSION: u32 = 1;
@@ -187,6 +189,47 @@ pub struct SandboxInvocationV1 {
     pub contribution_id: String,
     pub operation: String,
     pub input: Value,
+}
+
+struct SandboxEphemeralCredential(String);
+
+impl SandboxEphemeralCredential {
+    fn new(value: &str) -> SandboxResult<Self> {
+        if value.len() > MAX_CONNECTOR_CREDENTIAL_BYTES {
+            return Err(SandboxError::ResourceLimit {
+                resource: "credential bytes",
+                limit: MAX_CONNECTOR_CREDENTIAL_BYTES,
+                actual: value.len(),
+            });
+        }
+        if value.contains('\0') {
+            return Err(SandboxError::Codec {
+                reason: "invocation context",
+            });
+        }
+        Ok(Self(value.to_string()))
+    }
+
+    fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for SandboxEphemeralCredential {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("SandboxEphemeralCredential([REDACTED])")
+    }
+}
+
+impl Drop for SandboxEphemeralCredential {
+    fn drop(&mut self) {
+        self.0.zeroize();
+    }
+}
+
+struct SandboxInvocationEnvelope {
+    request: SandboxInvocationV1,
+    credential: Option<SandboxEphemeralCredential>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -502,7 +545,7 @@ impl InterruptState {
 
 enum WorkerRequest {
     Invoke {
-        request: SandboxInvocationV1,
+        envelope: SandboxInvocationEnvelope,
         cancellation: SandboxCancellationToken,
         deadline: Instant,
         reply: SyncSender<SandboxResult<SandboxResultV1>>,
@@ -614,7 +657,23 @@ impl SandboxWorkerHandle {
     }
 
     pub fn invoke(&self, request: SandboxInvocationV1) -> SandboxResult<SandboxResultV1> {
-        self.invoke_with_cancellation(request, SandboxCancellationToken::default())
+        self.invoke_with_credential_and_cancellation(
+            request,
+            None,
+            SandboxCancellationToken::default(),
+        )
+    }
+
+    pub fn invoke_with_credential(
+        &self,
+        request: SandboxInvocationV1,
+        credential: Option<&str>,
+    ) -> SandboxResult<SandboxResultV1> {
+        self.invoke_with_credential_and_cancellation(
+            request,
+            credential,
+            SandboxCancellationToken::default(),
+        )
     }
 
     pub fn invoke_with_cancellation(
@@ -622,10 +681,22 @@ impl SandboxWorkerHandle {
         request: SandboxInvocationV1,
         cancellation: SandboxCancellationToken,
     ) -> SandboxResult<SandboxResultV1> {
+        self.invoke_with_credential_and_cancellation(request, None, cancellation)
+    }
+
+    pub fn invoke_with_credential_and_cancellation(
+        &self,
+        request: SandboxInvocationV1,
+        credential: Option<&str>,
+        cancellation: SandboxCancellationToken,
+    ) -> SandboxResult<SandboxResultV1> {
         if self.state() != SandboxWorkerState::Ready {
             return Err(SandboxError::NotReady);
         }
         validate_invocation(&request, self.0.limits)?;
+        let credential = credential
+            .map(SandboxEphemeralCredential::new)
+            .transpose()?;
         if cancellation.is_cancelled() {
             return Err(SandboxError::Cancelled);
         }
@@ -634,7 +705,10 @@ impl SandboxWorkerHandle {
         self.0
             .sender
             .try_send(WorkerRequest::Invoke {
-                request,
+                envelope: SandboxInvocationEnvelope {
+                    request,
+                    credential,
+                },
                 cancellation: cancellation.clone(),
                 deadline,
                 reply,
@@ -1078,13 +1152,21 @@ fn worker_main(
     while let Ok(message) = receiver.recv() {
         match message {
             WorkerRequest::Invoke {
-                request,
+                envelope,
                 cancellation,
                 deadline,
                 reply,
             } => {
                 interrupt.begin(deadline, cancellation);
-                let result = runtime.invoke(request, deadline);
+                let result = runtime.invoke(
+                    envelope.request,
+                    envelope
+                        .credential
+                        .as_ref()
+                        .map(SandboxEphemeralCredential::expose),
+                    deadline,
+                );
+                drop(envelope.credential);
                 interrupt.clear();
                 let fatal = result.as_ref().err().is_some_and(SandboxError::is_fatal);
                 let _ = reply.send(result);
@@ -1190,6 +1272,7 @@ impl WorkerRuntime {
     fn invoke(
         &mut self,
         request: SandboxInvocationV1,
+        credential: Option<&str>,
         deadline: Instant,
     ) -> SandboxResult<SandboxResultV1> {
         let host_state = Arc::new(Mutex::new(InvocationHostState::new(
@@ -1222,14 +1305,37 @@ impl WorkerRuntime {
                 self.config.limits,
                 Arc::clone(&self.interrupt),
             )?;
-            let value = invoke
-                .call::<_, JsValue>((This(plugin), request_value, host))
-                .map_err(|error| {
-                    take_host_error(&host_state)
-                        .unwrap_or_else(|| map_js_error(error, "invoke", &self.interrupt))
-                })?;
-            let value = settle_value(value, &ctx, deadline, &self.interrupt, "invoke")
-                .map_err(|error| take_host_error(&host_state).unwrap_or(error))?;
+            let invocation_context = Object::new(ctx.clone()).map_err(|_| SandboxError::Codec {
+                reason: "invocation context",
+            })?;
+            if let Some(credential) = credential {
+                invocation_context
+                    .set("credential", credential)
+                    .map_err(|_| SandboxError::Codec {
+                        reason: "invocation context",
+                    })?;
+            }
+            let value = match invoke.call::<_, JsValue>((
+                This(plugin),
+                request_value,
+                host,
+                invocation_context.clone(),
+            )) {
+                Ok(value) => value,
+                Err(error) => {
+                    clear_invocation_credential(&ctx, &invocation_context, credential.is_some())?;
+                    return Err(take_host_error(&host_state)
+                        .unwrap_or_else(|| map_js_error(error, "invoke", &self.interrupt)));
+                }
+            };
+            let value = match settle_value(value, &ctx, deadline, &self.interrupt, "invoke") {
+                Ok(value) => value,
+                Err(error) => {
+                    clear_invocation_credential(&ctx, &invocation_context, credential.is_some())?;
+                    return Err(take_host_error(&host_state).unwrap_or(error));
+                }
+            };
+            clear_invocation_credential(&ctx, &invocation_context, credential.is_some())?;
             if let Some(error) = take_host_error(&host_state) {
                 return Err(error);
             }
@@ -1263,6 +1369,22 @@ impl WorkerRuntime {
             Ok(())
         })
     }
+}
+
+fn clear_invocation_credential<'js>(
+    ctx: &Ctx<'js>,
+    invocation_context: &Object<'js>,
+    had_credential: bool,
+) -> SandboxResult<()> {
+    if had_credential {
+        invocation_context
+            .remove("credential")
+            .map_err(|_| SandboxError::Codec {
+                reason: "invocation context",
+            })?;
+    }
+    ctx.run_gc();
+    Ok(())
 }
 
 fn lifecycle_json(config: &SandboxRuntimeConfig) -> SandboxResult<Value> {
@@ -2170,6 +2292,83 @@ mod tests {
     }
 
     #[test]
+    fn credential_context_is_bounded_redacted_and_cleared_after_invocation() {
+        let (_directory, worker) = spawn(
+            r#"
+            let retainedContext;
+            export default {
+              invoke(request, _host, context) {
+                const previousHasCredential = retainedContext === undefined
+                  ? null
+                  : Object.hasOwn(retainedContext, "credential");
+                retainedContext = context;
+                return { protocolVersion: 1, ok: true, output: {
+                  requestHasCredential: Object.hasOwn(request, "credential"),
+                  credentialBytes: context.credential === undefined ? null : context.credential.length,
+                  previousHasCredential
+                } };
+              }
+            };
+            "#,
+        );
+        let request = invocation(json!({"value": 42}));
+        let serialized = serde_json::to_string(&request).expect("serialize public invocation");
+        assert!(!serialized.contains("credential"));
+        let credential = "ephemeral-secret";
+        let wrapped = SandboxEphemeralCredential::new(credential).expect("bounded credential");
+        assert!(!format!("{wrapped:?}").contains(credential));
+        drop(wrapped);
+
+        let first = worker
+            .invoke_with_credential(request, Some(credential))
+            .expect("invoke with credential");
+        assert_eq!(
+            first.output,
+            Some(json!({
+                "requestHasCredential": false,
+                "credentialBytes": credential.len(),
+                "previousHasCredential": null
+            }))
+        );
+        let mut second_request = invocation(Value::Null);
+        second_request.invocation_id = "invocation-2".to_string();
+        let second = worker
+            .invoke(second_request)
+            .expect("invoke without credential");
+        assert_eq!(
+            second.output,
+            Some(json!({
+                "requestHasCredential": false,
+                "credentialBytes": null,
+                "previousHasCredential": false
+            }))
+        );
+
+        let oversized = worker
+            .invoke_with_credential(
+                invocation(Value::Null),
+                Some(&"x".repeat(MAX_CONNECTOR_CREDENTIAL_BYTES + 1)),
+            )
+            .expect_err("oversized credential must fail before dispatch");
+        assert!(matches!(
+            oversized,
+            SandboxError::ResourceLimit {
+                resource: "credential bytes",
+                limit: MAX_CONNECTOR_CREDENTIAL_BYTES,
+                actual,
+            } if actual == MAX_CONNECTOR_CREDENTIAL_BYTES + 1
+        ));
+        assert!(matches!(
+            worker
+                .invoke_with_credential(invocation(Value::Null), Some("invalid\0credential"))
+                .expect_err("NUL credential must fail before dispatch"),
+            SandboxError::Codec {
+                reason: "invocation context"
+            }
+        ));
+    }
+
+    #[test]
     fn node_and_host_globals_are_absent() {
         let (_directory, worker) = spawn(
             r#"
@@ -2327,7 +2526,10 @@ mod tests {
             let (reply, response) = mpsc::sync_channel(1);
             (
                 WorkerRequest::Invoke {
-                    request: invocation(Value::Null),
+                    envelope: SandboxInvocationEnvelope {
+                        request: invocation(Value::Null),
+                        credential: None,
+                    },
                     cancellation: SandboxCancellationToken::default(),
                     deadline: Instant::now() + Duration::from_millis(100),
                     reply,

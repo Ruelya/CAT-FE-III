@@ -96,7 +96,16 @@ async function main() {
       return;
     }
     if (process.env.TRANSLUNAR_SMOKE_SCOPE === "plugin") {
-      await exerciseFocusedPluginSmoke(processHandle, dataDirectory);
+      const connectorFixture = await startConnectorFixture();
+      try {
+        await exerciseFocusedPluginSmoke(processHandle, dataDirectory);
+        assert(
+          connectorFixture.requestCount >= 2,
+          "connector fixture should receive provider test and generation requests",
+        );
+      } finally {
+        await connectorFixture.close();
+      }
       console.log("Focused plugin-runtime Engine smoke passed.");
       return;
     }
@@ -2093,6 +2102,12 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
   writeFileSync(sourcePath, srtBody, "utf8");
   writeFileSync(crashSourcePath, "crash fixture", "utf8");
 
+  await exerciseConnectorPluginSmoke(
+    processHandle,
+    dataDirectory,
+    fixtureDirectory,
+  );
+
   const inspection = await processHandle.call("plugin.inspect", {
     sourcePath: pluginSource,
   });
@@ -2727,6 +2742,368 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
     "plugin uninstalled",
   );
 
+  await processHandle.call("project.list", { offset: 0, limit: 10 });
+}
+
+async function exerciseConnectorPluginSmoke(
+  processHandle,
+  dataDirectory,
+  fixtureDirectory,
+) {
+  const root = resolve(import.meta.dirname, "..");
+  const connectorSource = join(
+    root,
+    "examples",
+    "plugins",
+    "connector-openai-compatible",
+  );
+  const pluginId = "example.connector-openai-compatible";
+  const contributionId = "example.connector-openai-compatible.chat";
+  const fixtureOrigin = "http://127.0.0.1:43123";
+
+  const inspection = await processHandle.call("plugin.inspect", {
+    sourcePath: connectorSource,
+  });
+  const inspectedConnector = inspection.normalizedManifest.contributions.find(
+    (contribution) =>
+      contribution.kind === "engineConnector" &&
+      contribution.id === contributionId,
+  );
+  assert(
+    inspection.canInstall &&
+      inspection.compatibility.compatible &&
+      inspectedConnector?.contractVersion === 1,
+    "official connector package should inspect as compatible executable V1 inventory",
+  );
+
+  const installed = await processHandle.call("plugin.install", {
+    sourcePath: connectorSource,
+    grantRequested: false,
+    actor: "connector-smoke",
+    reason: "install official OpenAI-compatible connector",
+  });
+  assert(
+    installed.plugin.id === pluginId &&
+      installed.plugin.status === "installed" &&
+      installed.plugin.grantedPermissions.length === 0,
+    "connector install should retain explicit-consent defaults",
+  );
+  const originalVersionId = installed.plugin.activeVersionId;
+  const pending = await processHandle.call("plugin.permission.request.list", {
+    pluginId,
+    versionId: originalVersionId,
+    offset: 0,
+    limit: 20,
+  });
+  const connectorGrant = pending.items.find(
+    (request) => request.capabilityId === "engine.connector",
+  );
+  const networkGrant = pending.items.find(
+    (request) => request.capabilityId === "network.connect",
+  );
+  assert(
+    pending.items.length === 2 &&
+      pending.items.every(
+        (request) => request.required && request.decision === "pending",
+      ) &&
+      connectorGrant?.contributionId === contributionId &&
+      connectorGrant.requestedScope.operations.includes("test") &&
+      connectorGrant.requestedScope.operations.includes("generate") &&
+      networkGrant?.contributionId === contributionId &&
+      networkGrant.requestedScope.origins.length === 1 &&
+      networkGrant.requestedScope.origins[0] === fixtureOrigin,
+    "connector install should request exact operation and loopback-origin grants",
+  );
+  let pendingEnableError;
+  try {
+    await processHandle.call("plugin.enable", {
+      pluginId,
+      expectedRevision: installed.plugin.revision,
+      actor: "connector-smoke",
+      reason: "prove connector grants are required",
+    });
+  } catch (error) {
+    pendingEnableError = error;
+  }
+  assert(
+    pendingEnableError?.code === "plugin_permission_denied" &&
+      pendingEnableError?.data?.denialCode === "pending",
+    "pending connector grants should block activation",
+  );
+  await grantRequiredPluginCapabilities(
+    processHandle,
+    pluginId,
+    "grant official connector capabilities",
+  );
+  const enabled = await processHandle.call("plugin.enable", {
+    pluginId,
+    expectedRevision: installed.plugin.revision,
+    actor: "connector-smoke",
+    reason: "enable official OpenAI-compatible connector",
+  });
+  assert(enabled.plugin.status === "enabled", "connector should enable");
+
+  const catalog = await processHandle.call("ai.provider.catalog", {});
+  const connector = catalog.items.find((item) => item.id === contributionId);
+  assert(
+    connector?.source.kind === "plugin" &&
+      connector.source.owner.pluginId === pluginId &&
+      connector.source.owner.versionId === originalVersionId &&
+      connector.availability === "available" &&
+      connector.operations.join(",") === "validateConfig,test,generate" &&
+      catalog.items.some((item) => item.source.kind === "builtin"),
+    "unified provider catalog should expose exact plugin ownership beside built-ins",
+  );
+
+  const profile = await processHandle.call("ai.provider.create", {
+    name: "Official connector smoke profile",
+    source: connector.source,
+    baseUrl: connector.defaultBaseUrl,
+    model: "fixture-model",
+    timeoutMs: 5_000,
+    maxResponseBytes: 1_048_576,
+    enabled: true,
+    configSchemaVersion: connector.configSchemaVersion,
+    configuration: { maxOutputTokens: 1024, responseMode: "stream" },
+  });
+  assert(
+    profile.kind === undefined &&
+      profile.source.owner.versionId === originalVersionId &&
+      profile.availability === "available",
+    "plugin profile should bind to the exact active connector version",
+  );
+  const credential = await processHandle.call("ai.credential.set", {
+    profileId: profile.id,
+    secret: "fixture-secret",
+  });
+  assert(
+    credential.present && credential.backend === "test-memory",
+    "connector credential should use the Engine credential store",
+  );
+  const providerTest = await processHandle.call("ai.provider.test", {
+    profileId: profile.id,
+  });
+  const completedTest = await waitForAiRun(processHandle, providerTest.run.id);
+  assert(
+    completedTest.status === "succeeded" && completedTest.proposalText === "OK",
+    `connector provider test should complete through the durable AI run path: ${JSON.stringify(
+      {
+        status: completedTest.status,
+        proposalText: completedTest.proposalText,
+        errorCode: completedTest.errorCode,
+      },
+    )}`,
+  );
+
+  const project = await processHandle.call("project.create", {
+    name: "Connector stdio smoke",
+    sourceLocale: "en-US",
+    targetLocale: "fr-FR",
+    domain: "general",
+  });
+  const sourcePath = join(dataDirectory, "connector-smoke.txt");
+  writeFileSync(sourcePath, "Hello\n", "utf8");
+  const imported = await processHandle.call("document.import", {
+    projectId: project.id,
+    sourcePath,
+    filterId: "builtin.txt",
+    options: { segmentationMode: "paragraph" },
+  });
+  const segments = await processHandle.call("segment.list", {
+    documentId: imported.document.id,
+    offset: 0,
+    limit: 10,
+  });
+  const segment = segments.items[0];
+  assert(segment, "connector generation smoke should import one segment");
+  const settings = await processHandle.call("ai.settings.get", {});
+  await processHandle.call("ai.settings.update", {
+    enabled: true,
+    defaultProfileId: profile.id,
+    monthlyTokenBudget: 100_000,
+    allowInteractive: true,
+    allowBatch: true,
+    allowedOrigins: [fixtureOrigin],
+    expectedRevision: settings.revision,
+  });
+  const run = await processHandle.call("ai.run.start", {
+    projectId: project.id,
+    segmentId: segment.id,
+    profileId: profile.id,
+    expectedRevision: segment.revision,
+    action: "translate",
+    prompt: "",
+    options: defaultGroundingOptions(),
+    conversationId: null,
+    maxAttempts: 1,
+  });
+  const completedRun = await waitForAiRun(processHandle, run.id);
+  const runEvents = await processHandle.call("ai.run.events", {
+    runId: run.id,
+    afterSequence: 0,
+    limit: 100,
+  });
+  assert(
+    completedRun.status === "succeeded" &&
+      completedRun.proposalText === "Bonjour" &&
+      runEvents.items.some((event) => event.kind === "delta") &&
+      runEvents.items.some((event) => event.kind === "usage") &&
+      runEvents.items.some((event) => event.kind === "completed"),
+    "connector generation should stream text and usage through ordinary AI RPCs",
+  );
+
+  await processHandle.restart();
+  await processHandle.call("engine.initialize", {
+    protocolVersion: 1,
+    client: { name: "connector-smoke-restart", version: "0.1.0" },
+  });
+  const restartedCatalog = await processHandle.call("ai.provider.catalog", {});
+  const restartedProfiles = await processHandle.call("ai.provider.list", {
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    restartedCatalog.items.some(
+      (item) => item.id === contributionId && item.availability === "available",
+    ) &&
+      restartedProfiles.items.some(
+        (item) => item.id === profile.id && item.availability === "available",
+      ),
+    "enabled connector and exact profile should be available after restart",
+  );
+  await processHandle.call("ai.credential.set", {
+    profileId: profile.id,
+    secret: "fixture-secret",
+  });
+
+  const upgradeSource = join(fixtureDirectory, "connector-upgrade");
+  cpSync(connectorSource, upgradeSource, { recursive: true });
+  const upgradeManifestPath = join(upgradeSource, "manifest.json");
+  const upgradeManifest = JSON.parse(readFileSync(upgradeManifestPath, "utf8"));
+  upgradeManifest.version = "1.0.1";
+  upgradeManifest.contributions[0].version = "1.0.1";
+  writeFileSync(
+    upgradeManifestPath,
+    `${JSON.stringify(upgradeManifest, null, 2)}\n`,
+    "utf8",
+  );
+  const beforeUpgrade = await processHandle.call("plugin.get", { pluginId });
+  const upgraded = await processHandle.call("plugin.upgrade", {
+    pluginId,
+    sourcePath: upgradeSource,
+    expectedRevision: beforeUpgrade.revision,
+    actor: "connector-smoke",
+    reason: "exercise compatible connector profile rebind",
+  });
+  const upgradedProfiles = await processHandle.call("ai.provider.list", {
+    offset: 0,
+    limit: 100,
+  });
+  const upgradedProfile = upgradedProfiles.items.find(
+    (item) => item.id === profile.id,
+  );
+  assert(
+    upgraded.plugin.version === "1.0.1" &&
+      upgradedProfile?.source.owner.versionId === upgraded.activeVersionId &&
+      upgradedProfile.availability === "available",
+    "compatible upgrade should atomically rebind the preserved profile",
+  );
+  const rolledBack = await processHandle.call("plugin.rollback", {
+    pluginId,
+    versionId: originalVersionId,
+    expectedRevision: upgraded.plugin.revision,
+    actor: "connector-smoke",
+    reason: "exercise connector rollback profile rebind",
+  });
+  const rolledBackProfiles = await processHandle.call("ai.provider.list", {
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    rolledBack.activeVersionId === originalVersionId &&
+      rolledBackProfiles.items.find((item) => item.id === profile.id)?.source
+        .owner.versionId === originalVersionId,
+    "rollback should restore the original exact connector binding",
+  );
+
+  const activeRequests = await processHandle.call(
+    "plugin.permission.request.list",
+    {
+      pluginId,
+      versionId: originalVersionId,
+      offset: 0,
+      limit: 20,
+    },
+  );
+  const activeNetworkGrant = activeRequests.items.find(
+    (request) => request.capabilityId === "network.connect",
+  );
+  const revoked = await processHandle.call("plugin.permission.revoke", {
+    pluginId,
+    requestId: activeNetworkGrant.id,
+    expectedRevision: activeNetworkGrant.revision,
+    actor: "connector-smoke",
+    reason: "revoke connector loopback origin",
+  });
+  assert(
+    revoked.detached && revoked.plugin.status === "disabled",
+    "connector grant revocation should detach and disable the plugin",
+  );
+  const profilesAfterRevoke = await processHandle.call("ai.provider.list", {
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    !(await processHandle.call("ai.provider.catalog", {})).items.some(
+      (item) => item.id === contributionId,
+    ) &&
+      profilesAfterRevoke.items.find((item) => item.id === profile.id)
+        ?.availability === "unavailable",
+    "revocation should remove catalog availability without deleting the profile",
+  );
+
+  await grantRequiredPluginCapabilities(
+    processHandle,
+    pluginId,
+    "restore connector grants for explicit disable coverage",
+  );
+  const afterRegrant = await processHandle.call("plugin.get", { pluginId });
+  const reenabled = await processHandle.call("plugin.enable", {
+    pluginId,
+    expectedRevision: afterRegrant.revision,
+    actor: "connector-smoke",
+    reason: "re-enable connector after explicit re-grant",
+  });
+  const disabled = await processHandle.call("plugin.disable", {
+    pluginId,
+    expectedRevision: reenabled.plugin.revision,
+    actor: "connector-smoke",
+    reason: "exercise explicit connector disable",
+  });
+  assert(
+    disabled.plugin.status === "disabled",
+    "connector should support explicit disable after re-grant",
+  );
+  await processHandle.call("plugin.uninstall", {
+    pluginId,
+    expectedRevision: disabled.plugin.revision,
+    actor: "connector-smoke",
+    reason: "uninstall official connector while preserving profile history",
+  });
+  const finalPlugins = await processHandle.call("plugin.list", {
+    offset: 0,
+    limit: 100,
+  });
+  const finalProfiles = await processHandle.call("ai.provider.list", {
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    !finalPlugins.items.some((item) => item.id === pluginId) &&
+      finalProfiles.items.find((item) => item.id === profile.id)
+        ?.availability === "unavailable",
+    "uninstall should preserve an unavailable exact profile without stale catalog state",
+  );
   await processHandle.call("project.list", { offset: 0, limit: 10 });
 }
 
@@ -6084,6 +6461,65 @@ async function waitForAiBatch(processHandle, batchId) {
     await delay(20);
   }
   throw new Error("AI batch did not finish");
+}
+
+async function startConnectorFixture() {
+  let requestCount = 0;
+  const server = createServer((request, response) => {
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk) => {
+      body += chunk;
+    });
+    request.on("end", () => {
+      requestCount += 1;
+      if (
+        request.method !== "POST" ||
+        request.url !== "/v1/chat/completions" ||
+        request.headers.authorization !== "Bearer fixture-secret" ||
+        request.headers["x-client"] !== "translunar-tier1-fixture"
+      ) {
+        response.writeHead(401, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: "unauthorized fixture request" }));
+        return;
+      }
+      const completion = body.includes("Reply with OK only.")
+        ? ["OK"]
+        : ["Bon", "jour"];
+      const events = [
+        ...completion.map(
+          (content) =>
+            `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}`,
+        ),
+        `data: ${JSON.stringify({
+          choices: [],
+          usage: {
+            prompt_tokens: 2,
+            completion_tokens: completion.length,
+            total_tokens: 2 + completion.length,
+          },
+        })}`,
+        "data: [DONE]",
+        "",
+      ].join("\n\n");
+      response.writeHead(200, {
+        "content-type": "text/event-stream",
+        "content-length": Buffer.byteLength(events),
+        connection: "close",
+      });
+      response.end(events);
+    });
+  });
+  await new Promise((resolveListen, rejectListen) => {
+    server.once("error", rejectListen);
+    server.listen(43123, "127.0.0.1", resolveListen);
+  });
+  return {
+    get requestCount() {
+      return requestCount;
+    },
+    close: () => new Promise((resolveClose) => server.close(resolveClose)),
+  };
 }
 
 async function startAiFixture() {

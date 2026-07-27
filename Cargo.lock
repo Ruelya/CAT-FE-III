@@ -2569,6 +2569,7 @@ dependencies = [
  "csv",
  "keyring",
  "regex",
+ "reqwest",
  "rusqlite",
  "serde",
  "serde_json",
@@ -2771,6 +2772,7 @@ dependencies = [
  "translunar-pipeline",
  "translunar-qa-core",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]

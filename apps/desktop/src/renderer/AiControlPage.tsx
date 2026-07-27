@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   AiBatchItem,
   AiBatchRun,
-  AiProviderDescriptor,
-  AiProviderKind,
+  AiConnectorCatalogItem,
   AiProviderProfile,
   AiRun,
   AiSettings,
   AiUsageAggregate,
   Document,
+  EngineConnectorConfigFieldV1,
+  EngineConnectorSource,
   GroundingOptions,
   ProjectSnapshot,
 } from "@translunar/contracts";
@@ -54,7 +55,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
   const { t } = useLocale();
 
   const [tab, setTab] = useState<AiControlTab>("providers");
-  const [catalog, setCatalog] = useState<AiProviderDescriptor[]>([]);
+  const [catalog, setCatalog] = useState<AiConnectorCatalogItem[]>([]);
   const [profiles, setProfiles] = useState<AiProviderProfile[]>([]);
   const [settings, setSettings] = useState<AiSettings | null>(null);
   const [usage, setUsage] = useState<AiUsageAggregate[]>([]);
@@ -64,10 +65,12 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [createKind, setCreateKind] = useState<AiProviderKind>("openai");
+  const [createConnectorId, setCreateConnectorId] = useState("openai");
   const [createName, setCreateName] = useState("OpenAI");
   const [createUrl, setCreateUrl] = useState("https://api.openai.com/v1");
   const [createModel, setCreateModel] = useState("gpt-4.1-mini");
+  const [createConfiguration, setCreateConfiguration] =
+    useState<ConnectorConfiguration>({});
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [budget, setBudget] = useState("");
   const [origins, setOrigins] = useState("");
@@ -80,9 +83,17 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
   const [replaceDrafts, setReplaceDrafts] = useState(false);
 
   const selectedDescriptor = useMemo(
-    () => catalog.find((item) => item.kind === createKind),
-    [catalog, createKind],
+    () => catalog.find((item) => item.id === createConnectorId),
+    [catalog, createConnectorId],
   );
+  const connectorAvailabilityLabel = (
+    availability: AiConnectorCatalogItem["availability"],
+  ) =>
+    availability === "available"
+      ? t("ai.connectorAvailable")
+      : availability === "degraded"
+        ? t("ai.connectorDegraded")
+        : t("ai.connectorUnavailable");
 
   const load = async () => {
     setError(null);
@@ -98,6 +109,20 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
         }),
       ]);
     setCatalog(catalogResult.items);
+    setCreateConnectorId((current) => {
+      const selected = catalogResult.items.find((item) => item.id === current);
+      const next =
+        selected ??
+        catalogResult.items.find((item) => item.availability === "available") ??
+        catalogResult.items[0];
+      if (next && !selected) {
+        setCreateName(next.displayName);
+        setCreateUrl(next.defaultBaseUrl);
+        setCreateModel(next.defaultModel);
+        setCreateConfiguration(defaultConnectorConfiguration(next));
+      }
+      return next?.id ?? current;
+    });
     setProfiles(providerResult.items);
     setSettings(settingResult);
     setBudget(
@@ -199,25 +224,43 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
     }
   };
 
-  const chooseKind = (kind: AiProviderKind) => {
-    setCreateKind(kind);
-    const descriptor = catalog.find((item) => item.kind === kind);
+  const chooseConnector = (connectorId: string) => {
+    setCreateConnectorId(connectorId);
+    const descriptor = catalog.find((item) => item.id === connectorId);
     if (!descriptor) return;
     setCreateName(descriptor.displayName);
     setCreateUrl(descriptor.defaultBaseUrl);
     setCreateModel(descriptor.defaultModel);
+    setCreateConfiguration(defaultConnectorConfiguration(descriptor));
+  };
+
+  const updateCreateConfiguration = (
+    key: string,
+    value: string | number | boolean,
+  ) => {
+    setCreateConfiguration((current) => ({ ...current, [key]: value }));
   };
 
   const createProvider = () =>
     runAction("create", async () => {
+      if (!selectedDescriptor) throw new Error(t("ai.chooseConnector"));
       const profile = await window.translunar.invoke("ai.provider.create", {
         name: createName,
-        kind: createKind,
+        ...(selectedDescriptor.kind === undefined
+          ? {}
+          : { kind: selectedDescriptor.kind }),
+        source: selectedDescriptor.source,
         baseUrl: createUrl,
         model: createModel,
         timeoutMs: 60_000,
         maxResponseBytes: 4_194_304,
         enabled: true,
+        ...(selectedDescriptor.source.kind === "plugin"
+          ? {
+              configSchemaVersion: selectedDescriptor.configSchemaVersion,
+              configuration: createConfiguration,
+            }
+          : {}),
       });
       setProfiles((current) => [...current, profile]);
       setBatchProfileId((current) => current || profile.id);
@@ -287,12 +330,21 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
       const updated = await window.translunar.invoke("ai.provider.update", {
         profileId: editingProfile.id,
         name: editingProfile.name,
-        kind: editingProfile.kind,
+        ...(editingProfile.kind === undefined
+          ? {}
+          : { kind: editingProfile.kind }),
+        source: editingProfile.source,
         baseUrl: editingProfile.baseUrl,
         model: editingProfile.model,
         timeoutMs: editingProfile.timeoutMs,
         maxResponseBytes: editingProfile.maxResponseBytes,
         enabled: editingProfile.enabled,
+        ...(editingProfile.source.kind === "plugin"
+          ? {
+              configSchemaVersion: editingProfile.configSchemaVersion,
+              configuration: editingProfile.configuration,
+            }
+          : {}),
         expectedRevision: editingProfile.revision,
       });
       setProfiles((current) =>
@@ -516,18 +568,58 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
               <label>
                 {t("ai.connector")}
                 <select
-                  value={createKind}
+                  value={createConnectorId}
                   onChange={(event) =>
-                    chooseKind(event.currentTarget.value as AiProviderKind)
+                    chooseConnector(event.currentTarget.value)
                   }
                 >
                   {catalog.map((item) => (
-                    <option key={item.kind} value={item.kind}>
+                    <option
+                      key={item.id}
+                      value={item.id}
+                      disabled={item.availability !== "available"}
+                    >
                       {item.displayName}
+                      {` · ${
+                        item.source.kind === "plugin"
+                          ? `${t("ai.connectorPlugin")} · ${item.source.owner.pluginId}`
+                          : t("ai.connectorBuiltin")
+                      }`}
                     </option>
                   ))}
                 </select>
               </label>
+              {selectedDescriptor ? (
+                <>
+                  <div className="ai-connector-meta">
+                    <span className="ai-connector-kind">
+                      {selectedDescriptor.source.kind === "plugin"
+                        ? t("ai.connectorPlugin")
+                        : t("ai.connectorBuiltin")}
+                    </span>
+                    <span data-availability={selectedDescriptor.availability}>
+                      {connectorAvailabilityLabel(
+                        selectedDescriptor.availability,
+                      )}
+                    </span>
+                    <code
+                      title={connectorSourceLabel(selectedDescriptor.source)}
+                    >
+                      {connectorSourceLabel(selectedDescriptor.source)}
+                    </code>
+                    <small>
+                      {t("ai.connectorSchemaVersion", {
+                        version: selectedDescriptor.configSchemaVersion,
+                      })}
+                    </small>
+                  </div>
+                  {selectedDescriptor.safeFailure ? (
+                    <p className="ai-connector-failure" role="status">
+                      {selectedDescriptor.safeFailure}
+                    </p>
+                  ) : null}
+                </>
+              ) : null}
               <label>
                 {t("ai.profileName")}
                 <input
@@ -553,6 +645,16 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                   }
                 />
               </label>
+              {selectedDescriptor?.configSchema?.fields.map((field) => (
+                <ConnectorConfigField
+                  key={field.key}
+                  field={field}
+                  value={createConfiguration[field.key]}
+                  onChange={(value) =>
+                    updateCreateConfiguration(field.key, value)
+                  }
+                />
+              ))}
               <p>
                 <ShieldCheck size={14} />{" "}
                 {selectedDescriptor?.credentialHint ??
@@ -563,8 +665,14 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                 disabled={
                   busy !== null ||
                   !createName.trim() ||
-                  !createUrl.trim() ||
-                  !createModel.trim()
+                  (!createUrl.trim() &&
+                    selectedDescriptor?.source.kind === "builtin") ||
+                  !createModel.trim() ||
+                  selectedDescriptor?.availability !== "available" ||
+                  !connectorConfigurationComplete(
+                    selectedDescriptor,
+                    createConfiguration,
+                  )
                 }
                 onClick={() => void createProvider()}
               >
@@ -592,9 +700,19 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                       </span>
                       <div>
                         <strong>{profile.name}</strong>
-                        <small>
-                          {profile.kind} · {profile.model}
+                        <small title={connectorSourceLabel(profile.source)}>
+                          {profile.source.kind === "plugin"
+                            ? t("ai.connectorPlugin")
+                            : t("ai.connectorBuiltin")}{" "}
+                          · {connectorSourceLabel(profile.source)} ·{" "}
+                          {profile.model}
                         </small>
+                        <span
+                          className="ai-connector-availability"
+                          data-availability={profile.availability}
+                        >
+                          {connectorAvailabilityLabel(profile.availability)}
+                        </span>
                       </div>
                     </div>
                     <div
@@ -647,7 +765,11 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                         type="button"
                         title={t("ai.testConnection")}
                         aria-label={t("ai.testNamed", { name: profile.name })}
-                        disabled={busy !== null || !profile.credentialPresent}
+                        disabled={
+                          busy !== null ||
+                          !profile.credentialPresent ||
+                          profile.availability !== "available"
+                        }
                         onClick={() => void testProvider(profile)}
                       >
                         <Play size={14} />
@@ -726,6 +848,31 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                           }
                         />
                       </label>
+                      {catalogDescriptorForSource(
+                        catalog,
+                        editingProfile.source,
+                      )?.configSchema?.fields.map((field) => (
+                        <ConnectorConfigField
+                          key={field.key}
+                          field={field}
+                          value={
+                            connectorConfiguration(
+                              editingProfile.configuration,
+                            )[field.key]
+                          }
+                          onChange={(value) =>
+                            setEditingProfile({
+                              ...editingProfile,
+                              configuration: {
+                                ...connectorConfiguration(
+                                  editingProfile.configuration,
+                                ),
+                                [field.key]: value,
+                              },
+                            })
+                          }
+                        />
+                      ))}
                       <label>
                         {t("ai.timeoutMs")}
                         <input
@@ -755,7 +902,19 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                       <div>
                         <button
                           type="button"
-                          disabled={busy !== null}
+                          disabled={
+                            busy !== null ||
+                            editingProfile.availability !== "available" ||
+                            !connectorConfigurationComplete(
+                              catalogDescriptorForSource(
+                                catalog,
+                                editingProfile.source,
+                              ),
+                              connectorConfiguration(
+                                editingProfile.configuration,
+                              ),
+                            )
+                          }
                           onClick={() => void saveProviderUpdate()}
                         >
                           <ShieldCheck size={13} />
@@ -803,11 +962,16 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                   }
                 >
                   <option value="">{t("ai.chooseProfile")}</option>
-                  {profiles.map((profile) => (
-                    <option key={profile.id} value={profile.id}>
-                      {profile.name}
-                    </option>
-                  ))}
+                  {profiles
+                    .filter(
+                      (profile) =>
+                        profile.enabled && profile.availability === "available",
+                    )
+                    .map((profile) => (
+                      <option key={profile.id} value={profile.id}>
+                        {profile.name}
+                      </option>
+                    ))}
                 </select>
               </label>
               <label>
@@ -1052,4 +1216,121 @@ function startOfMonth(timestamp: number): number {
 function formatDuration(milliseconds: number): string {
   if (milliseconds < 1_000) return `${milliseconds} ms`;
   return `${(milliseconds / 1_000).toFixed(1)} s`;
+}
+
+type ConnectorConfiguration = Record<string, string | number | boolean>;
+
+function ConnectorConfigField({
+  field,
+  value,
+  onChange,
+}: {
+  field: EngineConnectorConfigFieldV1;
+  value: string | number | boolean | undefined;
+  onChange: (value: string | number | boolean) => void;
+}) {
+  if (field.fieldType === "boolean") {
+    return (
+      <label className="switch-control ai-connector-config-field">
+        <input
+          type="checkbox"
+          checked={value === true}
+          onChange={(event) => onChange(event.currentTarget.checked)}
+        />
+        <span>{field.label}</span>
+      </label>
+    );
+  }
+  if (field.fieldType === "select") {
+    return (
+      <label className="ai-connector-config-field">
+        {field.label}
+        <select
+          required={field.required}
+          value={typeof value === "string" ? value : ""}
+          onChange={(event) => onChange(event.currentTarget.value)}
+        >
+          <option value="" disabled={field.required}>
+            {field.required ? field.label : ""}
+          </option>
+          {(field.options ?? []).map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        {field.description ? <small>{field.description}</small> : null}
+      </label>
+    );
+  }
+  return (
+    <label className="ai-connector-config-field">
+      {field.label}
+      <input
+        type={field.fieldType === "integer" ? "number" : "text"}
+        required={field.required}
+        min={field.min ?? undefined}
+        max={field.max ?? undefined}
+        value={
+          typeof value === "string" || typeof value === "number" ? value : ""
+        }
+        onChange={(event) =>
+          onChange(
+            field.fieldType === "integer" && event.currentTarget.value !== ""
+              ? Number(event.currentTarget.value)
+              : event.currentTarget.value,
+          )
+        }
+      />
+      {field.description ? <small>{field.description}</small> : null}
+    </label>
+  );
+}
+
+function defaultConnectorConfiguration(
+  descriptor: AiConnectorCatalogItem,
+): ConnectorConfiguration {
+  const configuration: ConnectorConfiguration = {};
+  for (const field of descriptor.configSchema?.fields ?? []) {
+    if (field.defaultValue !== undefined && field.defaultValue !== null) {
+      configuration[field.key] = field.defaultValue;
+    }
+  }
+  return configuration;
+}
+
+function connectorConfiguration(value: unknown): ConnectorConfiguration {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, string | number | boolean] =>
+        ["string", "number", "boolean"].includes(typeof entry[1]),
+    ),
+  );
+}
+
+function connectorConfigurationComplete(
+  descriptor: AiConnectorCatalogItem | undefined,
+  configuration: ConnectorConfiguration,
+): boolean {
+  return (descriptor?.configSchema?.fields ?? []).every(
+    (field) =>
+      !field.required ||
+      (configuration[field.key] !== undefined &&
+        configuration[field.key] !== ""),
+  );
+}
+
+function connectorSourceLabel(source: EngineConnectorSource): string {
+  return source.kind === "builtin"
+    ? source.provider
+    : `${source.owner.pluginId}@${source.owner.versionId}:${source.contributionId}/v${source.contractVersion}`;
+}
+
+function catalogDescriptorForSource(
+  catalog: AiConnectorCatalogItem[],
+  source: EngineConnectorSource,
+): AiConnectorCatalogItem | undefined {
+  const key = connectorSourceLabel(source);
+  return catalog.find((item) => connectorSourceLabel(item.source) === key);
 }

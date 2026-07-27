@@ -1,11 +1,18 @@
 use std::collections::BTreeSet;
 
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, TransactionBehavior, params};
+use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 use translunar_ai_core::{
     ALIGNMENT_REFINEMENT_ACTION, AiBatchItem, AiBatchItemStatus, AiBatchRun, AiBatchStatus,
     AiConversation, AiConversationMessage, AiConversationRole, AiProviderKind, AiProviderProfile,
     AiRun, AiRunEvent, AiRunEventKind, AiRunKind, AiRunRequest, AiRunStatus, AiSettings, AiUsage,
-    AiUsageAggregate, AiUsageDimension, AiUsageRecord, GroundingOptions, validate_profile_fields,
+    AiUsageAggregate, AiUsageDimension, AiUsageRecord, ENGINE_CONNECTOR_CONTRACT_VERSION,
+    EngineConnectorSource, GroundingOptions, MAX_BASE_URL_CHARS, MAX_CONNECTOR_CONFIG_BYTES,
+    MAX_CONNECTOR_CONFIG_DEPTH, MAX_CONNECTOR_CONFIG_NODES, MAX_CONNECTOR_ID_CHARS,
+    MAX_CONNECTOR_VERSION_ID_CHARS, MAX_MODEL_CHARS, MAX_PROFILE_NAME_CHARS, MAX_RESPONSE_BYTES,
+    MAX_TIMEOUT_MS, MIN_RESPONSE_BYTES, MIN_TIMEOUT_MS, PluginConnectorOwner, validate_endpoint,
+    validate_profile_fields,
 };
 use translunar_domain::new_id;
 
@@ -83,6 +90,94 @@ pub struct NewAiBatchItem {
     pub expected_revision: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AiConnectorProfileRecord {
+    /// `kind` inside this legacy-compatible projection is not connector
+    /// identity. Callers must resolve execution exclusively through `source`.
+    pub profile: AiProviderProfile,
+    pub source: EngineConnectorSource,
+    pub config_schema_version: Option<u32>,
+    pub configuration: Value,
+    pub descriptor_hash: Option<String>,
+    pub config_hash: Option<String>,
+}
+
+impl AiConnectorProfileRecord {
+    pub fn provenance(&self) -> AiConnectorProvenanceInput {
+        AiConnectorProvenanceInput {
+            source: self.source.clone(),
+            config_schema_version: self.config_schema_version,
+            descriptor_hash: self.descriptor_hash.clone(),
+            config_hash: self.config_hash.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct NewAiPluginConnectorProfile {
+    pub name: String,
+    pub source: EngineConnectorSource,
+    pub base_url: String,
+    pub model: String,
+    pub timeout_ms: u32,
+    pub max_response_bytes: u32,
+    pub enabled: bool,
+    pub config_schema_version: u32,
+    pub configuration: Value,
+    pub descriptor_hash: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct AiPluginConnectorProfileUpdate {
+    pub name: String,
+    pub source: EngineConnectorSource,
+    pub base_url: String,
+    pub model: String,
+    pub timeout_ms: u32,
+    pub max_response_bytes: u32,
+    pub enabled: bool,
+    pub config_schema_version: u32,
+    pub configuration: Value,
+    pub descriptor_hash: String,
+    pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct AiPluginConnectorProfileRebind {
+    pub previous_source: EngineConnectorSource,
+    pub candidate_source: EngineConnectorSource,
+    pub config_schema_version: u32,
+    pub previous_descriptor_hash: String,
+    pub candidate_descriptor_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AiConnectorProvenanceInput {
+    pub source: EngineConnectorSource,
+    pub config_schema_version: Option<u32>,
+    pub descriptor_hash: Option<String>,
+    pub config_hash: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AiConnectorProvenanceRecord {
+    /// `None` is reserved for migrated runs whose deleted profile made exact
+    /// historical identity unrecoverable.
+    pub source: Option<EngineConnectorSource>,
+    pub config_schema_version: Option<u32>,
+    pub descriptor_hash: Option<String>,
+    pub config_hash: Option<String>,
+    pub created_at_ms: i64,
+}
+
+struct ValidatedPluginConnectorProfile {
+    owner: PluginConnectorOwner,
+    contribution_id: String,
+    contract_version: u32,
+    configuration_json: String,
+    config_hash: String,
+}
+
 impl Store {
     pub fn create_ai_provider_profile(
         &mut self,
@@ -119,8 +214,75 @@ impl Store {
         self.get_ai_provider_profile(&id)
     }
 
+    pub fn create_ai_plugin_connector_profile(
+        &mut self,
+        input: NewAiPluginConnectorProfile,
+    ) -> Result<AiConnectorProfileRecord> {
+        validate_plugin_profile_fields(
+            &input.name,
+            &input.base_url,
+            &input.model,
+            input.timeout_ms,
+            input.max_response_bytes,
+            input.config_schema_version,
+            &input.descriptor_hash,
+        )?;
+        let validated = validate_plugin_connector_binding(&input.source, &input.configuration)?;
+        let id = new_id();
+        let now = now_ms();
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute(
+            "INSERT INTO ai_provider_profiles (
+                id, name, kind, base_url, model, timeout_ms, max_response_bytes,
+                enabled, credential_present, revision, created_at_ms, updated_at_ms
+             ) VALUES (?1, ?2, 'openai_compatible', ?3, ?4, ?5, ?6, ?7, 0, 0, ?8, ?8)",
+            params![
+                id,
+                input.name.trim(),
+                input.base_url.trim(),
+                input.model.trim(),
+                input.timeout_ms,
+                input.max_response_bytes,
+                input.enabled,
+                now,
+            ],
+        )?;
+        transaction.execute(
+            "INSERT INTO ai_plugin_connector_profiles (
+                profile_id, plugin_id, version_id, contribution_id,
+                contract_version, config_schema_version, config_json,
+                descriptor_hash, config_hash, revision, created_at_ms, updated_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, ?10, ?10)",
+            params![
+                id,
+                validated.owner.plugin_id,
+                validated.owner.version_id,
+                validated.contribution_id,
+                validated.contract_version,
+                input.config_schema_version,
+                validated.configuration_json,
+                input.descriptor_hash,
+                validated.config_hash,
+                now,
+            ],
+        )?;
+        transaction.commit()?;
+        self.get_ai_connector_profile(&id)
+    }
+
     pub fn get_ai_provider_profile(&self, profile_id: &str) -> Result<AiProviderProfile> {
+        if has_plugin_connector_binding(&self.connection, profile_id)? {
+            return Err(StorageError::InvalidState(
+                "plugin connector profiles require the connector-aware profile API".to_string(),
+            ));
+        }
         find_ai_provider_profile(&self.connection, profile_id)
+    }
+
+    pub fn get_ai_connector_profile(&self, profile_id: &str) -> Result<AiConnectorProfileRecord> {
+        find_ai_connector_profile(&self.connection, profile_id)
     }
 
     pub fn list_ai_provider_profiles(
@@ -129,15 +291,23 @@ impl Store {
         limit: u32,
     ) -> Result<(Vec<AiProviderProfile>, u32)> {
         validate_page(limit, 100)?;
-        let total =
-            self.connection
-                .query_row("SELECT COUNT(*) FROM ai_provider_profiles", [], |row| {
-                    row.get::<_, i64>(0)
-                })?;
+        let total = self.connection.query_row(
+            "SELECT COUNT(*) FROM ai_provider_profiles profiles
+                 WHERE NOT EXISTS (
+                    SELECT 1 FROM ai_plugin_connector_profiles bindings
+                    WHERE bindings.profile_id = profiles.id
+                 )",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
         let mut statement = self.connection.prepare(
             "SELECT id, name, kind, base_url, model, timeout_ms, max_response_bytes,
                     enabled, credential_present, revision, created_at_ms, updated_at_ms
-             FROM ai_provider_profiles
+             FROM ai_provider_profiles profiles
+             WHERE NOT EXISTS (
+                SELECT 1 FROM ai_plugin_connector_profiles bindings
+                WHERE bindings.profile_id = profiles.id
+             )
              ORDER BY updated_at_ms DESC, id
              LIMIT ?1 OFFSET ?2",
         )?;
@@ -147,11 +317,143 @@ impl Store {
         Ok((items, to_u32(total)?))
     }
 
+    pub fn list_ai_connector_profiles(
+        &self,
+        offset: u32,
+        limit: u32,
+    ) -> Result<(Vec<AiConnectorProfileRecord>, u32)> {
+        validate_page(limit, 100)?;
+        let total =
+            self.connection
+                .query_row("SELECT COUNT(*) FROM ai_provider_profiles", [], |row| {
+                    row.get::<_, i64>(0)
+                })?;
+        let mut statement = self.connection.prepare(&format!(
+            "{AI_CONNECTOR_PROFILE_SELECT}
+             ORDER BY profiles.updated_at_ms DESC, profiles.id
+             LIMIT ?1 OFFSET ?2"
+        ))?;
+        let items = statement
+            .query_map(params![limit, offset], row_to_ai_connector_profile)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok((items, to_u32(total)?))
+    }
+
+    pub fn list_ai_plugin_connector_profile_references(
+        &self,
+        source: &EngineConnectorSource,
+        offset: u32,
+        limit: u32,
+    ) -> Result<(Vec<AiConnectorProfileRecord>, u32)> {
+        validate_page(limit, 100)?;
+        let EngineConnectorSource::Plugin {
+            owner,
+            contribution_id,
+            contract_version,
+        } = source
+        else {
+            return Err(StorageError::InvalidState(
+                "profile reference lookup requires an exact plugin source".to_string(),
+            ));
+        };
+        validate_connector_identifier("plugin ID", &owner.plugin_id)?;
+        validate_connector_version_identifier("plugin version ID", &owner.version_id)?;
+        validate_connector_identifier("connector contribution ID", contribution_id)?;
+        if *contract_version != ENGINE_CONNECTOR_CONTRACT_VERSION {
+            return Err(StorageError::InvalidState(
+                "profile reference lookup uses an unsupported connector contract".to_string(),
+            ));
+        }
+        let bindings = params![
+            owner.plugin_id,
+            owner.version_id,
+            contribution_id,
+            contract_version
+        ];
+        let total = self.connection.query_row(
+            "SELECT COUNT(*) FROM ai_plugin_connector_profiles
+             WHERE plugin_id = ?1 AND version_id = ?2 AND contribution_id = ?3
+               AND contract_version = ?4",
+            bindings,
+            |row| row.get::<_, i64>(0),
+        )?;
+        let mut statement = self.connection.prepare(&format!(
+            "{AI_CONNECTOR_PROFILE_SELECT}
+             WHERE bindings.plugin_id = ?1 AND bindings.version_id = ?2
+               AND bindings.contribution_id = ?3 AND bindings.contract_version = ?4
+             ORDER BY profiles.updated_at_ms DESC, profiles.id
+             LIMIT ?5 OFFSET ?6"
+        ))?;
+        let items = statement
+            .query_map(
+                params![
+                    owner.plugin_id,
+                    owner.version_id,
+                    contribution_id,
+                    contract_version,
+                    limit,
+                    offset,
+                ],
+                row_to_ai_connector_profile,
+            )?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok((items, to_u32(total)?))
+    }
+
+    pub fn rebind_ai_plugin_connector_profiles(
+        &mut self,
+        previous_source: &EngineConnectorSource,
+        candidate_source: &EngineConnectorSource,
+        config_schema_version: u32,
+        previous_descriptor_hash: &str,
+        candidate_descriptor_hash: &str,
+    ) -> Result<u32> {
+        self.rebind_ai_plugin_connector_profiles_batch(&[AiPluginConnectorProfileRebind {
+            previous_source: previous_source.clone(),
+            candidate_source: candidate_source.clone(),
+            config_schema_version,
+            previous_descriptor_hash: previous_descriptor_hash.to_string(),
+            candidate_descriptor_hash: candidate_descriptor_hash.to_string(),
+        }])
+    }
+
+    pub fn rebind_ai_plugin_connector_profiles_batch(
+        &mut self,
+        rebinds: &[AiPluginConnectorProfileRebind],
+    ) -> Result<u32> {
+        if rebinds.is_empty() {
+            return Ok(0);
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut changed = 0_u32;
+        for rebind in rebinds {
+            changed = changed
+                .checked_add(rebind_ai_plugin_connector_profiles_tx(
+                    &transaction,
+                    rebind,
+                )?)
+                .ok_or_else(|| {
+                    StorageError::InvalidData(
+                        "connector profile rebind count exceeds u32".to_string(),
+                    )
+                })?;
+        }
+        transaction.commit()?;
+        Ok(changed)
+    }
+
     pub fn update_ai_provider_profile(
         &mut self,
         profile_id: &str,
         input: AiProviderProfileUpdate,
     ) -> Result<AiProviderProfile> {
+        if has_plugin_connector_binding(&self.connection, profile_id)? {
+            return Err(StorageError::InvalidState(
+                "plugin connector profiles require the connector-aware profile API".to_string(),
+            ));
+        }
         validate_profile_fields(
             &input.name,
             input.kind,
@@ -195,18 +497,116 @@ impl Store {
         self.get_ai_provider_profile(profile_id)
     }
 
+    pub fn update_ai_plugin_connector_profile(
+        &mut self,
+        profile_id: &str,
+        input: AiPluginConnectorProfileUpdate,
+    ) -> Result<AiConnectorProfileRecord> {
+        validate_plugin_profile_fields(
+            &input.name,
+            &input.base_url,
+            &input.model,
+            input.timeout_ms,
+            input.max_response_bytes,
+            input.config_schema_version,
+            &input.descriptor_hash,
+        )?;
+        let validated = validate_plugin_connector_binding(&input.source, &input.configuration)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current = find_ai_connector_profile(&transaction, profile_id)?;
+        if !matches!(current.source, EngineConnectorSource::Plugin { .. }) {
+            return Err(StorageError::InvalidState(
+                "built-in profiles cannot be rebound as plugin connectors".to_string(),
+            ));
+        }
+        ensure_entity_revision(
+            "ai_provider_profile",
+            profile_id,
+            current.profile.revision,
+            input.expected_revision,
+        )?;
+        let now = now_ms();
+        let profile_changed = transaction.execute(
+            "UPDATE ai_provider_profiles
+             SET name = ?1, base_url = ?2, model = ?3, timeout_ms = ?4,
+                 max_response_bytes = ?5, enabled = ?6, revision = revision + 1,
+                 updated_at_ms = ?7
+             WHERE id = ?8 AND revision = ?9",
+            params![
+                input.name.trim(),
+                input.base_url.trim(),
+                input.model.trim(),
+                input.timeout_ms,
+                input.max_response_bytes,
+                input.enabled,
+                now,
+                profile_id,
+                to_i64(input.expected_revision)?,
+            ],
+        )?;
+        let binding_changed = transaction.execute(
+            "UPDATE ai_plugin_connector_profiles
+             SET plugin_id = ?1, version_id = ?2, contribution_id = ?3,
+                 contract_version = ?4, config_schema_version = ?5,
+                 config_json = ?6, descriptor_hash = ?7, config_hash = ?8,
+                 revision = revision + 1, updated_at_ms = ?9
+             WHERE profile_id = ?10 AND revision = ?11",
+            params![
+                validated.owner.plugin_id,
+                validated.owner.version_id,
+                validated.contribution_id,
+                validated.contract_version,
+                input.config_schema_version,
+                validated.configuration_json,
+                input.descriptor_hash,
+                validated.config_hash,
+                now,
+                profile_id,
+                to_i64(input.expected_revision)?,
+            ],
+        )?;
+        if profile_changed != 1 || binding_changed != 1 {
+            return Err(StorageError::InvalidState(
+                "plugin connector profile mutation lost its revision".to_string(),
+            ));
+        }
+        transaction.commit()?;
+        self.get_ai_connector_profile(profile_id)
+    }
+
     pub fn set_ai_provider_credential_present(
         &mut self,
         profile_id: &str,
         present: bool,
     ) -> Result<AiProviderProfile> {
+        if has_plugin_connector_binding(&self.connection, profile_id)? {
+            return Err(StorageError::InvalidState(
+                "plugin connector profiles require the connector-aware profile API".to_string(),
+            ));
+        }
+        self.set_ai_profile_credential_present(profile_id, present)?;
+        self.get_ai_provider_profile(profile_id)
+    }
+
+    pub fn set_ai_connector_credential_present(
+        &mut self,
+        profile_id: &str,
+        present: bool,
+    ) -> Result<AiConnectorProfileRecord> {
+        self.set_ai_profile_credential_present(profile_id, present)?;
+        self.get_ai_connector_profile(profile_id)
+    }
+
+    fn set_ai_profile_credential_present(&mut self, profile_id: &str, present: bool) -> Result<()> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let current = find_ai_provider_profile(&transaction, profile_id)?;
         if current.credential_present == present {
             transaction.commit()?;
-            return Ok(current);
+            return Ok(());
         }
         let now = now_ms();
         transaction.execute(
@@ -215,8 +615,21 @@ impl Store {
              WHERE id = ?3 AND revision = ?4",
             params![present, now, profile_id, to_i64(current.revision)?],
         )?;
+        if has_plugin_connector_binding(&transaction, profile_id)? {
+            let changed = transaction.execute(
+                "UPDATE ai_plugin_connector_profiles
+                 SET revision = revision + 1, updated_at_ms = ?1
+                 WHERE profile_id = ?2 AND revision = ?3",
+                params![now, profile_id, to_i64(current.revision)?],
+            )?;
+            if changed != 1 {
+                return Err(StorageError::InvalidState(
+                    "plugin connector credential mutation lost its revision".to_string(),
+                ));
+            }
+        }
         transaction.commit()?;
-        self.get_ai_provider_profile(profile_id)
+        Ok(())
     }
 
     pub fn delete_ai_provider_profile(
@@ -314,10 +727,38 @@ impl Store {
     }
 
     pub fn create_ai_run(&mut self, input: NewAiRun) -> Result<AiRun> {
+        self.create_ai_run_with_optional_provenance(input, None)
+    }
+
+    pub fn create_ai_run_with_connector_provenance(
+        &mut self,
+        input: NewAiRun,
+        provenance: AiConnectorProvenanceInput,
+    ) -> Result<AiRun> {
+        validate_connector_provenance_input(&provenance)?;
+        self.create_ai_run_with_optional_provenance(input, Some(provenance))
+    }
+
+    fn create_ai_run_with_optional_provenance(
+        &mut self,
+        input: NewAiRun,
+        provenance: Option<AiConnectorProvenanceInput>,
+    ) -> Result<AiRun> {
         validate_new_run(&input)?;
         let id = new_id();
         let now = now_ms();
-        self.connection.execute(
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let provenance = match provenance {
+            Some(provenance) => Some(provenance),
+            None => input
+                .profile_id
+                .as_deref()
+                .map(|profile_id| connector_provenance_for_profile(&transaction, profile_id))
+                .transpose()?,
+        };
+        transaction.execute(
             "INSERT INTO ai_runs (
                 id, kind, project_id, document_id, segment_id, profile_id, model,
                 action, prompt_hash, request_json, base_segment_revision, status, revision,
@@ -344,7 +785,17 @@ impl Store {
                 now,
             ],
         )?;
+        insert_ai_run_connector_provenance_tx(&transaction, &id, provenance.as_ref(), now)?;
+        transaction.commit()?;
         self.get_ai_run(&id)
+    }
+
+    pub fn get_ai_run_connector_provenance(
+        &self,
+        run_id: &str,
+    ) -> Result<AiConnectorProvenanceRecord> {
+        find_ai_run(&self.connection, run_id)?;
+        find_ai_run_connector_provenance(&self.connection, run_id)
     }
 
     pub fn get_ai_run(&self, run_id: &str) -> Result<AiRun> {
@@ -786,6 +1237,7 @@ impl Store {
                 "AI provider profile is not ready for batch work".to_string(),
             ));
         }
+        let provenance = connector_provenance_for_profile(&transaction, &input.profile_id)?;
         transaction.execute(
             "INSERT INTO ai_batch_runs (
                 id, project_id, document_id, profile_id, status, revision,
@@ -812,6 +1264,7 @@ impl Store {
                 now,
             ],
         )?;
+        insert_ai_batch_connector_provenance_tx(&transaction, &id, Some(&provenance), now)?;
         for item in items {
             transaction.execute(
                 "INSERT INTO ai_batch_items (
@@ -833,6 +1286,14 @@ impl Store {
 
     pub fn get_ai_batch(&self, batch_id: &str) -> Result<AiBatchRun> {
         find_ai_batch(&self.connection, batch_id)
+    }
+
+    pub fn get_ai_batch_connector_provenance(
+        &self,
+        batch_id: &str,
+    ) -> Result<AiConnectorProvenanceRecord> {
+        find_ai_batch(&self.connection, batch_id)?;
+        find_ai_batch_connector_provenance(&self.connection, batch_id)
     }
 
     pub fn list_ai_batches(
@@ -1518,6 +1979,30 @@ const AI_PROFILE_SELECT: &str =
             enabled, credential_present, revision, created_at_ms, updated_at_ms
      FROM ai_provider_profiles";
 
+const AI_CONNECTOR_PROFILE_SELECT: &str =
+    "SELECT profiles.id, profiles.name, profiles.kind, profiles.base_url,
+            profiles.model, profiles.timeout_ms, profiles.max_response_bytes,
+            profiles.enabled, profiles.credential_present, profiles.revision,
+            profiles.created_at_ms, profiles.updated_at_ms,
+            bindings.plugin_id, bindings.version_id, bindings.contribution_id,
+            bindings.contract_version, bindings.config_schema_version,
+            bindings.config_json, bindings.descriptor_hash, bindings.config_hash,
+            bindings.revision, bindings.created_at_ms, bindings.updated_at_ms
+     FROM ai_provider_profiles profiles
+     LEFT JOIN ai_plugin_connector_profiles bindings ON bindings.profile_id = profiles.id";
+
+const AI_RUN_CONNECTOR_PROVENANCE_SELECT: &str =
+    "SELECT source_kind, provider_kind, plugin_id, version_id, contribution_id,
+            contract_version, config_schema_version, descriptor_hash, config_hash,
+            created_at_ms
+     FROM ai_connector_run_provenance WHERE run_id = ?1";
+
+const AI_BATCH_CONNECTOR_PROVENANCE_SELECT: &str =
+    "SELECT source_kind, provider_kind, plugin_id, version_id, contribution_id,
+            contract_version, config_schema_version, descriptor_hash, config_hash,
+            created_at_ms
+     FROM ai_connector_batch_provenance WHERE batch_id = ?1";
+
 const AI_RUN_SELECT: &str =
     "SELECT id, kind, project_id, document_id, segment_id, profile_id, model,
             action, prompt_hash, request_json, base_segment_revision, status, revision, attempt,
@@ -1551,6 +2036,301 @@ fn find_ai_provider_profile(
         )
         .optional()?
         .ok_or_else(|| not_found("ai_provider_profile", profile_id))
+}
+
+fn has_plugin_connector_binding(connection: &Connection, profile_id: &str) -> Result<bool> {
+    connection
+        .query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM ai_plugin_connector_profiles WHERE profile_id = ?1
+             )",
+            [profile_id],
+            |row| row.get(0),
+        )
+        .map_err(Into::into)
+}
+
+fn find_ai_connector_profile(
+    connection: &Connection,
+    profile_id: &str,
+) -> Result<AiConnectorProfileRecord> {
+    connection
+        .query_row(
+            &format!("{AI_CONNECTOR_PROFILE_SELECT} WHERE profiles.id = ?1"),
+            [profile_id],
+            row_to_ai_connector_profile,
+        )
+        .optional()?
+        .ok_or_else(|| not_found("ai_provider_profile", profile_id))
+}
+
+fn row_to_ai_connector_profile(row: &Row<'_>) -> rusqlite::Result<AiConnectorProfileRecord> {
+    let profile = row_to_ai_provider_profile(row)?;
+    let plugin_id = row.get::<_, Option<String>>(12)?;
+    let Some(plugin_id) = plugin_id else {
+        return Ok(AiConnectorProfileRecord {
+            source: EngineConnectorSource::Builtin {
+                provider: profile.kind,
+            },
+            profile,
+            config_schema_version: None,
+            configuration: json!({}),
+            descriptor_hash: None,
+            config_hash: None,
+        });
+    };
+    let binding_revision = read_u64(row, 20)?;
+    if binding_revision != profile.revision {
+        return Err(conversion_error(
+            20,
+            StorageError::InvalidData(
+                "AI connector profile and binding revisions diverged".to_string(),
+            ),
+        ));
+    }
+    let contract_version = read_u32(row, 15)?;
+    if contract_version != ENGINE_CONNECTOR_CONTRACT_VERSION {
+        return Err(conversion_error(
+            15,
+            StorageError::InvalidData("unsupported stored connector contract version".to_string()),
+        ));
+    }
+    let configuration_json = row.get::<_, String>(17)?;
+    let configuration =
+        serde_json::from_str(&configuration_json).map_err(|error| conversion_error(17, error))?;
+    let normalized_configuration = normalize_connector_configuration(&configuration)
+        .map_err(|error| conversion_error(17, error))?;
+    let normalized_json = serde_json::to_string(&normalized_configuration)
+        .map_err(|error| conversion_error(17, error))?;
+    let descriptor_hash = row.get::<_, String>(18)?;
+    let config_hash = row.get::<_, String>(19)?;
+    if configuration_json != normalized_json
+        || validate_sha256("connector descriptor", &descriptor_hash).is_err()
+        || config_hash != sha256_hex(normalized_json.as_bytes())
+    {
+        return Err(conversion_error(
+            17,
+            StorageError::InvalidData(
+                "stored connector configuration or digest is not canonical".to_string(),
+            ),
+        ));
+    }
+    Ok(AiConnectorProfileRecord {
+        profile,
+        source: EngineConnectorSource::Plugin {
+            owner: PluginConnectorOwner {
+                plugin_id,
+                version_id: row.get(13)?,
+            },
+            contribution_id: row.get(14)?,
+            contract_version,
+        },
+        config_schema_version: Some(read_u32(row, 16)?),
+        configuration: normalized_configuration,
+        descriptor_hash: Some(descriptor_hash),
+        config_hash: Some(config_hash),
+    })
+}
+
+fn connector_provenance_for_profile(
+    connection: &Connection,
+    profile_id: &str,
+) -> Result<AiConnectorProvenanceInput> {
+    Ok(find_ai_connector_profile(connection, profile_id)?.provenance())
+}
+
+struct AiConnectorProvenanceSql {
+    source_kind: &'static str,
+    provider_kind: Option<&'static str>,
+    plugin_id: Option<String>,
+    version_id: Option<String>,
+    contribution_id: Option<String>,
+    contract_version: Option<u32>,
+    config_schema_version: Option<u32>,
+    descriptor_hash: Option<String>,
+    config_hash: Option<String>,
+}
+
+fn connector_provenance_sql(
+    provenance: Option<&AiConnectorProvenanceInput>,
+) -> Result<AiConnectorProvenanceSql> {
+    let Some(provenance) = provenance else {
+        return Ok(AiConnectorProvenanceSql {
+            source_kind: "legacy_unknown",
+            provider_kind: None,
+            plugin_id: None,
+            version_id: None,
+            contribution_id: None,
+            contract_version: None,
+            config_schema_version: None,
+            descriptor_hash: None,
+            config_hash: None,
+        });
+    };
+    validate_connector_provenance_input(provenance)?;
+    match &provenance.source {
+        EngineConnectorSource::Builtin { provider } => Ok(AiConnectorProvenanceSql {
+            source_kind: "builtin",
+            provider_kind: Some(provider_kind_text(*provider)),
+            plugin_id: None,
+            version_id: None,
+            contribution_id: None,
+            contract_version: None,
+            config_schema_version: None,
+            descriptor_hash: None,
+            config_hash: None,
+        }),
+        EngineConnectorSource::Plugin {
+            owner,
+            contribution_id,
+            contract_version,
+        } => Ok(AiConnectorProvenanceSql {
+            source_kind: "plugin",
+            provider_kind: None,
+            plugin_id: Some(owner.plugin_id.clone()),
+            version_id: Some(owner.version_id.clone()),
+            contribution_id: Some(contribution_id.clone()),
+            contract_version: Some(*contract_version),
+            config_schema_version: provenance.config_schema_version,
+            descriptor_hash: provenance.descriptor_hash.clone(),
+            config_hash: provenance.config_hash.clone(),
+        }),
+    }
+}
+
+fn insert_ai_run_connector_provenance_tx(
+    transaction: &Transaction<'_>,
+    run_id: &str,
+    provenance: Option<&AiConnectorProvenanceInput>,
+    created_at_ms: i64,
+) -> Result<()> {
+    let value = connector_provenance_sql(provenance)?;
+    transaction.execute(
+        "INSERT INTO ai_connector_run_provenance (
+            run_id, source_kind, provider_kind, plugin_id, version_id,
+            contribution_id, contract_version, config_schema_version,
+            descriptor_hash, config_hash, created_at_ms
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        params![
+            run_id,
+            value.source_kind,
+            value.provider_kind,
+            value.plugin_id,
+            value.version_id,
+            value.contribution_id,
+            value.contract_version,
+            value.config_schema_version,
+            value.descriptor_hash,
+            value.config_hash,
+            created_at_ms,
+        ],
+    )?;
+    Ok(())
+}
+
+fn insert_ai_batch_connector_provenance_tx(
+    transaction: &Transaction<'_>,
+    batch_id: &str,
+    provenance: Option<&AiConnectorProvenanceInput>,
+    created_at_ms: i64,
+) -> Result<()> {
+    let value = connector_provenance_sql(provenance)?;
+    transaction.execute(
+        "INSERT INTO ai_connector_batch_provenance (
+            batch_id, source_kind, provider_kind, plugin_id, version_id,
+            contribution_id, contract_version, config_schema_version,
+            descriptor_hash, config_hash, created_at_ms
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        params![
+            batch_id,
+            value.source_kind,
+            value.provider_kind,
+            value.plugin_id,
+            value.version_id,
+            value.contribution_id,
+            value.contract_version,
+            value.config_schema_version,
+            value.descriptor_hash,
+            value.config_hash,
+            created_at_ms,
+        ],
+    )?;
+    Ok(())
+}
+
+fn find_ai_run_connector_provenance(
+    connection: &Connection,
+    run_id: &str,
+) -> Result<AiConnectorProvenanceRecord> {
+    connection
+        .query_row(
+            AI_RUN_CONNECTOR_PROVENANCE_SELECT,
+            [run_id],
+            row_to_ai_connector_provenance,
+        )
+        .optional()?
+        .ok_or_else(|| not_found("ai_connector_run_provenance", run_id))
+}
+
+fn find_ai_batch_connector_provenance(
+    connection: &Connection,
+    batch_id: &str,
+) -> Result<AiConnectorProvenanceRecord> {
+    connection
+        .query_row(
+            AI_BATCH_CONNECTOR_PROVENANCE_SELECT,
+            [batch_id],
+            row_to_ai_connector_provenance,
+        )
+        .optional()?
+        .ok_or_else(|| not_found("ai_connector_batch_provenance", batch_id))
+}
+
+fn row_to_ai_connector_provenance(row: &Row<'_>) -> rusqlite::Result<AiConnectorProvenanceRecord> {
+    let source_kind = row.get::<_, String>(0)?;
+    let source = match source_kind.as_str() {
+        "builtin" => Some(EngineConnectorSource::Builtin {
+            provider: parse_provider_kind(row.get::<_, String>(1)?, 1)?,
+        }),
+        "plugin" => {
+            let contract_version = read_u32(row, 5)?;
+            if contract_version != ENGINE_CONNECTOR_CONTRACT_VERSION {
+                return Err(conversion_error(
+                    5,
+                    StorageError::InvalidData(
+                        "unsupported stored connector provenance version".to_string(),
+                    ),
+                ));
+            }
+            Some(EngineConnectorSource::Plugin {
+                owner: PluginConnectorOwner {
+                    plugin_id: row.get(2)?,
+                    version_id: row.get(3)?,
+                },
+                contribution_id: row.get(4)?,
+                contract_version,
+            })
+        }
+        "legacy_unknown" => None,
+        _ => {
+            return Err(conversion_error(
+                0,
+                StorageError::InvalidData(format!(
+                    "unknown AI connector provenance source {source_kind}"
+                )),
+            ));
+        }
+    };
+    Ok(AiConnectorProvenanceRecord {
+        source,
+        config_schema_version: row
+            .get::<_, Option<i64>>(6)?
+            .map(|value| u32::try_from(value).map_err(|error| conversion_error(6, error)))
+            .transpose()?,
+        descriptor_hash: row.get(7)?,
+        config_hash: row.get(8)?,
+        created_at_ms: row.get(9)?,
+    })
 }
 
 fn row_to_ai_provider_profile(row: &Row<'_>) -> rusqlite::Result<AiProviderProfile> {
@@ -2031,7 +2811,393 @@ fn normalize_origins(values: &[String]) -> Result<Vec<String>> {
     Ok(normalized.into_iter().collect())
 }
 
+fn validate_plugin_profile_fields(
+    name: &str,
+    base_url: &str,
+    model: &str,
+    timeout_ms: u32,
+    max_response_bytes: u32,
+    config_schema_version: u32,
+    descriptor_hash: &str,
+) -> Result<()> {
+    let name_chars = name.trim().chars().count();
+    if name_chars == 0 || name_chars > MAX_PROFILE_NAME_CHARS {
+        return Err(StorageError::InvalidState(
+            "connector profile name must contain 1..80 characters".to_string(),
+        ));
+    }
+    if base_url.len() > MAX_BASE_URL_CHARS {
+        return Err(StorageError::InvalidState(
+            "connector base URL is too long".to_string(),
+        ));
+    }
+    if !base_url.trim().is_empty() {
+        validate_endpoint(base_url)
+            .map_err(|error| StorageError::InvalidState(error.to_string()))?;
+    }
+    if model.trim().is_empty() || model.chars().count() > MAX_MODEL_CHARS {
+        return Err(StorageError::InvalidState(
+            "connector model must contain 1..200 characters".to_string(),
+        ));
+    }
+    if !(MIN_TIMEOUT_MS..=MAX_TIMEOUT_MS).contains(&timeout_ms) {
+        return Err(StorageError::InvalidState(format!(
+            "connector timeout must be {MIN_TIMEOUT_MS}..{MAX_TIMEOUT_MS} milliseconds"
+        )));
+    }
+    if !(MIN_RESPONSE_BYTES..=MAX_RESPONSE_BYTES).contains(&max_response_bytes) {
+        return Err(StorageError::InvalidState(format!(
+            "connector response limit must be {MIN_RESPONSE_BYTES}..{MAX_RESPONSE_BYTES} bytes"
+        )));
+    }
+    if config_schema_version == 0 {
+        return Err(StorageError::InvalidState(
+            "connector config schema version must be positive".to_string(),
+        ));
+    }
+    validate_sha256("connector descriptor", descriptor_hash)
+}
+
+fn validate_plugin_connector_binding(
+    source: &EngineConnectorSource,
+    configuration: &Value,
+) -> Result<ValidatedPluginConnectorProfile> {
+    let EngineConnectorSource::Plugin {
+        owner,
+        contribution_id,
+        contract_version,
+    } = source
+    else {
+        return Err(StorageError::InvalidState(
+            "plugin connector profile requires an exact plugin source".to_string(),
+        ));
+    };
+    validate_connector_identifier("plugin ID", &owner.plugin_id)?;
+    validate_connector_version_identifier("plugin version ID", &owner.version_id)?;
+    validate_connector_identifier("connector contribution ID", contribution_id)?;
+    if *contract_version != ENGINE_CONNECTOR_CONTRACT_VERSION {
+        return Err(StorageError::InvalidState(format!(
+            "connector contract version must be {ENGINE_CONNECTOR_CONTRACT_VERSION}"
+        )));
+    }
+    let configuration = normalize_connector_configuration(configuration)?;
+    let configuration_json = serde_json::to_string(&configuration)?;
+    let config_hash = sha256_hex(configuration_json.as_bytes());
+    Ok(ValidatedPluginConnectorProfile {
+        owner: owner.clone(),
+        contribution_id: contribution_id.clone(),
+        contract_version: *contract_version,
+        configuration_json,
+        config_hash,
+    })
+}
+
+fn validate_connector_provenance_input(input: &AiConnectorProvenanceInput) -> Result<()> {
+    match &input.source {
+        EngineConnectorSource::Builtin { .. } => {
+            if input.config_schema_version.is_some()
+                || input.descriptor_hash.is_some()
+                || input.config_hash.is_some()
+            {
+                return Err(StorageError::InvalidState(
+                    "built-in connector provenance cannot contain plugin metadata".to_string(),
+                ));
+            }
+        }
+        EngineConnectorSource::Plugin {
+            owner,
+            contribution_id,
+            contract_version,
+        } => {
+            validate_connector_identifier("plugin ID", &owner.plugin_id)?;
+            validate_connector_version_identifier("plugin version ID", &owner.version_id)?;
+            validate_connector_identifier("connector contribution ID", contribution_id)?;
+            if *contract_version != ENGINE_CONNECTOR_CONTRACT_VERSION
+                || input
+                    .config_schema_version
+                    .is_none_or(|version| version == 0)
+            {
+                return Err(StorageError::InvalidState(
+                    "plugin connector provenance is incomplete".to_string(),
+                ));
+            }
+            validate_sha256(
+                "connector descriptor",
+                input.descriptor_hash.as_deref().unwrap_or_default(),
+            )?;
+            validate_sha256(
+                "connector configuration",
+                input.config_hash.as_deref().unwrap_or_default(),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn rebind_ai_plugin_connector_profiles_tx(
+    transaction: &Transaction<'_>,
+    rebind: &AiPluginConnectorProfileRebind,
+) -> Result<u32> {
+    let (
+        EngineConnectorSource::Plugin {
+            owner: previous_owner,
+            contribution_id: previous_contribution,
+            contract_version: previous_contract,
+        },
+        EngineConnectorSource::Plugin {
+            owner: candidate_owner,
+            contribution_id: candidate_contribution,
+            contract_version: candidate_contract,
+        },
+    ) = (&rebind.previous_source, &rebind.candidate_source)
+    else {
+        return Err(StorageError::InvalidState(
+            "connector profile rebind requires exact plugin sources".to_string(),
+        ));
+    };
+    previous_owner
+        .validate()
+        .map_err(|error| StorageError::InvalidState(error.to_string()))?;
+    candidate_owner
+        .validate()
+        .map_err(|error| StorageError::InvalidState(error.to_string()))?;
+    if previous_owner.plugin_id != candidate_owner.plugin_id
+        || previous_owner.version_id == candidate_owner.version_id
+        || previous_contribution != candidate_contribution
+        || previous_contract != candidate_contract
+        || *previous_contract != ENGINE_CONNECTOR_CONTRACT_VERSION
+        || rebind.config_schema_version == 0
+    {
+        return Err(StorageError::InvalidState(
+            "connector profile rebind changes immutable connector identity".to_string(),
+        ));
+    }
+    validate_sha256(
+        "previous connector descriptor",
+        &rebind.previous_descriptor_hash,
+    )?;
+    validate_sha256(
+        "candidate connector descriptor",
+        &rebind.candidate_descriptor_hash,
+    )?;
+    let total = transaction.query_row(
+        "SELECT COUNT(*) FROM ai_plugin_connector_profiles
+         WHERE plugin_id = ?1 AND version_id = ?2 AND contribution_id = ?3
+           AND contract_version = ?4",
+        params![
+            previous_owner.plugin_id,
+            previous_owner.version_id,
+            previous_contribution,
+            previous_contract,
+        ],
+        |row| row.get::<_, i64>(0),
+    )?;
+    if total == 0 {
+        return Ok(0);
+    }
+    let incompatible = transaction.query_row(
+        "SELECT COUNT(*) FROM ai_plugin_connector_profiles
+         WHERE plugin_id = ?1 AND version_id = ?2 AND contribution_id = ?3
+           AND contract_version = ?4
+           AND (config_schema_version != ?5 OR descriptor_hash != ?6)",
+        params![
+            previous_owner.plugin_id,
+            previous_owner.version_id,
+            previous_contribution,
+            previous_contract,
+            rebind.config_schema_version,
+            rebind.previous_descriptor_hash,
+        ],
+        |row| row.get::<_, i64>(0),
+    )?;
+    if incompatible != 0 {
+        return Err(StorageError::InvalidState(
+            "connector profile rebind found incompatible profile provenance".to_string(),
+        ));
+    }
+    let now = now_ms();
+    let profile_changes = transaction.execute(
+        "UPDATE ai_provider_profiles
+         SET revision = revision + 1, updated_at_ms = ?1
+         WHERE id IN (
+            SELECT profile_id FROM ai_plugin_connector_profiles
+            WHERE plugin_id = ?2 AND version_id = ?3 AND contribution_id = ?4
+              AND contract_version = ?5
+         )",
+        params![
+            now,
+            previous_owner.plugin_id,
+            previous_owner.version_id,
+            previous_contribution,
+            previous_contract,
+        ],
+    )?;
+    let binding_changes = transaction.execute(
+        "UPDATE ai_plugin_connector_profiles
+         SET version_id = ?1, descriptor_hash = ?2,
+             revision = revision + 1, updated_at_ms = ?3
+         WHERE plugin_id = ?4 AND version_id = ?5 AND contribution_id = ?6
+           AND contract_version = ?7",
+        params![
+            candidate_owner.version_id,
+            rebind.candidate_descriptor_hash,
+            now,
+            previous_owner.plugin_id,
+            previous_owner.version_id,
+            previous_contribution,
+            previous_contract,
+        ],
+    )?;
+    let total_usize = usize::try_from(total).map_err(|_| {
+        StorageError::InvalidData("connector profile count does not fit usize".to_string())
+    })?;
+    if profile_changes != total_usize || binding_changes != total_usize {
+        return Err(StorageError::InvalidState(
+            "connector profile rebind lost an exact profile row".to_string(),
+        ));
+    }
+    to_u32(total)
+}
+
+fn normalize_connector_configuration(configuration: &Value) -> Result<Value> {
+    if !configuration.is_object() {
+        return Err(StorageError::InvalidState(
+            "connector configuration must be a JSON object".to_string(),
+        ));
+    }
+    let mut remaining = MAX_CONNECTOR_CONFIG_NODES;
+    let normalized = normalize_connector_configuration_node(configuration, 0, &mut remaining)?;
+    let bytes = serde_json::to_vec(&normalized)?;
+    if bytes.len() > MAX_CONNECTOR_CONFIG_BYTES {
+        return Err(StorageError::InvalidState(format!(
+            "connector configuration exceeds {MAX_CONNECTOR_CONFIG_BYTES} bytes"
+        )));
+    }
+    Ok(normalized)
+}
+
+fn normalize_connector_configuration_node(
+    value: &Value,
+    depth: usize,
+    remaining: &mut usize,
+) -> Result<Value> {
+    if depth > MAX_CONNECTOR_CONFIG_DEPTH || *remaining == 0 {
+        return Err(StorageError::InvalidState(
+            "connector configuration exceeds its depth or node limit".to_string(),
+        ));
+    }
+    *remaining -= 1;
+    match value {
+        Value::Array(items) => items
+            .iter()
+            .map(|item| normalize_connector_configuration_node(item, depth + 1, remaining))
+            .collect::<Result<Vec<_>>>()
+            .map(Value::Array),
+        Value::Object(fields) => {
+            let mut keys = fields.keys().collect::<Vec<_>>();
+            keys.sort_unstable();
+            let mut normalized = Map::new();
+            for key in keys {
+                if key.len() > MAX_CONNECTOR_ID_CHARS {
+                    return Err(StorageError::InvalidState(
+                        "connector configuration key is too long".to_string(),
+                    ));
+                }
+                if connector_configuration_key_is_sensitive(key) {
+                    return Err(StorageError::InvalidState(format!(
+                        "connector configuration cannot persist sensitive field {key}"
+                    )));
+                }
+                normalized.insert(
+                    key.clone(),
+                    normalize_connector_configuration_node(&fields[key], depth + 1, remaining)?,
+                );
+            }
+            Ok(Value::Object(normalized))
+        }
+        Value::String(text) if text.len() > MAX_CONNECTOR_CONFIG_BYTES => Err(
+            StorageError::InvalidState("connector configuration string is too long".to_string()),
+        ),
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => Ok(value.clone()),
+    }
+}
+
+fn connector_configuration_key_is_sensitive(key: &str) -> bool {
+    let normalized = key
+        .bytes()
+        .filter(|byte| byte.is_ascii_alphanumeric())
+        .map(|byte| byte.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    matches!(
+        normalized.as_slice(),
+        b"apikey"
+            | b"authorization"
+            | b"credential"
+            | b"credentials"
+            | b"password"
+            | b"secret"
+            | b"token"
+            | b"accesstoken"
+            | b"refreshtoken"
+    )
+}
+
+fn validate_connector_identifier(field: &str, value: &str) -> Result<()> {
+    let chars = value.chars().count();
+    if chars == 0
+        || chars > MAX_CONNECTOR_ID_CHARS
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+    {
+        return Err(StorageError::InvalidState(format!(
+            "{field} must be a bounded ASCII identifier"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_connector_version_identifier(field: &str, value: &str) -> Result<()> {
+    let chars = value.chars().count();
+    if chars == 0
+        || chars > MAX_CONNECTOR_VERSION_ID_CHARS
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b':'))
+    {
+        return Err(StorageError::InvalidState(format!(
+            "{field} must be a bounded ASCII version identifier"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_sha256(field: &str, value: &str) -> Result<()> {
+    if value.len() != 64
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+    {
+        return Err(StorageError::InvalidState(format!(
+            "{field} hash must be a lowercase SHA-256 digest"
+        )));
+    }
+    Ok(())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 fn validate_new_run(input: &NewAiRun) -> Result<()> {
+    if input.profile_id.as_deref().is_none_or(str::is_empty) {
+        return Err(StorageError::InvalidState(
+            "new AI runs require an exact provider profile".to_string(),
+        ));
+    }
     if input.model.trim().is_empty() || input.model.chars().count() > 200 {
         return Err(StorageError::InvalidState(
             "AI run model must contain 1..200 characters".to_string(),
@@ -2352,6 +3518,398 @@ mod tests {
         }
     }
 
+    fn plugin_source_for(version_id: &str, contribution_id: &str) -> EngineConnectorSource {
+        EngineConnectorSource::Plugin {
+            owner: PluginConnectorOwner {
+                plugin_id: "org.example.translation".to_string(),
+                version_id: version_id.to_string(),
+            },
+            contribution_id: contribution_id.to_string(),
+            contract_version: ENGINE_CONNECTOR_CONTRACT_VERSION,
+        }
+    }
+
+    fn plugin_source(version_id: &str) -> EngineConnectorSource {
+        plugin_source_for(version_id, "example.engine")
+    }
+
+    fn plugin_profile_input(version_id: &str, configuration: Value) -> NewAiPluginConnectorProfile {
+        NewAiPluginConnectorProfile {
+            name: "Example connector".to_string(),
+            source: plugin_source(version_id),
+            base_url: String::new(),
+            model: "fixture-model".to_string(),
+            timeout_ms: 5_000,
+            max_response_bytes: 1_048_576,
+            enabled: true,
+            config_schema_version: 1,
+            configuration,
+            descriptor_hash: "d".repeat(64),
+        }
+    }
+
+    fn run_input(profile: &AiProviderProfile) -> NewAiRun {
+        NewAiRun {
+            kind: AiRunKind::Interactive,
+            project_id: None,
+            document_id: None,
+            segment_id: None,
+            profile_id: Some(profile.id.clone()),
+            model: profile.model.clone(),
+            action: "translate".to_string(),
+            prompt_hash: "a".repeat(64),
+            request: AiRunRequest {
+                grounding_options: GroundingOptions::default(),
+                freeform_prompt: String::new(),
+                conversation_id: None,
+                alignment_refinement: None,
+            },
+            base_segment_revision: None,
+            max_attempts: 3,
+        }
+    }
+
+    #[test]
+    fn plugin_connector_profile_accepts_inventory_version_identity() {
+        let root = tempdir().expect("temporary connector store");
+        let mut store = Store::open(root.path()).expect("open connector store");
+        let version_id = "inventory-v2:example.connector-openai-compatible:1.0.0";
+        let created = store
+            .create_ai_plugin_connector_profile(plugin_profile_input(version_id, json!({})))
+            .expect("create connector profile with inventory version identity");
+
+        assert_eq!(created.source, plugin_source(version_id));
+    }
+
+    #[test]
+    fn plugin_connector_profiles_and_provenance_are_exact_revisioned_and_restart_safe() {
+        let root = tempdir().expect("temporary connector store");
+        let (profile_id, run_id, batch_id) = {
+            let mut store = Store::open(root.path()).expect("open connector store");
+            let project = store
+                .create_project("Connector project", "en-US", "zh-CN", "general")
+                .expect("create connector project");
+            let created = store
+                .create_ai_plugin_connector_profile(plugin_profile_input(
+                    "version-1",
+                    json!({ "zeta": 2, "alpha": 1 }),
+                ))
+                .expect("create plugin connector profile");
+            assert_eq!(created.source, plugin_source("version-1"));
+            assert_eq!(created.configuration, json!({ "alpha": 1, "zeta": 2 }));
+            assert_eq!(
+                created.config_hash,
+                Some(sha256_hex(br#"{"alpha":1,"zeta":2}"#))
+            );
+            assert!(store.get_ai_provider_profile(&created.profile.id).is_err());
+            assert_eq!(
+                store
+                    .list_ai_provider_profiles(0, 100)
+                    .expect("list legacy profiles")
+                    .1,
+                0
+            );
+            assert_eq!(
+                store
+                    .list_ai_connector_profiles(0, 100)
+                    .expect("list connector profiles")
+                    .1,
+                1
+            );
+            assert_eq!(
+                store
+                    .list_ai_plugin_connector_profile_references(
+                        &plugin_source("version-1"),
+                        0,
+                        100,
+                    )
+                    .expect("list exact connector references")
+                    .1,
+                1
+            );
+
+            let ready = store
+                .set_ai_connector_credential_present(&created.profile.id, true)
+                .expect("mark connector credential present");
+            assert!(ready.profile.credential_present);
+            assert_eq!(ready.profile.revision, 1);
+            let run = store
+                .create_ai_run(run_input(&ready.profile))
+                .expect("create connector run");
+            let run_provenance = store
+                .get_ai_run_connector_provenance(&run.id)
+                .expect("read run provenance");
+            assert_eq!(run_provenance.source, Some(plugin_source("version-1")));
+            assert_eq!(run_provenance.config_hash, ready.config_hash);
+
+            let stale = store.update_ai_plugin_connector_profile(
+                &ready.profile.id,
+                AiPluginConnectorProfileUpdate {
+                    name: ready.profile.name.clone(),
+                    source: plugin_source("version-2"),
+                    base_url: ready.profile.base_url.clone(),
+                    model: ready.profile.model.clone(),
+                    timeout_ms: ready.profile.timeout_ms,
+                    max_response_bytes: ready.profile.max_response_bytes,
+                    enabled: true,
+                    config_schema_version: 1,
+                    configuration: json!({ "alpha": 3 }),
+                    descriptor_hash: "e".repeat(64),
+                    expected_revision: 0,
+                },
+            );
+            assert!(matches!(stale, Err(StorageError::EntityConflict { .. })));
+            let updated = store
+                .update_ai_plugin_connector_profile(
+                    &ready.profile.id,
+                    AiPluginConnectorProfileUpdate {
+                        name: ready.profile.name.clone(),
+                        source: plugin_source("version-2"),
+                        base_url: ready.profile.base_url.clone(),
+                        model: ready.profile.model.clone(),
+                        timeout_ms: ready.profile.timeout_ms,
+                        max_response_bytes: ready.profile.max_response_bytes,
+                        enabled: true,
+                        config_schema_version: 1,
+                        configuration: json!({ "alpha": 3 }),
+                        descriptor_hash: "e".repeat(64),
+                        expected_revision: ready.profile.revision,
+                    },
+                )
+                .expect("rebind connector profile");
+            assert_eq!(updated.profile.revision, 2);
+            assert_eq!(updated.source, plugin_source("version-2"));
+            assert_eq!(
+                store
+                    .list_ai_plugin_connector_profile_references(
+                        &plugin_source("version-1"),
+                        0,
+                        100,
+                    )
+                    .expect("list old connector references")
+                    .1,
+                0
+            );
+            assert_eq!(
+                store
+                    .get_ai_run_connector_provenance(&run.id)
+                    .expect("re-read immutable run provenance")
+                    .source,
+                Some(plugin_source("version-1"))
+            );
+
+            let batch = store
+                .create_ai_batch(
+                    NewAiBatchRun {
+                        project_id: project.id,
+                        document_id: None,
+                        profile_id: updated.profile.id.clone(),
+                        tm_threshold: 90,
+                        concurrency: 1,
+                        requests_per_minute: 60,
+                        max_attempts: 3,
+                        replace_drafts: false,
+                        grounding_options: GroundingOptions::default(),
+                    },
+                    &[],
+                )
+                .expect("create connector batch");
+            assert_eq!(
+                store
+                    .get_ai_batch_connector_provenance(&batch.id)
+                    .expect("read batch provenance")
+                    .source,
+                Some(plugin_source("version-2"))
+            );
+            assert!(
+                store
+                    .connection
+                    .execute(
+                        "UPDATE ai_connector_run_provenance
+                         SET version_id = 'tampered' WHERE run_id = ?1",
+                        [&run.id],
+                    )
+                    .is_err()
+            );
+            (updated.profile.id, run.id, batch.id)
+        };
+
+        let store = Store::open(root.path()).expect("reopen connector store");
+        assert_eq!(
+            store
+                .get_ai_connector_profile(&profile_id)
+                .expect("restart connector profile")
+                .source,
+            plugin_source("version-2")
+        );
+        assert_eq!(
+            store
+                .get_ai_run_connector_provenance(&run_id)
+                .expect("restart run provenance")
+                .source,
+            Some(plugin_source("version-1"))
+        );
+        assert_eq!(
+            store
+                .get_ai_batch_connector_provenance(&batch_id)
+                .expect("restart batch provenance")
+                .source,
+            Some(plugin_source("version-2"))
+        );
+    }
+
+    #[test]
+    fn compatible_connector_profile_rebind_is_atomic_and_preserves_run_history() {
+        let root = tempdir().expect("temporary connector rebind store");
+        let mut store = Store::open(root.path()).expect("open connector rebind store");
+        let first = store
+            .create_ai_plugin_connector_profile(plugin_profile_input(
+                "version-1",
+                json!({ "mode": "first" }),
+            ))
+            .expect("create first connector profile");
+        let second = store
+            .create_ai_plugin_connector_profile(plugin_profile_input(
+                "version-1",
+                json!({ "mode": "second" }),
+            ))
+            .expect("create second connector profile");
+        let run = store
+            .create_ai_run(run_input(&first.profile))
+            .expect("create historical connector run");
+
+        let changed = store
+            .rebind_ai_plugin_connector_profiles(
+                &plugin_source("version-1"),
+                &plugin_source("version-2"),
+                1,
+                &"d".repeat(64),
+                &"e".repeat(64),
+            )
+            .expect("rebind compatible connector profiles");
+        assert_eq!(changed, 2);
+        for (id, configuration) in [
+            (first.profile.id, json!({ "mode": "first" })),
+            (second.profile.id, json!({ "mode": "second" })),
+        ] {
+            let rebound = store
+                .get_ai_connector_profile(&id)
+                .expect("read rebound connector profile");
+            assert_eq!(rebound.source, plugin_source("version-2"));
+            assert_eq!(rebound.configuration, configuration);
+            assert_eq!(rebound.descriptor_hash, Some("e".repeat(64)));
+            assert_eq!(rebound.profile.revision, 1);
+        }
+        assert_eq!(
+            store
+                .get_ai_run_connector_provenance(&run.id)
+                .expect("read immutable historical provenance")
+                .source,
+            Some(plugin_source("version-1"))
+        );
+
+        assert!(
+            store
+                .rebind_ai_plugin_connector_profiles(
+                    &plugin_source("version-2"),
+                    &plugin_source("version-3"),
+                    1,
+                    &"f".repeat(64),
+                    &"a".repeat(64),
+                )
+                .is_err()
+        );
+        assert_eq!(
+            store
+                .list_ai_plugin_connector_profile_references(&plugin_source("version-2"), 0, 100,)
+                .expect("failed rebind preserves previous references")
+                .1,
+            2
+        );
+    }
+
+    #[test]
+    fn connector_profile_rebind_batch_rolls_back_every_contribution() {
+        let root = tempdir().expect("temporary connector store");
+        let mut store = Store::open(root.path()).expect("open connector store");
+        let first = store
+            .create_ai_plugin_connector_profile(plugin_profile_input(
+                "version-1",
+                json!({ "mode": "first" }),
+            ))
+            .expect("create first connector profile");
+        let mut second_input = plugin_profile_input("version-1", json!({ "mode": "second" }));
+        second_input.source = plugin_source_for("version-1", "example.engine.second");
+        let second = store
+            .create_ai_plugin_connector_profile(second_input)
+            .expect("create second connector profile");
+
+        let error = store
+            .rebind_ai_plugin_connector_profiles_batch(&[
+                AiPluginConnectorProfileRebind {
+                    previous_source: plugin_source("version-1"),
+                    candidate_source: plugin_source("version-2"),
+                    config_schema_version: 1,
+                    previous_descriptor_hash: "d".repeat(64),
+                    candidate_descriptor_hash: "e".repeat(64),
+                },
+                AiPluginConnectorProfileRebind {
+                    previous_source: plugin_source_for("version-1", "example.engine.second"),
+                    candidate_source: plugin_source_for("version-2", "example.engine.second"),
+                    config_schema_version: 1,
+                    previous_descriptor_hash: "f".repeat(64),
+                    candidate_descriptor_hash: "e".repeat(64),
+                },
+            ])
+            .expect_err("second contribution must roll back the batch");
+        assert!(matches!(error, StorageError::InvalidState(_)));
+
+        let first_after = store
+            .get_ai_connector_profile(&first.profile.id)
+            .expect("read first profile after rollback");
+        let second_after = store
+            .get_ai_connector_profile(&second.profile.id)
+            .expect("read second profile after rollback");
+        assert_eq!(first_after.source, plugin_source("version-1"));
+        assert_eq!(second_after.source, second.source);
+        assert_eq!(first_after.profile.revision, first.profile.revision);
+        assert_eq!(second_after.profile.revision, second.profile.revision);
+    }
+
+    #[test]
+    fn plugin_connector_profile_rejects_secret_unbounded_and_non_object_configuration() {
+        let root = tempdir().expect("temporary connector validation store");
+        let mut store = Store::open(root.path()).expect("open connector validation store");
+        for invalid in [
+            json!([]),
+            json!({ "apiKey": "must-not-persist" }),
+            json!({ "nested": { "password": "must-not-persist" } }),
+            json!({ "large": "x".repeat(MAX_CONNECTOR_CONFIG_BYTES) }),
+        ] {
+            assert!(
+                store
+                    .create_ai_plugin_connector_profile(plugin_profile_input("version-1", invalid,))
+                    .is_err()
+            );
+        }
+        let mut deep = json!({});
+        for _ in 0..=MAX_CONNECTOR_CONFIG_DEPTH {
+            deep = json!({ "nested": deep });
+        }
+        assert!(
+            store
+                .create_ai_plugin_connector_profile(plugin_profile_input("version-1", deep))
+                .is_err()
+        );
+        assert_eq!(
+            store
+                .list_ai_connector_profiles(0, 100)
+                .expect("list profiles after rejected writes")
+                .1,
+            0
+        );
+    }
+
     #[test]
     fn profiles_settings_runs_usage_and_conversations_survive_restart() {
         let root = tempdir().expect("temporary AI store");
@@ -2401,6 +3959,15 @@ mod tests {
                     max_attempts: 3,
                 })
                 .expect("create run");
+            assert_eq!(
+                store
+                    .get_ai_run_connector_provenance(&run.id)
+                    .expect("read built-in run provenance")
+                    .source,
+                Some(EngineConnectorSource::Builtin {
+                    provider: AiProviderKind::OpenaiCompatible,
+                })
+            );
             let run = store.start_ai_run_attempt(&run.id).expect("start run");
             assert_eq!(run.status, AiRunStatus::Running);
             store
@@ -2540,6 +4107,15 @@ mod tests {
                     &items,
                 )
                 .expect("create batch");
+            assert_eq!(
+                store
+                    .get_ai_batch_connector_provenance(&batch.id)
+                    .expect("read built-in batch provenance")
+                    .source,
+                Some(EngineConnectorSource::Builtin {
+                    provider: AiProviderKind::OpenaiCompatible,
+                })
+            );
             store.start_ai_batch(&batch.id).expect("start batch");
             let claimed = store
                 .claim_ai_batch_item(&batch.id)

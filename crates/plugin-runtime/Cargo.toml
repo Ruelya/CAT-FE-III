@@ -20,6 +20,7 @@ translunar-filter-core = { path = "../filter-core" }
 translunar-pipeline = { path = "../pipeline" }
 translunar-qa-core = { path = "../qa-core" }
 uuid.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

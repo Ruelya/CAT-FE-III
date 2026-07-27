@@ -1,8 +1,10 @@
 //! Local plugin manifest validation, process host, and filter adapters.
 
+mod connector;
 mod declarative;
 mod sandbox;
 
+pub use connector::*;
 pub use declarative::{
     DECLARATIVE_DEFINITION_VERSION, DeclarativeDocumentFilter, DeclarativeFilterDefinitionV1,
     DeclarativeFilterLimits, DeclarativePipelineDefinitionV1, DeclarativePipelineOperation,
@@ -23,7 +25,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{SyncSender, TrySendError};
+use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -56,6 +58,8 @@ const IMPORT_CALL_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_FRAME_BYTES: usize = 8 * 1024 * 1024;
 const MAX_STDERR_TAIL_BYTES: usize = 16 * 1024;
 const WRITER_QUEUE_CAPACITY: usize = 64;
+const CONNECTOR_EVENT_QUEUE_CAPACITY: usize = 64;
+const CONNECTOR_RESPONSE_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const MAX_MANIFEST_BYTES: u64 = 256 * 1024;
 const MAX_ID_BYTES: usize = 128;
 const MAX_VERSION_BYTES: usize = 128;
@@ -986,6 +990,34 @@ pub struct EngineConnectorContributionDescriptor {
     pub protocol: String,
     pub operations: Vec<String>,
     pub config_schema_version: u32,
+    /// Absent only on the released inventory-only descriptor. Such a
+    /// descriptor remains readable but is never executable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contract_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_schema: Option<EngineConnectorConfigSchemaV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits: Option<EngineConnectorLimitsV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declarative: Option<Box<DeclarativeEngineConnectorDefinitionV1>>,
+}
+
+impl EngineConnectorContributionDescriptor {
+    pub fn validate_executable_v1(&self, tier: PluginTier) -> Result<()> {
+        validate_connector_descriptor_v1(
+            &self.protocol,
+            self.contract_version,
+            &self.operations,
+            self.config_schema.as_ref(),
+            self.limits.as_ref(),
+            self.declarative.as_deref(),
+            tier,
+        )
+    }
+
+    pub fn is_executable_v1(&self, tier: PluginTier) -> bool {
+        self.validate_executable_v1(tier).is_ok()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1452,13 +1484,19 @@ impl NormalizedPluginManifest {
 
     pub fn supports_sandbox_host(&self) -> bool {
         matches!(self.runtime, PluginRuntimeDescriptor::Sandbox { .. })
-            && self.contributions.iter().all(|contribution| {
-                matches!(
-                    contribution,
-                    PluginContributionDescriptor::Filter(_)
-                        | PluginContributionDescriptor::UiPanel(_)
-                )
-            })
+            && self
+                .contributions
+                .iter()
+                .all(|contribution| match contribution {
+                    PluginContributionDescriptor::EngineConnector(value) => {
+                        value.is_executable_v1(PluginTier::Sandbox)
+                    }
+                    _ => matches!(
+                        contribution,
+                        PluginContributionDescriptor::Filter(_)
+                            | PluginContributionDescriptor::UiPanel(_)
+                    ),
+                })
     }
 
     pub fn compatibility(&self) -> PluginCompatibility {
@@ -1470,19 +1508,27 @@ impl NormalizedPluginManifest {
                 | PluginRuntimeDescriptor::Declarative { .. }
                 | PluginRuntimeDescriptor::Sandbox { .. }
         );
-        let contribution_supported = |contribution: &PluginContributionDescriptor| match &self
-            .runtime
-        {
-            PluginRuntimeDescriptor::Process { .. } => {
-                matches!(contribution, PluginContributionDescriptor::Filter(_))
+        let contribution_supported = |contribution: &PluginContributionDescriptor| {
+            let tier = self.runtime.tier();
+            match contribution {
+                PluginContributionDescriptor::EngineConnector(value) => {
+                    value.is_executable_v1(tier)
+                }
+                _ => match &self.runtime {
+                    PluginRuntimeDescriptor::Process { .. } => {
+                        matches!(contribution, PluginContributionDescriptor::Filter(_))
+                    }
+                    PluginRuntimeDescriptor::Declarative { .. } => {
+                        validate_tier_contribution(PluginTier::Declarative, contribution, true)
+                            .is_ok()
+                    }
+                    PluginRuntimeDescriptor::Sandbox { .. } => matches!(
+                        contribution,
+                        PluginContributionDescriptor::Filter(_)
+                            | PluginContributionDescriptor::UiPanel(_)
+                    ),
+                },
             }
-            PluginRuntimeDescriptor::Declarative { .. } => {
-                validate_tier_contribution(PluginTier::Declarative, contribution, true).is_ok()
-            }
-            PluginRuntimeDescriptor::Sandbox { .. } => matches!(
-                contribution,
-                PluginContributionDescriptor::Filter(_) | PluginContributionDescriptor::UiPanel(_)
-            ),
         };
         let contributions_supported = self.contributions.iter().all(contribution_supported);
         let mut unsupported_capabilities = Vec::new();
@@ -2009,6 +2055,7 @@ fn contribution_allowed(tier: PluginTier, kind: PluginContributionKind) -> bool 
         PluginTier::Declarative => matches!(
             kind,
             PluginContributionKind::Filter
+                | PluginContributionKind::EngineConnector
                 | PluginContributionKind::QaRule
                 | PluginContributionKind::PipelineStep
         ),
@@ -2022,6 +2069,15 @@ fn validate_tier_contribution(
     contribution: &PluginContributionDescriptor,
     require_definition: bool,
 ) -> Result<()> {
+    if let PluginContributionDescriptor::EngineConnector(value) = contribution {
+        // The released skeletal descriptor has no contractVersion. Keep it
+        // inventory-readable, but only the strict V1 shape is executable.
+        return if value.contract_version.is_some() || require_definition {
+            value.validate_executable_v1(tier)
+        } else {
+            Ok(())
+        };
+    }
     if tier != PluginTier::Declarative {
         return Ok(());
     }
@@ -2390,7 +2446,50 @@ impl From<PluginFilterEvent> for FilterEvent {
 struct HandshakeResult {
     api_version: u32,
     plugin_id: String,
-    contributions: PluginContributions,
+    contributions: HandshakeContributions,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+enum HandshakeContributions {
+    Legacy(PluginContributions),
+    Normalized(Vec<PluginContributionDescriptor>),
+}
+
+impl HandshakeContributions {
+    fn filter_descriptors(&self) -> Vec<FilterDescriptor> {
+        match self {
+            Self::Legacy(contributions) => contributions.filter_descriptors(),
+            Self::Normalized(contributions) => contributions
+                .iter()
+                .filter_map(|contribution| match contribution {
+                    PluginContributionDescriptor::Filter(filter) => Some(FilterDescriptor {
+                        id: filter.id.clone(),
+                        version: filter.version.clone(),
+                        display_name: filter.display_name.clone(),
+                        extensions: filter.extensions.clone(),
+                        capabilities: filter.capabilities.clone(),
+                    }),
+                    _ => None,
+                })
+                .collect(),
+        }
+    }
+
+    fn connector_descriptors(&self) -> Vec<EngineConnectorContributionDescriptor> {
+        match self {
+            Self::Legacy(_) => Vec::new(),
+            Self::Normalized(contributions) => contributions
+                .iter()
+                .filter_map(|contribution| match contribution {
+                    PluginContributionDescriptor::EngineConnector(connector) => {
+                        Some(connector.clone())
+                    }
+                    _ => None,
+                })
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -2400,11 +2499,58 @@ struct PendingCall {
 }
 
 #[derive(Debug)]
+struct PendingConnectorRoute {
+    call_id: u64,
+    sequence: EngineConnectorEventSequenceV1,
+    limits: EngineConnectorLimitsV1,
+    events: SyncSender<EngineConnectorEventV1>,
+    failure: Arc<Mutex<Option<ConnectorRouteFailure>>>,
+}
+
+#[derive(Debug, Clone)]
+enum ConnectorRouteFailure {
+    Protocol(String),
+    FatalProtocol(String),
+    Process(String),
+    Io(std::io::ErrorKind, String),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ConnectorGenerateAck {
+    completed: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConnectorCancelAck {}
+
+impl ConnectorRouteFailure {
+    fn into_error(self) -> PluginRuntimeError {
+        match self {
+            Self::Protocol(message) | Self::FatalProtocol(message) => {
+                PluginRuntimeError::Protocol(message)
+            }
+            Self::Process(message) => PluginRuntimeError::Process(message),
+            Self::Io(kind, message) => PluginRuntimeError::Io(std::io::Error::new(kind, message)),
+        }
+    }
+
+    const fn is_fatal(&self) -> bool {
+        matches!(
+            self,
+            Self::FatalProtocol(_) | Self::Process(_) | Self::Io(..)
+        )
+    }
+}
+
+#[derive(Debug)]
 struct ProcessState {
     generation: u64,
     child: Child,
     writer: SyncSender<String>,
     pending: Arc<Mutex<BTreeMap<u64, PendingCall>>>,
+    connector_routes: Arc<Mutex<BTreeMap<String, PendingConnectorRoute>>>,
     next_id: AtomicU64,
     stderr_tail: Arc<Mutex<VecDeque<u8>>>,
 }
@@ -2420,6 +2566,7 @@ impl ProcessState {
 pub struct PluginProcess {
     package_dir: PathBuf,
     manifest: PluginManifest,
+    connector_descriptors: Vec<EngineConnectorContributionDescriptor>,
     state: Mutex<Option<ProcessState>>,
     start_lock: Mutex<()>,
     next_generation: AtomicU64,
@@ -2427,9 +2574,18 @@ pub struct PluginProcess {
 
 impl PluginProcess {
     pub fn new(package_dir: PathBuf, manifest: PluginManifest) -> Self {
+        Self::new_with_connector_descriptors(package_dir, manifest, Vec::new())
+    }
+
+    pub fn new_with_connector_descriptors(
+        package_dir: PathBuf,
+        manifest: PluginManifest,
+        connector_descriptors: Vec<EngineConnectorContributionDescriptor>,
+    ) -> Self {
         Self {
             package_dir,
             manifest,
+            connector_descriptors,
             state: Mutex::new(None),
             start_lock: Mutex::new(()),
             next_generation: AtomicU64::new(1),
@@ -2451,6 +2607,16 @@ impl PluginProcess {
             .map_err(|_| PluginRuntimeError::Process("process lock poisoned".to_string()))?;
         if guard.is_some() {
             return Ok(());
+        }
+        let mut connector_ids = BTreeSet::new();
+        for connector in &self.connector_descriptors {
+            connector.validate_executable_v1(PluginTier::Process)?;
+            if !connector_ids.insert(connector.id.as_str()) {
+                return Err(PluginRuntimeError::InvalidManifest(format!(
+                    "duplicate process connector contribution {}",
+                    connector.id
+                )));
+            }
         }
         let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
         *guard = Some(self.spawn_locked(generation)?);
@@ -2491,13 +2657,24 @@ impl PluginProcess {
                 "plugin handshake contribution inventory does not match the manifest".to_string(),
             ));
         }
+        if handshake.contributions.connector_descriptors() != self.connector_descriptors {
+            self.stop();
+            return Err(PluginRuntimeError::Protocol(
+                "plugin handshake connector inventory does not match the manifest".to_string(),
+            ));
+        }
         Ok(())
     }
 
     pub fn stop(&self) {
         let state = self.state.lock().ok().and_then(|mut guard| guard.take());
         if let Some(mut state) = state {
-            if let Ok(notification) = Self::encode_notification("plugin.shutdown", json!({})) {
+            let params = if self.connector_descriptors.is_empty() {
+                json!({})
+            } else {
+                json!({ "contractVersion": ENGINE_CONNECTOR_CONTRACT_VERSION })
+            };
+            if let Ok(notification) = Self::encode_notification("plugin.shutdown", params) {
                 let _ = state.writer.try_send(notification);
             }
             state.kill();
@@ -2546,14 +2723,18 @@ impl PluginProcess {
             .take()
             .ok_or_else(|| PluginRuntimeError::Process("missing stderr".to_string()))?;
         let pending: Arc<Mutex<BTreeMap<u64, PendingCall>>> = Arc::new(Mutex::new(BTreeMap::new()));
+        let connector_routes: Arc<Mutex<BTreeMap<String, PendingConnectorRoute>>> =
+            Arc::new(Mutex::new(BTreeMap::new()));
         let (writer, writer_receiver) =
             std::sync::mpsc::sync_channel::<String>(WRITER_QUEUE_CAPACITY);
         {
             let pending = Arc::clone(&pending);
+            let connector_routes = Arc::clone(&connector_routes);
             thread::spawn(move || {
                 let mut stdin = stdin;
                 while let Ok(encoded) = writer_receiver.recv() {
                     if let Err(error) = writeln!(stdin, "{encoded}").and_then(|()| stdin.flush()) {
+                        fail_connector_writer_routes(&connector_routes, &error);
                         fail_pending_writer_calls(&pending, &error);
                         break;
                     }
@@ -2562,39 +2743,39 @@ impl PluginProcess {
         }
         {
             let pending = Arc::clone(&pending);
+            let connector_routes = Arc::clone(&connector_routes);
             thread::spawn(move || {
-                let reader = BufReader::new(stdout);
-                for line in reader.lines() {
-                    let Ok(line) = line else {
-                        break;
+                let mut reader = BufReader::new(stdout);
+                loop {
+                    let line = match read_bounded_frame(&mut reader, MAX_FRAME_BYTES) {
+                        Ok(Some(line)) => line,
+                        Ok(None) => break,
+                        Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
+                            fail_protocol_generation(
+                                &pending,
+                                &connector_routes,
+                                "plugin frame exceeds size limit".to_string(),
+                            );
+                            break;
+                        }
+                        Err(_) => break,
                     };
-                    let line = line.trim().to_string();
-                    if line.is_empty() {
+                    if line.iter().all(u8::is_ascii_whitespace) {
                         continue;
                     }
-                    if line.len() > MAX_FRAME_BYTES {
-                        let mut pending = pending.lock().unwrap_or_else(|error| error.into_inner());
-                        for (_, call) in std::mem::take(&mut *pending) {
-                            let _ = call.sender.send(Err(PluginRuntimeError::Protocol(
-                                "plugin frame exceeds size limit".to_string(),
-                            )));
-                        }
-                        break;
-                    }
-                    match serde_json::from_str::<Value>(&line) {
-                        Ok(frame) => dispatch_frame(&pending, frame),
+                    match serde_json::from_slice::<Value>(&line) {
+                        Ok(frame) => dispatch_frame(&pending, &connector_routes, frame),
                         Err(error) => {
-                            let mut pending =
-                                pending.lock().unwrap_or_else(|error| error.into_inner());
-                            for (_, call) in std::mem::take(&mut *pending) {
-                                let _ = call.sender.send(Err(PluginRuntimeError::Protocol(
-                                    format!("invalid plugin JSON: {error}"),
-                                )));
-                            }
+                            let message = format!("invalid plugin JSON: {error}");
+                            fail_protocol_generation(&pending, &connector_routes, message);
                             break;
                         }
                     }
                 }
+                fail_connector_routes(
+                    &connector_routes,
+                    ConnectorRouteFailure::Process("plugin process closed stdout".to_string()),
+                );
                 let mut pending = pending.lock().unwrap_or_else(|error| error.into_inner());
                 for (_, call) in std::mem::take(&mut *pending) {
                     let _ = call.sender.send(Err(PluginRuntimeError::Process(
@@ -2634,6 +2815,7 @@ impl PluginProcess {
             child,
             writer,
             pending,
+            connector_routes,
             next_id: AtomicU64::new(1),
             stderr_tail,
         })
@@ -2663,11 +2845,348 @@ impl PluginProcess {
         self.call_started(method, params, timeout)
     }
 
+    pub fn call_connector_stream<F>(
+        &self,
+        request: &EngineConnectorGenerateRequestV1,
+        credential: Option<&str>,
+        limits: &EngineConnectorLimitsV1,
+        timeout: Duration,
+        mut on_event: F,
+    ) -> Result<EngineConnectorResultV1>
+    where
+        F: FnMut(EngineConnectorEventV1) -> Result<()>,
+    {
+        EngineConnectorRequestV1::Generate(request.clone()).validate(limits)?;
+        if let Some(credential) = credential
+            && (credential.len() > MAX_CONNECTOR_CREDENTIAL_BYTES || credential.contains('\0'))
+        {
+            return Err(PluginRuntimeError::Protocol(
+                "connector credential is malformed or oversized".to_string(),
+            ));
+        }
+        self.ensure_started()?;
+
+        let mut params = serde_json::Map::new();
+        params.insert(
+            "request".to_string(),
+            serde_json::to_value(EngineConnectorRequestV1::Generate(request.clone()))?,
+        );
+        if let Some(credential) = credential {
+            params.insert(
+                "credential".to_string(),
+                Value::String(credential.to_string()),
+            );
+        }
+
+        let started_at = Instant::now();
+        let deadline = timeout.min(Duration::from_millis(request.deadline_ms));
+        let (
+            generation,
+            id,
+            response_receiver,
+            event_receiver,
+            failure,
+            pending,
+            connector_routes,
+            writer,
+        ) = {
+            let mut guard = self
+                .state
+                .lock()
+                .map_err(|_| PluginRuntimeError::Process("process lock poisoned".to_string()))?;
+            let state = guard.as_mut().ok_or_else(|| {
+                PluginRuntimeError::Process("plugin process is not running".into())
+            })?;
+            if let Some(status) = state.child.try_wait()? {
+                self.log_stderr_tail(state, "exited before connector call");
+                *guard = None;
+                return Err(PluginRuntimeError::Process(format!(
+                    "plugin exited before connector call (status {status})"
+                )));
+            }
+            let id = state.next_id.fetch_add(1, Ordering::Relaxed);
+            let (response_sender, response_receiver) = std::sync::mpsc::channel();
+            let (event_sender, event_receiver) =
+                std::sync::mpsc::sync_channel(CONNECTOR_EVENT_QUEUE_CAPACITY);
+            let failure = Arc::new(Mutex::new(None));
+            let mut connector_routes = state
+                .connector_routes
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if connector_routes.contains_key(&request.request_id) {
+                return Err(PluginRuntimeError::Conflict(format!(
+                    "connector requestId {} is already active",
+                    request.request_id
+                )));
+            }
+            state
+                .pending
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .insert(
+                    id,
+                    PendingCall {
+                        method: "connector.generate".to_string(),
+                        sender: response_sender,
+                    },
+                );
+            connector_routes.insert(
+                request.request_id.clone(),
+                PendingConnectorRoute {
+                    call_id: id,
+                    sequence: EngineConnectorEventSequenceV1::new(&request.request_id)?,
+                    limits: limits.clone(),
+                    events: event_sender,
+                    failure: Arc::clone(&failure),
+                },
+            );
+            drop(connector_routes);
+
+            let frame = json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": "connector.generate",
+                "params": Value::Object(params),
+            });
+            let encoded = serde_json::to_string(&frame)?;
+            if encoded.len() > MAX_FRAME_BYTES {
+                state
+                    .pending
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .remove(&id);
+                state
+                    .connector_routes
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .remove(&request.request_id);
+                return Err(PluginRuntimeError::Protocol(
+                    "request frame exceeds size limit".to_string(),
+                ));
+            }
+            if let Err(error) = state.writer.try_send(encoded) {
+                state
+                    .pending
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .remove(&id);
+                state
+                    .connector_routes
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .remove(&request.request_id);
+                return Err(match error {
+                    TrySendError::Full(_) => {
+                        PluginRuntimeError::Process("plugin stdin writer queue is full".to_string())
+                    }
+                    TrySendError::Disconnected(_) => PluginRuntimeError::Process(
+                        "plugin stdin writer is unavailable".to_string(),
+                    ),
+                });
+            }
+            (
+                state.generation,
+                id,
+                response_receiver,
+                event_receiver,
+                failure,
+                Arc::clone(&state.pending),
+                Arc::clone(&state.connector_routes),
+                state.writer.clone(),
+            )
+        };
+
+        let mut terminal_result = None;
+        loop {
+            if let Err(error) = drain_connector_events(
+                &event_receiver,
+                &mut terminal_result,
+                &mut on_event,
+                started_at,
+                deadline,
+            ) {
+                remove_connector_call(&pending, &connector_routes, id, &request.request_id);
+                send_connector_cancel_notification(&writer, &request.request_id);
+                return Err(error);
+            }
+            if let Some(error) = take_connector_failure(&failure) {
+                remove_connector_call(&pending, &connector_routes, id, &request.request_id);
+                if error.is_fatal() {
+                    self.mark_dead(generation, "fatal connector stream error");
+                }
+                return Err(error.into_error());
+            }
+
+            match response_receiver.try_recv() {
+                Ok(response) => {
+                    if let Err(error) = drain_connector_events(
+                        &event_receiver,
+                        &mut terminal_result,
+                        &mut on_event,
+                        started_at,
+                        deadline,
+                    ) {
+                        remove_connector_call(&pending, &connector_routes, id, &request.request_id);
+                        send_connector_cancel_notification(&writer, &request.request_id);
+                        return Err(error);
+                    }
+                    if let Some(error) = take_connector_failure(&failure) {
+                        remove_connector_call(&pending, &connector_routes, id, &request.request_id);
+                        if error.is_fatal() {
+                            self.mark_dead(generation, "fatal connector stream error");
+                        }
+                        return Err(error.into_error());
+                    }
+                    return finish_connector_response(
+                        response,
+                        terminal_result,
+                        &pending,
+                        &connector_routes,
+                        &writer,
+                        id,
+                        &request.request_id,
+                    );
+                }
+                Err(TryRecvError::Disconnected) => {
+                    if let Some(error) = take_connector_failure(&failure) {
+                        remove_connector_call(&pending, &connector_routes, id, &request.request_id);
+                        if error.is_fatal() {
+                            self.mark_dead(generation, "fatal connector stream error");
+                        }
+                        return Err(error.into_error());
+                    }
+                    remove_connector_call(&pending, &connector_routes, id, &request.request_id);
+                    self.mark_dead(generation, "connector response channel disconnected");
+                    return Err(PluginRuntimeError::Process(format!(
+                        "plugin call connector.generate disconnected (id {id})"
+                    )));
+                }
+                Err(TryRecvError::Empty) => {}
+            }
+
+            let remaining = deadline.saturating_sub(started_at.elapsed());
+            if remaining.is_zero() {
+                remove_connector_call(&pending, &connector_routes, id, &request.request_id);
+                send_connector_cancel_notification(&writer, &request.request_id);
+                return Err(PluginRuntimeError::Timeout(deadline));
+            }
+            match response_receiver.recv_timeout(remaining.min(CONNECTOR_RESPONSE_POLL_INTERVAL)) {
+                Ok(response) => {
+                    // Re-enter through the single response finalization path.
+                    if let Err(error) = drain_connector_events(
+                        &event_receiver,
+                        &mut terminal_result,
+                        &mut on_event,
+                        started_at,
+                        deadline,
+                    ) {
+                        remove_connector_call(&pending, &connector_routes, id, &request.request_id);
+                        send_connector_cancel_notification(&writer, &request.request_id);
+                        return Err(error);
+                    }
+                    if let Some(error) = take_connector_failure(&failure) {
+                        remove_connector_call(&pending, &connector_routes, id, &request.request_id);
+                        if error.is_fatal() {
+                            self.mark_dead(generation, "fatal connector stream error");
+                        }
+                        return Err(error.into_error());
+                    }
+                    return finish_connector_response(
+                        response,
+                        terminal_result,
+                        &pending,
+                        &connector_routes,
+                        &writer,
+                        id,
+                        &request.request_id,
+                    );
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    if let Some(error) = take_connector_failure(&failure) {
+                        remove_connector_call(&pending, &connector_routes, id, &request.request_id);
+                        if error.is_fatal() {
+                            self.mark_dead(generation, "fatal connector stream error");
+                        }
+                        return Err(error.into_error());
+                    }
+                    remove_connector_call(&pending, &connector_routes, id, &request.request_id);
+                    self.mark_dead(generation, "connector response channel disconnected");
+                    return Err(PluginRuntimeError::Process(format!(
+                        "plugin call connector.generate disconnected (id {id})"
+                    )));
+                }
+            }
+        }
+    }
+
+    pub fn cancel_connector_request(
+        &self,
+        request: &EngineConnectorCancelRequestV1,
+        timeout: Duration,
+    ) -> Result<()> {
+        request.validate()?;
+        self.ensure_started()?;
+        self.call_started_with_policy::<ConnectorCancelAck>(
+            "connector.cancel",
+            serde_json::to_value(request)?,
+            timeout,
+            false,
+        )?;
+        Ok(())
+    }
+
+    pub fn notify_connector_cancel(&self, request: &EngineConnectorCancelRequestV1) -> Result<()> {
+        request.validate()?;
+        self.ensure_started()?;
+        let guard = self
+            .state
+            .lock()
+            .map_err(|_| PluginRuntimeError::Process("process lock poisoned".to_string()))?;
+        let state = guard
+            .as_ref()
+            .ok_or_else(|| PluginRuntimeError::Process("plugin process is not running".into()))?;
+        let encoded =
+            Self::encode_notification("connector.cancel", serde_json::to_value(request)?)?;
+        state.writer.try_send(encoded).map_err(|error| match error {
+            TrySendError::Full(_) => {
+                PluginRuntimeError::Process("plugin stdin writer queue is full".to_string())
+            }
+            TrySendError::Disconnected(_) => {
+                PluginRuntimeError::Process("plugin stdin writer is unavailable".to_string())
+            }
+        })
+    }
+
+    pub fn shutdown_connector(&self, timeout: Duration) -> Result<()> {
+        let request = EngineConnectorShutdownRequestV1 {
+            contract_version: ENGINE_CONNECTOR_CONTRACT_VERSION,
+        };
+        request.validate()?;
+        self.call::<ConnectorCancelAck>(
+            "plugin.shutdown",
+            serde_json::to_value(request)?,
+            timeout,
+        )?;
+        self.stop();
+        Ok(())
+    }
+
     fn call_started<T: for<'de> Deserialize<'de>>(
         &self,
         method: &str,
         params: Value,
         timeout: Duration,
+    ) -> Result<T> {
+        self.call_started_with_policy(method, params, timeout, true)
+    }
+
+    fn call_started_with_policy<T: for<'de> Deserialize<'de>>(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+        fatal_timeout: bool,
     ) -> Result<T> {
         let started_at = Instant::now();
         let (generation, id, receiver) = {
@@ -2741,7 +3260,9 @@ impl PluginProcess {
             Ok(Ok(value)) => match serde_json::from_value(value) {
                 Ok(value) => Ok(value),
                 Err(error) => {
-                    self.mark_dead(generation, "invalid result payload");
+                    if fatal_timeout {
+                        self.mark_dead(generation, "invalid result payload");
+                    }
                     Err(PluginRuntimeError::Protocol(format!(
                         "invalid result for {method}: {error}"
                     )))
@@ -2755,7 +3276,19 @@ impl PluginProcess {
                 Err(error)
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                self.mark_dead(generation, "call timeout");
+                if fatal_timeout {
+                    self.mark_dead(generation, "call timeout");
+                } else if let Ok(guard) = self.state.lock()
+                    && let Some(state) = guard
+                        .as_ref()
+                        .filter(|state| state.generation == generation)
+                {
+                    state
+                        .pending
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .remove(&id);
+                }
                 Err(PluginRuntimeError::Timeout(timeout))
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
@@ -2791,13 +3324,176 @@ impl PluginProcess {
     }
 }
 
+fn drain_connector_events<F>(
+    receiver: &Receiver<EngineConnectorEventV1>,
+    terminal_result: &mut Option<EngineConnectorResultV1>,
+    on_event: &mut F,
+    started_at: Instant,
+    deadline: Duration,
+) -> Result<()>
+where
+    F: FnMut(EngineConnectorEventV1) -> Result<()>,
+{
+    loop {
+        match receiver.try_recv() {
+            Ok(event) => {
+                if started_at.elapsed() >= deadline {
+                    return Err(PluginRuntimeError::Timeout(deadline));
+                }
+                if let EngineConnectorEventV1::Completed { result, .. } = &event {
+                    *terminal_result = Some(result.clone());
+                }
+                on_event(event)?;
+                if started_at.elapsed() >= deadline {
+                    return Err(PluginRuntimeError::Timeout(deadline));
+                }
+            }
+            Err(TryRecvError::Empty | TryRecvError::Disconnected) => return Ok(()),
+        }
+    }
+}
+
+fn finish_connector_response(
+    response: Result<Value>,
+    terminal_result: Option<EngineConnectorResultV1>,
+    pending: &Mutex<BTreeMap<u64, PendingCall>>,
+    connector_routes: &Mutex<BTreeMap<String, PendingConnectorRoute>>,
+    writer: &SyncSender<String>,
+    call_id: u64,
+    request_id: &str,
+) -> Result<EngineConnectorResultV1> {
+    let value = match response {
+        Ok(value) => value,
+        Err(error) => {
+            remove_connector_call(pending, connector_routes, call_id, request_id);
+            return Err(error);
+        }
+    };
+    let ack: ConnectorGenerateAck = match serde_json::from_value(value) {
+        Ok(ack) => ack,
+        Err(error) => {
+            remove_connector_call(pending, connector_routes, call_id, request_id);
+            send_connector_cancel_notification(writer, request_id);
+            return Err(PluginRuntimeError::Protocol(format!(
+                "invalid result for connector.generate: {error}"
+            )));
+        }
+    };
+    let route = connector_routes
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .remove(request_id);
+    pending
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .remove(&call_id);
+    if !ack.completed || !route.is_some_and(|route| route.sequence.is_completed()) {
+        send_connector_cancel_notification(writer, request_id);
+        return Err(PluginRuntimeError::Protocol(
+            "connector.generate completed without one terminal event".to_string(),
+        ));
+    }
+    terminal_result.ok_or_else(|| {
+        PluginRuntimeError::Protocol("connector.generate terminal result is missing".to_string())
+    })
+}
+
+fn take_connector_failure(
+    failure: &Mutex<Option<ConnectorRouteFailure>>,
+) -> Option<ConnectorRouteFailure> {
+    failure
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .take()
+}
+
+fn remove_connector_call(
+    pending: &Mutex<BTreeMap<u64, PendingCall>>,
+    connector_routes: &Mutex<BTreeMap<String, PendingConnectorRoute>>,
+    call_id: u64,
+    request_id: &str,
+) {
+    connector_routes
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .remove(request_id);
+    pending
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .remove(&call_id);
+}
+
+fn send_connector_cancel_notification(writer: &SyncSender<String>, request_id: &str) {
+    let request = EngineConnectorCancelRequestV1 {
+        contract_version: ENGINE_CONNECTOR_CONTRACT_VERSION,
+        request_id: request_id.to_string(),
+    };
+    if let Ok(params) = serde_json::to_value(request)
+        && let Ok(encoded) = PluginProcess::encode_notification("connector.cancel", params)
+    {
+        let _ = writer.try_send(encoded);
+    }
+}
+
 impl Drop for PluginProcess {
     fn drop(&mut self) {
         self.stop();
     }
 }
 
-fn dispatch_frame(pending: &Mutex<BTreeMap<u64, PendingCall>>, frame: Value) {
+fn read_bounded_frame<R: BufRead>(
+    reader: &mut R,
+    maximum: usize,
+) -> std::io::Result<Option<Vec<u8>>> {
+    let mut frame = Vec::new();
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            return Ok((!frame.is_empty()).then_some(frame));
+        }
+        let newline = available.iter().position(|byte| *byte == b'\n');
+        let consumed = newline.map_or(available.len(), |position| position + 1);
+        let content = newline.map_or(available, |position| &available[..position]);
+        if frame.len().saturating_add(content.len()) > maximum {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "plugin frame exceeds size limit",
+            ));
+        }
+        frame.extend_from_slice(content);
+        reader.consume(consumed);
+        if newline.is_some() {
+            return Ok(Some(frame));
+        }
+    }
+}
+
+fn fail_protocol_generation(
+    pending: &Mutex<BTreeMap<u64, PendingCall>>,
+    connector_routes: &Mutex<BTreeMap<String, PendingConnectorRoute>>,
+    message: String,
+) {
+    fail_connector_routes(
+        connector_routes,
+        ConnectorRouteFailure::FatalProtocol(message.clone()),
+    );
+    let mut pending = pending.lock().unwrap_or_else(|error| error.into_inner());
+    for (_, call) in std::mem::take(&mut *pending) {
+        let _ = call
+            .sender
+            .send(Err(PluginRuntimeError::Protocol(message.clone())));
+    }
+}
+
+fn dispatch_frame(
+    pending: &Mutex<BTreeMap<u64, PendingCall>>,
+    connector_routes: &Mutex<BTreeMap<String, PendingConnectorRoute>>,
+    frame: Value,
+) {
+    if frame.get("method").is_some() {
+        dispatch_connector_notification(pending, connector_routes, frame);
+        return;
+    }
     let Some(id) = frame.get("id").and_then(Value::as_u64) else {
         return;
     };
@@ -2805,6 +3501,13 @@ fn dispatch_frame(pending: &Mutex<BTreeMap<u64, PendingCall>>, frame: Value) {
     let Some(call) = pending.remove(&id) else {
         return;
     };
+    if call.method.starts_with("connector.") && !is_strict_connector_response(&frame, id) {
+        let _ = call.sender.send(Err(PluginRuntimeError::Protocol(format!(
+            "invalid JSON-RPC response for {}",
+            call.method
+        ))));
+        return;
+    }
     if frame.get("error").is_some() {
         let _ = call.sender.send(Err(PluginRuntimeError::Remote(format!(
             "{}: plugin operation failed",
@@ -2816,6 +3519,90 @@ fn dispatch_frame(pending: &Mutex<BTreeMap<u64, PendingCall>>, frame: Value) {
     let _ = call.sender.send(Ok(result));
 }
 
+fn is_strict_connector_response(frame: &Value, expected_id: u64) -> bool {
+    let Some(object) = frame.as_object() else {
+        return false;
+    };
+    let has_result = object.contains_key("result");
+    let has_error = object.get("error").is_some_and(Value::is_object);
+    object.len() == 3
+        && object.get("jsonrpc").and_then(Value::as_str) == Some("2.0")
+        && object.get("id").and_then(Value::as_u64) == Some(expected_id)
+        && has_result != has_error
+}
+
+fn dispatch_connector_notification(
+    pending: &Mutex<BTreeMap<u64, PendingCall>>,
+    connector_routes: &Mutex<BTreeMap<String, PendingConnectorRoute>>,
+    frame: Value,
+) {
+    if frame.get("method").and_then(Value::as_str) != Some("connector.event") {
+        return;
+    }
+    let Some(request_id) = frame
+        .get("params")
+        .and_then(Value::as_object)
+        .and_then(|params| params.get("requestId"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+    else {
+        return;
+    };
+
+    let strict_frame = frame.as_object().is_some_and(|object| {
+        object.len() == 3
+            && object.get("jsonrpc").and_then(Value::as_str) == Some("2.0")
+            && object.get("method").and_then(Value::as_str) == Some("connector.event")
+            && object.contains_key("params")
+    });
+    let event = if strict_frame {
+        serde_json::from_value::<EngineConnectorEventV1>(
+            frame.get("params").cloned().unwrap_or(Value::Null),
+        )
+        .map_err(|error| format!("invalid connector.event params: {error}"))
+    } else {
+        Err("invalid connector.event frame".to_string())
+    };
+
+    let mut routes = connector_routes
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let Some(route) = routes.get_mut(&request_id) else {
+        return;
+    };
+    let failure_message = match event {
+        Ok(event) => match route.sequence.accept(&event, &route.limits) {
+            Ok(()) => match route.events.try_send(event) {
+                Ok(()) => None,
+                Err(TrySendError::Full(_)) => {
+                    Some("connector event queue exceeds its capacity".to_string())
+                }
+                Err(TrySendError::Disconnected(_)) => {
+                    Some("connector event receiver is unavailable".to_string())
+                }
+            },
+            Err(error) => Some(format!("invalid connector event sequence: {error}")),
+        },
+        Err(message) => Some(message),
+    };
+    let Some(message) = failure_message else {
+        return;
+    };
+    let route = routes
+        .remove(&request_id)
+        .expect("connector route exists after validation failure");
+    drop(routes);
+    *route
+        .failure
+        .lock()
+        .unwrap_or_else(|error| error.into_inner()) =
+        Some(ConnectorRouteFailure::Protocol(message));
+    pending
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .remove(&route.call_id);
+}
+
 fn fail_pending_writer_calls(pending: &Mutex<BTreeMap<u64, PendingCall>>, error: &std::io::Error) {
     let kind = error.kind();
     let message = error.to_string();
@@ -2824,6 +3611,31 @@ fn fail_pending_writer_calls(pending: &Mutex<BTreeMap<u64, PendingCall>>, error:
         let error = std::io::Error::new(kind, message.clone());
         let _ = call.sender.send(Err(PluginRuntimeError::Io(error)));
     }
+}
+
+fn fail_connector_routes(
+    connector_routes: &Mutex<BTreeMap<String, PendingConnectorRoute>>,
+    failure: ConnectorRouteFailure,
+) {
+    let mut connector_routes = connector_routes
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    for (_, route) in std::mem::take(&mut *connector_routes) {
+        *route
+            .failure
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(failure.clone());
+    }
+}
+
+fn fail_connector_writer_routes(
+    connector_routes: &Mutex<BTreeMap<String, PendingConnectorRoute>>,
+    error: &std::io::Error,
+) {
+    fail_connector_routes(
+        connector_routes,
+        ConnectorRouteFailure::Io(error.kind(), error.to_string()),
+    );
 }
 
 fn node_executable() -> PathBuf {
@@ -3406,6 +4218,171 @@ mod tests {
     fn write_manifest(dir: &Path, body: &str) {
         fs::write(dir.join(MANIFEST_FILE_NAME), body).expect("write manifest");
         fs::write(dir.join("entry.mjs"), "console.log('ok')").expect("write entry");
+    }
+
+    fn process_connector_descriptor() -> EngineConnectorContributionDescriptor {
+        serde_json::from_value(json!({
+            "descriptorVersion": 1,
+            "id": "example.process.connector",
+            "version": "1.0.0",
+            "displayName": "Process connector",
+            "protocol": ENGINE_CONNECTOR_PROTOCOL_V1,
+            "operations": ["validateConfig", "test", "generate"],
+            "configSchemaVersion": 1,
+            "contractVersion": 1,
+            "configSchema": {"schemaVersion": 1, "fields": []},
+            "limits": EngineConnectorLimitsV1::default()
+        }))
+        .expect("process connector descriptor")
+    }
+
+    fn connector_generate_request(
+        request_id: &str,
+        model: &str,
+    ) -> EngineConnectorGenerateRequestV1 {
+        EngineConnectorGenerateRequestV1 {
+            contract_version: ENGINE_CONNECTOR_CONTRACT_VERSION,
+            request_id: request_id.to_string(),
+            source_locale: "en".to_string(),
+            target_locale: "ja".to_string(),
+            source_text: "Hello".to_string(),
+            messages: Vec::new(),
+            model: model.to_string(),
+            config: BTreeMap::new(),
+            deadline_ms: 2_000,
+        }
+    }
+
+    fn write_connector_process_fixture(
+        dir: &Path,
+        handshake_connector: &EngineConnectorContributionDescriptor,
+    ) -> PluginManifest {
+        write_manifest(
+            dir,
+            r#"{
+              "manifestVersion": 1,
+              "id": "example.process-host",
+              "displayName": "Process host fixture",
+              "version": "1.0.0",
+              "apiVersion": 1,
+              "apiVersionMin": 1,
+              "tier": "process",
+              "entry": {"kind": "node", "path": "entry.mjs"},
+              "contributions": {"filters": [{
+                "id": "example.process.filter",
+                "version": "1.0.0",
+                "displayName": "Process filter",
+                "extensions": ["fixture"],
+                "capabilities": {
+                  "import": true, "export": false, "validate": false,
+                  "inlineTags": false, "notes": false, "degradationReport": false
+                }
+              }]},
+              "permissions": ["file.read:source"]
+            }"#,
+        );
+        let connector_json = serde_json::to_string(&PluginContributionDescriptor::EngineConnector(
+            handshake_connector.clone(),
+        ))
+        .expect("serialize handshake connector");
+        let script = r#"import { createInterface } from "node:readline";
+const connector = __CONNECTOR__;
+const filter = {
+  kind: "filter", descriptorVersion: 1, id: "example.process.filter", version: "1.0.0",
+  displayName: "Process filter", extensions: ["fixture"],
+  capabilities: { import: true, export: false, validate: false, inlineTags: false, notes: false, degradationReport: false }
+};
+const cancelled = [];
+const active = new Map();
+const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
+const write = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
+const event = (params) => write({ jsonrpc: "2.0", method: "connector.event", params });
+const completed = (requestId, sequence, text) => ({
+  kind: "completed", contractVersion: 1, requestId, sequence,
+  result: { outputText: text, model: "fixture", finishReason: "stop" }
+});
+const success = (id, requestId, text) => {
+  event({ kind: "delta", contractVersion: 1, requestId, sequence: 0, text });
+  event({ kind: "usage", contractVersion: 1, requestId, sequence: 1, usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 } });
+  event(completed(requestId, 2, text));
+  write({ jsonrpc: "2.0", id, result: { completed: true } });
+};
+rl.on("line", (line) => {
+  const rpc = JSON.parse(line);
+  if (rpc.method === "plugin.handshake") {
+    write({ jsonrpc: "2.0", id: rpc.id, result: { apiVersion: 1, pluginId: "example.process-host", contributions: [filter, connector] } });
+    return;
+  }
+  if (rpc.method === "plugin.shutdown") {
+    if (typeof rpc.id === "number") write({ jsonrpc: "2.0", id: rpc.id, result: {} });
+    setTimeout(() => process.exit(0), 0);
+    return;
+  }
+  if (rpc.method === "test.echo") {
+    write({ jsonrpc: "2.0", id: rpc.id, result: rpc.params });
+    return;
+  }
+  if (rpc.method === "test.cancelled") {
+    write({ jsonrpc: "2.0", id: rpc.id, result: cancelled });
+    return;
+  }
+  if (rpc.method === "connector.cancel") {
+    const requestId = rpc.params.requestId;
+    cancelled.push(requestId);
+    if (requestId === "ignored-cancel") return;
+    const activeId = active.get(requestId);
+    if (activeId !== undefined) {
+      active.delete(requestId);
+      write({ jsonrpc: "2.0", id: activeId, error: { code: -32000, message: "cancelled" } });
+    }
+    if (typeof rpc.id === "number") write({ jsonrpc: "2.0", id: rpc.id, result: {} });
+    return;
+  }
+  if (rpc.method !== "connector.generate") return;
+  const request = rpc.params.request;
+  const requestId = request.requestId;
+  switch (request.model) {
+    case "malformed":
+      event({ kind: "delta", contractVersion: 1, requestId, sequence: 0, text: 7 });
+      setTimeout(() => write({ jsonrpc: "2.0", id: rpc.id, result: { completed: true } }), 10);
+      break;
+    case "duplicate":
+      event(completed(requestId, 0, "done"));
+      event(completed(requestId, 1, "again"));
+      write({ jsonrpc: "2.0", id: rpc.id, result: { completed: true } });
+      break;
+    case "bad-response":
+      event(completed(requestId, 0, "done"));
+      write({ jsonrpc: "2.0", id: rpc.id, result: { completed: true }, extra: true });
+      break;
+    case "late":
+      event(completed(requestId, 0, "done"));
+      write({ jsonrpc: "2.0", id: rpc.id, result: { completed: true } });
+      setTimeout(() => event({ kind: "delta", contractVersion: 1, requestId, sequence: 1, text: "late" }), 15);
+      break;
+    case "timeout":
+      active.set(requestId, rpc.id);
+      break;
+    case "oversize":
+      event({ kind: "delta", contractVersion: 1, requestId, sequence: 0, text: "x".repeat(8 * 1024 * 1024) });
+      break;
+    case "interleave": {
+      const first = requestId.endsWith("a") ? 8 : 1;
+      setTimeout(() => event({ kind: "delta", contractVersion: 1, requestId, sequence: 0, text: requestId }), first);
+      setTimeout(() => {
+        event(completed(requestId, 1, requestId));
+        write({ jsonrpc: "2.0", id: rpc.id, result: { completed: true } });
+      }, first + 12);
+      break;
+    }
+    default:
+      success(rpc.id, requestId, "translated");
+  }
+});
+"#
+        .replace("__CONNECTOR__", &connector_json);
+        fs::write(dir.join("entry.mjs"), script).expect("write connector process fixture");
+        load_manifest(dir).expect("load connector fixture manifest")
     }
 
     #[test]
@@ -4103,5 +5080,301 @@ setInterval(() => {}, 1_000);
             .call("test.recovered", json!({}), Duration::from_secs(2))
             .expect("next generation remains usable");
         assert_eq!(recovered, "recovered");
+    }
+
+    #[test]
+    fn sandbox_host_accepts_only_executable_v1_connectors() {
+        let directory = tempdir().expect("sandbox package");
+        fs::write(directory.path().join("entry.mjs"), "export default {};")
+            .expect("write sandbox entry");
+        let strict = serde_json::to_value(PluginContributionDescriptor::EngineConnector(
+            process_connector_descriptor(),
+        ))
+        .expect("serialize strict connector");
+        let strict_manifest = v2_manifest(
+            json!({
+                "tier": "sandbox",
+                "runtimeVersion": 1,
+                "entry": {"kind": "javascript", "path": "entry.mjs"}
+            }),
+            vec![strict],
+        );
+        let normalized = decode_normalized_manifest(
+            &serde_json::to_vec(&strict_manifest).expect("serialize strict manifest"),
+            directory.path(),
+        )
+        .expect("decode strict connector manifest");
+        assert!(normalized.supports_sandbox_host());
+
+        let legacy_connector = v2_contributions().remove(1);
+        let legacy_manifest = v2_manifest(
+            json!({
+                "tier": "sandbox",
+                "runtimeVersion": 1,
+                "entry": {"kind": "javascript", "path": "entry.mjs"}
+            }),
+            vec![legacy_connector],
+        );
+        let legacy = decode_normalized_manifest(
+            &serde_json::to_vec(&legacy_manifest).expect("serialize legacy manifest"),
+            directory.path(),
+        )
+        .expect("legacy connector remains inventory-readable");
+        assert!(!legacy.supports_sandbox_host());
+    }
+
+    #[test]
+    fn connector_handshake_rejects_descriptor_mismatch() {
+        let directory = tempdir().expect("plugin directory");
+        let expected = process_connector_descriptor();
+        let mut actual = expected.clone();
+        actual.display_name = "Unexpected connector".to_string();
+        let manifest = write_connector_process_fixture(directory.path(), &actual);
+        let process = PluginProcess::new_with_connector_descriptors(
+            directory.path().to_path_buf(),
+            manifest,
+            vec![expected],
+        );
+
+        let error = process
+            .ensure_started()
+            .expect_err("mismatched connector inventory must fail");
+        assert!(matches!(error, PluginRuntimeError::Protocol(_)));
+        assert!(process.state.lock().expect("process state").is_none());
+    }
+
+    #[test]
+    fn connector_stream_preserves_order_and_ordinary_calls() {
+        let directory = tempdir().expect("plugin directory");
+        let descriptor = process_connector_descriptor();
+        let limits = descriptor.limits.clone().expect("connector limits");
+        let manifest = write_connector_process_fixture(directory.path(), &descriptor);
+        let process = PluginProcess::new_with_connector_descriptors(
+            directory.path().to_path_buf(),
+            manifest,
+            vec![descriptor],
+        );
+        let request = connector_generate_request("success-1", "success");
+        let invalid_credential = "must-not-leak\0credential";
+        let credential_error = process
+            .call_connector_stream(
+                &request,
+                Some(invalid_credential),
+                &limits,
+                Duration::from_secs(2),
+                |_| Ok(()),
+            )
+            .expect_err("malformed credential must fail before process dispatch");
+        assert!(!credential_error.to_string().contains("must-not-leak"));
+        let mut events = Vec::new();
+        let result = process
+            .call_connector_stream(
+                &request,
+                Some("fixture-secret"),
+                &limits,
+                Duration::from_secs(2),
+                |event| {
+                    events.push((event.request_id().to_string(), event.sequence()));
+                    Ok(())
+                },
+            )
+            .expect("connector stream succeeds");
+        assert!(!format!("{process:?}").contains("fixture-secret"));
+        assert_eq!(result.output_text, "translated");
+        assert_eq!(
+            events,
+            vec![
+                ("success-1".to_string(), 0),
+                ("success-1".to_string(), 1),
+                ("success-1".to_string(), 2),
+            ]
+        );
+
+        let echoed: Value = process
+            .call(
+                "test.echo",
+                json!({"ordinary": true}),
+                Duration::from_secs(2),
+            )
+            .expect("ordinary RPC remains usable");
+        assert_eq!(echoed, json!({"ordinary": true}));
+    }
+
+    #[test]
+    fn concurrent_connector_streams_are_isolated_by_request_id() {
+        let directory = tempdir().expect("plugin directory");
+        let descriptor = process_connector_descriptor();
+        let limits = descriptor.limits.clone().expect("connector limits");
+        let manifest = write_connector_process_fixture(directory.path(), &descriptor);
+        let process = Arc::new(PluginProcess::new_with_connector_descriptors(
+            directory.path().to_path_buf(),
+            manifest,
+            vec![descriptor],
+        ));
+        let barrier = Arc::new(std::sync::Barrier::new(3));
+        let mut workers = Vec::new();
+        for request_id in ["request-a", "request-b"] {
+            let process = Arc::clone(&process);
+            let barrier = Arc::clone(&barrier);
+            let limits = limits.clone();
+            let request_id = request_id.to_string();
+            workers.push(thread::spawn(move || {
+                let request = connector_generate_request(&request_id, "interleave");
+                let mut seen = Vec::new();
+                barrier.wait();
+                let result = process
+                    .call_connector_stream(
+                        &request,
+                        None,
+                        &limits,
+                        Duration::from_secs(2),
+                        |event| {
+                            seen.push(event.request_id().to_string());
+                            Ok(())
+                        },
+                    )
+                    .expect("interleaved connector call succeeds");
+                (request_id, seen, result.output_text)
+            }));
+        }
+        barrier.wait();
+        for worker in workers {
+            let (request_id, seen, output) = worker.join().expect("connector worker");
+            assert_eq!(seen, vec![request_id.clone(), request_id.clone()]);
+            assert_eq!(output, request_id);
+        }
+    }
+
+    #[test]
+    fn malformed_duplicate_and_late_connector_events_are_isolated() {
+        let directory = tempdir().expect("plugin directory");
+        let descriptor = process_connector_descriptor();
+        let limits = descriptor.limits.clone().expect("connector limits");
+        let manifest = write_connector_process_fixture(directory.path(), &descriptor);
+        let process = PluginProcess::new_with_connector_descriptors(
+            directory.path().to_path_buf(),
+            manifest,
+            vec![descriptor],
+        );
+        for (request_id, model) in [
+            ("bad-params", "malformed"),
+            ("duplicate", "duplicate"),
+            ("bad-response", "bad-response"),
+        ] {
+            let error = process
+                .call_connector_stream(
+                    &connector_generate_request(request_id, model),
+                    None,
+                    &limits,
+                    Duration::from_secs(2),
+                    |_| Ok(()),
+                )
+                .expect_err("invalid connector stream must fail");
+            assert!(
+                matches!(error, PluginRuntimeError::Protocol(_)),
+                "unexpected connector error for {request_id}: {error:?}"
+            );
+            let echoed: String = process
+                .call("test.echo", json!(request_id), Duration::from_secs(2))
+                .expect("targeted stream failure does not stop ordinary RPC");
+            assert_eq!(echoed, request_id);
+        }
+
+        let late = process
+            .call_connector_stream(
+                &connector_generate_request("late-event", "late"),
+                None,
+                &limits,
+                Duration::from_secs(2),
+                |_| Ok(()),
+            )
+            .expect("terminal response succeeds before late event");
+        assert_eq!(late.output_text, "done");
+        thread::sleep(Duration::from_millis(40));
+        let echoed: bool = process
+            .call("test.echo", json!(true), Duration::from_secs(2))
+            .expect("late event is discarded");
+        assert!(echoed);
+    }
+
+    #[test]
+    fn connector_timeout_cancel_and_oversize_frame_remain_bounded() {
+        let directory = tempdir().expect("plugin directory");
+        let descriptor = process_connector_descriptor();
+        let limits = descriptor.limits.clone().expect("connector limits");
+        let manifest = write_connector_process_fixture(directory.path(), &descriptor);
+        let process = PluginProcess::new_with_connector_descriptors(
+            directory.path().to_path_buf(),
+            manifest,
+            vec![descriptor],
+        );
+        let timeout = process
+            .call_connector_stream(
+                &connector_generate_request("timed-out", "timeout"),
+                None,
+                &limits,
+                Duration::from_millis(40),
+                |_| Ok(()),
+            )
+            .expect_err("connector deadline must be enforced");
+        assert!(matches!(timeout, PluginRuntimeError::Timeout(_)));
+        thread::sleep(Duration::from_millis(30));
+        let cancelled: Vec<String> = process
+            .call("test.cancelled", json!({}), Duration::from_secs(2))
+            .expect("inspect cancellation notification");
+        assert!(cancelled.contains(&"timed-out".to_string()));
+
+        process
+            .cancel_connector_request(
+                &EngineConnectorCancelRequestV1 {
+                    contract_version: ENGINE_CONNECTOR_CONTRACT_VERSION,
+                    request_id: "explicit-cancel".to_string(),
+                },
+                Duration::from_secs(2),
+            )
+            .expect("explicit cancellation call is acknowledged");
+        let cancelled: Vec<String> = process
+            .call("test.cancelled", json!({}), Duration::from_secs(2))
+            .expect("inspect explicit cancellation");
+        assert!(cancelled.contains(&"explicit-cancel".to_string()));
+
+        let ignored = process
+            .cancel_connector_request(
+                &EngineConnectorCancelRequestV1 {
+                    contract_version: ENGINE_CONNECTOR_CONTRACT_VERSION,
+                    request_id: "ignored-cancel".to_string(),
+                },
+                Duration::from_millis(30),
+            )
+            .expect_err("missing cancellation ack respects its deadline");
+        assert!(matches!(ignored, PluginRuntimeError::Timeout(_)));
+        let still_running: bool = process
+            .call("test.echo", json!(true), Duration::from_secs(2))
+            .expect("cancellation timeout does not kill unrelated calls");
+        assert!(still_running);
+
+        let oversized = process
+            .call_connector_stream(
+                &connector_generate_request("oversized", "oversize"),
+                None,
+                &limits,
+                Duration::from_secs(2),
+                |_| Ok(()),
+            )
+            .expect_err("oversized process frame must fail");
+        assert!(matches!(oversized, PluginRuntimeError::Protocol(_)));
+        let echoed: String = process
+            .call("test.echo", json!("restarted"), Duration::from_secs(2))
+            .expect("fatal frame restarts only this plugin process");
+        assert_eq!(echoed, "restarted");
+
+        process
+            .shutdown_connector(Duration::from_secs(2))
+            .expect("connector shutdown is acknowledged");
+        assert!(process.state.lock().expect("process state").is_none());
+        let restarted: bool = process
+            .call("test.echo", json!(true), Duration::from_secs(2))
+            .expect("connector process can restart after graceful shutdown");
+        assert!(restarted);
     }
 }

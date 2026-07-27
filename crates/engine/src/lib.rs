@@ -163,6 +163,7 @@ mod local_api;
 mod local_auth;
 mod plugin;
 mod plugin_capability;
+mod plugin_connector;
 mod plugin_declarative;
 pub use local_api::{LocalApiConfig, run_pipeline, serve as serve_local_api, validate_bind};
 pub use local_auth::{LocalApiTokenStore, default_token_store, ensure_token, rotate_token};
@@ -2281,6 +2282,7 @@ pub struct EngineService {
     filters: FilterRegistry,
     pipeline: PipelineManager,
     ai: ai::AiManager,
+    plugin_connector_catalog: ai::PluginConnectorCatalog,
     plugin_processes: std::collections::BTreeMap<
         String,
         std::sync::Arc<translunar_plugin_runtime::PluginProcess>,
@@ -2354,6 +2356,7 @@ impl EngineService {
             filters,
             pipeline: PipelineManager::new(data_dir, ai.clone())?,
             ai,
+            plugin_connector_catalog: ai::PluginConnectorCatalog::new(),
             plugin_processes: std::collections::BTreeMap::new(),
             plugin_sandbox_runtimes: translunar_plugin_runtime::SandboxRuntimeRegistry::default(),
             plugin_sandbox_keys: std::collections::BTreeMap::new(),
@@ -5828,6 +5831,12 @@ fn publish_asset_file(
         .persist_noclobber(output_path)
         .map_err(|error| EngineError::Io(error.error))?;
     Ok(())
+}
+
+impl Drop for EngineService {
+    fn drop(&mut self) {
+        self.shutdown_plugin_runtimes();
+    }
 }
 
 pub struct RpcDispatcher {

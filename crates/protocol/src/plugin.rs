@@ -6,9 +6,10 @@ use serde_json::Value;
 use translunar_filter_core::FilterCapabilities;
 use translunar_filter_core::FilterDescriptor;
 pub use translunar_plugin_runtime::{
-    DeclarativeFilterDefinitionV1, DeclarativePipelineDefinitionV1, DeclarativeQaPackDefinitionV1,
-    PluginCapabilityAuditEvent, PluginCapabilityDecision, PluginCapabilityId,
-    PluginCapabilityRequest, PluginCapabilityScope, PluginFileArea,
+    DeclarativeEngineConnectorDefinitionV1, DeclarativeFilterDefinitionV1,
+    DeclarativePipelineDefinitionV1, DeclarativeQaPackDefinitionV1, EngineConnectorConfigSchemaV1,
+    EngineConnectorLimitsV1, PluginCapabilityAuditEvent, PluginCapabilityDecision,
+    PluginCapabilityId, PluginCapabilityRequest, PluginCapabilityScope, PluginFileArea,
 };
 
 use crate::{default_actor, default_page_size};
@@ -124,6 +125,14 @@ pub enum PluginContributionDescriptor {
         protocol: String,
         operations: Vec<String>,
         config_schema_version: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        contract_version: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        config_schema: Option<EngineConnectorConfigSchemaV1>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limits: Option<EngineConnectorLimitsV1>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        declarative: Option<Box<DeclarativeEngineConnectorDefinitionV1>>,
     },
     QaRule {
         descriptor_version: u32,

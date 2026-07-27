@@ -5520,6 +5520,63 @@ button.tag-capsule {
   color: var(--muted);
   font-size: 10px;
 }
+.ai-connector-meta {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.ai-connector-meta span,
+.ai-connector-availability {
+  width: fit-content;
+  padding: 2px 6px;
+  border: 1px solid var(--line-strong);
+  color: var(--muted);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+.ai-connector-meta .ai-connector-kind {
+  border-color: var(--line);
+  color: var(--ink);
+  background: var(--paper-shade);
+}
+.ai-connector-meta span[data-availability="available"],
+.ai-connector-availability[data-availability="available"] {
+  border-color: color-mix(in srgb, var(--confirmed) 50%, var(--line));
+  color: var(--confirmed);
+}
+.ai-connector-meta span[data-availability="degraded"],
+.ai-connector-availability[data-availability="degraded"] {
+  border-color: color-mix(in srgb, var(--warning) 55%, var(--line));
+  color: var(--warning);
+}
+.ai-connector-meta code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ai-connector-meta small {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 9px;
+}
+.ai-connector-failure {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--error);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.ai-connector-config-field small {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.35;
+  text-transform: none;
+}
 .ai-provider-form button {
   grid-column: 1 / -1;
 }
@@ -5563,6 +5620,102 @@ button.tag-capsule {
   display: grid;
   min-width: 0;
   gap: 2px;
+}
+.ai-profile-identity .ai-connector-availability {
+  margin-top: 2px;
+}
+.plugins-connector-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.plugins-connector-list > article {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  padding: 10px 0 2px;
+  border-top: 1px solid var(--line);
+}
+.plugins-connector-list header,
+.plugins-connector-status {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+}
+.plugins-connector-list code,
+.plugins-connector-list dd,
+.plugins-connector-status span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.plugins-connector-list code {
+  color: var(--muted);
+  font-size: 10px;
+}
+.plugins-connector-list dl {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 8px;
+  margin: 0;
+}
+.plugins-connector-list dl > div {
+  min-width: 0;
+}
+.plugins-connector-list dt,
+.plugins-connector-list dd {
+  margin: 0;
+  font-size: 10px;
+}
+.plugins-connector-list dt {
+  color: var(--muted);
+}
+.plugins-connector-list dd {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+}
+.plugins-connector-availability,
+.plugins-connector-status span {
+  padding: 2px 5px;
+  border: 1px solid var(--line-strong);
+  color: var(--muted);
+  font-size: 9px;
+}
+.plugins-connector-availability[data-availability="available"],
+.plugins-connector-status span[data-decision="granted"] {
+  border-color: color-mix(in srgb, var(--confirmed) 50%, var(--line));
+  color: var(--confirmed);
+}
+.plugins-connector-availability[data-availability="degraded"] {
+  border-color: color-mix(in srgb, var(--warning) 55%, var(--line));
+  color: var(--warning);
+}
+.plugins-connector-status {
+  justify-content: flex-start;
+}
+.plugins-connector-failure {
+  margin: 0;
+  color: var(--error);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 720px) {
+  .plugins-connector-list,
+  .plugins-connector-list dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ai-connector-meta {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .ai-connector-meta code {
+    flex: 1 0 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
 .ai-profile-identity strong,
 .ai-profile-identity small,
@@ -5638,7 +5791,8 @@ button.tag-capsule {
   font-size: 9px;
   text-transform: uppercase;
 }
-.ai-profile-edit input {
+.ai-profile-edit input,
+.ai-profile-edit select {
   min-width: 0;
   height: 30px;
   padding: 0 8px;

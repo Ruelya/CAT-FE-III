@@ -1202,6 +1202,107 @@
         "failed"
       ]
     },
+    "AiConnectorAvailability": {
+      "type": "string",
+      "enum": [
+        "available",
+        "unavailable",
+        "degraded"
+      ]
+    },
+    "AiConnectorCatalogItem": {
+      "type": "object",
+      "properties": {
+        "availability": {
+          "$ref": "#/$defs/AiConnectorAvailability"
+        },
+        "configSchema": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EngineConnectorConfigSchemaV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "configSchemaVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "credentialHint": {
+          "type": "string"
+        },
+        "defaultBaseUrl": {
+          "type": "string"
+        },
+        "defaultModel": {
+          "type": "string"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AiProviderKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EngineConnectorOperation"
+          }
+        },
+        "protocol": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AiProviderProtocol"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reportsUsage": {
+          "type": "boolean"
+        },
+        "safeFailure": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/EngineConnectorSource"
+        },
+        "supportsStreaming": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "source",
+        "displayName",
+        "configSchemaVersion",
+        "operations",
+        "defaultBaseUrl",
+        "defaultModel",
+        "supportsStreaming",
+        "reportsUsage",
+        "credentialHint",
+        "availability"
+      ]
+    },
     "AiContribution": {
       "type": "object",
       "properties": {
@@ -1666,7 +1767,7 @@
         "items": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/AiProviderDescriptor"
+            "$ref": "#/$defs/AiConnectorCatalogItem"
           }
         }
       },
@@ -1680,12 +1781,30 @@
         "baseUrl": {
           "type": "string"
         },
+        "configSchemaVersion": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "configuration": {
+          "default": null
+        },
         "enabled": {
           "type": "boolean",
           "default": true
         },
         "kind": {
-          "$ref": "#/$defs/AiProviderKind"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AiProviderKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "maxResponseBytes": {
           "type": "integer",
@@ -1699,6 +1818,16 @@
         "name": {
           "type": "string"
         },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EngineConnectorSource"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "timeoutMs": {
           "type": "integer",
           "format": "uint32",
@@ -1709,48 +1838,8 @@
       "additionalProperties": false,
       "required": [
         "name",
-        "kind",
         "baseUrl",
         "model"
-      ]
-    },
-    "AiProviderDescriptor": {
-      "type": "object",
-      "properties": {
-        "credentialHint": {
-          "type": "string"
-        },
-        "defaultBaseUrl": {
-          "type": "string"
-        },
-        "defaultModel": {
-          "type": "string"
-        },
-        "displayName": {
-          "type": "string"
-        },
-        "kind": {
-          "$ref": "#/$defs/AiProviderKind"
-        },
-        "protocol": {
-          "$ref": "#/$defs/AiProviderProtocol"
-        },
-        "reportsUsage": {
-          "type": "boolean"
-        },
-        "supportsStreaming": {
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "kind",
-        "displayName",
-        "protocol",
-        "defaultBaseUrl",
-        "defaultModel",
-        "supportsStreaming",
-        "reportsUsage",
-        "credentialHint"
       ]
     },
     "AiProviderKind": {
@@ -1821,8 +1910,28 @@
     "AiProviderProfile": {
       "type": "object",
       "properties": {
+        "availability": {
+          "$ref": "#/$defs/AiConnectorAvailability"
+        },
         "baseUrl": {
           "type": "string"
+        },
+        "configHash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "configSchemaVersion": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "configuration": {
+          "default": null
         },
         "createdAtMs": {
           "type": "integer",
@@ -1831,6 +1940,12 @@
         "credentialPresent": {
           "type": "boolean"
         },
+        "descriptorHash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "enabled": {
           "type": "boolean"
         },
@@ -1838,7 +1953,14 @@
           "type": "string"
         },
         "kind": {
-          "$ref": "#/$defs/AiProviderKind"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AiProviderKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "maxResponseBytes": {
           "type": "integer",
@@ -1856,6 +1978,9 @@
           "format": "uint64",
           "minimum": 0
         },
+        "source": {
+          "$ref": "#/$defs/EngineConnectorSource"
+        },
         "timeoutMs": {
           "type": "integer",
           "format": "uint32",
@@ -1866,16 +1991,18 @@
           "format": "int64"
         }
       },
+      "additionalProperties": false,
       "required": [
         "id",
         "name",
-        "kind",
+        "source",
         "baseUrl",
         "model",
         "timeoutMs",
         "maxResponseBytes",
         "enabled",
         "credentialPresent",
+        "availability",
         "revision",
         "createdAtMs",
         "updatedAtMs"
@@ -1907,6 +2034,17 @@
         "baseUrl": {
           "type": "string"
         },
+        "configSchemaVersion": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "configuration": {
+          "default": null
+        },
         "enabled": {
           "type": "boolean"
         },
@@ -1916,7 +2054,14 @@
           "minimum": 0
         },
         "kind": {
-          "$ref": "#/$defs/AiProviderKind"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AiProviderKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "maxResponseBytes": {
           "type": "integer",
@@ -1932,6 +2077,16 @@
         "profileId": {
           "type": "string"
         },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EngineConnectorSource"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "timeoutMs": {
           "type": "integer",
           "format": "uint32",
@@ -1942,7 +2097,6 @@
       "required": [
         "profileId",
         "name",
-        "kind",
         "baseUrl",
         "model",
         "timeoutMs",
@@ -6998,6 +7152,347 @@
         "checkedAtMs"
       ]
     },
+    "DeclarativeConnectorAuthenticationV1": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "none"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "bearer"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "header"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "name"
+          ]
+        }
+      ]
+    },
+    "DeclarativeConnectorEndpointV1": {
+      "type": "object",
+      "properties": {
+        "destinationOrigin": {
+          "type": "string"
+        },
+        "method": {
+          "$ref": "#/$defs/DeclarativeConnectorHttpMethodV1"
+        },
+        "urlTemplate": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "destinationOrigin",
+        "urlTemplate",
+        "method"
+      ]
+    },
+    "DeclarativeConnectorFailureMappingV1": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/EngineConnectorFailureCodeV1"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "code",
+        "retryable"
+      ]
+    },
+    "DeclarativeConnectorHeaderV1": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "value"
+      ]
+    },
+    "DeclarativeConnectorHttpMethodV1": {
+      "type": "string",
+      "enum": [
+        "POST"
+      ]
+    },
+    "DeclarativeConnectorRequestMappingV1": {
+      "type": "object",
+      "properties": {
+        "fixedBody": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "messagesPath": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "modelPath": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sourceLocalePath": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "sourceTextPath": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "streamPath": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "targetLocalePath": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "modelPath",
+        "messagesPath"
+      ]
+    },
+    "DeclarativeConnectorResponseMappingV1": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "finishReasonPath": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "kind": {
+              "type": "string",
+              "const": "json"
+            },
+            "textPath": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "usage": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DeclarativeConnectorUsageMappingV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "textPath"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "deltaPath": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "doneMarker": {
+              "type": "string"
+            },
+            "finishReasonPath": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "kind": {
+              "type": "string",
+              "const": "serverSentEvents"
+            },
+            "maxLineBytes": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "usage": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DeclarativeConnectorUsageMappingV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "deltaPath",
+            "doneMarker",
+            "maxLineBytes"
+          ]
+        }
+      ]
+    },
+    "DeclarativeConnectorUsageMappingV1": {
+      "type": "object",
+      "properties": {
+        "inputTokensPath": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "outputTokensPath": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "totalTokensPath": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "DeclarativeEngineConnectorDefinitionV1": {
+      "type": "object",
+      "properties": {
+        "authentication": {
+          "$ref": "#/$defs/DeclarativeConnectorAuthenticationV1"
+        },
+        "definitionVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "endpoint": {
+          "$ref": "#/$defs/DeclarativeConnectorEndpointV1"
+        },
+        "failures": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DeclarativeConnectorFailureMappingV1"
+          }
+        },
+        "fixedHeaders": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DeclarativeConnectorHeaderV1"
+          }
+        },
+        "request": {
+          "$ref": "#/$defs/DeclarativeConnectorRequestMappingV1"
+        },
+        "response": {
+          "$ref": "#/$defs/DeclarativeConnectorResponseMappingV1"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "definitionVersion",
+        "endpoint",
+        "authentication",
+        "request",
+        "response"
+      ]
+    },
     "DeclarativeFilterDefinitionV1": {
       "type": "object",
       "properties": {
@@ -8368,6 +8863,259 @@
     },
     "EmptyResult": {
       "type": "object"
+    },
+    "EngineConnectorConfigFieldTypeV1": {
+      "type": "string",
+      "enum": [
+        "text",
+        "boolean",
+        "integer",
+        "select"
+      ]
+    },
+    "EngineConnectorConfigFieldV1": {
+      "type": "object",
+      "properties": {
+        "defaultValue": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EngineConnectorConfigValueV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fieldType": {
+          "$ref": "#/$defs/EngineConnectorConfigFieldTypeV1"
+        },
+        "key": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "max": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "min": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EngineConnectorConfigOptionV1"
+          }
+        },
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "label",
+        "fieldType",
+        "required"
+      ]
+    },
+    "EngineConnectorConfigOptionV1": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "label"
+      ]
+    },
+    "EngineConnectorConfigSchemaV1": {
+      "type": "object",
+      "properties": {
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EngineConnectorConfigFieldV1"
+          }
+        },
+        "schemaVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "fields"
+      ]
+    },
+    "EngineConnectorConfigValueV1": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "integer",
+          "format": "int64"
+        }
+      ]
+    },
+    "EngineConnectorFailureCodeV1": {
+      "type": "string",
+      "enum": [
+        "invalidConfig",
+        "authentication",
+        "rateLimit",
+        "timeout",
+        "unavailable",
+        "protocol",
+        "responseSize",
+        "cancelled",
+        "hostCrash"
+      ]
+    },
+    "EngineConnectorLimitsV1": {
+      "type": "object",
+      "properties": {
+        "maxConfigBytes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "maxDeadlineMs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "maxEvents": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "maxMessageBytes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "maxMessages": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "maxModelIdBytes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "maxModels": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "maxOutputBytes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "maxSourceTextBytes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "maxConfigBytes",
+        "maxMessages",
+        "maxMessageBytes",
+        "maxSourceTextBytes",
+        "maxOutputBytes",
+        "maxEvents",
+        "maxModels",
+        "maxModelIdBytes",
+        "maxDeadlineMs"
+      ]
+    },
+    "EngineConnectorOperation": {
+      "type": "string",
+      "enum": [
+        "validateConfig",
+        "test",
+        "models.list",
+        "generate"
+      ]
+    },
+    "EngineConnectorSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "builtin"
+            },
+            "provider": {
+              "$ref": "#/$defs/AiProviderKind"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "provider"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "contractVersion": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "contributionId": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "plugin"
+            },
+            "owner": {
+              "$ref": "#/$defs/PluginConnectorOwner"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "owner",
+            "contributionId",
+            "contractVersion"
+          ]
+        }
+      ]
     },
     "ErrorCode": {
       "type": "string",
@@ -14175,6 +14923,22 @@
         "contributionsSupported"
       ]
     },
+    "PluginConnectorOwner": {
+      "type": "object",
+      "properties": {
+        "pluginId": {
+          "type": "string"
+        },
+        "versionId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "pluginId",
+        "versionId"
+      ]
+    },
     "PluginContributionDescriptor": {
       "oneOf": [
         {
@@ -14232,10 +14996,38 @@
         {
           "type": "object",
           "properties": {
+            "configSchema": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/EngineConnectorConfigSchemaV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "configSchemaVersion": {
               "type": "integer",
               "format": "uint32",
               "minimum": 0
+            },
+            "contractVersion": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0
+            },
+            "declarative": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DeclarativeEngineConnectorDefinitionV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "descriptorVersion": {
               "type": "integer",
@@ -14251,6 +15043,16 @@
             "kind": {
               "type": "string",
               "const": "engineConnector"
+            },
+            "limits": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/EngineConnectorLimitsV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "operations": {
               "type": "array",

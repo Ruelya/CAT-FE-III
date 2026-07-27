@@ -2415,6 +2415,151 @@ plugin.disable   PluginMutationParams  -> PluginMutationResult
 plugin.uninstall PluginMutationParams  -> PluginMutationResult
 ```
 
+## Versioned Plugin Engine Connectors
+
+### 1. Scope / Trigger
+
+Use this contract when adding or changing an AI/translation connector,
+provider-profile source, connector permission, adapter tier, or plugin lifecycle
+path. The Engine owns registry state, authorization, credentials, execution,
+provenance, and compensation; plugin hosts implement only the public closed
+connector contract.
+
+### 2. Signatures
+
+Connector v1 has four closed operations:
+
+```text
+validateConfig | test | models.list | generate
+```
+
+The registry key and durable plugin profile binding are exact:
+
+```rust
+pub struct PluginConnectorOwner {
+    pub plugin_id: String,
+    pub version_id: String,
+}
+
+pub enum EngineConnectorSource {
+    Builtin { provider: AiProviderKind },
+    Plugin {
+        owner: PluginConnectorOwner,
+        contribution_id: String,
+        contract_version: u32,
+    },
+}
+```
+
+Storage migration 20 adds connector source/config provenance to provider
+profiles and snapshots connector provenance on runs and batches. Immutable
+plugin `version_id` values may contain `:` and are bounded to 384 characters;
+plugin and contribution IDs retain their stricter identifier grammar.
+
+### 3. Contracts
+
+- Descriptors, requests, events, results, failures, configurations, and model
+  catalogs reject unknown fields and versions and enforce named collection,
+  depth, string, frame, event, timeout, and output limits before mutation.
+- Registry attachment is atomic and owner-aware. A lease snapshots owner plus
+  generation plus a shared active marker; detach/replacement invalidates that
+  marker before publishing removal, so a stale lease cannot start new work.
+  Late events and fatal failures affect only that exact generation. Built-in
+  IDs cannot be shadowed.
+- Existing provider APIs resolve both built-in and plugin profiles through the
+  unified registry. Test, interactive, action, batch, pipeline, retry/resume,
+  cancellation, usage, and allowlist paths have no plugin-only bypass and no
+  silent fallback to another connector/version.
+- Credentials remain in Engine-owned credential storage. One invocation gets
+  one ephemeral secret, which is redacted and zeroized; configuration,
+  manifests, SQLite, audit, diagnostics, events, and safe errors stay secret
+  free.
+- Tier 1 is bounded host-owned declarative HTTP with HTTPS or loopback HTTP,
+  no redirects, and typed mappings. Tier 2 QuickJS and Tier 3 process adapters
+  use the same closed codecs and expose no generic Engine invocation. Tier 3
+  consent is not an OS-isolation claim.
+- Registration and every operation check exact `engine.connector` authority;
+  network calls additionally check the normalized destination origin. Profile
+  configuration cannot widen an origin or enumerate another profile's secret.
+- Enable and version switching prepare inert candidates before atomic attach
+  and durable state changes. Disable, revoke, degradation, shutdown, and
+  uninstall detach/cancel exact owners. Failed upgrade, rollback, or uninstall
+  restores the previous registry, profiles, grants, host, and durable version.
+- `ConnectorRequestContext.deadlineMs` is an absolute Unix-millisecond
+  deadline. It must still be in the future and no farther than
+  `MAX_TIMEOUT_MS`; adapters convert it to a bounded remaining duration.
+- The shared validating sink forwards bounded text deltas and optional usage,
+  but holds the completion event. The lease validates the returned result,
+  reconciles emitted text/usage with the terminal completion, rechecks
+  cancellation and active generation, then publishes completion. A terminal
+  mismatch or cancellation therefore cannot be reported as success.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Unknown contract/version/field/operation or exceeded bound | Typed validation/protocol failure before registry or host mutation |
+| Built-in collision, duplicate owner, or partial multi-attach | Reject the complete candidate; preserve the prior registry |
+| Missing, pending, denied, revoked, stale, or mismatched grant | Typed permission failure plus secret-free immutable audit |
+| Non-HTTPS non-loopback origin, widened origin, or redirect | Reject before request data or credential leaves the Engine |
+| Detached/stale profile or generation | Explicit unavailable/stale failure; never select another connector |
+| Malformed, duplicate-terminal, late, or oversized event | Reject the invocation; never apply partial output |
+| Streamed text/usage differs from terminal completion | `protocol`; do not publish the completion event |
+| Expired or more-than-`MAX_TIMEOUT_MS` absolute deadline | `timeout` / `invalid_request` before adapter dispatch |
+| Cancellation races timeout/crash/transport failure | Cancellation wins and cleanup is idempotent |
+| Fatal failure from current owner generation | Degrade only that exact active version; other RPCs/connectors stay healthy |
+| Fatal failure from an old generation | Ignore for current lifecycle state |
+| Candidate switch or uninstall compensation fails mid-flight | Restore the exact previous durable/runtime/profile state or return a typed failure without partial visibility |
+
+### 5. Good / Base / Bad Cases
+
+- Good: enable an authorized connector, bind a validated profile, stream a
+  proposal, persist exact provenance, restart, upgrade compatibly, roll back,
+  revoke, and uninstall while history remains readable.
+- Base: a plugin profile references a detached version. It stays visible and
+  unavailable for new work until explicit compatible rebind; built-ins and
+  unrelated plugins remain usable.
+- Bad: key a connector by bare contribution ID, persist a credential in
+  configuration, accept a late completion after cancellation, or update the
+  durable active version before all registry/profile changes can commit.
+
+### 6. Tests Required
+
+- Codec and SDK tests cover every operation, version, field, and documented
+  size/depth/count boundary plus credential redaction.
+- Registry/runtime tests cover atomic replacement, concurrent leases, all
+  three adapters, event ordering, terminal reconciliation, completion hold,
+  cancellation precedence, recovery, and stale-lease/generation isolation.
+- Storage/Engine tests cover migration 20, inventory-style version IDs,
+  profile/run/batch provenance, exact-source execution, atomic rebind rollback,
+  failed uninstall restoration, restart, revoke/disable/uninstall, compatible
+  upgrade/rollback, origin expansion rejection, and cross-plugin health.
+- Real stdio and production Electron tests exercise an official connector from
+  install through uninstall. Release evidence must distinguish focused passes
+  from a full suite blocked by documented native prerequisites.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+let connector = registry.lookup(&profile.contribution_id)?;
+persist_credential(profile.id, request.api_key)?;
+registry.detach_plugin(&plugin_id); // can detach a newer replacement
+```
+
+#### Correct
+
+```rust
+let lease = registry.lookup_source(&profile.source)?.ok_or(unavailable())?;
+authorize_connector(&authorizer, &owner, contribution_id, operation, audit_op)?;
+let secret = credentials.get(&profile.id)?;
+let result = lease.invoke(&request, secret.as_ref(), &canceled, &mut sink);
+if registry.is_current(&lease)? && result.is_fatal() {
+    registry.detach_source(&lease.descriptor.source)?;
+}
+```
+
 The process entry speaks newline JSON-RPC:
 
 ```text

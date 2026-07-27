@@ -1,4 +1,5 @@
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -750,6 +751,73 @@ interface AlignmentFixturePayload {
   targetSegments: Array<{ id: string }>;
 }
 
+async function startConnectorFixture(): Promise<AiFixture> {
+  let requestCount = 0;
+  const server: Server = createServer((request, response) => {
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk: string) => {
+      body += chunk;
+    });
+    request.on("end", () => {
+      requestCount += 1;
+      expect(body).not.toContain("fixture-secret");
+      if (
+        request.method !== "POST" ||
+        request.url !== "/v1/chat/completions" ||
+        request.headers.authorization !== "Bearer fixture-secret" ||
+        request.headers["x-client"] !== "translunar-tier1-fixture"
+      ) {
+        response.writeHead(401, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: "unauthorized fixture request" }));
+        return;
+      }
+      const completion = body.includes("Reply with OK only.")
+        ? ["OK"]
+        : ["Bon", "jour"];
+      const events = [
+        ...completion.map(
+          (content) =>
+            `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}`,
+        ),
+        `data: ${JSON.stringify({
+          choices: [],
+          usage: {
+            prompt_tokens: 2,
+            completion_tokens: completion.length,
+            total_tokens: 2 + completion.length,
+          },
+        })}`,
+        "data: [DONE]",
+        "",
+      ].join("\n\n");
+      response.writeHead(200, {
+        "content-type": "text/event-stream",
+        "content-length": Buffer.byteLength(events),
+        connection: "close",
+      });
+      response.end(events);
+    });
+  });
+  await new Promise<void>((resolvePromise, rejectPromise) => {
+    server.once("error", rejectPromise);
+    server.listen(43123, "127.0.0.1", resolvePromise);
+  });
+  return {
+    url: "http://127.0.0.1:43123",
+    get requestCount() {
+      return requestCount;
+    },
+    close: () =>
+      new Promise<void>((resolvePromise, rejectPromise) => {
+        server.close((error) => {
+          if (error) rejectPromise(error);
+          else resolvePromise();
+        });
+      }),
+  };
+}
+
 async function startAiFixture(firstChunkDelayMs = 0): Promise<AiFixture> {
   let requestCount = 0;
   const server: Server = createServer((request, response) => {
@@ -1116,6 +1184,305 @@ test("manages a local process plugin through Project Insights with the real Engi
     expect(consoleErrors).toEqual([]);
   } finally {
     await closeHarness(harness);
+  }
+});
+
+test("uses the official OpenAI-compatible connector through its visible lifecycle", async ({
+  browserName,
+}, testInfo) => {
+  expect(browserName).toBe("chromium");
+  test.setTimeout(180_000);
+  const workspaceRoot = resolve(process.cwd(), "..", "..");
+  const pluginSource = join(
+    workspaceRoot,
+    "examples",
+    "plugins",
+    "connector-openai-compatible",
+  );
+  const fixture = await startConnectorFixture();
+  const harness = await launchHarness("plugin-connector", { pluginSource });
+  const { page, consoleErrors } = harness;
+  const pluginId = "example.connector-openai-compatible";
+  const connectorId = "example.connector-openai-compatible.chat";
+  const fixtureOrigin = "http://127.0.0.1:43123";
+  const profileName = "Official loopback connector";
+
+  try {
+    await importFixture(page);
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "Project insights" }).click();
+    await page.getByRole("tab", { name: "Plugins" }).click();
+    const panel = page.locator(".plugins-panel");
+    await panel.getByRole("button", { name: "Install package…" }).click();
+
+    const permissionDialog = page.getByRole("dialog", {
+      name: "Permission review",
+    });
+    await expect(permissionDialog).toContainText("engine.connector");
+    for (const operation of ["validateConfig", "test", "generate"]) {
+      await expect(permissionDialog).toContainText(operation);
+    }
+    await expect(permissionDialog).toContainText("network.connect");
+    await expect(permissionDialog).toContainText(fixtureOrigin);
+    await grantInstalledPluginPermissions(page);
+
+    let pluginRow = panel.locator(".plugins-panel__item", {
+      hasText: "OpenAI-compatible Loopback Connector",
+    });
+    await expect(pluginRow.locator('[data-status="installed"]')).toHaveText(
+      "installed",
+    );
+    await pluginRow.getByRole("button", { name: "Enable" }).click();
+    await expect(pluginRow.locator('[data-status="enabled"]')).toHaveText(
+      "enabled",
+    );
+    await expect(pluginRow).toContainText(connectorId);
+    await expect(pluginRow).toContainText("validateConfig · test · generate");
+    await expect(pluginRow).toContainText("Connector authority: granted");
+    await expect(pluginRow).toContainText(
+      `Origins: granted · ${fixtureOrigin}`,
+    );
+    await expect(pluginRow).toContainText("0 provider profiles");
+
+    await page.getByRole("button", { name: "Back to workbench" }).click();
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "AI control" }).click();
+    const connectorSelect = page.getByLabel("Connector");
+    await expect(
+      connectorSelect.locator(`option[value="${connectorId}"]`),
+    ).toHaveText(
+      "OpenAI-compatible Loopback · Plugin · example.connector-openai-compatible",
+    );
+    await connectorSelect.selectOption(connectorId);
+    const connectorMeta = page.locator(".ai-connector-meta");
+    await expect(connectorMeta).toContainText("Plugin");
+    await expect(connectorMeta).toContainText("Available");
+    await expect(connectorMeta).toContainText(
+      "example.connector-openai-compatible@inventory-v2:example.connector-openai-compatible:1.0.0:example.connector-openai-compatible.chat/v1",
+    );
+    await expect(connectorMeta).toContainText("Config schema v1");
+    await expect(page.getByLabel("Maximum output tokens")).toHaveValue("1024");
+    await expect(page.getByLabel("Response mode")).toHaveValue("stream");
+    await expect(page.locator(".ai-create-provider textarea")).toHaveCount(0);
+    await expect(page.locator(".ai-create-provider")).not.toContainText(
+      "fixture-secret",
+    );
+    await page.getByLabel("Profile name").fill(profileName);
+    await page.getByLabel("Model").fill("fixture-model");
+    await page.getByLabel("Maximum output tokens").fill("512");
+    await page.getByLabel("Response mode").selectOption("stream");
+    await page.getByRole("button", { name: "Add provider" }).click();
+
+    let profile = page.locator(".ai-profile-row", { hasText: profileName });
+    await expect(profile).toContainText("Plugin");
+    await expect(profile).toContainText("Available");
+    await expect(profile).toContainText("fixture-model");
+    const credential = profile.getByRole("textbox", {
+      name: `Credential for ${profileName}`,
+    });
+    await expect(credential).toHaveAttribute("type", "password");
+    await credential.fill("fixture-secret");
+    await profile.locator(".ai-credential-entry button").click();
+    await expect(profile).toContainText("Stored");
+    await expect(credential).toHaveValue("");
+    await profile.getByRole("button", { name: `Test ${profileName}` }).click();
+    await expect(
+      page.getByText(`${profileName} connection succeeded.`),
+    ).toBeVisible({ timeout: 15_000 });
+
+    await page.getByLabel("AI enabled").check();
+    await page
+      .getByLabel("Default profile")
+      .selectOption({ label: profileName });
+    await page.getByLabel("Allowed origins").fill(fixtureOrigin);
+    await page.getByRole("button", { name: "Save policy" }).click();
+    await expect(page.getByText("AI workspace policy saved.")).toBeVisible();
+    await page.getByRole("button", { name: "Back to workbench" }).click();
+    const firstSegment = page.locator(".segment-row").first();
+    await firstSegment.locator("textarea").click();
+    await page.getByRole("tab", { name: /Assistant/u }).click();
+    await expect(page.getByLabel("Requested model")).toContainText(profileName);
+    await page.getByRole("button", { name: /Translate/u }).click();
+    await expect(page.locator(".ai-diff-proposal")).toContainText("Bonjour", {
+      timeout: 15_000,
+    });
+    expect(fixture.requestCount).toBe(2);
+
+    await page.evaluate("window.translunar.restartEngine()");
+    await page.reload();
+    await expect(
+      page.getByRole("region", { name: "Translation segments" }),
+    ).toBeVisible();
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "AI control" }).click();
+    profile = page.locator(".ai-profile-row", { hasText: profileName });
+    await expect(profile).toContainText("Available");
+    await expect(profile).toContainText("Stored");
+
+    const upgradeSource = join(
+      harness.dataDirectory,
+      "connector-upgrade-source",
+    );
+    cpSync(pluginSource, upgradeSource, { recursive: true });
+    const upgradeManifestPath = join(upgradeSource, "manifest.json");
+    const upgradeManifest = JSON.parse(
+      readFileSync(upgradeManifestPath, "utf8"),
+    ) as {
+      version: string;
+      contributions: Array<{ version: string }>;
+    };
+    upgradeManifest.version = "1.0.1";
+    upgradeManifest.contributions[0]!.version = "1.0.1";
+    writeFileSync(
+      upgradeManifestPath,
+      `${JSON.stringify(upgradeManifest, null, 2)}\n`,
+      "utf8",
+    );
+    const beforeUpgrade = await page.evaluate((id) => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      return api.invoke("plugin.get", { pluginId: id });
+    }, pluginId);
+    const originalVersionId = beforeUpgrade.activeVersionId;
+    expect(originalVersionId).toBeTruthy();
+    const upgraded = await page.evaluate(
+      ({ id, sourcePath, expectedRevision }) => {
+        const api = (window as unknown as { translunar: DesktopApi })
+          .translunar;
+        return api.invoke("plugin.upgrade", {
+          pluginId: id,
+          sourcePath,
+          expectedRevision,
+          actor: "desktop-e2e",
+          reason: "exercise compatible connector profile rebind",
+        });
+      },
+      {
+        id: pluginId,
+        sourcePath: upgradeSource,
+        expectedRevision: beforeUpgrade.revision,
+      },
+    );
+    expect(upgraded.plugin.version).toBe("1.0.1");
+    const profilesAfterUpgrade = await page.evaluate(() => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      return api.invoke("ai.provider.list", { offset: 0, limit: 100 });
+    });
+    const profileAfterUpgrade = profilesAfterUpgrade.items.find(
+      (item) => item.name === "Official loopback connector",
+    );
+    expect(profileAfterUpgrade?.source.kind).toBe("plugin");
+    if (profileAfterUpgrade?.source.kind !== "plugin") {
+      throw new Error("upgraded connector profile lost its plugin source");
+    }
+    expect(profileAfterUpgrade.source.owner.versionId).toBe(
+      upgraded.activeVersionId,
+    );
+    expect(profileAfterUpgrade.availability).toBe("available");
+
+    const rolledBack = await page.evaluate(
+      ({ id, versionId, expectedRevision }) => {
+        const api = (window as unknown as { translunar: DesktopApi })
+          .translunar;
+        return api.invoke("plugin.rollback", {
+          pluginId: id,
+          versionId,
+          expectedRevision,
+          actor: "desktop-e2e",
+          reason: "exercise connector rollback profile rebind",
+        });
+      },
+      {
+        id: pluginId,
+        versionId: originalVersionId!,
+        expectedRevision: upgraded.plugin.revision,
+      },
+    );
+    expect(rolledBack.activeVersionId).toBe(originalVersionId);
+    const profilesAfterRollback = await page.evaluate(() => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      return api.invoke("ai.provider.list", { offset: 0, limit: 100 });
+    });
+    const profileAfterRollback = profilesAfterRollback.items.find(
+      (item) => item.name === "Official loopback connector",
+    );
+    expect(profileAfterRollback?.source.kind).toBe("plugin");
+    if (profileAfterRollback?.source.kind !== "plugin") {
+      throw new Error("rolled-back connector profile lost its plugin source");
+    }
+    expect(profileAfterRollback.source.owner.versionId).toBe(originalVersionId);
+
+    await page.getByRole("button", { name: "Back to workbench" }).click();
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "Project insights" }).click();
+    await page.getByRole("tab", { name: "Plugins" }).click();
+    pluginRow = panel.locator(".plugins-panel__item", {
+      hasText: "OpenAI-compatible Loopback Connector",
+    });
+    await expect(pluginRow).toContainText("1 provider profiles");
+    await captureResponsiveSurface(
+      harness,
+      testInfo,
+      "plugin-connector-profile-reference",
+      undefined,
+      ".plugins-panel",
+    );
+
+    await pluginRow.getByRole("button", { name: "Review permissions" }).click();
+    await permissionDialog
+      .getByPlaceholder("Record why this permission decision is appropriate")
+      .fill("Desktop E2E connector authority revocation");
+    const connectorPermission = permissionDialog.locator(
+      ".plugins-permission-request",
+      { hasText: "engine.connector" },
+    );
+    await connectorPermission.getByRole("button", { name: "Revoke" }).click();
+    await expect(
+      connectorPermission.locator('[data-decision="revoked"]'),
+    ).toBeVisible();
+    await permissionDialog
+      .getByRole("button", { name: "Close dialog" })
+      .click();
+    await expect(pluginRow.locator('[data-status="disabled"]')).toHaveText(
+      "disabled",
+    );
+    await pluginRow.getByRole("button", { name: "Review permissions" }).click();
+    await permissionDialog
+      .getByPlaceholder("Record why this permission decision is appropriate")
+      .fill("Desktop E2E connector authority re-grant");
+    await connectorPermission.getByRole("button", { name: "Grant" }).click();
+    await expect(
+      connectorPermission.locator('[data-decision="granted"]'),
+    ).toBeVisible();
+    await permissionDialog
+      .getByRole("button", { name: "Close dialog" })
+      .click();
+    await pluginRow.getByRole("button", { name: "Enable" }).click();
+    await expect(pluginRow.locator('[data-status="enabled"]')).toHaveText(
+      "enabled",
+    );
+    await pluginRow.getByRole("button", { name: "Disable" }).click();
+    await expect(pluginRow.locator('[data-status="disabled"]')).toHaveText(
+      "disabled",
+    );
+    await pluginRow.getByRole("button", { name: "Uninstall" }).click();
+    await expect(panel.locator(".plugins-panel__item")).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Back to workbench" }).click();
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "AI control" }).click();
+    profile = page.locator(".ai-profile-row", { hasText: profileName });
+    await expect(profile).toBeVisible();
+    await expect(profile).toContainText("Unavailable");
+    await expect(
+      profile.getByRole("button", { name: `Test ${profileName}` }),
+    ).toBeDisabled();
+    await expect(
+      connectorSelect.locator(`option[value="${connectorId}"]`),
+    ).toHaveCount(0);
+    expect(consoleErrors).toEqual([]);
+  } finally {
+    await closeHarness(harness);
+    await fixture.close();
   }
 });
 

@@ -1,22 +1,20 @@
+#!/usr/bin/env node
+
+// packages/plugin-sdk/src/index.ts
 import { createInterface } from "node:readline";
 import { stdin as input, stdout as output } from "node:process";
-import { createHash } from "node:crypto";
-
-export const HOST_API_VERSION = 1;
-export const NORMALIZED_MANIFEST_VERSION = 1;
-export const RUNTIME_DESCRIPTOR_VERSION = 1;
-export const CONTRIBUTION_DESCRIPTOR_VERSION = 1;
-export const PROCESS_PROTOCOL_VERSION = 1;
-export const DECLARATIVE_DEFINITION_VERSION = 1;
-export const SANDBOX_PROTOCOL_VERSION = 1;
-export const SANDBOX_BRIDGE_VERSION = 1;
-export const ENGINE_CONNECTOR_CONTRACT_VERSION = 1;
-export const ENGINE_CONNECTOR_PROTOCOL_V1 =
-  "translunar.engineConnector.v1" as const;
-export const ENGINE_CONNECTOR_CONFIG_SCHEMA_VERSION = 1;
-export const MAX_ENGINE_CONNECTOR_CREDENTIAL_BYTES = 16 * 1024;
-
-export const ENGINE_CONNECTOR_LIMITS = Object.freeze({
+var HOST_API_VERSION = 1;
+var NORMALIZED_MANIFEST_VERSION = 1;
+var RUNTIME_DESCRIPTOR_VERSION = 1;
+var CONTRIBUTION_DESCRIPTOR_VERSION = 1;
+var PROCESS_PROTOCOL_VERSION = 1;
+var DECLARATIVE_DEFINITION_VERSION = 1;
+var SANDBOX_BRIDGE_VERSION = 1;
+var ENGINE_CONNECTOR_CONTRACT_VERSION = 1;
+var ENGINE_CONNECTOR_PROTOCOL_V1 = "translunar.engineConnector.v1";
+var ENGINE_CONNECTOR_CONFIG_SCHEMA_VERSION = 1;
+var MAX_ENGINE_CONNECTOR_CREDENTIAL_BYTES = 16 * 1024;
+var ENGINE_CONNECTOR_LIMITS = Object.freeze({
   configBytes: 64 * 1024,
   configFields: 64,
   configKeyBytes: 64,
@@ -25,26 +23,25 @@ export const ENGINE_CONNECTOR_LIMITS = Object.freeze({
   messageBytes: 64 * 1024,
   sourceTextBytes: 1024 * 1024,
   outputBytes: 4 * 1024 * 1024,
-  events: 8_192,
+  events: 8192,
   models: 256,
   modelIdBytes: 256,
-  deadlineMs: 120_000,
+  deadlineMs: 12e4,
   requestIdBytes: 128,
   localeBytes: 64,
   errorMessageBytes: 1024,
-  endpointBytes: 2_048,
+  endpointBytes: 2048,
   headers: 32,
   headerNameBytes: 128,
   headerValueBytes: 1024,
   jsonPathDepth: 16,
   jsonPathSegmentBytes: 128,
-} as const);
-
-export const SANDBOX_LIMITS = Object.freeze({
+});
+var SANDBOX_LIMITS = Object.freeze({
   heapBytes: 32 * 1024 * 1024,
   stackBytes: 512 * 1024,
-  initializationMs: 1_000,
-  invocationMs: 2_000,
+  initializationMs: 1e3,
+  invocationMs: 2e3,
   shutdownMs: 500,
   moduleBytes: 1024 * 1024,
   aggregateModuleBytes: 8 * 1024 * 1024,
@@ -55,124 +52,8 @@ export const SANDBOX_LIMITS = Object.freeze({
   jsonDepth: 16,
   hostCallsPerInvocation: 256,
   diagnosticBytes: 4 * 1024,
-} as const);
-
-export type JsonPrimitive = null | boolean | number | string;
-export type JsonValue =
-  JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
-
-export type SandboxErrorCode =
-  | "plugin_sandbox_failed"
-  | "sandbox_cancelled"
-  | "sandbox_timeout"
-  | "sandbox_overloaded"
-  | "sandbox_resource_limit"
-  | "sandbox_invalid_module"
-  | "sandbox_invalid_message"
-  | "host_method_unsupported"
-  | "host_call_denied";
-
-export interface SafePluginErrorV1 {
-  code: SandboxErrorCode;
-  message: string;
-  retryable: boolean;
-}
-
-export interface SandboxLifecycleContextV1 {
-  protocolVersion: 1;
-  pluginId: string;
-  version: string;
-}
-
-export interface SandboxInvocationV1 {
-  protocolVersion: 1;
-  invocationId: string;
-  contributionId: string;
-  operation: string;
-  input: JsonValue;
-}
-
-export interface SandboxInvocationContextV1 {
-  /** Host-only ephemeral value. It is deliberately outside SandboxInvocationV1. */
-  readonly credential?: string;
-}
-
-export type SandboxResultV1 =
-  | { protocolVersion: 1; ok: true; output: JsonValue }
-  | { protocolVersion: 1; ok: false; error: SafePluginErrorV1 };
-
-export interface SandboxHostCallV1 {
-  protocolVersion: 1;
-  requestId: string;
-  method: string;
-  params: JsonValue;
-}
-
-export interface SandboxHostV1 {
-  call(request: SandboxHostCallV1): Promise<JsonValue>;
-}
-
-export interface SandboxPluginV1 {
-  activate?(context: SandboxLifecycleContextV1): void | Promise<void>;
-  invoke(
-    request: SandboxInvocationV1,
-    host: SandboxHostV1,
-    context?: SandboxInvocationContextV1,
-  ): unknown | Promise<unknown>;
-  deactivate?(context: SandboxLifecycleContextV1): void | Promise<void>;
-}
-
-export type PluginPanelMessageV1 =
-  | { version: 1; type: "ready"; nonce: string }
-  | {
-      version: 1;
-      type: "request";
-      id: string;
-      method: string;
-      params: JsonValue;
-    }
-  | { version: 1; type: "cancel"; id: string };
-
-export type HostPanelMessageV1 =
-  | { version: 1; type: "context"; context: JsonValue }
-  | { version: 1; type: "result"; id: string; result: JsonValue }
-  | { version: 1; type: "error"; id: string; error: SafePluginErrorV1 }
-  | { version: 1; type: "revoked"; reason: string };
-
-export interface FilterCapabilities {
-  import: boolean;
-  export: boolean;
-  validate: boolean;
-  inlineTags: boolean;
-  notes: boolean;
-  degradationReport: boolean;
-}
-
-export interface FilterDescriptor {
-  id: string;
-  version: string;
-  displayName: string;
-  extensions: string[];
-  capabilities: FilterCapabilities;
-}
-
-export interface PluginManifest {
-  manifestVersion: 1;
-  id: string;
-  displayName: string;
-  version: string;
-  apiVersion: number;
-  apiVersionMin: number;
-  tier: "process";
-  entry: { kind: "node" | "executable"; path: string };
-  contributions: { filters: FilterDescriptor[] };
-  permissions: string[];
-  capabilities?: PluginCapabilityRequest[];
-}
-
-export type PluginTier = "declarative" | "sandbox" | "process";
-
-export const PLUGIN_CAPABILITY_IDS = [
+});
+var PLUGIN_CAPABILITY_IDS = [
   "file.read",
   "file.write",
   "network.connect",
@@ -187,424 +68,16 @@ export const PLUGIN_CAPABILITY_IDS = [
   "ui.panel",
   "external.connector",
   "diagnostics.read",
-] as const;
-
-export type KnownPluginCapabilityId = (typeof PLUGIN_CAPABILITY_IDS)[number];
-export type PluginCapabilityId =
-  | KnownPluginCapabilityId
-  | (string & { readonly __pluginCapabilityIdExtension?: never });
-export type PluginFileArea = "source" | "output";
-export type PluginCapabilityScope =
-  | { kind: "unscoped" }
-  | { kind: "file"; areas: PluginFileArea[] }
-  | { kind: "network"; origins: string[] }
-  | { kind: "projects"; projectIds: string[] }
-  | { kind: "assets"; projectIds: string[]; assetIds: string[] }
-  | { kind: "operations"; operations: string[] }
-  | { kind: "contributions"; contributionIds: string[] }
-  | { kind: "diagnostics"; categories: string[] };
-
-export interface PluginCapabilityRequest {
-  capabilityId: PluginCapabilityId;
-  required?: boolean;
-  scope: PluginCapabilityScope;
-  contributionId?: string;
-}
-
-export type PluginRuntimeDescriptor =
-  | {
-      tier: "declarative";
-      runtimeVersion: 1;
-      entry: { kind: "manifest" };
-    }
-  | {
-      tier: "sandbox";
-      runtimeVersion: 1;
-      entry: { kind: "javascript"; path: string; exportName?: string };
-    }
-  | {
-      tier: "process";
-      runtimeVersion: 1;
-      protocolVersion: 1;
-      entry: { kind: "node" | "executable"; path: string };
-    };
-
-export interface FilterContributionDescriptor extends FilterDescriptor {
-  kind: "filter";
-  descriptorVersion: 1;
-  declarative?: DeclarativeFilterDefinitionV1;
-}
-
-export interface DeclarativeFilterDefinitionV1 {
-  definitionVersion: 1;
-  encoding: "utf8";
-  probeHeaderPattern?: string;
-  unitPattern: string;
-  limits: {
-    maxSourceBytes: number;
-    maxOutputBytes: number;
-    maxUnits: number;
-    maxUnitBytes: number;
-    maxCaptureBytes: number;
-    probeHeaderBytes: number;
-  };
-}
-
-export type QaField = "source" | "target" | "both";
-export type QaSeverity = "error" | "warning" | "info";
-
-export interface DeclarativeQaRegexRule {
-  id: string;
-  label: string;
-  field: QaField;
-  pattern: string;
-  severity: QaSeverity;
-  message: string;
-  replacementHint?: string;
-}
-
-export interface DeclarativeQaPackDefinitionV1 {
-  definitionVersion: 1;
-  rules: DeclarativeQaRegexRule[];
-}
-
-export type ArtifactKind =
-  "none" | "project" | "document" | "segments" | "qaFindings" | "json";
-
-export type DeclarativePipelineOperation =
-  | { operation: "select"; path: string[] }
-  | { operation: "set"; path: string[]; value: unknown }
-  | { operation: "assert"; path: string[]; equals: unknown }
-  | {
-      operation: "regexReplace";
-      path: string[];
-      pattern: string;
-      replacement: string;
-      maxReplacements: number;
-    };
-
-export interface DeclarativePipelineDefinitionV1 {
-  definitionVersion: 1;
-  input: ArtifactKind;
-  output: ArtifactKind;
-  operations: DeclarativePipelineOperation[];
-  maxInputBytes: number;
-  maxOutputBytes: number;
-}
-
-export const ENGINE_CONNECTOR_OPERATIONS_V1 = [
+];
+var ENGINE_CONNECTOR_OPERATIONS_V1 = [
   "validateConfig",
   "test",
   "models.list",
   "generate",
-] as const;
-
-export type EngineConnectorOperationV1 =
-  (typeof ENGINE_CONNECTOR_OPERATIONS_V1)[number];
-export type EngineConnectorConfigValueV1 = string | boolean | number;
-export type EngineConnectorConfigV1 = Record<
-  string,
-  EngineConnectorConfigValueV1
->;
-export type EngineConnectorConfigFieldTypeV1 =
-  "text" | "boolean" | "integer" | "select";
-
-export interface EngineConnectorConfigOptionV1 {
-  value: string;
-  label: string;
-}
-
-export interface EngineConnectorConfigFieldV1 {
-  key: string;
-  label: string;
-  fieldType: EngineConnectorConfigFieldTypeV1;
-  required: boolean;
-  description?: string;
-  defaultValue?: EngineConnectorConfigValueV1;
-  min?: number;
-  max?: number;
-  options?: EngineConnectorConfigOptionV1[];
-}
-
-export interface EngineConnectorConfigSchemaV1 {
-  schemaVersion: 1;
-  fields: EngineConnectorConfigFieldV1[];
-}
-
-export interface EngineConnectorLimitsV1 {
-  maxConfigBytes: number;
-  maxMessages: number;
-  maxMessageBytes: number;
-  maxSourceTextBytes: number;
-  maxOutputBytes: number;
-  maxEvents: number;
-  maxModels: number;
-  maxModelIdBytes: number;
-  maxDeadlineMs: number;
-}
-
-export interface DeclarativeConnectorHeaderV1 {
-  name: string;
-  value: string;
-}
-
-export interface DeclarativeConnectorEndpointV1 {
-  destinationOrigin: string;
-  urlTemplate: string;
-  method: "POST";
-}
-
-export type DeclarativeConnectorAuthenticationV1 =
-  { kind: "none" } | { kind: "bearer" } | { kind: "header"; name: string };
-
-export interface DeclarativeConnectorRequestMappingV1 {
-  fixedBody?: Record<string, JsonValue>;
-  modelPath: string[];
-  messagesPath: string[];
-  sourceTextPath?: string[];
-  sourceLocalePath?: string[];
-  targetLocalePath?: string[];
-  streamPath?: string[];
-}
-
-export interface DeclarativeConnectorUsageMappingV1 {
-  inputTokensPath?: string[];
-  outputTokensPath?: string[];
-  totalTokensPath?: string[];
-}
-
-export type DeclarativeConnectorResponseMappingV1 =
-  | {
-      kind: "json";
-      textPath: string[];
-      finishReasonPath?: string[];
-      usage?: DeclarativeConnectorUsageMappingV1;
-    }
-  | {
-      kind: "serverSentEvents";
-      deltaPath: string[];
-      finishReasonPath?: string[];
-      usage?: DeclarativeConnectorUsageMappingV1;
-      doneMarker: string;
-      maxLineBytes: number;
-    };
-
-export type EngineConnectorFailureCodeV1 =
-  | "invalidConfig"
-  | "authentication"
-  | "rateLimit"
-  | "timeout"
-  | "unavailable"
-  | "protocol"
-  | "responseSize"
-  | "cancelled"
-  | "hostCrash";
-
-export interface DeclarativeConnectorFailureMappingV1 {
-  status: number;
-  code: EngineConnectorFailureCodeV1;
-  retryable: boolean;
-}
-
-export interface DeclarativeEngineConnectorDefinitionV1 {
-  definitionVersion: 1;
-  endpoint: DeclarativeConnectorEndpointV1;
-  fixedHeaders?: DeclarativeConnectorHeaderV1[];
-  authentication: DeclarativeConnectorAuthenticationV1;
-  request: DeclarativeConnectorRequestMappingV1;
-  response: DeclarativeConnectorResponseMappingV1;
-  failures?: DeclarativeConnectorFailureMappingV1[];
-}
-
-interface EngineConnectorContributionDescriptorBase {
-  kind: "engineConnector";
-  descriptorVersion: 1;
-  id: string;
-  version: string;
-  displayName: string;
-  protocol: string;
-  operations: string[];
-  configSchemaVersion: number;
-}
-
-/** Released inventory-only shape. It remains readable but is incompatible. */
-export interface LegacyEngineConnectorContributionDescriptor extends EngineConnectorContributionDescriptorBase {
-  contractVersion?: undefined;
-  configSchema?: undefined;
-  limits?: undefined;
-  declarative?: undefined;
-}
-
-export interface EngineConnectorContributionDescriptorV1 extends EngineConnectorContributionDescriptorBase {
-  protocol: typeof ENGINE_CONNECTOR_PROTOCOL_V1;
-  contractVersion: 1;
-  operations: EngineConnectorOperationV1[];
-  configSchema: EngineConnectorConfigSchemaV1;
-  limits: EngineConnectorLimitsV1;
-  declarative?: DeclarativeEngineConnectorDefinitionV1;
-}
-
-export type EngineConnectorContributionDescriptor =
-  | LegacyEngineConnectorContributionDescriptor
-  | EngineConnectorContributionDescriptorV1;
-
-export type EngineConnectorMessageRoleV1 = "system" | "user" | "assistant";
-
-export interface EngineConnectorMessageV1 {
-  role: EngineConnectorMessageRoleV1;
-  content: string;
-}
-
-interface EngineConnectorRequestBaseV1 {
-  contractVersion: 1;
-  requestId: string;
-  config: EngineConnectorConfigV1;
-  deadlineMs: number;
-}
-
-export interface EngineConnectorValidateConfigRequestV1 extends EngineConnectorRequestBaseV1 {
-  operation: "validateConfig";
-}
-
-export interface EngineConnectorTestRequestV1 extends EngineConnectorRequestBaseV1 {
-  operation: "test";
-  model?: string;
-  sourceLocale: string;
-  targetLocale: string;
-}
-
-export interface EngineConnectorModelsListRequestV1 extends EngineConnectorRequestBaseV1 {
-  operation: "models.list";
-  cursor?: string;
-  limit: number;
-}
-
-export interface EngineConnectorGenerateRequestV1 extends EngineConnectorRequestBaseV1 {
-  operation: "generate";
-  sourceLocale: string;
-  targetLocale: string;
-  sourceText: string;
-  messages: EngineConnectorMessageV1[];
-  model: string;
-}
-
-export type EngineConnectorRequestV1 =
-  | EngineConnectorValidateConfigRequestV1
-  | EngineConnectorTestRequestV1
-  | EngineConnectorModelsListRequestV1
-  | EngineConnectorGenerateRequestV1;
-
-export interface EngineConnectorConfigIssueV1 {
-  field: string;
-  code: string;
-  message: string;
-}
-
-export interface EngineConnectorConfigValidationResultV1 {
-  valid: boolean;
-  issues: EngineConnectorConfigIssueV1[];
-}
-
-export interface EngineConnectorTestResultV1 {
-  ok: boolean;
-  latencyMs: number;
-  model?: string;
-}
-
-export interface EngineConnectorModelV1 {
-  id: string;
-  displayName: string;
-  contextTokens?: number;
-}
-
-export interface EngineConnectorModelCatalogV1 {
-  models: EngineConnectorModelV1[];
-  nextCursor?: string;
-}
-
-export interface EngineConnectorUsageV1 {
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-}
-
-export type EngineConnectorFinishReasonV1 = "stop" | "length" | "contentFilter";
-
-export interface EngineConnectorResultV1 {
-  outputText: string;
-  model: string;
-  finishReason: EngineConnectorFinishReasonV1;
-  usage?: EngineConnectorUsageV1;
-}
-
-interface EngineConnectorEventBaseV1 {
-  contractVersion: 1;
-  requestId: string;
-  sequence: number;
-}
-
-export type EngineConnectorEventV1 =
-  | (EngineConnectorEventBaseV1 & { kind: "delta"; text: string })
-  | (EngineConnectorEventBaseV1 & {
-      kind: "usage";
-      usage: EngineConnectorUsageV1;
-    })
-  | (EngineConnectorEventBaseV1 & {
-      kind: "completed";
-      result: EngineConnectorResultV1;
-    });
-
-export interface EngineConnectorFailureV1 {
-  contractVersion: 1;
-  requestId: string;
-  code: EngineConnectorFailureCodeV1;
-  message: string;
-  retryable: boolean;
-  retryAfterMs?: number;
-}
-
-export interface EngineConnectorCancelRequestV1 {
-  contractVersion: 1;
-  requestId: string;
-}
-
-export interface EngineConnectorShutdownRequestV1 {
-  contractVersion: 1;
-}
-
-export interface EngineConnectorInvocationContextV1 {
-  /** One Engine-selected credential for this invocation; never persist it. */
-  readonly credential?: string;
-  readonly signal: AbortSignal;
-}
-
-export interface EngineConnectorHandlerV1 {
-  validateConfig(
-    request: EngineConnectorValidateConfigRequestV1,
-    context: EngineConnectorInvocationContextV1,
-  ):
-    | EngineConnectorConfigValidationResultV1
-    | Promise<EngineConnectorConfigValidationResultV1>;
-  test(
-    request: EngineConnectorTestRequestV1,
-    context: EngineConnectorInvocationContextV1,
-  ): EngineConnectorTestResultV1 | Promise<EngineConnectorTestResultV1>;
-  listModels?(
-    request: EngineConnectorModelsListRequestV1,
-    context: EngineConnectorInvocationContextV1,
-  ): EngineConnectorModelCatalogV1 | Promise<EngineConnectorModelCatalogV1>;
-  generate(
-    request: EngineConnectorGenerateRequestV1,
-    context: EngineConnectorInvocationContextV1,
-  ): AsyncIterable<EngineConnectorEventV1>;
-  cancel(request: EngineConnectorCancelRequestV1): void | Promise<void>;
-  shutdown(request: EngineConnectorShutdownRequestV1): void | Promise<void>;
-}
-
-export class EngineConnectorHandlerError extends Error {
-  readonly failure: EngineConnectorFailureV1;
-
-  constructor(failure: EngineConnectorFailureV1) {
+];
+var EngineConnectorHandlerError = class extends Error {
+  failure;
+  constructor(failure) {
     const errors = validateEngineConnectorFailure(failure);
     if (errors.length > 0) {
       throw new TypeError(`invalid connector failure: ${errors.join("; ")}`);
@@ -613,169 +86,8 @@ export class EngineConnectorHandlerError extends Error {
     this.name = "EngineConnectorHandlerError";
     this.failure = failure;
   }
-}
-
-export interface SandboxEngineConnectorOptionsV1 {
-  contributionId: string;
-  handler: EngineConnectorHandlerV1;
-  limits?: EngineConnectorLimitsV1;
-}
-
-export interface ProcessEngineConnectorOptionsV1 {
-  manifest: PluginManifestV2;
-  contributionId: string;
-  handler: EngineConnectorHandlerV1;
-}
-
-export interface QaRuleContributionDescriptor {
-  kind: "qaRule";
-  descriptorVersion: 1;
-  id: string;
-  version: string;
-  displayName: string;
-  ruleType: string;
-  severity: string;
-  definition: Record<string, unknown>;
-  declarative?: DeclarativeQaPackDefinitionV1;
-  config?: Record<string, unknown>;
-}
-
-export interface PipelineStepContributionDescriptor {
-  kind: "pipelineStep";
-  descriptorVersion: 1;
-  id: string;
-  version: string;
-  displayName: string;
-  input: unknown;
-  output: unknown;
-  configSchemaVersion: number;
-  resumable: boolean;
-  cancellable: boolean;
-  declarative?: DeclarativePipelineDefinitionV1;
-}
-
-export interface AiActionContributionDescriptor {
-  kind: "aiAction";
-  descriptorVersion: 1;
-  id: string;
-  version: string;
-  displayName: string;
-  label: string;
-  placement: string;
-  input: Record<string, unknown>;
-  promptTemplate?: string;
-}
-
-export interface UiPanelContributionDescriptor {
-  kind: "uiPanel";
-  descriptorVersion: 1;
-  id: string;
-  version: string;
-  displayName: string;
-  label: string;
-  placement: string;
-  surface: string;
-  bridgeVersion: number;
-}
-
-export interface ExternalConnectorContributionDescriptor {
-  kind: "externalConnector";
-  descriptorVersion: 1;
-  id: string;
-  version: string;
-  displayName: string;
-  transports: string[];
-  checkpointVersion: number;
-  capabilities: Record<string, boolean>;
-}
-
-export type PluginContributionDescriptor =
-  | FilterContributionDescriptor
-  | EngineConnectorContributionDescriptor
-  | QaRuleContributionDescriptor
-  | PipelineStepContributionDescriptor
-  | AiActionContributionDescriptor
-  | UiPanelContributionDescriptor
-  | ExternalConnectorContributionDescriptor;
-
-export interface PluginManifestV2 {
-  manifestVersion: 2;
-  id: string;
-  displayName: string;
-  version: string;
-  hostApi: { min: number; max: number };
-  runtime: PluginRuntimeDescriptor;
-  contributions: PluginContributionDescriptor[];
-  permissions: string[];
-  capabilities?: PluginCapabilityRequest[];
-}
-
-export interface NormalizedPluginManifest {
-  normalizedVersion: 1;
-  sourceManifestVersion: 1 | 2;
-  id: string;
-  displayName: string;
-  version: string;
-  hostApi: { min: number; max: number };
-  runtime: PluginRuntimeDescriptor;
-  contributions: PluginContributionDescriptor[];
-  requestedPermissions: string[];
-  requestedCapabilities: PluginCapabilityRequest[];
-  originalManifestJson: Record<string, unknown>;
-}
-
-export function defineDeclarativeFilter(
-  contribution: Omit<
-    FilterContributionDescriptor,
-    "kind" | "descriptorVersion"
-  > & { declarative: DeclarativeFilterDefinitionV1 },
-): FilterContributionDescriptor {
-  return {
-    kind: "filter",
-    descriptorVersion: CONTRIBUTION_DESCRIPTOR_VERSION,
-    ...contribution,
-  };
-}
-
-export function defineDeclarativeQaPack(
-  contribution: Omit<
-    QaRuleContributionDescriptor,
-    "kind" | "descriptorVersion" | "ruleType"
-  > & { declarative: DeclarativeQaPackDefinitionV1 },
-): QaRuleContributionDescriptor {
-  return {
-    kind: "qaRule",
-    descriptorVersion: CONTRIBUTION_DESCRIPTOR_VERSION,
-    ruleType: "regexPack",
-    ...contribution,
-  };
-}
-
-export function defineDeclarativePipelineStep(
-  contribution: Omit<
-    PipelineStepContributionDescriptor,
-    | "kind"
-    | "descriptorVersion"
-    | "input"
-    | "output"
-    | "configSchemaVersion"
-    | "resumable"
-    | "cancellable"
-  > & { declarative: DeclarativePipelineDefinitionV1 },
-): PipelineStepContributionDescriptor {
-  return {
-    kind: "pipelineStep",
-    descriptorVersion: CONTRIBUTION_DESCRIPTOR_VERSION,
-    input: contribution.declarative.input,
-    output: contribution.declarative.output,
-    configSchemaVersion: DECLARATIVE_DEFINITION_VERSION,
-    resumable: false,
-    cancellable: true,
-    ...contribution,
-  };
-}
-
-export function defaultEngineConnectorLimits(): EngineConnectorLimitsV1 {
+};
+function defaultEngineConnectorLimits() {
   return {
     maxConfigBytes: ENGINE_CONNECTOR_LIMITS.configBytes,
     maxMessages: ENGINE_CONNECTOR_LIMITS.messages,
@@ -788,53 +100,9 @@ export function defaultEngineConnectorLimits(): EngineConnectorLimitsV1 {
     maxDeadlineMs: ENGINE_CONNECTOR_LIMITS.deadlineMs,
   };
 }
-
-export function defineEngineConnector(
-  contribution: Omit<
-    EngineConnectorContributionDescriptorV1,
-    | "kind"
-    | "descriptorVersion"
-    | "protocol"
-    | "contractVersion"
-    | "operations"
-    | "limits"
-  > & {
-    operations?: EngineConnectorOperationV1[];
-    limits?: EngineConnectorLimitsV1;
-  },
-): EngineConnectorContributionDescriptorV1 {
-  const { operations, limits, ...rest } = contribution;
-  const descriptor: EngineConnectorContributionDescriptorV1 = {
-    kind: "engineConnector",
-    descriptorVersion: CONTRIBUTION_DESCRIPTOR_VERSION,
-    protocol: ENGINE_CONNECTOR_PROTOCOL_V1,
-    contractVersion: ENGINE_CONNECTOR_CONTRACT_VERSION,
-    operations: operations ?? ["validateConfig", "test", "generate"],
-    limits: limits ?? defaultEngineConnectorLimits(),
-    ...rest,
-  };
-  const errors = validateEngineConnectorDescriptor(descriptor);
-  if (errors.length > 0) {
-    throw new Error(`invalid engine connector: ${errors.join("; ")}`);
-  }
-  return descriptor;
-}
-
-export function defineDeclarativeEngineConnector(
-  contribution: Omit<
-    Parameters<typeof defineEngineConnector>[0],
-    "declarative"
-  > & { declarative: DeclarativeEngineConnectorDefinitionV1 },
-): EngineConnectorContributionDescriptorV1 {
-  return defineEngineConnector(contribution);
-}
-
-export function validateEngineConnectorDescriptor(
-  value: unknown,
-  tier?: PluginTier,
-): string[] {
-  const errors: string[] = [];
-  const descriptor = strictRecord(
+function validateEngineConnectorDescriptor(value, tier) {
+  const errors = [];
+  const descriptor2 = strictRecord(
     value,
     [
       "kind",
@@ -853,68 +121,67 @@ export function validateEngineConnectorDescriptor(
     "connector descriptor",
     errors,
   );
-  if (!descriptor) return errors;
-  if (descriptor.kind !== "engineConnector") {
+  if (!descriptor2) return errors;
+  if (descriptor2.kind !== "engineConnector") {
     errors.push("connector kind must be engineConnector");
   }
-  if (descriptor.descriptorVersion !== CONTRIBUTION_DESCRIPTOR_VERSION) {
+  if (descriptor2.descriptorVersion !== CONTRIBUTION_DESCRIPTOR_VERSION) {
     errors.push("connector descriptorVersion must be 1");
   }
   validateId(
-    typeof descriptor.id === "string" ? descriptor.id : undefined,
+    typeof descriptor2.id === "string" ? descriptor2.id : void 0,
     "connector id",
     errors,
   );
-  boundedString(descriptor.version, 1, 128, "connector version", errors);
+  boundedString(descriptor2.version, 1, 128, "connector version", errors);
   if (
-    typeof descriptor.version === "string" &&
+    typeof descriptor2.version === "string" &&
     !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u.test(
-      descriptor.version,
+      descriptor2.version,
     )
   ) {
     errors.push("connector version must be semantic version syntax");
   }
   boundedString(
-    descriptor.displayName,
+    descriptor2.displayName,
     1,
     256,
     "connector displayName",
     errors,
   );
-  if (descriptor.protocol !== ENGINE_CONNECTOR_PROTOCOL_V1) {
+  if (descriptor2.protocol !== ENGINE_CONNECTOR_PROTOCOL_V1) {
     errors.push(`connector protocol must be ${ENGINE_CONNECTOR_PROTOCOL_V1}`);
   }
-  if (descriptor.contractVersion !== ENGINE_CONNECTOR_CONTRACT_VERSION) {
+  if (descriptor2.contractVersion !== ENGINE_CONNECTOR_CONTRACT_VERSION) {
     errors.push("connector contractVersion must be 1");
   }
   if (
-    !Number.isSafeInteger(descriptor.configSchemaVersion) ||
-    (descriptor.configSchemaVersion as number) < 1
+    !Number.isSafeInteger(descriptor2.configSchemaVersion) ||
+    descriptor2.configSchemaVersion < 1
   ) {
     errors.push("connector configSchemaVersion must be a positive integer");
   }
-  validateConnectorOperations(descriptor.operations, errors);
-  validateConnectorConfigSchema(descriptor.configSchema, errors);
-  validateConnectorLimits(descriptor.limits, errors);
-  if (descriptor.declarative !== undefined) {
-    validateDeclarativeConnectorDefinition(descriptor.declarative, errors);
+  validateConnectorOperations(descriptor2.operations, errors);
+  validateConnectorConfigSchema(descriptor2.configSchema, errors);
+  validateConnectorLimits(descriptor2.limits, errors);
+  if (descriptor2.declarative !== void 0) {
+    validateDeclarativeConnectorDefinition(descriptor2.declarative, errors);
   }
-  if (tier === "declarative" && descriptor.declarative === undefined) {
+  if (tier === "declarative" && descriptor2.declarative === void 0) {
     errors.push("declarative connector requires a typed definition");
   }
-  if (tier !== undefined && tier !== "declarative" && descriptor.declarative) {
+  if (tier !== void 0 && tier !== "declarative" && descriptor2.declarative) {
     errors.push(
       "executable connector tiers cannot include a declarative definition",
     );
   }
   return errors;
 }
-
-export function validateEngineConnectorRequest(
-  value: unknown,
-  limits: EngineConnectorLimitsV1 = defaultEngineConnectorLimits(),
-): string[] {
-  const errors: string[] = [];
+function validateEngineConnectorRequest(
+  value,
+  limits = defaultEngineConnectorLimits(),
+) {
+  const errors = [];
   validateConnectorLimits(limits, errors);
   if (!isPlainRecord(value)) return ["connector request must be an object"];
   const operation = value.operation;
@@ -925,7 +192,7 @@ export function validateEngineConnectorRequest(
     "config",
     "deadlineMs",
   ];
-  const operationKeys: Record<EngineConnectorOperationV1, string[]> = {
+  const operationKeys = {
     validateConfig: [],
     test: ["model", "sourceLocale", "targetLocale"],
     "models.list": ["cursor", "limit"],
@@ -954,13 +221,13 @@ export function validateEngineConnectorRequest(
   validateConnectorConfig(value.config, limits.maxConfigBytes, errors);
   integerRange(value.deadlineMs, 1, limits.maxDeadlineMs, "deadlineMs", errors);
   if (operation === "test") {
-    if (value.model !== undefined) {
+    if (value.model !== void 0) {
       boundedString(value.model, 1, limits.maxModelIdBytes, "model", errors);
     }
     validateLocale(value.sourceLocale, "sourceLocale", errors);
     validateLocale(value.targetLocale, "targetLocale", errors);
   } else if (operation === "models.list") {
-    if (value.cursor !== undefined) {
+    if (value.cursor !== void 0) {
       boundedString(value.cursor, 1, 512, "cursor", errors);
     }
     integerRange(value.limit, 1, limits.maxModels, "limit", errors);
@@ -1018,12 +285,11 @@ export function validateEngineConnectorRequest(
   }
   return errors;
 }
-
-export function validateEngineConnectorEvent(
-  value: unknown,
-  limits: EngineConnectorLimitsV1 = defaultEngineConnectorLimits(),
-): string[] {
-  const errors: string[] = [];
+function validateEngineConnectorEvent(
+  value,
+  limits = defaultEngineConnectorLimits(),
+) {
+  const errors = [];
   if (!isPlainRecord(value)) return ["connector event must be an object"];
   const kind = value.kind;
   const allowed =
@@ -1053,27 +319,21 @@ export function validateEngineConnectorEvent(
   }
   return errors;
 }
-
-export class EngineConnectorEventSequenceValidatorV1 {
-  readonly requestId: string;
-  private readonly limits: EngineConnectorLimitsV1;
-  private nextSequence = 0;
-  private outputBytes = 0;
-  private completed = false;
-
-  constructor(
-    requestId: string,
-    limits: EngineConnectorLimitsV1 = defaultEngineConnectorLimits(),
-  ) {
-    const errors: string[] = [];
+var EngineConnectorEventSequenceValidatorV1 = class {
+  requestId;
+  limits;
+  nextSequence = 0;
+  outputBytes = 0;
+  completed = false;
+  constructor(requestId, limits = defaultEngineConnectorLimits()) {
+    const errors = [];
     validateRequestId(requestId, errors);
     validateConnectorLimits(limits, errors);
     throwIfErrors(errors, "invalid connector event sequence");
     this.requestId = requestId;
     this.limits = { ...limits };
   }
-
-  accept(event: EngineConnectorEventV1): string[] {
+  accept(event) {
     const errors = validateEngineConnectorEvent(event, this.limits);
     if (this.completed)
       errors.push("connector emitted an event after completion");
@@ -1095,17 +355,15 @@ export class EngineConnectorEventSequenceValidatorV1 {
     }
     return errors;
   }
-
-  isCompleted(): boolean {
+  isCompleted() {
     return this.completed;
   }
-}
-
-export function validateEngineConnectorResult(
-  value: unknown,
-  limits: EngineConnectorLimitsV1 = defaultEngineConnectorLimits(),
-): string[] {
-  const errors: string[] = [];
+};
+function validateEngineConnectorResult(
+  value,
+  limits = defaultEngineConnectorLimits(),
+) {
+  const errors = [];
   const result = strictRecord(
     value,
     ["outputText", "model", "finishReason", "usage"],
@@ -1126,12 +384,11 @@ export function validateEngineConnectorResult(
   ) {
     errors.push("connector finishReason is unsupported");
   }
-  if (result.usage !== undefined) validateConnectorUsage(result.usage, errors);
+  if (result.usage !== void 0) validateConnectorUsage(result.usage, errors);
   return errors;
 }
-
-export function validateEngineConnectorFailure(value: unknown): string[] {
-  const errors: string[] = [];
+function validateEngineConnectorFailure(value) {
+  const errors = [];
   const failure = strictRecord(
     value,
     [
@@ -1150,7 +407,7 @@ export function validateEngineConnectorFailure(value: unknown): string[] {
     errors.push("connector failure contractVersion must be 1");
   }
   validateRequestId(failure.requestId, errors);
-  const codes: EngineConnectorFailureCodeV1[] = [
+  const codes = [
     "invalidConfig",
     "authentication",
     "rateLimit",
@@ -1161,7 +418,7 @@ export function validateEngineConnectorFailure(value: unknown): string[] {
     "cancelled",
     "hostCrash",
   ];
-  if (!codes.includes(failure.code as EngineConnectorFailureCodeV1)) {
+  if (!codes.includes(failure.code)) {
     errors.push("connector failure code is unsupported");
   }
   boundedString(
@@ -1174,7 +431,7 @@ export function validateEngineConnectorFailure(value: unknown): string[] {
   if (typeof failure.retryable !== "boolean") {
     errors.push("connector failure retryable must be boolean");
   }
-  if (failure.retryAfterMs !== undefined) {
+  if (failure.retryAfterMs !== void 0) {
     integerRange(
       failure.retryAfterMs,
       0,
@@ -1193,11 +450,8 @@ export function validateEngineConnectorFailure(value: unknown): string[] {
   }
   return errors;
 }
-
-export function validateEngineConnectorConfigValidationResult(
-  value: unknown,
-): string[] {
-  const errors: string[] = [];
+function validateEngineConnectorConfigValidationResult(value) {
+  const errors = [];
   const result = strictRecord(
     value,
     ["valid", "issues"],
@@ -1241,9 +495,8 @@ export function validateEngineConnectorConfigValidationResult(
   }
   return errors;
 }
-
-export function validateEngineConnectorTestResult(value: unknown): string[] {
-  const errors: string[] = [];
+function validateEngineConnectorTestResult(value) {
+  const errors = [];
   const result = strictRecord(
     value,
     ["ok", "latencyMs", "model"],
@@ -1260,7 +513,7 @@ export function validateEngineConnectorTestResult(value: unknown): string[] {
     "latencyMs",
     errors,
   );
-  if (result.model !== undefined) {
+  if (result.model !== void 0) {
     boundedString(
       result.model,
       1,
@@ -1271,12 +524,11 @@ export function validateEngineConnectorTestResult(value: unknown): string[] {
   }
   return errors;
 }
-
-export function validateEngineConnectorModelCatalog(
-  value: unknown,
-  limits: EngineConnectorLimitsV1 = defaultEngineConnectorLimits(),
-): string[] {
-  const errors: string[] = [];
+function validateEngineConnectorModelCatalog(
+  value,
+  limits = defaultEngineConnectorLimits(),
+) {
+  const errors = [];
   const catalog = strictRecord(
     value,
     ["models", "nextCursor"],
@@ -1291,7 +543,7 @@ export function validateEngineConnectorModelCatalog(
     errors.push("connector model catalog exceeds maxModels");
     return errors;
   }
-  const ids = new Set<string>();
+  const ids = /* @__PURE__ */ new Set();
   for (const [index, rawModel] of catalog.models.entries()) {
     const model = strictRecord(
       rawModel,
@@ -1318,7 +570,7 @@ export function validateEngineConnectorModelCatalog(
       if (ids.has(model.id)) errors.push("connector model ids must be unique");
       ids.add(model.id);
     }
-    if (model.contextTokens !== undefined) {
+    if (model.contextTokens !== void 0) {
       integerRange(
         model.contextTokens,
         1,
@@ -1328,17 +580,13 @@ export function validateEngineConnectorModelCatalog(
       );
     }
   }
-  if (catalog.nextCursor !== undefined) {
+  if (catalog.nextCursor !== void 0) {
     boundedString(catalog.nextCursor, 1, 512, "nextCursor", errors);
   }
   return errors;
 }
-
-export function validateEngineConnectorConfig(
-  schema: EngineConnectorConfigSchemaV1,
-  config: unknown,
-): string[] {
-  const errors: string[] = [];
+function validateEngineConnectorConfig(schema, config) {
+  const errors = [];
   validateConnectorConfigSchema(schema, errors);
   validateConnectorConfig(config, ENGINE_CONNECTOR_LIMITS.configBytes, errors);
   if (!isPlainRecord(config)) return errors;
@@ -1348,8 +596,8 @@ export function validateEngineConnectorConfig(
   }
   for (const field of schema.fields) {
     const value = config[field.key];
-    if (value === undefined) {
-      if (field.required && field.defaultValue === undefined) {
+    if (value === void 0) {
+      if (field.required && field.defaultValue === void 0) {
         errors.push(`required connector config field ${field.key} is missing`);
       }
       continue;
@@ -1361,8 +609,8 @@ export function validateEngineConnectorConfig(
     } else if (
       field.fieldType === "integer" &&
       (!Number.isSafeInteger(value) ||
-        (field.min !== undefined && (value as number) < field.min) ||
-        (field.max !== undefined && (value as number) > field.max))
+        (field.min !== void 0 && value < field.min) ||
+        (field.max !== void 0 && value > field.max))
     ) {
       errors.push(
         `connector config field ${field.key} is outside integer bounds`,
@@ -1379,13 +627,12 @@ export function validateEngineConnectorConfig(
   }
   return errors;
 }
-
-function validateConnectorOperations(value: unknown, errors: string[]): void {
+function validateConnectorOperations(value, errors) {
   if (!Array.isArray(value) || value.length < 1 || value.length > 4) {
     errors.push("connector operations must contain between 1 and 4 items");
     return;
   }
-  const seen = new Set<string>();
+  const seen = /* @__PURE__ */ new Set();
   for (const operation of value) {
     if (!isConnectorOperation(operation)) {
       errors.push(`unsupported connector operation ${String(operation)}`);
@@ -1395,14 +642,13 @@ function validateConnectorOperations(value: unknown, errors: string[]): void {
       seen.add(operation);
     }
   }
-  for (const required of ["validateConfig", "test", "generate"] as const) {
+  for (const required of ["validateConfig", "test", "generate"]) {
     if (!seen.has(required)) {
       errors.push(`connector operations must include ${required}`);
     }
   }
 }
-
-function validateConnectorConfigSchema(value: unknown, errors: string[]): void {
+function validateConnectorConfigSchema(value, errors) {
   const schema = strictRecord(
     value,
     ["schemaVersion", "fields"],
@@ -1420,7 +666,7 @@ function validateConnectorConfigSchema(value: unknown, errors: string[]): void {
     errors.push("connector config schema has too many fields");
     return;
   }
-  const keys = new Set<string>();
+  const keys = /* @__PURE__ */ new Set();
   for (const [index, rawField] of schema.fields.entries()) {
     const field = strictRecord(
       rawField,
@@ -1452,7 +698,7 @@ function validateConnectorConfigSchema(value: unknown, errors: string[]): void {
       `connector config field ${index} label`,
       errors,
     );
-    if (field.description !== undefined) {
+    if (field.description !== void 0) {
       boundedString(
         field.description,
         1,
@@ -1473,7 +719,7 @@ function validateConnectorConfigSchema(value: unknown, errors: string[]): void {
       continue;
     }
     const defaultValue = field.defaultValue;
-    if (defaultValue !== undefined && !isConnectorConfigValue(defaultValue)) {
+    if (defaultValue !== void 0 && !isConnectorConfigValue(defaultValue)) {
       errors.push(`connector config field ${index} defaultValue is invalid`);
     }
     if (
@@ -1483,10 +729,10 @@ function validateConnectorConfigSchema(value: unknown, errors: string[]): void {
       errors.push(`connector config field ${index} defaultValue is oversized`);
     }
     if (field.fieldType === "integer") {
-      if (field.min !== undefined && !Number.isSafeInteger(field.min)) {
+      if (field.min !== void 0 && !Number.isSafeInteger(field.min)) {
         errors.push(`connector config field ${index} min must be an integer`);
       }
-      if (field.max !== undefined && !Number.isSafeInteger(field.max)) {
+      if (field.max !== void 0 && !Number.isSafeInteger(field.max)) {
         errors.push(`connector config field ${index} max must be an integer`);
       }
       if (
@@ -1496,7 +742,7 @@ function validateConnectorConfigSchema(value: unknown, errors: string[]): void {
       ) {
         errors.push(`connector config field ${index} min must not exceed max`);
       }
-      if (defaultValue !== undefined && !Number.isSafeInteger(defaultValue)) {
+      if (defaultValue !== void 0 && !Number.isSafeInteger(defaultValue)) {
         errors.push(
           `connector config field ${index} defaultValue must be an integer`,
         );
@@ -1509,21 +755,21 @@ function validateConnectorConfigSchema(value: unknown, errors: string[]): void {
           `connector config field ${index} defaultValue is outside bounds`,
         );
       }
-      if (field.options !== undefined && !isEmptyArray(field.options)) {
+      if (field.options !== void 0 && !isEmptyArray(field.options)) {
         errors.push(`connector config field ${index} cannot have options`);
       }
     } else {
-      if (field.min !== undefined || field.max !== undefined) {
+      if (field.min !== void 0 || field.max !== void 0) {
         errors.push(
           `connector config field ${index} cannot have numeric bounds`,
         );
       }
       if (
         (field.fieldType === "text" &&
-          defaultValue !== undefined &&
+          defaultValue !== void 0 &&
           typeof defaultValue !== "string") ||
         (field.fieldType === "boolean" &&
-          defaultValue !== undefined &&
+          defaultValue !== void 0 &&
           typeof defaultValue !== "boolean")
       ) {
         errors.push(
@@ -1532,19 +778,13 @@ function validateConnectorConfigSchema(value: unknown, errors: string[]): void {
       }
       if (field.fieldType === "select") {
         validateConfigOptions(field.options, defaultValue, index, errors);
-      } else if (field.options !== undefined && !isEmptyArray(field.options)) {
+      } else if (field.options !== void 0 && !isEmptyArray(field.options)) {
         errors.push(`connector config field ${index} cannot have options`);
       }
     }
   }
 }
-
-function validateConfigOptions(
-  rawOptions: unknown,
-  defaultValue: unknown,
-  fieldIndex: number,
-  errors: string[],
-): void {
+function validateConfigOptions(rawOptions, defaultValue, fieldIndex, errors) {
   if (
     !Array.isArray(rawOptions) ||
     rawOptions.length < 1 ||
@@ -1555,7 +795,7 @@ function validateConfigOptions(
     );
     return;
   }
-  const values = new Set<string>();
+  const values = /* @__PURE__ */ new Set();
   for (const [index, rawOption] of rawOptions.entries()) {
     const option = strictRecord(
       rawOption,
@@ -1585,7 +825,7 @@ function validateConfigOptions(
     }
   }
   if (
-    defaultValue !== undefined &&
+    defaultValue !== void 0 &&
     (typeof defaultValue !== "string" || !values.has(defaultValue))
   ) {
     errors.push(
@@ -1593,8 +833,7 @@ function validateConfigOptions(
     );
   }
 }
-
-function validateConnectorLimits(value: unknown, errors: string[]): void {
+function validateConnectorLimits(value, errors) {
   const limits = strictRecord(
     value,
     [
@@ -1612,7 +851,7 @@ function validateConnectorLimits(value: unknown, errors: string[]): void {
     errors,
   );
   if (!limits) return;
-  const maxima: Record<string, number> = {
+  const maxima = {
     maxConfigBytes: ENGINE_CONNECTOR_LIMITS.configBytes,
     maxMessages: ENGINE_CONNECTOR_LIMITS.messages,
     maxMessageBytes: ENGINE_CONNECTOR_LIMITS.messageBytes,
@@ -1627,11 +866,7 @@ function validateConnectorLimits(value: unknown, errors: string[]): void {
     integerRange(limits[key], 1, maximum, key, errors);
   }
 }
-
-function validateDeclarativeConnectorDefinition(
-  value: unknown,
-  errors: string[],
-): void {
+function validateDeclarativeConnectorDefinition(value, errors) {
   const definition = strictRecord(
     value,
     [
@@ -1664,7 +899,7 @@ function validateDeclarativeConnectorDefinition(
     }
     if (authentication.kind === "header") {
       validateHeaderName(authentication.name, true, errors);
-    } else if (authentication.name !== undefined) {
+    } else if (authentication.name !== void 0) {
       errors.push("only header authentication can name a header");
     }
   }
@@ -1672,8 +907,7 @@ function validateDeclarativeConnectorDefinition(
   validateDeclarativeResponseMapping(definition.response, errors);
   validateDeclarativeFailureMappings(definition.failures ?? [], errors);
 }
-
-function validateDeclarativeEndpoint(value: unknown, errors: string[]): void {
+function validateDeclarativeEndpoint(value, errors) {
   const endpoint = strictRecord(
     value,
     ["destinationOrigin", "urlTemplate", "method"],
@@ -1702,7 +936,7 @@ function validateDeclarativeEndpoint(value: unknown, errors: string[]): void {
     typeof endpoint.urlTemplate === "string"
   ) {
     const origin = endpoint.destinationOrigin;
-    let parsed: URL | undefined;
+    let parsed;
     try {
       parsed = new URL(origin);
     } catch {
@@ -1736,13 +970,12 @@ function validateDeclarativeEndpoint(value: unknown, errors: string[]): void {
     }
   }
 }
-
-function validateDeclarativeHeaders(value: unknown, errors: string[]): void {
+function validateDeclarativeHeaders(value, errors) {
   if (!Array.isArray(value) || value.length > ENGINE_CONNECTOR_LIMITS.headers) {
     errors.push("declarative connector has too many fixed headers");
     return;
   }
-  const names = new Set<string>();
+  const names = /* @__PURE__ */ new Set();
   for (const [index, rawHeader] of value.entries()) {
     const header = strictRecord(
       rawHeader,
@@ -1772,11 +1005,7 @@ function validateDeclarativeHeaders(value: unknown, errors: string[]): void {
     }
   }
 }
-
-function validateDeclarativeRequestMapping(
-  value: unknown,
-  errors: string[],
-): void {
+function validateDeclarativeRequestMapping(value, errors) {
   const mapping = strictRecord(
     value,
     [
@@ -1792,7 +1021,7 @@ function validateDeclarativeRequestMapping(
     errors,
   );
   if (!mapping) return;
-  if (mapping.fixedBody !== undefined) {
+  if (mapping.fixedBody !== void 0) {
     if (
       !validateSandboxJsonValue(
         mapping.fixedBody,
@@ -1809,15 +1038,11 @@ function validateDeclarativeRequestMapping(
     "sourceLocalePath",
     "targetLocalePath",
     "streamPath",
-  ] as const) {
-    if (mapping[key] !== undefined) validateJsonPath(mapping[key], key, errors);
+  ]) {
+    if (mapping[key] !== void 0) validateJsonPath(mapping[key], key, errors);
   }
 }
-
-function validateDeclarativeResponseMapping(
-  value: unknown,
-  errors: string[],
-): void {
+function validateDeclarativeResponseMapping(value, errors) {
   if (!isPlainRecord(value)) {
     errors.push("declarative connector response mapping must be an object");
     return;
@@ -1851,13 +1076,12 @@ function validateDeclarativeResponseMapping(
     errors.push("declarative connector response kind is unsupported");
     return;
   }
-  if (value.finishReasonPath !== undefined) {
+  if (value.finishReasonPath !== void 0) {
     validateJsonPath(value.finishReasonPath, "finishReasonPath", errors);
   }
-  if (value.usage !== undefined) validateUsageMapping(value.usage, errors);
+  if (value.usage !== void 0) validateUsageMapping(value.usage, errors);
 }
-
-function validateUsageMapping(value: unknown, errors: string[]): void {
+function validateUsageMapping(value, errors) {
   const mapping = strictRecord(
     value,
     ["inputTokensPath", "outputTokensPath", "totalTokensPath"],
@@ -1865,29 +1089,21 @@ function validateUsageMapping(value: unknown, errors: string[]): void {
     errors,
   );
   if (!mapping) return;
-  const keys = [
-    "inputTokensPath",
-    "outputTokensPath",
-    "totalTokensPath",
-  ] as const;
-  if (keys.every((key) => mapping[key] === undefined)) {
+  const keys = ["inputTokensPath", "outputTokensPath", "totalTokensPath"];
+  if (keys.every((key) => mapping[key] === void 0)) {
     errors.push("connector usage mapping must define at least one path");
   }
   for (const key of keys) {
-    if (mapping[key] !== undefined) validateJsonPath(mapping[key], key, errors);
+    if (mapping[key] !== void 0) validateJsonPath(mapping[key], key, errors);
   }
 }
-
-function validateDeclarativeFailureMappings(
-  value: unknown,
-  errors: string[],
-): void {
+function validateDeclarativeFailureMappings(value, errors) {
   if (!Array.isArray(value) || value.length > 64) {
     errors.push("declarative connector has too many failure mappings");
     return;
   }
-  const statuses = new Set<number>();
-  const codes: EngineConnectorFailureCodeV1[] = [
+  const statuses = /* @__PURE__ */ new Set();
+  const codes = [
     "invalidConfig",
     "authentication",
     "rateLimit",
@@ -1912,7 +1128,7 @@ function validateDeclarativeFailureMappings(
         errors.push("failure statuses must be unique");
       statuses.add(mapping.status);
     }
-    if (!codes.includes(mapping.code as EngineConnectorFailureCodeV1)) {
+    if (!codes.includes(mapping.code)) {
       errors.push("connector failure mapping code is unsupported");
     }
     if (typeof mapping.retryable !== "boolean") {
@@ -1920,12 +1136,7 @@ function validateDeclarativeFailureMappings(
     }
   }
 }
-
-function validateConnectorConfig(
-  value: unknown,
-  maxBytes: number,
-  errors: string[],
-): void {
+function validateConnectorConfig(value, maxBytes, errors) {
   if (!isPlainRecord(value)) {
     errors.push("connector config must be an object");
     return;
@@ -1949,8 +1160,7 @@ function validateConnectorConfig(
   if (jsonBytes(value) > maxBytes)
     errors.push("connector config exceeds its byte limit");
 }
-
-function validateConnectorUsage(value: unknown, errors: string[]): void {
+function validateConnectorUsage(value, errors) {
   const usage = strictRecord(
     value,
     ["inputTokens", "outputTokens", "totalTokens"],
@@ -1958,7 +1168,7 @@ function validateConnectorUsage(value: unknown, errors: string[]): void {
     errors,
   );
   if (!usage) return;
-  for (const key of ["inputTokens", "outputTokens", "totalTokens"] as const) {
+  for (const key of ["inputTokens", "outputTokens", "totalTokens"]) {
     integerRange(usage[key], 0, Number.MAX_SAFE_INTEGER, key, errors);
   }
   if (
@@ -1969,12 +1179,7 @@ function validateConnectorUsage(value: unknown, errors: string[]): void {
     errors.push("totalTokens must equal inputTokens plus outputTokens");
   }
 }
-
-function validateJsonPath(
-  value: unknown,
-  label: string,
-  errors: string[],
-): void {
+function validateJsonPath(value, label, errors) {
   if (
     !Array.isArray(value) ||
     value.length < 1 ||
@@ -1993,12 +1198,7 @@ function validateJsonPath(
     }
   }
 }
-
-function validateHeaderName(
-  value: unknown,
-  authenticationHeader: boolean,
-  errors: string[],
-): void {
+function validateHeaderName(value, authenticationHeader, errors) {
   boundedString(
     value,
     1,
@@ -2023,12 +1223,7 @@ function validateHeaderName(
     errors.push("connector fixed header is host-owned or sensitive");
   }
 }
-
-function validateConfigKey(
-  value: unknown,
-  label: string,
-  errors: string[],
-): void {
+function validateConfigKey(value, label, errors) {
   if (
     typeof value !== "string" ||
     !/^[A-Za-z0-9._-]+$/u.test(value) ||
@@ -2037,8 +1232,7 @@ function validateConfigKey(
     errors.push(`${label} is malformed or oversized`);
   }
 }
-
-function validateRequestId(value: unknown, errors: string[]): void {
+function validateRequestId(value, errors) {
   if (
     typeof value !== "string" ||
     !/^[A-Za-z0-9._-]+$/u.test(value) ||
@@ -2047,8 +1241,7 @@ function validateRequestId(value: unknown, errors: string[]): void {
     errors.push("connector requestId is malformed or oversized");
   }
 }
-
-function validateLocale(value: unknown, label: string, errors: string[]): void {
+function validateLocale(value, label, errors) {
   if (
     typeof value !== "string" ||
     !/^[A-Za-z0-9-]+$/u.test(value) ||
@@ -2057,36 +1250,23 @@ function validateLocale(value: unknown, label: string, errors: string[]): void {
     errors.push(`${label} is malformed or oversized`);
   }
 }
-
-function isConnectorConfigValue(value: unknown): boolean {
+function isConnectorConfigValue(value) {
   return (
     typeof value === "string" ||
     typeof value === "boolean" ||
     (typeof value === "number" && Number.isSafeInteger(value))
   );
 }
-
-function isConnectorOperation(
-  value: unknown,
-): value is EngineConnectorOperationV1 {
-  return ENGINE_CONNECTOR_OPERATIONS_V1.includes(
-    value as EngineConnectorOperationV1,
-  );
+function isConnectorOperation(value) {
+  return ENGINE_CONNECTOR_OPERATIONS_V1.includes(value);
 }
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
+function isPlainRecord(value) {
   if (typeof value !== "object" || value === null || Array.isArray(value))
     return false;
-  const prototype = Object.getPrototypeOf(value) as unknown;
+  const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
 }
-
-function strictRecord(
-  value: unknown,
-  allowedKeys: readonly string[],
-  label: string,
-  errors: string[],
-): Record<string, unknown> | null {
+function strictRecord(value, allowedKeys, label, errors) {
   if (!isPlainRecord(value)) {
     errors.push(`${label} must be an object`);
     return null;
@@ -2094,27 +1274,14 @@ function strictRecord(
   rejectUnknownKeys(value, allowedKeys, label, errors);
   return value;
 }
-
-function rejectUnknownKeys(
-  value: Record<string, unknown>,
-  allowedKeys: readonly string[],
-  label: string,
-  errors: string[],
-): void {
+function rejectUnknownKeys(value, allowedKeys, label, errors) {
   const allowed = new Set(allowedKeys);
   for (const key of Object.keys(value)) {
     if (!allowed.has(key))
       errors.push(`${label} contains unknown field ${key}`);
   }
 }
-
-function boundedString(
-  value: unknown,
-  minBytes: number,
-  maxBytes: number,
-  label: string,
-  errors: string[],
-): void {
+function boundedString(value, minBytes, maxBytes, label, errors) {
   if (
     typeof value !== "string" ||
     value.includes("\0") ||
@@ -2126,83 +1293,31 @@ function boundedString(
     );
   }
 }
-
-function integerRange(
-  value: unknown,
-  min: number,
-  max: number,
-  label: string,
-  errors: string[],
-): void {
-  if (
-    !Number.isSafeInteger(value) ||
-    (value as number) < min ||
-    (value as number) > max
-  ) {
+function integerRange(value, min, max, label, errors) {
+  if (!Number.isSafeInteger(value) || value < min || value > max) {
     errors.push(`${label} must be an integer between ${min} and ${max}`);
   }
 }
-
-function utf8Bytes(value: string): number {
+function utf8Bytes(value) {
   return new TextEncoder().encode(value).length;
 }
-
-function jsonBytes(value: unknown): number {
+function jsonBytes(value) {
   try {
     return utf8Bytes(JSON.stringify(value));
   } catch {
     return Number.POSITIVE_INFINITY;
   }
 }
-
-function isEmptyArray(value: unknown): boolean {
+function isEmptyArray(value) {
   return Array.isArray(value) && value.length === 0;
 }
-
-export function defineDeclarativeManifest(
-  manifest: Omit<PluginManifestV2, "manifestVersion" | "runtime">,
-): PluginManifestV2 {
-  return {
-    manifestVersion: 2,
-    runtime: {
-      tier: "declarative",
-      runtimeVersion: RUNTIME_DESCRIPTOR_VERSION,
-      entry: { kind: "manifest" },
-    },
-    ...manifest,
-  };
-}
-
-export function defineSandboxManifest(
-  manifest: Omit<PluginManifestV2, "manifestVersion" | "runtime"> & {
-    entry: { path: string; exportName?: string };
-  },
-): PluginManifestV2 {
-  const { entry, ...rest } = manifest;
-  return {
-    manifestVersion: 2,
-    runtime: {
-      tier: "sandbox",
-      runtimeVersion: SANDBOX_PROTOCOL_VERSION,
-      entry: {
-        kind: "javascript",
-        path: entry.path,
-        ...(entry.exportName === undefined
-          ? {}
-          : { exportName: entry.exportName }),
-      },
-    },
-    ...rest,
-  };
-}
-
-export function validateSandboxJsonValue(
-  value: unknown,
+function validateSandboxJsonValue(
+  value,
   maxBytes = SANDBOX_LIMITS.invocationJsonBytes,
-): value is JsonValue {
+) {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) return false;
-  const seen = new Set<object>();
-  const visit = (candidate: unknown, depth: number): boolean => {
+  const seen = /* @__PURE__ */ new Set();
+  const visit = (candidate, depth) => {
     if (depth > SANDBOX_LIMITS.jsonDepth) return false;
     if (
       candidate === null ||
@@ -2236,153 +1351,76 @@ export function validateSandboxJsonValue(
     return false;
   }
 }
-
-export function parsePluginPanelMessageV1(
-  value: unknown,
-): PluginPanelMessageV1 | null {
-  if (!validateSandboxJsonValue(value, SANDBOX_LIMITS.hostCallJsonBytes)) {
-    return null;
-  }
-  if (!value || Array.isArray(value) || typeof value !== "object") return null;
-  const message = value as Record<string, JsonValue>;
-  if (message.version !== SANDBOX_BRIDGE_VERSION) return null;
-  if (message.type === "ready") {
-    return Object.keys(message).length === 3 && isBridgeText(message.nonce, 128)
-      ? { version: 1, type: "ready", nonce: message.nonce }
-      : null;
-  }
-  if (message.type === "cancel") {
-    return Object.keys(message).length === 3 && isBridgeId(message.id)
-      ? { version: 1, type: "cancel", id: message.id }
-      : null;
-  }
-  if (message.type === "request") {
-    return Object.keys(message).length === 5 &&
-      isBridgeId(message.id) &&
-      isBridgeText(message.method, 96) &&
-      validateSandboxJsonValue(message.params, SANDBOX_LIMITS.hostCallJsonBytes)
-      ? {
-          version: 1,
-          type: "request",
-          id: message.id,
-          method: message.method,
-          params: message.params,
-        }
-      : null;
-  }
-  return null;
-}
-
-function isBridgeId(value: JsonValue | undefined): value is string {
-  return (
-    typeof value === "string" &&
-    value.length >= 1 &&
-    value.length <= 96 &&
-    /^[A-Za-z0-9._:-]+$/u.test(value)
-  );
-}
-
-function isBridgeText(
-  value: JsonValue | undefined,
-  maxLength: number,
-): value is string {
-  return (
-    typeof value === "string" &&
-    value.length >= 1 &&
-    value.length <= maxLength &&
-    !/[\u0000-\u001f\u007f]/u.test(value)
-  );
-}
-
-export interface PluginCompatibility {
-  compatible: boolean;
-  hostApiSupported: boolean;
-  runtimeSupported: boolean;
-  contributionsSupported: boolean;
-  unsupportedCapabilities: string[];
-}
-
-export interface PluginPackageFileDigest {
-  path: string;
-  size: number;
-  sha256: string;
-}
-
-export function normalizeManifest(
-  manifest: PluginManifest | PluginManifestV2,
-): NormalizedPluginManifest {
-  if (manifest.manifestVersion === 1) {
+function normalizeManifest(manifest2) {
+  if (manifest2.manifestVersion === 1) {
     return {
       normalizedVersion: NORMALIZED_MANIFEST_VERSION,
       sourceManifestVersion: 1,
-      id: manifest.id,
-      displayName: manifest.displayName,
-      version: manifest.version,
-      hostApi: { min: manifest.apiVersionMin, max: manifest.apiVersion },
+      id: manifest2.id,
+      displayName: manifest2.displayName,
+      version: manifest2.version,
+      hostApi: { min: manifest2.apiVersionMin, max: manifest2.apiVersion },
       runtime: {
         tier: "process",
         runtimeVersion: RUNTIME_DESCRIPTOR_VERSION,
         protocolVersion: PROCESS_PROTOCOL_VERSION,
-        entry: manifest.entry,
+        entry: manifest2.entry,
       },
-      contributions: manifest.contributions.filters.map((filter) => ({
+      contributions: manifest2.contributions.filters.map((filter) => ({
         kind: "filter",
         descriptorVersion: CONTRIBUTION_DESCRIPTOR_VERSION,
         ...filter,
       })),
-      requestedPermissions: [...(manifest.permissions ?? [])],
+      requestedPermissions: [...(manifest2.permissions ?? [])],
       requestedCapabilities: normalizeCapabilityRequests(
-        manifest.permissions ?? [],
-        manifest.capabilities ?? [],
+        manifest2.permissions ?? [],
+        manifest2.capabilities ?? [],
       ),
-      originalManifestJson: manifest as unknown as Record<string, unknown>,
+      originalManifestJson: manifest2,
     };
   }
   return {
     normalizedVersion: NORMALIZED_MANIFEST_VERSION,
     sourceManifestVersion: 2,
-    id: manifest.id,
-    displayName: manifest.displayName,
-    version: manifest.version,
-    hostApi: { ...manifest.hostApi },
-    runtime: manifest.runtime,
-    contributions: [...manifest.contributions],
-    requestedPermissions: [...(manifest.permissions ?? [])],
+    id: manifest2.id,
+    displayName: manifest2.displayName,
+    version: manifest2.version,
+    hostApi: { ...manifest2.hostApi },
+    runtime: manifest2.runtime,
+    contributions: [...manifest2.contributions],
+    requestedPermissions: [...(manifest2.permissions ?? [])],
     requestedCapabilities: normalizeCapabilityRequests(
-      manifest.permissions ?? [],
-      manifest.capabilities ?? [],
+      manifest2.permissions ?? [],
+      manifest2.capabilities ?? [],
     ),
-    originalManifestJson: manifest as unknown as Record<string, unknown>,
+    originalManifestJson: manifest2,
   };
 }
-
-export function validateNormalizedManifest(
-  manifest: NormalizedPluginManifest,
-): string[] {
-  const errors: string[] = [];
-  if (manifest.normalizedVersion !== NORMALIZED_MANIFEST_VERSION) {
+function validateNormalizedManifest(manifest2) {
+  const errors = [];
+  if (manifest2.normalizedVersion !== NORMALIZED_MANIFEST_VERSION) {
     errors.push("normalizedVersion must be 1");
   }
-  validateId(manifest.id, "id", errors);
-  if (manifest.id?.startsWith("builtin.")) {
+  validateId(manifest2.id, "id", errors);
+  if (manifest2.id?.startsWith("builtin.")) {
     errors.push("id must not use builtin. prefix");
   }
-  if (!manifest.displayName?.trim()) errors.push("displayName is required");
-  if (!manifest.version?.trim()) errors.push("version is required");
+  if (!manifest2.displayName?.trim()) errors.push("displayName is required");
+  if (!manifest2.version?.trim()) errors.push("version is required");
   if (
-    !Number.isInteger(manifest.hostApi.min) ||
-    !Number.isInteger(manifest.hostApi.max)
+    !Number.isInteger(manifest2.hostApi.min) ||
+    !Number.isInteger(manifest2.hostApi.max)
   ) {
     errors.push("hostApi range must contain integers");
-  } else if (manifest.hostApi.min > manifest.hostApi.max) {
+  } else if (manifest2.hostApi.min > manifest2.hostApi.max) {
     errors.push("hostApi.min must be <= hostApi.max");
   } else if (
-    HOST_API_VERSION < manifest.hostApi.min ||
-    HOST_API_VERSION > manifest.hostApi.max
+    HOST_API_VERSION < manifest2.hostApi.min ||
+    HOST_API_VERSION > manifest2.hostApi.max
   ) {
     errors.push("host API is outside plugin range");
   }
-  const runtime = manifest.runtime;
+  const runtime = manifest2.runtime;
   if (runtime.runtimeVersion !== RUNTIME_DESCRIPTOR_VERSION) {
     errors.push("runtimeVersion must be 1");
   }
@@ -2401,11 +1439,11 @@ export function validateNormalizedManifest(
   if (runtime.tier === "sandbox" && !/\.(?:m?js)$/u.test(runtime.entry.path)) {
     errors.push("sandbox runtime entry must end in .js or .mjs");
   }
-  if (manifest.contributions.length === 0) {
+  if (manifest2.contributions.length === 0) {
     errors.push("at least one contribution is required");
   }
-  const seen = new Set<string>();
-  for (const contribution of manifest.contributions) {
+  const seen = /* @__PURE__ */ new Set();
+  for (const contribution of manifest2.contributions) {
     if (contribution.descriptorVersion !== CONTRIBUTION_DESCRIPTOR_VERSION) {
       errors.push(`unsupported descriptorVersion for ${contribution.kind}`);
     }
@@ -2437,7 +1475,7 @@ export function validateNormalizedManifest(
     }
     if (
       contribution.kind === "engineConnector" &&
-      contribution.contractVersion !== undefined
+      contribution.contractVersion !== void 0
     ) {
       errors.push(
         ...validateEngineConnectorDescriptor(contribution, runtime.tier),
@@ -2455,79 +1493,15 @@ export function validateNormalizedManifest(
       }
     }
   }
-  for (const permission of manifest.requestedPermissions ?? []) {
+  for (const permission of manifest2.requestedPermissions ?? []) {
     if (!isSupportedPermission(permission)) {
       errors.push(`unsupported permission ${permission}`);
     }
   }
-  validateCapabilityRequests(manifest.requestedCapabilities ?? [], errors);
+  validateCapabilityRequests(manifest2.requestedCapabilities ?? [], errors);
   return errors;
 }
-
-export function compatibilityForManifest(
-  manifest: NormalizedPluginManifest,
-): PluginCompatibility {
-  const hostApiSupported =
-    HOST_API_VERSION >= manifest.hostApi.min &&
-    HOST_API_VERSION <= manifest.hostApi.max;
-  const runtimeSupported = true;
-  const contributionSupported = (
-    contribution: PluginContributionDescriptor,
-  ): boolean => {
-    if (contribution.kind === "engineConnector") {
-      return (
-        contribution.contractVersion === ENGINE_CONNECTOR_CONTRACT_VERSION &&
-        validateEngineConnectorDescriptor(contribution, manifest.runtime.tier)
-          .length === 0
-      );
-    }
-    if (manifest.runtime.tier === "process") {
-      return contribution.kind === "filter";
-    }
-    if (manifest.runtime.tier === "sandbox") {
-      return contribution.kind === "filter" || contribution.kind === "uiPanel";
-    }
-    if (manifest.runtime.tier !== "declarative") return false;
-    const errors: string[] = [];
-    validateDeclarativeContribution(contribution, errors);
-    return errors.length === 0;
-  };
-  const contributionsSupported = manifest.contributions.every(
-    contributionSupported,
-  );
-  const unsupportedCapabilities = [
-    ...(runtimeSupported ? [] : [`runtime.${manifest.runtime.tier}`]),
-    ...manifest.contributions
-      .filter((contribution) => !contributionSupported(contribution))
-      .map(
-        (contribution) =>
-          `contribution.${contribution.kind}:${contribution.id}`,
-      ),
-  ];
-  return {
-    compatible: hostApiSupported && runtimeSupported && contributionsSupported,
-    hostApiSupported,
-    runtimeSupported,
-    contributionsSupported,
-    unsupportedCapabilities,
-  };
-}
-
-export function canonicalPackageHash(
-  entries: PluginPackageFileDigest[],
-): string {
-  const sorted = [...entries].sort((left, right) =>
-    left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
-  );
-  const canonical = JSON.stringify({
-    algorithm: "sha256",
-    version: 1,
-    entries: sorted,
-  });
-  return createHash("sha256").update(canonical, "utf8").digest("hex");
-}
-
-function isRelativePackagePath(value: string): boolean {
+function isRelativePackagePath(value) {
   return (
     value.length > 0 &&
     value.length <= 512 &&
@@ -2536,13 +1510,9 @@ function isRelativePackagePath(value: string): boolean {
     !/^(?:[A-Za-z]:[\\/]|[\\/])/.test(value)
   );
 }
-
-function validateDeclarativeContribution(
-  contribution: PluginContributionDescriptor,
-  errors: string[],
-): void {
+function validateDeclarativeContribution(contribution, errors) {
   if (contribution.kind === "engineConnector") {
-    if (contribution.contractVersion === undefined) {
+    if (contribution.contractVersion === void 0) {
       errors.push(
         `declarative connector ${contribution.id} needs a strict V1 definition`,
       );
@@ -2570,7 +1540,7 @@ function validateDeclarativeContribution(
       );
     }
     validatePattern(definition.unitPattern, "unitPattern", errors);
-    if (definition.probeHeaderPattern !== undefined) {
+    if (definition.probeHeaderPattern !== void 0) {
       validatePattern(
         definition.probeHeaderPattern,
         "probeHeaderPattern",
@@ -2592,7 +1562,7 @@ function validateDeclarativeContribution(
       "maxOutputBytes",
       errors,
     );
-    validateIntegerRange(limits.maxUnits, 1, 100_000, "maxUnits", errors);
+    validateIntegerRange(limits.maxUnits, 1, 1e5, "maxUnits", errors);
     validateIntegerRange(
       limits.maxUnitBytes,
       1,
@@ -2603,7 +1573,7 @@ function validateDeclarativeContribution(
     validateIntegerRange(
       limits.maxCaptureBytes,
       1,
-      4_096,
+      4096,
       "maxCaptureBytes",
       errors,
     );
@@ -2644,7 +1614,7 @@ function validateDeclarativeContribution(
         `declarative QA contribution ${contribution.id} has invalid bounds`,
       );
     }
-    const ids = new Set<string>();
+    const ids = /* @__PURE__ */ new Set();
     for (const rule of definition.rules) {
       if (!/^[A-Za-z0-9._:-]{1,96}$/.test(rule.id) || ids.has(rule.id)) {
         errors.push(
@@ -2709,7 +1679,7 @@ function validateDeclarativeContribution(
         validateIntegerRange(
           operation.maxReplacements,
           1,
-          100_000,
+          1e5,
           "maxReplacements",
           errors,
         );
@@ -2719,33 +1689,17 @@ function validateDeclarativeContribution(
   }
   errors.push(`${contribution.kind} is not executable by the declarative host`);
 }
-
-function validatePattern(
-  pattern: string,
-  label: string,
-  errors: string[],
-): void {
-  if (pattern.length < 1 || new TextEncoder().encode(pattern).length > 4_096) {
+function validatePattern(pattern, label, errors) {
+  if (pattern.length < 1 || new TextEncoder().encode(pattern).length > 4096) {
     errors.push(`${label} must contain between 1 and 4096 bytes`);
   }
 }
-
-function validateIntegerRange(
-  value: number,
-  min: number,
-  max: number,
-  label: string,
-  errors: string[],
-): void {
+function validateIntegerRange(value, min, max, label, errors) {
   if (!Number.isSafeInteger(value) || value < min || value > max) {
     errors.push(`${label} must be an integer between ${min} and ${max}`);
   }
 }
-
-function isContributionAllowed(
-  tier: PluginTier,
-  kind: PluginContributionDescriptor["kind"],
-): boolean {
+function isContributionAllowed(tier, kind) {
   if (tier === "sandbox") return true;
   if (tier === "process") return kind !== "uiPanel";
   return (
@@ -2755,8 +1709,7 @@ function isContributionAllowed(
     kind === "engineConnector"
   );
 }
-
-function isSupportedPermission(permission: string): boolean {
+function isSupportedPermission(permission) {
   try {
     parseLegacyPermission(permission);
     return true;
@@ -2764,27 +1717,22 @@ function isSupportedPermission(permission: string): boolean {
     return false;
   }
 }
-
-const MAX_CAPABILITY_REQUESTS = 64;
-const MAX_SCOPE_ITEMS = 64;
-const MAX_SCOPE_TEXT = 512;
-
-export function parseLegacyPermission(
-  permission: string,
-): PluginCapabilityRequest {
-  const scoped = (
-    capabilityId: PluginCapabilityId,
-    scope: PluginCapabilityScope,
-  ): PluginCapabilityRequest => ({ capabilityId, required: true, scope });
+var MAX_CAPABILITY_REQUESTS = 64;
+var MAX_SCOPE_ITEMS = 64;
+var MAX_SCOPE_TEXT = 512;
+function parseLegacyPermission(permission) {
+  const scoped = (capabilityId, scope) => ({
+    capabilityId,
+    required: true,
+    scope,
+  });
   if (permission === "file.read:source") {
     return scoped("file.read", { kind: "file", areas: ["source"] });
   }
   if (permission === "file.write:output") {
     return scoped("file.write", { kind: "file", areas: ["output"] });
   }
-  const mappings: Array<
-    readonly [string, PluginCapabilityId, PluginCapabilityScope["kind"]]
-  > = [
+  const mappings = [
     ["network:", "network.connect", "network"],
     ["asset.read:", "asset.read", "assets"],
     ["asset.write:", "asset.write", "assets"],
@@ -2825,11 +1773,8 @@ export function parseLegacyPermission(
   }
   throw new Error(`unsupported permission ${permission}`);
 }
-
-export function normalizeCapabilityScope(
-  scope: PluginCapabilityScope,
-): PluginCapabilityScope {
-  const strings = (values: string[], label: string): string[] => {
+function normalizeCapabilityScope(scope) {
+  const strings = (values, label) => {
     if (values.length === 0 || values.length > MAX_SCOPE_ITEMS) {
       throw new Error(`${label} must contain between one and 64 items`);
     }
@@ -2889,10 +1834,7 @@ export function normalizeCapabilityScope(
       };
   }
 }
-
-export function normalizeCapabilityRequest(
-  request: PluginCapabilityRequest,
-): PluginCapabilityRequest {
+function normalizeCapabilityRequest(request) {
   const scope = normalizeCapabilityScope(request.scope);
   const required = request.required ?? true;
   if (!isValidCapabilityId(request.capabilityId)) {
@@ -2907,8 +1849,8 @@ export function normalizeCapabilityRequest(
       `scope kind does not match capability ${request.capabilityId}`,
     );
   }
-  if (request.contributionId !== undefined) {
-    const errors: string[] = [];
+  if (request.contributionId !== void 0) {
+    const errors = [];
     validateId(request.contributionId, "capability contribution id", errors);
     if (errors.length > 0) throw new Error(errors[0]);
   }
@@ -2916,23 +1858,19 @@ export function normalizeCapabilityRequest(
     capabilityId: request.capabilityId,
     required,
     scope,
-    ...(request.contributionId === undefined
+    ...(request.contributionId === void 0
       ? {}
       : { contributionId: request.contributionId }),
   };
 }
-
-export function normalizeCapabilityRequests(
-  legacyPermissions: string[],
-  typedRequests: PluginCapabilityRequest[],
-): PluginCapabilityRequest[] {
+function normalizeCapabilityRequests(legacyPermissions, typedRequests) {
   if (
     legacyPermissions.length + typedRequests.length >
     MAX_CAPABILITY_REQUESTS
   ) {
     throw new Error("too many requested capabilities");
   }
-  const bySemanticKey = new Map<string, PluginCapabilityRequest>();
+  const bySemanticKey = /* @__PURE__ */ new Map();
   for (const request of [
     ...legacyPermissions.map(parseLegacyPermission),
     ...typedRequests,
@@ -2944,67 +1882,14 @@ export function normalizeCapabilityRequests(
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([, request]) => request);
 }
-
-export function capabilityScopeContains(
-  allowed: PluginCapabilityScope,
-  candidate: PluginCapabilityScope,
-): boolean {
-  const contains = (values: string[], requested: string[]): boolean =>
-    requested.every((value) => values.includes("*") || values.includes(value));
-  if (allowed.kind !== candidate.kind) return false;
-  switch (allowed.kind) {
-    case "unscoped":
-      return true;
-    case "file":
-      return (
-        candidate.kind === "file" && contains(allowed.areas, candidate.areas)
-      );
-    case "network":
-      return (
-        candidate.kind === "network" &&
-        contains(allowed.origins, candidate.origins)
-      );
-    case "projects":
-      return (
-        candidate.kind === "projects" &&
-        contains(allowed.projectIds, candidate.projectIds)
-      );
-    case "assets":
-      return (
-        candidate.kind === "assets" &&
-        contains(allowed.projectIds, candidate.projectIds) &&
-        contains(allowed.assetIds, candidate.assetIds)
-      );
-    case "operations":
-      return (
-        candidate.kind === "operations" &&
-        contains(allowed.operations, candidate.operations)
-      );
-    case "contributions":
-      return (
-        candidate.kind === "contributions" &&
-        contains(allowed.contributionIds, candidate.contributionIds)
-      );
-    case "diagnostics":
-      return (
-        candidate.kind === "diagnostics" &&
-        contains(allowed.categories, candidate.categories)
-      );
-  }
-}
-
-function validateCapabilityRequests(
-  requests: PluginCapabilityRequest[],
-  errors: string[],
-): void {
+function validateCapabilityRequests(requests, errors) {
   try {
     normalizeCapabilityRequests([], requests);
   } catch (error) {
     errors.push(error instanceof Error ? error.message : String(error));
   }
 }
-
-function isValidScopeText(value: string): boolean {
+function isValidScopeText(value) {
   return (
     value.length > 0 &&
     value.length <= MAX_SCOPE_TEXT &&
@@ -3012,8 +1897,7 @@ function isValidScopeText(value: string): boolean {
     !/[\u0000-\u001f\u007f]/.test(value)
   );
 }
-
-function isValidCapabilityId(value: string): boolean {
+function isValidCapabilityId(value) {
   return (
     value.length > 0 &&
     value.length <= 128 &&
@@ -3021,17 +1905,10 @@ function isValidCapabilityId(value: string): boolean {
     /^[A-Za-z0-9._-]+$/.test(value)
   );
 }
-
-export function isKnownPluginCapabilityId(
-  capabilityId: string,
-): capabilityId is KnownPluginCapabilityId {
+function isKnownPluginCapabilityId(capabilityId) {
   return PLUGIN_CAPABILITY_IDS.some((candidate) => candidate === capabilityId);
 }
-
-function scopeMatchesCapability(
-  capabilityId: string,
-  scope: PluginCapabilityScope,
-): boolean {
+function scopeMatchesCapability(capabilityId, scope) {
   if (capabilityId === "file.read" || capabilityId === "file.write") {
     return scope.kind === "file";
   }
@@ -3058,180 +1935,14 @@ function scopeMatchesCapability(
   }
   return capabilityId === "diagnostics.read" && scope.kind === "diagnostics";
 }
-
-export type PluginFilterEvent =
-  | {
-      type: "startDocument";
-      metadata: {
-        format: string;
-        sourceLocale?: string;
-        properties?: Record<string, string>;
-      };
-    }
-  | { type: "startUnit"; ordinal: number; structuralPath: string }
-  | { type: "text"; text: string }
-  | { type: "targetText"; text: string }
-  | { type: "endUnit" }
-  | { type: "endDocument" }
-  | {
-      type: "degradation";
-      finding: {
-        code: string;
-        severity: "info" | "warning" | "error";
-        message: string;
-        structuralPath?: string;
-      };
-    };
-
-export interface ProbeResult {
-  confidence: number;
-  reason: string;
-}
-
-export interface ExportReport {
-  outputPath: string;
-  translatedSegments: number;
-  degradation: Array<{
-    code: string;
-    severity: "info" | "warning" | "error";
-    message: string;
-    structuralPath?: string;
-  }>;
-}
-
-export interface ValidationReport {
-  valid: boolean;
-  findings: ExportReport["degradation"];
-}
-
-export interface Segment {
-  id: string;
-  documentId: string;
-  ordinal: number;
-  structuralPath: string;
-  sourceText: string;
-  targetText: string;
-  state: string;
-  revision: number;
-  sourceHash: string;
-  contextHash: string;
-  updatedAtMs: number;
-}
-
-export interface FilterHandlers {
-  descriptor(): FilterDescriptor;
-  probe(input: { sourcePath: string }): ProbeResult | Promise<ProbeResult>;
-  import(input: {
-    sourcePath: string;
-    documentId?: string | null;
-    sourceLocale?: string | null;
-    options?: Record<string, string>;
-  }): PluginFilterEvent[] | Promise<PluginFilterEvent[]>;
-  export(input: {
-    sourcePath: string;
-    outputPath: string;
-    segments: Segment[];
-  }): ExportReport | Promise<ExportReport>;
-  validate(input: {
-    sourcePath: string;
-  }): ValidationReport | Promise<ValidationReport>;
-}
-
-export function createSandboxEngineConnectorPlugin(
-  options: SandboxEngineConnectorOptionsV1,
-): SandboxPluginV1 {
-  const limits = options.limits ?? defaultEngineConnectorLimits();
-  const active = new Map<string, AbortController>();
-  const limitErrors: string[] = [];
-  validateConnectorLimits(limits, limitErrors);
-  throwIfErrors(limitErrors, "invalid connector limits");
-  return {
-    async invoke(invocation, _host, invocationContext) {
-      const credential = parseSandboxInvocationCredential(invocationContext);
-      if (invocation.contributionId !== options.contributionId) {
-        throw new Error("connector contribution does not match this handler");
-      }
-      if (invocation.operation === "connector.cancel") {
-        if (credential !== undefined) {
-          throw new Error(
-            "connector cancellation does not accept a credential",
-          );
-        }
-        const request = parseConnectorCancelRequest(invocation.input);
-        active.get(request.requestId)?.abort();
-        await options.handler.cancel(request);
-        return {};
-      }
-      if (!invocation.operation.startsWith("connector.")) {
-        throw new Error("unsupported connector sandbox operation");
-      }
-      const request = parseConnectorRequest(invocation.input, limits);
-      if (`connector.${request.operation}` !== invocation.operation) {
-        throw new Error("connector operation does not match request payload");
-      }
-      const controller = new AbortController();
-      if (active.has(request.requestId)) {
-        throw new Error("connector requestId is already active");
-      }
-      active.set(request.requestId, controller);
-      const context: { credential?: string; signal: AbortSignal } = {
-        ...(credential !== undefined ? { credential } : {}),
-        signal: controller.signal,
-      };
-      try {
-        return await dispatchConnectorHandler(
-          options.handler,
-          request,
-          context,
-          limits,
-        );
-      } finally {
-        delete context.credential;
-        active.delete(request.requestId);
-      }
-    },
-    async deactivate() {
-      for (const controller of active.values()) controller.abort();
-      active.clear();
-      await options.handler.shutdown({ contractVersion: 1 });
-    },
-  };
-}
-
-function parseSandboxInvocationCredential(
-  context: SandboxInvocationContextV1 | undefined,
-): string | undefined {
-  if (context === undefined) return undefined;
-  const errors: string[] = [];
-  const record = strictRecord(
-    context,
-    ["credential"],
-    "sandbox invocation context",
-    errors,
-  );
-  if (record?.credential !== undefined) {
-    boundedString(
-      record.credential,
-      0,
-      MAX_ENGINE_CONNECTOR_CREDENTIAL_BYTES,
-      "sandbox invocation credential",
-      errors,
-    );
-  }
-  throwIfErrors(errors, "invalid sandbox invocation context");
-  return typeof record?.credential === "string" ? record.credential : undefined;
-}
-
-export function startProcessEngineConnector(
-  options: ProcessEngineConnectorOptionsV1,
-): void {
+function startProcessEngineConnector(options) {
   const normalized = normalizeManifest(options.manifest);
   const manifestErrors = validateNormalizedManifest(normalized);
   if (manifestErrors.length > 0) {
     throw new Error(`invalid plugin manifest: ${manifestErrors.join("; ")}`);
   }
   const contribution = normalized.contributions.find(
-    (candidate): candidate is EngineConnectorContributionDescriptorV1 =>
+    (candidate) =>
       candidate.kind === "engineConnector" &&
       candidate.id === options.contributionId &&
       candidate.contractVersion === ENGINE_CONNECTOR_CONTRACT_VERSION,
@@ -3242,24 +1953,18 @@ export function startProcessEngineConnector(
     );
   }
   const limits = contribution.limits;
-  const active = new Map<string, AbortController>();
+  const active = /* @__PURE__ */ new Map();
   const rl = createInterface({ input, crlfDelay: Infinity });
   rl.on("line", (line) => {
     void handleConnectorProcessLine(line, options, contribution, active);
   });
 }
-
-async function handleConnectorProcessLine(
-  line: string,
-  options: ProcessEngineConnectorOptionsV1,
-  contribution: EngineConnectorContributionDescriptorV1,
-  active: Map<string, AbortController>,
-): Promise<void> {
+async function handleConnectorProcessLine(line, options, contribution, active) {
   const trimmed = line.trim();
   if (!trimmed) return;
-  let rpc: JsonRpcRequest;
+  let rpc;
   try {
-    rpc = JSON.parse(trimmed) as JsonRpcRequest;
+    rpc = JSON.parse(trimmed);
   } catch {
     writeConnectorRpcError(null, safeConnectorFailure("invalid", "protocol"));
     return;
@@ -3279,7 +1984,7 @@ async function handleConnectorProcessLine(
       return;
     }
     if (method === "plugin.shutdown") {
-      for (const controller of active.values()) controller.abort();
+      for (const controller2 of active.values()) controller2.abort();
       active.clear();
       await options.handler.shutdown({ contractVersion: 1 });
       if (id !== null) writeResult(id, {});
@@ -3287,16 +1992,16 @@ async function handleConnectorProcessLine(
       return;
     }
     if (method === "connector.cancel") {
-      const request = parseConnectorCancelRequest(rpc.params);
-      active.get(request.requestId)?.abort();
-      await options.handler.cancel(request);
+      const request2 = parseConnectorCancelRequest(rpc.params);
+      active.get(request2.requestId)?.abort();
+      await options.handler.cancel(request2);
       if (id !== null) writeResult(id, {});
       return;
     }
     if (!method.startsWith("connector.")) {
       throw new Error("unsupported connector process method");
     }
-    const paramsErrors: string[] = [];
+    const paramsErrors = [];
     const params = strictRecord(
       rpc.params,
       ["request", "credential"],
@@ -3313,7 +2018,7 @@ async function handleConnectorProcessLine(
         "connector process method does not match request payload",
       );
     }
-    if (params.credential !== undefined) {
+    if (params.credential !== void 0) {
       if (
         typeof params.credential !== "string" ||
         params.credential.includes("\0") ||
@@ -3326,7 +2031,7 @@ async function handleConnectorProcessLine(
       throw new Error("connector requestId is already active");
     }
     const controller = new AbortController();
-    const context: { credential?: string; signal: AbortSignal } = {
+    const context = {
       ...(typeof params.credential === "string"
         ? { credential: params.credential }
         : {}),
@@ -3346,10 +2051,11 @@ async function handleConnectorProcessLine(
                   jsonrpc: "2.0",
                   method: "connector.event",
                   params: event,
-                })}\n`,
+                })}
+`,
               );
             }
-          : undefined,
+          : void 0,
       );
       if (id !== null) writeResult(id, result);
     } finally {
@@ -3365,17 +2071,16 @@ async function handleConnectorProcessLine(
     }
   }
 }
-
 async function dispatchConnectorHandler(
-  handler: EngineConnectorHandlerV1,
-  request: EngineConnectorRequestV1,
-  context: EngineConnectorInvocationContextV1,
-  limits: EngineConnectorLimitsV1,
-  emit?: (event: EngineConnectorEventV1) => void,
-): Promise<unknown> {
+  handler2,
+  request,
+  context,
+  limits,
+  emit,
+) {
   switch (request.operation) {
     case "validateConfig": {
-      const result = await handler.validateConfig(request, context);
+      const result = await handler2.validateConfig(request, context);
       throwIfErrors(
         validateEngineConnectorConfigValidationResult(result),
         "invalid connector config validation result",
@@ -3383,7 +2088,7 @@ async function dispatchConnectorHandler(
       return result;
     }
     case "test": {
-      const result = await handler.test(request, context);
+      const result = await handler2.test(request, context);
       throwIfErrors(
         validateEngineConnectorTestResult(result),
         "invalid connector test result",
@@ -3391,9 +2096,9 @@ async function dispatchConnectorHandler(
       return result;
     }
     case "models.list": {
-      if (!handler.listModels)
+      if (!handler2.listModels)
         throw new Error("connector does not implement models.list");
-      const result = await handler.listModels(request, context);
+      const result = await handler2.listModels(request, context);
       throwIfErrors(
         validateEngineConnectorModelCatalog(result, limits),
         "invalid connector model catalog",
@@ -3401,12 +2106,12 @@ async function dispatchConnectorHandler(
       return result;
     }
     case "generate": {
-      const events: EngineConnectorEventV1[] = [];
+      const events = [];
       const sequence = new EngineConnectorEventSequenceValidatorV1(
         request.requestId,
         limits,
       );
-      for await (const event of handler.generate(request, context)) {
+      for await (const event of handler2.generate(request, context)) {
         if (context.signal.aborted)
           throw new Error("connector request was cancelled");
         throwIfErrors(sequence.accept(event), "invalid connector event");
@@ -3420,22 +2125,15 @@ async function dispatchConnectorHandler(
     }
   }
 }
-
-function parseConnectorRequest(
-  value: unknown,
-  limits: EngineConnectorLimitsV1,
-): EngineConnectorRequestV1 {
+function parseConnectorRequest(value, limits) {
   throwIfErrors(
     validateEngineConnectorRequest(value, limits),
     "invalid connector request",
   );
-  return value as EngineConnectorRequestV1;
+  return value;
 }
-
-function parseConnectorCancelRequest(
-  value: unknown,
-): EngineConnectorCancelRequestV1 {
-  const errors: string[] = [];
+function parseConnectorCancelRequest(value) {
+  const errors = [];
   const request = strictRecord(
     value,
     ["contractVersion", "requestId"],
@@ -3447,21 +2145,13 @@ function parseConnectorCancelRequest(
   }
   if (request) validateRequestId(request.requestId, errors);
   throwIfErrors(errors, "invalid connector cancellation");
-  return value as EngineConnectorCancelRequestV1;
+  return value;
 }
-
-function connectorFailureFromError(
-  error: unknown,
-  requestId: string,
-): EngineConnectorFailureV1 {
+function connectorFailureFromError(error, requestId) {
   if (error instanceof EngineConnectorHandlerError) return error.failure;
   return safeConnectorFailure(requestId, "protocol");
 }
-
-function safeConnectorFailure(
-  requestId: string,
-  code: EngineConnectorFailureCodeV1,
-): EngineConnectorFailureV1 {
+function safeConnectorFailure(requestId, code) {
   return {
     contractVersion: 1,
     requestId,
@@ -3470,11 +2160,7 @@ function safeConnectorFailure(
     retryable: false,
   };
 }
-
-function writeConnectorRpcError(
-  id: number | null,
-  failure: EngineConnectorFailureV1,
-): void {
+function writeConnectorRpcError(id, failure) {
   output.write(
     `${JSON.stringify({
       jsonrpc: "2.0",
@@ -3484,215 +2170,424 @@ function writeConnectorRpcError(
         message: "connector invocation failed",
         data: failure,
       },
-    })}\n`,
+    })}
+`,
   );
 }
-
-function throwIfErrors(errors: string[], label: string): void {
+function throwIfErrors(errors, label) {
   if (errors.length > 0) throw new Error(`${label}: ${errors.join("; ")}`);
 }
-
-export interface ProcessPluginOptions {
-  manifest: PluginManifest;
-  filter: FilterHandlers;
-}
-
-interface JsonRpcRequest {
-  jsonrpc?: string;
-  id?: number;
-  method?: string;
-  params?: unknown;
-}
-
-export function validateManifest(manifest: PluginManifest): string[] {
-  const errors: string[] = [];
-  if (manifest.manifestVersion !== 1) errors.push("manifestVersion must be 1");
-  validateId(manifest.id, "id", errors);
-  if (manifest.id?.startsWith("builtin.")) {
-    errors.push("id must not use builtin. prefix");
-  }
-  if (!manifest.displayName?.trim()) errors.push("displayName is required");
-  if (!manifest.version?.trim()) errors.push("version is required");
-  if (
-    !Number.isInteger(manifest.apiVersion) ||
-    !Number.isInteger(manifest.apiVersionMin) ||
-    manifest.apiVersion < 0 ||
-    manifest.apiVersionMin < 0
-  ) {
-    errors.push("apiVersion and apiVersionMin must be non-negative integers");
-  } else if (manifest.apiVersionMin > manifest.apiVersion) {
-    errors.push("apiVersionMin must be <= apiVersion");
-  } else if (
-    HOST_API_VERSION < manifest.apiVersionMin ||
-    HOST_API_VERSION > manifest.apiVersion
-  ) {
-    errors.push(
-      `host API ${HOST_API_VERSION} is outside plugin range ${manifest.apiVersionMin}..=${manifest.apiVersion}`,
-    );
-  }
-  if (manifest.tier !== "process") errors.push("tier must be process");
-  if (
-    !manifest.entry ||
-    !["node", "executable"].includes(manifest.entry.kind) ||
-    !manifest.entry.path?.trim() ||
-    manifest.entry.path.includes("..") ||
-    /^(?:[A-Za-z]:[\\/]|[\\/])/.test(manifest.entry.path)
-  ) {
-    errors.push(
-      "entry must have a supported kind and a relative path without '..'",
-    );
-  }
-
-  const filters = manifest.contributions?.filters;
-  if (!filters?.length) {
-    errors.push("at least one filter contribution is required");
-  } else {
-    const seen = new Set<string>();
-    for (const filter of filters) {
-      validateId(filter.id, "filter id", errors);
-      if (filter.id?.startsWith("builtin.")) {
-        errors.push(`filter id ${filter.id} must not use builtin. prefix`);
-      }
-      if (seen.has(filter.id)) {
-        errors.push(`duplicate filter id ${filter.id}`);
-      }
-      seen.add(filter.id);
-      if (!filter.version?.trim() || !filter.displayName?.trim()) {
-        errors.push(`filter ${filter.id} needs version and displayName`);
-      }
-      if (!filter.extensions?.length) {
-        errors.push(`filter ${filter.id} needs at least one extension`);
-      }
-    }
-  }
-  for (const permission of manifest.permissions ?? []) {
-    if (
-      permission !== "file.read:source" &&
-      permission !== "file.write:output" &&
-      !(
-        permission.startsWith("network:") &&
-        permission.length > "network:".length
-      )
-    ) {
-      errors.push(`unsupported permission ${permission}`);
-    }
-  }
-  validateCapabilityRequests(manifest.capabilities ?? [], errors);
-  return errors;
-}
-
-function validateId(
-  value: string | undefined,
-  label: string,
-  errors: string[],
-): void {
+function validateId(value, label, errors) {
   if (!value || value.trim() !== value) {
     errors.push(`${label} must be non-empty without surrounding whitespace`);
   } else if (!/^[A-Za-z0-9._-]+$/.test(value)) {
     errors.push(`${label} contains unsupported characters`);
   }
 }
-
-export function startProcessPlugin(options: ProcessPluginOptions): void {
-  const { manifest, filter } = options;
-  const errors = validateManifest(manifest);
-  if (errors.length > 0) {
-    throw new Error(`invalid plugin manifest: ${errors.join("; ")}`);
-  }
-
-  const rl = createInterface({ input, crlfDelay: Infinity });
-  rl.on("line", (line) => {
-    void handleLine(line, manifest, filter);
-  });
+function writeResult(id, result) {
+  output.write(`${JSON.stringify({ jsonrpc: "2.0", id, result })}
+`);
 }
 
-async function handleLine(
-  line: string,
-  manifest: PluginManifest,
-  filter: FilterHandlers,
-): Promise<void> {
-  const trimmed = line.trim();
-  if (!trimmed) return;
-  let request: JsonRpcRequest;
-  try {
-    request = JSON.parse(trimmed) as JsonRpcRequest;
-  } catch (error) {
-    writeError(null, `invalid JSON: ${String(error)}`);
-    return;
-  }
-  const id = typeof request.id === "number" ? request.id : null;
-  const method = request.method ?? "";
-  try {
-    const result = await dispatch(method, request.params, manifest, filter);
-    if (id !== null) writeResult(id, result);
-  } catch (error) {
-    if (id !== null) {
-      writeError(id, error instanceof Error ? error.message : String(error));
-    }
-  }
-}
+// examples/plugins/connector-handler-fixture/manifest.json
+var manifest_default = {
+  manifestVersion: 2,
+  id: "example.connector-handler-fixture",
+  displayName: "Executable Connector Fixture",
+  version: "1.0.0",
+  hostApi: { min: 1, max: 1 },
+  runtime: {
+    tier: "process",
+    runtimeVersion: 1,
+    protocolVersion: 1,
+    entry: { kind: "node", path: "bin/connector-fixture.mjs" },
+  },
+  contributions: [
+    {
+      kind: "engineConnector",
+      descriptorVersion: 1,
+      id: "example.connector-handler-fixture.chat",
+      version: "1.0.0",
+      displayName: "Executable Loopback Fixture",
+      protocol: "translunar.engineConnector.v1",
+      contractVersion: 1,
+      operations: ["validateConfig", "test", "models.list", "generate"],
+      configSchemaVersion: 1,
+      configSchema: {
+        schemaVersion: 1,
+        fields: [
+          {
+            key: "scenario",
+            label: "Fixture scenario",
+            fieldType: "select",
+            required: true,
+            defaultValue: "success",
+            options: [
+              { value: "success", label: "Success" },
+              { value: "rateLimit", label: "Rate limit" },
+              { value: "malformed", label: "Malformed response" },
+              { value: "timeout", label: "Timeout" },
+            ],
+          },
+        ],
+      },
+      limits: {
+        maxConfigBytes: 4096,
+        maxMessages: 64,
+        maxMessageBytes: 32768,
+        maxSourceTextBytes: 262144,
+        maxOutputBytes: 1048576,
+        maxEvents: 2048,
+        maxModels: 16,
+        maxModelIdBytes: 128,
+        maxDeadlineMs: 3e4,
+      },
+    },
+  ],
+  permissions: [],
+  capabilities: [
+    {
+      capabilityId: "engine.connector",
+      required: true,
+      scope: {
+        kind: "operations",
+        operations: ["validateConfig", "test", "models.list", "generate"],
+      },
+      contributionId: "example.connector-handler-fixture.chat",
+    },
+    {
+      capabilityId: "network.connect",
+      required: true,
+      scope: {
+        kind: "network",
+        origins: ["http://127.0.0.1:43123"],
+      },
+      contributionId: "example.connector-handler-fixture.chat",
+    },
+  ],
+};
 
-async function dispatch(
-  method: string,
-  params: unknown,
-  manifest: PluginManifest,
-  filter: FilterHandlers,
-): Promise<unknown> {
-  switch (method) {
-    case "plugin.handshake":
-      return {
-        apiVersion: HOST_API_VERSION,
-        pluginId: manifest.id,
-        contributions: manifest.contributions,
-      };
-    case "plugin.shutdown":
-      setTimeout(() => process.exit(0), 0).unref?.();
-      return {};
-    case "filter.descriptor":
-      return filter.descriptor();
-    case "filter.probe":
-      return filter.probe(asRecord(params) as { sourcePath: string });
-    case "filter.import":
-      return filter.import(
-        asRecord(params) as {
-          sourcePath: string;
-          documentId?: string | null;
-          sourceLocale?: string | null;
-          options?: Record<string, string>;
-        },
-      );
-    case "filter.export":
-      return filter.export(
-        asRecord(params) as {
-          sourcePath: string;
-          outputPath: string;
-          segments: Segment[];
-        },
-      );
-    case "filter.validate":
-      return filter.validate(asRecord(params) as { sourcePath: string });
-    default:
-      throw new Error(`unknown method ${method}`);
-  }
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  if (typeof value === "object" && value !== null) {
-    return value as Record<string, unknown>;
-  }
-  return {};
-}
-
-function writeResult(id: number, result: unknown): void {
-  output.write(`${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`);
-}
-
-function writeError(id: number | null, message: string): void {
-  output.write(
-    `${JSON.stringify({
-      jsonrpc: "2.0",
-      id,
-      error: { code: -32000, message },
-    })}\n`,
+// examples/plugins/connector-handler-fixture/src/index.ts
+var FIXTURE_ORIGIN = "http://127.0.0.1:43123";
+var CONTRIBUTION_ID = "example.connector-handler-fixture.chat";
+var manifest = manifest_default;
+var descriptor = manifest.contributions.find(
+  (candidate) =>
+    candidate.kind === "engineConnector" &&
+    candidate.id === CONTRIBUTION_ID &&
+    candidate.contractVersion === 1,
+);
+if (!descriptor) {
+  throw new Error(
+    "fixture manifest is missing its strict connector descriptor",
   );
 }
+function fail(requestId, code, message, retryable = false, retryAfterMs) {
+  throw new EngineConnectorHandlerError({
+    contractVersion: 1,
+    requestId,
+    code,
+    message,
+    retryable,
+    ...(retryAfterMs === void 0 ? {} : { retryAfterMs }),
+  });
+}
+function scenario(config) {
+  return typeof config.scenario === "string" ? config.scenario : "success";
+}
+function requestHeaders(context, fixtureScenario) {
+  return {
+    "content-type": "application/json",
+    "x-fixture-scenario": fixtureScenario,
+    ...(context.credential
+      ? { authorization: `Bearer ${context.credential}` }
+      : {}),
+  };
+}
+function invocationSignals(context, deadlineMs) {
+  const timeout = AbortSignal.timeout(deadlineMs);
+  return {
+    signal: AbortSignal.any([context.signal, timeout]),
+    timeout,
+  };
+}
+function mapStatus(requestId, response) {
+  if (response.status === 401 || response.status === 403) {
+    return fail(requestId, "authentication", "connector authentication failed");
+  }
+  if (response.status === 429) {
+    const retryAfterSeconds = Number.parseInt(
+      response.headers.get("retry-after") ?? "1",
+      10,
+    );
+    const retryAfterMs = Number.isSafeInteger(retryAfterSeconds)
+      ? Math.min(Math.max(retryAfterSeconds, 0) * 1e3, 12e4)
+      : 1e3;
+    return fail(
+      requestId,
+      "rateLimit",
+      "connector rate limit reached",
+      true,
+      retryAfterMs,
+    );
+  }
+  if (response.status >= 500) {
+    return fail(
+      requestId,
+      "unavailable",
+      "connector service is unavailable",
+      true,
+    );
+  }
+  return fail(requestId, "protocol", "connector returned an invalid status");
+}
+async function fixtureFetch(requestId, path, init, context, deadlineMs) {
+  const { signal, timeout } = invocationSignals(context, deadlineMs);
+  try {
+    return await fetch(`${FIXTURE_ORIGIN}${path}`, { ...init, signal });
+  } catch (error) {
+    if (error instanceof EngineConnectorHandlerError) throw error;
+    if (context.signal.aborted) {
+      return fail(requestId, "cancelled", "connector request was cancelled");
+    }
+    if (timeout.aborted) {
+      return fail(requestId, "timeout", "connector request timed out", true);
+    }
+    return fail(
+      requestId,
+      "unavailable",
+      "connector service is unavailable",
+      true,
+    );
+  }
+}
+function parseUsage(value) {
+  if (typeof value !== "object" || value === null) return void 0;
+  const usage = value;
+  const inputTokens = usage.prompt_tokens;
+  const outputTokens = usage.completion_tokens;
+  const totalTokens = usage.total_tokens;
+  if (
+    !Number.isSafeInteger(inputTokens) ||
+    !Number.isSafeInteger(outputTokens) ||
+    !Number.isSafeInteger(totalTokens) ||
+    inputTokens + outputTokens !== totalTokens
+  ) {
+    return void 0;
+  }
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens,
+  };
+}
+async function* generate(request, context) {
+  const response = await fixtureFetch(
+    request.requestId,
+    "/v1/chat/completions",
+    {
+      method: "POST",
+      headers: requestHeaders(context, scenario(request.config)),
+      body: JSON.stringify({
+        model: request.model,
+        messages:
+          request.messages.length > 0
+            ? request.messages
+            : [{ role: "user", content: request.sourceText }],
+        source_locale: request.sourceLocale,
+        target_locale: request.targetLocale,
+        stream: true,
+      }),
+    },
+    context,
+    request.deadlineMs,
+  );
+  if (!response.ok) mapStatus(request.requestId, response);
+  if (!response.body) {
+    return fail(
+      request.requestId,
+      "protocol",
+      "connector response has no body",
+    );
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let sequence = 0;
+  let outputText = "";
+  let usage;
+  let finishReason = "stop";
+  let completed = false;
+  try {
+    while (true) {
+      const part = await reader.read();
+      buffer += decoder.decode(part.value ?? new Uint8Array(), {
+        stream: !part.done,
+      });
+      if (buffer.length > 64 * 1024) {
+        return fail(
+          request.requestId,
+          "responseSize",
+          "connector stream frame is oversized",
+        );
+      }
+      const frames = buffer.replace(/\r\n/gu, "\n").split("\n\n");
+      buffer = frames.pop() ?? "";
+      for (const frame of frames) {
+        const data = frame
+          .split("\n")
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice(5).trimStart())
+          .join("\n");
+        if (!data) continue;
+        if (data === "[DONE]") {
+          yield {
+            kind: "completed",
+            contractVersion: 1,
+            requestId: request.requestId,
+            sequence,
+            result: {
+              outputText,
+              model: request.model,
+              finishReason,
+              ...(usage ? { usage } : {}),
+            },
+          };
+          sequence += 1;
+          completed = true;
+          continue;
+        }
+        let payload;
+        try {
+          payload = JSON.parse(data);
+        } catch {
+          return fail(
+            request.requestId,
+            "protocol",
+            "connector stream contains malformed JSON",
+          );
+        }
+        const choices = Array.isArray(payload.choices) ? payload.choices : [];
+        const choice =
+          typeof choices[0] === "object" && choices[0] !== null
+            ? choices[0]
+            : void 0;
+        const delta =
+          typeof choice?.delta === "object" && choice.delta !== null
+            ? choice.delta
+            : void 0;
+        if (typeof delta?.content === "string" && delta.content.length > 0) {
+          outputText += delta.content;
+          yield {
+            kind: "delta",
+            contractVersion: 1,
+            requestId: request.requestId,
+            sequence,
+            text: delta.content,
+          };
+          sequence += 1;
+        }
+        if (choice?.finish_reason === "length") finishReason = "length";
+        if (choice?.finish_reason === "content_filter") {
+          finishReason = "contentFilter";
+        }
+        const nextUsage = parseUsage(payload.usage);
+        if (nextUsage) {
+          usage = nextUsage;
+          yield {
+            kind: "usage",
+            contractVersion: 1,
+            requestId: request.requestId,
+            sequence,
+            usage,
+          };
+          sequence += 1;
+        }
+      }
+      if (part.done) break;
+    }
+  } catch (error) {
+    if (error instanceof EngineConnectorHandlerError) throw error;
+    if (context.signal.aborted) {
+      return fail(
+        request.requestId,
+        "cancelled",
+        "connector request was cancelled",
+      );
+    }
+    return fail(
+      request.requestId,
+      "protocol",
+      "connector stream could not be read",
+    );
+  } finally {
+    reader.releaseLock();
+  }
+  if (!completed) {
+    return fail(
+      request.requestId,
+      "protocol",
+      "connector stream ended before completion",
+    );
+  }
+}
+var handler = {
+  validateConfig(request) {
+    const errors = validateEngineConnectorConfig(
+      descriptor.configSchema,
+      request.config,
+    );
+    return {
+      valid: errors.length === 0,
+      issues: errors.map((message) => ({
+        field: "configuration",
+        code: "invalid",
+        message,
+      })),
+    };
+  },
+  async test(request, context) {
+    const response = await fixtureFetch(
+      request.requestId,
+      "/v1/models",
+      {
+        method: "GET",
+        headers: requestHeaders(context, scenario(request.config)),
+      },
+      context,
+      request.deadlineMs,
+    );
+    if (!response.ok) mapStatus(request.requestId, response);
+    return {
+      ok: true,
+      latencyMs: 0,
+      ...(request.model ? { model: request.model } : {}),
+    };
+  },
+  async listModels(request, context) {
+    const response = await fixtureFetch(
+      request.requestId,
+      "/v1/models",
+      {
+        method: "GET",
+        headers: requestHeaders(context, scenario(request.config)),
+      },
+      context,
+      request.deadlineMs,
+    );
+    if (!response.ok) mapStatus(request.requestId, response);
+    return {
+      models: [
+        { id: "fixture-translate-1", displayName: "Fixture Translate 1" },
+      ],
+    };
+  },
+  generate,
+  cancel() {},
+  shutdown() {},
+};
+startProcessEngineConnector({
+  manifest,
+  contributionId: CONTRIBUTION_ID,
+  handler,
+});

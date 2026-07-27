@@ -184,40 +184,40 @@ Engine, corrupt an AI run, or replace the last working plugin version.
 
 ## Acceptance Criteria
 
-- [ ] AC-01: Strict Rust/generated TypeScript/SDK connector v1 contracts reject
+- [x] AC-01: Strict Rust/generated TypeScript/SDK connector v1 contracts reject
       unknown versions, fields, operations, invalid config, and every documented
       size/depth/count bound before registry or host mutation.
-- [ ] AC-02: Built-in profiles and historical runs migrate/restart unchanged,
+- [x] AC-02: Built-in profiles and historical runs migrate/restart unchanged,
       while plugin connectors appear in the unified catalog only when their
       exact owner/version is enabled and authorized.
-- [ ] AC-03: A plugin profile binds durably to its exact connector and validated
+- [x] AC-03: A plugin profile binds durably to its exact connector and validated
       config; its credential is keyring-owned and absent from SQLite, manifests,
       logs, audit, diagnostics, run events, and safe errors.
-- [ ] AC-04: Tier 1 declarative and Tier 2/3 executable connectors implement the
+- [x] AC-04: Tier 1 declarative and Tier 2/3 executable connectors implement the
       same closed public operations; arbitrary Engine invocation, arbitrary
       network origin, and cross-profile credential access are impossible.
-- [ ] AC-05: Exact contribution/operation and network-origin grants are checked
+- [x] AC-05: Exact contribution/operation and network-origin grants are checked
       at registration and every call; pending/denied/revoked/stale/narrow grants
       fail with typed errors and immutable secret-free audit evidence.
-- [ ] AC-06: Interactive streaming, provider test, batch pretranslation, usage,
+- [x] AC-06: Interactive streaming, provider test, batch pretranslation, usage,
       retry/resume, cancellation, project allowlist, and pipeline paths all run
       through the unified registry and preserve connector/version provenance.
-- [ ] AC-07: Timeout, crash, malformed/late/oversized output, duplicate terminal
+- [x] AC-07: Timeout, crash, malformed/late/oversized output, duplicate terminal
       events, and cancellation never commit partial proposals or stop the Engine;
       another connector and a subsequent ordinary RPC still succeed.
-- [ ] AC-08: Restart restores only enabled/authorized connectors. Disable,
+- [x] AC-08: Restart restores only enabled/authorized connectors. Disable,
       revoke, degradation, and uninstall detach the exact connector and cancel
       affected work without altering built-ins, unrelated plugins, or history.
-- [ ] AC-09: Upgrade/rollback preserves compatible profiles and grants exactly;
+- [x] AC-09: Upgrade/rollback preserves compatible profiles and grants exactly;
       schema/origin/operation expansion requires migration/review, and failed
       candidate activation restores the previous version and live adapters.
-- [ ] AC-10: Public SDK tests and official deterministic examples build and pass
+- [x] AC-10: Public SDK tests and official deterministic examples build and pass
       using public imports only, including success, stream, usage, auth, rate
       limit, malformed response, timeout, and cancel fixtures.
-- [ ] AC-11: Real stdio smoke and Electron E2E complete install through uninstall,
+- [x] AC-11: Real stdio smoke and Electron E2E complete install through uninstall,
       including profile creation/test/use, restart, upgrade/rollback, permission
       revoke, safe failure display, accessibility, and zero page/console errors.
-- [ ] AC-12: Contract drift, documentation, workspace format/lint/typecheck/tests,
+- [x] AC-12: Contract drift, documentation, workspace format/lint/typecheck/tests,
       strict Clippy, Rust workspace tests, Engine smoke, and desktop production
       E2E gates pass with reproducible task-owned evidence.
 

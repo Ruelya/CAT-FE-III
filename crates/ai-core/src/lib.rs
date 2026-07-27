@@ -1,5 +1,9 @@
 //! Provider-neutral AI connector and grounding primitives.
 
+mod connector;
+
+pub use connector::*;
+
 use std::fmt;
 use std::io::{BufRead, BufReader, Read};
 use std::net::IpAddr;

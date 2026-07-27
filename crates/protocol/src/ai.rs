@@ -2,9 +2,11 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 pub use translunar_ai_core::{
     AiAction, AiBatchItem, AiBatchRun, AiConversation, AiConversationMessage, AiCredentialStatus,
-    AiProviderDescriptor, AiProviderKind, AiProviderProfile, AiRun, AiRunEvent, AiSettings,
-    AiUsageAggregate, AiUsageDimension, AiUsageRecord, GroundingOptions, PromptBundle,
+    AiProviderDescriptor, AiProviderKind, AiProviderProtocol, AiRun, AiRunEvent, AiSettings,
+    AiUsageAggregate, AiUsageDimension, AiUsageRecord, EngineConnectorOperation,
+    EngineConnectorSource, GroundingOptions, PromptBundle,
 };
+pub use translunar_plugin_runtime::EngineConnectorConfigSchemaV1;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -13,7 +15,39 @@ pub struct AiProviderCatalogParams {}
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AiProviderCatalogResult {
-    pub items: Vec<AiProviderDescriptor>,
+    pub items: Vec<AiConnectorCatalogItem>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum AiConnectorAvailability {
+    Available,
+    Unavailable,
+    Degraded,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AiConnectorCatalogItem {
+    pub id: String,
+    pub source: EngineConnectorSource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<AiProviderKind>,
+    pub display_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<AiProviderProtocol>,
+    pub config_schema_version: u32,
+    pub operations: Vec<EngineConnectorOperation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_schema: Option<EngineConnectorConfigSchemaV1>,
+    pub default_base_url: String,
+    pub default_model: String,
+    pub supports_streaming: bool,
+    pub reports_usage: bool,
+    pub credential_hint: String,
+    pub availability: AiConnectorAvailability,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub safe_failure: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -34,11 +68,42 @@ pub struct AiProviderPage {
     pub limit: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AiProviderProfile {
+    pub id: String,
+    pub name: String,
+    pub source: EngineConnectorSource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<AiProviderKind>,
+    pub base_url: String,
+    pub model: String,
+    pub timeout_ms: u32,
+    pub max_response_bytes: u32,
+    pub enabled: bool,
+    pub credential_present: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_schema_version: Option<u32>,
+    #[serde(default)]
+    pub configuration: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub descriptor_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_hash: Option<String>,
+    pub availability: AiConnectorAvailability,
+    pub revision: u64,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AiProviderCreateParams {
     pub name: String,
-    pub kind: AiProviderKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<AiProviderKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<EngineConnectorSource>,
     pub base_url: String,
     pub model: String,
     #[serde(default = "default_timeout_ms")]
@@ -47,6 +112,10 @@ pub struct AiProviderCreateParams {
     pub max_response_bytes: u32,
     #[serde(default = "default_true")]
     pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_schema_version: Option<u32>,
+    #[serde(default)]
+    pub configuration: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -54,12 +123,19 @@ pub struct AiProviderCreateParams {
 pub struct AiProviderUpdateParams {
     pub profile_id: String,
     pub name: String,
-    pub kind: AiProviderKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<AiProviderKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<EngineConnectorSource>,
     pub base_url: String,
     pub model: String,
     pub timeout_ms: u32,
     pub max_response_bytes: u32,
     pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_schema_version: Option<u32>,
+    #[serde(default)]
+    pub configuration: serde_json::Value,
     pub expected_revision: u64,
 }
 
@@ -390,4 +466,68 @@ const fn default_requests_per_minute() -> u16 {
 
 const fn default_batch_attempts() -> u8 {
     3
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use translunar_ai_core::PluginConnectorOwner;
+
+    use super::*;
+
+    fn catalog_item(source: EngineConnectorSource) -> AiConnectorCatalogItem {
+        let kind = match &source {
+            EngineConnectorSource::Builtin { provider } => Some(*provider),
+            EngineConnectorSource::Plugin { .. } => None,
+        };
+        AiConnectorCatalogItem {
+            id: source.connector_id().to_string(),
+            source,
+            kind,
+            display_name: "Fixture".to_string(),
+            protocol: None,
+            config_schema_version: 1,
+            operations: vec![
+                EngineConnectorOperation::ValidateConfig,
+                EngineConnectorOperation::Test,
+                EngineConnectorOperation::ModelsList,
+                EngineConnectorOperation::Generate,
+            ],
+            config_schema: None,
+            default_base_url: String::new(),
+            default_model: "fixture".to_string(),
+            supports_streaming: true,
+            reports_usage: true,
+            credential_hint: "API key".to_string(),
+            availability: AiConnectorAvailability::Available,
+            safe_failure: None,
+        }
+    }
+
+    #[test]
+    fn connector_catalog_preserves_builtin_kind_without_fabricating_plugin_kind() {
+        let builtin = serde_json::to_value(catalog_item(EngineConnectorSource::Builtin {
+            provider: AiProviderKind::Openai,
+        }))
+        .expect("serialize built-in connector");
+        assert_eq!(builtin["kind"], json!("openai"));
+        assert_eq!(
+            builtin["source"],
+            json!({ "kind": "builtin", "provider": "openai" })
+        );
+        assert_eq!(builtin["operations"][2], json!("models.list"));
+
+        let plugin = serde_json::to_value(catalog_item(EngineConnectorSource::Plugin {
+            owner: PluginConnectorOwner {
+                plugin_id: "org.example.connector".to_string(),
+                version_id: "version-1".to_string(),
+            },
+            contribution_id: "fixture".to_string(),
+            contract_version: 1,
+        }))
+        .expect("serialize plugin connector");
+        assert!(plugin.get("kind").is_none());
+        assert_eq!(plugin["source"]["kind"], json!("plugin"));
+        assert_eq!(plugin["source"]["contributionId"], json!("fixture"));
+    }
 }
