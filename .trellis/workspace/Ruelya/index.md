@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 22
+- **Total Sessions**: 23
 - **Last Active**: 2026-07-27
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~774 | Active |
+| `journal-1.md` | ~807 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 23 | 2026-07-27 | Complete Tier 2 sandboxed plugin host | `33ca479` | `master` |
 | 22 | 2026-07-27 | Tier 1 declarative plugin host | `15f1e8b` | `master` |
 | 21 | 2026-07-27 | Plugin capability grants and audit | `22a9077`, `e566b9d` | `master` |
 | 20 | 2026-07-26 | Complete plugin multi-tier runtime control plane | `dc228a7` | `master` |
