@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Layered migration, protocol, Engine, process, restart, and failure-isolation review gates."}
+{"file":".trellis/spec/backend/engine-boundary.md","reason":"Verify Engine ownership, additive protocol v1, atomic lifecycle, generated contracts, and stdio evidence."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Audit stable provider/plugin errors, retryability, redaction, and no partial side effects."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Desktop unit/E2E, accessibility, production build, console, and visual viewport gates."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Reject handwritten renderer mirrors and unsafe connector/config/error casts."}
+{"file":".trellis/tasks/07-27-plugin-engine-connectors/research/baseline.md","reason":"Check implementation against researched gaps, exact dependency boundaries, and compatibility decisions."}

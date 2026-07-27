@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/engine-boundary.md","reason":"EngineService, generated protocol, migration, plugin lifecycle, AI run, and stdio ownership contracts."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Append-only migration, revision, transaction, restart, and rollback requirements for profile and provenance storage."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Stable typed failure mapping and secret-safe diagnostics across connector hosts and AI workflows."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Generated Desktop API, authoritative state reload, plugin permission UI, and real Electron lifecycle evidence."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Generated contract source of truth and strict boundary decoding for connector/profile UI."}
+{"file":".trellis/tasks/07-27-plugin-engine-connectors/research/baseline.md","reason":"Curated requirement anchors, current architecture gaps, and conservative compatibility decisions."}

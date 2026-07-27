@@ -17,12 +17,12 @@ treated as completion of P-01..P-10.
    grants, revoke, enforcement, and audit.
 4. `07-27-plugin-tier1-declarative` (archived; depends on 2-3): declarative filter/provider/
    regex-QA/pipeline evaluation and examples.
-5. `07-27-plugin-tier2-sandbox` (planning; depends on 2-3): bounded JS worker and isolated UI
-   panel host.
-6. `plugin-engine-connectors` (create after 2-3): P-03/F-12 registry lifecycle,
-   SDK, official example, failure isolation, and E2E.
-7. `plugin-qa-pipeline-sdk` (create after 4): QA and pipeline contracts,
-   registries, examples, and qualification.
+5. `07-27-plugin-tier2-sandbox` (archived; depends on 2-3): bounded JS
+   worker and isolated UI panel host.
+6. `07-27-plugin-engine-connectors` (planning; depends on 2-3): P-03/F-12
+   registry lifecycle, SDK, official example, failure isolation, and E2E.
+7. `07-27-plugin-qa-pipeline-sdk` (planning; depends on 4): QA and pipeline
+   contracts, registries, examples, and qualification.
 8. `plugin-ai-ui-host` (create after 5-6): AI actions and UI contributions with
    permissioned host APIs.
 9. `plugin-external-connectors` (create with automation X-07): connector SDK,

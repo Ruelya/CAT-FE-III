@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/engine-boundary.md","reason":"Authoritative Engine/plugin/QA/pipeline lifecycle, protocol, persistence, capability, sandbox, and transaction contracts."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Generated-contract desktop boundary, plugin management state ownership, real-Engine E2E, packaging, and viewport requirements."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Required reasoning for manifest/SDK -> host -> Engine registry -> storage -> protocol -> desktop changes."}
+{"file":".trellis/tasks/07-27-plugin-qa-pipeline-sdk/research/findings.md","reason":"Task-specific code research, complete existing symbol boundaries, conservative decisions, and implementation risks."}

@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Rust quality, deterministic testing, strict linting, and cross-layer validation gates."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Typed fail-closed Engine/plugin/pipeline error mapping and sanitized diagnostics review."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Desktop unit/E2E, accessibility, console-error, overflow, and three-viewport visual review requirements."}
+{"file":".trellis/tasks/07-27-plugin-qa-pipeline-sdk/research/findings.md","reason":"Independent check baseline for current behavior, security/lifecycle risks, and scope exclusions."}

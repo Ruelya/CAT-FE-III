@@ -23,7 +23,9 @@
     "07-26-plugin-permission-grants",
     "07-26-plugin-tier3-foundation",
     "07-27-plugin-tier1-declarative",
-    "07-27-plugin-tier2-sandbox"
+    "07-27-plugin-tier2-sandbox",
+    "07-27-plugin-engine-connectors",
+    "07-27-plugin-qa-pipeline-sdk"
   ],
   "parent": "07-19-complete-full-cat-prd",
   "relatedFiles": [],
