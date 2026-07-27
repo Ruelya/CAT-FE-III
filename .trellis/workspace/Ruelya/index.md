@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 24
-- **Last Active**: 2026-07-27
+- **Total Sessions**: 25
+- **Last Active**: 2026-07-28
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~840 | Active |
+| `journal-1.md` | ~873 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 25 | 2026-07-28 | Complete public plugin QA and pipeline SDK | `d6458bdb965d7fbf21f2e726aad93a024c2da99b` | `master` |
 | 24 | 2026-07-27 | Complete plugin Engine connectors | `bb39ab6` | `master` |
 | 23 | 2026-07-27 | Complete Tier 2 sandboxed plugin host | `33ca479` | `master` |
 | 22 | 2026-07-27 | Tier 1 declarative plugin host | `15f1e8b` | `master` |

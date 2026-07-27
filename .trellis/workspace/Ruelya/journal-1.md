@@ -838,3 +838,36 @@ Implemented and qualified strict versioned Engine connectors across Rust registr
 ### Next Steps
 
 - None - task complete
+
+
+## Session 25: Complete public plugin QA and pipeline SDK
+
+**Date**: 2026-07-28
+**Task**: Complete public plugin QA and pipeline SDK
+**Branch**: `master`
+
+### Summary
+
+Implemented and qualified public QA/pipeline plugin contracts, exact lifecycle cleanup, preflight compatibility, examples, protocol, desktop surfaces, and full validation evidence.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d6458bdb965d7fbf21f2e726aad93a024c2da99b` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
