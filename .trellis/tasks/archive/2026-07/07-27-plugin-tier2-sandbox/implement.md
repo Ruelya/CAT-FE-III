@@ -174,5 +174,5 @@ locally and retain the declared Node 22/24 CI matrix.
 - [x] Acceptance criteria AC-01 through AC-10 map to reproducible evidence.
 - [x] Full applicable quality gate passes after the last code change.
 - [x] Specs and task evidence are updated without staging unrelated dirty files.
-- [ ] Commit implementation, commit task completion metadata, archive this child
+- [x] Commit implementation, commit task completion metadata, archive this child
       immediately, and then materialize the next dependency-ready plugin child.
