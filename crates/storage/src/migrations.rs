@@ -2,7 +2,7 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use crate::{Result, StorageError};
 
-pub(crate) const LATEST_SCHEMA_VERSION: u32 = 20;
+pub(crate) const LATEST_SCHEMA_VERSION: u32 = 21;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -2358,7 +2358,204 @@ FROM ai_batch_runs batches
 JOIN ai_provider_profiles profiles ON profiles.id = batches.profile_id;
 "#;
 
-const MIGRATIONS: [(u32, &str); 20] = [
+/// Immutable plugin QA execution snapshots and version-pinned pipeline step
+/// bindings. Payload-bearing checkpoints remain bounded and append-only;
+/// provenance rows contain identities, hashes, usage, and sanitized failures.
+const MIGRATION_21: &str = r#"
+CREATE TABLE qa_run_plugin_rules (
+    run_id TEXT NOT NULL REFERENCES qa_runs(id) ON DELETE CASCADE,
+    contribution_index INTEGER NOT NULL CHECK (contribution_index >= 0),
+    plugin_id TEXT NOT NULL CHECK (
+        length(trim(plugin_id)) BETWEEN 1 AND 128 AND
+        plugin_id NOT GLOB '*[^A-Za-z0-9._-]*'
+    ),
+    version_id TEXT NOT NULL CHECK (
+        length(trim(version_id)) BETWEEN 1 AND 384 AND
+        version_id NOT GLOB '*[^A-Za-z0-9._:+-]*'
+    ),
+    contribution_id TEXT NOT NULL CHECK (
+        length(trim(contribution_id)) BETWEEN 1 AND 128 AND
+        contribution_id NOT GLOB '*[^A-Za-z0-9._-]*'
+    ),
+    contribution_version TEXT NOT NULL
+        CHECK (length(trim(contribution_version)) BETWEEN 1 AND 128),
+    descriptor_version INTEGER NOT NULL CHECK (descriptor_version = 1),
+    operation_protocol_version INTEGER NOT NULL
+        CHECK (operation_protocol_version = 1),
+    config_schema_version INTEGER NOT NULL CHECK (config_schema_version >= 1),
+    activation_revision INTEGER NOT NULL CHECK (activation_revision >= 0),
+    tier TEXT NOT NULL CHECK (tier IN ('declarative', 'sandbox', 'process')),
+    descriptor_hash TEXT NOT NULL CHECK (
+        length(descriptor_hash) = 64 AND descriptor_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    config_hash TEXT NOT NULL CHECK (
+        length(config_hash) = 64 AND config_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    rule_ids_json TEXT NOT NULL CHECK (
+        length(CAST(rule_ids_json AS BLOB)) <= 65536 AND
+        json_valid(rule_ids_json) AND json_type(rule_ids_json) = 'array'
+    ),
+    status TEXT NOT NULL CHECK (status IN ('succeeded', 'failed', 'canceled')),
+    execution_count INTEGER NOT NULL CHECK (execution_count >= 0),
+    finding_count INTEGER NOT NULL CHECK (finding_count >= 0),
+    input_hash TEXT NOT NULL CHECK (
+        length(input_hash) = 64 AND input_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    output_hash TEXT CHECK (
+        output_hash IS NULL OR (
+            length(output_hash) = 64 AND output_hash NOT GLOB '*[^0-9a-f]*'
+        )
+    ),
+    usage_json TEXT NOT NULL CHECK (
+        length(CAST(usage_json AS BLOB)) <= 4096 AND
+        json_valid(usage_json) AND json_type(usage_json) = 'object'
+    ),
+    failure_json TEXT CHECK (
+        failure_json IS NULL OR (
+            length(CAST(failure_json AS BLOB)) <= 4096 AND
+            json_valid(failure_json) AND json_type(failure_json) = 'object'
+        )
+    ),
+    created_at_ms INTEGER NOT NULL,
+    PRIMARY KEY(run_id, contribution_index),
+    UNIQUE(run_id, plugin_id, version_id, contribution_id)
+) STRICT;
+
+CREATE INDEX qa_run_plugin_rules_owner_idx
+    ON qa_run_plugin_rules(plugin_id, version_id, contribution_id, run_id);
+
+CREATE TRIGGER qa_run_plugin_rules_immutable_update
+BEFORE UPDATE ON qa_run_plugin_rules
+BEGIN
+    SELECT RAISE(ABORT, 'QA plugin rule provenance is immutable');
+END;
+
+CREATE TABLE pipeline_step_plugin_bindings (
+    step_run_id TEXT PRIMARY KEY
+        REFERENCES pipeline_step_runs(id) ON DELETE CASCADE,
+    plugin_id TEXT NOT NULL CHECK (
+        length(trim(plugin_id)) BETWEEN 1 AND 128 AND
+        plugin_id NOT GLOB '*[^A-Za-z0-9._-]*'
+    ),
+    version_id TEXT NOT NULL CHECK (
+        length(trim(version_id)) BETWEEN 1 AND 384 AND
+        version_id NOT GLOB '*[^A-Za-z0-9._:+-]*'
+    ),
+    contribution_id TEXT NOT NULL CHECK (
+        length(trim(contribution_id)) BETWEEN 1 AND 128 AND
+        contribution_id NOT GLOB '*[^A-Za-z0-9._-]*'
+    ),
+    contribution_version TEXT NOT NULL
+        CHECK (length(trim(contribution_version)) BETWEEN 1 AND 128),
+    descriptor_version INTEGER NOT NULL CHECK (descriptor_version = 1),
+    operation_protocol_version INTEGER NOT NULL
+        CHECK (operation_protocol_version = 1),
+    config_schema_version INTEGER NOT NULL CHECK (config_schema_version >= 1),
+    checkpoint_schema_version INTEGER
+        CHECK (checkpoint_schema_version IS NULL OR checkpoint_schema_version >= 1),
+    activation_revision INTEGER NOT NULL CHECK (activation_revision >= 0),
+    tier TEXT NOT NULL CHECK (tier IN ('declarative', 'sandbox', 'process')),
+    descriptor_hash TEXT NOT NULL CHECK (
+        length(descriptor_hash) = 64 AND descriptor_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    config_hash TEXT NOT NULL CHECK (
+        length(config_hash) = 64 AND config_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    created_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX pipeline_step_plugin_bindings_owner_idx
+    ON pipeline_step_plugin_bindings(
+        plugin_id, version_id, contribution_id, activation_revision, step_run_id
+    );
+
+CREATE TRIGGER pipeline_step_plugin_bindings_immutable_update
+BEFORE UPDATE ON pipeline_step_plugin_bindings
+BEGIN
+    SELECT RAISE(ABORT, 'pipeline plugin binding is immutable');
+END;
+
+CREATE TABLE pipeline_step_plugin_attempts (
+    id TEXT PRIMARY KEY,
+    step_run_id TEXT NOT NULL
+        REFERENCES pipeline_step_runs(id) ON DELETE CASCADE,
+    attempt_index INTEGER NOT NULL CHECK (attempt_index >= 0),
+    operation TEXT NOT NULL CHECK (
+        operation IN ('execute', 'resume', 'checkpoint_migrate')
+    ),
+    input_hash TEXT NOT NULL CHECK (
+        length(input_hash) = 64 AND input_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    output_hash TEXT CHECK (
+        output_hash IS NULL OR (
+            length(output_hash) = 64 AND output_hash NOT GLOB '*[^0-9a-f]*'
+        )
+    ),
+    checkpoint_input_hash TEXT CHECK (
+        checkpoint_input_hash IS NULL OR (
+            length(checkpoint_input_hash) = 64 AND
+            checkpoint_input_hash NOT GLOB '*[^0-9a-f]*'
+        )
+    ),
+    checkpoint_output_hash TEXT CHECK (
+        checkpoint_output_hash IS NULL OR (
+            length(checkpoint_output_hash) = 64 AND
+            checkpoint_output_hash NOT GLOB '*[^0-9a-f]*'
+        )
+    ),
+    checkpoint_schema_version INTEGER
+        CHECK (checkpoint_schema_version IS NULL OR checkpoint_schema_version >= 1),
+    usage_json TEXT NOT NULL CHECK (
+        length(CAST(usage_json AS BLOB)) <= 4096 AND
+        json_valid(usage_json) AND json_type(usage_json) = 'object'
+    ),
+    failure_json TEXT CHECK (
+        failure_json IS NULL OR (
+            length(CAST(failure_json AS BLOB)) <= 4096 AND
+            json_valid(failure_json) AND json_type(failure_json) = 'object'
+        )
+    ),
+    started_at_ms INTEGER NOT NULL,
+    completed_at_ms INTEGER NOT NULL CHECK (completed_at_ms >= started_at_ms),
+    UNIQUE(step_run_id, attempt_index)
+) STRICT;
+
+CREATE INDEX pipeline_step_plugin_attempts_step_idx
+    ON pipeline_step_plugin_attempts(step_run_id, attempt_index);
+
+CREATE TRIGGER pipeline_step_plugin_attempts_immutable_update
+BEFORE UPDATE ON pipeline_step_plugin_attempts
+BEGIN
+    SELECT RAISE(ABORT, 'pipeline plugin attempt is immutable');
+END;
+
+CREATE TABLE pipeline_step_checkpoints (
+    step_run_id TEXT NOT NULL
+        REFERENCES pipeline_step_runs(id) ON DELETE CASCADE,
+    sequence INTEGER NOT NULL CHECK (sequence >= 0),
+    schema_version INTEGER NOT NULL CHECK (schema_version >= 1),
+    checkpoint_json TEXT NOT NULL CHECK (
+        length(CAST(checkpoint_json AS BLOB)) <= 1048576 AND
+        json_valid(checkpoint_json)
+    ),
+    checkpoint_hash TEXT NOT NULL CHECK (
+        length(checkpoint_hash) = 64 AND checkpoint_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    created_at_ms INTEGER NOT NULL,
+    PRIMARY KEY(step_run_id, sequence)
+) STRICT;
+
+CREATE INDEX pipeline_step_checkpoints_latest_idx
+    ON pipeline_step_checkpoints(step_run_id, sequence DESC);
+
+CREATE TRIGGER pipeline_step_checkpoints_immutable_update
+BEFORE UPDATE ON pipeline_step_checkpoints
+BEGIN
+    SELECT RAISE(ABORT, 'pipeline checkpoint history is immutable');
+END;
+"#;
+
+const MIGRATIONS: [(u32, &str); 21] = [
     (1_u32, MIGRATION_1),
     (2_u32, MIGRATION_2),
     (3_u32, MIGRATION_3),
@@ -2379,6 +2576,7 @@ const MIGRATIONS: [(u32, &str); 20] = [
     (18_u32, MIGRATION_18),
     (19_u32, MIGRATION_19),
     (20_u32, MIGRATION_20),
+    (21_u32, MIGRATION_21),
 ];
 
 pub(crate) fn configure_connection(connection: &Connection) -> Result<()> {
@@ -4145,6 +4343,207 @@ mod tests {
                 |row| row.get::<_, i64>(0),
             )
             .expect("count rolled back connector profile table");
+        assert_eq!(prior_statement_count, 0);
+    }
+
+    #[test]
+    fn migration_21_adds_immutable_qa_and_pipeline_plugin_history() {
+        let temp = tempfile::tempdir().expect("temporary migration directory");
+        let database = temp.path().join("translunar.sqlite3");
+        let mut connection = Connection::open(&database).expect("open v20 database");
+        configure_connection(&connection).expect("configure migration database");
+        migrate_from_to(&mut connection, 0, 20).expect("create schema v20");
+        connection
+            .execute(
+                "INSERT INTO projects (
+                    id, name, source_locale, target_locale, domain,
+                    created_at_ms, updated_at_ms
+                 ) VALUES ('plugin-project', 'Plugin history', 'en', 'zh-CN', '', 1, 1)",
+                [],
+            )
+            .expect("insert project");
+        connection
+            .execute(
+                "INSERT INTO qa_profiles (
+                    id, name, built_in, definition_json, revision,
+                    created_at_ms, updated_at_ms
+                 ) VALUES ('plugin-profile', 'Plugin profile', 0, '{}', 0, 1, 1)",
+                [],
+            )
+            .expect("insert QA profile");
+        connection
+            .execute(
+                "INSERT INTO qa_runs (
+                    id, project_id, scope, profile_id, profile_name,
+                    profile_revision, profile_snapshot_hash, status,
+                    created_at_ms, completed_at_ms
+                 ) VALUES (
+                    'plugin-qa-run', 'plugin-project', 'project', 'plugin-profile',
+                    'Plugin profile', 0, 'profile-hash', 'succeeded', 2, 3
+                 )",
+                [],
+            )
+            .expect("insert QA run");
+        connection
+            .execute(
+                "INSERT INTO pipeline_definitions (
+                    id, project_id, name, version, revision, created_at_ms, updated_at_ms
+                 ) VALUES ('plugin-pipeline', 'plugin-project', 'Plugin pipeline', 1, 0, 1, 1)",
+                [],
+            )
+            .expect("insert pipeline definition");
+        connection
+            .execute(
+                "INSERT INTO pipeline_runs (
+                    id, definition_id, project_id, status, revision,
+                    current_step_index, step_count, cancellation_requested,
+                    input_json, created_at_ms, updated_at_ms
+                 ) VALUES (
+                    'plugin-pipeline-run', 'plugin-pipeline', 'plugin-project',
+                    'succeeded', 1, 1, 1, 0, '{}', 2, 3
+                 )",
+                [],
+            )
+            .expect("insert pipeline run");
+        connection
+            .execute(
+                "INSERT INTO pipeline_step_runs (
+                    id, run_id, step_key, step_id, step_index, status,
+                    revision, updated_at_ms
+                 ) VALUES (
+                    'plugin-step-run', 'plugin-pipeline-run', 'step',
+                    'example.pipeline', 0, 'succeeded', 1, 3
+                 )",
+                [],
+            )
+            .expect("insert pipeline step run");
+
+        migrate_from_to(&mut connection, 20, 21).expect("migrate plugin history schema");
+        let digest = "a".repeat(64);
+        connection
+            .execute(
+                "INSERT INTO qa_run_plugin_rules (
+                    run_id, contribution_index, plugin_id, version_id,
+                    contribution_id, contribution_version, descriptor_version,
+                    operation_protocol_version, config_schema_version,
+                    activation_revision, tier, descriptor_hash, config_hash,
+                    rule_ids_json, status, execution_count, finding_count,
+                    input_hash, output_hash, usage_json, created_at_ms
+                 ) VALUES (
+                    'plugin-qa-run', 0, 'example.plugin', 'version:1',
+                    'example.qa', '1.0.0', 1, 1, 1, 7, 'sandbox', ?1, ?1,
+                    '[\"style.brand\"]', 'succeeded', 2, 1, ?1, ?1,
+                    '{\"workUnits\":2}', 3
+                 )",
+                [&digest],
+            )
+            .expect("insert QA plugin history");
+        connection
+            .execute(
+                "INSERT INTO pipeline_step_plugin_bindings (
+                    step_run_id, plugin_id, version_id, contribution_id,
+                    contribution_version, descriptor_version,
+                    operation_protocol_version, config_schema_version,
+                    checkpoint_schema_version, activation_revision, tier,
+                    descriptor_hash, config_hash, created_at_ms
+                 ) VALUES (
+                    'plugin-step-run', 'example.plugin', 'version:1',
+                    'example.pipeline', '1.0.0', 1, 1, 1, 1, 7,
+                    'process', ?1, ?1, 2
+                 )",
+                [&digest],
+            )
+            .expect("insert pipeline plugin binding");
+        connection
+            .execute(
+                "INSERT INTO pipeline_step_plugin_attempts (
+                    id, step_run_id, attempt_index, operation, input_hash,
+                    output_hash, checkpoint_output_hash, checkpoint_schema_version,
+                    usage_json, started_at_ms, completed_at_ms
+                 ) VALUES (
+                    'plugin-attempt', 'plugin-step-run', 0, 'execute', ?1,
+                    ?1, ?1, 1, '{\"workUnits\":1}', 2, 3
+                 )",
+                [&digest],
+            )
+            .expect("insert pipeline plugin attempt");
+        connection
+            .execute(
+                "INSERT INTO pipeline_step_checkpoints (
+                    step_run_id, sequence, schema_version, checkpoint_json,
+                    checkpoint_hash, created_at_ms
+                 ) VALUES ('plugin-step-run', 0, 1, '{\"cursor\":4}', ?1, 2)",
+                [&digest],
+            )
+            .expect("insert pipeline checkpoint");
+
+        for statement in [
+            "UPDATE qa_run_plugin_rules SET finding_count = 2 WHERE run_id = 'plugin-qa-run'",
+            "UPDATE pipeline_step_plugin_bindings SET activation_revision = 8 WHERE step_run_id = 'plugin-step-run'",
+            "UPDATE pipeline_step_plugin_attempts SET completed_at_ms = 4 WHERE id = 'plugin-attempt'",
+            "UPDATE pipeline_step_checkpoints SET sequence = 1 WHERE step_run_id = 'plugin-step-run'",
+        ] {
+            assert!(connection.execute(statement, []).is_err());
+        }
+        drop(connection);
+
+        let mut connection = Connection::open(database).expect("reopen v21 database");
+        configure_connection(&connection).expect("configure reopened database");
+        migrate(&mut connection).expect("reopen latest schema");
+        let version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read schema version");
+        assert_eq!(version, 21);
+        let rows = connection
+            .query_row(
+                "SELECT
+                    (SELECT COUNT(*) FROM qa_run_plugin_rules),
+                    (SELECT COUNT(*) FROM pipeline_step_plugin_bindings),
+                    (SELECT COUNT(*) FROM pipeline_step_plugin_attempts),
+                    (SELECT COUNT(*) FROM pipeline_step_checkpoints)",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, i64>(3)?,
+                    ))
+                },
+            )
+            .expect("read reopened plugin history");
+        assert_eq!(rows, (1, 1, 1, 1));
+    }
+
+    #[test]
+    fn migration_21_rolls_back_every_prior_statement_on_failure() {
+        let mut connection = Connection::open_in_memory().expect("open migration database");
+        configure_connection(&connection).expect("configure migration database");
+        migrate_from_to(&mut connection, 0, 20).expect("create schema v20");
+        connection
+            .execute_batch(
+                "CREATE TABLE pipeline_step_checkpoints (
+                    step_run_id TEXT PRIMARY KEY
+                 ) STRICT;",
+            )
+            .expect("create late migration conflict");
+
+        assert!(migrate_from_to(&mut connection, 20, 21).is_err());
+        let version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read rolled back schema version");
+        assert_eq!(version, 20);
+        let prior_statement_count = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name IN (
+                    'qa_run_plugin_rules', 'pipeline_step_plugin_bindings',
+                    'pipeline_step_plugin_attempts'
+                 )",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("count rolled back plugin history tables");
         assert_eq!(prior_statement_count, 0);
     }
 }

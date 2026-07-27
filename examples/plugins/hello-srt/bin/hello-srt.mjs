@@ -7,6 +7,28 @@ import { basename, extname } from "node:path";
 // src/index.ts
 import { createInterface } from "node:readline";
 import { stdin as input, stdout as output } from "node:process";
+
+// src/qa-pipeline.ts
+var PUBLIC_CONTRIBUTION_LIMITS = Object.freeze({
+  descriptorBytes: 64 * 1024,
+  configBytes: 64 * 1024,
+  checkpointBytes: 1024 * 1024,
+  invocationBytes: 4 * 1024 * 1024,
+  resultBytes: 8 * 1024 * 1024,
+  jsonDepth: 16,
+  jsonNodes: 65536,
+  collectionItems: 4096,
+  textBytes: 1024 * 1024,
+  qaFindings: 1024,
+  qaMessageBytes: 2048,
+  qaEvidenceItems: 128,
+  qaEvidenceTextBytes: 4096,
+  qaRelatedSegments: 128,
+  usageUnits: 1e9,
+  deadlineMs: 12e4,
+});
+
+// src/index.ts
 var HOST_API_VERSION = 1;
 var MAX_ENGINE_CONNECTOR_CREDENTIAL_BYTES = 16 * 1024;
 var ENGINE_CONNECTOR_LIMITS = Object.freeze({

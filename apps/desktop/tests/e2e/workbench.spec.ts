@@ -1782,9 +1782,9 @@ test("hosts a Tier 2 sandbox panel through an opaque revocable session", async (
 
 test("manages a manifest-only Tier 1 toolkit through the real Electron lifecycle", async ({
   browserName,
-}) => {
+}, testInfo) => {
   expect(browserName).toBe("chromium");
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
   const workspaceRoot = resolve(process.cwd(), "..", "..");
   const pluginSource = join(
     workspaceRoot,
@@ -1834,6 +1834,25 @@ test("manages a manifest-only Tier 1 toolkit through the real Electron lifecycle
       "installed",
     );
     await expect(pluginRow).toContainText("declarative");
+    const inventory = pluginRow.getByRole("region", {
+      name: "QA and pipeline contributions",
+    });
+    await expect(inventory).toBeVisible();
+    const qaContribution = inventory.locator(
+      '[data-contribution-kind="qaRule"]',
+    );
+    const pipelineContribution = inventory.locator(
+      '[data-contribution-kind="pipelineStep"]',
+    );
+    await expect(qaContribution).toContainText("Editorial placeholders");
+    await expect(qaContribution).toContainText("example.tier1.qa");
+    await expect(qaContribution).toContainText("granted");
+    await expect(pipelineContribution).toContainText(
+      "Normalize delivery metadata",
+    );
+    await expect(pipelineContribution).toContainText("example.tier1.normalize");
+    await expect(pipelineContribution).toContainText("json → json");
+    await expect(pipelineContribution).toContainText("granted");
     await pluginRow.getByRole("button", { name: "Enable" }).click();
     await expect(pluginRow.locator('[data-status="enabled"]')).toHaveText(
       "enabled",
@@ -1843,6 +1862,103 @@ test("manages a manifest-only Tier 1 toolkit through the real Electron lifecycle
       pipeline: true,
       qa: true,
     });
+
+    const executed = await page.evaluate(async () => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      const projects = await api.invoke("project.list", {
+        offset: 0,
+        limit: 10,
+      });
+      const project = projects.items[0];
+      if (!project) throw new Error("fixture project was not created");
+      const documents = await api.invoke("document.list", {
+        projectId: project.id,
+        offset: 0,
+        limit: 10,
+      });
+      const document = documents.items[0];
+      if (!document) throw new Error("fixture document was not imported");
+      const segments = await api.invoke("segment.list", {
+        documentId: document.id,
+        offset: 0,
+        limit: 10,
+      });
+      const segment = segments.items[0];
+      if (!segment) throw new Error("fixture segment was not imported");
+      await api.invoke("segment.updateTarget", {
+        segmentId: segment.id,
+        targetText: "TODO",
+        expectedRevision: segment.revision,
+      });
+      await api.invoke("qa.run", {
+        projectId: project.id,
+        documentId: document.id,
+      });
+      const definition = await api.invoke("pipeline.create", {
+        projectId: project.id,
+        name: "Tier 1 desktop provenance",
+        steps: [
+          {
+            key: "normalize",
+            stepId: "example.tier1.normalize",
+          },
+        ],
+      });
+      const pipeline = await api.invoke("pipeline.run", {
+        definitionId: definition.id,
+        projectId: project.id,
+        input: { schemaVersion: 1, status: "draft", title: "A   title" },
+      });
+      return { runId: pipeline.run.id };
+    });
+    await expect
+      .poll(async () =>
+        page.evaluate(async (runId) => {
+          const api = (window as unknown as { translunar: DesktopApi })
+            .translunar;
+          const snapshot = await api.invoke("pipeline.run.get", { runId });
+          return snapshot.run.status;
+        }, executed.runId),
+      )
+      .toMatch(/^(?:succeeded|failed)$/u);
+    await panel.getByRole("button", { name: "Refresh", exact: true }).click();
+    const pipelineHistory = panel.getByRole("region", {
+      name: "Pipeline run history",
+    });
+    await expect(pipelineHistory).toContainText(executed.runId);
+    await expect(pipelineHistory).toContainText("example.tier1-toolkit");
+    await expect(pipelineHistory).toContainText("example.tier1.normalize");
+    await captureResponsiveSurface(
+      harness,
+      testInfo,
+      "plugin-qa-pipeline-inventory",
+      undefined,
+      ".project-insights-content",
+    );
+
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "QA review" }).click();
+    const qaHistory = page.getByRole("region", {
+      name: "Plugin QA run provenance",
+    });
+    await expect(qaHistory).toContainText("example.tier1-toolkit");
+    await expect(qaHistory).toContainText("example.tier1.qa");
+    const pluginFinding = page.locator(".qa-issue-row", {
+      hasText: "Target contains a TODO placeholder.",
+    });
+    await expect(pluginFinding).toBeVisible();
+    await pluginFinding.click();
+    const findingDetail = page.locator(".qa-detail");
+    await expect(findingDetail).toContainText("example.tier1-toolkit");
+    await expect(findingDetail).toContainText("example.tier1.qa");
+    await page.getByRole("button", { name: "More actions" }).click();
+    await captureResponsiveSurface(
+      harness,
+      testInfo,
+      "plugin-qa-provenance",
+      undefined,
+      ".qa-workspace",
+    );
 
     await page.evaluate("window.translunar.restartEngine()");
     await page.reload();

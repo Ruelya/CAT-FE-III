@@ -1,0 +1,126 @@
+{
+  "qaDescriptor": {
+    "kind": "qaRule",
+    "descriptorVersion": 1,
+    "operationProtocolVersion": 1,
+    "id": "example.qa.brand-compliance",
+    "version": "1.0.0",
+    "displayName": "Brand compliance",
+    "ruleType": "mechanical",
+    "severity": "warning",
+    "definition": {},
+    "ruleKind": "mechanical",
+    "categories": ["custom", "terminology"],
+    "configSchemaVersion": 1,
+    "configSchema": {
+      "schemaVersion": 1,
+      "fields": [
+        {
+          "key": "brand",
+          "label": "Required brand spelling",
+          "fieldType": "text",
+          "required": true
+        }
+      ]
+    },
+    "limits": {
+      "maxFindings": 64,
+      "maxMessageBytes": 1024,
+      "maxEvidenceItems": 32,
+      "maxRelatedSegmentIds": 16,
+      "maxDeadlineMs": 2000
+    }
+  },
+  "qaInvocation": {
+    "protocolVersion": 1,
+    "invocationId": "qa-invocation-1",
+    "contributionId": "example.qa.brand-compliance",
+    "operation": "evaluateSegment",
+    "context": {
+      "projectId": "project-1",
+      "documentId": "document-1",
+      "segmentId": "segment-1",
+      "ordinal": 0,
+      "structuralPath": "body/p[1]",
+      "sourceLocale": "en",
+      "targetLocale": "fr",
+      "sourceText": "Choose Acme carefully",
+      "targetText": "Choisir Acme avec soin",
+      "tagFindings": [],
+      "termExpectations": []
+    },
+    "configSchemaVersion": 1,
+    "config": { "brand": "ACME" },
+    "deadlineMs": 1000
+  },
+  "qaResult": {
+    "protocolVersion": 1,
+    "findings": [
+      {
+        "ruleId": "brand.spelling",
+        "category": "custom",
+        "severity": "warning",
+        "message": "Brand spelling must be ACME.",
+        "fingerprint": "brand.spelling:7",
+        "spans": [{ "field": "target", "start": 7, "end": 11 }],
+        "evidence": ["Acme"],
+        "relatedSegmentIds": []
+      }
+    ],
+    "usage": { "workUnits": 1, "inputBytes": 43, "outputBytes": 4 }
+  },
+  "pipelineDescriptor": {
+    "kind": "pipelineStep",
+    "descriptorVersion": 1,
+    "operationProtocolVersion": 1,
+    "id": "example.pipeline.batch-normalize",
+    "version": "1.0.0",
+    "displayName": "Batch normalize",
+    "input": "json",
+    "output": "json",
+    "configSchemaVersion": 1,
+    "configSchema": {
+      "schemaVersion": 1,
+      "fields": [
+        {
+          "key": "batchSize",
+          "label": "Batch size",
+          "fieldType": "integer",
+          "required": true,
+          "min": 1,
+          "max": 100
+        }
+      ]
+    },
+    "resumable": true,
+    "cancellable": true,
+    "checkpointSchemaVersion": 1,
+    "limits": {
+      "maxInputBytes": 1048576,
+      "maxOutputBytes": 1048576,
+      "maxConfigBytes": 65536,
+      "maxCheckpointBytes": 1048576,
+      "maxDeadlineMs": 30000
+    }
+  },
+  "pipelineInvocation": {
+    "protocolVersion": 1,
+    "invocationId": "pipeline-invocation-1",
+    "contributionId": "example.pipeline.batch-normalize",
+    "operation": "resume",
+    "runId": "run-1",
+    "projectId": "project-1",
+    "documentId": "document-1",
+    "input": { "kind": "json", "value": { "records": ["one", "two"] } },
+    "configSchemaVersion": 1,
+    "config": { "batchSize": 10 },
+    "checkpoint": { "schemaVersion": 1, "value": { "cursor": 1 } },
+    "deadlineMs": 1000
+  },
+  "pipelineResult": {
+    "protocolVersion": 1,
+    "output": { "kind": "json", "value": { "records": ["ONE", "TWO"] } },
+    "checkpoint": { "schemaVersion": 1, "value": { "cursor": 2 } },
+    "usage": { "workUnits": 2, "inputBytes": 13, "outputBytes": 13 }
+  }
+}

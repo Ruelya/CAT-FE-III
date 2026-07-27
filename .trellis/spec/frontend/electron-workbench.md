@@ -1925,3 +1925,83 @@ await page.reload();
 await expect(page.getByRole("button", { name: /Import|导入/ })).toBeVisible();
 // Only now begin setup/import interactions.
 ```
+
+## Plugin QA And Pipeline Projections
+
+### 1. Scope / Trigger
+
+Use this contract when rendering plugin contribution inventory, QA plugin
+provenance, pipeline execution history, grants, compatibility, lifecycle
+state, or bounded plugin failures in Electron.
+
+### 2. Signatures
+
+Renderer code consumes generated Engine projections only:
+
+```text
+PluginContributionDescriptor::QaRule(QaRuleContributionDescriptor)
+PluginContributionDescriptor::PipelineStep(PipelineStepContributionDescriptor)
+QaRunPluginRuleExecution
+PipelineStepPluginBinding / PipelineStepPluginAttempt
+```
+
+Lifecycle actions continue through generated `DesktopApi` methods such as
+`plugin.permission.*`, `plugin.enable`, `plugin.disable`, and
+`plugin.uninstall`.
+
+### 3. Contracts
+
+- React displays Engine-owned owner/version/tier/state/grant/compatibility and
+  history projections. It does not execute plugin code, validate config, infer
+  authority, open SQLite, or reconstruct provenance from manifest JSON.
+- Contribution identity and durable history remain visible after disable,
+  degradation, upgrade, rollback, or uninstall. Long immutable IDs must use a
+  bounded detail treatment without changing the underlying value.
+- A bounded failure may display its stable code and sanitized message. The UI
+  must never request or expose source/target payloads, config secrets, raw
+  plugin output, stderr, or host paths as diagnostic detail.
+- Controls use current lifecycle revision and generated request types. After a
+  mutation, replace local display data with the authoritative Engine response.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Contribution is detached or plugin is degraded | Show inactive/degraded state and bounded last failure; do not offer execution as available |
+| Grant is absent/revoked | Show exact operation authority as unavailable; route review through permission RPCs |
+| Durable QA/pipeline history exists after uninstall | Continue rendering recorded owner/version provenance |
+| Unknown generated union variant | Fail type checking or render the shared unknown-state fallback; never cast raw payload fields |
+| 1250px viewport has more tabs than fit | Keep keyboard-operable intentional tab scrolling; prevent document-level horizontal overflow |
+
+### 5. Good / Base / Bad Cases
+
+- Good: show contribution version axes, exact grant, active tier/generation,
+  recent attempt status, and a navigation path to durable QA/pipeline detail.
+- Base: an installed plugin with pending grants shows compatible inventory but
+  no active execution authority.
+- Bad: mark a contribution active from manifest data, compute lifecycle state
+  in React, display a raw exception, or let provenance IDs force page overflow.
+
+### 6. Tests Required
+
+- Unit tests cover generated-union narrowing and provenance presentation.
+- Real Electron E2E covers install, review, grant, enable, QA/pipeline history,
+  degraded/revoked state, disable, and uninstall with no console/page errors.
+- Capture and inspect Plugins and QA/history surfaces at 1250x744, 1680x942,
+  and 1920x1080 for overlap, clipping, uncontrolled overflow, keyboard access,
+  and design-system consistency.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```typescript
+const active = manifest.permissions.includes("pipeline.register");
+```
+
+#### Correct
+
+```typescript
+const contribution = plugin.contributions.find((item) => item.id === id);
+renderContributionState(contribution, plugin.status, plugin.lastError);
+```

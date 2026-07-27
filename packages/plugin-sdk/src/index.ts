@@ -2,6 +2,17 @@ import { createInterface } from "node:readline";
 import { stdin as input, stdout as output } from "node:process";
 import { createHash } from "node:crypto";
 
+import type {
+  PipelineStepContributionDescriptorV1,
+  QaRuleContributionDescriptorV1,
+} from "./qa-pipeline.js";
+import {
+  validatePipelineStepDescriptor,
+  validateQaRuleDescriptor,
+} from "./qa-pipeline.js";
+
+export * from "./qa-pipeline.js";
+
 export const HOST_API_VERSION = 1;
 export const NORMALIZED_MANIFEST_VERSION = 1;
 export const RUNTIME_DESCRIPTOR_VERSION = 1;
@@ -627,7 +638,7 @@ export interface ProcessEngineConnectorOptionsV1 {
   handler: EngineConnectorHandlerV1;
 }
 
-export interface QaRuleContributionDescriptor {
+export interface LegacyQaRuleContributionDescriptor {
   kind: "qaRule";
   descriptorVersion: 1;
   id: string;
@@ -638,9 +649,13 @@ export interface QaRuleContributionDescriptor {
   definition: Record<string, unknown>;
   declarative?: DeclarativeQaPackDefinitionV1;
   config?: Record<string, unknown>;
+  operationProtocolVersion?: undefined;
 }
 
-export interface PipelineStepContributionDescriptor {
+export type QaRuleContributionDescriptor =
+  LegacyQaRuleContributionDescriptor | QaRuleContributionDescriptorV1;
+
+export interface LegacyPipelineStepContributionDescriptor {
   kind: "pipelineStep";
   descriptorVersion: 1;
   id: string;
@@ -652,7 +667,12 @@ export interface PipelineStepContributionDescriptor {
   resumable: boolean;
   cancellable: boolean;
   declarative?: DeclarativePipelineDefinitionV1;
+  operationProtocolVersion?: undefined;
 }
+
+export type PipelineStepContributionDescriptor =
+  | LegacyPipelineStepContributionDescriptor
+  | PipelineStepContributionDescriptorV1;
 
 export interface AiActionContributionDescriptor {
   kind: "aiAction";
@@ -739,10 +759,10 @@ export function defineDeclarativeFilter(
 
 export function defineDeclarativeQaPack(
   contribution: Omit<
-    QaRuleContributionDescriptor,
+    LegacyQaRuleContributionDescriptor,
     "kind" | "descriptorVersion" | "ruleType"
   > & { declarative: DeclarativeQaPackDefinitionV1 },
-): QaRuleContributionDescriptor {
+): LegacyQaRuleContributionDescriptor {
   return {
     kind: "qaRule",
     descriptorVersion: CONTRIBUTION_DESCRIPTOR_VERSION,
@@ -753,7 +773,7 @@ export function defineDeclarativeQaPack(
 
 export function defineDeclarativePipelineStep(
   contribution: Omit<
-    PipelineStepContributionDescriptor,
+    LegacyPipelineStepContributionDescriptor,
     | "kind"
     | "descriptorVersion"
     | "input"
@@ -762,7 +782,7 @@ export function defineDeclarativePipelineStep(
     | "resumable"
     | "cancellable"
   > & { declarative: DeclarativePipelineDefinitionV1 },
-): PipelineStepContributionDescriptor {
+): LegacyPipelineStepContributionDescriptor {
   return {
     kind: "pipelineStep",
     descriptorVersion: CONTRIBUTION_DESCRIPTOR_VERSION,
@@ -2443,6 +2463,18 @@ export function validateNormalizedManifest(
         ...validateEngineConnectorDescriptor(contribution, runtime.tier),
       );
     }
+    if (
+      contribution.kind === "qaRule" &&
+      contribution.operationProtocolVersion !== undefined
+    ) {
+      errors.push(...validateQaRuleDescriptor(contribution));
+    }
+    if (
+      contribution.kind === "pipelineStep" &&
+      contribution.operationProtocolVersion !== undefined
+    ) {
+      errors.push(...validatePipelineStepDescriptor(contribution));
+    }
     if (contribution.kind === "uiPanel") {
       if (
         contribution.bridgeVersion !== SANDBOX_BRIDGE_VERSION ||
@@ -2479,6 +2511,28 @@ export function compatibilityForManifest(
         contribution.contractVersion === ENGINE_CONNECTOR_CONTRACT_VERSION &&
         validateEngineConnectorDescriptor(contribution, manifest.runtime.tier)
           .length === 0
+      );
+    }
+    if (contribution.kind === "qaRule") {
+      if (manifest.runtime.tier === "declarative") {
+        const errors: string[] = [];
+        validateDeclarativeContribution(contribution, errors);
+        return errors.length === 0;
+      }
+      return (
+        contribution.operationProtocolVersion === 1 &&
+        validateQaRuleDescriptor(contribution).length === 0
+      );
+    }
+    if (contribution.kind === "pipelineStep") {
+      if (manifest.runtime.tier === "declarative") {
+        const errors: string[] = [];
+        validateDeclarativeContribution(contribution, errors);
+        return errors.length === 0;
+      }
+      return (
+        contribution.operationProtocolVersion === 1 &&
+        validatePipelineStepDescriptor(contribution).length === 0
       );
     }
     if (manifest.runtime.tier === "process") {

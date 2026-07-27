@@ -2,6 +2,7 @@
 
 mod connector;
 mod declarative;
+mod qa_pipeline;
 mod sandbox;
 
 pub use connector::*;
@@ -10,6 +11,7 @@ pub use declarative::{
     DeclarativeFilterLimits, DeclarativePipelineDefinitionV1, DeclarativePipelineOperation,
     DeclarativeQaPackDefinitionV1,
 };
+pub use qa_pipeline::*;
 pub use sandbox::{
     DEFAULT_SANDBOX_LIMITS, SANDBOX_PROTOCOL_VERSION, SandboxCancellationToken,
     SandboxDocumentFilter, SandboxError, SandboxFailureKind, SandboxHostCallContext,
@@ -1022,6 +1024,10 @@ impl EngineConnectorContributionDescriptor {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QaRuleDefinitionV1 {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QaRuleContributionDescriptor {
     pub descriptor_version: u32,
     pub id: String,
@@ -1029,11 +1035,76 @@ pub struct QaRuleContributionDescriptor {
     pub display_name: String,
     pub rule_type: String,
     pub severity: String,
-    pub definition: Value,
+    pub definition: QaRuleDefinitionV1,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation_protocol_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule_kind: Option<QaRuleKindV1>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub categories: Vec<translunar_qa_core::QaCategory>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_schema_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_schema: Option<PublicConfigSchemaV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits: Option<QaRuleLimitsV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub declarative: Option<DeclarativeQaPackDefinitionV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub config: Option<Value>,
+}
+
+impl QaRuleContributionDescriptor {
+    pub fn contract_compatibility(&self) -> ContributionContractCompatibilityV1 {
+        ContributionContractCompatibilityV1::inspect(
+            self.descriptor_version,
+            self.operation_protocol_version,
+            self.config_schema_version,
+            None,
+            false,
+        )
+    }
+
+    pub fn validate_executable_v1(&self, tier: PluginTier) -> Result<()> {
+        if tier == PluginTier::Declarative {
+            return validate_tier_contribution(
+                tier,
+                &PluginContributionDescriptor::QaRule(self.clone()),
+                true,
+            );
+        }
+        let compatibility = self.contract_compatibility();
+        if !compatibility.compatible
+            || self.rule_type != "mechanical"
+            || !matches!(self.severity.as_str(), "error" | "warning" | "info")
+            || self.rule_kind != Some(QaRuleKindV1::Mechanical)
+            || self.categories.is_empty()
+            || self.categories.len() > MAX_LIST_ITEMS
+            || !self
+                .categories
+                .windows(2)
+                .all(|pair| pair[0].as_str() < pair[1].as_str())
+        {
+            return Err(PluginRuntimeError::CapabilityUnsupported(format!(
+                "QA contribution {} does not implement the public V1 contract",
+                self.id
+            )));
+        }
+        let schema = self.config_schema.as_ref().ok_or_else(|| {
+            PluginRuntimeError::CapabilityUnsupported("QA config schema is missing".to_string())
+        })?;
+        schema.validate_definition()?;
+        if let Some(config) = &self.config {
+            schema.validate_config(config)?;
+        }
+        self.limits
+            .as_ref()
+            .ok_or_else(|| {
+                PluginRuntimeError::CapabilityUnsupported("QA limits are missing".to_string())
+            })?
+            .validate()?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1043,13 +1114,81 @@ pub struct PipelineStepContributionDescriptor {
     pub id: String,
     pub version: String,
     pub display_name: String,
-    pub input: Value,
-    pub output: Value,
+    pub input: translunar_pipeline::ArtifactKind,
+    pub output: translunar_pipeline::ArtifactKind,
     pub config_schema_version: u32,
     pub resumable: bool,
     pub cancellable: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation_protocol_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_schema: Option<PublicConfigSchemaV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_schema_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits: Option<PipelineStepLimitsV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub declarative: Option<DeclarativePipelineDefinitionV1>,
+}
+
+impl PipelineStepContributionDescriptor {
+    pub fn input_artifact_kind(&self) -> Result<translunar_pipeline::ArtifactKind> {
+        Ok(self.input)
+    }
+
+    pub fn output_artifact_kind(&self) -> Result<translunar_pipeline::ArtifactKind> {
+        Ok(self.output)
+    }
+
+    pub fn contract_compatibility(&self) -> ContributionContractCompatibilityV1 {
+        ContributionContractCompatibilityV1::inspect(
+            self.descriptor_version,
+            self.operation_protocol_version,
+            Some(self.config_schema_version),
+            self.checkpoint_schema_version,
+            self.resumable,
+        )
+    }
+
+    pub fn validate_executable_v1(&self, tier: PluginTier) -> Result<()> {
+        if tier == PluginTier::Declarative {
+            return validate_tier_contribution(
+                tier,
+                &PluginContributionDescriptor::PipelineStep(self.clone()),
+                true,
+            );
+        }
+        if !self.contract_compatibility().compatible || !self.cancellable {
+            return Err(PluginRuntimeError::CapabilityUnsupported(format!(
+                "pipeline contribution {} does not implement the public V1 contract",
+                self.id
+            )));
+        }
+        let input = self.input_artifact_kind()?;
+        let output = self.output_artifact_kind()?;
+        if matches!(input, translunar_pipeline::ArtifactKind::None)
+            || matches!(output, translunar_pipeline::ArtifactKind::None)
+        {
+            return Err(PluginRuntimeError::InvalidManifest(
+                "plugin pipeline artifact kinds cannot be none".to_string(),
+            ));
+        }
+        self.config_schema
+            .as_ref()
+            .ok_or_else(|| {
+                PluginRuntimeError::CapabilityUnsupported(
+                    "pipeline config schema is missing".to_string(),
+                )
+            })?
+            .validate_definition()?;
+        self.limits
+            .as_ref()
+            .ok_or_else(|| {
+                PluginRuntimeError::CapabilityUnsupported("pipeline limits are missing".to_string())
+            })?
+            .validate()?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1451,7 +1590,15 @@ impl NormalizedPluginManifest {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        if filters.is_empty() {
+        let has_public_process_contribution = self.contributions.iter().any(|contribution| {
+            matches!(
+                contribution,
+                PluginContributionDescriptor::EngineConnector(_)
+                    | PluginContributionDescriptor::QaRule(_)
+                    | PluginContributionDescriptor::PipelineStep(_)
+            )
+        });
+        if filters.is_empty() && !has_public_process_contribution {
             return Err(PluginRuntimeError::CapabilityUnsupported(
                 "process runtime requires a filter contribution for the Tier 3 host".to_string(),
             ));
@@ -1479,7 +1626,19 @@ impl NormalizedPluginManifest {
             && self
                 .contributions
                 .iter()
-                .all(|contribution| matches!(contribution, PluginContributionDescriptor::Filter(_)))
+                .all(|contribution| match contribution {
+                    PluginContributionDescriptor::Filter(_) => true,
+                    PluginContributionDescriptor::EngineConnector(value) => {
+                        value.is_executable_v1(PluginTier::Process)
+                    }
+                    PluginContributionDescriptor::QaRule(value) => {
+                        value.validate_executable_v1(PluginTier::Process).is_ok()
+                    }
+                    PluginContributionDescriptor::PipelineStep(value) => {
+                        value.validate_executable_v1(PluginTier::Process).is_ok()
+                    }
+                    _ => false,
+                })
     }
 
     pub fn supports_sandbox_host(&self) -> bool {
@@ -1490,6 +1649,12 @@ impl NormalizedPluginManifest {
                 .all(|contribution| match contribution {
                     PluginContributionDescriptor::EngineConnector(value) => {
                         value.is_executable_v1(PluginTier::Sandbox)
+                    }
+                    PluginContributionDescriptor::QaRule(value) => {
+                        value.validate_executable_v1(PluginTier::Sandbox).is_ok()
+                    }
+                    PluginContributionDescriptor::PipelineStep(value) => {
+                        value.validate_executable_v1(PluginTier::Sandbox).is_ok()
                     }
                     _ => matches!(
                         contribution,
@@ -1513,6 +1678,12 @@ impl NormalizedPluginManifest {
             match contribution {
                 PluginContributionDescriptor::EngineConnector(value) => {
                     value.is_executable_v1(tier)
+                }
+                PluginContributionDescriptor::QaRule(value) => {
+                    value.validate_executable_v1(tier).is_ok()
+                }
+                PluginContributionDescriptor::PipelineStep(value) => {
+                    value.validate_executable_v1(tier).is_ok()
                 }
                 _ => match &self.runtime {
                     PluginRuntimeDescriptor::Process { .. } => {
@@ -2204,9 +2375,14 @@ fn validate_contribution(
         PluginContributionDescriptor::QaRule(value) => {
             require_text(&value.rule_type, "QA ruleType", MAX_SHORT_STRING_BYTES)?;
             require_text(&value.severity, "QA severity", MAX_SHORT_STRING_BYTES)?;
-            validate_json_shape(&value.definition, "QA definition", 0)?;
             if let Some(config) = &value.config {
                 validate_json_shape(config, "QA config", 0)?;
+            }
+            if let Some(schema) = &value.config_schema {
+                schema.validate_definition()?;
+            }
+            if let Some(limits) = &value.limits {
+                limits.validate()?;
             }
             Ok(())
         }
@@ -2216,8 +2392,12 @@ fn validate_contribution(
                     "pipeline configSchemaVersion must be positive".to_string(),
                 ));
             }
-            validate_json_shape(&value.input, "pipeline input", 0)?;
-            validate_json_shape(&value.output, "pipeline output", 0)?;
+            if let Some(schema) = &value.config_schema {
+                schema.validate_definition()?;
+            }
+            if let Some(limits) = &value.limits {
+                limits.validate()?;
+            }
             Ok(())
         }
         PluginContributionDescriptor::AiAction(value) => {
@@ -2490,12 +2670,63 @@ impl HandshakeContributions {
                 .collect(),
         }
     }
+
+    fn qa_rule_descriptors(&self) -> Vec<QaRuleContributionDescriptor> {
+        match self {
+            Self::Legacy(_) => Vec::new(),
+            Self::Normalized(contributions) => contributions
+                .iter()
+                .filter_map(|contribution| match contribution {
+                    PluginContributionDescriptor::QaRule(descriptor) => Some(descriptor.clone()),
+                    _ => None,
+                })
+                .collect(),
+        }
+    }
+
+    fn pipeline_step_descriptors(&self) -> Vec<PipelineStepContributionDescriptor> {
+        match self {
+            Self::Legacy(_) => Vec::new(),
+            Self::Normalized(contributions) => contributions
+                .iter()
+                .filter_map(|contribution| match contribution {
+                    PluginContributionDescriptor::PipelineStep(descriptor) => {
+                        Some(descriptor.clone())
+                    }
+                    _ => None,
+                })
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug)]
 struct PendingCall {
     method: String,
+    pipeline_invocation_id: Option<String>,
     sender: std::sync::mpsc::Sender<Result<Value>>,
+}
+
+type PipelineCheckpointHandler =
+    dyn Fn(PipelineStepCheckpointProgressV1) -> Result<()> + Send + Sync + 'static;
+
+#[derive(Clone)]
+struct PendingPipelineCheckpointRoute {
+    contribution_id: String,
+    checkpoint_schema_version: Option<u32>,
+    limits: PipelineStepLimitsV1,
+    handler: Arc<PipelineCheckpointHandler>,
+    failure: Arc<Mutex<Option<String>>>,
+}
+
+impl std::fmt::Debug for PendingPipelineCheckpointRoute {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PendingPipelineCheckpointRoute")
+            .field("contribution_id", &self.contribution_id)
+            .field("checkpoint_schema_version", &self.checkpoint_schema_version)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug)]
@@ -2551,6 +2782,7 @@ struct ProcessState {
     writer: SyncSender<String>,
     pending: Arc<Mutex<BTreeMap<u64, PendingCall>>>,
     connector_routes: Arc<Mutex<BTreeMap<String, PendingConnectorRoute>>>,
+    pipeline_checkpoint_routes: Arc<Mutex<BTreeMap<String, PendingPipelineCheckpointRoute>>>,
     next_id: AtomicU64,
     stderr_tail: Arc<Mutex<VecDeque<u8>>>,
 }
@@ -2567,6 +2799,8 @@ pub struct PluginProcess {
     package_dir: PathBuf,
     manifest: PluginManifest,
     connector_descriptors: Vec<EngineConnectorContributionDescriptor>,
+    qa_rule_descriptors: Vec<QaRuleContributionDescriptor>,
+    pipeline_step_descriptors: Vec<PipelineStepContributionDescriptor>,
     state: Mutex<Option<ProcessState>>,
     start_lock: Mutex<()>,
     next_generation: AtomicU64,
@@ -2582,14 +2816,76 @@ impl PluginProcess {
         manifest: PluginManifest,
         connector_descriptors: Vec<EngineConnectorContributionDescriptor>,
     ) -> Self {
+        Self::new_with_public_descriptors(
+            package_dir,
+            manifest,
+            connector_descriptors,
+            Vec::new(),
+            Vec::new(),
+        )
+    }
+
+    pub fn new_with_public_descriptors(
+        package_dir: PathBuf,
+        manifest: PluginManifest,
+        connector_descriptors: Vec<EngineConnectorContributionDescriptor>,
+        qa_rule_descriptors: Vec<QaRuleContributionDescriptor>,
+        pipeline_step_descriptors: Vec<PipelineStepContributionDescriptor>,
+    ) -> Self {
         Self {
             package_dir,
             manifest,
             connector_descriptors,
+            qa_rule_descriptors,
+            pipeline_step_descriptors,
             state: Mutex::new(None),
             start_lock: Mutex::new(()),
             next_generation: AtomicU64::new(1),
         }
+    }
+
+    pub fn from_normalized_manifest(
+        package_dir: PathBuf,
+        manifest: &NormalizedPluginManifest,
+    ) -> Result<Self> {
+        if !matches!(manifest.runtime, PluginRuntimeDescriptor::Process { .. }) {
+            return Err(PluginRuntimeError::CapabilityUnsupported(
+                "only process manifests can create a Tier 3 process host".to_string(),
+            ));
+        }
+        let connector_descriptors = manifest
+            .contributions
+            .iter()
+            .filter_map(|contribution| match contribution {
+                PluginContributionDescriptor::EngineConnector(descriptor) => {
+                    Some(descriptor.clone())
+                }
+                _ => None,
+            })
+            .collect();
+        let qa_rule_descriptors = manifest
+            .contributions
+            .iter()
+            .filter_map(|contribution| match contribution {
+                PluginContributionDescriptor::QaRule(descriptor) => Some(descriptor.clone()),
+                _ => None,
+            })
+            .collect();
+        let pipeline_step_descriptors = manifest
+            .contributions
+            .iter()
+            .filter_map(|contribution| match contribution {
+                PluginContributionDescriptor::PipelineStep(descriptor) => Some(descriptor.clone()),
+                _ => None,
+            })
+            .collect();
+        Ok(Self::new_with_public_descriptors(
+            package_dir,
+            manifest.to_legacy_process_manifest()?,
+            connector_descriptors,
+            qa_rule_descriptors,
+            pipeline_step_descriptors,
+        ))
     }
 
     pub fn manifest(&self) -> &PluginManifest {
@@ -2615,6 +2911,26 @@ impl PluginProcess {
                 return Err(PluginRuntimeError::InvalidManifest(format!(
                     "duplicate process connector contribution {}",
                     connector.id
+                )));
+            }
+        }
+        let mut qa_rule_ids = BTreeSet::new();
+        for descriptor in &self.qa_rule_descriptors {
+            descriptor.validate_executable_v1(PluginTier::Process)?;
+            if !qa_rule_ids.insert(descriptor.id.as_str()) {
+                return Err(PluginRuntimeError::InvalidManifest(format!(
+                    "duplicate process QA contribution {}",
+                    descriptor.id
+                )));
+            }
+        }
+        let mut pipeline_step_ids = BTreeSet::new();
+        for descriptor in &self.pipeline_step_descriptors {
+            descriptor.validate_executable_v1(PluginTier::Process)?;
+            if !pipeline_step_ids.insert(descriptor.id.as_str()) {
+                return Err(PluginRuntimeError::InvalidManifest(format!(
+                    "duplicate process pipeline contribution {}",
+                    descriptor.id
                 )));
             }
         }
@@ -2663,18 +2979,37 @@ impl PluginProcess {
                 "plugin handshake connector inventory does not match the manifest".to_string(),
             ));
         }
+        if handshake.contributions.qa_rule_descriptors() != self.qa_rule_descriptors {
+            self.stop();
+            return Err(PluginRuntimeError::Protocol(
+                "plugin handshake QA rule inventory does not match the manifest".to_string(),
+            ));
+        }
+        if handshake.contributions.pipeline_step_descriptors() != self.pipeline_step_descriptors {
+            self.stop();
+            return Err(PluginRuntimeError::Protocol(
+                "plugin handshake pipeline step inventory does not match the manifest".to_string(),
+            ));
+        }
         Ok(())
     }
 
     pub fn stop(&self) {
         let state = self.state.lock().ok().and_then(|mut guard| guard.take());
         if let Some(mut state) = state {
-            let params = if self.connector_descriptors.is_empty() {
-                json!({})
-            } else {
-                json!({ "contractVersion": ENGINE_CONNECTOR_CONTRACT_VERSION })
-            };
-            if let Ok(notification) = Self::encode_notification("plugin.shutdown", params) {
+            let mut params = serde_json::Map::new();
+            if !self.connector_descriptors.is_empty() {
+                params.insert(
+                    "contractVersion".to_string(),
+                    Value::from(ENGINE_CONNECTOR_CONTRACT_VERSION),
+                );
+            }
+            if !self.qa_rule_descriptors.is_empty() || !self.pipeline_step_descriptors.is_empty() {
+                params.insert("protocolVersion".to_string(), Value::from(1));
+            }
+            if let Ok(notification) =
+                Self::encode_notification("plugin.shutdown", Value::Object(params))
+            {
                 let _ = state.writer.try_send(notification);
             }
             state.kill();
@@ -2725,6 +3060,9 @@ impl PluginProcess {
         let pending: Arc<Mutex<BTreeMap<u64, PendingCall>>> = Arc::new(Mutex::new(BTreeMap::new()));
         let connector_routes: Arc<Mutex<BTreeMap<String, PendingConnectorRoute>>> =
             Arc::new(Mutex::new(BTreeMap::new()));
+        let pipeline_checkpoint_routes: Arc<
+            Mutex<BTreeMap<String, PendingPipelineCheckpointRoute>>,
+        > = Arc::new(Mutex::new(BTreeMap::new()));
         let (writer, writer_receiver) =
             std::sync::mpsc::sync_channel::<String>(WRITER_QUEUE_CAPACITY);
         {
@@ -2744,6 +3082,7 @@ impl PluginProcess {
         {
             let pending = Arc::clone(&pending);
             let connector_routes = Arc::clone(&connector_routes);
+            let pipeline_checkpoint_routes = Arc::clone(&pipeline_checkpoint_routes);
             thread::spawn(move || {
                 let mut reader = BufReader::new(stdout);
                 loop {
@@ -2764,7 +3103,12 @@ impl PluginProcess {
                         continue;
                     }
                     match serde_json::from_slice::<Value>(&line) {
-                        Ok(frame) => dispatch_frame(&pending, &connector_routes, frame),
+                        Ok(frame) => dispatch_frame(
+                            &pending,
+                            &connector_routes,
+                            &pipeline_checkpoint_routes,
+                            frame,
+                        ),
                         Err(error) => {
                             let message = format!("invalid plugin JSON: {error}");
                             fail_protocol_generation(&pending, &connector_routes, message);
@@ -2816,6 +3160,7 @@ impl PluginProcess {
             writer,
             pending,
             connector_routes,
+            pipeline_checkpoint_routes,
             next_id: AtomicU64::new(1),
             stderr_tail,
         })
@@ -2843,6 +3188,219 @@ impl PluginProcess {
     ) -> Result<T> {
         self.ensure_started()?;
         self.call_started(method, params, timeout)
+    }
+
+    pub fn call_qa_rule(
+        &self,
+        invocation: &QaRuleInvocationV1,
+        timeout: Duration,
+    ) -> Result<QaRuleResultV1> {
+        let descriptor = self
+            .qa_rule_descriptors
+            .iter()
+            .find(|descriptor| descriptor.id == invocation.contribution_id)
+            .ok_or_else(|| {
+                PluginRuntimeError::CapabilityUnsupported(format!(
+                    "unknown QA contribution {}",
+                    invocation.contribution_id
+                ))
+            })?;
+        let schema = descriptor.config_schema.as_ref().ok_or_else(|| {
+            PluginRuntimeError::InvalidManifest("QA config schema is missing".to_string())
+        })?;
+        let limits = descriptor.limits.as_ref().ok_or_else(|| {
+            PluginRuntimeError::InvalidManifest("QA limits are missing".to_string())
+        })?;
+        invocation.validate(schema, limits)?;
+        let result: QaRuleResultV1 = self.call(
+            QA_RULE_OPERATION_EVALUATE_SEGMENT,
+            serde_json::to_value(invocation)?,
+            timeout.min(Duration::from_millis(invocation.deadline_ms)),
+        )?;
+        result.validate(invocation, limits)?;
+        Ok(result)
+    }
+
+    pub fn call_pipeline_step(
+        &self,
+        invocation: &PipelineStepInvocationV1,
+        timeout: Duration,
+    ) -> Result<PipelineStepResultV1> {
+        self.call_pipeline_step_inner(invocation, timeout, None)
+    }
+
+    pub fn call_pipeline_checkpoint_migration(
+        &self,
+        invocation: &PipelineCheckpointMigrationInvocationV1,
+        timeout: Duration,
+    ) -> Result<PipelineCheckpointMigrationResultV1> {
+        let descriptor = self
+            .pipeline_step_descriptors
+            .iter()
+            .find(|descriptor| descriptor.id == invocation.contribution_id)
+            .ok_or_else(|| {
+                PluginRuntimeError::CapabilityUnsupported(format!(
+                    "unknown pipeline contribution {}",
+                    invocation.contribution_id
+                ))
+            })?;
+        let schema = descriptor.config_schema.as_ref().ok_or_else(|| {
+            PluginRuntimeError::InvalidManifest("pipeline config schema is missing".to_string())
+        })?;
+        let limits = descriptor.limits.as_ref().ok_or_else(|| {
+            PluginRuntimeError::InvalidManifest("pipeline limits are missing".to_string())
+        })?;
+        invocation.validate(descriptor.checkpoint_schema_version, schema, limits)?;
+        let result: PipelineCheckpointMigrationResultV1 = self.call(
+            PIPELINE_STEP_OPERATION_CHECKPOINT_MIGRATE,
+            serde_json::to_value(invocation)?,
+            timeout.min(Duration::from_millis(invocation.deadline_ms)),
+        )?;
+        result.validate(descriptor.checkpoint_schema_version, limits)?;
+        Ok(result)
+    }
+
+    pub fn call_pipeline_step_with_checkpoints(
+        &self,
+        invocation: &PipelineStepInvocationV1,
+        timeout: Duration,
+        on_checkpoint: impl Fn(PipelineStepCheckpointProgressV1) -> Result<()> + Send + Sync + 'static,
+    ) -> Result<PipelineStepResultV1> {
+        self.call_pipeline_step_inner(invocation, timeout, Some(Arc::new(on_checkpoint)))
+    }
+
+    fn call_pipeline_step_inner(
+        &self,
+        invocation: &PipelineStepInvocationV1,
+        timeout: Duration,
+        on_checkpoint: Option<Arc<PipelineCheckpointHandler>>,
+    ) -> Result<PipelineStepResultV1> {
+        let descriptor = self
+            .pipeline_step_descriptors
+            .iter()
+            .find(|descriptor| descriptor.id == invocation.contribution_id)
+            .ok_or_else(|| {
+                PluginRuntimeError::CapabilityUnsupported(format!(
+                    "unknown pipeline contribution {}",
+                    invocation.contribution_id
+                ))
+            })?;
+        let schema = descriptor.config_schema.as_ref().ok_or_else(|| {
+            PluginRuntimeError::InvalidManifest("pipeline config schema is missing".to_string())
+        })?;
+        let limits = descriptor.limits.as_ref().ok_or_else(|| {
+            PluginRuntimeError::InvalidManifest("pipeline limits are missing".to_string())
+        })?;
+        invocation.validate(
+            descriptor.input_artifact_kind()?,
+            descriptor.resumable,
+            descriptor.checkpoint_schema_version,
+            schema,
+            limits,
+        )?;
+        let method = match invocation.operation {
+            PipelineStepOperationV1::Execute => PIPELINE_STEP_OPERATION_EXECUTE,
+            PipelineStepOperationV1::Resume => PIPELINE_STEP_OPERATION_RESUME,
+        };
+        let params = serde_json::to_value(invocation)?;
+        let checkpoint_route = if let Some(handler) = on_checkpoint {
+            self.ensure_started()?;
+            let routes = {
+                let guard = self.state.lock().map_err(|_| {
+                    PluginRuntimeError::Process("process lock poisoned".to_string())
+                })?;
+                Arc::clone(
+                    &guard
+                        .as_ref()
+                        .ok_or_else(|| {
+                            PluginRuntimeError::Process("plugin process is not running".to_string())
+                        })?
+                        .pipeline_checkpoint_routes,
+                )
+            };
+            let failure = Arc::new(Mutex::new(None));
+            let route = PendingPipelineCheckpointRoute {
+                contribution_id: invocation.contribution_id.clone(),
+                checkpoint_schema_version: descriptor.checkpoint_schema_version,
+                limits: limits.clone(),
+                handler,
+                failure: Arc::clone(&failure),
+            };
+            let previous = routes
+                .lock()
+                .map_err(|_| {
+                    PluginRuntimeError::Process(
+                        "pipeline checkpoint route lock poisoned".to_string(),
+                    )
+                })?
+                .insert(invocation.invocation_id.clone(), route);
+            if previous.is_some() {
+                return Err(PluginRuntimeError::Protocol(
+                    "pipeline checkpoint invocationId is already active".to_string(),
+                ));
+            }
+            Some((routes, failure))
+        } else {
+            None
+        };
+        let result = self.call(
+            method,
+            params,
+            timeout.min(Duration::from_millis(invocation.deadline_ms)),
+        );
+        let checkpoint_failure = checkpoint_route.and_then(|(routes, failure)| {
+            routes
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .remove(&invocation.invocation_id);
+            failure
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .take()
+        });
+        if checkpoint_failure.is_some() {
+            return Err(PluginRuntimeError::Protocol(
+                "plugin pipeline checkpoint was rejected".to_string(),
+            ));
+        }
+        let result: PipelineStepResultV1 = result?;
+        result.validate(
+            descriptor.output_artifact_kind()?,
+            descriptor.resumable,
+            descriptor.checkpoint_schema_version,
+            limits,
+        )?;
+        Ok(result)
+    }
+
+    pub fn cancel_qa_rule(&self, invocation_id: &str) -> Result<()> {
+        self.send_public_cancel_notification(QA_RULE_OPERATION_CANCEL, invocation_id)
+    }
+
+    pub fn cancel_pipeline_step(&self, invocation_id: &str) -> Result<()> {
+        self.send_public_cancel_notification(PIPELINE_STEP_OPERATION_CANCEL, invocation_id)
+    }
+
+    fn send_public_cancel_notification(&self, method: &str, invocation_id: &str) -> Result<()> {
+        let request = ContributionCancelRequestV1::new(invocation_id);
+        request.validate()?;
+        self.ensure_started()?;
+        let encoded = Self::encode_notification(method, serde_json::to_value(request)?)?;
+        let guard = self
+            .state
+            .lock()
+            .map_err(|_| PluginRuntimeError::Process("process lock poisoned".to_string()))?;
+        let state = guard.as_ref().ok_or_else(|| {
+            PluginRuntimeError::Process("plugin process is not running".to_string())
+        })?;
+        state.writer.try_send(encoded).map_err(|error| match error {
+            TrySendError::Full(_) => {
+                PluginRuntimeError::Process("plugin process writer queue is full".to_string())
+            }
+            TrySendError::Disconnected(_) => {
+                PluginRuntimeError::Process("plugin process writer is closed".to_string())
+            }
+        })
     }
 
     pub fn call_connector_stream<F>(
@@ -2927,6 +3485,7 @@ impl PluginProcess {
                     id,
                     PendingCall {
                         method: "connector.generate".to_string(),
+                        pipeline_invocation_id: None,
                         sender: response_sender,
                     },
                 );
@@ -3215,6 +3774,19 @@ impl PluginProcess {
                     id,
                     PendingCall {
                         method: method.to_string(),
+                        pipeline_invocation_id: matches!(
+                            method,
+                            PIPELINE_STEP_OPERATION_EXECUTE
+                                | PIPELINE_STEP_OPERATION_RESUME
+                                | PIPELINE_STEP_OPERATION_CHECKPOINT_MIGRATE
+                        )
+                        .then(|| {
+                            params
+                                .get("invocationId")
+                                .and_then(Value::as_str)
+                                .map(str::to_string)
+                        })
+                        .flatten(),
                         sender,
                     },
                 );
@@ -3488,9 +4060,19 @@ fn fail_protocol_generation(
 fn dispatch_frame(
     pending: &Mutex<BTreeMap<u64, PendingCall>>,
     connector_routes: &Mutex<BTreeMap<String, PendingConnectorRoute>>,
+    pipeline_checkpoint_routes: &Mutex<BTreeMap<String, PendingPipelineCheckpointRoute>>,
     frame: Value,
 ) {
     if frame.get("method").is_some() {
+        if frame.get("method").and_then(Value::as_str) == Some("pipeline.checkpoint") {
+            dispatch_pipeline_checkpoint_notification(
+                pending,
+                connector_routes,
+                pipeline_checkpoint_routes,
+                frame,
+            );
+            return;
+        }
         dispatch_connector_notification(pending, connector_routes, frame);
         return;
     }
@@ -3501,6 +4083,12 @@ fn dispatch_frame(
     let Some(call) = pending.remove(&id) else {
         return;
     };
+    if let Some(invocation_id) = &call.pipeline_invocation_id {
+        pipeline_checkpoint_routes
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(invocation_id);
+    }
     if call.method.starts_with("connector.") && !is_strict_connector_response(&frame, id) {
         let _ = call.sender.send(Err(PluginRuntimeError::Protocol(format!(
             "invalid JSON-RPC response for {}",
@@ -3517,6 +4105,59 @@ fn dispatch_frame(
     }
     let result = frame.get("result").cloned().unwrap_or(Value::Null);
     let _ = call.sender.send(Ok(result));
+}
+
+fn dispatch_pipeline_checkpoint_notification(
+    pending: &Mutex<BTreeMap<u64, PendingCall>>,
+    connector_routes: &Mutex<BTreeMap<String, PendingConnectorRoute>>,
+    routes: &Mutex<BTreeMap<String, PendingPipelineCheckpointRoute>>,
+    frame: Value,
+) {
+    let strict_frame = frame.as_object().is_some_and(|object| {
+        object.len() == 3
+            && object.get("jsonrpc").and_then(Value::as_str) == Some("2.0")
+            && object.get("method").and_then(Value::as_str) == Some("pipeline.checkpoint")
+            && object.contains_key("params")
+    });
+    let progress = strict_frame
+        .then(|| frame.get("params").cloned().unwrap_or(Value::Null))
+        .ok_or_else(|| "invalid pipeline.checkpoint frame".to_string())
+        .and_then(|params| {
+            serde_json::from_value::<PipelineStepCheckpointProgressV1>(params)
+                .map_err(|_| "invalid pipeline.checkpoint params".to_string())
+        });
+    let progress = match progress {
+        Ok(progress) => progress,
+        Err(message) => {
+            fail_protocol_generation(pending, connector_routes, message);
+            return;
+        }
+    };
+    let route = routes
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .get(&progress.invocation_id)
+        .cloned();
+    let Some(route) = route else {
+        return;
+    };
+    let accepted = progress
+        .validate(
+            &progress.invocation_id,
+            &route.contribution_id,
+            route.checkpoint_schema_version,
+            &route.limits,
+        )
+        .and_then(|()| (route.handler)(progress));
+    if accepted.is_err() {
+        let mut failure = route
+            .failure
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if failure.is_none() {
+            *failure = Some("pipeline checkpoint was rejected".to_string());
+        }
+    }
 }
 
 fn is_strict_connector_response(frame: &Value, expected_id: u64) -> bool {
@@ -4153,7 +4794,7 @@ mod tests {
                 "displayName": "V2 QA",
                 "ruleType": "style",
                 "severity": "warning",
-                "definition": {"pattern": "v2"}
+                "definition": {}
             }),
             json!({
                 "kind": "pipelineStep",
@@ -4161,8 +4802,8 @@ mod tests {
                 "id": "example.v2.step",
                 "version": "1.0.0",
                 "displayName": "V2 step",
-                "input": {"type": "text"},
-                "output": {"type": "text"},
+                "input": "json",
+                "output": "json",
                 "configSchemaVersion": 1,
                 "resumable": true,
                 "cancellable": true
@@ -4836,6 +5477,7 @@ rl.on("line", (line) => {
             1,
             PendingCall {
                 method: "filter.probe".to_string(),
+                pipeline_invocation_id: None,
                 sender,
             },
         )]));

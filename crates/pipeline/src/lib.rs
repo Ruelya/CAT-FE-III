@@ -1,7 +1,7 @@
 //! Typed pipeline definitions, step registry, and durable run state rules.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{Arc, atomic::AtomicBool};
+use std::sync::{Arc, RwLock, atomic::AtomicBool};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -19,6 +19,12 @@ pub enum ArtifactKind {
     Json,
 }
 
+pub const MAX_PIPELINE_CONFIG_BYTES: usize = 64 * 1024;
+pub const MAX_PIPELINE_INPUT_BYTES: usize = 4 * 1024 * 1024;
+pub const MAX_PIPELINE_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_PIPELINE_JSON_DEPTH: usize = 16;
+pub const MAX_PIPELINE_JSON_NODES: usize = 65_536;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct StepDescriptor {
@@ -30,6 +36,66 @@ pub struct StepDescriptor {
     pub config_schema_version: u32,
     pub resumable: bool,
     pub cancellable: bool,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum PluginPipelineTier {
+    Declarative,
+    Sandbox,
+    Process,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "kind"
+)]
+pub enum PipelineStepOwner {
+    Builtin,
+    Plugin {
+        plugin_id: String,
+        version_id: String,
+        activation_revision: u64,
+        contribution_id: String,
+        contribution_version: String,
+        descriptor_version: u32,
+        operation_protocol_version: u32,
+        config_schema_version: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        checkpoint_schema_version: Option<u32>,
+        tier: PluginPipelineTier,
+        descriptor_hash: String,
+    },
+}
+
+impl PipelineStepOwner {
+    pub fn plugin_id(&self) -> Option<&str> {
+        match self {
+            Self::Builtin => None,
+            Self::Plugin { plugin_id, .. } => Some(plugin_id),
+        }
+    }
+
+    pub fn activation_revision(&self) -> Option<u64> {
+        match self {
+            Self::Builtin => None,
+            Self::Plugin {
+                activation_revision,
+                ..
+            } => Some(*activation_revision),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PipelineStepBinding {
+    pub descriptor: StepDescriptor,
+    pub owner: PipelineStepOwner,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -149,11 +215,67 @@ pub struct PipelineStepRun {
     pub usage: Option<Value>,
     #[serde(default)]
     pub error: Option<PipelineFailure>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_binding: Option<PipelineStepPluginBinding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_plugin_attempt: Option<PipelineStepPluginAttempt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_checkpoint: Option<PipelineStepCheckpointMetadata>,
     #[serde(default)]
     pub started_at_ms: Option<i64>,
     #[serde(default)]
     pub completed_at_ms: Option<i64>,
     pub updated_at_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PipelineStepPluginBinding {
+    pub owner: PipelineStepOwner,
+    pub config_hash: String,
+    pub created_at_ms: i64,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum PipelineStepPluginOperation {
+    Execute,
+    Resume,
+    CheckpointMigrate,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PipelineStepPluginAttempt {
+    pub id: String,
+    pub attempt_index: u32,
+    pub operation: PipelineStepPluginOperation,
+    pub input_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_input_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_output_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_schema_version: Option<u32>,
+    #[serde(default)]
+    pub usage: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<PipelineFailure>,
+    pub started_at_ms: i64,
+    pub completed_at_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PipelineStepCheckpointMetadata {
+    pub sequence: u32,
+    pub schema_version: u32,
+    pub checkpoint_hash: String,
+    pub created_at_ms: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -172,7 +294,27 @@ pub struct StepExecutionContext {
     pub input: Value,
     pub config: Value,
     pub checkpoint: Option<Value>,
+    pub deadline_ms: u64,
     pub cancellation: Arc<AtomicBool>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StepCheckpointMigrationContext {
+    pub run_id: String,
+    pub project_id: String,
+    pub document_id: Option<String>,
+    pub config: Value,
+    pub checkpoint: Value,
+    pub source_schema_version: u32,
+    pub target_schema_version: u32,
+    pub deadline_ms: u64,
+    pub cancellation: Arc<AtomicBool>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StepCheckpointMigrationOutcome {
+    pub checkpoint: Value,
+    pub usage: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -182,9 +324,68 @@ pub struct StepOutcome {
     pub usage: Option<Value>,
 }
 
+#[derive(Clone)]
+pub struct StepCheckpointSink {
+    publish: Arc<dyn Fn(Value) -> Result<(), PipelineError> + Send + Sync>,
+}
+
+impl std::fmt::Debug for StepCheckpointSink {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("StepCheckpointSink")
+            .finish_non_exhaustive()
+    }
+}
+
+impl StepCheckpointSink {
+    pub fn new(
+        publish: impl Fn(Value) -> Result<(), PipelineError> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            publish: Arc::new(publish),
+        }
+    }
+
+    pub fn publish(&self, checkpoint: Value) -> Result<(), PipelineError> {
+        (self.publish)(checkpoint)
+    }
+}
+
 pub trait PipelineStep: Send + Sync {
     fn descriptor(&self) -> StepDescriptor;
+
+    fn validate_config(&self, config: &Value) -> Result<(), PipelineError> {
+        validate_pipeline_json(config, "pipeline config", MAX_PIPELINE_CONFIG_BYTES)
+    }
+
+    fn validate_input(&self, input: &Value) -> Result<(), PipelineError> {
+        validate_pipeline_json(input, "pipeline input", MAX_PIPELINE_INPUT_BYTES)
+    }
+
+    fn validate_output(&self, output: &Value) -> Result<(), PipelineError> {
+        validate_pipeline_json(output, "pipeline output", MAX_PIPELINE_OUTPUT_BYTES)
+    }
+
+    fn execute_with_checkpoint_sink(
+        &self,
+        context: StepExecutionContext,
+        _checkpoint_sink: Option<StepCheckpointSink>,
+    ) -> Result<StepOutcome, PipelineError> {
+        self.execute(context)
+    }
+
     fn execute(&self, context: StepExecutionContext) -> Result<StepOutcome, PipelineError>;
+
+    fn migrate_checkpoint(
+        &self,
+        _context: StepCheckpointMigrationContext,
+    ) -> Result<StepCheckpointMigrationOutcome, PipelineError> {
+        Err(PipelineError::Plugin(PipelineFailure {
+            code: "plugin_checkpoint_incompatible".to_string(),
+            message: "the plugin has no checkpoint migration handler".to_string(),
+            retryable: false,
+        }))
+    }
 }
 
 #[derive(Debug, Error)]
@@ -202,52 +403,224 @@ pub enum PipelineError {
     },
     #[error("pipeline execution failed: {0}")]
     Execution(String),
+    #[error("pipeline boundary rejected: {0}")]
+    Boundary(String),
+    #[error("pipeline plugin step failed: {0:?}")]
+    Plugin(PipelineFailure),
+    #[error("pipeline step activation is stale")]
+    StaleActivation,
     #[error("pipeline execution was canceled")]
     Canceled,
 }
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct StepRegistry {
-    steps: BTreeMap<String, Arc<dyn PipelineStep>>,
+    steps: Arc<RwLock<BTreeMap<String, RegisteredPipelineStep>>>,
+}
+
+#[derive(Clone)]
+struct RegisteredPipelineStep {
+    binding: PipelineStepBinding,
+    step: Arc<dyn PipelineStep>,
+}
+
+#[derive(Clone)]
+pub struct ResolvedPipelineStep {
+    binding: PipelineStepBinding,
+    step: Arc<dyn PipelineStep>,
+}
+
+impl std::fmt::Debug for ResolvedPipelineStep {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ResolvedPipelineStep")
+            .field("binding", &self.binding)
+            .finish_non_exhaustive()
+    }
+}
+
+impl ResolvedPipelineStep {
+    pub fn binding(&self) -> &PipelineStepBinding {
+        &self.binding
+    }
+
+    pub fn descriptor(&self) -> &StepDescriptor {
+        &self.binding.descriptor
+    }
+
+    pub fn step(&self) -> &Arc<dyn PipelineStep> {
+        &self.step
+    }
+}
+
+impl Default for StepRegistry {
+    fn default() -> Self {
+        Self {
+            steps: Arc::new(RwLock::new(BTreeMap::new())),
+        }
+    }
 }
 
 impl StepRegistry {
     pub fn register(&mut self, step: Arc<dyn PipelineStep>) -> Result<(), PipelineError> {
+        self.register_owned(step, PipelineStepOwner::Builtin)
+    }
+
+    pub fn register_plugin(
+        &mut self,
+        step: Arc<dyn PipelineStep>,
+        owner: PipelineStepOwner,
+    ) -> Result<(), PipelineError> {
+        if !matches!(owner, PipelineStepOwner::Plugin { .. }) {
+            return Err(PipelineError::Registry(
+                "plugin registration requires a plugin owner".to_string(),
+            ));
+        }
+        self.register_owned(step, owner)
+    }
+
+    fn register_owned(
+        &self,
+        step: Arc<dyn PipelineStep>,
+        owner: PipelineStepOwner,
+    ) -> Result<(), PipelineError> {
         let descriptor = step.descriptor();
         if descriptor.id.trim().is_empty() {
             return Err(PipelineError::Registry(
                 "step id must not be empty".to_string(),
             ));
         }
-        if self.steps.contains_key(&descriptor.id) {
+        if matches!(owner, PipelineStepOwner::Plugin { .. })
+            && descriptor.id.starts_with("builtin.")
+        {
+            return Err(PipelineError::Registry(
+                "plugin step id must not use the builtin. prefix".to_string(),
+            ));
+        }
+        let mut steps = self
+            .steps
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if steps.contains_key(&descriptor.id) {
             return Err(PipelineError::Registry(format!(
                 "step id already registered: {}",
                 descriptor.id
             )));
         }
-        self.steps.insert(descriptor.id, step);
+        steps.insert(
+            descriptor.id.clone(),
+            RegisteredPipelineStep {
+                binding: PipelineStepBinding { descriptor, owner },
+                step,
+            },
+        );
         Ok(())
     }
 
     pub fn resolve(&self, id: &str) -> Result<Arc<dyn PipelineStep>, PipelineError> {
+        Ok(self.resolve_binding(id)?.step)
+    }
+
+    pub fn resolve_binding(&self, id: &str) -> Result<ResolvedPipelineStep, PipelineError> {
         self.steps
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .get(id)
             .cloned()
+            .map(|registered| ResolvedPipelineStep {
+                binding: registered.binding,
+                step: registered.step,
+            })
             .ok_or_else(|| PipelineError::UnknownStep(id.to_string()))
     }
 
-    pub fn unregister(&mut self, id: &str) -> Result<Arc<dyn PipelineStep>, PipelineError> {
+    pub fn unregister(&self, id: &str) -> Result<Arc<dyn PipelineStep>, PipelineError> {
         self.steps
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(id)
+            .map(|registered| registered.step)
             .ok_or_else(|| PipelineError::UnknownStep(id.to_string()))
+    }
+
+    pub fn unregister_binding(
+        &self,
+        binding: &PipelineStepBinding,
+    ) -> Result<Arc<dyn PipelineStep>, PipelineError> {
+        let mut steps = self
+            .steps
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(registered) = steps.get(&binding.descriptor.id) else {
+            return Err(PipelineError::UnknownStep(binding.descriptor.id.clone()));
+        };
+        if registered.binding != *binding {
+            return Err(PipelineError::StaleActivation);
+        }
+        Ok(steps
+            .remove(&binding.descriptor.id)
+            .expect("binding was checked while holding the registry lock")
+            .step)
+    }
+
+    pub fn unregister_plugin_generation(
+        &self,
+        plugin_id: &str,
+        activation_revision: u64,
+    ) -> Vec<PipelineStepOwner> {
+        let mut steps = self
+            .steps
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let ids = steps
+            .iter()
+            .filter_map(|(id, registered)| match &registered.binding.owner {
+                PipelineStepOwner::Plugin {
+                    plugin_id: owner_plugin_id,
+                    activation_revision: owner_revision,
+                    ..
+                } if owner_plugin_id == plugin_id && *owner_revision == activation_revision => {
+                    Some(id.clone())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        ids.into_iter()
+            .filter_map(|id| steps.remove(&id).map(|registered| registered.binding.owner))
+            .collect()
     }
 
     pub fn contains(&self, id: &str) -> bool {
-        self.steps.contains_key(id)
+        self.steps
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .contains_key(id)
+    }
+
+    pub fn is_current(&self, binding: &PipelineStepBinding) -> bool {
+        self.steps
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&binding.descriptor.id)
+            .is_some_and(|registered| registered.binding == *binding)
     }
 
     pub fn descriptors(&self) -> Vec<StepDescriptor> {
-        self.steps.values().map(|step| step.descriptor()).collect()
+        self.steps
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .map(|registered| registered.binding.descriptor.clone())
+            .collect()
+    }
+
+    pub fn bindings(&self) -> Vec<PipelineStepBinding> {
+        self.steps
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .map(|registered| registered.binding.clone())
+            .collect()
     }
 
     pub fn validate_definition(
@@ -273,7 +646,9 @@ impl StepRegistry {
                     step.key
                 )));
             }
-            let descriptor = self.resolve(&step.step_id)?.descriptor();
+            let registered = self.resolve_binding(&step.step_id)?;
+            let descriptor = registered.descriptor();
+            registered.step().validate_config(&step.config)?;
             if let Some(output) = previous_output
                 && descriptor.input != ArtifactKind::None
                 && descriptor.input != ArtifactKind::Json
@@ -288,6 +663,39 @@ impl StepRegistry {
         }
         Ok(())
     }
+}
+
+pub fn validate_pipeline_json(
+    value: &Value,
+    label: &str,
+    max_bytes: usize,
+) -> Result<(), PipelineError> {
+    fn walk(value: &Value, depth: usize, nodes: &mut usize, max_bytes: usize) -> bool {
+        if depth > MAX_PIPELINE_JSON_DEPTH || *nodes >= MAX_PIPELINE_JSON_NODES {
+            return false;
+        }
+        *nodes += 1;
+        match value {
+            Value::Array(values) => values
+                .iter()
+                .all(|value| walk(value, depth + 1, nodes, max_bytes)),
+            Value::Object(values) => values
+                .iter()
+                .all(|(key, value)| key.len() <= 512 && walk(value, depth + 1, nodes, max_bytes)),
+            Value::String(value) => value.len() <= max_bytes,
+            Value::Null | Value::Bool(_) | Value::Number(_) => true,
+        }
+    }
+
+    let bytes = serde_json::to_vec(value)
+        .map_err(|_| PipelineError::Boundary(format!("{label} is not valid JSON")))?;
+    let mut nodes = 0;
+    if bytes.len() > max_bytes || !walk(value, 0, &mut nodes, max_bytes) {
+        return Err(PipelineError::Boundary(format!(
+            "{label} exceeds its size or structure limit"
+        )));
+    }
+    Ok(())
 }
 
 pub fn ensure_run_transition(
@@ -352,6 +760,32 @@ mod tests {
             created_at_ms: 0,
             updated_at_ms: 0,
         }
+    }
+
+    fn plugin_owner(activation_revision: u64) -> PipelineStepOwner {
+        PipelineStepOwner::Plugin {
+            plugin_id: "example.plugin".to_string(),
+            version_id: format!("version:{activation_revision}"),
+            activation_revision,
+            contribution_id: "example.step".to_string(),
+            contribution_version: format!("{activation_revision}.0.0"),
+            descriptor_version: 1,
+            operation_protocol_version: 1,
+            config_schema_version: 1,
+            checkpoint_schema_version: Some(1),
+            tier: PluginPipelineTier::Sandbox,
+            descriptor_hash: format!("{activation_revision:064x}"),
+        }
+    }
+
+    #[test]
+    fn plugin_owner_uses_camel_case_wire_fields() {
+        let value = serde_json::to_value(plugin_owner(7)).expect("serialize plugin owner");
+        assert_eq!(value["kind"], "plugin");
+        assert_eq!(value["pluginId"], "example.plugin");
+        assert_eq!(value["versionId"], "version:7");
+        assert_eq!(value["activationRevision"], 7);
+        assert!(value.get("plugin_id").is_none());
     }
 
     #[test]
@@ -431,6 +865,67 @@ mod tests {
         assert!(!registry.contains("first"));
         assert!(registry.contains("second"));
         assert!(registry.unregister("first").is_err());
+    }
+
+    #[test]
+    fn plugin_bindings_are_generation_exact_and_shared_across_clones() {
+        let mut registry = StepRegistry::default();
+        let clone = registry.clone();
+        let owner_v1 = plugin_owner(1);
+        registry
+            .register_plugin(
+                step("example.step", ArtifactKind::Json, ArtifactKind::Json),
+                owner_v1,
+            )
+            .expect("register plugin generation");
+        let v1 = clone
+            .resolve_binding("example.step")
+            .expect("shared registry sees plugin step");
+        let mut wrong_binding = v1.binding().clone();
+        wrong_binding.owner = plugin_owner(2);
+        assert!(matches!(
+            registry.unregister_binding(&wrong_binding),
+            Err(PipelineError::StaleActivation)
+        ));
+        registry
+            .unregister_binding(v1.binding())
+            .expect("detach exact generation");
+        registry
+            .register_plugin(
+                step("example.step", ArtifactKind::Json, ArtifactKind::Json),
+                plugin_owner(2),
+            )
+            .expect("register replacement generation");
+        assert!(!clone.is_current(v1.binding()));
+        assert_eq!(
+            clone
+                .resolve_binding("example.step")
+                .expect("replacement is visible")
+                .binding()
+                .owner
+                .activation_revision(),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn definition_validation_rejects_structurally_unbounded_config() {
+        let mut registry = StepRegistry::default();
+        registry
+            .register(step("bounded", ArtifactKind::Json, ArtifactKind::Json))
+            .expect("register bounded step");
+        let mut config = Value::Null;
+        for _ in 0..=MAX_PIPELINE_JSON_DEPTH {
+            config = serde_json::json!({ "nested": config });
+        }
+        let error = registry
+            .validate_definition(&definition(vec![PipelineStepDefinition {
+                key: "bounded".to_string(),
+                step_id: "bounded".to_string(),
+                config,
+            }]))
+            .expect_err("deep config must fail");
+        assert!(matches!(error, PipelineError::Boundary(_)));
     }
 
     #[test]

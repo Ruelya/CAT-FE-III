@@ -7,14 +7,14 @@ executable runtime tiers:
   evaluates bounded UTF-8 filters, regex QA packs, and deterministic JSON
   pipeline transforms. No plugin code or child process is loaded.
 - **Tier 3 process** packages use newline-framed JSON-RPC over stdio for
-  process-isolated document filters.
+  document filters, QA rules, engine connectors, and resumable pipeline steps.
 - **Tier 2 sandbox** packages run JavaScript ES modules in an Engine-owned
   QuickJS runtime and may expose isolated desktop panel documents. They never
   run through Node or the Tier 3 process host.
 
-Engine connector, QA/pipeline adapter, AI action placement, and external
-connector hosts remain separate contribution surfaces; their descriptors do
-not imply executable support in Tier 2.
+Engine connector and QA/pipeline contracts have closed Tier 2 and Tier 3
+adapters. AI actions and external connectors remain inventory-only surfaces;
+their descriptors do not imply executable support.
 
 ## Package layouts
 
@@ -45,6 +45,10 @@ filter built with `@translunar/plugin-sdk`.
 See `examples/plugins/sandbox-toolkit` for the official Tier 2 package. It uses
 only public SDK types, a relative module, a deterministic invocation, and a
 static panel.
+
+See `examples/plugins/qa-pipeline-process` and
+[`qa-pipeline-sdk.md`](./qa-pipeline-sdk.md) for the public deterministic QA
+rule and resumable pipeline-step contract.
 
 ## Tier 2 contract
 

@@ -577,7 +577,7 @@ export function ProjectInsightsPage({
         ) : tab === "assets" ? (
           <AssetCurationPanel snapshot={snapshot} onRefresh={onRefresh} />
         ) : tab === "plugins" ? (
-          <PluginsPanel onRefresh={onRefresh} />
+          <PluginsPanel projectId={snapshot.project.id} onRefresh={onRefresh} />
         ) : tab === "interop" ? (
           <InteropPanel
             snapshot={snapshot}

@@ -3106,3 +3106,110 @@ method.call_bounded(context, params)?;
 - Offline single-user mode remains complete without using collab APIs.
 - Locks/presence are expiry-based; conflicting lock acquire returns entity conflict.
 - Op-log is append-only foundation for future replica sync, not a full CRDT.
+
+## Public Plugin QA And Pipeline Extensions
+
+### 1. Scope / Trigger
+
+Use this contract when changing public `qaRule` or `pipelineStep` descriptors,
+SDK host operations, Engine contribution registries, plugin-owned QA/pipeline
+history, checkpoint resume/migration, or lifecycle failure handling.
+
+### 2. Signatures
+
+Public operation protocol v1 is closed:
+
+```text
+qa.evaluateSegment              QaRuleInvocationV1 -> QaRuleResultV1
+pipeline.execute                PipelineStepInvocationV1 -> PipelineStepResultV1
+pipeline.resume                 PipelineStepInvocationV1 -> PipelineStepResultV1
+pipeline.checkpointMigrate      PipelineCheckpointMigrationInvocationV1
+                              -> PipelineCheckpointMigrationResultV1
+pipeline.cancel                 PipelineCancelNotificationV1 -> notification
+pipeline.checkpoint             PipelineStepCheckpointProgressV1 -> { accepted: true }
+```
+
+Migration 21 owns `qa_run_plugin_rules`,
+`pipeline_step_plugin_bindings`, and `pipeline_step_plugin_attempts`.
+
+### 3. Contracts
+
+- Descriptor, operation protocol, contribution, config schema, and checkpoint
+  schema versions are separate axes. Rust owns wire schema; regenerate
+  `packages/contracts/src/protocol.schema.json` and
+  `protocol.generated.ts` after every public projection change.
+- Registration and each invocation independently require exact
+  `qa.register` or `pipeline.register` contribution authority. Inputs contain
+  only bounded contract fields; audit/history contain identities, hashes,
+  counts, limits, and sanitized errors, never document text or raw payloads.
+- Registries bind plugin ID, immutable version ID, activation revision,
+  contribution ID, tier, and descriptor snapshot. Completion rechecks the
+  generation before persisting findings, outputs, usage, or checkpoints.
+- Process candidates start and handshake before the version CAS. Attach
+  failure restores the previous immutable version. Failed restoration detaches
+  all executable authority and persists bounded `plugin_restore_failed` state
+  as `degraded` while retaining version history.
+- Fatal `plugin_timeout`, `plugin_resource_limit`, `plugin_host_crash`, and
+  `plugin_protocol` failures degrade and detach only the exact active
+  generation. Process generations retain their exact filter adapter identities
+  and connector leases; cleanup uses pointer/generation-conditional removal so
+  a stale failure cannot detach a same-ID or same-version replacement.
+- Tier 3 cancellation sends the versioned notification, waits the bounded grace
+  interval, then kills and recycles an uncooperative process.
+- Checkpoint migration appends a migration attempt and new checkpoint in one
+  storage operation. It never changes the original binding or checkpoint.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Unknown field/version/operation or oversized JSON | Reject before registration/execution; no partial registry or history |
+| Missing/narrow/revoked contribution grant | `plugin_permission_denied`; denied audit; no plugin call |
+| Invalid/unordered QA finding or span | Reject the complete contribution; no partial reconciliation |
+| Artifact/config/checkpoint mismatch | Typed pipeline failure; no output or checkpoint publication |
+| Missing/failed/stale checkpoint migration | `plugin_checkpoint_incompatible`; preserve original history |
+| Cancel wins or activation becomes stale | Discard late output/finding/checkpoint/usage |
+| Candidate preflight fails | Stop candidate; active version, revision, and registry remain unchanged |
+| Candidate attach and previous restore both fail | Persist `degraded`; retain versions; detach filters, QA, pipeline, connectors, and host |
+
+### 5. Good / Base / Bad Cases
+
+- Good: install, grant exact scopes, enable, execute QA and a resumable step,
+  restart, migrate a checkpoint explicitly, resume, inspect immutable history,
+  then disable and uninstall.
+- Base: a valid package without grants remains inspectable but cannot register
+  or execute contributions.
+- Bad: reuse a live contribution ID, rewrite a historical checkpoint, trust a
+  plugin-provided artifact kind, publish after cancellation, or detach a newer
+  activation because an old process failed late.
+
+### 6. Tests Required
+
+- Rust/SDK golden and negative tests cover every descriptor/envelope/version,
+  bounds, unknown fields, deterministic ordering, Unicode spans, and host
+  dispatch.
+- Engine/storage tests cover Tier 1/2/3 attach/restart/detach, exact grants,
+  fail-atomic QA, cancellation races, fatal degradation, process recycle,
+  preflight, successful compensation, failed-restoration degradation, and
+  append-only checkpoint migration.
+- Release gates are strict Clippy/workspace tests, contract drift, SDK tests,
+  focused real-Engine lifecycle smoke, desktop build/unit tests, and real
+  Electron E2E.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+// Rebind and overwrite a checkpoint because the contribution ID is unchanged.
+binding.version_id = active_version_id;
+binding.checkpoint = migrated;
+```
+
+#### Correct
+
+```rust
+let migration = adapter.migrate_checkpoint(source, target_schema)?;
+store.migrate_pipeline_step_checkpoint(run_id, step_index, migration.checkpoint, &attempt)?;
+// The original binding and source checkpoint remain immutable.
+```

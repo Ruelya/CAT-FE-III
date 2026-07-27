@@ -1,0 +1,78 @@
+{
+  "manifestVersion": 2,
+  "id": "fixture.qa-pipeline-sandbox",
+  "displayName": "QA pipeline sandbox fixture",
+  "version": "1.0.0",
+  "hostApi": { "min": 1, "max": 1 },
+  "runtime": {
+    "tier": "sandbox",
+    "runtimeVersion": 1,
+    "entry": { "kind": "javascript", "path": "bin/qa-pipeline-sandbox.mjs" }
+  },
+  "contributions": [
+    {
+      "kind": "qaRule",
+      "descriptorVersion": 1,
+      "operationProtocolVersion": 1,
+      "id": "fixture.qa.sandbox-marker",
+      "version": "1.0.0",
+      "displayName": "Sandbox marker",
+      "ruleType": "mechanical",
+      "severity": "warning",
+      "definition": {},
+      "ruleKind": "mechanical",
+      "categories": ["custom"],
+      "configSchemaVersion": 1,
+      "configSchema": { "schemaVersion": 1, "fields": [] },
+      "config": {},
+      "limits": {
+        "maxFindings": 4,
+        "maxMessageBytes": 256,
+        "maxEvidenceItems": 4,
+        "maxRelatedSegmentIds": 4,
+        "maxDeadlineMs": 1000
+      }
+    },
+    {
+      "kind": "pipelineStep",
+      "descriptorVersion": 1,
+      "operationProtocolVersion": 1,
+      "id": "fixture.pipeline.sandbox-normalize",
+      "version": "1.0.0",
+      "displayName": "Sandbox normalize",
+      "input": "json",
+      "output": "json",
+      "configSchemaVersion": 1,
+      "configSchema": { "schemaVersion": 1, "fields": [] },
+      "resumable": true,
+      "cancellable": true,
+      "checkpointSchemaVersion": 1,
+      "limits": {
+        "maxInputBytes": 65536,
+        "maxOutputBytes": 65536,
+        "maxConfigBytes": 1024,
+        "maxCheckpointBytes": 1024,
+        "maxDeadlineMs": 2000
+      }
+    }
+  ],
+  "permissions": [],
+  "capabilities": [
+    {
+      "capabilityId": "qa.register",
+      "scope": {
+        "kind": "contributions",
+        "contributionIds": ["fixture.qa.sandbox-marker"]
+      },
+      "contributionId": "fixture.qa.sandbox-marker"
+    },
+    {
+      "capabilityId": "pipeline.register",
+      "scope": {
+        "kind": "contributions",
+        "contributionIds": ["fixture.pipeline.sandbox-normalize"]
+      },
+      "contributionId": "fixture.pipeline.sandbox-normalize"
+    }
+  ]
+}

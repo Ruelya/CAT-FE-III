@@ -19,11 +19,18 @@ pub const MAX_REGEX_PATTERN_BYTES: usize = 4_096;
 pub const MAX_REGEX_RULE_ID_BYTES: usize = 2_048;
 pub const MAX_EVIDENCE_VALUES: usize = 32;
 pub const MAX_EVIDENCE_VALUE_CHARS: usize = 256;
+pub const MAX_EXECUTABLE_QA_FINDINGS: usize = 1_024;
+pub const MAX_EXECUTABLE_QA_MESSAGE_BYTES: usize = 2_048;
+pub const MAX_EXECUTABLE_QA_EVIDENCE_ITEMS: usize = 128;
+pub const MAX_EXECUTABLE_QA_EVIDENCE_VALUE_BYTES: usize = 4_096;
+pub const MAX_EXECUTABLE_QA_RELATED_SEGMENTS: usize = 128;
 
 #[derive(Debug, Error)]
 pub enum QaCoreError {
     #[error("invalid QA profile: {0}")]
     InvalidProfile(String),
+    #[error("invalid QA execution result: {0}")]
+    InvalidExecution(String),
     #[error("QA report serialization failed: {0}")]
     Report(String),
     #[error("QA report package is invalid: {0}")]
@@ -170,13 +177,15 @@ pub struct QaFindingCandidate {
     pub evidence: QaCandidateEvidence,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QaTagFinding {
     pub code: String,
     pub message: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QaTermExpectation {
     pub id: String,
     pub source_term: String,
@@ -184,7 +193,8 @@ pub struct QaTermExpectation {
     pub forbidden_targets: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QaSegmentInput {
     pub segment_id: String,
     pub source_text: String,
@@ -193,6 +203,266 @@ pub struct QaSegmentInput {
     pub target_locale: String,
     pub tag_findings: Vec<QaTagFinding>,
     pub terms: Vec<QaTermExpectation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QaExecutionSegment {
+    pub project_id: String,
+    pub document_id: String,
+    pub ordinal: u32,
+    pub structural_path: String,
+    pub revision: u64,
+    pub input: QaSegmentInput,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QaRuleProvenanceSnapshot {
+    pub plugin_id: String,
+    pub version_id: String,
+    pub contribution_id: String,
+    pub contribution_version: String,
+    pub descriptor_version: u32,
+    pub operation_protocol_version: u32,
+    pub config_schema_version: u32,
+    pub activation_revision: u64,
+    pub tier: String,
+    pub descriptor_hash: String,
+    pub config_hash: String,
+    pub rule_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QaRuleExecutionUsage {
+    pub work_units: u64,
+    pub input_bytes: u64,
+    pub output_bytes: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum QaRuleExecutionStatus {
+    Succeeded,
+    Failed,
+    Canceled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QaRuleExecutionFailure {
+    pub code: String,
+    pub message: String,
+    pub retryable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QaRuleExecutionRecord {
+    pub provenance: QaRuleProvenanceSnapshot,
+    pub status: QaRuleExecutionStatus,
+    pub execution_count: u32,
+    pub input_hash: String,
+    pub output_hash: Option<String>,
+    pub finding_count: u32,
+    pub usage: QaRuleExecutionUsage,
+    #[serde(default)]
+    pub failure: Option<QaRuleExecutionFailure>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QaRunPluginRuleSnapshot {
+    pub contribution_index: u32,
+    pub provenance: QaRuleProvenanceSnapshot,
+    pub status: QaRuleExecutionStatus,
+    pub execution_count: u32,
+    pub finding_count: u32,
+    pub input_hash: String,
+    pub output_hash: Option<String>,
+    pub usage: QaRuleExecutionUsage,
+    #[serde(default)]
+    pub failure: Option<QaRuleExecutionFailure>,
+}
+
+pub fn validate_qa_candidate_batch(
+    segment: &QaExecutionSegment,
+    known_segment_ids: &BTreeSet<String>,
+    candidates: &[QaFindingCandidate],
+) -> Result<(), QaCoreError> {
+    if candidates.len() > MAX_EXECUTABLE_QA_FINDINGS {
+        return Err(invalid_execution("QA finding batch is oversized"));
+    }
+    let mut previous_key: Option<(&str, &str)> = None;
+    let mut identities = BTreeSet::new();
+    for candidate in candidates {
+        if candidate.segment_id != segment.input.segment_id {
+            return Err(invalid_execution("QA finding targets a different segment"));
+        }
+        validate_qa_candidate(candidate, segment, known_segment_ids)?;
+        let identity = (candidate.rule_id.as_str(), candidate.fingerprint.as_str());
+        if !identities.insert(identity) {
+            return Err(invalid_execution("QA finding batch contains duplicates"));
+        }
+        if previous_key.is_some_and(|previous| previous >= identity) {
+            return Err(invalid_execution(
+                "QA finding batch is not deterministically ordered",
+            ));
+        }
+        previous_key = Some(identity);
+    }
+    Ok(())
+}
+
+pub fn canonicalize_qa_candidates(
+    segments: &[QaExecutionSegment],
+    mut candidates: Vec<QaFindingCandidate>,
+) -> Result<Vec<QaFindingCandidate>, QaCoreError> {
+    let segment_by_id = segments
+        .iter()
+        .map(|segment| (segment.input.segment_id.as_str(), segment))
+        .collect::<BTreeMap<_, _>>();
+    let known_segment_ids = segment_by_id
+        .keys()
+        .map(|id| (*id).to_string())
+        .collect::<BTreeSet<_>>();
+    for candidate in &candidates {
+        let segment = segment_by_id
+            .get(candidate.segment_id.as_str())
+            .ok_or_else(|| invalid_execution("QA finding targets an unknown segment"))?;
+        validate_qa_candidate(candidate, segment, &known_segment_ids)?;
+    }
+    candidates.sort_by(|left, right| qa_candidate_key(left).cmp(&qa_candidate_key(right)));
+    if candidates
+        .windows(2)
+        .any(|pair| qa_candidate_key(&pair[0]) == qa_candidate_key(&pair[1]))
+    {
+        return Err(invalid_execution("QA run contains duplicate findings"));
+    }
+    Ok(candidates)
+}
+
+fn validate_qa_candidate(
+    candidate: &QaFindingCandidate,
+    segment: &QaExecutionSegment,
+    known_segment_ids: &BTreeSet<String>,
+) -> Result<(), QaCoreError> {
+    require_execution_id(&candidate.segment_id, "segment ID", MAX_REGEX_RULE_ID_BYTES)?;
+    require_execution_id(&candidate.rule_id, "rule ID", MAX_REGEX_RULE_ID_BYTES)?;
+    require_execution_text(
+        &candidate.message,
+        "message",
+        MAX_EXECUTABLE_QA_MESSAGE_BYTES,
+    )?;
+    require_execution_text(&candidate.fingerprint, "fingerprint", 256)?;
+
+    let evidence = &candidate.evidence;
+    let item_count = evidence
+        .source_numbers
+        .len()
+        .saturating_add(evidence.target_numbers.len())
+        .saturating_add(evidence.source_values.len())
+        .saturating_add(evidence.target_values.len())
+        .saturating_add(evidence.source_spans.len())
+        .saturating_add(evidence.target_spans.len());
+    if item_count > MAX_EXECUTABLE_QA_EVIDENCE_ITEMS
+        || evidence.related_segment_ids.len() > MAX_EXECUTABLE_QA_RELATED_SEGMENTS
+    {
+        return Err(invalid_execution("QA finding evidence is oversized"));
+    }
+    for value in evidence
+        .source_numbers
+        .iter()
+        .chain(&evidence.target_numbers)
+        .chain(&evidence.source_values)
+        .chain(&evidence.target_values)
+    {
+        if value.len() > MAX_EXECUTABLE_QA_EVIDENCE_VALUE_BYTES
+            || value.chars().any(char::is_control)
+        {
+            return Err(invalid_execution(
+                "QA finding evidence contains an invalid value",
+            ));
+        }
+    }
+    validate_spans(
+        &evidence.source_spans,
+        segment.input.source_text.chars().count(),
+        "source",
+    )?;
+    validate_spans(
+        &evidence.target_spans,
+        segment.input.target_text.chars().count(),
+        "target",
+    )?;
+    for related_segment_id in &evidence.related_segment_ids {
+        require_execution_id(
+            related_segment_id,
+            "related segment ID",
+            MAX_REGEX_RULE_ID_BYTES,
+        )?;
+        if !known_segment_ids.contains(related_segment_id) {
+            return Err(invalid_execution(
+                "QA finding references an unknown related segment",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_spans(spans: &[QaSpan], scalar_len: usize, field: &str) -> Result<(), QaCoreError> {
+    let mut previous: Option<QaSpan> = None;
+    for span in spans {
+        let start = usize::try_from(span.start)
+            .map_err(|_| invalid_execution(format!("QA {field} span is invalid")))?;
+        let end = usize::try_from(span.end)
+            .map_err(|_| invalid_execution(format!("QA {field} span is invalid")))?;
+        if start >= end
+            || end > scalar_len
+            || previous.is_some_and(|value| (value.start, value.end) >= (span.start, span.end))
+        {
+            return Err(invalid_execution(format!(
+                "QA {field} spans are invalid or not deterministically ordered"
+            )));
+        }
+        previous = Some(*span);
+    }
+    Ok(())
+}
+
+fn require_execution_id(value: &str, label: &str, max_bytes: usize) -> Result<(), QaCoreError> {
+    require_execution_text(value, label, max_bytes)?;
+    if !value
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
+    {
+        return Err(invalid_execution(format!(
+            "QA finding {label} contains unsupported characters"
+        )));
+    }
+    Ok(())
+}
+
+fn require_execution_text(value: &str, label: &str, max_bytes: usize) -> Result<(), QaCoreError> {
+    if value.is_empty() || value.len() > max_bytes || value.chars().any(char::is_control) {
+        return Err(invalid_execution(format!(
+            "QA finding {label} is empty, malformed, or oversized"
+        )));
+    }
+    Ok(())
+}
+
+fn qa_candidate_key(candidate: &QaFindingCandidate) -> (&str, &str, &str) {
+    (
+        candidate.segment_id.as_str(),
+        candidate.rule_id.as_str(),
+        candidate.fingerprint.as_str(),
+    )
+}
+
+fn invalid_execution(message: impl Into<String>) -> QaCoreError {
+    QaCoreError::InvalidExecution(message.into())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -232,6 +502,8 @@ pub struct QaReportSnapshot {
     pub warnings: u64,
     pub info: u64,
     pub waived: u64,
+    #[serde(default)]
+    pub plugin_rules: Vec<QaRunPluginRuleSnapshot>,
     pub items: Vec<QaReportItem>,
 }
 
@@ -282,6 +554,8 @@ pub struct QaRun {
     pub waived: u64,
     pub created_at_ms: i64,
     pub completed_at_ms: Option<i64>,
+    #[serde(default)]
+    pub plugin_rules: Vec<QaRunPluginRuleSnapshot>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1030,8 +1304,37 @@ pub fn render_html(report: &QaReportSnapshot) -> Vec<u8> {
         )));
         rows.push_str("\">Open</a></td></tr>");
     }
+    let mut plugin_rows = String::new();
+    for rule in &report.plugin_rules {
+        plugin_rows.push_str("<tr>");
+        for value in [
+            rule.provenance.plugin_id.as_str(),
+            rule.provenance.version_id.as_str(),
+            rule.provenance.contribution_id.as_str(),
+            rule.provenance.contribution_version.as_str(),
+            rule.provenance.tier.as_str(),
+            qa_execution_status_text(rule.status),
+            &rule.provenance.rule_ids.len().to_string(),
+            &rule.finding_count.to_string(),
+            &rule.usage.work_units.to_string(),
+            rule.provenance.descriptor_hash.as_str(),
+            rule.output_hash.as_deref().unwrap_or(""),
+        ] {
+            plugin_rows.push_str("<td>");
+            plugin_rows.push_str(&escape_html(value));
+            plugin_rows.push_str("</td>");
+        }
+        plugin_rows.push_str("</tr>");
+    }
+    let plugin_section = if plugin_rows.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "<h2>Plugin QA rules</h2><table><thead><tr><th>Plugin</th><th>Version</th><th>Contribution</th><th>Contribution version</th><th>Tier</th><th>Status</th><th>Rules</th><th>Findings</th><th>Work units</th><th>Descriptor hash</th><th>Output hash</th></tr></thead><tbody>{plugin_rows}</tbody></table>"
+        )
+    };
     format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>QA report</title><style>body{{font:14px system-ui;margin:24px;color:#221b18}}table{{border-collapse:collapse;width:100%}}th,td{{border:1px solid #cfc7b8;padding:6px;text-align:left;vertical-align:top}}th{{background:#f2ecdf}}code{{font-family:ui-monospace,monospace}}</style></head><body><h1>QA report</h1><p><strong>{}</strong> / {} / {} · {} checked · {} errors · {} warnings · {} info · {} waived</p><table><thead><tr><th>Document</th><th>Segment</th><th>Category</th><th>Rule</th><th>Severity</th><th>Disposition</th><th>Message</th><th>Source evidence</th><th>Target evidence</th><th>Waiver actor</th><th>Waiver reason</th><th>Location</th></tr></thead><tbody>{rows}</tbody></table></body></html>",
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>QA report</title><style>body{{font:14px system-ui;margin:24px;color:#221b18}}table{{border-collapse:collapse;width:100%}}th,td{{border:1px solid #cfc7b8;padding:6px;text-align:left;vertical-align:top}}th{{background:#f2ecdf}}code{{font-family:ui-monospace,monospace}}</style></head><body><h1>QA report</h1><p><strong>{}</strong> / {} / {} · {} checked · {} errors · {} warnings · {} info · {} waived</p>{plugin_section}<h2>Findings</h2><table><thead><tr><th>Document</th><th>Segment</th><th>Category</th><th>Rule</th><th>Severity</th><th>Disposition</th><th>Message</th><th>Source evidence</th><th>Target evidence</th><th>Waiver actor</th><th>Waiver reason</th><th>Location</th></tr></thead><tbody>{rows}</tbody></table></body></html>",
         escape_html(&report.project_name),
         escape_html(&report.scope_name),
         escape_html(&report.profile_name),
@@ -1076,7 +1379,11 @@ pub fn validate_xlsx(bytes: &[u8]) -> Result<(), QaCoreError> {
     OfficePackage::from_bytes(bytes)
         .map_err(|error| QaCoreError::InvalidReport(error.to_string()))?;
     let mut archive = ZipArchive::new(Cursor::new(bytes))?;
-    for part in ["xl/workbook.xml", "xl/worksheets/sheet1.xml"] {
+    for part in [
+        "xl/workbook.xml",
+        "xl/worksheets/sheet1.xml",
+        "xl/worksheets/sheet2.xml",
+    ] {
         let mut file = archive
             .by_name(part)
             .map_err(|_| QaCoreError::InvalidReport(format!("missing {part}")))?;
@@ -1086,6 +1393,14 @@ pub fn validate_xlsx(bytes: &[u8]) -> Result<(), QaCoreError> {
             .map_err(|error| QaCoreError::InvalidReport(error.to_string()))?;
     }
     Ok(())
+}
+
+fn qa_execution_status_text(status: QaRuleExecutionStatus) -> &'static str {
+    match status {
+        QaRuleExecutionStatus::Succeeded => "succeeded",
+        QaRuleExecutionStatus::Failed => "failed",
+        QaRuleExecutionStatus::Canceled => "canceled",
+    }
 }
 
 fn profile_with_id(id: &str, name: &str, cjk: bool) -> QaProfileDefinition {
@@ -1397,10 +1712,60 @@ fn xlsx_parts(report: &QaReportSnapshot) -> Vec<(&'static str, String)> {
         ));
         rows.push_str("</row>");
     }
+    let plugin_headers = [
+        "Plugin",
+        "Version",
+        "Contribution",
+        "Contribution version",
+        "Tier",
+        "Status",
+        "Rule IDs",
+        "Findings",
+        "Executions",
+        "Work units",
+        "Input bytes",
+        "Output bytes",
+        "Descriptor hash",
+        "Config hash",
+        "Input hash",
+        "Output hash",
+    ];
+    let mut plugin_rows = String::new();
+    plugin_rows.push_str("<row r=\"1\">");
+    for (index, header) in plugin_headers.iter().enumerate() {
+        plugin_rows.push_str(&inline_string_cell(index, 1, header));
+    }
+    plugin_rows.push_str("</row>");
+    for (row_index, rule) in report.plugin_rules.iter().enumerate() {
+        let row_number = row_index + 2;
+        plugin_rows.push_str(&format!("<row r=\"{row_number}\">"));
+        let values = [
+            rule.provenance.plugin_id.clone(),
+            rule.provenance.version_id.clone(),
+            rule.provenance.contribution_id.clone(),
+            rule.provenance.contribution_version.clone(),
+            rule.provenance.tier.clone(),
+            qa_execution_status_text(rule.status).to_string(),
+            rule.provenance.rule_ids.join("\n"),
+            rule.finding_count.to_string(),
+            rule.execution_count.to_string(),
+            rule.usage.work_units.to_string(),
+            rule.usage.input_bytes.to_string(),
+            rule.usage.output_bytes.to_string(),
+            rule.provenance.descriptor_hash.clone(),
+            rule.provenance.config_hash.clone(),
+            rule.input_hash.clone(),
+            rule.output_hash.clone().unwrap_or_default(),
+        ];
+        for (column, value) in values.iter().enumerate() {
+            plugin_rows.push_str(&inline_string_cell(column, row_number, value));
+        }
+        plugin_rows.push_str("</row>");
+    }
     vec![
         (
             "[Content_Types].xml",
-            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/><Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/></Types>".to_string(),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/><Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/><Override PartName=\"/xl/worksheets/sheet2.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/></Types>".to_string(),
         ),
         (
             "_rels/.rels",
@@ -1408,15 +1773,19 @@ fn xlsx_parts(report: &QaReportSnapshot) -> Vec<(&'static str, String)> {
         ),
         (
             "xl/workbook.xml",
-            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"QA Findings\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>".to_string(),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"QA Findings\" sheetId=\"1\" r:id=\"rId1\"/><sheet name=\"Plugin Rules\" sheetId=\"2\" r:id=\"rId2\"/></sheets></workbook>".to_string(),
         ),
         (
             "xl/_rels/workbook.xml.rels",
-            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/></Relationships>".to_string(),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/><Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet2.xml\"/></Relationships>".to_string(),
         ),
         (
             "xl/worksheets/sheet1.xml",
             format!("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>{rows}</sheetData></worksheet>"),
+        ),
+        (
+            "xl/worksheets/sheet2.xml",
+            format!("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>{plugin_rows}</sheetData></worksheet>"),
         ),
     ]
 }
@@ -1591,6 +1960,80 @@ mod tests {
         );
     }
 
+    fn execution_segment() -> QaExecutionSegment {
+        QaExecutionSegment {
+            project_id: "project-1".to_string(),
+            document_id: "document-1".to_string(),
+            ordinal: 0,
+            structural_path: "/p[1]".to_string(),
+            revision: 0,
+            input: input("Hello", "中文😀test", "zh-CN"),
+        }
+    }
+
+    fn execution_candidate(rule_id: &str, fingerprint: &str) -> QaFindingCandidate {
+        QaFindingCandidate {
+            segment_id: "segment-1".to_string(),
+            rule_id: rule_id.to_string(),
+            category: QaCategory::Custom,
+            severity: QaSeverity::Warning,
+            message: "Finding".to_string(),
+            fingerprint: fingerprint.to_string(),
+            evidence: QaCandidateEvidence::default(),
+        }
+    }
+
+    #[test]
+    fn executable_candidates_validate_unicode_scalar_spans() {
+        let segment = execution_segment();
+        let known = BTreeSet::from([segment.input.segment_id.clone()]);
+        let mut candidate = execution_candidate("plugin.qa.rule", "fingerprint-1");
+        candidate.evidence.target_spans = vec![QaSpan { start: 2, end: 3 }];
+        validate_qa_candidate_batch(&segment, &known, &[candidate.clone()])
+            .expect("Unicode scalar span");
+
+        candidate.evidence.target_spans = vec![QaSpan { start: 2, end: 8 }];
+        assert!(validate_qa_candidate_batch(&segment, &known, &[candidate]).is_err());
+    }
+
+    #[test]
+    fn executable_candidate_batches_reject_duplicates_and_unordered_results() {
+        let segment = execution_segment();
+        let known = BTreeSet::from([segment.input.segment_id.clone()]);
+        let first = execution_candidate("plugin.qa.a", "fingerprint-1");
+        assert!(
+            validate_qa_candidate_batch(&segment, &known, &[first.clone(), first.clone()]).is_err()
+        );
+        let later = execution_candidate("plugin.qa.z", "fingerprint-1");
+        assert!(validate_qa_candidate_batch(&segment, &known, &[later, first]).is_err());
+    }
+
+    #[test]
+    fn executable_candidates_reject_oversized_evidence_and_unknown_relations() {
+        let segment = execution_segment();
+        let known = BTreeSet::from([segment.input.segment_id.clone()]);
+        let mut candidate = execution_candidate("plugin.qa.rule", "fingerprint-1");
+        candidate.evidence.source_values =
+            vec!["x".repeat(MAX_EXECUTABLE_QA_EVIDENCE_VALUE_BYTES + 1)];
+        assert!(validate_qa_candidate_batch(&segment, &known, &[candidate]).is_err());
+
+        let mut candidate = execution_candidate("plugin.qa.rule", "fingerprint-1");
+        candidate.evidence.related_segment_ids = vec!["segment-unknown".to_string()];
+        assert!(validate_qa_candidate_batch(&segment, &known, &[candidate]).is_err());
+    }
+
+    #[test]
+    fn whole_run_candidates_are_canonical_and_unique() {
+        let segment = execution_segment();
+        let first = execution_candidate("plugin.qa.a", "fingerprint-1");
+        let later = execution_candidate("plugin.qa.z", "fingerprint-1");
+        let canonical =
+            canonicalize_qa_candidates(std::slice::from_ref(&segment), vec![later, first.clone()])
+                .expect("canonical candidates");
+        assert_eq!(canonical[0].rule_id, first.rule_id);
+        assert!(canonicalize_qa_candidates(&[segment], vec![first.clone(), first]).is_err());
+    }
+
     #[test]
     fn html_and_xlsx_reports_escape_content_and_include_locations() {
         let report = QaReportSnapshot {
@@ -1604,6 +2047,34 @@ mod tests {
             warnings: 0,
             info: 0,
             waived: 0,
+            plugin_rules: vec![QaRunPluginRuleSnapshot {
+                contribution_index: 0,
+                provenance: QaRuleProvenanceSnapshot {
+                    plugin_id: "example.plugin".to_string(),
+                    version_id: "inventory-v2:example.plugin:1.0.0+build.1".to_string(),
+                    contribution_id: "example.qa".to_string(),
+                    contribution_version: "1.0.0".to_string(),
+                    descriptor_version: 1,
+                    operation_protocol_version: 1,
+                    config_schema_version: 1,
+                    activation_revision: 3,
+                    tier: "sandbox".to_string(),
+                    descriptor_hash: "a".repeat(64),
+                    config_hash: "b".repeat(64),
+                    rule_ids: vec!["plugin.qa.example.rule".to_string()],
+                },
+                status: QaRuleExecutionStatus::Succeeded,
+                execution_count: 1,
+                finding_count: 1,
+                input_hash: "c".repeat(64),
+                output_hash: Some("d".repeat(64)),
+                usage: QaRuleExecutionUsage {
+                    work_units: 1,
+                    input_bytes: 2,
+                    output_bytes: 3,
+                },
+                failure: None,
+            }],
             items: vec![QaReportItem {
                 document_name: "=unsafe.xlsx".to_string(),
                 segment_id: "019f0000-0000-7000-8000-000000000000".to_string(),
@@ -1623,6 +2094,8 @@ mod tests {
         validate_html(html.as_bytes()).expect("valid standalone HTML");
         assert!(!html.contains("<script>"));
         assert!(html.contains("translunar://segment/019f0000-0000-7000-8000-000000000000"));
+        assert!(html.contains("Plugin QA rules"));
+        assert!(html.contains("inventory-v2:example.plugin:1.0.0+build.1"));
         let xlsx = render_xlsx(&report).expect("XLSX");
         validate_xlsx(&xlsx).expect("valid XLSX");
         let mut archive = ZipArchive::new(Cursor::new(xlsx)).expect("archive");
@@ -1634,5 +2107,13 @@ mod tests {
             .expect("sheet text");
         assert!(sheet.contains("t=\"inlineStr\"><is><t xml:space=\"preserve\">=unsafe.xlsx"));
         assert!(sheet.contains("translunar://segment/019f0000-0000-7000-8000-000000000000"));
+        let mut plugin_sheet = String::new();
+        archive
+            .by_name("xl/worksheets/sheet2.xml")
+            .expect("plugin sheet")
+            .read_to_string(&mut plugin_sheet)
+            .expect("plugin sheet text");
+        assert!(plugin_sheet.contains("inventory-v2:example.plugin:1.0.0+build.1"));
+        assert!(plugin_sheet.contains(&"a".repeat(64)));
     }
 }

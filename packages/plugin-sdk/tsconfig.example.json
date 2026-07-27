@@ -7,5 +7,10 @@
     "types": ["node"],
     "noEmit": true
   },
-  "include": ["src/index.ts", "../../examples/plugins/hello-srt/src/index.ts"]
+  "include": [
+    "src/**/*.ts",
+    "../../examples/plugins/hello-srt/src/index.ts",
+    "../../examples/plugins/qa-pipeline-process/src/index.ts",
+    "../../fixtures/plugins/qa-pipeline-sandbox/src/index.ts"
+  ]
 }

@@ -32,8 +32,10 @@ use translunar_editor_core::{
 };
 use translunar_filter_core::ImportedUnit;
 use translunar_pipeline::{
-    PipelineDefinition, PipelineFailure, PipelineRun, PipelineRunStatus, PipelineStepDefinition,
-    PipelineStepRun, PipelineStepStatus, ensure_run_transition,
+    PipelineDefinition, PipelineFailure, PipelineRun, PipelineRunStatus,
+    PipelineStepCheckpointMetadata, PipelineStepDefinition, PipelineStepOwner,
+    PipelineStepPluginAttempt, PipelineStepPluginBinding, PipelineStepPluginOperation,
+    PipelineStepRun, PipelineStepStatus, PluginPipelineTier, ensure_run_transition,
 };
 
 use crate::migrations::{LATEST_SCHEMA_VERSION, configure_connection, migrate};
@@ -80,7 +82,7 @@ pub use lifecycle::{
 };
 pub use plugin::*;
 pub use plugin_permissions::*;
-pub use qa::{NewQaProfile, QaIssueFilter, QaProfileUpdate};
+pub use qa::{EvaluatedQaRun, NewQaProfile, PreparedQaRun, QaIssueFilter, QaProfileUpdate};
 pub use snapshot::*;
 pub use task_package::*;
 
@@ -2796,6 +2798,17 @@ impl Store {
         document_id: Option<&str>,
         input: Value,
     ) -> Result<PipelineRunSnapshot> {
+        self.create_pipeline_run_with_bindings(definition_id, project_id, document_id, input, &[])
+    }
+
+    pub fn create_pipeline_run_with_bindings(
+        &mut self,
+        definition_id: &str,
+        project_id: &str,
+        document_id: Option<&str>,
+        input: Value,
+        plugin_bindings: &[Option<PipelineStepPluginBinding>],
+    ) -> Result<PipelineRunSnapshot> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -2816,6 +2829,11 @@ impl Store {
             }
         }
         let definition = find_pipeline_definition(&transaction, definition_id)?;
+        if !plugin_bindings.is_empty() && plugin_bindings.len() != definition.steps.len() {
+            return Err(StorageError::InvalidState(
+                "pipeline plugin bindings must match the definition step count".to_string(),
+            ));
+        }
         if let Some(owner) = definition.project_id.as_deref()
             && owner != project_id
         {
@@ -2878,6 +2896,9 @@ impl Store {
                 checkpoint: None,
                 usage: None,
                 error: None,
+                plugin_binding: plugin_bindings.get(index).cloned().flatten(),
+                latest_plugin_attempt: None,
+                latest_checkpoint: None,
                 started_at_ms: None,
                 completed_at_ms: None,
                 updated_at_ms: now,
@@ -2898,6 +2919,9 @@ impl Store {
                     step.updated_at_ms,
                 ],
             )?;
+            if let Some(binding) = &step.plugin_binding {
+                insert_pipeline_plugin_binding(&transaction, &step.id, binding)?;
+            }
             steps.push(step);
         }
         transaction.commit()?;
@@ -2912,10 +2936,151 @@ impl Store {
                     started_at_ms, completed_at_ms, updated_at_ms
              FROM pipeline_step_runs WHERE run_id = ?1 ORDER BY step_index",
         )?;
-        let steps = statement
+        let mut steps = statement
             .query_map([run_id], row_to_pipeline_step_run)?
             .collect::<std::result::Result<Vec<_>, _>>()?;
+        for step in &mut steps {
+            hydrate_pipeline_plugin_history(&self.connection, step)?;
+        }
         Ok(PipelineRunSnapshot { run, steps })
+    }
+
+    pub fn append_pipeline_step_checkpoint(
+        &mut self,
+        run_id: &str,
+        step_index: u32,
+        schema_version: u32,
+        checkpoint: Value,
+    ) -> Result<PipelineStepCheckpointMetadata> {
+        if schema_version == 0 {
+            return Err(StorageError::InvalidState(
+                "pipeline checkpoint schema version must be positive".to_string(),
+            ));
+        }
+        let checkpoint_json = serde_json::to_string(&checkpoint)?;
+        if checkpoint_json.len() > 1024 * 1024 {
+            return Err(StorageError::InvalidState(
+                "pipeline checkpoint exceeds 1048576 bytes".to_string(),
+            ));
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let run = find_pipeline_run(&transaction, run_id)?;
+        let step = find_pipeline_step_run(&transaction, run_id, step_index)?;
+        if run.status != PipelineRunStatus::Running
+            || run.current_step_index != step_index
+            || step.status != PipelineStepStatus::Running
+        {
+            return Err(StorageError::InvalidState(
+                "pipeline checkpoint can only be appended by the running step".to_string(),
+            ));
+        }
+        let created_at_ms = now_ms();
+        let metadata = insert_pipeline_checkpoint(
+            &transaction,
+            &step.id,
+            schema_version,
+            &checkpoint_json,
+            created_at_ms,
+            true,
+        )?;
+        transaction.execute(
+            "UPDATE pipeline_step_runs
+             SET checkpoint_json = ?1, revision = revision + 1, updated_at_ms = ?2
+             WHERE id = ?3 AND revision = ?4",
+            params![
+                serde_json::to_string(&checkpoint)?,
+                created_at_ms,
+                step.id,
+                to_i64(step.revision)?,
+            ],
+        )?;
+        transaction.commit()?;
+        Ok(metadata)
+    }
+
+    pub fn append_pipeline_plugin_attempt(
+        &mut self,
+        step_run_id: &str,
+        attempt: &PipelineStepPluginAttempt,
+    ) -> Result<()> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        insert_pipeline_plugin_attempt(&transaction, step_run_id, attempt)?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn migrate_pipeline_step_checkpoint(
+        &mut self,
+        run_id: &str,
+        step_index: u32,
+        checkpoint: Value,
+        attempt: &PipelineStepPluginAttempt,
+    ) -> Result<PipelineRunSnapshot> {
+        if attempt.operation != PipelineStepPluginOperation::CheckpointMigrate
+            || attempt.output_hash.is_some()
+            || attempt.failure.is_some()
+        {
+            return Err(StorageError::InvalidState(
+                "pipeline checkpoint migration attempt is invalid".to_string(),
+            ));
+        }
+        let schema_version = attempt.checkpoint_schema_version.ok_or_else(|| {
+            StorageError::InvalidState(
+                "pipeline checkpoint migration requires a target schema".to_string(),
+            )
+        })?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let run = find_pipeline_run(&transaction, run_id)?;
+        let step = find_pipeline_step_run(&transaction, run_id, step_index)?;
+        if run.status != PipelineRunStatus::Interrupted
+            || run.current_step_index != step_index
+            || step.status != PipelineStepStatus::Interrupted
+        {
+            return Err(StorageError::InvalidState(
+                "checkpoint migration requires an interrupted plugin step".to_string(),
+            ));
+        }
+        let input = step.input.as_ref().ok_or_else(|| {
+            StorageError::InvalidState("pipeline plugin step has no recorded input".to_string())
+        })?;
+        let source = step.checkpoint.as_ref().ok_or_else(|| {
+            StorageError::InvalidState("pipeline plugin step has no checkpoint".to_string())
+        })?;
+        let target_hash = pipeline_json_hash(&checkpoint)?;
+        let source_hash = pipeline_json_hash(source)?;
+        if attempt.input_hash != pipeline_json_hash(input)?
+            || attempt.checkpoint_input_hash.as_deref() != Some(source_hash.as_str())
+            || attempt.checkpoint_output_hash.as_deref() != Some(target_hash.as_str())
+        {
+            return Err(StorageError::InvalidState(
+                "checkpoint migration provenance does not match its payloads".to_string(),
+            ));
+        }
+        insert_pipeline_plugin_attempt(&transaction, &step.id, attempt)?;
+        let now = now_ms();
+        let checkpoint_json = serde_json::to_string(&checkpoint)?;
+        insert_pipeline_checkpoint(
+            &transaction,
+            &step.id,
+            schema_version,
+            &checkpoint_json,
+            now,
+            false,
+        )?;
+        transaction.execute(
+            "UPDATE pipeline_step_runs
+             SET checkpoint_json = ?1, revision = revision + 1, updated_at_ms = ?2
+             WHERE id = ?3 AND revision = ?4",
+            params![checkpoint_json, now, step.id, to_i64(step.revision)?],
+        )?;
+        transaction.commit()?;
+        self.get_pipeline_run(run_id)
     }
 
     pub fn list_pipeline_runs(
@@ -3022,6 +3187,37 @@ impl Store {
         checkpoint: Option<Value>,
         usage: Option<Value>,
     ) -> Result<PipelineRunSnapshot> {
+        self.complete_pipeline_step_inner(run_id, step_index, output, checkpoint, usage, None)
+    }
+
+    pub fn complete_plugin_pipeline_step(
+        &mut self,
+        run_id: &str,
+        step_index: u32,
+        output: Value,
+        checkpoint: Option<Value>,
+        usage: Option<Value>,
+        attempt: &PipelineStepPluginAttempt,
+    ) -> Result<PipelineRunSnapshot> {
+        self.complete_pipeline_step_inner(
+            run_id,
+            step_index,
+            output,
+            checkpoint,
+            usage,
+            Some(attempt),
+        )
+    }
+
+    fn complete_pipeline_step_inner(
+        &mut self,
+        run_id: &str,
+        step_index: u32,
+        output: Value,
+        checkpoint: Option<Value>,
+        usage: Option<Value>,
+        attempt: Option<&PipelineStepPluginAttempt>,
+    ) -> Result<PipelineRunSnapshot> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -3035,7 +3231,33 @@ impl Store {
                 "pipeline step is not running".to_string(),
             ));
         }
+        if let Some(attempt) = attempt {
+            validate_pipeline_plugin_attempt_payloads(
+                &step,
+                &output,
+                checkpoint.as_ref(),
+                usage.as_ref(),
+                attempt,
+            )?;
+            insert_pipeline_plugin_attempt(&transaction, &step.id, attempt)?;
+        }
         let now = now_ms();
+        if let (Some(checkpoint), Some(attempt)) = (checkpoint.as_ref(), attempt) {
+            let schema_version = attempt.checkpoint_schema_version.ok_or_else(|| {
+                StorageError::InvalidState(
+                    "plugin checkpoint requires a recorded schema version".to_string(),
+                )
+            })?;
+            let checkpoint_json = serde_json::to_string(checkpoint)?;
+            insert_pipeline_checkpoint(
+                &transaction,
+                &step.id,
+                schema_version,
+                &checkpoint_json,
+                now,
+                true,
+            )?;
+        }
         transaction.execute(
             "UPDATE pipeline_step_runs
              SET status = 'succeeded', revision = revision + 1, output_json = ?1,
@@ -3079,6 +3301,24 @@ impl Store {
         run_id: &str,
         failure: PipelineFailure,
     ) -> Result<PipelineRunSnapshot> {
+        self.fail_pipeline_run_inner(run_id, failure, None)
+    }
+
+    pub fn fail_plugin_pipeline_run(
+        &mut self,
+        run_id: &str,
+        failure: PipelineFailure,
+        attempt: &PipelineStepPluginAttempt,
+    ) -> Result<PipelineRunSnapshot> {
+        self.fail_pipeline_run_inner(run_id, failure, Some(attempt))
+    }
+
+    fn fail_pipeline_run_inner(
+        &mut self,
+        run_id: &str,
+        failure: PipelineFailure,
+        attempt: Option<&PipelineStepPluginAttempt>,
+    ) -> Result<PipelineRunSnapshot> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -3086,6 +3326,11 @@ impl Store {
         if run.status.is_terminal() {
             transaction.commit()?;
             return self.get_pipeline_run(run_id);
+        }
+        if let Some(attempt) = attempt {
+            let step = find_pipeline_step_run(&transaction, run_id, run.current_step_index)?;
+            validate_pipeline_plugin_failure_attempt(&step, &failure, attempt)?;
+            insert_pipeline_plugin_attempt(&transaction, &step.id, attempt)?;
         }
         let now = now_ms();
         transaction.execute(
@@ -8553,10 +8798,397 @@ fn row_to_pipeline_step_run(row: &Row<'_>) -> rusqlite::Result<PipelineStepRun> 
         checkpoint: read_optional_json(row, 9)?,
         usage: read_optional_json(row, 10)?,
         error: read_optional_json(row, 11)?,
+        plugin_binding: None,
+        latest_plugin_attempt: None,
+        latest_checkpoint: None,
         started_at_ms: row.get(12)?,
         completed_at_ms: row.get(13)?,
         updated_at_ms: row.get(14)?,
     })
+}
+
+fn insert_pipeline_plugin_binding(
+    transaction: &Transaction<'_>,
+    step_run_id: &str,
+    binding: &PipelineStepPluginBinding,
+) -> Result<()> {
+    let PipelineStepOwner::Plugin {
+        plugin_id,
+        version_id,
+        activation_revision,
+        contribution_id,
+        contribution_version,
+        descriptor_version,
+        operation_protocol_version,
+        config_schema_version,
+        checkpoint_schema_version,
+        tier,
+        descriptor_hash,
+    } = &binding.owner
+    else {
+        return Err(StorageError::InvalidState(
+            "pipeline plugin binding requires a plugin owner".to_string(),
+        ));
+    };
+    transaction.execute(
+        "INSERT INTO pipeline_step_plugin_bindings (
+            step_run_id, plugin_id, version_id, contribution_id,
+            contribution_version, descriptor_version,
+            operation_protocol_version, config_schema_version,
+            checkpoint_schema_version, activation_revision, tier,
+            descriptor_hash, config_hash, created_at_ms
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        params![
+            step_run_id,
+            plugin_id,
+            version_id,
+            contribution_id,
+            contribution_version,
+            i64::from(*descriptor_version),
+            i64::from(*operation_protocol_version),
+            i64::from(*config_schema_version),
+            checkpoint_schema_version.map(i64::from),
+            to_i64(*activation_revision)?,
+            plugin_pipeline_tier_text(*tier),
+            descriptor_hash,
+            binding.config_hash,
+            binding.created_at_ms,
+        ],
+    )?;
+    Ok(())
+}
+
+fn insert_pipeline_plugin_attempt(
+    transaction: &Transaction<'_>,
+    step_run_id: &str,
+    attempt: &PipelineStepPluginAttempt,
+) -> Result<()> {
+    let binding_exists = transaction.query_row(
+        "SELECT EXISTS(
+            SELECT 1 FROM pipeline_step_plugin_bindings WHERE step_run_id = ?1
+         )",
+        [step_run_id],
+        |row| row.get::<_, bool>(0),
+    )?;
+    if !binding_exists {
+        return Err(StorageError::InvalidState(
+            "pipeline plugin attempt requires an immutable step binding".to_string(),
+        ));
+    }
+    let expected_attempt_index = transaction.query_row(
+        "SELECT COALESCE(MAX(attempt_index) + 1, 0)
+         FROM pipeline_step_plugin_attempts WHERE step_run_id = ?1",
+        [step_run_id],
+        |row| row.get::<_, u32>(0),
+    )?;
+    if attempt.attempt_index != expected_attempt_index {
+        return Err(StorageError::InvalidState(format!(
+            "pipeline plugin attempt index must be {expected_attempt_index}"
+        )));
+    }
+    transaction.execute(
+        "INSERT INTO pipeline_step_plugin_attempts (
+            id, step_run_id, attempt_index, operation, input_hash,
+            output_hash, checkpoint_input_hash, checkpoint_output_hash,
+            checkpoint_schema_version, usage_json, failure_json,
+            started_at_ms, completed_at_ms
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        params![
+            attempt.id,
+            step_run_id,
+            i64::from(attempt.attempt_index),
+            pipeline_plugin_operation_text(attempt.operation),
+            attempt.input_hash,
+            attempt.output_hash,
+            attempt.checkpoint_input_hash,
+            attempt.checkpoint_output_hash,
+            attempt.checkpoint_schema_version.map(i64::from),
+            serde_json::to_string(&attempt.usage)?,
+            attempt
+                .failure
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()?,
+            attempt.started_at_ms,
+            attempt.completed_at_ms,
+        ],
+    )?;
+    Ok(())
+}
+
+fn insert_pipeline_checkpoint(
+    transaction: &Transaction<'_>,
+    step_run_id: &str,
+    schema_version: u32,
+    checkpoint_json: &str,
+    created_at_ms: i64,
+    enforce_binding_schema: bool,
+) -> Result<PipelineStepCheckpointMetadata> {
+    if schema_version == 0 || checkpoint_json.len() > 1024 * 1024 {
+        return Err(StorageError::InvalidState(
+            "pipeline checkpoint schema or size is invalid".to_string(),
+        ));
+    }
+    let bound_schema_version = transaction
+        .query_row(
+            "SELECT checkpoint_schema_version
+             FROM pipeline_step_plugin_bindings WHERE step_run_id = ?1",
+            [step_run_id],
+            |row| row.get::<_, Option<u32>>(0),
+        )
+        .optional()?;
+    if enforce_binding_schema
+        && bound_schema_version
+            .flatten()
+            .is_some_and(|bound| bound != schema_version)
+    {
+        let migrated = transaction.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM pipeline_step_plugin_attempts
+                WHERE step_run_id = ?1 AND operation = 'checkpoint_migrate'
+                  AND checkpoint_schema_version = ?2 AND failure_json IS NULL
+             )",
+            params![step_run_id, i64::from(schema_version)],
+            |row| row.get::<_, bool>(0),
+        )?;
+        if !migrated {
+            return Err(StorageError::InvalidState(
+                "pipeline checkpoint schema does not match the immutable plugin binding"
+                    .to_string(),
+            ));
+        }
+    }
+    let sequence = transaction.query_row(
+        "SELECT COALESCE(MAX(sequence) + 1, 0)
+         FROM pipeline_step_checkpoints WHERE step_run_id = ?1",
+        [step_run_id],
+        |row| row.get::<_, u32>(0),
+    )?;
+    let checkpoint_hash = translunar_domain::sha256_hex(checkpoint_json.as_bytes());
+    transaction.execute(
+        "INSERT INTO pipeline_step_checkpoints (
+            step_run_id, sequence, schema_version, checkpoint_json,
+            checkpoint_hash, created_at_ms
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            step_run_id,
+            i64::from(sequence),
+            i64::from(schema_version),
+            checkpoint_json,
+            checkpoint_hash,
+            created_at_ms,
+        ],
+    )?;
+    Ok(PipelineStepCheckpointMetadata {
+        sequence,
+        schema_version,
+        checkpoint_hash,
+        created_at_ms,
+    })
+}
+
+fn validate_pipeline_plugin_attempt_payloads(
+    step: &PipelineStepRun,
+    output: &Value,
+    checkpoint: Option<&Value>,
+    usage: Option<&Value>,
+    attempt: &PipelineStepPluginAttempt,
+) -> Result<()> {
+    let input = step.input.as_ref().ok_or_else(|| {
+        StorageError::InvalidState("pipeline plugin step has no recorded input".to_string())
+    })?;
+    let input_hash = pipeline_json_hash(input)?;
+    let output_hash = pipeline_json_hash(output)?;
+    if attempt.input_hash != input_hash
+        || attempt.output_hash.as_deref() != Some(output_hash.as_str())
+        || attempt.usage != usage.cloned().unwrap_or(Value::Null)
+        || attempt.failure.is_some()
+    {
+        return Err(StorageError::InvalidState(
+            "pipeline plugin success provenance does not match the committed result".to_string(),
+        ));
+    }
+    match checkpoint {
+        Some(checkpoint) => {
+            let hash = pipeline_json_hash(checkpoint)?;
+            if attempt.checkpoint_schema_version.is_none()
+                || attempt.checkpoint_output_hash.as_deref() != Some(hash.as_str())
+            {
+                return Err(StorageError::InvalidState(
+                    "pipeline plugin checkpoint provenance does not match the committed checkpoint"
+                        .to_string(),
+                ));
+            }
+        }
+        None if attempt.checkpoint_output_hash.is_some() => {
+            return Err(StorageError::InvalidState(
+                "pipeline plugin provenance contains an uncommitted checkpoint".to_string(),
+            ));
+        }
+        None => {}
+    }
+    Ok(())
+}
+
+fn validate_pipeline_plugin_failure_attempt(
+    step: &PipelineStepRun,
+    failure: &PipelineFailure,
+    attempt: &PipelineStepPluginAttempt,
+) -> Result<()> {
+    let input = step.input.as_ref().ok_or_else(|| {
+        StorageError::InvalidState("pipeline plugin step has no recorded input".to_string())
+    })?;
+    if attempt.input_hash != pipeline_json_hash(input)?
+        || attempt.output_hash.is_some()
+        || attempt.checkpoint_output_hash.is_some()
+        || attempt.failure.as_ref() != Some(failure)
+    {
+        return Err(StorageError::InvalidState(
+            "pipeline plugin failure provenance does not match the committed failure".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn pipeline_json_hash(value: &Value) -> Result<String> {
+    Ok(translunar_domain::sha256_hex(&serde_json::to_vec(value)?))
+}
+
+fn hydrate_pipeline_plugin_history(
+    connection: &Connection,
+    step: &mut PipelineStepRun,
+) -> Result<()> {
+    step.plugin_binding = connection
+        .query_row(
+            "SELECT plugin_id, version_id, contribution_id, contribution_version,
+                    descriptor_version, operation_protocol_version,
+                    config_schema_version, checkpoint_schema_version,
+                    activation_revision, tier, descriptor_hash, config_hash,
+                    created_at_ms
+             FROM pipeline_step_plugin_bindings WHERE step_run_id = ?1",
+            [&step.id],
+            |row| {
+                let tier = parse_plugin_pipeline_tier(row.get::<_, String>(9)?, 9)?;
+                Ok(PipelineStepPluginBinding {
+                    owner: PipelineStepOwner::Plugin {
+                        plugin_id: row.get(0)?,
+                        version_id: row.get(1)?,
+                        contribution_id: row.get(2)?,
+                        contribution_version: row.get(3)?,
+                        descriptor_version: read_u32(row, 4)?,
+                        operation_protocol_version: read_u32(row, 5)?,
+                        config_schema_version: read_u32(row, 6)?,
+                        checkpoint_schema_version: row
+                            .get::<_, Option<i64>>(7)?
+                            .map(|value| {
+                                u32::try_from(value).map_err(|error| conversion_error(7, error))
+                            })
+                            .transpose()?,
+                        activation_revision: read_u64(row, 8)?,
+                        tier,
+                        descriptor_hash: row.get(10)?,
+                    },
+                    config_hash: row.get(11)?,
+                    created_at_ms: row.get(12)?,
+                })
+            },
+        )
+        .optional()?;
+    step.latest_plugin_attempt = connection
+        .query_row(
+            "SELECT id, attempt_index, operation, input_hash, output_hash,
+                    checkpoint_input_hash, checkpoint_output_hash,
+                    checkpoint_schema_version, usage_json, failure_json,
+                    started_at_ms, completed_at_ms
+             FROM pipeline_step_plugin_attempts
+             WHERE step_run_id = ?1 ORDER BY attempt_index DESC LIMIT 1",
+            [&step.id],
+            |row| {
+                Ok(PipelineStepPluginAttempt {
+                    id: row.get(0)?,
+                    attempt_index: read_u32(row, 1)?,
+                    operation: parse_pipeline_plugin_operation(row.get::<_, String>(2)?, 2)?,
+                    input_hash: row.get(3)?,
+                    output_hash: row.get(4)?,
+                    checkpoint_input_hash: row.get(5)?,
+                    checkpoint_output_hash: row.get(6)?,
+                    checkpoint_schema_version: row
+                        .get::<_, Option<i64>>(7)?
+                        .map(|value| {
+                            u32::try_from(value).map_err(|error| conversion_error(7, error))
+                        })
+                        .transpose()?,
+                    usage: read_json(row, 8)?,
+                    failure: read_optional_json(row, 9)?,
+                    started_at_ms: row.get(10)?,
+                    completed_at_ms: row.get(11)?,
+                })
+            },
+        )
+        .optional()?;
+    step.latest_checkpoint = connection
+        .query_row(
+            "SELECT sequence, schema_version, checkpoint_hash, created_at_ms
+             FROM pipeline_step_checkpoints
+             WHERE step_run_id = ?1 ORDER BY sequence DESC LIMIT 1",
+            [&step.id],
+            |row| {
+                Ok(PipelineStepCheckpointMetadata {
+                    sequence: read_u32(row, 0)?,
+                    schema_version: read_u32(row, 1)?,
+                    checkpoint_hash: row.get(2)?,
+                    created_at_ms: row.get(3)?,
+                })
+            },
+        )
+        .optional()?;
+    Ok(())
+}
+
+fn plugin_pipeline_tier_text(tier: PluginPipelineTier) -> &'static str {
+    match tier {
+        PluginPipelineTier::Declarative => "declarative",
+        PluginPipelineTier::Sandbox => "sandbox",
+        PluginPipelineTier::Process => "process",
+    }
+}
+
+fn parse_plugin_pipeline_tier(
+    value: String,
+    column: usize,
+) -> rusqlite::Result<PluginPipelineTier> {
+    match value.as_str() {
+        "declarative" => Ok(PluginPipelineTier::Declarative),
+        "sandbox" => Ok(PluginPipelineTier::Sandbox),
+        "process" => Ok(PluginPipelineTier::Process),
+        _ => Err(conversion_error(
+            column,
+            StorageError::InvalidData(format!("unknown plugin pipeline tier {value}")),
+        )),
+    }
+}
+
+fn pipeline_plugin_operation_text(operation: PipelineStepPluginOperation) -> &'static str {
+    match operation {
+        PipelineStepPluginOperation::Execute => "execute",
+        PipelineStepPluginOperation::Resume => "resume",
+        PipelineStepPluginOperation::CheckpointMigrate => "checkpoint_migrate",
+    }
+}
+
+fn parse_pipeline_plugin_operation(
+    value: String,
+    column: usize,
+) -> rusqlite::Result<PipelineStepPluginOperation> {
+    match value.as_str() {
+        "execute" => Ok(PipelineStepPluginOperation::Execute),
+        "resume" => Ok(PipelineStepPluginOperation::Resume),
+        "checkpoint_migrate" => Ok(PipelineStepPluginOperation::CheckpointMigrate),
+        _ => Err(conversion_error(
+            column,
+            StorageError::InvalidData(format!("unknown pipeline plugin operation {value}")),
+        )),
+    }
 }
 
 fn parse_pipeline_run_status(value: String, column: usize) -> rusqlite::Result<PipelineRunStatus> {

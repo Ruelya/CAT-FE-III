@@ -109,6 +109,22 @@ async function main() {
       console.log("Focused plugin-runtime Engine smoke passed.");
       return;
     }
+    if (process.env.TRANSLUNAR_SMOKE_SCOPE === "qa-pipeline") {
+      const fixtureDirectory = mkdtempSync(
+        join(tmpdir(), "translunar-qa-pipeline-smoke-"),
+      );
+      try {
+        await exerciseQaPipelinePluginSmoke(
+          processHandle,
+          dataDirectory,
+          fixtureDirectory,
+        );
+      } finally {
+        await rm(fixtureDirectory, { recursive: true, force: true });
+      }
+      console.log("Focused public QA/pipeline plugin Engine smoke passed.");
+      return;
+    }
     if (process.env.TRANSLUNAR_SMOKE_SCOPE === "api") {
       await exerciseFocusedApiCliSmoke(dataDirectory);
       console.log("Focused local API/CLI smoke passed.");
@@ -2107,6 +2123,11 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
     dataDirectory,
     fixtureDirectory,
   );
+  await exerciseQaPipelinePluginSmoke(
+    processHandle,
+    dataDirectory,
+    fixtureDirectory,
+  );
 
   const inspection = await processHandle.call("plugin.inspect", {
     sourcePath: pluginSource,
@@ -2743,6 +2764,724 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
   );
 
   await processHandle.call("project.list", { offset: 0, limit: 10 });
+}
+
+async function exerciseQaPipelinePluginSmoke(
+  processHandle,
+  dataDirectory,
+  fixtureDirectory,
+) {
+  const root = resolve(import.meta.dirname, "..");
+  const pluginSource = join(root, "examples", "plugins", "qa-pipeline-process");
+  const pluginId = "example.qa-pipeline-process";
+  const qaContributionId = "example.qa.brand-compliance";
+  const pipelineContributionId = "example.pipeline.batch-normalize";
+  const sensitiveMarker = "PRIVATE_QA_PIPELINE_PAYLOAD_MARKER";
+
+  const inspection = await processHandle.call("plugin.inspect", {
+    sourcePath: pluginSource,
+  });
+  assert(
+    inspection.canInstall && inspection.compatibility.compatible,
+    "public QA/pipeline process example should inspect as compatible",
+  );
+  const installed = await processHandle.call("plugin.install", {
+    sourcePath: pluginSource,
+    grantRequested: false,
+    actor: "qa-pipeline-smoke",
+    reason: "install public QA and pipeline example",
+  });
+  const originalVersionId = installed.plugin.activeVersionId;
+  const pending = await processHandle.call("plugin.permission.request.list", {
+    pluginId,
+    versionId: originalVersionId,
+    offset: 0,
+    limit: 20,
+  });
+  const qaGrant = pending.items.find(
+    (request) => request.capabilityId === "qa.register",
+  );
+  const pipelineGrant = pending.items.find(
+    (request) => request.capabilityId === "pipeline.register",
+  );
+  assert(
+    pending.items.length === 2 &&
+      pending.items.every(
+        (request) => request.required && request.decision === "pending",
+      ) &&
+      qaGrant?.contributionId === qaContributionId &&
+      qaGrant.requestedScope.contributionIds.join(",") === qaContributionId &&
+      pipelineGrant?.contributionId === pipelineContributionId &&
+      pipelineGrant.requestedScope.contributionIds.join(",") ===
+        pipelineContributionId,
+    "QA/pipeline install should request only exact contribution grants",
+  );
+  let pendingEnableError;
+  try {
+    await processHandle.call("plugin.enable", {
+      pluginId,
+      expectedRevision: installed.plugin.revision,
+      actor: "qa-pipeline-smoke",
+      reason: "prove exact grants are mandatory",
+    });
+  } catch (error) {
+    pendingEnableError = error;
+  }
+  assert(
+    pendingEnableError?.code === "plugin_permission_denied" &&
+      pendingEnableError?.data?.denialCode === "pending",
+    "pending QA/pipeline grants should block activation",
+  );
+  await grantRequiredPluginCapabilities(
+    processHandle,
+    pluginId,
+    "grant exact public QA/pipeline contributions",
+  );
+  const enabled = await processHandle.call("plugin.enable", {
+    pluginId,
+    expectedRevision: installed.plugin.revision,
+    actor: "qa-pipeline-smoke",
+    reason: "enable public QA/pipeline example",
+  });
+  assert(enabled.plugin.status === "enabled", "QA/pipeline plugin enables");
+  const registeredSteps = await processHandle.call("pipeline.step.list", {});
+  assert(
+    registeredSteps.steps.some(
+      (step) => step.id === pipelineContributionId && step.resumable === true,
+    ),
+    "process pipeline contribution should attach",
+  );
+
+  const project = await processHandle.call("project.create", {
+    name: "Public QA pipeline smoke",
+    sourceLocale: "en-US",
+    targetLocale: "en-US",
+    domain: "brand",
+  });
+  const sourcePath = join(dataDirectory, "qa-pipeline-process-smoke.txt");
+  writeFileSync(sourcePath, "Public brand source\n", "utf8");
+  const imported = await processHandle.call("document.import", {
+    projectId: project.id,
+    sourcePath,
+    filterId: "builtin.txt",
+    options: { segmentationMode: "paragraph" },
+  });
+  const segmentPage = await processHandle.call("segment.list", {
+    documentId: imported.document.id,
+    offset: 0,
+    limit: 10,
+  });
+  await processHandle.call("segment.updateTarget", {
+    segmentId: segmentPage.items[0].id,
+    targetText: `Use Acme consistently ${sensitiveMarker}`,
+    expectedRevision: segmentPage.items[0].revision,
+  });
+  const qaRun = await processHandle.call("qa.run", {
+    projectId: project.id,
+    documentId: imported.document.id,
+  });
+  const pluginQa = qaRun.pluginRules.find(
+    (rule) => rule.provenance.contributionId === qaContributionId,
+  );
+  const qaIssues = await processHandle.call("qa.issue.list", {
+    projectId: project.id,
+    documentId: imported.document.id,
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    pluginQa?.status === "succeeded" &&
+      pluginQa.provenance.pluginId === pluginId &&
+      pluginQa.provenance.versionId === originalVersionId &&
+      pluginQa.provenance.tier === "process" &&
+      pluginQa.findingCount === 1 &&
+      pluginQa.inputHash.length === 64 &&
+      pluginQa.outputHash.length === 64 &&
+      qaIssues.items.some(
+        (issue) =>
+          issue.ruleId.includes(qaContributionId) &&
+          issue.message === "Brand spelling must be ACME.",
+      ),
+    "process QA should persist namespaced findings and immutable provenance",
+  );
+  const durableQaRun = await processHandle.call("qa.run.get", {
+    runId: qaRun.id,
+  });
+  assert(
+    durableQaRun.pluginRules[0].provenance.versionId === originalVersionId &&
+      !JSON.stringify(durableQaRun.pluginRules).includes(sensitiveMarker),
+    "QA history should remain durable without raw segment payloads",
+  );
+
+  const invalidDefinition = await processHandle.call("pipeline.validate", {
+    name: "Invalid public config",
+    steps: [
+      {
+        key: "normalize",
+        stepId: pipelineContributionId,
+        config: { batchSize: 0 },
+      },
+    ],
+  });
+  assert(
+    invalidDefinition.valid === false,
+    "public config schema should reject an out-of-range batch size",
+  );
+  const definition = await processHandle.call("pipeline.create", {
+    projectId: project.id,
+    name: "Public process normalization",
+    steps: [
+      {
+        key: "normalize",
+        stepId: pipelineContributionId,
+        config: { batchSize: 3 },
+      },
+    ],
+  });
+  const pipelineRun = await processHandle.call("pipeline.run", {
+    definitionId: definition.id,
+    projectId: project.id,
+    documentId: imported.document.id,
+    input: { records: ["first", "second", sensitiveMarker] },
+  });
+  const completed = await waitForPipelineRun(processHandle, pipelineRun.run.id);
+  const completedStep = completed.steps[0];
+  const completedProjection = {
+    succeeded: completed.run.status === "succeeded",
+    outputMatches:
+      completed.run.output?.records?.join(",") ===
+      `FIRST,SECOND,${sensitiveMarker}`,
+    pluginMatches: completedStep.pluginBinding?.owner?.pluginId === pluginId,
+    versionMatches:
+      completedStep.pluginBinding?.owner?.versionId === originalVersionId,
+    processTier: completedStep.pluginBinding?.owner?.tier === "process",
+    executeAttempt: completedStep.latestPluginAttempt?.operation === "execute",
+    inputHashed: completedStep.latestPluginAttempt?.inputHash?.length === 64,
+    outputHashed: completedStep.latestPluginAttempt?.outputHash?.length === 64,
+    checkpointV1: completedStep.latestCheckpoint?.schemaVersion === 1,
+  };
+  assert(
+    Object.values(completedProjection).every(Boolean),
+    `process pipeline should publish output, checkpoint, usage, and provenance atomically: ${JSON.stringify(completedProjection)}`,
+  );
+  assert(
+    !JSON.stringify({
+      binding: completedStep.pluginBinding,
+      attempt: completedStep.latestPluginAttempt,
+      checkpoint: completedStep.latestCheckpoint,
+    }).includes(sensitiveMarker),
+    "pipeline history metadata should not persist raw plugin payloads",
+  );
+
+  const cancelDefinition = await processHandle.call("pipeline.create", {
+    projectId: project.id,
+    name: "Cancelable public process step",
+    steps: [
+      {
+        key: "normalize",
+        stepId: pipelineContributionId,
+        config: { batchSize: 100 },
+      },
+    ],
+  });
+  const cancelRun = await processHandle.call("pipeline.run", {
+    definitionId: cancelDefinition.id,
+    projectId: project.id,
+    input: {
+      records: Array.from({ length: 100 }, (_, index) => `row-${index}`),
+    },
+  });
+  const runningCancel = await waitForPipelineStatus(
+    processHandle,
+    cancelRun.run.id,
+    (snapshot) => snapshot.run.status === "running",
+  );
+  const canceling = await processHandle.call("pipeline.run.cancel", {
+    runId: cancelRun.run.id,
+    expectedRevision: runningCancel.run.revision,
+  });
+  const canceled = await waitForPipelineRun(processHandle, cancelRun.run.id);
+  assert(
+    canceling.run.status === "canceling" &&
+      canceled.run.status === "canceled" &&
+      canceled.steps[0].output == null &&
+      canceled.steps[0].checkpoint == null &&
+      canceled.steps[0].latestPluginAttempt == null &&
+      canceled.steps[0].latestCheckpoint == null,
+    "cancellation should win and discard late plugin output/checkpoint/history",
+  );
+
+  const restartDefinition = await processHandle.call("pipeline.create", {
+    projectId: project.id,
+    name: "Restartable public process pipeline",
+    steps: [
+      {
+        key: "first",
+        stepId: pipelineContributionId,
+        config: { batchSize: 100 },
+      },
+      {
+        key: "second",
+        stepId: pipelineContributionId,
+        config: { batchSize: 100 },
+      },
+    ],
+  });
+  const restartRun = await processHandle.call("pipeline.run", {
+    definitionId: restartDefinition.id,
+    projectId: project.id,
+    input: {
+      records: Array.from({ length: 100 }, (_, index) => `resume-${index}`),
+    },
+  });
+  const secondRunning = await waitForPipelineStatus(
+    processHandle,
+    restartRun.run.id,
+    (snapshot) =>
+      snapshot.steps[0].status === "succeeded" &&
+      snapshot.steps[1].status === "running",
+  );
+  const firstAttemptId = secondRunning.steps[0].latestPluginAttempt.id;
+  await processHandle.restart();
+  await processHandle.call("engine.initialize", {
+    protocolVersion: 1,
+    client: { name: "qa-pipeline-plugin-restart", version: "0.1.0" },
+  });
+  const interrupted = await processHandle.call("pipeline.run.get", {
+    runId: restartRun.run.id,
+  });
+  assert(
+    interrupted.run.status === "interrupted" &&
+      interrupted.steps[0].latestPluginAttempt.id === firstAttemptId &&
+      interrupted.steps[0].latestCheckpoint.schemaVersion === 1,
+    "restart should preserve the committed plugin step and checkpoint history",
+  );
+  const resumed = await processHandle.call("pipeline.run.resume", {
+    runId: interrupted.run.id,
+    expectedRevision: interrupted.run.revision,
+  });
+  const resumedComplete = await waitForPipelineRun(
+    processHandle,
+    resumed.run.id,
+  );
+  assert(
+    resumedComplete.run.status === "succeeded" &&
+      resumedComplete.steps[0].latestPluginAttempt.id === firstAttemptId &&
+      resumedComplete.steps[1].latestPluginAttempt != null,
+    "interrupted pipeline should resume without rewriting committed plugin history",
+  );
+
+  const upgradeSource = join(fixtureDirectory, "qa-pipeline-process-v101");
+  cpSync(pluginSource, upgradeSource, { recursive: true });
+  const upgradeManifestPath = join(upgradeSource, "manifest.json");
+  const upgradeManifest = JSON.parse(readFileSync(upgradeManifestPath, "utf8"));
+  upgradeManifest.version = "1.0.1";
+  for (const contribution of upgradeManifest.contributions) {
+    contribution.version = "1.0.1";
+  }
+  writeFileSync(
+    upgradeManifestPath,
+    `${JSON.stringify(upgradeManifest, null, 2)}\n`,
+    "utf8",
+  );
+  const upgradeEntry = join(upgradeSource, "bin", "qa-pipeline-process.mjs");
+  writeFileSync(
+    upgradeEntry,
+    readFileSync(upgradeEntry, "utf8").replaceAll(
+      'version: "1.0.0"',
+      'version: "1.0.1"',
+    ),
+    "utf8",
+  );
+  const beforeUpgrade = await processHandle.call("plugin.get", { pluginId });
+  const upgraded = await processHandle.call("plugin.upgrade", {
+    pluginId,
+    sourcePath: upgradeSource,
+    expectedRevision: beforeUpgrade.revision,
+    actor: "qa-pipeline-smoke",
+    reason: "exercise public contribution generation switch",
+  });
+  assert(
+    upgraded.plugin.version === "1.0.1" &&
+      upgraded.previousVersionId === originalVersionId &&
+      completed.steps[0].pluginBinding.owner.versionId === originalVersionId,
+    "upgrade should switch new calls without rewriting historical bindings",
+  );
+  const upgradedRun = await processHandle.call("pipeline.run", {
+    definitionId: definition.id,
+    projectId: project.id,
+    input: { records: ["upgraded"] },
+  });
+  const upgradedRunComplete = await waitForPipelineRun(
+    processHandle,
+    upgradedRun.run.id,
+  );
+  const upgradedQaRun = await processHandle.call("qa.run", {
+    projectId: project.id,
+    documentId: imported.document.id,
+  });
+  assert(
+    upgradedRunComplete.steps[0].pluginBinding.owner.versionId ===
+      upgraded.activeVersionId &&
+      upgradedQaRun.pluginRules.find(
+        (rule) => rule.provenance.contributionId === qaContributionId,
+      )?.provenance.versionId === upgraded.activeVersionId,
+    "new QA and pipeline calls should route to the upgraded generation",
+  );
+  const rolledBack = await processHandle.call("plugin.rollback", {
+    pluginId,
+    versionId: originalVersionId,
+    expectedRevision: upgraded.plugin.revision,
+    actor: "qa-pipeline-smoke",
+    reason: "restore original QA/pipeline contribution generation",
+  });
+  assert(
+    rolledBack.activeVersionId === originalVersionId,
+    "rollback should restore the original public contribution generation",
+  );
+
+  const fatalRun = await processHandle.call("pipeline.run", {
+    definitionId: definition.id,
+    projectId: project.id,
+    input: { records: ["fatal"], fixtureFailure: "protocol" },
+  });
+  const fatalComplete = await waitForPipelineRun(
+    processHandle,
+    fatalRun.run.id,
+  );
+  const degradedPlugin = await processHandle.call("plugin.get", { pluginId });
+  const degradedSteps = await processHandle.call("pipeline.step.list", {});
+  assert(
+    fatalComplete.run.status === "failed" &&
+      fatalComplete.run.error.code === "plugin_protocol" &&
+      fatalComplete.steps[0].latestPluginAttempt.failure.code ===
+        "plugin_protocol" &&
+      degradedPlugin.status === "degraded" &&
+      !degradedSteps.steps.some((step) => step.id === pipelineContributionId),
+    "fatal pipeline host failures should degrade the exact activation and detach its pipeline authority",
+  );
+  const restoredAfterFailure = await processHandle.call("plugin.enable", {
+    pluginId,
+    expectedRevision: degradedPlugin.revision,
+    actor: "qa-pipeline-smoke",
+    reason: "restore after intentional fatal pipeline fixture failure",
+  });
+  assert(
+    restoredAfterFailure.plugin.status === "enabled",
+    "an explicit enable should restore a degraded public contribution after the host is healthy",
+  );
+
+  const activeRequests = await processHandle.call(
+    "plugin.permission.request.list",
+    {
+      pluginId,
+      versionId: originalVersionId,
+      offset: 0,
+      limit: 20,
+    },
+  );
+  const activePipelineGrant = activeRequests.items.find(
+    (request) => request.capabilityId === "pipeline.register",
+  );
+  assert(
+    activePipelineGrant?.decision === "granted",
+    "rollback should restore the original exact pipeline grant",
+  );
+  const revokeRun = await processHandle.call("pipeline.run", {
+    definitionId: cancelDefinition.id,
+    projectId: project.id,
+    input: {
+      records: Array.from({ length: 100 }, (_, index) => `revoke-${index}`),
+    },
+  });
+  await waitForPipelineStatus(
+    processHandle,
+    revokeRun.run.id,
+    (snapshot) =>
+      snapshot.run.status === "running" &&
+      snapshot.steps[0].latestCheckpoint != null,
+  );
+  const revoked = await processHandle.call("plugin.permission.revoke", {
+    pluginId,
+    requestId: activePipelineGrant.id,
+    expectedRevision: activePipelineGrant.revision,
+    actor: "qa-pipeline-smoke",
+    reason: "revoke exact pipeline contribution authority",
+  });
+  const revokedRun = await waitForPipelineRun(processHandle, revokeRun.run.id);
+  await delay(50);
+  const stableRevokedRun = await processHandle.call("pipeline.run.get", {
+    runId: revokeRun.run.id,
+  });
+  const afterRevokeSteps = await processHandle.call("pipeline.step.list", {});
+  assert(
+    revoked.detached &&
+      revoked.plugin.status === "disabled" &&
+      !afterRevokeSteps.steps.some(
+        (step) => step.id === pipelineContributionId,
+      ) &&
+      revokedRun.run.status === "failed" &&
+      revokedRun.run.error.code === "plugin_stale_activation" &&
+      revokedRun.steps[0].output == null &&
+      revokedRun.steps[0].checkpoint != null &&
+      revokedRun.steps[0].latestCheckpoint.sequence ===
+        stableRevokedRun.steps[0].latestCheckpoint.sequence &&
+      revokedRun.steps[0].latestPluginAttempt == null,
+    "grant revocation should preserve committed progress but reject late checkpoint publication",
+  );
+  const audit = await processHandle.call("plugin.permission.audit.list", {
+    pluginId,
+    offset: 0,
+    limit: 200,
+  });
+  assert(
+    audit.items.some((entry) => entry.event === "operation_allowed") &&
+      audit.items.some((entry) => entry.event === "revoked") &&
+      audit.items.some((entry) => entry.event === "detached") &&
+      !JSON.stringify(audit.items).includes(sensitiveMarker),
+    "public contribution audit should retain decisions without payloads",
+  );
+  await grantRequiredPluginCapabilities(
+    processHandle,
+    pluginId,
+    "restore exact public contribution grants",
+  );
+  const afterRegrant = await processHandle.call("plugin.get", { pluginId });
+  const reenabled = await processHandle.call("plugin.enable", {
+    pluginId,
+    expectedRevision: afterRegrant.revision,
+    actor: "qa-pipeline-smoke",
+    reason: "re-enable after explicit re-grant",
+  });
+  const disabled = await processHandle.call("plugin.disable", {
+    pluginId,
+    expectedRevision: reenabled.plugin.revision,
+    actor: "qa-pipeline-smoke",
+    reason: "exercise explicit public contribution disable",
+  });
+  await processHandle.call("plugin.uninstall", {
+    pluginId,
+    expectedRevision: disabled.plugin.revision,
+    actor: "qa-pipeline-smoke",
+    reason: "uninstall public QA/pipeline example",
+  });
+  const historicPipeline = await processHandle.call("pipeline.run.get", {
+    runId: pipelineRun.run.id,
+  });
+  const historicQa = await processHandle.call("qa.run.get", {
+    runId: qaRun.id,
+  });
+  assert(
+    historicPipeline.steps[0].pluginBinding.owner.versionId ===
+      originalVersionId &&
+      historicQa.pluginRules[0].provenance.versionId === originalVersionId,
+    "uninstall should retain immutable QA and pipeline history",
+  );
+
+  await exerciseSandboxQaPipelineFixtureSmoke(processHandle, dataDirectory);
+}
+
+async function exerciseSandboxQaPipelineFixtureSmoke(
+  processHandle,
+  dataDirectory,
+) {
+  const root = resolve(import.meta.dirname, "..");
+  const pluginSource = join(root, "fixtures", "plugins", "qa-pipeline-sandbox");
+  const pluginId = "fixture.qa-pipeline-sandbox";
+  const qaContributionId = "fixture.qa.sandbox-marker";
+  const pipelineContributionId = "fixture.pipeline.sandbox-normalize";
+  const sensitiveMarker = "PRIVATE_TIER2_QA_PIPELINE_MARKER";
+
+  const inspection = await processHandle.call("plugin.inspect", {
+    sourcePath: pluginSource,
+  });
+  assert(
+    inspection.canInstall && inspection.compatibility.compatible,
+    "public SDK Tier 2 QA/pipeline fixture should inspect as compatible",
+  );
+  const installed = await processHandle.call("plugin.install", {
+    sourcePath: pluginSource,
+    grantRequested: false,
+    actor: "qa-pipeline-smoke",
+    reason: "install public SDK Tier 2 fixture",
+  });
+  await grantRequiredPluginCapabilities(
+    processHandle,
+    pluginId,
+    "grant exact Tier 2 QA/pipeline contributions",
+  );
+  const enabled = await processHandle.call("plugin.enable", {
+    pluginId,
+    expectedRevision: installed.plugin.revision,
+    actor: "qa-pipeline-smoke",
+    reason: "enable public SDK Tier 2 fixture",
+  });
+  assert(
+    enabled.plugin.status === "enabled" && enabled.plugin.tier === "sandbox",
+    "Tier 2 QA/pipeline fixture should enable through the normal lifecycle",
+  );
+
+  const project = await processHandle.call("project.create", {
+    name: "Tier 2 QA pipeline smoke",
+    sourceLocale: "en-US",
+    targetLocale: "en-US",
+    domain: "sandbox",
+  });
+  const sourcePath = join(dataDirectory, "qa-pipeline-sandbox-smoke.txt");
+  writeFileSync(sourcePath, "Tier 2 source\n", "utf8");
+  const imported = await processHandle.call("document.import", {
+    projectId: project.id,
+    sourcePath,
+    filterId: "builtin.txt",
+    options: { segmentationMode: "paragraph" },
+  });
+  const segments = await processHandle.call("segment.list", {
+    documentId: imported.document.id,
+    offset: 0,
+    limit: 10,
+  });
+  await processHandle.call("segment.updateTarget", {
+    segmentId: segments.items[0].id,
+    targetText: `TIER2 ${sensitiveMarker}`,
+    expectedRevision: segments.items[0].revision,
+  });
+  const qaRun = await processHandle.call("qa.run", {
+    projectId: project.id,
+    documentId: imported.document.id,
+  });
+  const sandboxQa = qaRun.pluginRules.find(
+    (rule) => rule.provenance.contributionId === qaContributionId,
+  );
+  const issues = await processHandle.call("qa.issue.list", {
+    projectId: project.id,
+    documentId: imported.document.id,
+    offset: 0,
+    limit: 100,
+  });
+  assert(
+    sandboxQa?.status === "succeeded" &&
+      sandboxQa.provenance.pluginId === pluginId &&
+      sandboxQa.provenance.tier === "sandbox" &&
+      sandboxQa.findingCount === 1 &&
+      issues.items.some(
+        (issue) =>
+          issue.ruleId.includes(qaContributionId) &&
+          issue.message === "Sandbox marker requires review.",
+      ),
+    "Tier 2 public SDK QA factory should execute and persist provenance",
+  );
+
+  const definition = await processHandle.call("pipeline.create", {
+    projectId: project.id,
+    name: "Tier 2 public SDK normalization",
+    steps: [
+      {
+        key: "normalize",
+        stepId: pipelineContributionId,
+        config: {},
+      },
+    ],
+  });
+  const started = await processHandle.call("pipeline.run", {
+    definitionId: definition.id,
+    projectId: project.id,
+    input: { values: [" alpha ", sensitiveMarker] },
+  });
+  const completed = await waitForPipelineRun(processHandle, started.run.id);
+  const step = completed.steps[0];
+  assert(
+    completed.run.status === "succeeded" &&
+      completed.run.output.values.join(",") === `ALPHA,${sensitiveMarker}` &&
+      step.pluginBinding.owner.pluginId === pluginId &&
+      step.pluginBinding.owner.tier === "sandbox" &&
+      step.latestPluginAttempt.operation === "execute" &&
+      step.latestCheckpoint.schemaVersion === 1 &&
+      step.latestCheckpoint.sequence >= 1,
+    "Tier 2 public SDK pipeline factory should publish output and checkpoint provenance",
+  );
+  assert(
+    !JSON.stringify({
+      pluginRule: sandboxQa,
+      binding: step.pluginBinding,
+      attempt: step.latestPluginAttempt,
+      checkpoint: step.latestCheckpoint,
+    }).includes(sensitiveMarker),
+    "Tier 2 QA/pipeline history metadata must not retain raw payloads",
+  );
+
+  await processHandle.restart();
+  await processHandle.call("engine.initialize", {
+    protocolVersion: 1,
+    client: { name: "qa-pipeline-sandbox-restart", version: "0.1.0" },
+  });
+  const [restartedPlugin, restartedSteps] = await Promise.all([
+    processHandle.call("plugin.get", { pluginId }),
+    processHandle.call("pipeline.step.list", {}),
+  ]);
+  assert(
+    restartedPlugin.status === "enabled" &&
+      restartedSteps.steps.some((item) => item.id === pipelineContributionId),
+    "Tier 2 QA/pipeline contributions should reattach after Engine restart",
+  );
+  const disabled = await processHandle.call("plugin.disable", {
+    pluginId,
+    expectedRevision: restartedPlugin.revision,
+    actor: "qa-pipeline-smoke",
+    reason: "detach Tier 2 public SDK fixture",
+  });
+  const detachedSteps = await processHandle.call("pipeline.step.list", {});
+  assert(
+    disabled.plugin.status === "disabled" &&
+      !detachedSteps.steps.some((item) => item.id === pipelineContributionId),
+    "Tier 2 disable should detach executable pipeline authority",
+  );
+  const qaAfterDisable = await processHandle.call("qa.run", {
+    projectId: project.id,
+    documentId: imported.document.id,
+  });
+  assert(
+    !qaAfterDisable.pluginRules.some(
+      (rule) => rule.provenance.contributionId === qaContributionId,
+    ),
+    "Tier 2 disable should detach executable QA authority",
+  );
+  await processHandle.call("plugin.uninstall", {
+    pluginId,
+    expectedRevision: disabled.plugin.revision,
+    actor: "qa-pipeline-smoke",
+    reason: "remove Tier 2 public SDK fixture",
+  });
+  const [historicQa, historicPipeline] = await Promise.all([
+    processHandle.call("qa.run.get", { runId: qaRun.id }),
+    processHandle.call("pipeline.run.get", { runId: completed.run.id }),
+  ]);
+  assert(
+    historicQa.pluginRules.some(
+      (rule) => rule.provenance.contributionId === qaContributionId,
+    ) && historicPipeline.steps[0].pluginBinding.owner.pluginId === pluginId,
+    "Tier 2 uninstall should retain immutable QA and pipeline history",
+  );
+}
+
+async function waitForPipelineStatus(processHandle, runId, predicate) {
+  let snapshot = await processHandle.call("pipeline.run.get", { runId });
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    if (predicate(snapshot)) return snapshot;
+    if (["succeeded", "failed", "canceled"].includes(snapshot.run.status)) {
+      break;
+    }
+    await delay(10);
+    snapshot = await processHandle.call("pipeline.run.get", { runId });
+  }
+  throw new Error(
+    `pipeline ${runId} did not reach the expected state: ${JSON.stringify(snapshot.run)}`,
+  );
+}
+
+async function waitForPipelineRun(processHandle, runId) {
+  return waitForPipelineStatus(processHandle, runId, (snapshot) =>
+    ["succeeded", "failed", "canceled"].includes(snapshot.run.status),
+  );
 }
 
 async function exerciseConnectorPluginSmoke(

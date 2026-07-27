@@ -952,6 +952,31 @@ impl EngineConnectorRegistry {
             Ok(None)
         }
     }
+
+    pub fn detach_lease(
+        &self,
+        lease: &EngineConnectorLease,
+    ) -> Result<Option<EngineConnectorLease>, ConnectorRegistryError> {
+        let mut state = self
+            .state
+            .write()
+            .map_err(|_| ConnectorRegistryError::Unavailable)?;
+        let id = &lease.descriptor.id;
+        let is_current = state.entries.get(id).is_some_and(|current| {
+            current.generation == lease.generation
+                && current.descriptor.source == lease.descriptor.source
+                && current.active.load(Ordering::Acquire)
+                && lease.active.load(Ordering::Acquire)
+        });
+        if !is_current {
+            return Ok(None);
+        }
+        let detached = state.entries.remove(id);
+        if let Some(detached) = &detached {
+            detached.active.store(false, Ordering::Release);
+        }
+        Ok(detached)
+    }
 }
 
 fn validate_registrations(
@@ -1533,6 +1558,48 @@ mod tests {
                 .lookup_source(&old.descriptor.source)
                 .expect("old source lookup")
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn stale_lease_detach_preserves_same_version_replacement() {
+        let registry = EngineConnectorRegistry::empty();
+        let old = registry
+            .attach_all(vec![plugin_registration(
+                "org.example.plugin",
+                "version-1",
+                "fixture",
+            )])
+            .expect("attach old generation")
+            .remove(0);
+        registry
+            .detach_plugin_owner(old.descriptor.source.plugin_owner().expect("plugin owner"))
+            .expect("detach old owner");
+        let replacement = registry
+            .attach_all(vec![plugin_registration(
+                "org.example.plugin",
+                "version-1",
+                "fixture",
+            )])
+            .expect("attach same-version replacement")
+            .remove(0);
+
+        assert!(
+            registry
+                .detach_lease(&old)
+                .expect("ignore stale lease")
+                .is_none()
+        );
+        assert!(
+            registry
+                .is_current(&replacement)
+                .expect("replacement current")
+        );
+        assert!(
+            registry
+                .detach_lease(&replacement)
+                .expect("detach current lease")
+                .is_some()
         );
     }
 

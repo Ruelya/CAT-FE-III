@@ -398,6 +398,42 @@ export type MessageKey =
   | "plugins.connectorNotRequested"
   | "plugins.connectorPermissionUnknown"
   | "plugins.connectorFailure"
+  | "plugins.compatibility"
+  | "plugins.compatibilityReady"
+  | "plugins.compatibilityBlocked"
+  | "plugins.inventoryAria"
+  | "plugins.inventoryTitle"
+  | "plugins.contributionCount"
+  | "plugins.permissionUnknown"
+  | "plugins.contributionKind"
+  | "plugins.qaRule"
+  | "plugins.pipelineStep"
+  | "plugins.pluginVersion"
+  | "plugins.operationAuthority"
+  | "plugins.contributionVersion"
+  | "plugins.descriptorVersions"
+  | "plugins.descriptorVersionShort"
+  | "plugins.operationVersionShort"
+  | "plugins.ruleContract"
+  | "plugins.configSchemaVersion"
+  | "plugins.artifactContract"
+  | "plugins.schemaVersions"
+  | "plugins.configVersionShort"
+  | "plugins.checkpointVersionShort"
+  | "plugins.executionControls"
+  | "plugins.resumable"
+  | "plugins.cancellable"
+  | "plugins.yes"
+  | "plugins.no"
+  | "plugins.pipelineHistoryAria"
+  | "plugins.pipelineHistoryKicker"
+  | "plugins.pipelineHistoryTitle"
+  | "plugins.pipelineRunCount"
+  | "plugins.pipelineHistoryLoading"
+  | "plugins.pipelineHistoryEmpty"
+  | "plugins.pipelineNoPluginSteps"
+  | "plugins.activationRevision"
+  | "plugins.activationRevisionLabel"
   | "plugins.review"
   | "plugins.previewPanel"
   | "plugins.panel.loading"
@@ -603,6 +639,13 @@ export type MessageKey =
   | "qa.waived"
   | "qa.checked"
   | "qa.builtIn"
+  | "qa.pluginHistoryAria"
+  | "qa.pluginHistoryKicker"
+  | "qa.pluginHistoryTitle"
+  | "qa.runHistoryCount"
+  | "qa.pluginHistoryEmpty"
+  | "qa.executionCounts"
+  | "qa.pluginOwner"
   | "assistant.archive"
   | "assistant.archiveNamed"
   | "assistant.requestedModel"
@@ -2101,6 +2144,45 @@ const enUs: MessageCatalog = {
   "plugins.connectorNotRequested": "not requested",
   "plugins.connectorPermissionUnknown": "Permission state unavailable",
   "plugins.connectorFailure": "Last safe failure: {message}",
+  "plugins.compatibility": "Compatibility: {state}",
+  "plugins.compatibilityReady": "supported",
+  "plugins.compatibilityBlocked": "unsupported",
+  "plugins.inventoryAria": "QA and pipeline contributions",
+  "plugins.inventoryTitle": "QA and pipeline contributions",
+  "plugins.contributionCount":
+    "{count, plural, one {# contribution} other {# contributions}}",
+  "plugins.permissionUnknown": "Permission state unavailable",
+  "plugins.contributionKind": "Kind",
+  "plugins.qaRule": "QA rule",
+  "plugins.pipelineStep": "Pipeline step",
+  "plugins.pluginVersion": "Plugin version, tier, and state",
+  "plugins.operationAuthority": "Operation authority",
+  "plugins.contributionVersion": "Contribution version",
+  "plugins.descriptorVersions": "Contract versions",
+  "plugins.descriptorVersionShort": "descriptor v{version}",
+  "plugins.operationVersionShort": "operation v{version}",
+  "plugins.ruleContract": "Rule type and severity",
+  "plugins.configSchemaVersion": "Config schema version",
+  "plugins.artifactContract": "Artifact contract",
+  "plugins.schemaVersions": "Schema versions",
+  "plugins.configVersionShort": "config v{version}",
+  "plugins.checkpointVersionShort": "checkpoint v{version}",
+  "plugins.executionControls": "Execution controls",
+  "plugins.resumable": "Resumable: {state}",
+  "plugins.cancellable": "Cancellable: {state}",
+  "plugins.yes": "yes",
+  "plugins.no": "no",
+  "plugins.pipelineHistoryAria": "Pipeline run history",
+  "plugins.pipelineHistoryKicker": "Durable execution history",
+  "plugins.pipelineHistoryTitle": "Pipeline run history",
+  "plugins.pipelineRunCount":
+    "{count, plural, one {# recent run} other {# recent runs}}",
+  "plugins.pipelineHistoryLoading": "Loading pipeline history…",
+  "plugins.pipelineHistoryEmpty": "No pipeline runs recorded for this project.",
+  "plugins.pipelineNoPluginSteps":
+    "This run did not execute a plugin-owned step.",
+  "plugins.activationRevision": "activation {revision}",
+  "plugins.activationRevisionLabel": "Activation revision",
   "plugins.review": "Review permissions",
   "plugins.previewPanel": "Preview panel",
   "plugins.panel.loading": "Loading",
@@ -2333,6 +2415,14 @@ const enUs: MessageCatalog = {
   "qa.waived": "Waived",
   "qa.checked": "{count} checked",
   "qa.builtIn": "built-in",
+  "qa.pluginHistoryAria": "Plugin QA run provenance",
+  "qa.pluginHistoryKicker": "Durable rule provenance",
+  "qa.pluginHistoryTitle": "Plugin QA history",
+  "qa.runHistoryCount":
+    "{count, plural, one {# recent run} other {# recent runs}}",
+  "qa.pluginHistoryEmpty": "Recent QA runs did not execute plugin-owned rules.",
+  "qa.executionCounts": "{executions} executions · {findings} findings",
+  "qa.pluginOwner": "Plugin owner",
   "assistant.archive": "Archive conversation",
   "assistant.archiveNamed": "Archive {title}",
   "assistant.requestedModel": "Requested model",
@@ -3855,6 +3945,42 @@ const zhCn: MessageCatalog = {
   "plugins.connectorNotRequested": "未请求",
   "plugins.connectorPermissionUnknown": "无法读取权限状态",
   "plugins.connectorFailure": "最近一次安全故障：{message}",
+  "plugins.compatibility": "兼容性：{state}",
+  "plugins.compatibilityReady": "受支持",
+  "plugins.compatibilityBlocked": "不受支持",
+  "plugins.inventoryAria": "质检与流水线贡献项",
+  "plugins.inventoryTitle": "质检与流水线贡献项",
+  "plugins.contributionCount": "{count} 个贡献项",
+  "plugins.permissionUnknown": "无法读取权限状态",
+  "plugins.contributionKind": "类型",
+  "plugins.qaRule": "质检规则",
+  "plugins.pipelineStep": "流水线步骤",
+  "plugins.pluginVersion": "插件版本、层级与状态",
+  "plugins.operationAuthority": "操作权限",
+  "plugins.contributionVersion": "贡献项版本",
+  "plugins.descriptorVersions": "契约版本",
+  "plugins.descriptorVersionShort": "描述符 v{version}",
+  "plugins.operationVersionShort": "操作 v{version}",
+  "plugins.ruleContract": "规则类型与严重性",
+  "plugins.configSchemaVersion": "配置架构版本",
+  "plugins.artifactContract": "工件契约",
+  "plugins.schemaVersions": "架构版本",
+  "plugins.configVersionShort": "配置 v{version}",
+  "plugins.checkpointVersionShort": "检查点 v{version}",
+  "plugins.executionControls": "执行控制",
+  "plugins.resumable": "可恢复：{state}",
+  "plugins.cancellable": "可取消：{state}",
+  "plugins.yes": "是",
+  "plugins.no": "否",
+  "plugins.pipelineHistoryAria": "流水线运行历史",
+  "plugins.pipelineHistoryKicker": "持久执行历史",
+  "plugins.pipelineHistoryTitle": "流水线运行历史",
+  "plugins.pipelineRunCount": "最近 {count} 次运行",
+  "plugins.pipelineHistoryLoading": "正在加载流水线历史…",
+  "plugins.pipelineHistoryEmpty": "此项目尚无流水线运行记录。",
+  "plugins.pipelineNoPluginSteps": "此次运行未执行插件拥有的步骤。",
+  "plugins.activationRevision": "激活修订 {revision}",
+  "plugins.activationRevisionLabel": "激活修订",
   "plugins.review": "审查权限",
   "plugins.previewPanel": "预览面板",
   "plugins.panel.loading": "正在加载",
@@ -4070,6 +4196,13 @@ const zhCn: MessageCatalog = {
   "qa.waived": "已豁免",
   "qa.checked": "已检查 {count}",
   "qa.builtIn": "内置",
+  "qa.pluginHistoryAria": "插件质检运行溯源",
+  "qa.pluginHistoryKicker": "持久规则溯源",
+  "qa.pluginHistoryTitle": "插件质检历史",
+  "qa.runHistoryCount": "最近 {count} 次运行",
+  "qa.pluginHistoryEmpty": "最近的质检运行未执行插件拥有的规则。",
+  "qa.executionCounts": "执行 {executions} 次 · 发现 {findings} 项",
+  "qa.pluginOwner": "插件所有者",
   "assistant.archive": "归档对话",
   "assistant.archiveNamed": "归档 {title}",
   "assistant.requestedModel": "请求的模型",

@@ -273,8 +273,8 @@ impl DeclarativePipelineDefinitionV1 {
 
     pub fn validate_for_descriptor(
         &self,
-        input: &Value,
-        output: &Value,
+        input: &ArtifactKind,
+        output: &ArtifactKind,
         config_schema_version: u32,
     ) -> Result<()> {
         self.validate()?;
@@ -283,9 +283,7 @@ impl DeclarativePipelineDefinitionV1 {
                 "declarative pipeline configSchemaVersion must be 1",
             ));
         }
-        let typed_input = serde_json::to_value(self.input)?;
-        let typed_output = serde_json::to_value(self.output)?;
-        if input != &typed_input || output != &typed_output {
+        if input != &self.input || output != &self.output {
             return Err(invalid(
                 "declarative pipeline descriptor artifact kinds do not match its definition",
             ));

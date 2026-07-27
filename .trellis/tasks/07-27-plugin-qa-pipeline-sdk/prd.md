@@ -196,40 +196,40 @@ behavior without importing private Engine code.
 
 ## Acceptance Criteria
 
-- [ ] AC-01: Rust and SDK contract tests round-trip every QA/step descriptor,
+- [x] AC-01: Rust and SDK contract tests round-trip every QA/step descriptor,
       invocation, result, error, config, checkpoint, and compatibility version;
       unknown/oversized/malformed forms fail closed with matching semantics.
-- [ ] AC-02: Registry/lifecycle tests attach mixed QA and pipeline
+- [x] AC-02: Registry/lifecycle tests attach mixed QA and pipeline
       contributions across Tier 1/2/3, survive restart, and detach on disable,
       uninstall, revoke, failure, or stale activation without affecting another
       owner or leaving a partial registry.
-- [ ] AC-03: QA tests prove exact scope enforcement, deterministic bounded
+- [x] AC-03: QA tests prove exact scope enforcement, deterministic bounded
       findings/spans/fingerprints, live and document/project reconciliation,
       run snapshot provenance, waiver/reopen, report, and export-gate behavior;
       a failed plugin rule commits no partial issue/run snapshot.
-- [ ] AC-04: Pipeline tests prove descriptor/config/artifact validation,
+- [x] AC-04: Pipeline tests prove descriptor/config/artifact validation,
       Tier 1/2/3 execution, checkpoint persistence/resume, cancellation race
       handling, timeout/crash/protocol isolation, bounded usage/provenance, and
       that subsequent Engine/pipeline operations remain healthy.
-- [ ] AC-05: Upgrade and rollback tests prove preflight, generation pinning,
+- [x] AC-05: Upgrade and rollback tests prove preflight, generation pinning,
       compatible grant carry, fresh consent for scope expansion, checkpoint
       compatibility/migration, candidate attach compensation, and previous
       version restoration after injected failures.
-- [ ] AC-06: Capability audit and durable history contain plugin/version/
+- [x] AC-06: Capability audit and durable history contain plugin/version/
       contribution/operation identities and hashes/limits only; tests prove no
       source/target text, config secrets, stderr, or raw plugin payload leaks.
-- [ ] AC-07: The official QA and resumable pipeline examples build and execute
+- [x] AC-07: The official QA and resumable pipeline examples build and execute
       using only `@translunar/plugin-sdk`; smoke covers install, consent,
       enable, QA/pipeline execution, cancel/resume, restart, disable, upgrade,
       rollback, and uninstall while Tier 1 remains compatible.
-- [ ] AC-08: Generated contracts and desktop unit/E2E tests show contribution
+- [x] AC-08: Generated contracts and desktop unit/E2E tests show contribution
       inventory, grants, version/tier/state/failure, plugin-owned QA findings,
       pipeline step/run provenance, and revoke/degraded transitions through the
       real Engine with no renderer domain logic or console/page errors.
-- [ ] AC-09: Visual evidence at 1250x744, 1680x942, and 1920x1080 shows the
+- [x] AC-09: Visual evidence at 1250x744, 1680x942, and 1920x1080 shows the
       Plugins, QA, and pipeline history surfaces without overlap, clipping, or
       horizontal overflow and with keyboard/ARIA-operable controls.
-- [ ] AC-10: Format, lint, typecheck, generated-contract drift, SDK/example
+- [x] AC-10: Format, lint, typecheck, generated-contract drift, SDK/example
       tests, Rust fmt/strict Clippy/workspace tests, Engine smoke, desktop build,
       and focused/full Electron E2E pass; exact commands/results are retained
       under task evidence before archive.

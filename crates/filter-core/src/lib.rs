@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -294,51 +294,79 @@ pub fn publish_bytes_noclobber(output: &Path, bytes: &[u8]) -> Result<(), Filter
     Ok(())
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct FilterRegistry {
-    filters: BTreeMap<String, Arc<dyn DocumentFilter>>,
+    filters: Arc<RwLock<BTreeMap<String, Arc<dyn DocumentFilter>>>>,
 }
 
 impl FilterRegistry {
-    pub fn register(&mut self, filter: Arc<dyn DocumentFilter>) -> Result<(), FilterError> {
+    pub fn register(&self, filter: Arc<dyn DocumentFilter>) -> Result<(), FilterError> {
         let descriptor = filter.descriptor();
         if descriptor.id.trim().is_empty() {
             return Err(FilterError::Registry(
                 "filter id must not be empty".to_string(),
             ));
         }
-        if self.filters.contains_key(&descriptor.id) {
+        let mut filters = self
+            .filters
+            .write()
+            .map_err(|_| FilterError::Registry("filter registry is unavailable".to_string()))?;
+        if filters.contains_key(&descriptor.id) {
             return Err(FilterError::Registry(format!(
                 "filter id already registered: {}",
                 descriptor.id
             )));
         }
-        self.filters.insert(descriptor.id, filter);
+        filters.insert(descriptor.id, filter);
         Ok(())
     }
 
     pub fn resolve(&self, id: &str) -> Result<Arc<dyn DocumentFilter>, FilterError> {
         self.filters
+            .read()
+            .map_err(|_| FilterError::Registry("filter registry is unavailable".to_string()))?
             .get(id)
             .cloned()
             .ok_or_else(|| FilterError::NotFound(id.to_string()))
     }
 
-    pub fn unregister(&mut self, id: &str) -> Result<Arc<dyn DocumentFilter>, FilterError> {
+    pub fn unregister(&self, id: &str) -> Result<Arc<dyn DocumentFilter>, FilterError> {
         self.filters
+            .write()
+            .map_err(|_| FilterError::Registry("filter registry is unavailable".to_string()))?
             .remove(id)
             .ok_or_else(|| FilterError::NotFound(id.to_string()))
     }
 
+    pub fn unregister_if_same(
+        &self,
+        id: &str,
+        expected: &Arc<dyn DocumentFilter>,
+    ) -> Result<bool, FilterError> {
+        let mut filters = self
+            .filters
+            .write()
+            .map_err(|_| FilterError::Registry("filter registry is unavailable".to_string()))?;
+        let matches = filters
+            .get(id)
+            .is_some_and(|current| Arc::ptr_eq(current, expected));
+        if matches {
+            filters.remove(id);
+        }
+        Ok(matches)
+    }
+
     pub fn contains(&self, id: &str) -> bool {
-        self.filters.contains_key(id)
+        self.filters
+            .read()
+            .is_ok_and(|filters| filters.contains_key(id))
     }
 
     pub fn descriptors(&self) -> Vec<FilterDescriptor> {
         self.filters
-            .values()
-            .map(|filter| filter.descriptor())
-            .collect()
+            .read()
+            .map(|filters| filters.values().map(|filter| filter.descriptor()).collect())
+            .unwrap_or_default()
     }
 
     pub fn select(
@@ -351,7 +379,11 @@ impl FilterRegistry {
         }
 
         let mut best: Option<(u8, String, Arc<dyn DocumentFilter>)> = None;
-        for (id, filter) in &self.filters {
+        let filters = self
+            .filters
+            .read()
+            .map_err(|_| FilterError::Registry("filter registry is unavailable".to_string()))?;
+        for (id, filter) in filters.iter() {
             let probe = filter.probe(source)?;
             if probe.confidence == 0 {
                 continue;
@@ -700,7 +732,7 @@ mod tests {
 
     #[test]
     fn registry_selects_highest_score_and_rejects_duplicates() {
-        let mut registry = FilterRegistry::default();
+        let registry = FilterRegistry::default();
         registry
             .register(Arc::new(ProbeOnly { id: "a", score: 50 }))
             .expect("register a");
@@ -713,5 +745,35 @@ mod tests {
         assert_eq!(selected.descriptor().id, "b");
         let duplicate = registry.register(Arc::new(ProbeOnly { id: "b", score: 1 }));
         assert!(matches!(duplicate, Err(FilterError::Registry(_))));
+    }
+
+    #[test]
+    fn conditional_unregister_preserves_a_replacement_with_the_same_id() {
+        let registry = FilterRegistry::default();
+        let old: Arc<dyn DocumentFilter> = Arc::new(ProbeOnly { id: "a", score: 1 });
+        registry.register(Arc::clone(&old)).expect("register old");
+        registry
+            .unregister("a")
+            .expect("remove old for replacement");
+
+        let replacement: Arc<dyn DocumentFilter> = Arc::new(ProbeOnly { id: "a", score: 2 });
+        registry
+            .register(Arc::clone(&replacement))
+            .expect("register replacement");
+
+        assert!(
+            !registry
+                .unregister_if_same("a", &old)
+                .expect("ignore stale filter")
+        );
+        assert!(Arc::ptr_eq(
+            &registry.resolve("a").expect("replacement remains"),
+            &replacement
+        ));
+        assert!(
+            registry
+                .unregister_if_same("a", &replacement)
+                .expect("remove current filter")
+        );
     }
 }

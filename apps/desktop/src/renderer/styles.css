@@ -6353,6 +6353,91 @@ button.tag-capsule {
   padding: 6px 8px;
   color: var(--ink);
 }
+.qa-plugin-history {
+  margin-bottom: 14px;
+  border-block: 1px solid var(--line);
+  background: var(--surface);
+}
+.qa-plugin-history > header,
+.qa-plugin-runs > article > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.qa-plugin-history > header {
+  padding: 10px 13px;
+  border-bottom: 1px solid var(--line);
+}
+.qa-plugin-history > header h2 {
+  margin: 2px 0 0;
+  font-size: 13px;
+}
+.qa-plugin-history > header > span,
+.qa-plugin-runs > article > header > span {
+  color: var(--ink-muted);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+.qa-plugin-history > p {
+  margin: 0;
+  padding: 12px 13px;
+  color: var(--ink-muted);
+  font-size: 10px;
+}
+.qa-plugin-runs > article {
+  padding: 9px 13px;
+  border-top: 1px solid var(--line);
+}
+.qa-plugin-runs > article:first-child {
+  border-top: 0;
+}
+.qa-plugin-runs > article > header > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.qa-plugin-runs > article > header code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qa-plugin-runs > article > header time {
+  color: var(--ink-muted);
+  font-size: 9px;
+  white-space: nowrap;
+}
+.qa-plugin-rule-list {
+  display: grid;
+  gap: 0;
+  margin-top: 7px;
+}
+.qa-plugin-rule-list > div {
+  display: grid;
+  grid-template-columns:
+    minmax(9rem, 1.2fr) minmax(8rem, 1fr) minmax(10rem, 1.2fr)
+    minmax(13rem, 1.7fr) minmax(9rem, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+  font-size: 9px;
+}
+.qa-plugin-rule-list > div > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.qa-plugin-rule-list > div > span {
+  color: var(--ink-muted);
+}
+.qa-plugin-rule-list > div > p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
 .qa-layout {
   display: grid;
   grid-template-columns: 165px minmax(340px, 1fr) minmax(260px, 31%);
@@ -6501,6 +6586,13 @@ button.tag-capsule {
   justify-content: space-between;
   gap: 8px;
 }
+.qa-detail > header code {
+  min-width: 0;
+  max-width: 72%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .qa-detail-severity {
   display: inline-flex;
   align-items: center;
@@ -6526,6 +6618,27 @@ button.tag-capsule {
   width: 100%;
   justify-content: center;
   margin-top: 10px;
+}
+.qa-finding-provenance {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 10px 0;
+  border-block: 1px solid var(--line);
+}
+.qa-finding-provenance > div {
+  min-width: 0;
+}
+.qa-finding-provenance dt {
+  color: var(--ink-muted);
+  font-size: 8px;
+  text-transform: uppercase;
+}
+.qa-finding-provenance dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 9px;
 }
 .qa-evidence-detail {
   display: flex;
@@ -6961,6 +7074,9 @@ button.tag-capsule {
   .qa-layout {
     grid-template-columns: 145px minmax(320px, 1fr) minmax(235px, 29%);
   }
+  .qa-plugin-rule-list > div {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .review-stats dl {
     grid-template-columns: repeat(3, 1fr);
     gap: 10px 0;
@@ -6981,6 +7097,15 @@ button.tag-capsule {
     grid-column: 1 / -1;
     max-height: none;
     border-top: 1px solid var(--line);
+  }
+  .qa-plugin-history > header,
+  .qa-plugin-runs > article > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .qa-plugin-rule-list > div,
+  .qa-finding-provenance {
+    grid-template-columns: 1fr;
   }
   .review-band,
   .export-review-grid {

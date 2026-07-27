@@ -3,7 +3,7 @@
   "name": "plugin-qa-pipeline-sdk",
   "title": "Plugin QA and pipeline SDK",
   "description": "Add public versioned QA rule and pipeline step contracts for all plugin tiers, lifecycle registries, provenance, SDK examples, and full qualification.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

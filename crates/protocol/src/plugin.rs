@@ -3,13 +3,13 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use translunar_filter_core::FilterCapabilities;
 use translunar_filter_core::FilterDescriptor;
 pub use translunar_plugin_runtime::{
     DeclarativeEngineConnectorDefinitionV1, DeclarativeFilterDefinitionV1,
-    DeclarativePipelineDefinitionV1, DeclarativeQaPackDefinitionV1, EngineConnectorConfigSchemaV1,
-    EngineConnectorLimitsV1, PluginCapabilityAuditEvent, PluginCapabilityDecision,
-    PluginCapabilityId, PluginCapabilityRequest, PluginCapabilityScope, PluginFileArea,
+    DeclarativePipelineDefinitionV1, DeclarativeQaPackDefinitionV1, EngineConnectorLimitsV1,
+    FilterContributionDescriptor, PluginCapabilityAuditEvent, PluginCapabilityDecision,
+    PluginCapabilityId, PluginCapabilityRequest, PluginCapabilityScope,
+    PluginContributionDescriptor, PluginFileArea,
 };
 
 use crate::{default_actor, default_page_size};
@@ -96,99 +96,6 @@ pub enum PluginRuntimeDescriptor {
         runtime_version: u32,
         protocol_version: u32,
         entry: PluginProcessEntry,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(
-    tag = "kind",
-    rename_all = "camelCase",
-    rename_all_fields = "camelCase",
-    deny_unknown_fields
-)]
-pub enum PluginContributionDescriptor {
-    Filter {
-        descriptor_version: u32,
-        id: String,
-        version: String,
-        display_name: String,
-        extensions: Vec<String>,
-        capabilities: FilterCapabilities,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        declarative: Option<DeclarativeFilterDefinitionV1>,
-    },
-    EngineConnector {
-        descriptor_version: u32,
-        id: String,
-        version: String,
-        display_name: String,
-        protocol: String,
-        operations: Vec<String>,
-        config_schema_version: u32,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        contract_version: Option<u32>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        config_schema: Option<EngineConnectorConfigSchemaV1>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        limits: Option<EngineConnectorLimitsV1>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        declarative: Option<Box<DeclarativeEngineConnectorDefinitionV1>>,
-    },
-    QaRule {
-        descriptor_version: u32,
-        id: String,
-        version: String,
-        display_name: String,
-        rule_type: String,
-        severity: String,
-        definition: Value,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        declarative: Option<DeclarativeQaPackDefinitionV1>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        config: Option<Value>,
-    },
-    PipelineStep {
-        descriptor_version: u32,
-        id: String,
-        version: String,
-        display_name: String,
-        input: Value,
-        output: Value,
-        config_schema_version: u32,
-        resumable: bool,
-        cancellable: bool,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        declarative: Option<DeclarativePipelineDefinitionV1>,
-    },
-    AiAction {
-        descriptor_version: u32,
-        id: String,
-        version: String,
-        display_name: String,
-        label: String,
-        placement: String,
-        input: Value,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        prompt_template: Option<String>,
-    },
-    UiPanel {
-        descriptor_version: u32,
-        id: String,
-        version: String,
-        display_name: String,
-        label: String,
-        placement: String,
-        surface: String,
-        bridge_version: u32,
-    },
-    ExternalConnector {
-        descriptor_version: u32,
-        id: String,
-        version: String,
-        display_name: String,
-        transports: Vec<String>,
-        checkpoint_version: u32,
-        capabilities: Value,
     },
 }
 
@@ -608,6 +515,7 @@ pub struct PluginCapabilityAuditPage {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+    use translunar_filter_core::FilterCapabilities;
 
     use super::*;
 
@@ -644,7 +552,7 @@ mod tests {
             })
         );
 
-        let contribution = PluginContributionDescriptor::Filter {
+        let contribution = PluginContributionDescriptor::Filter(FilterContributionDescriptor {
             descriptor_version: 1,
             id: "example.filter".to_string(),
             version: "1.0.0".to_string(),
@@ -652,7 +560,7 @@ mod tests {
             extensions: vec!["srt".to_string()],
             capabilities: capabilities(),
             declarative: None,
-        };
+        });
         let serialized = serde_json::to_value(contribution).expect("serialize contribution");
         assert_eq!(serialized["kind"], "filter");
         assert_eq!(serialized["descriptorVersion"], 1);

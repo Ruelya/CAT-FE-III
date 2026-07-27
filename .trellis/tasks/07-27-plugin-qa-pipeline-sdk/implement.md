@@ -13,82 +13,82 @@
 
 ## 1. Contract And SDK Foundation
 
-- [ ] Replace provisional QA/step `Value` fields with closed versioned Rust
+- [x] Replace provisional QA/step `Value` fields with closed versioned Rust
       descriptors, invocation/result/error/config/checkpoint/usage types while
       preserving valid Tier 1 manifest-v2 JSON.
-- [ ] Add compatibility/version negotiation and shared payload-budget
+- [x] Add compatibility/version negotiation and shared payload-budget
       validation to plugin-runtime; add Rust golden/negative/fuzz-style tests.
-- [ ] Mirror types, builders, validators, sandbox factories, and process
+- [x] Mirror types, builders, validators, sandbox factories, and process
       handlers in `@translunar/plugin-sdk`; share golden fixtures and prove no
       private Engine imports.
-- [ ] Extend Tier 2 operations and Tier 3 handshake/dispatch/cancel codecs for
+- [x] Extend Tier 2 operations and Tier 3 handshake/dispatch/cancel codecs for
       QA evaluate and pipeline execute/resume with sanitized typed failures.
 
 ## 2. Engine Registries And Lifecycle
 
-- [ ] Add owner/generation-aware QA registry and plugin pipeline owner/adapters;
+- [x] Add owner/generation-aware QA registry and plugin pipeline owner/adapters;
       keep built-in registrations reserved and deterministic.
-- [ ] Generalize prepared activation across declarative/sandbox/process QA and
+- [x] Generalize prepared activation across declarative/sandbox/process QA and
       pipeline contributions with exact registration grants, collision
       preflight, all-or-nothing attach, reverse detach, and host cleanup.
-- [ ] Route enable/restart/disable/uninstall/revoke/deny/stale activation and
+- [x] Route enable/restart/disable/uninstall/revoke/deny/stale activation and
       host-invalidating failure through generation-safe attach/detach.
-- [ ] Integrate candidate upgrade/rollback preparation, grant carry/fresh
+- [x] Integrate candidate upgrade/rollback preparation, grant carry/fresh
       consent, version pinning, injected attach failure compensation, and
       degraded fallback without disturbing other owners.
 
 ## 3. QA Execution And Persistence
 
-- [ ] Replace private appended-regex flow with a snapshot of tier-neutral QA
+- [x] Replace private appended-regex flow with a snapshot of tier-neutral QA
       executors while retaining Tier 1 behavior and current profile selection.
-- [ ] Build bounded segment inputs; enforce exact per-call grants, deadlines,
+- [x] Build bounded segment inputs; enforce exact per-call grants, deadlines,
       cancellation, deterministic ordering, candidate/span/evidence validation,
       activation lease recheck, and fail-atomic reconciliation.
-- [ ] Persist plugin rule-set provenance/status/usage/failure with QA runs/items;
+- [x] Persist plugin rule-set provenance/status/usage/failure with QA runs/items;
       incorporate it into snapshot hashes, reports, waivers/reopen, live QA,
       project/document runs, and export gates.
-- [ ] Add QA-core/storage/Engine tests for deterministic fixtures, Unicode,
+- [x] Add QA-core/storage/Engine tests for deterministic fixtures, Unicode,
       invalid/oversized findings, revoke/cancel/timeout/crash, no partial commit,
       restart, and historical provenance after detach/upgrade/uninstall.
 
 ## 4. Pipeline Execution And Persistence
 
-- [ ] Add public config-schema validation at definition creation/execution and
+- [x] Add public config-schema validation at definition creation/execution and
       adapters for Tier 1 transforms, sandbox steps, and process steps using
       existing artifact compatibility.
-- [ ] Bridge Engine cancellation/deadlines to each host; validate and
+- [x] Bridge Engine cancellation/deadlines to each host; validate and
       canonicalize output/checkpoint/usage; preserve cancellation race wins and
       isolate timeout/crash/protocol/resource failures.
-- [ ] Persist plugin/version/contribution/activation and descriptor/config/
+- [x] Persist plugin/version/contribution/activation and descriptor/config/
       checkpoint schema versions plus hashes, usage and bounded failure on step
       runs, with backward-compatible built-in rows.
-- [ ] Implement immutable-version resume and explicit checkpoint compatibility/
+- [x] Implement immutable-version resume and explicit checkpoint compatibility/
       migration; test restart, missing/incompatible handlers, late results,
       upgrade pinning, cancel grace/kill, and subsequent Engine health.
 
 ## 5. Protocol, Desktop, Examples, And Documentation
 
-- [ ] Add additive Engine inventory/history projections and capabilities,
+- [x] Add additive Engine inventory/history projections and capabilities,
       regenerate protocol schema/TypeScript, and extend stdio smoke.
-- [ ] Extend Plugins inventory, QA run/finding details, and pipeline step/run
+- [x] Extend Plugins inventory, QA run/finding details, and pipeline step/run
       history to show authoritative owner/tier/version/state/grant/provenance/
       bounded failure through generated contracts only.
-- [ ] Ship public-SDK deterministic QA and resumable pipeline examples plus a
+- [x] Ship public-SDK deterministic QA and resumable pipeline examples plus a
       Tier 2 executable fixture; include fixtures, package validation, docs,
       security/limit/cancel/upgrade guidance, and normal lifecycle commands.
-- [ ] Add desktop unit and real-Engine E2E for install/consent/enable/run,
+- [x] Add desktop unit and real-Engine E2E for install/consent/enable/run,
       cancel/resume/restart, revoke/degraded, upgrade/rollback/disable/uninstall;
       capture and inspect 1250x744, 1680x942, and 1920x1080.
 
 ## 6. Full Qualification And Finish
 
-- [ ] Map AC-01..AC-10 to focused tests, smoke, E2E, screenshots, and exact
+- [x] Map AC-01..AC-10 to focused tests, smoke, E2E, screenshots, and exact
       command output in task evidence; verify logs/history contain no payloads,
       credentials, stderr, or document text.
-- [ ] Run scoped gates after each layer, then the complete commands below.
-- [ ] Run independent Codex check against PRD/specs, fix verified findings, and
+- [x] Run scoped gates after each layer, then the complete commands below.
+- [x] Run independent Codex check against PRD/specs, fix verified findings, and
       repeat affected gates until green.
-- [ ] Update source-backed specs for the verified public QA/pipeline patterns,
+- [x] Update source-backed specs for the verified public QA/pipeline patterns,
       commit only owned changes, finish, and archive this child before advancing
       the parent.
 
@@ -142,5 +142,5 @@ QA/pipeline Electron spec before the full suites.
 - [x] Product choices resolved conservatively; no blocking open question.
 - [x] `prd.md`, `design.md`, `implement.md`, and real implement/check JSONL
       contexts prepared.
-- [ ] Main session presents the final planning summary and obtains fresh user
+- [x] Main session presents the final planning summary and obtains fresh user
       approval before `task.py start` or implementation.

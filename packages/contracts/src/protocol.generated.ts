@@ -173,6 +173,28 @@ export type BilingualTableFormat = "docx" | "xlsx";
 export type TableInteropDisposition = "valid" | "duplicate" | "invalid";
 export type PipelineRunStatus =
   "queued" | "running" | "canceling" | "canceled" | "interrupted" | "succeeded" | "failed";
+export type PipelineStepPluginOperation = "execute" | "resume" | "checkpointMigrate";
+export type PipelineStepOwner =
+  | {
+      kind: "builtin";
+      [k: string]: unknown;
+    }
+  | {
+      activationRevision: number;
+      checkpointSchemaVersion?: number | null;
+      configSchemaVersion: number;
+      contributionId: string;
+      contributionVersion: string;
+      descriptorHash: string;
+      descriptorVersion: number;
+      kind: "plugin";
+      operationProtocolVersion: number;
+      pluginId: string;
+      tier: PluginPipelineTier;
+      versionId: string;
+      [k: string]: unknown;
+    };
+export type PluginPipelineTier = "declarative" | "sandbox" | "process";
 export type PipelineStepStatus =
   "pending" | "running" | "canceled" | "interrupted" | "succeeded" | "failed" | "skipped";
 export type ArtifactKind = "none" | "project" | "document" | "segments" | "qaFindings" | "json";
@@ -190,6 +212,10 @@ export type PluginContributionDescriptor =
   | {
       configSchema?: EngineConnectorConfigSchemaV1 | null;
       configSchemaVersion: number;
+      /**
+       * Absent only on the released inventory-only descriptor. Such a
+       * descriptor remains readable but is never executable.
+       */
       contractVersion?: number | null;
       declarative?: DeclarativeEngineConnectorDefinitionV1 | null;
       descriptorVersion: number;
@@ -202,27 +228,37 @@ export type PluginContributionDescriptor =
       version: string;
     }
   | {
+      categories?: QaCategory[];
       config?: unknown;
+      configSchema?: PublicConfigSchemaV1 | null;
+      configSchemaVersion?: number | null;
       declarative?: DeclarativeQaPackDefinitionV1 | null;
-      definition: unknown;
+      definition: QaRuleDefinitionV1;
       descriptorVersion: number;
       displayName: string;
       id: string;
       kind: "qaRule";
+      limits?: QaRuleLimitsV1 | null;
+      operationProtocolVersion?: number | null;
+      ruleKind?: QaRuleKindV1 | null;
       ruleType: string;
       severity: string;
       version: string;
     }
   | {
       cancellable: boolean;
+      checkpointSchemaVersion?: number | null;
+      configSchema?: PublicConfigSchemaV1 | null;
       configSchemaVersion: number;
       declarative?: DeclarativePipelineDefinitionV1 | null;
       descriptorVersion: number;
       displayName: string;
       id: string;
-      input: unknown;
+      input: ArtifactKind;
       kind: "pipelineStep";
-      output: unknown;
+      limits?: PipelineStepLimitsV1 | null;
+      operationProtocolVersion?: number | null;
+      output: ArtifactKind;
       resumable: boolean;
       version: string;
     }
@@ -234,7 +270,7 @@ export type PluginContributionDescriptor =
       kind: "aiAction";
       label: string;
       placement: string;
-      promptTemplate?: string | null;
+      promptTemplate: string;
       version: string;
     }
   | {
@@ -249,7 +285,9 @@ export type PluginContributionDescriptor =
       version: string;
     }
   | {
-      capabilities: unknown;
+      capabilities: {
+        [k: string]: boolean;
+      };
       checkpointVersion: number;
       descriptorVersion: number;
       displayName: string;
@@ -296,7 +334,20 @@ export type DeclarativeConnectorResponseMappingV1 =
       maxLineBytes: number;
       usage?: DeclarativeConnectorUsageMappingV1 | null;
     };
+export type QaCategory =
+  | "completeness"
+  | "numbers"
+  | "tags"
+  | "punctuation"
+  | "whitespace"
+  | "repetition"
+  | "length"
+  | "terminology"
+  | "consistency"
+  | "custom";
+export type PublicConfigFieldTypeV1 = "text" | "boolean" | "integer" | "number" | "select" | "json";
 export type QaField = "source" | "target" | "both";
+export type QaRuleKindV1 = "mechanical";
 export type DeclarativePipelineOperation =
   | {
       operation: "select";
@@ -400,19 +451,9 @@ export type PluginLifecycleAction = "upgraded" | "rolledBack";
 export type PluginVersionState = "validated" | "failed";
 export type ProjectLifecycle = "active" | "archived" | "trash";
 export type ProjectSnapshotPreviewStatus = "open" | "applied";
+export type QaRuleExecutionStatus = "succeeded" | "failed" | "canceled";
 export type QaRunScope = "document" | "project";
 export type QaRunStatus = "running" | "succeeded" | "failed";
-export type QaCategory =
-  | "completeness"
-  | "numbers"
-  | "tags"
-  | "punctuation"
-  | "whitespace"
-  | "repetition"
-  | "length"
-  | "terminology"
-  | "consistency"
-  | "custom";
 export type QaIssueDisposition = "open" | "waived" | "resolved";
 export type QaOverrideStatus = "pending" | "succeeded" | "failed";
 export type QaReportFormat = "html" | "xlsx";
@@ -3579,9 +3620,12 @@ export interface PipelineStepRun {
   input?: {
     [k: string]: unknown;
   };
+  latestCheckpoint?: PipelineStepCheckpointMetadata | null;
+  latestPluginAttempt?: PipelineStepPluginAttempt | null;
   output?: {
     [k: string]: unknown;
   };
+  pluginBinding?: PipelineStepPluginBinding | null;
   revision: number;
   runId: string;
   startedAtMs?: number | null;
@@ -3594,6 +3638,33 @@ export interface PipelineStepRun {
     [k: string]: unknown;
   };
   [k: string]: unknown;
+}
+export interface PipelineStepCheckpointMetadata {
+  checkpointHash: string;
+  createdAtMs: number;
+  schemaVersion: number;
+  sequence: number;
+}
+export interface PipelineStepPluginAttempt {
+  attemptIndex: number;
+  checkpointInputHash?: string | null;
+  checkpointOutputHash?: string | null;
+  checkpointSchemaVersion?: number | null;
+  completedAtMs: number;
+  failure?: PipelineFailure | null;
+  id: string;
+  inputHash: string;
+  operation: PipelineStepPluginOperation;
+  outputHash?: string | null;
+  startedAtMs: number;
+  usage?: {
+    [k: string]: unknown;
+  };
+}
+export interface PipelineStepPluginBinding {
+  configHash: string;
+  createdAtMs: number;
+  owner: PipelineStepOwner;
 }
 export interface MethodContract178 {
   params: PipelineRunRevisionParams;
@@ -3778,6 +3849,24 @@ export interface EngineConnectorLimitsV1 {
   maxOutputBytes: number;
   maxSourceTextBytes: number;
 }
+export interface PublicConfigSchemaV1 {
+  fields: PublicConfigFieldV1[];
+  schemaVersion: number;
+}
+export interface PublicConfigFieldV1 {
+  defaultValue?: unknown;
+  fieldType: PublicConfigFieldTypeV1;
+  key: string;
+  label: string;
+  max?: number | null;
+  min?: number | null;
+  options?: PublicConfigOptionV1[];
+  required: boolean;
+}
+export interface PublicConfigOptionV1 {
+  label: string;
+  value: string;
+}
 export interface DeclarativeQaPackDefinitionV1 {
   definitionVersion: number;
   rules: QaRegexRule[];
@@ -3791,6 +3880,14 @@ export interface QaRegexRule {
   replacementHint?: string | null;
   severity: QaSeverity;
 }
+export interface QaRuleDefinitionV1 {}
+export interface QaRuleLimitsV1 {
+  maxDeadlineMs: number;
+  maxEvidenceItems: number;
+  maxFindings: number;
+  maxMessageBytes: number;
+  maxRelatedSegmentIds: number;
+}
 export interface DeclarativePipelineDefinitionV1 {
   definitionVersion: number;
   input: ArtifactKind;
@@ -3798,6 +3895,13 @@ export interface DeclarativePipelineDefinitionV1 {
   maxOutputBytes: number;
   operations: DeclarativePipelineOperation[];
   output: ArtifactKind;
+}
+export interface PipelineStepLimitsV1 {
+  maxCheckpointBytes: number;
+  maxConfigBytes: number;
+  maxDeadlineMs: number;
+  maxInputBytes: number;
+  maxOutputBytes: number;
 }
 export interface PluginDiagnostic {
   code: string;
@@ -4614,6 +4718,7 @@ export interface QaRun {
   errors: number;
   id: string;
   info: number;
+  pluginRules?: QaRunPluginRuleSnapshot[];
   profileId: string;
   profileName: string;
   profileRevision: number;
@@ -4624,6 +4729,41 @@ export interface QaRun {
   waived: number;
   warnings: number;
   [k: string]: unknown;
+}
+export interface QaRunPluginRuleSnapshot {
+  contributionIndex: number;
+  executionCount: number;
+  failure?: QaRuleExecutionFailure | null;
+  findingCount: number;
+  inputHash: string;
+  outputHash?: string | null;
+  provenance: QaRuleProvenanceSnapshot;
+  status: QaRuleExecutionStatus;
+  usage: QaRuleExecutionUsage;
+}
+export interface QaRuleExecutionFailure {
+  code: string;
+  message: string;
+  retryable: boolean;
+}
+export interface QaRuleProvenanceSnapshot {
+  activationRevision: number;
+  configHash: string;
+  configSchemaVersion: number;
+  contributionId: string;
+  contributionVersion: string;
+  descriptorHash: string;
+  descriptorVersion: number;
+  operationProtocolVersion: number;
+  pluginId: string;
+  ruleIds: string[];
+  tier: string;
+  versionId: string;
+}
+export interface QaRuleExecutionUsage {
+  inputBytes: number;
+  outputBytes: number;
+  workUnits: number;
 }
 export interface MethodContract132 {
   params: QaIssueListParams;

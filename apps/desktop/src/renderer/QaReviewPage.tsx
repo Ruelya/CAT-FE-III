@@ -9,6 +9,7 @@ import type {
   QaRegexRule,
   QaReportFormat,
   QaRun,
+  QaRunPluginRuleSnapshot,
   QaSeverity,
   ReviewQueueItem,
   ReviewStatistics,
@@ -31,6 +32,7 @@ import {
 import type { WorkspacePageProps } from "./WorkbenchPages";
 import { fileName, formatError } from "./workbench-utils";
 import { useLocale } from "./i18n/LocaleProvider";
+import { findQaRuleSnapshot } from "./plugin-provenance-utils";
 
 const PAGE_SIZE = 30;
 const CATEGORIES: QaCategory[] = [
@@ -55,14 +57,14 @@ interface Filters {
 }
 
 export function QaReviewPage(props: WorkspacePageProps) {
-  const { t } = useLocale();
+  const { t, formatDate } = useLocale();
 
   const { snapshot, document, onOpenSegment, onRefresh } = props;
   const projectId = snapshot.project.id;
   const [profiles, setProfiles] = useState<QaProfile[]>([]);
   const [profileId, setProfileId] = useState("");
   const [scope, setScope] = useState<"document" | "project">("document");
-  const [run, setRun] = useState<QaRun | null>(null);
+  const [runs, setRuns] = useState<QaRun[]>([]);
   const [issues, setIssues] = useState<QaIssueView[]>([]);
   const [issueTotal, setIssueTotal] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -97,7 +99,7 @@ export function QaReviewPage(props: WorkspacePageProps) {
         projectId,
         documentId: document.id,
         offset: 0,
-        limit: 1,
+        limit: 20,
       }),
       window.translunar.invoke("review.stats", {
         projectId,
@@ -119,7 +121,7 @@ export function QaReviewPage(props: WorkspacePageProps) {
         profilePage.items[0]?.id ||
         "",
     );
-    setRun(runPage.items[0] ?? null);
+    setRuns(runPage.items);
     setStats(reviewStats);
     setQueue(reviewQueue.items);
   }, [document.id, projectId, snapshot.project.configuration.qaProfileId]);
@@ -167,6 +169,11 @@ export function QaReviewPage(props: WorkspacePageProps) {
     () => issues.find((item) => item.id === selectedId) ?? null,
     [issues, selectedId],
   );
+  const run = runs[0] ?? null;
+  const selectedPluginRule = useMemo(
+    () => findQaRuleSnapshot(runs, selected),
+    [runs, selected],
+  );
 
   async function runQa() {
     setBusy(true);
@@ -178,7 +185,6 @@ export function QaReviewPage(props: WorkspacePageProps) {
         ...(scope === "document" ? { documentId: document.id } : {}),
         ...(profileId ? { profileId } : {}),
       });
-      setRun(next);
       await reload();
       setNotice(t("qa.checkedSegments", { count: next.checkedSegments }));
     } catch (reasonValue) {
@@ -408,6 +414,56 @@ export function QaReviewPage(props: WorkspacePageProps) {
         </div>
       </section>
 
+      <section
+        className="qa-plugin-history"
+        aria-label={t("qa.pluginHistoryAria")}
+      >
+        <header>
+          <div>
+            <span className="surface-kicker">
+              {t("qa.pluginHistoryKicker")}
+            </span>
+            <h2>{t("qa.pluginHistoryTitle")}</h2>
+          </div>
+          <span>{t("qa.runHistoryCount", { count: runs.length })}</span>
+        </header>
+        {runs.some((candidate) => candidate.pluginRules?.length) ? (
+          <div className="qa-plugin-runs">
+            {runs
+              .filter((candidate) => candidate.pluginRules?.length)
+              .slice(0, 5)
+              .map((candidate) => (
+                <article key={candidate.id}>
+                  <header>
+                    <div>
+                      <strong>{candidate.profileName}</strong>
+                      <code title={candidate.id}>{candidate.id}</code>
+                    </div>
+                    <span data-status={candidate.status}>
+                      {candidate.status}
+                    </span>
+                    <time
+                      dateTime={new Date(candidate.createdAtMs).toISOString()}
+                    >
+                      {formatDate(candidate.createdAtMs)}
+                    </time>
+                  </header>
+                  <div className="qa-plugin-rule-list">
+                    {(candidate.pluginRules ?? []).map((pluginRule) => (
+                      <QaPluginRuleProvenance
+                        key={`${pluginRule.provenance.contributionId}:${pluginRule.contributionIndex}`}
+                        snapshot={pluginRule}
+                      />
+                    ))}
+                  </div>
+                </article>
+              ))}
+          </div>
+        ) : (
+          <p>{t("qa.pluginHistoryEmpty")}</p>
+        )}
+      </section>
+
       <section className="qa-layout">
         <aside className="qa-filter-rail" aria-label={t("qa.filtersAria")}>
           <header>
@@ -539,7 +595,7 @@ export function QaReviewPage(props: WorkspacePageProps) {
                   <ShieldAlert size={15} />
                   {selected.severity}
                 </span>
-                <code>{selected.ruleId}</code>
+                <code title={selected.ruleId}>{selected.ruleId}</code>
               </header>
               <h2>{selected.message}</h2>
               <p>
@@ -548,6 +604,9 @@ export function QaReviewPage(props: WorkspacePageProps) {
                   ordinal: selected.segmentOrdinal + 1,
                 })}
               </p>
+              {selectedPluginRule ? (
+                <QaPluginFindingProvenance snapshot={selectedPluginRule} />
+              ) : null}
               <Evidence issue={selected} />
               <button
                 type="button"
@@ -738,6 +797,80 @@ function Summary({
     </div>
   );
 }
+
+function QaPluginRuleProvenance({
+  snapshot,
+}: {
+  snapshot: QaRunPluginRuleSnapshot;
+}) {
+  const { t } = useLocale();
+  const provenance = snapshot.provenance;
+  return (
+    <div data-status={snapshot.status}>
+      <strong>{provenance.contributionId}</strong>
+      <span>{provenance.pluginId}</span>
+      <span>
+        {provenance.contributionVersion} · {provenance.tier} · {snapshot.status}
+      </span>
+      <span>
+        {t("plugins.activationRevision", {
+          revision: provenance.activationRevision,
+        })}
+        {" · "}
+        {t("plugins.descriptorVersionShort", {
+          version: provenance.descriptorVersion,
+        })}
+        {" · "}
+        {t("plugins.operationVersionShort", {
+          version: provenance.operationProtocolVersion,
+        })}
+      </span>
+      <span>
+        {t("qa.executionCounts", {
+          executions: snapshot.executionCount,
+          findings: snapshot.findingCount,
+        })}
+      </span>
+      {snapshot.failure ? (
+        <p className="surface-error">
+          {snapshot.failure.code}: {snapshot.failure.message}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function QaPluginFindingProvenance({
+  snapshot,
+}: {
+  snapshot: QaRunPluginRuleSnapshot;
+}) {
+  const { t } = useLocale();
+  const provenance = snapshot.provenance;
+  return (
+    <dl className="qa-finding-provenance">
+      <div>
+        <dt>{t("qa.pluginOwner")}</dt>
+        <dd>{provenance.pluginId}</dd>
+      </div>
+      <div>
+        <dt>{t("plugins.contribution")}</dt>
+        <dd>{provenance.contributionId}</dd>
+      </div>
+      <div>
+        <dt>{t("plugins.contributionVersion")}</dt>
+        <dd>
+          {provenance.contributionVersion} · {provenance.tier}
+        </dd>
+      </div>
+      <div>
+        <dt>{t("plugins.activationRevisionLabel")}</dt>
+        <dd>{provenance.activationRevision}</dd>
+      </div>
+    </dl>
+  );
+}
+
 function FilterSelect({
   label,
   value,

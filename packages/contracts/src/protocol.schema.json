@@ -14019,6 +14019,35 @@
         "failed"
       ]
     },
+    "PipelineStepCheckpointMetadata": {
+      "type": "object",
+      "properties": {
+        "checkpointHash": {
+          "type": "string"
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "schemaVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "sequence": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "sequence",
+        "schemaVersion",
+        "checkpointHash",
+        "createdAtMs"
+      ]
+    },
     "PipelineStepDefinition": {
       "type": "object",
       "properties": {
@@ -14035,6 +14064,232 @@
       "required": [
         "key",
         "stepId"
+      ]
+    },
+    "PipelineStepLimitsV1": {
+      "type": "object",
+      "properties": {
+        "maxCheckpointBytes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "maxConfigBytes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "maxDeadlineMs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "maxInputBytes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "maxOutputBytes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "maxInputBytes",
+        "maxOutputBytes",
+        "maxConfigBytes",
+        "maxCheckpointBytes",
+        "maxDeadlineMs"
+      ]
+    },
+    "PipelineStepOwner": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "builtin"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "activationRevision": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "checkpointSchemaVersion": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0
+            },
+            "configSchemaVersion": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "contributionId": {
+              "type": "string"
+            },
+            "contributionVersion": {
+              "type": "string"
+            },
+            "descriptorHash": {
+              "type": "string"
+            },
+            "descriptorVersion": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "kind": {
+              "type": "string",
+              "const": "plugin"
+            },
+            "operationProtocolVersion": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "pluginId": {
+              "type": "string"
+            },
+            "tier": {
+              "$ref": "#/$defs/PluginPipelineTier"
+            },
+            "versionId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "pluginId",
+            "versionId",
+            "activationRevision",
+            "contributionId",
+            "contributionVersion",
+            "descriptorVersion",
+            "operationProtocolVersion",
+            "configSchemaVersion",
+            "tier",
+            "descriptorHash"
+          ]
+        }
+      ]
+    },
+    "PipelineStepPluginAttempt": {
+      "type": "object",
+      "properties": {
+        "attemptIndex": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "checkpointInputHash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "checkpointOutputHash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "checkpointSchemaVersion": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "completedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PipelineFailure"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "inputHash": {
+          "type": "string"
+        },
+        "operation": {
+          "$ref": "#/$defs/PipelineStepPluginOperation"
+        },
+        "outputHash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "startedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "usage": {
+          "default": null
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "attemptIndex",
+        "operation",
+        "inputHash",
+        "startedAtMs",
+        "completedAtMs"
+      ]
+    },
+    "PipelineStepPluginBinding": {
+      "type": "object",
+      "properties": {
+        "configHash": {
+          "type": "string"
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "owner": {
+          "$ref": "#/$defs/PipelineStepOwner"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "owner",
+        "configHash",
+        "createdAtMs"
+      ]
+    },
+    "PipelineStepPluginOperation": {
+      "type": "string",
+      "enum": [
+        "execute",
+        "resume",
+        "checkpointMigrate"
       ]
     },
     "PipelineStepRun": {
@@ -14068,8 +14323,38 @@
         "input": {
           "default": null
         },
+        "latestCheckpoint": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PipelineStepCheckpointMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "latestPluginAttempt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PipelineStepPluginAttempt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "output": {
           "default": null
+        },
+        "pluginBinding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PipelineStepPluginBinding"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "revision": {
           "type": "integer",
@@ -15012,6 +15297,7 @@
               "minimum": 0
             },
             "contractVersion": {
+              "description": "Absent only on the released inventory-only descriptor. Such a\ndescriptor remains readable but is never executable.",
               "type": [
                 "integer",
                 "null"
@@ -15082,7 +15368,31 @@
         {
           "type": "object",
           "properties": {
+            "categories": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/QaCategory"
+              }
+            },
             "config": true,
+            "configSchema": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicConfigSchemaV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "configSchemaVersion": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0
+            },
             "declarative": {
               "anyOf": [
                 {
@@ -15093,7 +15403,9 @@
                 }
               ]
             },
-            "definition": true,
+            "definition": {
+              "$ref": "#/$defs/QaRuleDefinitionV1"
+            },
             "descriptorVersion": {
               "type": "integer",
               "format": "uint32",
@@ -15108,6 +15420,34 @@
             "kind": {
               "type": "string",
               "const": "qaRule"
+            },
+            "limits": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/QaRuleLimitsV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "operationProtocolVersion": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0
+            },
+            "ruleKind": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/QaRuleKindV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "ruleType": {
               "type": "string"
@@ -15137,6 +15477,24 @@
             "cancellable": {
               "type": "boolean"
             },
+            "checkpointSchemaVersion": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0
+            },
+            "configSchema": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicConfigSchemaV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "configSchemaVersion": {
               "type": "integer",
               "format": "uint32",
@@ -15163,12 +15521,34 @@
             "id": {
               "type": "string"
             },
-            "input": true,
+            "input": {
+              "$ref": "#/$defs/ArtifactKind"
+            },
             "kind": {
               "type": "string",
               "const": "pipelineStep"
             },
-            "output": true,
+            "limits": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PipelineStepLimitsV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "operationProtocolVersion": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0
+            },
+            "output": {
+              "$ref": "#/$defs/ArtifactKind"
+            },
             "resumable": {
               "type": "boolean"
             },
@@ -15216,10 +15596,7 @@
               "type": "string"
             },
             "promptTemplate": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "version": {
               "type": "string"
@@ -15234,7 +15611,8 @@
             "displayName",
             "label",
             "placement",
-            "input"
+            "input",
+            "promptTemplate"
           ]
         },
         {
@@ -15289,7 +15667,12 @@
         {
           "type": "object",
           "properties": {
-            "capabilities": true,
+            "capabilities": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "boolean"
+              }
+            },
             "checkpointVersion": {
               "type": "integer",
               "format": "uint32",
@@ -15596,6 +15979,14 @@
         "total",
         "offset",
         "limit"
+      ]
+    },
+    "PluginPipelineTier": {
+      "type": "string",
+      "enum": [
+        "declarative",
+        "sandbox",
+        "process"
       ]
     },
     "PluginProcessEntry": {
@@ -17235,6 +17626,99 @@
         "expectedRevision"
       ]
     },
+    "PublicConfigFieldTypeV1": {
+      "type": "string",
+      "enum": [
+        "text",
+        "boolean",
+        "integer",
+        "number",
+        "select",
+        "json"
+      ]
+    },
+    "PublicConfigFieldV1": {
+      "type": "object",
+      "properties": {
+        "defaultValue": true,
+        "fieldType": {
+          "$ref": "#/$defs/PublicConfigFieldTypeV1"
+        },
+        "key": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "max": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "min": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PublicConfigOptionV1"
+          }
+        },
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "label",
+        "fieldType",
+        "required"
+      ]
+    },
+    "PublicConfigOptionV1": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "label"
+      ]
+    },
+    "PublicConfigSchemaV1": {
+      "type": "object",
+      "properties": {
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PublicConfigFieldV1"
+          }
+        },
+        "schemaVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "fields"
+      ]
+    },
     "QaCandidateEvidence": {
       "type": "object",
       "properties": {
@@ -18161,6 +18645,175 @@
         "createdAtMs"
       ]
     },
+    "QaRuleDefinitionV1": {
+      "type": "object",
+      "additionalProperties": false
+    },
+    "QaRuleExecutionFailure": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ]
+    },
+    "QaRuleExecutionStatus": {
+      "type": "string",
+      "enum": [
+        "succeeded",
+        "failed",
+        "canceled"
+      ]
+    },
+    "QaRuleExecutionUsage": {
+      "type": "object",
+      "properties": {
+        "inputBytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "outputBytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "workUnits": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "workUnits",
+        "inputBytes",
+        "outputBytes"
+      ]
+    },
+    "QaRuleKindV1": {
+      "type": "string",
+      "enum": [
+        "mechanical"
+      ]
+    },
+    "QaRuleLimitsV1": {
+      "type": "object",
+      "properties": {
+        "maxDeadlineMs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "maxEvidenceItems": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "maxFindings": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "maxMessageBytes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "maxRelatedSegmentIds": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "maxFindings",
+        "maxMessageBytes",
+        "maxEvidenceItems",
+        "maxRelatedSegmentIds",
+        "maxDeadlineMs"
+      ]
+    },
+    "QaRuleProvenanceSnapshot": {
+      "type": "object",
+      "properties": {
+        "activationRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "configHash": {
+          "type": "string"
+        },
+        "configSchemaVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "contributionId": {
+          "type": "string"
+        },
+        "contributionVersion": {
+          "type": "string"
+        },
+        "descriptorHash": {
+          "type": "string"
+        },
+        "descriptorVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "operationProtocolVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "pluginId": {
+          "type": "string"
+        },
+        "ruleIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tier": {
+          "type": "string"
+        },
+        "versionId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "pluginId",
+        "versionId",
+        "contributionId",
+        "contributionVersion",
+        "descriptorVersion",
+        "operationProtocolVersion",
+        "configSchemaVersion",
+        "activationRevision",
+        "tier",
+        "descriptorHash",
+        "configHash",
+        "ruleIds"
+      ]
+    },
     "QaRuleSettings": {
       "type": "object",
       "properties": {
@@ -18239,6 +18892,13 @@
           "type": "integer",
           "format": "uint64",
           "minimum": 0
+        },
+        "pluginRules": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/QaRunPluginRuleSnapshot"
+          }
         },
         "profileId": {
           "type": "string"
@@ -18387,6 +19047,65 @@
       },
       "required": [
         "projectId"
+      ]
+    },
+    "QaRunPluginRuleSnapshot": {
+      "type": "object",
+      "properties": {
+        "contributionIndex": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "executionCount": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QaRuleExecutionFailure"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "findingCount": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "inputHash": {
+          "type": "string"
+        },
+        "outputHash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provenance": {
+          "$ref": "#/$defs/QaRuleProvenanceSnapshot"
+        },
+        "status": {
+          "$ref": "#/$defs/QaRuleExecutionStatus"
+        },
+        "usage": {
+          "$ref": "#/$defs/QaRuleExecutionUsage"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "contributionIndex",
+        "provenance",
+        "status",
+        "executionCount",
+        "findingCount",
+        "inputHash",
+        "usage"
       ]
     },
     "QaRunScope": {

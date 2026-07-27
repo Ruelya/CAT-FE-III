@@ -9,7 +9,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
 use serde::de::DeserializeOwned;
@@ -28,7 +28,7 @@ use translunar_asset_core::{
 };
 use translunar_domain::{
     DataHealthReport, Document, EditorPreferences, EditorWorkflowState, Project, ProjectLifecycle,
-    Segment, SegmentEditorRow, SegmentState, SpellFinding, state_for_target,
+    Segment, SegmentEditorRow, SegmentState, SpellFinding, new_id, state_for_target,
 };
 use translunar_editor_core::{
     SearchOptions, TextMatch, check_user_dictionary, cjk_assistance, normalize_dictionary_word,
@@ -62,7 +62,10 @@ use translunar_lifecycle_core::{
 };
 use translunar_pipeline::{
     ArtifactKind, PipelineDefinition, PipelineError, PipelineFailure, PipelineStep,
-    PipelineStepDefinition, StepDescriptor, StepExecutionContext, StepOutcome, StepRegistry,
+    PipelineStepDefinition, PipelineStepOwner, PipelineStepPluginAttempt,
+    PipelineStepPluginBinding, PipelineStepPluginOperation, PipelineStepRun, ResolvedPipelineStep,
+    StepCheckpointMigrationContext, StepCheckpointMigrationOutcome, StepCheckpointSink,
+    StepDescriptor, StepExecutionContext, StepOutcome, StepRegistry,
 };
 use translunar_protocol as protocol;
 use translunar_protocol::methods;
@@ -1810,10 +1813,229 @@ fn normalize_relative_path(value: Option<&str>, source: &Path) -> Result<String>
 }
 
 #[derive(Clone)]
+struct ActivePluginProcessRegistry {
+    entries: Arc<Mutex<BTreeMap<String, ActivePluginProcessGeneration>>>,
+}
+
+struct ActivePluginProcessGeneration {
+    version_id: String,
+    activation_revision: u64,
+    filters: Vec<(String, Arc<dyn translunar_filter_core::DocumentFilter>)>,
+    connector_leases: Vec<translunar_ai_core::EngineConnectorLease>,
+    process: Arc<translunar_plugin_runtime::PluginProcess>,
+}
+
+impl Default for ActivePluginProcessRegistry {
+    fn default() -> Self {
+        Self {
+            entries: Arc::new(Mutex::new(BTreeMap::new())),
+        }
+    }
+}
+
+impl ActivePluginProcessRegistry {
+    fn insert(
+        &self,
+        plugin_id: String,
+        version_id: String,
+        activation_revision: u64,
+        filters: Vec<(String, Arc<dyn translunar_filter_core::DocumentFilter>)>,
+        connector_leases: Vec<translunar_ai_core::EngineConnectorLease>,
+        process: Arc<translunar_plugin_runtime::PluginProcess>,
+    ) -> Option<Arc<translunar_plugin_runtime::PluginProcess>> {
+        self.entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(
+                plugin_id,
+                ActivePluginProcessGeneration {
+                    version_id,
+                    activation_revision,
+                    filters,
+                    connector_leases,
+                    process,
+                },
+            )
+            .map(|entry| entry.process)
+    }
+
+    fn remove(&self, plugin_id: &str) -> Option<Arc<translunar_plugin_runtime::PluginProcess>> {
+        self.entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(plugin_id)
+            .map(|entry| entry.process)
+    }
+
+    fn remove_generation(
+        &self,
+        plugin_id: &str,
+        version_id: &str,
+        activation_revision: u64,
+    ) -> Option<ActivePluginProcessGeneration> {
+        let mut entries = self
+            .entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let matches = entries.get(plugin_id).is_some_and(|entry| {
+            entry.version_id == version_id && entry.activation_revision == activation_revision
+        });
+        if matches {
+            entries.remove(plugin_id)
+        } else {
+            None
+        }
+    }
+
+    fn drain(&self) -> Vec<Arc<translunar_plugin_runtime::PluginProcess>> {
+        std::mem::take(
+            &mut *self
+                .entries
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
+        .into_values()
+        .map(|entry| entry.process)
+        .collect()
+    }
+
+    #[cfg(test)]
+    fn get(&self, plugin_id: &str) -> Option<Arc<translunar_plugin_runtime::PluginProcess>> {
+        self.entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(plugin_id)
+            .map(|entry| Arc::clone(&entry.process))
+    }
+
+    #[cfg(test)]
+    fn contains_key(&self, plugin_id: &str) -> bool {
+        self.entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .contains_key(plugin_id)
+    }
+
+    #[cfg(test)]
+    fn is_empty(&self) -> bool {
+        self.entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_empty()
+    }
+}
+
+#[derive(Clone)]
 struct PipelineManager {
     data_dir: PathBuf,
     registry: StepRegistry,
-    active: Arc<Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>>,
+    active: Arc<Mutex<std::collections::HashMap<String, ActivePipelineExecution>>>,
+    checkpoint_router: PluginPipelineCheckpointRouter,
+    shutting_down: Arc<AtomicBool>,
+    filters: FilterRegistry,
+    plugin_qa_registry: qa::PluginQaRegistry,
+    plugin_processes: ActivePluginProcessRegistry,
+    ai: ai::AiManager,
+}
+
+#[derive(Clone)]
+struct ActivePipelineExecution {
+    cancellation: Arc<AtomicBool>,
+    stale_activation: Arc<AtomicBool>,
+    checkpoint_gate: Arc<Mutex<()>>,
+    owners: BTreeSet<PipelineStepOwner>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct PluginPipelineCheckpointRouter {
+    routes: Arc<Mutex<std::collections::HashMap<String, PluginPipelineCheckpointRoute>>>,
+}
+
+#[derive(Debug, Clone)]
+struct PluginPipelineCheckpointRoute {
+    contribution_id: String,
+    sink: StepCheckpointSink,
+}
+
+pub(crate) struct PluginPipelineCheckpointRouteGuard {
+    invocation_id: String,
+    router: PluginPipelineCheckpointRouter,
+}
+
+impl Drop for PluginPipelineCheckpointRouteGuard {
+    fn drop(&mut self) {
+        if let Ok(mut routes) = self.router.routes.lock() {
+            routes.remove(&self.invocation_id);
+        }
+    }
+}
+
+impl PluginPipelineCheckpointRouter {
+    pub(crate) fn register(
+        &self,
+        invocation_id: &str,
+        contribution_id: &str,
+        sink: StepCheckpointSink,
+    ) -> std::result::Result<PluginPipelineCheckpointRouteGuard, PipelineError> {
+        let mut routes = self.routes.lock().map_err(|_| {
+            PipelineError::Execution("pipeline checkpoint router is unavailable".to_string())
+        })?;
+        if routes.contains_key(invocation_id) {
+            return Err(PipelineError::Boundary(
+                "pipeline checkpoint invocation is already active".to_string(),
+            ));
+        }
+        routes.insert(
+            invocation_id.to_string(),
+            PluginPipelineCheckpointRoute {
+                contribution_id: contribution_id.to_string(),
+                sink,
+            },
+        );
+        Ok(PluginPipelineCheckpointRouteGuard {
+            invocation_id: invocation_id.to_string(),
+            router: self.clone(),
+        })
+    }
+
+    pub(crate) fn publish(
+        &self,
+        invocation_id: &str,
+        contribution_id: &str,
+        checkpoint: Value,
+    ) -> std::result::Result<(), PipelineError> {
+        let route = self
+            .routes
+            .lock()
+            .map_err(|_| {
+                PipelineError::Execution("pipeline checkpoint router is unavailable".to_string())
+            })?
+            .get(invocation_id)
+            .cloned()
+            .ok_or(PipelineError::StaleActivation)?;
+        if route.contribution_id != contribution_id {
+            return Err(PipelineError::Boundary(
+                "pipeline checkpoint contribution does not match the active invocation".to_string(),
+            ));
+        }
+        route.sink.publish(checkpoint)
+    }
+}
+
+struct ResolvedPipelineRun {
+    steps: Vec<Option<ResolvedPipelineStep>>,
+    plugin_bindings: Vec<Option<PipelineStepPluginBinding>>,
+}
+
+struct ResolvedPipelineResume {
+    steps: Vec<Option<ResolvedPipelineStep>>,
+    migration: Option<ResolvedCheckpointMigration>,
+}
+
+struct ResolvedCheckpointMigration {
+    step_index: u32,
+    outcome: StepCheckpointMigrationOutcome,
+    attempt: PipelineStepPluginAttempt,
 }
 
 struct CheckpointStep;
@@ -2019,7 +2241,13 @@ impl PipelineStep for QaDocumentStep {
 }
 
 impl PipelineManager {
-    fn new(data_dir: PathBuf, ai: ai::AiManager) -> Result<Self> {
+    fn new(
+        data_dir: PathBuf,
+        ai: ai::AiManager,
+        filters: FilterRegistry,
+        plugin_qa_registry: qa::PluginQaRegistry,
+        plugin_processes: ActivePluginProcessRegistry,
+    ) -> Result<Self> {
         let mut registry = StepRegistry::default();
         registry
             .register(Arc::new(CheckpointStep))
@@ -2032,14 +2260,24 @@ impl PipelineManager {
         registry
             .register(Arc::new(AiPretranslateStep {
                 data_dir: data_dir.clone(),
-                ai,
+                ai: ai.clone(),
             }))
             .map_err(|error| EngineError::InvalidState(error.to_string()))?;
         Ok(Self {
             data_dir,
             registry,
             active: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            checkpoint_router: PluginPipelineCheckpointRouter::default(),
+            shutting_down: Arc::new(AtomicBool::new(false)),
+            filters,
+            plugin_qa_registry,
+            plugin_processes,
+            ai,
         })
+    }
+
+    pub(crate) fn checkpoint_router(&self) -> PluginPipelineCheckpointRouter {
+        self.checkpoint_router.clone()
     }
 
     fn descriptors(&self) -> Vec<StepDescriptor> {
@@ -2073,34 +2311,301 @@ impl PipelineManager {
         }
     }
 
-    fn spawn(&self, run_id: String) {
+    fn resolve_new_run(&self, definition: &PipelineDefinition) -> Result<ResolvedPipelineRun> {
+        let resolved = definition
+            .steps
+            .iter()
+            .map(|step| self.registry.resolve_binding(&step.step_id))
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|error| EngineError::InvalidState(error.to_string()))?;
+        let created_at_ms = pipeline_now_ms()?;
+        let bindings = definition
+            .steps
+            .iter()
+            .zip(&resolved)
+            .map(
+                |(definition_step, resolved)| match &resolved.binding().owner {
+                    PipelineStepOwner::Builtin => Ok(None),
+                    owner @ PipelineStepOwner::Plugin { .. } => {
+                        Ok(Some(PipelineStepPluginBinding {
+                            owner: owner.clone(),
+                            config_hash: pipeline_json_hash(&definition_step.config)?,
+                            created_at_ms,
+                        }))
+                    }
+                },
+            )
+            .collect::<Result<Vec<_>>>()?;
+        Ok(ResolvedPipelineRun {
+            steps: resolved.into_iter().map(Some).collect(),
+            plugin_bindings: bindings,
+        })
+    }
+
+    fn resolve_resume(
+        &self,
+        definition: &PipelineDefinition,
+        snapshot: &translunar_storage::PipelineRunSnapshot,
+    ) -> std::result::Result<ResolvedPipelineResume, PipelineFailure> {
+        if definition.steps.len() != snapshot.steps.len() {
+            return Err(plugin_checkpoint_incompatible(
+                "the pipeline definition no longer matches the recorded run",
+            ));
+        }
+        let current_index = snapshot.run.current_step_index as usize;
+        let mut steps = Vec::with_capacity(definition.steps.len());
+        let mut migration = None;
+        for (index, (definition_step, step_run)) in
+            definition.steps.iter().zip(&snapshot.steps).enumerate()
+        {
+            if index < current_index {
+                steps.push(None);
+                continue;
+            }
+            let resolved = self
+                .registry
+                .resolve_binding(&definition_step.step_id)
+                .map_err(|_| {
+                    plugin_checkpoint_incompatible(
+                        "the recorded pipeline step implementation is unavailable",
+                    )
+                })?;
+            match (&resolved.binding().owner, &step_run.plugin_binding) {
+                (PipelineStepOwner::Builtin, None) => {}
+                (
+                    current_owner @ PipelineStepOwner::Plugin {
+                        plugin_id: current_plugin_id,
+                        contribution_id: current_contribution_id,
+                        checkpoint_schema_version: current_schema_version,
+                        ..
+                    },
+                    Some(binding),
+                ) => {
+                    let PipelineStepOwner::Plugin {
+                        plugin_id: recorded_plugin_id,
+                        contribution_id: recorded_contribution_id,
+                        ..
+                    } = &binding.owner
+                    else {
+                        unreachable!("plugin binding must contain a plugin owner")
+                    };
+                    let config_hash =
+                        pipeline_json_hash(&definition_step.config).map_err(|_| {
+                            plugin_checkpoint_incompatible(
+                                "the recorded pipeline step configuration is invalid",
+                            )
+                        })?;
+                    if current_plugin_id != recorded_plugin_id
+                        || current_contribution_id != recorded_contribution_id
+                        || binding.config_hash != config_hash
+                    {
+                        return Err(plugin_checkpoint_incompatible(
+                            "the active plugin step is incompatible with the recorded run",
+                        ));
+                    }
+                    if index == current_index
+                        && let Some(checkpoint) = step_run.checkpoint.as_ref()
+                    {
+                        let source_schema_version = step_run
+                            .latest_checkpoint
+                            .as_ref()
+                            .map(|checkpoint| checkpoint.schema_version)
+                            .ok_or_else(|| {
+                                plugin_checkpoint_incompatible(
+                                    "the recorded checkpoint has no schema provenance",
+                                )
+                            })?;
+                        let target_schema_version = current_schema_version.ok_or_else(|| {
+                            plugin_checkpoint_incompatible(
+                                "the active plugin step has no checkpoint schema",
+                            )
+                        })?;
+                        if source_schema_version != target_schema_version {
+                            let started_at_ms = pipeline_now_ms().map_err(|_| {
+                                plugin_checkpoint_incompatible(
+                                    "checkpoint migration time is unavailable",
+                                )
+                            })?;
+                            let cancellation = Arc::new(AtomicBool::new(false));
+                            let outcome = resolved
+                                .step()
+                                .migrate_checkpoint(StepCheckpointMigrationContext {
+                                    run_id: snapshot.run.id.clone(),
+                                    project_id: snapshot.run.project_id.clone(),
+                                    document_id: snapshot.run.document_id.clone(),
+                                    config: definition_step.config.clone(),
+                                    checkpoint: checkpoint.clone(),
+                                    source_schema_version,
+                                    target_schema_version,
+                                    deadline_ms: 120_000,
+                                    cancellation,
+                                })
+                                .map_err(|_| {
+                                    plugin_checkpoint_incompatible(
+                                        "the plugin could not migrate the recorded checkpoint",
+                                    )
+                                })?;
+                            if !self.registry.is_current(resolved.binding())
+                                || resolved.binding().owner != *current_owner
+                            {
+                                return Err(plugin_checkpoint_incompatible(
+                                    "the plugin activation changed during checkpoint migration",
+                                ));
+                            }
+                            let input = step_run.input.as_ref().ok_or_else(|| {
+                                plugin_checkpoint_incompatible(
+                                    "the interrupted plugin step has no input provenance",
+                                )
+                            })?;
+                            let attempt_index = step_run.latest_plugin_attempt.as_ref().map_or(
+                                Ok(0),
+                                |attempt| {
+                                    attempt.attempt_index.checked_add(1).ok_or_else(|| {
+                                        plugin_checkpoint_incompatible(
+                                            "checkpoint migration attempt index overflow",
+                                        )
+                                    })
+                                },
+                            )?;
+                            let completed_at_ms = pipeline_now_ms().map_err(|_| {
+                                plugin_checkpoint_incompatible(
+                                    "checkpoint migration time is unavailable",
+                                )
+                            })?;
+                            migration = Some(ResolvedCheckpointMigration {
+                                step_index: index as u32,
+                                attempt: PipelineStepPluginAttempt {
+                                    id: new_id(),
+                                    attempt_index,
+                                    operation: PipelineStepPluginOperation::CheckpointMigrate,
+                                    input_hash: pipeline_json_hash(input).map_err(|_| {
+                                        plugin_checkpoint_incompatible(
+                                            "pipeline input hashing failed",
+                                        )
+                                    })?,
+                                    output_hash: None,
+                                    checkpoint_input_hash: Some(
+                                        pipeline_json_hash(checkpoint).map_err(|_| {
+                                            plugin_checkpoint_incompatible(
+                                                "source checkpoint hashing failed",
+                                            )
+                                        })?,
+                                    ),
+                                    checkpoint_output_hash: Some(
+                                        pipeline_json_hash(&outcome.checkpoint).map_err(|_| {
+                                            plugin_checkpoint_incompatible(
+                                                "migrated checkpoint hashing failed",
+                                            )
+                                        })?,
+                                    ),
+                                    checkpoint_schema_version: Some(target_schema_version),
+                                    usage: outcome.usage.clone().unwrap_or_else(|| json!({})),
+                                    failure: None,
+                                    started_at_ms,
+                                    completed_at_ms,
+                                },
+                                outcome,
+                            });
+                        }
+                    }
+                }
+                _ => {
+                    return Err(plugin_checkpoint_incompatible(
+                        "the active plugin step does not match the immutable run binding",
+                    ));
+                }
+            }
+            steps.push(Some(resolved));
+        }
+        Ok(ResolvedPipelineResume { steps, migration })
+    }
+
+    fn spawn_resolved(
+        &self,
+        run_id: String,
+        steps: Vec<Option<ResolvedPipelineStep>>,
+    ) -> Result<()> {
+        let owners = steps
+            .iter()
+            .flatten()
+            .map(|step| step.binding().owner.clone())
+            .collect();
         let token = Arc::new(AtomicBool::new(false));
+        let stale_activation = Arc::new(AtomicBool::new(false));
+        let checkpoint_gate = Arc::new(Mutex::new(()));
         if let Ok(mut active) = self.active.lock() {
             if active.contains_key(&run_id) {
-                return;
+                return Ok(());
             }
-            active.insert(run_id.clone(), Arc::clone(&token));
+            active.insert(
+                run_id.clone(),
+                ActivePipelineExecution {
+                    cancellation: Arc::clone(&token),
+                    stale_activation: Arc::clone(&stale_activation),
+                    checkpoint_gate: Arc::clone(&checkpoint_gate),
+                    owners,
+                },
+            );
         } else {
-            return;
+            return Err(EngineError::InvalidState(
+                "pipeline active-run registry is unavailable".to_string(),
+            ));
         }
         let manager = self.clone();
         thread::spawn(move || {
-            manager.execute(run_id.clone(), token);
+            manager.execute(
+                run_id.clone(),
+                token,
+                stale_activation,
+                checkpoint_gate,
+                steps,
+            );
             if let Ok(mut active) = manager.active.lock() {
                 active.remove(&run_id);
             }
         });
+        Ok(())
     }
 
     fn cancel(&self, run_id: &str) {
         if let Ok(active) = self.active.lock()
-            && let Some(token) = active.get(run_id)
+            && let Some(execution) = active.get(run_id)
         {
-            token.store(true, Ordering::Relaxed);
+            let _gate = execution.checkpoint_gate.lock().ok();
+            execution.cancellation.store(true, Ordering::Release);
         }
     }
 
-    fn execute(&self, run_id: String, token: Arc<AtomicBool>) {
+    fn cancel_owner(&self, owner: &PipelineStepOwner) {
+        if let Ok(active) = self.active.lock() {
+            for execution in active.values() {
+                if execution.owners.contains(owner) {
+                    let _gate = execution.checkpoint_gate.lock().ok();
+                    execution.stale_activation.store(true, Ordering::Release);
+                    execution.cancellation.store(true, Ordering::Release);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn begin_shutdown(&self) {
+        self.shutting_down.store(true, Ordering::Release);
+        if let Ok(active) = self.active.lock() {
+            for execution in active.values() {
+                let _gate = execution.checkpoint_gate.lock().ok();
+                execution.cancellation.store(true, Ordering::Release);
+            }
+        }
+    }
+
+    fn execute(
+        &self,
+        run_id: String,
+        token: Arc<AtomicBool>,
+        stale_activation: Arc<AtomicBool>,
+        checkpoint_gate: Arc<Mutex<()>>,
+        steps: Vec<Option<ResolvedPipelineStep>>,
+    ) {
         let mut store = match Store::open_worker(&self.data_dir) {
             Ok(store) => store,
             Err(_) => return,
@@ -2135,6 +2640,9 @@ impl PipelineManager {
             }
         };
         while snapshot.run.current_step_index < snapshot.run.step_count {
+            if self.shutting_down.load(Ordering::Acquire) {
+                return;
+            }
             if token.load(Ordering::Relaxed)
                 || store.pipeline_cancel_requested(&run_id).unwrap_or(false)
             {
@@ -2153,9 +2661,9 @@ impl PipelineManager {
                 );
                 return;
             };
-            let step = match self.registry.resolve(&definition_step.step_id) {
-                Ok(step) => step,
-                Err(error) => {
+            let step = match steps.get(index as usize).and_then(Option::as_ref) {
+                Some(step) if step.descriptor().id == definition_step.step_id => step,
+                _ => {
                     if Self::finalize_if_canceling(&mut store, &run_id) {
                         return;
                     }
@@ -2163,13 +2671,18 @@ impl PipelineManager {
                         &run_id,
                         PipelineFailure {
                             code: "step_not_found".to_string(),
-                            message: error.to_string(),
+                            message: "the pinned pipeline step is unavailable".to_string(),
                             retryable: false,
                         },
                     );
                     return;
                 }
             };
+            if stale_activation.load(Ordering::Acquire) || !self.registry.is_current(step.binding())
+            {
+                Self::fail_stale_activation(&mut store, &run_id);
+                return;
+            }
             let input = if index == 0 {
                 snapshot.run.input.clone()
             } else {
@@ -2200,30 +2713,178 @@ impl PipelineManager {
                     return;
                 }
             };
+            let attempt_started_at_ms = match pipeline_now_ms() {
+                Ok(value) => value,
+                Err(error) => {
+                    self.fail_step_error(
+                        &mut store,
+                        &step_run,
+                        step.binding(),
+                        &input,
+                        PipelineError::Execution(error.to_string()),
+                        step_run.updated_at_ms,
+                    );
+                    return;
+                }
+            };
+            if let Err(error) = step.step().validate_config(&definition_step.config) {
+                self.fail_step_error(
+                    &mut store,
+                    &step_run,
+                    step.binding(),
+                    &input,
+                    error,
+                    attempt_started_at_ms,
+                );
+                return;
+            }
+            if let Err(error) = step.step().validate_input(&input) {
+                self.fail_step_error(
+                    &mut store,
+                    &step_run,
+                    step.binding(),
+                    &input,
+                    error,
+                    attempt_started_at_ms,
+                );
+                return;
+            }
             let context = StepExecutionContext {
                 run_id: run_id.clone(),
                 project_id: snapshot.run.project_id.clone(),
                 document_id: snapshot.run.document_id.clone(),
-                input,
+                input: input.clone(),
                 config: definition_step.config.clone(),
-                checkpoint: step_run.checkpoint,
+                checkpoint: step_run.checkpoint.clone(),
+                deadline_ms: 120_000,
                 cancellation: Arc::clone(&token),
             };
-            match step.execute(context) {
+            let checkpoint_sink = match &step.binding().owner {
+                PipelineStepOwner::Builtin => None,
+                PipelineStepOwner::Plugin {
+                    checkpoint_schema_version: Some(schema_version),
+                    ..
+                } => {
+                    let data_dir = self.data_dir.clone();
+                    let registry = self.registry.clone();
+                    let binding = step.binding().clone();
+                    let run_id = run_id.clone();
+                    let token = Arc::clone(&token);
+                    let stale_activation = Arc::clone(&stale_activation);
+                    let shutting_down = Arc::clone(&self.shutting_down);
+                    let checkpoint_gate = Arc::clone(&checkpoint_gate);
+                    let step_index = index;
+                    let schema_version = *schema_version;
+                    Some(StepCheckpointSink::new(move |checkpoint| {
+                        let _gate = checkpoint_gate.lock().map_err(|_| {
+                            PipelineError::Execution(
+                                "pipeline checkpoint gate is unavailable".to_string(),
+                            )
+                        })?;
+                        if shutting_down.load(Ordering::Acquire) || token.load(Ordering::Acquire) {
+                            return Err(PipelineError::Canceled);
+                        }
+                        if stale_activation.load(Ordering::Acquire)
+                            || !registry.is_current(&binding)
+                        {
+                            return Err(PipelineError::StaleActivation);
+                        }
+                        let mut checkpoint_store = Store::open_worker(&data_dir)
+                            .map_err(|error| PipelineError::Execution(error.to_string()))?;
+                        checkpoint_store
+                            .append_pipeline_step_checkpoint(
+                                &run_id,
+                                step_index,
+                                schema_version,
+                                checkpoint,
+                            )
+                            .map(|_| ())
+                            .map_err(|error| {
+                                if token.load(Ordering::Acquire) {
+                                    PipelineError::Canceled
+                                } else {
+                                    PipelineError::Execution(error.to_string())
+                                }
+                            })
+                    }))
+                }
+                PipelineStepOwner::Plugin {
+                    checkpoint_schema_version: None,
+                    ..
+                } => None,
+            };
+            match step
+                .step()
+                .execute_with_checkpoint_sink(context, checkpoint_sink)
+            {
                 Ok(outcome) => {
+                    if self.shutting_down.load(Ordering::Acquire) {
+                        return;
+                    }
+                    if stale_activation.load(Ordering::Acquire)
+                        || !self.registry.is_current(step.binding())
+                    {
+                        Self::fail_stale_activation(&mut store, &run_id);
+                        return;
+                    }
                     if token.load(Ordering::Relaxed)
                         || store.pipeline_cancel_requested(&run_id).unwrap_or(false)
                     {
                         let _ = Self::finalize_if_canceling(&mut store, &run_id);
                         return;
                     }
-                    match store.complete_pipeline_step(
-                        &run_id,
-                        index,
-                        outcome.output,
-                        outcome.checkpoint,
-                        outcome.usage,
-                    ) {
+                    if let Err(error) = step.step().validate_output(&outcome.output) {
+                        self.fail_step_error(
+                            &mut store,
+                            &step_run,
+                            step.binding(),
+                            &input,
+                            error,
+                            attempt_started_at_ms,
+                        );
+                        return;
+                    }
+                    let completion = if step_run.plugin_binding.is_some() {
+                        match Self::plugin_attempt(
+                            &step_run,
+                            step.binding(),
+                            &input,
+                            Some(&outcome.output),
+                            outcome.checkpoint.as_ref(),
+                            outcome.usage.as_ref(),
+                            None,
+                            attempt_started_at_ms,
+                        ) {
+                            Ok(attempt) => store.complete_plugin_pipeline_step(
+                                &run_id,
+                                index,
+                                outcome.output,
+                                outcome.checkpoint,
+                                outcome.usage,
+                                &attempt,
+                            ),
+                            Err(error) => {
+                                self.fail_step_error(
+                                    &mut store,
+                                    &step_run,
+                                    step.binding(),
+                                    &input,
+                                    error,
+                                    attempt_started_at_ms,
+                                );
+                                return;
+                            }
+                        }
+                    } else {
+                        store.complete_pipeline_step(
+                            &run_id,
+                            index,
+                            outcome.output,
+                            outcome.checkpoint,
+                            outcome.usage,
+                        )
+                    };
+                    match completion {
                         Ok(updated) => snapshot = updated,
                         Err(error) => {
                             if Self::finalize_if_canceling(&mut store, &run_id) {
@@ -2242,20 +2903,36 @@ impl PipelineManager {
                     }
                 }
                 Err(PipelineError::Canceled) => {
+                    if self.shutting_down.load(Ordering::Acquire) {
+                        return;
+                    }
+                    if stale_activation.load(Ordering::Acquire) {
+                        Self::fail_stale_activation(&mut store, &run_id);
+                        return;
+                    }
                     let _ = Self::finalize_if_canceling(&mut store, &run_id);
                     return;
                 }
                 Err(error) => {
+                    if self.shutting_down.load(Ordering::Acquire) {
+                        return;
+                    }
+                    if stale_activation.load(Ordering::Acquire)
+                        || !self.registry.is_current(step.binding())
+                    {
+                        Self::fail_stale_activation(&mut store, &run_id);
+                        return;
+                    }
                     if Self::finalize_if_canceling(&mut store, &run_id) {
                         return;
                     }
-                    let _ = store.fail_pipeline_run(
-                        &run_id,
-                        PipelineFailure {
-                            code: "step_failed".to_string(),
-                            message: error.to_string(),
-                            retryable: true,
-                        },
+                    self.fail_step_error(
+                        &mut store,
+                        &step_run,
+                        step.binding(),
+                        &input,
+                        error,
+                        attempt_started_at_ms,
                     );
                     return;
                 }
@@ -2275,6 +2952,261 @@ impl PipelineManager {
         }
         is_canceling
     }
+
+    fn fail_stale_activation(store: &mut Store, run_id: &str) {
+        let _ = store.fail_pipeline_run(
+            run_id,
+            PipelineFailure {
+                code: "plugin_stale_activation".to_string(),
+                message: "the plugin pipeline activation changed during execution".to_string(),
+                retryable: false,
+            },
+        );
+    }
+
+    fn fail_step_error(
+        &self,
+        store: &mut Store,
+        step_run: &PipelineStepRun,
+        execution_binding: &translunar_pipeline::PipelineStepBinding,
+        input: &Value,
+        error: PipelineError,
+        started_at_ms: i64,
+    ) {
+        let run_id = &step_run.run_id;
+        let failure = Self::pipeline_failure(error);
+        self.degrade_failed_plugin_generation(store, step_run, &failure);
+        if step_run.plugin_binding.is_some()
+            && let Ok(attempt) = Self::plugin_attempt(
+                step_run,
+                execution_binding,
+                input,
+                None,
+                None,
+                None,
+                Some(&failure),
+                started_at_ms,
+            )
+        {
+            match store.fail_plugin_pipeline_run(run_id, failure.clone(), &attempt) {
+                Ok(_) => return,
+                Err(error) => {
+                    tracing::error!(run_id, error = %error, "failed to persist plugin pipeline failure provenance");
+                    let _ = store.fail_pipeline_run(
+                        run_id,
+                        PipelineFailure {
+                            code: failure.code,
+                            message: "plugin pipeline step failed".to_string(),
+                            retryable: failure.retryable,
+                        },
+                    );
+                    return;
+                }
+            }
+        }
+        let _ = store.fail_pipeline_run(run_id, failure);
+    }
+
+    fn degrade_failed_plugin_generation(
+        &self,
+        store: &mut Store,
+        step_run: &PipelineStepRun,
+        failure: &PipelineFailure,
+    ) {
+        if !matches!(
+            failure.code.as_str(),
+            "plugin_timeout" | "plugin_resource_limit" | "plugin_host_crash" | "plugin_protocol"
+        ) {
+            return;
+        }
+        let Some(binding) = step_run.plugin_binding.as_ref() else {
+            return;
+        };
+        let PipelineStepOwner::Plugin {
+            plugin_id,
+            version_id,
+            activation_revision,
+            contribution_id,
+            ..
+        } = &binding.owner
+        else {
+            return;
+        };
+        let diagnostic = format!(
+            "pipeline execution for {contribution_id} failed ({})",
+            failure.code
+        );
+        let detach_generation = match store.record_plugin_crash_for_version(
+            plugin_id,
+            Some(version_id),
+            *activation_revision,
+            diagnostic,
+        ) {
+            Ok(Some(_)) => true,
+            Ok(None) => {
+                tracing::warn!(
+                    plugin_id,
+                    activation_revision,
+                    "ignored stale pipeline plugin failure after lifecycle state changed"
+                );
+                false
+            }
+            Err(error) => {
+                tracing::error!(
+                    plugin_id,
+                    activation_revision,
+                    error = %error,
+                    "failed to persist pipeline plugin crash state"
+                );
+                true
+            }
+        };
+        if !detach_generation {
+            return;
+        }
+
+        let Some(generation) =
+            self.plugin_processes
+                .remove_generation(plugin_id, version_id, *activation_revision)
+        else {
+            for owner in self
+                .registry
+                .unregister_plugin_generation(plugin_id, *activation_revision)
+            {
+                self.cancel_owner(&owner);
+            }
+            return;
+        };
+
+        for owner in self
+            .registry
+            .unregister_plugin_generation(plugin_id, *activation_revision)
+        {
+            self.cancel_owner(&owner);
+        }
+        self.plugin_qa_registry
+            .detach_generation(plugin_id, *activation_revision);
+        for (filter_id, filter) in generation.filters {
+            let _ = self.filters.unregister_if_same(&filter_id, &filter);
+        }
+        for lease in generation.connector_leases {
+            if let Ok(Some(lease)) = self.ai.connectors.detach_lease(&lease) {
+                let _ = lease.shutdown();
+            }
+        }
+        generation.process.stop();
+    }
+
+    fn pipeline_failure(error: PipelineError) -> PipelineFailure {
+        match error {
+            PipelineError::Plugin(failure) => failure,
+            PipelineError::StaleActivation => PipelineFailure {
+                code: "plugin_stale_activation".to_string(),
+                message: "the plugin pipeline activation is stale".to_string(),
+                retryable: false,
+            },
+            PipelineError::Boundary(_) | PipelineError::InvalidDefinition(_) => PipelineFailure {
+                code: "step_boundary_invalid".to_string(),
+                message: "pipeline step input, output, or configuration is invalid".to_string(),
+                retryable: false,
+            },
+            error => PipelineFailure {
+                code: "step_failed".to_string(),
+                message: error.to_string(),
+                retryable: true,
+            },
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn plugin_attempt(
+        step_run: &PipelineStepRun,
+        execution_binding: &translunar_pipeline::PipelineStepBinding,
+        input: &Value,
+        output: Option<&Value>,
+        checkpoint_output: Option<&Value>,
+        usage: Option<&Value>,
+        failure: Option<&PipelineFailure>,
+        started_at_ms: i64,
+    ) -> std::result::Result<PipelineStepPluginAttempt, PipelineError> {
+        let _historical_binding = step_run.plugin_binding.as_ref().ok_or_else(|| {
+            PipelineError::Boundary("plugin pipeline binding is missing".to_string())
+        })?;
+        let checkpoint_schema_version = match &execution_binding.owner {
+            PipelineStepOwner::Plugin {
+                checkpoint_schema_version,
+                ..
+            } => *checkpoint_schema_version,
+            PipelineStepOwner::Builtin => {
+                return Err(PipelineError::Boundary(
+                    "plugin pipeline binding has a builtin owner".to_string(),
+                ));
+            }
+        };
+        if checkpoint_output.is_some() && checkpoint_schema_version.is_none() {
+            return Err(PipelineError::Boundary(
+                "plugin pipeline checkpoint schema is missing".to_string(),
+            ));
+        }
+        let hash = |value: &Value| {
+            pipeline_json_hash(value)
+                .map_err(|_| PipelineError::Boundary("pipeline value hashing failed".to_string()))
+        };
+        let attempt_index = step_run
+            .latest_plugin_attempt
+            .as_ref()
+            .map_or(Ok(0), |attempt| {
+                attempt.attempt_index.checked_add(1).ok_or_else(|| {
+                    PipelineError::Boundary("plugin attempt index overflow".to_string())
+                })
+            })?;
+        let completed_at_ms = pipeline_now_ms().map_err(|_| {
+            PipelineError::Boundary("plugin attempt timestamp is unavailable".to_string())
+        })?;
+        Ok(PipelineStepPluginAttempt {
+            id: new_id(),
+            attempt_index,
+            operation: if step_run.checkpoint.is_some() {
+                PipelineStepPluginOperation::Resume
+            } else {
+                PipelineStepPluginOperation::Execute
+            },
+            input_hash: hash(input)?,
+            output_hash: output.map(hash).transpose()?,
+            checkpoint_input_hash: step_run.checkpoint.as_ref().map(hash).transpose()?,
+            checkpoint_output_hash: checkpoint_output.map(hash).transpose()?,
+            checkpoint_schema_version,
+            usage: usage.cloned().unwrap_or_else(|| json!({})),
+            failure: failure.cloned(),
+            started_at_ms,
+            completed_at_ms,
+        })
+    }
+}
+
+fn pipeline_now_ms() -> Result<i64> {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| {
+            EngineError::InvalidState("system clock is before the Unix epoch".to_string())
+        })?
+        .as_millis();
+    i64::try_from(millis)
+        .map_err(|_| EngineError::InvalidState("system clock is out of range".to_string()))
+}
+
+fn pipeline_json_hash(value: &Value) -> Result<String> {
+    let bytes = serde_json::to_vec(value)
+        .map_err(|_| EngineError::InvalidState("pipeline JSON is not serializable".to_string()))?;
+    Ok(format!("{:x}", Sha256::digest(bytes)))
+}
+
+fn plugin_checkpoint_incompatible(message: &str) -> PipelineFailure {
+    PipelineFailure {
+        code: "plugin_checkpoint_incompatible".to_string(),
+        message: message.to_string(),
+        retryable: false,
+    }
 }
 
 pub struct EngineService {
@@ -2283,8 +3215,9 @@ pub struct EngineService {
     pipeline: PipelineManager,
     ai: ai::AiManager,
     plugin_connector_catalog: ai::PluginConnectorCatalog,
-    plugin_processes: std::collections::BTreeMap<
-        String,
+    plugin_processes: ActivePluginProcessRegistry,
+    pending_plugin_processes: std::collections::BTreeMap<
+        (String, String),
         std::sync::Arc<translunar_plugin_runtime::PluginProcess>,
     >,
     plugin_sandbox_runtimes: translunar_plugin_runtime::SandboxRuntimeRegistry,
@@ -2295,8 +3228,8 @@ pub struct EngineService {
         plugin::PreparedSandboxActivation,
     >,
     plugin_filter_owners: std::collections::BTreeMap<String, String>,
-    plugin_qa_packs: std::collections::BTreeMap<String, plugin_declarative::PluginQaPack>,
-    plugin_pipeline_owners: std::collections::BTreeMap<String, String>,
+    plugin_qa_registry: qa::PluginQaRegistry,
+    plugin_pipeline_owners: std::collections::BTreeMap<String, PipelineStepOwner>,
     plugin_activation_revisions: std::collections::BTreeMap<String, u64>,
     plugin_capabilities: plugin_capability::PluginCapabilityService,
 }
@@ -2309,7 +3242,7 @@ impl EngineService {
     }
 
     fn open_with_ai(data_dir: PathBuf, ai: ai::AiManager) -> Result<Self> {
-        let mut filters = FilterRegistry::default();
+        let filters = FilterRegistry::default();
         filters
             .register(Arc::new(DocxFilter))
             .map_err(|error| EngineError::InvalidState(error.to_string()))?;
@@ -2351,18 +3284,28 @@ impl EngineService {
             .map_err(|error| EngineError::InvalidState(error.to_string()))?;
         let store = Store::open(&data_dir)?;
         let plugin_capabilities = plugin_capability::PluginCapabilityService::open(&data_dir)?;
+        let plugin_qa_registry = qa::PluginQaRegistry::default();
+        let plugin_processes = ActivePluginProcessRegistry::default();
+        let pipeline = PipelineManager::new(
+            data_dir,
+            ai.clone(),
+            filters.clone(),
+            plugin_qa_registry.clone(),
+            plugin_processes.clone(),
+        )?;
         let mut service = Self {
             store,
             filters,
-            pipeline: PipelineManager::new(data_dir, ai.clone())?,
+            pipeline,
             ai,
             plugin_connector_catalog: ai::PluginConnectorCatalog::new(),
-            plugin_processes: std::collections::BTreeMap::new(),
+            plugin_processes,
+            pending_plugin_processes: std::collections::BTreeMap::new(),
             plugin_sandbox_runtimes: translunar_plugin_runtime::SandboxRuntimeRegistry::default(),
             plugin_sandbox_keys: std::collections::BTreeMap::new(),
             pending_sandbox_workers: std::collections::BTreeMap::new(),
             plugin_filter_owners: std::collections::BTreeMap::new(),
-            plugin_qa_packs: std::collections::BTreeMap::new(),
+            plugin_qa_registry,
             plugin_pipeline_owners: std::collections::BTreeMap::new(),
             plugin_activation_revisions: std::collections::BTreeMap::new(),
             plugin_capabilities,
@@ -4523,13 +5466,15 @@ impl EngineService {
     }
 
     pub fn update_target(&mut self, params: UpdateTargetParams) -> Result<Segment> {
-        self.store
-            .update_target(
-                &params.segment_id,
-                &params.target_text,
-                params.expected_revision,
-            )
-            .map_err(Into::into)
+        let segment = self.store.update_target(
+            &params.segment_id,
+            &params.target_text,
+            params.expected_revision,
+        )?;
+        if segment.revision != params.expected_revision {
+            self.refresh_live_plugin_qa(&segment.document_id);
+        }
+        Ok(segment)
     }
 
     pub fn confirm_segment(
@@ -4539,6 +5484,18 @@ impl EngineService {
         let confirmation = self
             .store
             .confirm_segment(&params.segment_id, params.expected_revision)?;
+        let document_ids = std::iter::once(confirmation.segment.document_id.as_str())
+            .chain(
+                confirmation
+                    .propagated
+                    .iter()
+                    .map(|segment| segment.document_id.as_str()),
+            )
+            .map(str::to_string)
+            .collect::<BTreeSet<_>>();
+        for document_id in document_ids {
+            self.refresh_live_plugin_qa(&document_id);
+        }
         Ok(ConfirmSegmentResult {
             segment: confirmation.segment,
             counts: confirmation.counts,
@@ -4546,6 +5503,27 @@ impl EngineService {
             qa_issues: confirmation.qa_issues,
             propagated: confirmation.propagated,
         })
+    }
+
+    fn refresh_live_plugin_qa(&mut self, document_id: &str) {
+        if self.plugin_qa_registry.snapshots().is_empty() {
+            return;
+        }
+        let project_id = match self.store.get_document(document_id) {
+            Ok(document) => document.document.project_id,
+            Err(error) => {
+                tracing::warn!(document_id, error = %error, "live plugin QA document lookup failed");
+                return;
+            }
+        };
+        if let Err(error) = self.execute_qa_run(&project_id, Some(document_id), None) {
+            tracing::warn!(
+                project_id,
+                document_id,
+                error = %error,
+                "live plugin QA refresh failed after a committed segment mutation"
+            );
+        }
     }
 
     pub fn lookup_exact(&self, params: ExactLookupParams) -> Result<ExactLookupResult> {
@@ -4994,13 +5972,7 @@ impl EngineService {
 
     pub fn run_document_qa(&mut self, document_id: &str) -> Result<QaListResult> {
         let document = self.store.get_document(document_id)?;
-        let plugin_rules = self.plugin_qa_rules()?;
-        self.store.run_qa_with_rules(
-            &document.document.project_id,
-            Some(document_id),
-            None,
-            &plugin_rules,
-        )?;
+        self.execute_qa_run(&document.document.project_id, Some(document_id), None)?;
         Ok(QaListResult {
             issues: self.store.list_qa(document_id, false)?,
         })
@@ -5452,13 +6424,12 @@ impl EngineService {
         let document = self.store.get_document(&params.document_id)?;
         let segments = self.store.all_segments(&params.document_id)?;
         let output_path = PathBuf::from(&params.output_path);
-        let plugin_rules = self.plugin_qa_rules()?;
-        let gate = self.store.check_qa_gate_with_rules(
+        let run = self.execute_qa_run(
             &document.document.project_id,
-            &params.document_id,
+            Some(&params.document_id),
             None,
-            &plugin_rules,
         )?;
+        let gate = self.store.qa_gate_result(&params.document_id, run)?;
         let override_id = if gate.clear {
             if params.qa_override.is_some() {
                 return Err(EngineError::InvalidRequest(
@@ -5624,14 +6595,16 @@ impl EngineService {
             .registry
             .validate_definition(&definition)
             .map_err(|error| EngineError::InvalidRequest(error.to_string()))?;
-        let snapshot = self.store.create_pipeline_run(
+        let resolved = self.pipeline.resolve_new_run(&definition)?;
+        let snapshot = self.store.create_pipeline_run_with_bindings(
             &params.definition_id,
             &params.project_id,
             params.document_id.as_deref(),
             params.input,
+            &resolved.plugin_bindings,
         )?;
         let run_id = snapshot.run.id.clone();
-        self.pipeline.spawn(run_id);
+        self.pipeline.spawn_resolved(run_id, resolved.steps)?;
         Ok(to_protocol_pipeline_snapshot(snapshot))
     }
 
@@ -5673,6 +6646,9 @@ impl EngineService {
         params: PipelineRunRevisionParams,
     ) -> Result<ProtocolPipelineRunSnapshot> {
         let current = self.store.get_pipeline_run(&params.run_id)?;
+        let definition = self
+            .store
+            .get_pipeline_definition(&current.run.definition_id)?;
         if current.run.status == translunar_pipeline::PipelineRunStatus::Interrupted {
             if current.run.revision != params.expected_revision {
                 return Err(EngineError::Storage(StorageError::EntityConflict {
@@ -5682,23 +6658,39 @@ impl EngineService {
                     actual_revision: current.run.revision,
                 }));
             }
-            let definition = self
-                .store
-                .get_pipeline_definition(&current.run.definition_id)?;
-            let step = definition
+            let resolved = match self.pipeline.resolve_resume(&definition, &current) {
+                Ok(resolved) => resolved,
+                Err(failure) => {
+                    let failed = self.store.fail_pipeline_run(&params.run_id, failure)?;
+                    return Ok(to_protocol_pipeline_snapshot(failed));
+                }
+            };
+            if let Some(migration) = &resolved.migration
+                && let Err(error) = self.store.migrate_pipeline_step_checkpoint(
+                    &params.run_id,
+                    migration.step_index,
+                    migration.outcome.checkpoint.clone(),
+                    &migration.attempt,
+                )
+            {
+                let failed = self.store.fail_pipeline_run(
+                    &params.run_id,
+                    plugin_checkpoint_incompatible(&format!(
+                        "checkpoint migration could not be persisted: {error}"
+                    )),
+                )?;
+                return Ok(to_protocol_pipeline_snapshot(failed));
+            }
+            let descriptor = resolved
                 .steps
                 .get(current.run.current_step_index as usize)
+                .and_then(Option::as_ref)
                 .ok_or_else(|| {
                     EngineError::InvalidState(format!(
                         "pipeline run points to missing step {}",
                         current.run.current_step_index
                     ))
-                })?;
-            let descriptor = self
-                .pipeline
-                .registry
-                .resolve(&step.step_id)
-                .map_err(|error| EngineError::InvalidState(error.to_string()))?
+                })?
                 .descriptor();
             if !descriptor.resumable {
                 let failed = self.store.fail_pipeline_run(
@@ -5711,12 +6703,16 @@ impl EngineService {
                 )?;
                 return Ok(to_protocol_pipeline_snapshot(failed));
             }
+            let snapshot = self
+                .store
+                .resume_pipeline_run(&params.run_id, params.expected_revision)?;
+            let run_id = snapshot.run.id.clone();
+            self.pipeline.spawn_resolved(run_id, resolved.steps)?;
+            return Ok(to_protocol_pipeline_snapshot(snapshot));
         }
         let snapshot = self
             .store
             .resume_pipeline_run(&params.run_id, params.expected_revision)?;
-        let run_id = snapshot.run.id.clone();
-        self.pipeline.spawn(run_id);
         Ok(to_protocol_pipeline_snapshot(snapshot))
     }
 }
@@ -6734,6 +7730,8 @@ impl RpcDispatcher {
                 "plugin.upgrade.v1".to_string(),
                 "plugin.rollback.v1".to_string(),
                 "plugin.permissions.v1".to_string(),
+                "plugin.qa-rule.v1".to_string(),
+                "plugin.pipeline-step.v1".to_string(),
                 "collab.local.v1".to_string(),
                 "translation-memory.exact".to_string(),
                 "translation-memory.library".to_string(),
@@ -8801,6 +9799,210 @@ mod tests {
         }
     }
 
+    struct TestPluginPipelineStep {
+        id: String,
+        delay_ms: u64,
+        started: Arc<AtomicBool>,
+        publish_intermediate: bool,
+    }
+
+    struct InterruptingCheckpointStep {
+        id: String,
+        resumed: Arc<AtomicBool>,
+    }
+
+    struct MigratingCheckpointStep {
+        id: String,
+        migrated: Arc<AtomicBool>,
+    }
+
+    impl PipelineStep for MigratingCheckpointStep {
+        fn descriptor(&self) -> StepDescriptor {
+            StepDescriptor {
+                id: self.id.clone(),
+                version: "2.0.0".to_string(),
+                display_name: "Migrating checkpoint step".to_string(),
+                input: ArtifactKind::Json,
+                output: ArtifactKind::Json,
+                config_schema_version: 1,
+                resumable: true,
+                cancellable: true,
+            }
+        }
+
+        fn execute(
+            &self,
+            context: StepExecutionContext,
+        ) -> std::result::Result<StepOutcome, PipelineError> {
+            if context.checkpoint != Some(json!({ "cursor": 1, "migrated": true })) {
+                return Err(PipelineError::Execution(
+                    "migrated checkpoint was not restored".to_string(),
+                ));
+            }
+            Ok(StepOutcome {
+                output: json!({ "resumed": true }),
+                checkpoint: Some(json!({ "cursor": 2, "migrated": true })),
+                usage: Some(json!({ "workUnits": 1 })),
+            })
+        }
+
+        fn migrate_checkpoint(
+            &self,
+            context: StepCheckpointMigrationContext,
+        ) -> std::result::Result<StepCheckpointMigrationOutcome, PipelineError> {
+            assert_eq!(context.source_schema_version, 2);
+            assert_eq!(context.target_schema_version, 1);
+            assert_eq!(context.checkpoint, json!({ "cursor": 1 }));
+            self.migrated.store(true, Ordering::Release);
+            Ok(StepCheckpointMigrationOutcome {
+                checkpoint: json!({ "cursor": 1, "migrated": true }),
+                usage: Some(json!({ "workUnits": 1 })),
+            })
+        }
+    }
+
+    impl PipelineStep for InterruptingCheckpointStep {
+        fn descriptor(&self) -> StepDescriptor {
+            StepDescriptor {
+                id: self.id.clone(),
+                version: "1.0.0".to_string(),
+                display_name: "Interrupting checkpoint step".to_string(),
+                input: ArtifactKind::Json,
+                output: ArtifactKind::Json,
+                config_schema_version: 1,
+                resumable: true,
+                cancellable: true,
+            }
+        }
+
+        fn execute(
+            &self,
+            context: StepExecutionContext,
+        ) -> std::result::Result<StepOutcome, PipelineError> {
+            if context.checkpoint != Some(json!({ "cursor": 1 })) {
+                return Err(PipelineError::Execution(
+                    "resume checkpoint was not restored".to_string(),
+                ));
+            }
+            self.resumed.store(true, Ordering::Release);
+            Ok(StepOutcome {
+                output: json!({ "resumed": true }),
+                checkpoint: Some(json!({ "cursor": 2 })),
+                usage: Some(json!({ "workUnits": 1 })),
+            })
+        }
+
+        fn execute_with_checkpoint_sink(
+            &self,
+            context: StepExecutionContext,
+            checkpoint_sink: Option<StepCheckpointSink>,
+        ) -> std::result::Result<StepOutcome, PipelineError> {
+            if context.checkpoint.is_none() {
+                checkpoint_sink
+                    .ok_or_else(|| {
+                        PipelineError::Execution("checkpoint sink was not provided".to_string())
+                    })?
+                    .publish(json!({ "cursor": 1 }))?;
+                return Err(PipelineError::Canceled);
+            }
+            self.execute(context)
+        }
+    }
+
+    impl PipelineStep for TestPluginPipelineStep {
+        fn descriptor(&self) -> StepDescriptor {
+            StepDescriptor {
+                id: self.id.clone(),
+                version: "1.0.0".to_string(),
+                display_name: "Test plugin pipeline step".to_string(),
+                input: ArtifactKind::Json,
+                output: ArtifactKind::Json,
+                config_schema_version: 1,
+                resumable: true,
+                cancellable: true,
+            }
+        }
+
+        fn execute(
+            &self,
+            context: StepExecutionContext,
+        ) -> std::result::Result<StepOutcome, PipelineError> {
+            self.started.store(true, Ordering::Release);
+            let deadline = Instant::now() + Duration::from_millis(self.delay_ms);
+            while Instant::now() < deadline {
+                if context.cancellation.load(Ordering::Acquire) {
+                    return Err(PipelineError::Canceled);
+                }
+                thread::sleep(Duration::from_millis(5));
+            }
+            Ok(StepOutcome {
+                output: json!({ "plugin": true, "input": context.input }),
+                checkpoint: Some(json!({ "cursor": 1 })),
+                usage: Some(json!({ "units": 1 })),
+            })
+        }
+
+        fn execute_with_checkpoint_sink(
+            &self,
+            context: StepExecutionContext,
+            checkpoint_sink: Option<StepCheckpointSink>,
+        ) -> std::result::Result<StepOutcome, PipelineError> {
+            if self.publish_intermediate
+                && let Some(sink) = checkpoint_sink
+            {
+                sink.publish(json!({ "cursor": 0 }))?;
+            }
+            self.execute(context)
+        }
+    }
+
+    fn test_plugin_pipeline_owner(step_id: &str, activation_revision: u64) -> PipelineStepOwner {
+        test_plugin_pipeline_owner_with_schema(step_id, activation_revision, 1)
+    }
+
+    fn test_plugin_pipeline_owner_with_schema(
+        step_id: &str,
+        activation_revision: u64,
+        checkpoint_schema_version: u32,
+    ) -> PipelineStepOwner {
+        PipelineStepOwner::Plugin {
+            plugin_id: "example.pipeline-test".to_string(),
+            version_id: format!("version-{activation_revision}"),
+            activation_revision,
+            contribution_id: step_id.to_string(),
+            contribution_version: "1.0.0".to_string(),
+            descriptor_version: 1,
+            operation_protocol_version: 1,
+            config_schema_version: 1,
+            checkpoint_schema_version: Some(checkpoint_schema_version),
+            tier: translunar_pipeline::PluginPipelineTier::Sandbox,
+            descriptor_hash: format!("{activation_revision:064x}"),
+        }
+    }
+
+    fn wait_for_pipeline_terminal(
+        service: &EngineService,
+        run_id: &str,
+    ) -> ProtocolPipelineRunSnapshot {
+        let mut snapshot = service
+            .get_pipeline_run(PipelineRunIdParams {
+                run_id: run_id.to_string(),
+            })
+            .expect("read pipeline run");
+        for _ in 0..200 {
+            if snapshot.run.status.is_terminal() {
+                return snapshot;
+            }
+            thread::sleep(Duration::from_millis(10));
+            snapshot = service
+                .get_pipeline_run(PipelineRunIdParams {
+                    run_id: run_id.to_string(),
+                })
+                .expect("poll pipeline run");
+        }
+        snapshot
+    }
+
     #[test]
     fn complete_service_flow_survives_restart() {
         let context = TestContext::new();
@@ -9410,6 +10612,478 @@ mod tests {
         assert_eq!(
             final_snapshot.steps[0].status,
             translunar_pipeline::PipelineStepStatus::Canceled
+        );
+    }
+
+    #[test]
+    fn plugin_pipeline_run_persists_binding_attempt_and_checkpoint() {
+        let context = TestContext::new();
+        let mut service = EngineService::open(context.root.path()).expect("open engine");
+        let project = TestContext::project(&mut service);
+        let step_id = "example.pipeline.success";
+        let owner = test_plugin_pipeline_owner(step_id, 1);
+        service
+            .pipeline
+            .registry
+            .register_plugin(
+                Arc::new(TestPluginPipelineStep {
+                    id: step_id.to_string(),
+                    delay_ms: 0,
+                    started: Arc::new(AtomicBool::new(false)),
+                    publish_intermediate: true,
+                }),
+                owner.clone(),
+            )
+            .expect("register plugin step");
+        let definition = service
+            .create_pipeline(CreatePipelineParams {
+                project_id: Some(project.id.clone()),
+                name: "Plugin provenance".to_string(),
+                steps: vec![PipelineStepDefinition {
+                    key: "plugin".to_string(),
+                    step_id: step_id.to_string(),
+                    config: json!({ "mode": "strict" }),
+                }],
+            })
+            .expect("create plugin pipeline");
+        let created = service
+            .run_pipeline(RunPipelineParams {
+                definition_id: definition.id,
+                project_id: project.id,
+                document_id: None,
+                input: json!({ "value": 7 }),
+            })
+            .expect("run plugin pipeline");
+        let completed = wait_for_pipeline_terminal(&service, &created.run.id);
+        assert_eq!(
+            completed.run.status,
+            translunar_pipeline::PipelineRunStatus::Succeeded
+        );
+        let step = &completed.steps[0];
+        let binding = step.plugin_binding.as_ref().expect("immutable binding");
+        assert_eq!(binding.owner, owner);
+        assert_eq!(binding.config_hash.len(), 64);
+        let attempt = step.latest_plugin_attempt.as_ref().expect("plugin attempt");
+        assert_eq!(attempt.operation, PipelineStepPluginOperation::Execute);
+        assert_eq!(attempt.input_hash.len(), 64);
+        assert_eq!(attempt.output_hash.as_ref().map(String::len), Some(64));
+        assert_eq!(
+            attempt.checkpoint_output_hash.as_ref().map(String::len),
+            Some(64)
+        );
+        assert!(attempt.failure.is_none());
+        let checkpoint = step.latest_checkpoint.as_ref().expect("checkpoint history");
+        assert_eq!(checkpoint.sequence, 1);
+        assert_eq!(checkpoint.schema_version, 1);
+        assert_eq!(checkpoint.checkpoint_hash.len(), 64);
+    }
+
+    #[test]
+    fn plugin_intermediate_checkpoint_survives_restart_and_drives_resume() {
+        let context = TestContext::new();
+        let step_id = "example.pipeline.interrupting-checkpoint";
+        let owner = test_plugin_pipeline_owner(step_id, 1);
+        let run_id;
+        {
+            let mut service = EngineService::open(context.root.path()).expect("open engine");
+            let project = TestContext::project(&mut service);
+            service
+                .pipeline
+                .registry
+                .register_plugin(
+                    Arc::new(InterruptingCheckpointStep {
+                        id: step_id.to_string(),
+                        resumed: Arc::new(AtomicBool::new(false)),
+                    }),
+                    owner.clone(),
+                )
+                .expect("register interrupting plugin step");
+            let definition = service
+                .create_pipeline(CreatePipelineParams {
+                    project_id: Some(project.id.clone()),
+                    name: "Plugin checkpoint restart".to_string(),
+                    steps: vec![PipelineStepDefinition {
+                        key: "plugin".to_string(),
+                        step_id: step_id.to_string(),
+                        config: Value::Null,
+                    }],
+                })
+                .expect("create checkpoint pipeline");
+            let created = service
+                .run_pipeline(RunPipelineParams {
+                    definition_id: definition.id,
+                    project_id: project.id,
+                    document_id: None,
+                    input: json!({ "records": ["one", "two"] }),
+                })
+                .expect("start checkpoint pipeline");
+            run_id = created.run.id;
+            for _ in 0..100 {
+                let snapshot = service
+                    .get_pipeline_run(PipelineRunIdParams {
+                        run_id: run_id.clone(),
+                    })
+                    .expect("poll intermediate checkpoint");
+                if snapshot.steps[0].checkpoint == Some(json!({ "cursor": 1 })) {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(5));
+            }
+            let running = service
+                .get_pipeline_run(PipelineRunIdParams {
+                    run_id: run_id.clone(),
+                })
+                .expect("read checkpointed run");
+            assert_eq!(running.steps[0].checkpoint, Some(json!({ "cursor": 1 })));
+            assert_eq!(
+                running.run.status,
+                translunar_pipeline::PipelineRunStatus::Running
+            );
+        }
+
+        let mut service = EngineService::open(context.root.path()).expect("restart engine");
+        let interrupted = service
+            .get_pipeline_run(PipelineRunIdParams {
+                run_id: run_id.clone(),
+            })
+            .expect("read interrupted plugin run");
+        assert_eq!(
+            interrupted.run.status,
+            translunar_pipeline::PipelineRunStatus::Interrupted
+        );
+        let resumed = Arc::new(AtomicBool::new(false));
+        service
+            .pipeline
+            .registry
+            .register_plugin(
+                Arc::new(InterruptingCheckpointStep {
+                    id: step_id.to_string(),
+                    resumed: Arc::clone(&resumed),
+                }),
+                owner,
+            )
+            .expect("reattach exact plugin generation");
+        service
+            .resume_pipeline_run(PipelineRunRevisionParams {
+                run_id: run_id.clone(),
+                expected_revision: interrupted.run.revision,
+            })
+            .expect("resume checkpointed plugin run");
+        let completed = wait_for_pipeline_terminal(&service, &run_id);
+        assert_eq!(
+            completed.run.status,
+            translunar_pipeline::PipelineRunStatus::Succeeded,
+            "resume failed: {:?}; step: {:?}",
+            completed.run.error,
+            completed.steps[0]
+        );
+        assert!(resumed.load(Ordering::Acquire));
+        assert_eq!(completed.steps[0].checkpoint, Some(json!({ "cursor": 2 })));
+    }
+
+    #[test]
+    fn detached_plugin_generation_cannot_publish_late_pipeline_result() {
+        let context = TestContext::new();
+        let mut service = EngineService::open(context.root.path()).expect("open engine");
+        let project = TestContext::project(&mut service);
+        let step_id = "example.pipeline.detach";
+        let owner_v1 = test_plugin_pipeline_owner(step_id, 1);
+        let owner_v2 = test_plugin_pipeline_owner(step_id, 2);
+        let started = Arc::new(AtomicBool::new(false));
+        service
+            .pipeline
+            .registry
+            .register_plugin(
+                Arc::new(TestPluginPipelineStep {
+                    id: step_id.to_string(),
+                    delay_ms: 1_000,
+                    started: Arc::clone(&started),
+                    publish_intermediate: false,
+                }),
+                owner_v1.clone(),
+            )
+            .expect("register old generation");
+        let definition = service
+            .create_pipeline(CreatePipelineParams {
+                project_id: Some(project.id.clone()),
+                name: "Plugin detach race".to_string(),
+                steps: vec![PipelineStepDefinition {
+                    key: "plugin".to_string(),
+                    step_id: step_id.to_string(),
+                    config: Value::Null,
+                }],
+            })
+            .expect("create plugin pipeline");
+        let created = service
+            .run_pipeline(RunPipelineParams {
+                definition_id: definition.id,
+                project_id: project.id,
+                document_id: None,
+                input: json!({}),
+            })
+            .expect("run old generation");
+        for _ in 0..200 {
+            if started.load(Ordering::Acquire) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(started.load(Ordering::Acquire), "old generation started");
+        let old_binding = service
+            .pipeline
+            .registry
+            .resolve_binding(step_id)
+            .expect("resolve old generation")
+            .binding()
+            .clone();
+        service.pipeline.cancel_owner(&owner_v1);
+        service
+            .pipeline
+            .registry
+            .unregister_binding(&old_binding)
+            .expect("detach old generation");
+        service
+            .pipeline
+            .registry
+            .register_plugin(
+                Arc::new(TestPluginPipelineStep {
+                    id: step_id.to_string(),
+                    delay_ms: 0,
+                    started: Arc::new(AtomicBool::new(false)),
+                    publish_intermediate: false,
+                }),
+                owner_v2.clone(),
+            )
+            .expect("register replacement generation");
+
+        let failed = wait_for_pipeline_terminal(&service, &created.run.id);
+        assert_eq!(
+            failed.run.status,
+            translunar_pipeline::PipelineRunStatus::Failed
+        );
+        assert_eq!(
+            failed.run.error.as_ref().map(|error| error.code.as_str()),
+            Some("plugin_stale_activation")
+        );
+        assert!(failed.steps[0].output.is_none());
+        assert!(failed.steps[0].checkpoint.is_none());
+        assert!(failed.steps[0].latest_plugin_attempt.is_none());
+        assert!(failed.steps[0].latest_checkpoint.is_none());
+        assert_eq!(
+            service
+                .pipeline
+                .registry
+                .resolve_binding(step_id)
+                .expect("replacement remains")
+                .binding()
+                .owner,
+            owner_v2
+        );
+    }
+
+    #[test]
+    fn plugin_checkpoint_migration_is_recorded_before_resume() {
+        let context = TestContext::new();
+        let run_id;
+        let step_id = "example.pipeline.migrate";
+        {
+            let mut service = EngineService::open(context.root.path()).expect("open engine");
+            let project = TestContext::project(&mut service);
+            service
+                .pipeline
+                .registry
+                .register_plugin(
+                    Arc::new(TestPluginPipelineStep {
+                        id: step_id.to_string(),
+                        delay_ms: 0,
+                        started: Arc::new(AtomicBool::new(false)),
+                        publish_intermediate: false,
+                    }),
+                    test_plugin_pipeline_owner_with_schema(step_id, 1, 2),
+                )
+                .expect("register schema-two generation");
+            let definition = service
+                .create_pipeline(CreatePipelineParams {
+                    project_id: Some(project.id.clone()),
+                    name: "Checkpoint migration".to_string(),
+                    steps: vec![PipelineStepDefinition {
+                        key: "plugin".to_string(),
+                        step_id: step_id.to_string(),
+                        config: json!({ "mode": "stable" }),
+                    }],
+                })
+                .expect("create migration pipeline");
+            let resolved = service
+                .pipeline
+                .resolve_new_run(&definition)
+                .expect("resolve original binding");
+            let created = service
+                .store
+                .create_pipeline_run_with_bindings(
+                    &definition.id,
+                    &project.id,
+                    None,
+                    json!({ "records": ["one"] }),
+                    &resolved.plugin_bindings,
+                )
+                .expect("create migration run");
+            run_id = created.run.id;
+            service
+                .store
+                .start_pipeline_run(&run_id)
+                .expect("start run");
+            service
+                .store
+                .start_pipeline_step(&run_id, 0, json!({ "records": ["one"] }))
+                .expect("start plugin step");
+            service
+                .store
+                .append_pipeline_step_checkpoint(&run_id, 0, 2, json!({ "cursor": 1 }))
+                .expect("append schema-two checkpoint");
+        }
+
+        let mut service = EngineService::open(context.root.path()).expect("restart engine");
+        let migrated = Arc::new(AtomicBool::new(false));
+        service
+            .pipeline
+            .registry
+            .register_plugin(
+                Arc::new(MigratingCheckpointStep {
+                    id: step_id.to_string(),
+                    migrated: Arc::clone(&migrated),
+                }),
+                test_plugin_pipeline_owner_with_schema(step_id, 2, 1),
+            )
+            .expect("register schema-one generation");
+        let interrupted = service
+            .get_pipeline_run(PipelineRunIdParams {
+                run_id: run_id.clone(),
+            })
+            .expect("read interrupted migration run");
+        service
+            .resume_pipeline_run(PipelineRunRevisionParams {
+                run_id: run_id.clone(),
+                expected_revision: interrupted.run.revision,
+            })
+            .expect("migrate and resume checkpoint");
+        let completed = wait_for_pipeline_terminal(&service, &run_id);
+        assert_eq!(
+            completed.run.status,
+            translunar_pipeline::PipelineRunStatus::Succeeded,
+            "migration failed: {:?}",
+            completed.run.error
+        );
+        assert!(migrated.load(Ordering::Acquire));
+        assert_eq!(
+            completed.steps[0]
+                .plugin_binding
+                .as_ref()
+                .and_then(|binding| match &binding.owner {
+                    PipelineStepOwner::Plugin {
+                        checkpoint_schema_version,
+                        ..
+                    } => *checkpoint_schema_version,
+                    PipelineStepOwner::Builtin => None,
+                }),
+            Some(2),
+            "the immutable original binding must not be rewritten"
+        );
+        assert_eq!(
+            completed.steps[0]
+                .latest_checkpoint
+                .as_ref()
+                .map(|checkpoint| (checkpoint.sequence, checkpoint.schema_version)),
+            Some((2, 1)),
+            "source, migrated, and resumed checkpoints should remain append-only"
+        );
+    }
+
+    #[test]
+    fn pipeline_resume_accepts_a_compatible_plugin_generation() {
+        let context = TestContext::new();
+        let run_id;
+        let step_id = "example.pipeline.resume";
+        {
+            let mut service = EngineService::open(context.root.path()).expect("open engine");
+            let project = TestContext::project(&mut service);
+            service
+                .pipeline
+                .registry
+                .register_plugin(
+                    Arc::new(TestPluginPipelineStep {
+                        id: step_id.to_string(),
+                        delay_ms: 0,
+                        started: Arc::new(AtomicBool::new(false)),
+                        publish_intermediate: false,
+                    }),
+                    test_plugin_pipeline_owner(step_id, 1),
+                )
+                .expect("register original generation");
+            let definition = service
+                .create_pipeline(CreatePipelineParams {
+                    project_id: Some(project.id.clone()),
+                    name: "Pinned plugin resume".to_string(),
+                    steps: vec![PipelineStepDefinition {
+                        key: "plugin".to_string(),
+                        step_id: step_id.to_string(),
+                        config: json!({ "versioned": true }),
+                    }],
+                })
+                .expect("create plugin pipeline");
+            let resolved = service
+                .pipeline
+                .resolve_new_run(&definition)
+                .expect("resolve immutable bindings");
+            let created = service
+                .store
+                .create_pipeline_run_with_bindings(
+                    &definition.id,
+                    &project.id,
+                    None,
+                    json!({}),
+                    &resolved.plugin_bindings,
+                )
+                .expect("create pinned run");
+            run_id = created.run.id;
+            service
+                .store
+                .start_pipeline_run(&run_id)
+                .expect("start run");
+            service
+                .store
+                .start_pipeline_step(&run_id, 0, json!({}))
+                .expect("start plugin step");
+        }
+
+        let mut service = EngineService::open(context.root.path()).expect("restart engine");
+        service
+            .pipeline
+            .registry
+            .register_plugin(
+                Arc::new(TestPluginPipelineStep {
+                    id: step_id.to_string(),
+                    delay_ms: 0,
+                    started: Arc::new(AtomicBool::new(false)),
+                    publish_intermediate: false,
+                }),
+                test_plugin_pipeline_owner(step_id, 2),
+            )
+            .expect("register replacement generation");
+        let interrupted = service
+            .get_pipeline_run(PipelineRunIdParams {
+                run_id: run_id.clone(),
+            })
+            .expect("read interrupted run");
+        let resumed = service
+            .resume_pipeline_run(PipelineRunRevisionParams {
+                run_id,
+                expected_revision: interrupted.run.revision,
+            })
+            .expect("resume compatible generation");
+        let completed = wait_for_pipeline_terminal(&service, &resumed.run.id);
+        assert_eq!(
+            completed.run.status,
+            translunar_pipeline::PipelineRunStatus::Succeeded
         );
     }
 
@@ -10470,6 +12144,18 @@ mod tests {
                 .capabilities
                 .iter()
                 .any(|value| value == "interop.bilingual-table")
+        );
+        assert!(
+            initialize_result
+                .capabilities
+                .iter()
+                .any(|value| value == "plugin.qa-rule.v1")
+        );
+        assert!(
+            initialize_result
+                .capabilities
+                .iter()
+                .any(|value| value == "plugin.pipeline-step.v1")
         );
 
         let created_template = dispatcher.handle(RpcRequest {

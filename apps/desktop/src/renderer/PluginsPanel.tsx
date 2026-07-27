@@ -10,6 +10,7 @@ import type {
   PluginCapabilityScope,
   PluginContributionDescriptor,
   PluginSummary,
+  PipelineRunSnapshot,
 } from "@translunar/contracts";
 import {
   Ban,
@@ -30,8 +31,15 @@ import "./PluginsPanel.css";
 import { useLocale } from "./i18n/LocaleProvider";
 import type { MessageKey } from "./i18n/messages";
 import { PluginPanelHost } from "./PluginPanelHost";
+import {
+  findContributionPermission,
+  formatDescriptorValue,
+  listExecutableContributions,
+  type ExecutablePluginContribution,
+} from "./plugin-provenance-utils";
 
 interface PluginsPanelProps {
+  projectId: string;
   onRefresh(): Promise<void>;
 }
 
@@ -60,7 +68,7 @@ const CHANGE_KEYS: Record<PluginCapabilityChangeKind, MessageKey> = {
   removed: "plugins.change.removed",
 };
 
-export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
+export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
   const { t, formatDate } = useLocale();
   const [plugins, setPlugins] = useState<PluginSummary[]>([]);
   const [providerProfiles, setProviderProfiles] = useState<AiProviderProfile[]>(
@@ -69,9 +77,12 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
   const [connectorCatalog, setConnectorCatalog] = useState<
     AiConnectorCatalogItem[]
   >([]);
-  const [connectorPermissions, setConnectorPermissions] = useState<
+  const [contributionPermissions, setContributionPermissions] = useState<
     Record<string, PluginCapabilityRequestView[] | null>
   >({});
+  const [pipelineRuns, setPipelineRuns] = useState<PipelineRunSnapshot[]>([]);
+  const [pipelineLoading, setPipelineLoading] = useState(true);
+  const [pipelineError, setPipelineError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -111,13 +122,16 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
         }),
         window.translunar.invoke("ai.provider.catalog", {}),
       ]);
-      const connectorPlugins = page.items.filter((plugin) =>
+      const executablePlugins = page.items.filter((plugin) =>
         (plugin.contributions ?? []).some(
-          (contribution) => contribution.kind === "engineConnector",
+          (contribution) =>
+            contribution.kind === "engineConnector" ||
+            contribution.kind === "qaRule" ||
+            contribution.kind === "pipelineStep",
         ),
       );
       const permissionEntries = await Promise.all(
-        connectorPlugins.map(async (plugin) => {
+        executablePlugins.map(async (plugin) => {
           try {
             const nextReview = await window.translunar.invoke(
               "plugin.permission.review",
@@ -132,7 +146,7 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
       setPlugins(page.items);
       setProviderProfiles(profiles.items);
       setConnectorCatalog(catalog.items);
-      setConnectorPermissions(Object.fromEntries(permissionEntries));
+      setContributionPermissions(Object.fromEntries(permissionEntries));
     } catch (cause) {
       setError(formatError(cause));
     } finally {
@@ -140,9 +154,32 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
     }
   }, []);
 
+  const loadPipelineHistory = useCallback(async () => {
+    setPipelineLoading(true);
+    setPipelineError(null);
+    try {
+      const page = await window.translunar.invoke("pipeline.run.list", {
+        projectId,
+        offset: 0,
+        limit: 10,
+      });
+      const snapshots = await Promise.all(
+        page.items.map((run) =>
+          window.translunar.invoke("pipeline.run.get", { runId: run.id }),
+        ),
+      );
+      setPipelineRuns(snapshots);
+    } catch (cause) {
+      setPipelineError(formatError(cause));
+    } finally {
+      setPipelineLoading(false);
+    }
+  }, [projectId]);
+
   useEffect(() => {
     void load();
-  }, [load]);
+    void loadPipelineHistory();
+  }, [load, loadPipelineHistory]);
 
   const openReview = async (pluginId: string, preserveReason = false) => {
     setBusyId(`review:${pluginId}`);
@@ -270,7 +307,14 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
           <p className="plugins-panel__lede">{t("plugins.lede")}</p>
         </div>
         <div className="plugins-panel__actions">
-          <button type="button" onClick={() => void load()} disabled={loading}>
+          <button
+            type="button"
+            onClick={() => {
+              void load();
+              void loadPipelineHistory();
+            }}
+            disabled={loading || pipelineLoading}
+          >
             <RefreshCw size={14} aria-hidden />
             {t("common.refresh")}
           </button>
@@ -315,6 +359,9 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
                 { kind: "engineConnector" }
               > => contribution.kind === "engineConnector",
             );
+            const executableContributions = listExecutableContributions(
+              plugin.contributions,
+            );
             return (
               <li key={plugin.id} className="plugins-panel__item">
                 <div className="plugins-panel__identity">
@@ -334,6 +381,16 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
                   </div>
                   {plugin.lastError ? (
                     <p className="plugins-panel__error">{plugin.lastError}</p>
+                  ) : null}
+                  {plugin.compatibility || plugin.diagnostics?.length ? (
+                    <PluginDiagnostics plugin={plugin} />
+                  ) : null}
+                  {executableContributions.length ? (
+                    <ContributionInventory
+                      plugin={plugin}
+                      contributions={executableContributions}
+                      requests={contributionPermissions[plugin.id]}
+                    />
                   ) : null}
                   {connectors.length ? (
                     <div className="plugins-connector-list">
@@ -358,7 +415,7 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
                                 catalogItem.source.contractVersion),
                         );
                         const permissionRequests =
-                          connectorPermissions[plugin.id];
+                          contributionPermissions[plugin.id];
                         const authority = permissionRequests?.find(
                           (request) =>
                             request.capabilityId === "engine.connector" &&
@@ -530,6 +587,12 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
           })}
         </ul>
       )}
+
+      <PipelineHistory
+        snapshots={pipelineRuns}
+        loading={pipelineLoading}
+        error={pipelineError}
+      />
 
       {panelPreview ? (
         <div className="surface-dialog-backdrop" role="presentation">
@@ -755,6 +818,306 @@ export function PluginsPanel({ onRefresh }: PluginsPanelProps) {
           </section>
         </div>
       ) : null}
+    </section>
+  );
+}
+
+function PluginDiagnostics({ plugin }: { plugin: PluginSummary }) {
+  const { t } = useLocale();
+  return (
+    <div className="plugins-runtime-diagnostics">
+      {plugin.compatibility ? (
+        <span data-compatible={plugin.compatibility.compatible}>
+          {t("plugins.compatibility", {
+            state: plugin.compatibility.compatible
+              ? t("plugins.compatibilityReady")
+              : t("plugins.compatibilityBlocked"),
+          })}
+        </span>
+      ) : null}
+      {(plugin.diagnostics ?? []).map((diagnostic, index) => (
+        <span
+          key={`${diagnostic.code}:${diagnostic.phase ?? ""}:${index}`}
+          data-severity={diagnostic.severity ?? "info"}
+          title={diagnostic.message}
+        >
+          {diagnostic.code}
+          {diagnostic.phase ? ` · ${diagnostic.phase}` : ""}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function ContributionInventory({
+  plugin,
+  contributions,
+  requests,
+}: {
+  plugin: PluginSummary;
+  contributions: readonly ExecutablePluginContribution[];
+  requests: readonly PluginCapabilityRequestView[] | null | undefined;
+}) {
+  const { t } = useLocale();
+  return (
+    <section
+      className="plugins-contribution-inventory"
+      aria-label={t("plugins.inventoryAria")}
+    >
+      <header>
+        <strong>{t("plugins.inventoryTitle")}</strong>
+        <span>
+          {t("plugins.contributionCount", { count: contributions.length })}
+        </span>
+      </header>
+      <div className="plugins-contribution-list">
+        {contributions.map((contribution) => {
+          const permission = findContributionPermission(requests, contribution);
+          const decision =
+            permission === undefined
+              ? "unknown"
+              : permission === null
+                ? "not-requested"
+                : permission.decision;
+          const capabilityId =
+            contribution.kind === "qaRule"
+              ? "qa.register"
+              : "pipeline.register";
+          const grantedScope = permission?.grantedScope;
+          const scopeLabel =
+            grantedScope?.kind === "contributions"
+              ? grantedScope.contributionIds.join(", ")
+              : (grantedScope?.kind ?? t("plugins.scopeUnscoped"));
+          return (
+            <article
+              key={`${contribution.kind}:${contribution.id}`}
+              data-contribution-kind={contribution.kind}
+            >
+              <header>
+                <div>
+                  <strong>{contribution.displayName}</strong>
+                  <code title={contribution.id}>{contribution.id}</code>
+                </div>
+                <span data-decision={decision}>
+                  {permission === undefined
+                    ? t("plugins.permissionUnknown")
+                    : permission === null
+                      ? t("plugins.connectorNotRequested")
+                      : permission.decision}
+                </span>
+              </header>
+              <dl>
+                <div>
+                  <dt>{t("plugins.contributionKind")}</dt>
+                  <dd>
+                    {contribution.kind === "qaRule"
+                      ? t("plugins.qaRule")
+                      : t("plugins.pipelineStep")}
+                  </dd>
+                </div>
+                <div>
+                  <dt>{t("plugins.pluginVersion")}</dt>
+                  <dd title={plugin.activeVersionId ?? plugin.version}>
+                    {plugin.version} · {plugin.tier} · {plugin.status}
+                    {plugin.activeVersionId ? (
+                      <code>{plugin.activeVersionId}</code>
+                    ) : null}
+                  </dd>
+                </div>
+                <div>
+                  <dt>{t("plugins.operationAuthority")}</dt>
+                  <dd>
+                    {capabilityId} · {decision} · {scopeLabel}
+                  </dd>
+                </div>
+                <div>
+                  <dt>{t("plugins.contributionVersion")}</dt>
+                  <dd>{contribution.version}</dd>
+                </div>
+                <div>
+                  <dt>{t("plugins.descriptorVersions")}</dt>
+                  <dd>
+                    {t("plugins.descriptorVersionShort", {
+                      version: contribution.descriptorVersion,
+                    })}
+                    {contribution.operationProtocolVersion != null
+                      ? ` · ${t("plugins.operationVersionShort", {
+                          version: contribution.operationProtocolVersion,
+                        })}`
+                      : ""}
+                  </dd>
+                </div>
+                {contribution.kind === "qaRule" ? (
+                  <>
+                    <div>
+                      <dt>{t("plugins.ruleContract")}</dt>
+                      <dd>
+                        {contribution.ruleKind ?? contribution.ruleType} ·{" "}
+                        {contribution.severity}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{t("plugins.configSchemaVersion")}</dt>
+                      <dd>
+                        {contribution.configSchemaVersion ?? t("common.none")}
+                      </dd>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <dt>{t("plugins.artifactContract")}</dt>
+                      <dd>
+                        {formatDescriptorValue(contribution.input)} →{" "}
+                        {formatDescriptorValue(contribution.output)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{t("plugins.schemaVersions")}</dt>
+                      <dd>
+                        {t("plugins.configVersionShort", {
+                          version: contribution.configSchemaVersion,
+                        })}
+                        {contribution.checkpointSchemaVersion != null
+                          ? ` · ${t("plugins.checkpointVersionShort", {
+                              version: contribution.checkpointSchemaVersion,
+                            })}`
+                          : ""}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{t("plugins.executionControls")}</dt>
+                      <dd>
+                        {t("plugins.resumable", {
+                          state: contribution.resumable
+                            ? t("plugins.yes")
+                            : t("plugins.no"),
+                        })}
+                        {" · "}
+                        {t("plugins.cancellable", {
+                          state: contribution.cancellable
+                            ? t("plugins.yes")
+                            : t("plugins.no"),
+                        })}
+                      </dd>
+                    </div>
+                  </>
+                )}
+              </dl>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function PipelineHistory({
+  snapshots,
+  loading,
+  error,
+}: {
+  snapshots: readonly PipelineRunSnapshot[];
+  loading: boolean;
+  error: string | null;
+}) {
+  const { t, formatDate } = useLocale();
+  return (
+    <section
+      className="plugins-pipeline-history"
+      aria-label={t("plugins.pipelineHistoryAria")}
+    >
+      <header>
+        <div>
+          <span className="surface-kicker">
+            {t("plugins.pipelineHistoryKicker")}
+          </span>
+          <h3>{t("plugins.pipelineHistoryTitle")}</h3>
+        </div>
+        <span>
+          {t("plugins.pipelineRunCount", { count: snapshots.length })}
+        </span>
+      </header>
+      {error ? (
+        <p className="plugins-panel__error" role="alert">
+          {error}
+        </p>
+      ) : loading ? (
+        <p className="plugins-panel__empty">
+          {t("plugins.pipelineHistoryLoading")}
+        </p>
+      ) : snapshots.length === 0 ? (
+        <p className="plugins-panel__empty">
+          {t("plugins.pipelineHistoryEmpty")}
+        </p>
+      ) : (
+        <div className="plugins-pipeline-runs">
+          {snapshots.map((snapshot) => {
+            const pluginSteps = snapshot.steps.filter(
+              (step) => step.pluginBinding?.owner.kind === "plugin",
+            );
+            return (
+              <article key={snapshot.run.id}>
+                <header>
+                  <div>
+                    <strong>{snapshot.run.definitionId}</strong>
+                    <code title={snapshot.run.id}>{snapshot.run.id}</code>
+                  </div>
+                  <span data-status={snapshot.run.status}>
+                    {snapshot.run.status}
+                  </span>
+                  <time
+                    dateTime={new Date(snapshot.run.createdAtMs).toISOString()}
+                  >
+                    {formatDate(snapshot.run.createdAtMs)}
+                  </time>
+                </header>
+                {pluginSteps.length === 0 ? (
+                  <p>{t("plugins.pipelineNoPluginSteps")}</p>
+                ) : (
+                  <div className="plugins-pipeline-steps">
+                    {pluginSteps.map((step) => {
+                      const owner = step.pluginBinding?.owner;
+                      if (!owner || owner.kind !== "plugin") return null;
+                      const failure =
+                        step.latestPluginAttempt?.failure ?? step.error;
+                      return (
+                        <div key={step.id}>
+                          <strong>{step.stepId}</strong>
+                          <span>{owner.pluginId}</span>
+                          <span>
+                            {owner.contributionId} · {owner.contributionVersion}{" "}
+                            · {owner.tier}
+                          </span>
+                          <span>
+                            {t("plugins.activationRevision", {
+                              revision: owner.activationRevision,
+                            })}
+                            {" · "}
+                            {t("plugins.descriptorVersionShort", {
+                              version: owner.descriptorVersion,
+                            })}
+                            {" · "}
+                            {t("plugins.operationVersionShort", {
+                              version: owner.operationProtocolVersion,
+                            })}
+                          </span>
+                          <span data-status={step.status}>{step.status}</span>
+                          {failure ? (
+                            <p className="plugins-panel__error">
+                              {failure.code}: {failure.message}
+                            </p>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }

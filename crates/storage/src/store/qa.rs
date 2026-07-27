@@ -5,12 +5,14 @@ use translunar_asset_core::term_spans;
 use translunar_domain::{ProjectConfiguration, QaSeverity, ReviewStatus, new_id, sha256_hex};
 use translunar_editor_core::validate_target_tags;
 use translunar_qa_core::{
-    CompiledQaProfile, QaCandidateEvidence, QaCategory, QaConsistencySegment, QaExportOverride,
-    QaFindingCandidate, QaGateResult, QaIssueDisposition, QaIssueView, QaOverrideStatus, QaProfile,
-    QaProfileDefinition, QaReportFormat, QaReportItem, QaReportRecord, QaReportSnapshot, QaRun,
-    QaRunScope, QaRunStatus, QaSegmentInput, QaTagFinding, QaTermExpectation, QaWaiver,
-    ReviewQueueItem, ReviewStatistics, ReviewerStatistic, built_in_profiles, default_profile_id,
-    evaluate_consistency,
+    CompiledQaProfile, QaCandidateEvidence, QaCategory, QaConsistencySegment, QaExecutionSegment,
+    QaExportOverride, QaFindingCandidate, QaGateResult, QaIssueDisposition, QaIssueView,
+    QaOverrideStatus, QaProfile, QaProfileDefinition, QaReportFormat, QaReportItem, QaReportRecord,
+    QaReportSnapshot, QaRuleExecutionFailure, QaRuleExecutionRecord, QaRuleExecutionStatus,
+    QaRuleExecutionUsage, QaRuleProvenanceSnapshot, QaRun, QaRunPluginRuleSnapshot, QaRunScope,
+    QaRunStatus, QaSegmentInput, QaTagFinding, QaTermExpectation, QaWaiver, ReviewQueueItem,
+    ReviewStatistics, ReviewerStatistic, built_in_profiles, canonicalize_qa_candidates,
+    default_profile_id, evaluate_consistency,
 };
 
 use super::{
@@ -49,6 +51,25 @@ pub struct QaIssueFilter {
     pub rule_id: Option<String>,
     pub offset: u32,
     pub limit: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct PreparedQaRun {
+    pub run_id: String,
+    pub project_id: String,
+    pub document_id: Option<String>,
+    pub requested_profile_id: Option<String>,
+    pub scope: QaRunScope,
+    pub profile: QaProfile,
+    pub segments: Vec<QaExecutionSegment>,
+    pub input_snapshot_hash: String,
+    pub created_at_ms: i64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct EvaluatedQaRun {
+    pub candidates: Vec<QaFindingCandidate>,
+    pub plugin_rules: Vec<QaRuleExecutionRecord>,
 }
 
 impl Store {
@@ -238,44 +259,96 @@ impl Store {
         requested_profile_id: Option<&str>,
         additional_rules: &[translunar_qa_core::QaRegexRule],
     ) -> Result<QaRun> {
-        let project = self.get_project(project_id)?.project;
-        let mut profile = self.resolve_qa_profile(project_id, requested_profile_id)?;
-        for rule in additional_rules {
-            profile
-                .definition
-                .enabled_rule_ids
-                .insert(format!("qa.regex:{}", rule.id));
-            profile.definition.regex_rules.push(rule.clone());
+        let prepared = self.prepare_qa_run(project_id, document_id, requested_profile_id)?;
+        let mut evaluated = Self::evaluate_prepared_qa_run(&prepared)?;
+        if !additional_rules.is_empty() {
+            evaluated
+                .candidates
+                .extend(canonicalize_builtin_candidates(evaluate_regex_rules(
+                    additional_rules,
+                    &prepared.segments,
+                )?));
         }
-        let compiled = CompiledQaProfile::compile(profile.definition.clone())
+        self.commit_prepared_qa_run(prepared, evaluated)
+    }
+
+    pub fn prepare_qa_run(
+        &self,
+        project_id: &str,
+        document_id: Option<&str>,
+        requested_profile_id: Option<&str>,
+    ) -> Result<PreparedQaRun> {
+        let project = query_qa_project_context(&self.connection, project_id)?;
+        let profile = resolve_qa_profile_for_connection(
+            &self.connection,
+            project_id,
+            requested_profile_id,
+            &project,
+        )?;
+        validate_qa_document_scope(&self.connection, project_id, document_id)?;
+        let segments = query_qa_execution_segments(
+            &self.connection,
+            project_id,
+            document_id,
+            &project.source_locale,
+            &project.target_locale,
+        )?;
+        let input_snapshot_hash =
+            qa_input_snapshot_hash(project_id, document_id, &profile, &segments)?;
+        Ok(PreparedQaRun {
+            run_id: new_id(),
+            project_id: project_id.to_string(),
+            document_id: document_id.map(str::to_string),
+            requested_profile_id: requested_profile_id.map(str::to_string),
+            scope: if document_id.is_some() {
+                QaRunScope::Document
+            } else {
+                QaRunScope::Project
+            },
+            profile,
+            segments,
+            input_snapshot_hash,
+            created_at_ms: now_ms(),
+        })
+    }
+
+    pub fn evaluate_prepared_qa_run(prepared: &PreparedQaRun) -> Result<EvaluatedQaRun> {
+        Ok(EvaluatedQaRun {
+            candidates: canonicalize_builtin_candidates(evaluate_profile_candidates(
+                &prepared.profile.definition,
+                &prepared.segments,
+                true,
+            )?),
+            plugin_rules: Vec::new(),
+        })
+    }
+
+    pub fn commit_prepared_qa_run(
+        &mut self,
+        prepared: PreparedQaRun,
+        mut evaluated: EvaluatedQaRun,
+    ) -> Result<QaRun> {
+        evaluated.candidates = canonicalize_qa_candidates(&prepared.segments, evaluated.candidates)
             .map_err(|error| StorageError::InvalidState(error.to_string()))?;
-        let profile_json = serde_json::to_string(&profile.definition)?;
-        let profile_snapshot_hash = sha256_hex(profile_json.as_bytes());
-        let run_id = new_id();
-        let now = now_ms();
-        let scope = if document_id.is_some() {
-            QaRunScope::Document
-        } else {
-            QaRunScope::Project
-        };
+        canonicalize_qa_execution_records(&prepared, &mut evaluated.plugin_rules)?;
+        if evaluated
+            .plugin_rules
+            .iter()
+            .any(|record| record.status != QaRuleExecutionStatus::Succeeded)
+        {
+            return Err(StorageError::InvalidState(
+                "a successful QA run cannot contain failed plugin executions".to_string(),
+            ));
+        }
+        let profile_snapshot_hash = qa_run_snapshot_hash(
+            &prepared.profile,
+            &prepared.input_snapshot_hash,
+            &evaluated.plugin_rules,
+        )?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if let Some(document_id) = document_id {
-            let owner = transaction
-                .query_row(
-                    "SELECT project_id FROM documents WHERE id = ?1",
-                    [document_id],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()?
-                .ok_or_else(|| not_found("document", document_id))?;
-            if owner != project_id {
-                return Err(StorageError::InvalidState(
-                    "QA document belongs to another project".to_string(),
-                ));
-            }
-        }
+        recheck_prepared_qa_run(&transaction, &prepared)?;
         transaction.execute(
             "INSERT INTO qa_runs (
                 id, project_id, document_id, scope, profile_id, profile_name,
@@ -283,69 +356,33 @@ impl Store {
                 errors, warnings, info, waived, created_at_ms
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'running', 0, 0, 0, 0, 0, ?9)",
             params![
-                run_id,
-                project_id,
-                document_id,
-                qa_run_scope_text(scope),
-                profile.id,
-                profile.name,
-                to_i64(profile.revision)?,
+                prepared.run_id,
+                prepared.project_id,
+                prepared.document_id,
+                qa_run_scope_text(prepared.scope),
+                prepared.profile.id,
+                prepared.profile.name,
+                to_i64(prepared.profile.revision)?,
                 profile_snapshot_hash,
-                now,
+                prepared.created_at_ms,
             ],
         )?;
-        let segments = query_qa_scope_segments(&transaction, project_id, document_id)?;
-        resolve_scope_findings(&transaction, project_id, document_id, now)?;
-        let term_expectations =
-            query_term_expectations(&transaction, project_id, &project.target_locale)?;
-        let mut candidates = Vec::new();
-        for segment in &segments {
-            let source_tags = list_inline_tags(&transaction, &segment.id, TagSide::Source)?;
-            let target_tags = list_inline_tags(&transaction, &segment.id, TagSide::Target)?;
-            let tag_findings =
-                validate_target_tags(&source_tags, &target_tags, &segment.target_text)
-                    .into_iter()
-                    .map(|finding| QaTagFinding {
-                        code: finding.code,
-                        message: finding.message,
-                    })
-                    .collect();
-            let terms = term_expectations
-                .iter()
-                .filter(|term| !term_spans(&segment.source_text, &term.source_term).is_empty())
-                .cloned()
-                .collect();
-            candidates.extend(compiled.evaluate_segment(&QaSegmentInput {
-                segment_id: segment.id.clone(),
-                source_text: segment.source_text.clone(),
-                target_text: segment.target_text.clone(),
-                source_locale: project.source_locale.clone(),
-                target_locale: project.target_locale.clone(),
-                tag_findings,
-                terms,
-            }));
+        resolve_scope_findings(
+            &transaction,
+            &prepared.project_id,
+            prepared.document_id.as_deref(),
+            prepared.created_at_ms,
+        )?;
+        for candidate in &evaluated.candidates {
+            upsert_qa_candidate(
+                &transaction,
+                Some(&prepared.run_id),
+                &prepared.profile.id,
+                candidate,
+                prepared.created_at_ms,
+            )?;
         }
-        candidates.extend(evaluate_consistency(
-            &profile.definition,
-            &segments
-                .iter()
-                .map(|segment| QaConsistencySegment {
-                    segment_id: segment.id.clone(),
-                    source_text: segment.source_text.clone(),
-                    target_text: segment.target_text.clone(),
-                })
-                .collect::<Vec<_>>(),
-        ));
-        candidates.sort_by(|left, right| {
-            left.segment_id
-                .cmp(&right.segment_id)
-                .then_with(|| left.rule_id.cmp(&right.rule_id))
-                .then_with(|| left.fingerprint.cmp(&right.fingerprint))
-        });
-        for candidate in &candidates {
-            upsert_qa_candidate(&transaction, Some(&run_id), &profile.id, candidate, now)?;
-        }
-        let views = query_current_run_issue_views(&transaction, &run_id)?;
+        let views = query_current_run_issue_views(&transaction, &prepared.run_id)?;
         let mut errors = 0_u64;
         let mut warnings = 0_u64;
         let mut info = 0_u64;
@@ -360,24 +397,89 @@ impl Store {
                     QaSeverity::Info => info += 1,
                 }
             }
-            insert_qa_run_item(&transaction, &run_id, view)?;
+            insert_qa_run_item(&transaction, &prepared.run_id, view)?;
         }
+        insert_qa_plugin_rule_snapshots(
+            &transaction,
+            &prepared.run_id,
+            &evaluated.plugin_rules,
+            prepared.created_at_ms,
+        )?;
         transaction.execute(
             "UPDATE qa_runs
              SET status = 'succeeded', checked_segments = ?1, errors = ?2,
                  warnings = ?3, info = ?4, waived = ?5, completed_at_ms = ?6
              WHERE id = ?7",
             params![
-                to_i64(segments.len() as u64)?,
+                to_i64(u64::try_from(prepared.segments.len()).map_err(|_| {
+                    StorageError::InvalidState("QA segment count is oversized".to_string())
+                })?)?,
                 to_i64(errors)?,
                 to_i64(warnings)?,
                 to_i64(info)?,
                 to_i64(waived)?,
-                now,
-                run_id,
+                prepared.created_at_ms,
+                prepared.run_id,
             ],
         )?;
-        let run = find_qa_run(&transaction, &run_id)?;
+        let run = find_qa_run(&transaction, &prepared.run_id)?;
+        transaction.commit()?;
+        Ok(run)
+    }
+
+    pub fn commit_failed_prepared_qa_run(
+        &mut self,
+        prepared: PreparedQaRun,
+        mut plugin_rules: Vec<QaRuleExecutionRecord>,
+    ) -> Result<QaRun> {
+        canonicalize_qa_execution_records(&prepared, &mut plugin_rules)?;
+        if plugin_rules.is_empty()
+            || plugin_rules
+                .iter()
+                .all(|record| record.status == QaRuleExecutionStatus::Succeeded)
+        {
+            return Err(StorageError::InvalidState(
+                "a failed QA run requires a terminal plugin execution record".to_string(),
+            ));
+        }
+        let profile_snapshot_hash = qa_run_snapshot_hash(
+            &prepared.profile,
+            &prepared.input_snapshot_hash,
+            &plugin_rules,
+        )?;
+        let completed_at_ms = now_ms();
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        recheck_prepared_qa_run(&transaction, &prepared)?;
+        transaction.execute(
+            "INSERT INTO qa_runs (
+                id, project_id, document_id, scope, profile_id, profile_name,
+                profile_revision, profile_snapshot_hash, status, checked_segments,
+                errors, warnings, info, waived, created_at_ms, completed_at_ms
+             ) VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'failed', 0, 0, 0, 0, 0, ?9, ?10
+             )",
+            params![
+                prepared.run_id,
+                prepared.project_id,
+                prepared.document_id,
+                qa_run_scope_text(prepared.scope),
+                prepared.profile.id,
+                prepared.profile.name,
+                to_i64(prepared.profile.revision)?,
+                profile_snapshot_hash,
+                prepared.created_at_ms,
+                completed_at_ms,
+            ],
+        )?;
+        insert_qa_plugin_rule_snapshots(
+            &transaction,
+            &prepared.run_id,
+            &plugin_rules,
+            completed_at_ms,
+        )?;
+        let run = find_qa_run(&transaction, &prepared.run_id)?;
         transaction.commit()?;
         Ok(run)
     }
@@ -410,21 +512,137 @@ impl Store {
              ORDER BY created_at_ms DESC, id
              LIMIT ?3 OFFSET ?4",
         )?;
-        let items = statement
+        let mut items = statement
             .query_map(
                 params![project_id, document_id, limit, offset],
                 row_to_qa_run,
             )?
             .collect::<std::result::Result<Vec<_>, _>>()?;
+        for run in &mut items {
+            run.plugin_rules = query_qa_plugin_rule_snapshots(&self.connection, &run.id)?;
+        }
         Ok((items, to_u32(total)?))
     }
 }
 
 #[derive(Debug, Clone)]
+struct QaProjectContext {
+    source_locale: String,
+    target_locale: String,
+    configuration: ProjectConfiguration,
+}
+
+#[derive(Debug, Clone)]
 struct QaScopeSegment {
     id: String,
+    document_id: String,
+    ordinal: u32,
+    structural_path: String,
     source_text: String,
     target_text: String,
+    revision: u64,
+}
+
+fn recheck_prepared_qa_run(connection: &Connection, prepared: &PreparedQaRun) -> Result<()> {
+    let current_project = query_qa_project_context(connection, &prepared.project_id)?;
+    let current_profile = resolve_qa_profile_for_connection(
+        connection,
+        &prepared.project_id,
+        prepared.requested_profile_id.as_deref(),
+        &current_project,
+    )?;
+    validate_qa_document_scope(
+        connection,
+        &prepared.project_id,
+        prepared.document_id.as_deref(),
+    )?;
+    let current_segments = query_qa_execution_segments(
+        connection,
+        &prepared.project_id,
+        prepared.document_id.as_deref(),
+        &current_project.source_locale,
+        &current_project.target_locale,
+    )?;
+    let current_input_snapshot_hash = qa_input_snapshot_hash(
+        &prepared.project_id,
+        prepared.document_id.as_deref(),
+        &current_profile,
+        &current_segments,
+    )?;
+    if current_profile != prepared.profile
+        || current_input_snapshot_hash != prepared.input_snapshot_hash
+    {
+        return Err(StorageError::InvalidState(
+            "QA inputs changed while rules were executing".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn query_qa_project_context(connection: &Connection, project_id: &str) -> Result<QaProjectContext> {
+    connection
+        .query_row(
+            "SELECT source_locale, target_locale, configuration_json
+             FROM projects WHERE id = ?1",
+            [project_id],
+            |row| {
+                let configuration_json = row.get::<_, String>(2)?;
+                Ok(QaProjectContext {
+                    source_locale: row.get(0)?,
+                    target_locale: row.get(1)?,
+                    configuration: serde_json::from_str(&configuration_json)
+                        .map_err(|error| conversion_error(2, error))?,
+                })
+            },
+        )
+        .optional()?
+        .ok_or_else(|| not_found("project", project_id))
+}
+
+fn resolve_qa_profile_for_connection(
+    connection: &Connection,
+    project_id: &str,
+    requested_profile_id: Option<&str>,
+    project: &QaProjectContext,
+) -> Result<QaProfile> {
+    let profile_id = requested_profile_id
+        .or(project.configuration.qa_profile_id.as_deref())
+        .unwrap_or_else(|| default_profile_id(&project.target_locale));
+    let profile = find_qa_profile(connection, profile_id)?;
+    if profile
+        .owner_project_id
+        .as_deref()
+        .is_some_and(|owner| owner != project_id)
+    {
+        return Err(StorageError::InvalidState(
+            "QA profile belongs to another project".to_string(),
+        ));
+    }
+    Ok(profile)
+}
+
+fn validate_qa_document_scope(
+    connection: &Connection,
+    project_id: &str,
+    document_id: Option<&str>,
+) -> Result<()> {
+    let Some(document_id) = document_id else {
+        return Ok(());
+    };
+    let owner = connection
+        .query_row(
+            "SELECT project_id FROM documents WHERE id = ?1",
+            [document_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .ok_or_else(|| not_found("document", document_id))?;
+    if owner != project_id {
+        return Err(StorageError::InvalidState(
+            "QA document belongs to another project".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 fn query_qa_scope_segments(
@@ -433,7 +651,8 @@ fn query_qa_scope_segments(
     document_id: Option<&str>,
 ) -> Result<Vec<QaScopeSegment>> {
     let mut statement = connection.prepare(
-        "SELECT s.id, s.source_text, s.target_text
+        "SELECT s.id, s.document_id, s.ordinal, s.structural_path,
+                s.source_text, s.target_text, s.revision
          FROM segments s
          JOIN documents d ON d.id = s.document_id
          WHERE d.project_id = ?1 AND d.status = 'active'
@@ -444,11 +663,62 @@ fn query_qa_scope_segments(
         .query_map(params![project_id, document_id], |row| {
             Ok(QaScopeSegment {
                 id: row.get(0)?,
-                source_text: row.get(1)?,
-                target_text: row.get(2)?,
+                document_id: row.get(1)?,
+                ordinal: read_u32(row, 2)?,
+                structural_path: row.get(3)?,
+                source_text: row.get(4)?,
+                target_text: row.get(5)?,
+                revision: read_u64(row, 6)?,
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?)
+}
+
+fn query_qa_execution_segments(
+    connection: &Connection,
+    project_id: &str,
+    document_id: Option<&str>,
+    source_locale: &str,
+    target_locale: &str,
+) -> Result<Vec<QaExecutionSegment>> {
+    let segments = query_qa_scope_segments(connection, project_id, document_id)?;
+    let term_expectations = query_term_expectations(connection, project_id, target_locale)?;
+    segments
+        .into_iter()
+        .map(|segment| {
+            let source_tags = list_inline_tags(connection, &segment.id, TagSide::Source)?;
+            let target_tags = list_inline_tags(connection, &segment.id, TagSide::Target)?;
+            let tag_findings =
+                validate_target_tags(&source_tags, &target_tags, &segment.target_text)
+                    .into_iter()
+                    .map(|finding| QaTagFinding {
+                        code: finding.code,
+                        message: finding.message,
+                    })
+                    .collect();
+            let terms = term_expectations
+                .iter()
+                .filter(|term| !term_spans(&segment.source_text, &term.source_term).is_empty())
+                .cloned()
+                .collect();
+            Ok(QaExecutionSegment {
+                project_id: project_id.to_string(),
+                document_id: segment.document_id,
+                ordinal: segment.ordinal,
+                structural_path: segment.structural_path,
+                revision: segment.revision,
+                input: QaSegmentInput {
+                    segment_id: segment.id,
+                    source_text: segment.source_text,
+                    target_text: segment.target_text,
+                    source_locale: source_locale.to_string(),
+                    target_locale: target_locale.to_string(),
+                    tag_findings,
+                    terms,
+                },
+            })
+        })
+        .collect()
 }
 
 fn query_term_expectations(
@@ -492,6 +762,313 @@ fn query_term_expectations(
         }
     }
     Ok(grouped.into_values().collect())
+}
+
+fn evaluate_profile_candidates(
+    definition: &QaProfileDefinition,
+    segments: &[QaExecutionSegment],
+    include_consistency: bool,
+) -> Result<Vec<QaFindingCandidate>> {
+    let compiled = CompiledQaProfile::compile(definition.clone())
+        .map_err(|error| StorageError::InvalidState(error.to_string()))?;
+    let mut candidates = segments
+        .iter()
+        .flat_map(|segment| compiled.evaluate_segment(&segment.input))
+        .collect::<Vec<_>>();
+    if include_consistency {
+        candidates.extend(evaluate_consistency(
+            definition,
+            &segments
+                .iter()
+                .map(|segment| QaConsistencySegment {
+                    segment_id: segment.input.segment_id.clone(),
+                    source_text: segment.input.source_text.clone(),
+                    target_text: segment.input.target_text.clone(),
+                })
+                .collect::<Vec<_>>(),
+        ));
+    }
+    Ok(candidates)
+}
+
+fn canonicalize_builtin_candidates(
+    mut candidates: Vec<QaFindingCandidate>,
+) -> Vec<QaFindingCandidate> {
+    candidates.sort_by(|left, right| {
+        (
+            left.segment_id.as_str(),
+            left.rule_id.as_str(),
+            left.fingerprint.as_str(),
+        )
+            .cmp(&(
+                right.segment_id.as_str(),
+                right.rule_id.as_str(),
+                right.fingerprint.as_str(),
+            ))
+    });
+    candidates.dedup_by(|left, right| {
+        left.segment_id == right.segment_id
+            && left.rule_id == right.rule_id
+            && left.fingerprint == right.fingerprint
+    });
+    candidates
+}
+
+fn evaluate_regex_rules(
+    rules: &[translunar_qa_core::QaRegexRule],
+    segments: &[QaExecutionSegment],
+) -> Result<Vec<QaFindingCandidate>> {
+    let definition = QaProfileDefinition {
+        id: "runtime.qa.regex".to_string(),
+        name: "Runtime QA regex rules".to_string(),
+        enabled_rule_ids: rules
+            .iter()
+            .map(|rule| format!("qa.regex:{}", rule.id))
+            .collect(),
+        severity_overrides: BTreeMap::new(),
+        settings: translunar_qa_core::QaRuleSettings::default(),
+        regex_rules: rules.to_vec(),
+    };
+    evaluate_profile_candidates(&definition, segments, false)
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct QaInputSnapshot<'a> {
+    project_id: &'a str,
+    document_id: Option<&'a str>,
+    profile_id: &'a str,
+    profile_revision: u64,
+    profile_definition: &'a QaProfileDefinition,
+    segments: &'a [QaExecutionSegment],
+}
+
+fn qa_input_snapshot_hash(
+    project_id: &str,
+    document_id: Option<&str>,
+    profile: &QaProfile,
+    segments: &[QaExecutionSegment],
+) -> Result<String> {
+    Ok(sha256_hex(&serde_json::to_vec(&QaInputSnapshot {
+        project_id,
+        document_id,
+        profile_id: &profile.id,
+        profile_revision: profile.revision,
+        profile_definition: &profile.definition,
+        segments,
+    })?))
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct QaRunSnapshot<'a> {
+    profile_id: &'a str,
+    profile_revision: u64,
+    profile_definition: &'a QaProfileDefinition,
+    input_snapshot_hash: &'a str,
+    plugin_rules: &'a [QaRuleExecutionRecord],
+}
+
+fn qa_run_snapshot_hash(
+    profile: &QaProfile,
+    input_snapshot_hash: &str,
+    plugin_rules: &[QaRuleExecutionRecord],
+) -> Result<String> {
+    Ok(sha256_hex(&serde_json::to_vec(&QaRunSnapshot {
+        profile_id: &profile.id,
+        profile_revision: profile.revision,
+        profile_definition: &profile.definition,
+        input_snapshot_hash,
+        plugin_rules,
+    })?))
+}
+
+fn canonicalize_qa_execution_records(
+    prepared: &PreparedQaRun,
+    records: &mut Vec<QaRuleExecutionRecord>,
+) -> Result<()> {
+    const MAX_QA_USAGE_UNITS: u64 = 1_000_000_000;
+    records.sort_by(|left, right| execution_record_key(left).cmp(&execution_record_key(right)));
+    if records
+        .windows(2)
+        .any(|pair| execution_record_key(&pair[0]) == execution_record_key(&pair[1]))
+    {
+        return Err(StorageError::InvalidState(
+            "QA run contains duplicate plugin execution records".to_string(),
+        ));
+    }
+    let expected_execution_count = u32::try_from(prepared.segments.len())
+        .map_err(|_| StorageError::InvalidState("QA segment count is oversized".to_string()))?;
+    for record in records {
+        let provenance = &record.provenance;
+        validate_qa_snapshot_id(&provenance.plugin_id, 128, "plugin ID")?;
+        validate_qa_snapshot_text(&provenance.version_id, 384, "version ID")?;
+        validate_qa_snapshot_id(&provenance.contribution_id, 128, "contribution ID")?;
+        if provenance.contribution_version.trim().is_empty()
+            || provenance.contribution_version.len() > 128
+            || provenance
+                .contribution_version
+                .chars()
+                .any(char::is_control)
+            || provenance.descriptor_version != 1
+            || provenance.operation_protocol_version != 1
+            || provenance.config_schema_version == 0
+            || !matches!(
+                provenance.tier.as_str(),
+                "declarative" | "sandbox" | "process"
+            )
+            || !is_sha256(&provenance.descriptor_hash)
+            || !is_sha256(&provenance.config_hash)
+            || record.input_hash != prepared.input_snapshot_hash
+            || record
+                .output_hash
+                .as_deref()
+                .is_some_and(|hash| !is_sha256(hash))
+            || record.execution_count > expected_execution_count
+            || record.usage.work_units > MAX_QA_USAGE_UNITS
+            || record.usage.input_bytes > MAX_QA_USAGE_UNITS
+            || record.usage.output_bytes > MAX_QA_USAGE_UNITS
+        {
+            return Err(StorageError::InvalidState(
+                "QA plugin execution record is invalid".to_string(),
+            ));
+        }
+        match record.status {
+            QaRuleExecutionStatus::Succeeded
+                if record.output_hash.is_some()
+                    && record.failure.is_none()
+                    && record.execution_count == expected_execution_count => {}
+            QaRuleExecutionStatus::Failed | QaRuleExecutionStatus::Canceled
+                if record.output_hash.is_none()
+                    && record.finding_count == 0
+                    && record.failure.is_some() =>
+            {
+                validate_qa_execution_failure(record.failure.as_ref().expect("checked above"))?;
+            }
+            _ => {
+                return Err(StorageError::InvalidState(
+                    "QA plugin execution status does not match its result".to_string(),
+                ));
+            }
+        }
+        if !provenance.rule_ids.windows(2).all(|pair| pair[0] < pair[1])
+            || provenance
+                .rule_ids
+                .iter()
+                .any(|id| validate_qa_snapshot_id(id, 2_048, "rule ID").is_err())
+        {
+            return Err(StorageError::InvalidState(
+                "QA plugin rule IDs are invalid or not deterministically ordered".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_qa_execution_failure(failure: &QaRuleExecutionFailure) -> Result<()> {
+    validate_qa_snapshot_id(&failure.code, 128, "failure code")?;
+    validate_qa_snapshot_text(&failure.message, 2_048, "failure message")?;
+    if serde_json::to_vec(failure)?.len() > 4_096 {
+        return Err(StorageError::InvalidState(
+            "QA plugin failure is oversized".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn execution_record_key(record: &QaRuleExecutionRecord) -> (&str, &str, &str) {
+    (
+        record.provenance.plugin_id.as_str(),
+        record.provenance.version_id.as_str(),
+        record.provenance.contribution_id.as_str(),
+    )
+}
+
+fn validate_qa_snapshot_id(value: &str, max_bytes: usize, label: &str) -> Result<()> {
+    validate_qa_snapshot_text(value, max_bytes, label)?;
+    if !value
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
+    {
+        return Err(StorageError::InvalidState(format!(
+            "QA plugin {label} is invalid"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_qa_snapshot_text(value: &str, max_bytes: usize, label: &str) -> Result<()> {
+    if value.is_empty()
+        || value.len() > max_bytes
+        || value.trim() != value
+        || value.chars().any(char::is_control)
+    {
+        return Err(StorageError::InvalidState(format!(
+            "QA plugin {label} is invalid"
+        )));
+    }
+    Ok(())
+}
+
+fn is_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn insert_qa_plugin_rule_snapshots(
+    connection: &Connection,
+    run_id: &str,
+    records: &[QaRuleExecutionRecord],
+    created_at_ms: i64,
+) -> Result<()> {
+    for (index, record) in records.iter().enumerate() {
+        connection.execute(
+            "INSERT INTO qa_run_plugin_rules (
+                run_id, contribution_index, plugin_id, version_id,
+                contribution_id, contribution_version, descriptor_version,
+                operation_protocol_version, config_schema_version,
+                activation_revision, tier, descriptor_hash, config_hash,
+                rule_ids_json, status, execution_count, finding_count,
+                input_hash, output_hash, usage_json, failure_json, created_at_ms
+             ) VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+                ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22
+             )",
+            params![
+                run_id,
+                to_i64(u64::try_from(index).map_err(|_| {
+                    StorageError::InvalidState("QA contribution count is oversized".to_string())
+                })?)?,
+                record.provenance.plugin_id,
+                record.provenance.version_id,
+                record.provenance.contribution_id,
+                record.provenance.contribution_version,
+                i64::from(record.provenance.descriptor_version),
+                i64::from(record.provenance.operation_protocol_version),
+                i64::from(record.provenance.config_schema_version),
+                to_i64(record.provenance.activation_revision)?,
+                record.provenance.tier,
+                record.provenance.descriptor_hash,
+                record.provenance.config_hash,
+                serde_json::to_string(&record.provenance.rule_ids)?,
+                qa_rule_execution_status_text(record.status),
+                i64::from(record.execution_count),
+                i64::from(record.finding_count),
+                record.input_hash,
+                record.output_hash,
+                serde_json::to_string(&record.usage)?,
+                record
+                    .failure
+                    .as_ref()
+                    .map(serde_json::to_string)
+                    .transpose()?,
+                created_at_ms,
+            ],
+        )?;
+    }
+    Ok(())
 }
 
 fn resolve_scope_findings(
@@ -756,6 +1333,15 @@ impl Store {
     ) -> Result<QaGateResult> {
         let run =
             self.run_qa_with_rules(project_id, Some(document_id), profile_id, additional_rules)?;
+        self.qa_gate_result(document_id, run)
+    }
+
+    pub fn qa_gate_result(&self, document_id: &str, run: QaRun) -> Result<QaGateResult> {
+        if run.document_id.as_deref() != Some(document_id) {
+            return Err(StorageError::InvalidState(
+                "QA gate run does not belong to the requested document".to_string(),
+            ));
+        }
         let blocker_issue_ids = self
             .connection
             .prepare(
@@ -820,6 +1406,7 @@ impl Store {
             warnings: run.warnings,
             info: run.info,
             waived: run.waived,
+            plugin_rules: run.plugin_rules,
             items,
         })
     }
@@ -1312,7 +1899,7 @@ fn row_to_qa_issue_view(row: &Row<'_>) -> rusqlite::Result<QaIssueView> {
 }
 
 fn find_qa_run(connection: &Connection, run_id: &str) -> Result<QaRun> {
-    connection
+    let mut run = connection
         .query_row(
             "SELECT id, project_id, document_id, scope, profile_id, profile_name,
                     profile_revision, profile_snapshot_hash, status, checked_segments,
@@ -1322,7 +1909,9 @@ fn find_qa_run(connection: &Connection, run_id: &str) -> Result<QaRun> {
             row_to_qa_run,
         )
         .optional()?
-        .ok_or_else(|| not_found("qa_run", run_id))
+        .ok_or_else(|| not_found("qa_run", run_id))?;
+    run.plugin_rules = query_qa_plugin_rule_snapshots(connection, run_id)?;
+    Ok(run)
 }
 
 fn row_to_qa_run(row: &Row<'_>) -> rusqlite::Result<QaRun> {
@@ -1343,7 +1932,59 @@ fn row_to_qa_run(row: &Row<'_>) -> rusqlite::Result<QaRun> {
         waived: read_u64(row, 13)?,
         created_at_ms: row.get(14)?,
         completed_at_ms: row.get(15)?,
+        plugin_rules: Vec::new(),
     })
+}
+
+fn query_qa_plugin_rule_snapshots(
+    connection: &Connection,
+    run_id: &str,
+) -> Result<Vec<QaRunPluginRuleSnapshot>> {
+    let mut statement = connection.prepare(
+        "SELECT contribution_index, plugin_id, version_id, contribution_id,
+                contribution_version, descriptor_version,
+                operation_protocol_version, config_schema_version,
+                activation_revision, tier, descriptor_hash, config_hash,
+                rule_ids_json, status, execution_count, finding_count,
+                input_hash, output_hash, usage_json, failure_json
+         FROM qa_run_plugin_rules
+         WHERE run_id = ?1
+         ORDER BY contribution_index",
+    )?;
+    Ok(statement
+        .query_map([run_id], |row| {
+            Ok(QaRunPluginRuleSnapshot {
+                contribution_index: read_u32(row, 0)?,
+                provenance: QaRuleProvenanceSnapshot {
+                    plugin_id: row.get(1)?,
+                    version_id: row.get(2)?,
+                    contribution_id: row.get(3)?,
+                    contribution_version: row.get(4)?,
+                    descriptor_version: read_u32(row, 5)?,
+                    operation_protocol_version: read_u32(row, 6)?,
+                    config_schema_version: read_u32(row, 7)?,
+                    activation_revision: read_u64(row, 8)?,
+                    tier: row.get(9)?,
+                    descriptor_hash: row.get(10)?,
+                    config_hash: row.get(11)?,
+                    rule_ids: serde_json::from_str(&row.get::<_, String>(12)?)
+                        .map_err(|error| conversion_error(12, error))?,
+                },
+                status: parse_qa_rule_execution_status(row.get(13)?, 13)?,
+                execution_count: read_u32(row, 14)?,
+                finding_count: read_u32(row, 15)?,
+                input_hash: row.get(16)?,
+                output_hash: row.get(17)?,
+                usage: serde_json::from_str::<QaRuleExecutionUsage>(&row.get::<_, String>(18)?)
+                    .map_err(|error| conversion_error(18, error))?,
+                failure: row
+                    .get::<_, Option<String>>(19)?
+                    .map(|value| serde_json::from_str::<QaRuleExecutionFailure>(&value))
+                    .transpose()
+                    .map_err(|error| conversion_error(19, error))?,
+            })
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?)
 }
 
 fn row_to_qa_report_item(row: &Row<'_>) -> rusqlite::Result<QaReportItem> {
@@ -1427,6 +2068,14 @@ fn qa_run_scope_text(scope: QaRunScope) -> &'static str {
     }
 }
 
+fn qa_rule_execution_status_text(status: QaRuleExecutionStatus) -> &'static str {
+    match status {
+        QaRuleExecutionStatus::Succeeded => "succeeded",
+        QaRuleExecutionStatus::Failed => "failed",
+        QaRuleExecutionStatus::Canceled => "canceled",
+    }
+}
+
 fn qa_severity_text(severity: QaSeverity) -> &'static str {
     match severity {
         QaSeverity::Error => "error",
@@ -1496,6 +2145,21 @@ fn parse_qa_run_status(value: String, column: usize) -> rusqlite::Result<QaRunSt
         _ => Err(conversion_error(
             column,
             StorageError::InvalidData(format!("unknown QA run status {value}")),
+        )),
+    }
+}
+
+fn parse_qa_rule_execution_status(
+    value: String,
+    column: usize,
+) -> rusqlite::Result<QaRuleExecutionStatus> {
+    match value.as_str() {
+        "succeeded" => Ok(QaRuleExecutionStatus::Succeeded),
+        "failed" => Ok(QaRuleExecutionStatus::Failed),
+        "canceled" => Ok(QaRuleExecutionStatus::Canceled),
+        _ => Err(conversion_error(
+            column,
+            StorageError::InvalidData(format!("unknown QA rule execution status {value}")),
         )),
     }
 }
@@ -1647,6 +2311,234 @@ mod tests {
                 limit: 500,
             }
         }
+    }
+
+    fn execution_record(prepared: &PreparedQaRun) -> QaRuleExecutionRecord {
+        QaRuleExecutionRecord {
+            provenance: QaRuleProvenanceSnapshot {
+                plugin_id: "example.plugin".to_string(),
+                version_id: "inventory-v2:example.plugin:1.0.0+build.1".to_string(),
+                contribution_id: "example.qa".to_string(),
+                contribution_version: "1.0.0".to_string(),
+                descriptor_version: 1,
+                operation_protocol_version: 1,
+                config_schema_version: 1,
+                activation_revision: 7,
+                tier: "sandbox".to_string(),
+                descriptor_hash: "a".repeat(64),
+                config_hash: "b".repeat(64),
+                rule_ids: vec!["qa.plugin.example.rule".to_string()],
+            },
+            status: QaRuleExecutionStatus::Succeeded,
+            execution_count: u32::try_from(prepared.segments.len()).expect("segment count"),
+            input_hash: prepared.input_snapshot_hash.clone(),
+            output_hash: Some(sha256_hex(b"[]")),
+            finding_count: 0,
+            usage: QaRuleExecutionUsage {
+                work_units: 1,
+                input_bytes: 2,
+                output_bytes: 2,
+            },
+            failure: None,
+        }
+    }
+
+    fn failed_execution_record(prepared: &PreparedQaRun) -> QaRuleExecutionRecord {
+        let mut record = execution_record(prepared);
+        record.status = QaRuleExecutionStatus::Failed;
+        record.execution_count = 1;
+        record.output_hash = None;
+        record.finding_count = 0;
+        record.failure = Some(QaRuleExecutionFailure {
+            code: "plugin_protocol".to_string(),
+            message: "Plugin QA rule execution failed.".to_string(),
+            retryable: false,
+        });
+        record
+    }
+
+    #[test]
+    fn prepared_run_rejects_stale_inputs_without_partial_writes() {
+        let mut fixture = QaFixture::new();
+        let prepared = fixture
+            .store
+            .prepare_qa_run(
+                &fixture.project.id,
+                Some(&fixture.document_id),
+                Some(STANDARD_PROFILE_ID),
+            )
+            .expect("prepare QA run");
+        let evaluated = Store::evaluate_prepared_qa_run(&prepared).expect("evaluate QA run");
+        let before = fixture
+            .store
+            .connection
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM qa_runs),
+                        (SELECT COUNT(*) FROM qa_issues WHERE status = 'resolved')",
+                [],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .expect("read QA state");
+        fixture
+            .store
+            .connection
+            .execute(
+                "UPDATE segments
+                 SET target_text = target_text || ' changed', revision = revision + 1
+                 WHERE id = ?1",
+                [&fixture.segments[0].id],
+            )
+            .expect("mutate prepared segment");
+
+        assert!(matches!(
+            fixture.store.commit_prepared_qa_run(prepared, evaluated),
+            Err(StorageError::InvalidState(_))
+        ));
+        let after = fixture
+            .store
+            .connection
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM qa_runs),
+                        (SELECT COUNT(*) FROM qa_issues WHERE status = 'resolved')",
+                [],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .expect("read unchanged QA state");
+        assert_eq!(after, before);
+    }
+
+    #[test]
+    fn completed_run_persists_immutable_plugin_execution_snapshot() {
+        let mut fixture = QaFixture::new();
+        let prepared = fixture
+            .store
+            .prepare_qa_run(
+                &fixture.project.id,
+                Some(&fixture.document_id),
+                Some(STANDARD_PROFILE_ID),
+            )
+            .expect("prepare QA run");
+        let record = execution_record(&prepared);
+        let mut evaluated = Store::evaluate_prepared_qa_run(&prepared).expect("evaluate QA run");
+        evaluated.plugin_rules.push(record.clone());
+        let run = fixture
+            .store
+            .commit_prepared_qa_run(prepared, evaluated)
+            .expect("commit QA run");
+        assert_eq!(run.plugin_rules.len(), 1);
+        assert_eq!(run.plugin_rules[0].provenance, record.provenance);
+        assert_eq!(run.plugin_rules[0].execution_count, record.execution_count);
+        let report = fixture
+            .store
+            .qa_report_snapshot(&run.id)
+            .expect("read report snapshot");
+        assert_eq!(report.plugin_rules, run.plugin_rules);
+        assert!(
+            fixture
+                .store
+                .connection
+                .execute(
+                    "UPDATE qa_run_plugin_rules SET finding_count = 1 WHERE run_id = ?1",
+                    [&run.id],
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn failed_run_persists_only_sanitized_plugin_history() {
+        let mut fixture = QaFixture::new();
+        fixture
+            .store
+            .run_qa(
+                &fixture.project.id,
+                Some(&fixture.document_id),
+                Some(STANDARD_PROFILE_ID),
+            )
+            .expect("seed current QA issues");
+        let issues_before = fixture
+            .store
+            .list_qa_issue_views(fixture.issue_filter())
+            .expect("list issues before failed run")
+            .0;
+        let prepared = fixture
+            .store
+            .prepare_qa_run(
+                &fixture.project.id,
+                Some(&fixture.document_id),
+                Some(STANDARD_PROFILE_ID),
+            )
+            .expect("prepare failed QA run");
+        let failed_record = failed_execution_record(&prepared);
+        let run = fixture
+            .store
+            .commit_failed_prepared_qa_run(prepared, vec![failed_record.clone()])
+            .expect("commit failed QA history");
+
+        assert_eq!(run.status, QaRunStatus::Failed);
+        assert_eq!(run.checked_segments, 0);
+        assert_eq!(run.errors + run.warnings + run.info + run.waived, 0);
+        assert_eq!(run.plugin_rules.len(), 1);
+        assert_eq!(run.plugin_rules[0].status, QaRuleExecutionStatus::Failed);
+        assert_eq!(run.plugin_rules[0].failure, failed_record.failure);
+        let run_item_count = fixture
+            .store
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM qa_run_items WHERE run_id = ?1",
+                [&run.id],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("count failed run items");
+        assert_eq!(run_item_count, 0);
+        let issues_after = fixture
+            .store
+            .list_qa_issue_views(fixture.issue_filter())
+            .expect("list issues after failed run")
+            .0;
+        assert_eq!(issues_after, issues_before);
+    }
+
+    #[test]
+    fn failed_run_rejects_stale_inputs_without_history() {
+        let mut fixture = QaFixture::new();
+        let prepared = fixture
+            .store
+            .prepare_qa_run(
+                &fixture.project.id,
+                Some(&fixture.document_id),
+                Some(STANDARD_PROFILE_ID),
+            )
+            .expect("prepare failed QA run");
+        let failed_record = failed_execution_record(&prepared);
+        let run_id = prepared.run_id.clone();
+        fixture
+            .store
+            .connection
+            .execute(
+                "UPDATE segments
+                 SET target_text = target_text || ' changed', revision = revision + 1
+                 WHERE id = ?1",
+                [&fixture.segments[0].id],
+            )
+            .expect("mutate prepared segment");
+
+        assert!(matches!(
+            fixture
+                .store
+                .commit_failed_prepared_qa_run(prepared, vec![failed_record]),
+            Err(StorageError::InvalidState(_))
+        ));
+        let persisted = fixture
+            .store
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM qa_runs WHERE id = ?1",
+                [&run_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("count stale failed run");
+        assert_eq!(persisted, 0);
     }
 
     #[test]
