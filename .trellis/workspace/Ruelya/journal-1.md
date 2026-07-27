@@ -805,3 +805,36 @@ Implemented and qualified the bounded QuickJS Tier 2 host, exact capability brok
 ### Next Steps
 
 - None - task complete
+
+
+## Session 24: Complete plugin Engine connectors
+
+**Date**: 2026-07-27
+**Task**: Complete plugin Engine connectors
+**Branch**: `master`
+
+### Summary
+
+Implemented and qualified strict versioned Engine connectors across Rust registry, tier adapters, storage/protocol, SDK/examples, lifecycle compensation, Desktop integration, real stdio/Electron flows, and long-term code-specs; archived the task and paused before the next child.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bb39ab6` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
