@@ -1,9 +1,0 @@
-
-Running 1 test using 1 worker
-
-
-(node:43712) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
-(Use `node --trace-warnings ...` to show where the warning was created)
-
-[1/1] [electron] › tests\e2e\workbench.spec.ts:1878:1 › mounts plugin AI actions and workbench panels in declared placements
-  1 passed (18.2s)
