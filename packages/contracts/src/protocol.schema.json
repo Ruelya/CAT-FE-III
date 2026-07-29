@@ -764,6 +764,364 @@
         "freeform"
       ]
     },
+    "AiActionContextV1": {
+      "type": "object",
+      "properties": {
+        "segmentText": {
+          "type": "string"
+        },
+        "selectionText": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sourceLocale": {
+          "type": "string"
+        },
+        "sourceText": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AiActionTagV1"
+          }
+        },
+        "targetLocale": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "segmentText",
+        "sourceText",
+        "sourceLocale",
+        "targetLocale"
+      ]
+    },
+    "AiActionContributionDescriptor": {
+      "type": "object",
+      "properties": {
+        "configSchema": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PublicConfigSchemaV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "configSchemaVersion": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "descriptorVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "input": {
+          "description": "Legacy inventory metadata. Executable V1 descriptors still carry an object here."
+        },
+        "inputFields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AiActionInputFieldV1"
+          }
+        },
+        "label": {
+          "type": "string"
+        },
+        "limits": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AiActionLimitsV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "operationProtocolVersion": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "placement": {
+          "description": "Kept as text so released inventory-only descriptors remain readable.",
+          "type": "string"
+        },
+        "promptTemplate": {
+          "type": "string",
+          "default": ""
+        },
+        "resultModes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AiActionResultModeV1"
+          }
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "descriptorVersion",
+        "id",
+        "version",
+        "displayName",
+        "label",
+        "placement",
+        "input"
+      ]
+    },
+    "AiActionInputFieldV1": {
+      "type": "string",
+      "enum": [
+        "selectionText",
+        "segmentText",
+        "sourceText",
+        "sourceLocale",
+        "targetLocale",
+        "tags"
+      ]
+    },
+    "AiActionInvocationV1": {
+      "type": "object",
+      "properties": {
+        "config": true,
+        "configSchemaVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "context": {
+          "$ref": "#/$defs/AiActionContextV1"
+        },
+        "contributionId": {
+          "type": "string"
+        },
+        "deadlineMs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "invocationId": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "protocolVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "protocolVersion",
+        "invocationId",
+        "contributionId",
+        "operation",
+        "context",
+        "configSchemaVersion",
+        "config",
+        "deadlineMs"
+      ]
+    },
+    "AiActionLimitsV1": {
+      "type": "object",
+      "properties": {
+        "maxDeadlineMs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "maxInputBytes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "maxOutputBytes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "maxTags": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "maxInputBytes",
+        "maxOutputBytes",
+        "maxTags",
+        "maxDeadlineMs"
+      ]
+    },
+    "AiActionProposalV1": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "replaceSelection"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "text"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "replaceTarget"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "text"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "content": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "assistantContent"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "content"
+          ]
+        }
+      ]
+    },
+    "AiActionResultModeV1": {
+      "type": "string",
+      "enum": [
+        "replaceSelection",
+        "replaceTarget",
+        "assistantContent"
+      ]
+    },
+    "AiActionResultV1": {
+      "type": "object",
+      "properties": {
+        "invocationId": {
+          "type": "string"
+        },
+        "proposal": {
+          "$ref": "#/$defs/AiActionProposalV1"
+        },
+        "protocolVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "usage": {
+          "$ref": "#/$defs/AiActionUsageV1"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "protocolVersion",
+        "invocationId",
+        "proposal",
+        "usage"
+      ]
+    },
+    "AiActionTagV1": {
+      "type": "object",
+      "properties": {
+        "end": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "start": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "start",
+        "end"
+      ]
+    },
+    "AiActionUsageV1": {
+      "type": "object",
+      "properties": {
+        "durationMs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "inputBytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "outputBytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "inputBytes",
+        "outputBytes",
+        "durationMs"
+      ]
+    },
     "AiBatchIdParams": {
       "type": "object",
       "properties": {
@@ -10988,10 +11346,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabProjectParams"
+          "$ref": "#/$defs/EmptyParams"
         },
         "result": {
-          "$ref": "#/$defs/CollabMemberListResult"
+          "$ref": "#/$defs/PluginAiActionPage"
         }
       },
       "required": [
@@ -11003,10 +11361,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabMemberAddParams"
+          "$ref": "#/$defs/PluginAiActionInvokeParams"
         },
         "result": {
-          "$ref": "#/$defs/CollabMember"
+          "$ref": "#/$defs/PluginAiActionInvokeResult"
         }
       },
       "required": [
@@ -11018,10 +11376,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabMemberRemoveParams"
+          "$ref": "#/$defs/PluginAiActionCancelParams"
         },
         "result": {
-          "$ref": "#/$defs/EmptyResult"
+          "$ref": "#/$defs/PluginAiActionCancelResult"
         }
       },
       "required": [
@@ -11033,10 +11391,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabLockAcquireParams"
+          "$ref": "#/$defs/PluginAiActionHistoryListParams"
         },
         "result": {
-          "$ref": "#/$defs/CollabLock"
+          "$ref": "#/$defs/PluginAiActionHistoryPage"
         }
       },
       "required": [
@@ -11048,10 +11406,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabLockActorParams"
+          "$ref": "#/$defs/EmptyParams"
         },
         "result": {
-          "$ref": "#/$defs/EmptyResult"
+          "$ref": "#/$defs/PluginUiPanelPage"
         }
       },
       "required": [
@@ -11063,10 +11421,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabLockActorParams"
+          "$ref": "#/$defs/PluginUiPanelBridgeCallParams"
         },
         "result": {
-          "$ref": "#/$defs/CollabLock"
+          "$ref": "#/$defs/PluginUiPanelBridgeCallResult"
         }
       },
       "required": [
@@ -11096,7 +11454,7 @@
           "$ref": "#/$defs/CollabProjectParams"
         },
         "result": {
-          "$ref": "#/$defs/CollabLockListResult"
+          "$ref": "#/$defs/CollabMemberListResult"
         }
       },
       "required": [
@@ -11105,6 +11463,96 @@
       ]
     },
     "MethodContract161": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CollabMemberAddParams"
+        },
+        "result": {
+          "$ref": "#/$defs/CollabMember"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract162": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CollabMemberRemoveParams"
+        },
+        "result": {
+          "$ref": "#/$defs/EmptyResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract163": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CollabLockAcquireParams"
+        },
+        "result": {
+          "$ref": "#/$defs/CollabLock"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract164": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CollabLockActorParams"
+        },
+        "result": {
+          "$ref": "#/$defs/EmptyResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract165": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CollabLockActorParams"
+        },
+        "result": {
+          "$ref": "#/$defs/CollabLock"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract166": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CollabProjectParams"
+        },
+        "result": {
+          "$ref": "#/$defs/CollabLockListResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract167": {
       "type": "object",
       "properties": {
         "params": {
@@ -11119,7 +11567,7 @@
         "result"
       ]
     },
-    "MethodContract162": {
+    "MethodContract168": {
       "type": "object",
       "properties": {
         "params": {
@@ -11134,7 +11582,7 @@
         "result"
       ]
     },
-    "MethodContract163": {
+    "MethodContract169": {
       "type": "object",
       "properties": {
         "params": {
@@ -11142,96 +11590,6 @@
         },
         "result": {
           "$ref": "#/$defs/CollabAssignmentListResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract164": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/CollabAssignmentCreateParams"
-        },
-        "result": {
-          "$ref": "#/$defs/CollabAssignment"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract165": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/CollabAssignmentCompleteParams"
-        },
-        "result": {
-          "$ref": "#/$defs/CollabAssignment"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract166": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/CollabOpLogListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/CollabOpLogPage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract167": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/HistoryListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/OperationPage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract168": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/EmptyParams"
-        },
-        "result": {
-          "$ref": "#/$defs/DataHealthReport"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract169": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/CreateBackupParams"
-        },
-        "result": {
-          "$ref": "#/$defs/BackupResult"
         }
       },
       "required": [
@@ -11258,6 +11616,96 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/CollabAssignmentCreateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/CollabAssignment"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract171": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CollabAssignmentCompleteParams"
+        },
+        "result": {
+          "$ref": "#/$defs/CollabAssignment"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract172": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CollabOpLogListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/CollabOpLogPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract173": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/HistoryListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/OperationPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract174": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/EmptyParams"
+        },
+        "result": {
+          "$ref": "#/$defs/DataHealthReport"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract175": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CreateBackupParams"
+        },
+        "result": {
+          "$ref": "#/$defs/BackupResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract176": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/EmptyParams"
         },
         "result": {
@@ -11269,7 +11717,7 @@
         "result"
       ]
     },
-    "MethodContract171": {
+    "MethodContract177": {
       "type": "object",
       "properties": {
         "params": {
@@ -11284,7 +11732,7 @@
         "result"
       ]
     },
-    "MethodContract172": {
+    "MethodContract178": {
       "type": "object",
       "properties": {
         "params": {
@@ -11299,7 +11747,7 @@
         "result"
       ]
     },
-    "MethodContract173": {
+    "MethodContract179": {
       "type": "object",
       "properties": {
         "params": {
@@ -11307,96 +11755,6 @@
         },
         "result": {
           "$ref": "#/$defs/PipelineDefinition"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract174": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/ValidatePipelineParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineValidationResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract175": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/RunPipelineParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineRunSnapshot"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract176": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/PipelineRunListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineRunPage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract177": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/PipelineRunIdParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineRunSnapshot"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract178": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/PipelineRunRevisionParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineRunSnapshot"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract179": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiProviderCatalogParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiProviderCatalogResult"
         }
       },
       "required": [
@@ -11423,6 +11781,96 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/ValidatePipelineParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineValidationResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract181": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/RunPipelineParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineRunSnapshot"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract182": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/PipelineRunListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineRunPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract183": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/PipelineRunIdParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineRunSnapshot"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract184": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/PipelineRunRevisionParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineRunSnapshot"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract185": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiProviderCatalogParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiProviderCatalogResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract186": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/AiProviderListParams"
         },
         "result": {
@@ -11434,7 +11882,7 @@
         "result"
       ]
     },
-    "MethodContract181": {
+    "MethodContract187": {
       "type": "object",
       "properties": {
         "params": {
@@ -11449,7 +11897,7 @@
         "result"
       ]
     },
-    "MethodContract182": {
+    "MethodContract188": {
       "type": "object",
       "properties": {
         "params": {
@@ -11464,7 +11912,7 @@
         "result"
       ]
     },
-    "MethodContract183": {
+    "MethodContract189": {
       "type": "object",
       "properties": {
         "params": {
@@ -11472,96 +11920,6 @@
         },
         "result": {
           "$ref": "#/$defs/EmptyResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract184": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiProfileIdParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiProviderTestResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract185": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiProfileIdParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiCredentialStatus"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract186": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiSettingsGetParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiSettings"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract187": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiSettingsUpdateParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiSettings"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract188": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiGroundingPreviewParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiGroundingPreviewResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract189": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiRunStartParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiRun"
         }
       },
       "required": [
@@ -11588,6 +11946,96 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/AiProfileIdParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiProviderTestResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract191": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiProfileIdParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiCredentialStatus"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract192": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiSettingsGetParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiSettings"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract193": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiSettingsUpdateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiSettings"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract194": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiGroundingPreviewParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiGroundingPreviewResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract195": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiRunStartParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiRun"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract196": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/AiRunIdParams"
         },
         "result": {
@@ -11599,7 +12047,7 @@
         "result"
       ]
     },
-    "MethodContract191": {
+    "MethodContract197": {
       "type": "object",
       "properties": {
         "params": {
@@ -11614,7 +12062,7 @@
         "result"
       ]
     },
-    "MethodContract192": {
+    "MethodContract198": {
       "type": "object",
       "properties": {
         "params": {
@@ -11629,7 +12077,7 @@
         "result"
       ]
     },
-    "MethodContract193": {
+    "MethodContract199": {
       "type": "object",
       "properties": {
         "params": {
@@ -11637,96 +12085,6 @@
         },
         "result": {
           "$ref": "#/$defs/AiRun"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract194": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiResultApplyParams"
-        },
-        "result": {
-          "$ref": "#/$defs/EditorMutationResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract195": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiBatchStartParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiBatchRun"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract196": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiBatchIdParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiBatchRun"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract197": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiBatchListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiBatchPage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract198": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiBatchItemsParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiBatchItemPage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract199": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiBatchRevisionParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiBatchRun"
         }
       },
       "required": [
@@ -11768,6 +12126,96 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/AiResultApplyParams"
+        },
+        "result": {
+          "$ref": "#/$defs/EditorMutationResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract201": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiBatchStartParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiBatchRun"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract202": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiBatchIdParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiBatchRun"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract203": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiBatchListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiBatchPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract204": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiBatchItemsParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiBatchItemPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract205": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiBatchRevisionParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiBatchRun"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract206": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/AiUsageQueryParams"
         },
         "result": {
@@ -11779,7 +12227,7 @@
         "result"
       ]
     },
-    "MethodContract201": {
+    "MethodContract207": {
       "type": "object",
       "properties": {
         "params": {
@@ -11794,7 +12242,7 @@
         "result"
       ]
     },
-    "MethodContract202": {
+    "MethodContract208": {
       "type": "object",
       "properties": {
         "params": {
@@ -11809,7 +12257,7 @@
         "result"
       ]
     },
-    "MethodContract203": {
+    "MethodContract209": {
       "type": "object",
       "properties": {
         "params": {
@@ -11817,66 +12265,6 @@
         },
         "result": {
           "$ref": "#/$defs/TermExtractReport"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract204": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiConversationListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiConversationPage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract205": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiConversationCreateParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiConversation"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract206": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiConversationUpdateParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiConversation"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract207": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiConversationMessagesParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiConversationMessagePage"
         }
       },
       "required": [
@@ -11892,6 +12280,66 @@
         },
         "result": {
           "$ref": "#/$defs/DiscussionMessage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract210": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiConversationListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiConversationPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract211": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiConversationCreateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiConversation"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract212": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiConversationUpdateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiConversation"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract213": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiConversationMessagesParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiConversationMessagePage"
         }
       },
       "required": [
@@ -14454,6 +14902,249 @@
         "candidateValue"
       ]
     },
+    "PluginAiActionCancelParams": {
+      "type": "object",
+      "properties": {
+        "invocationId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "invocationId"
+      ]
+    },
+    "PluginAiActionCancelResult": {
+      "type": "object",
+      "properties": {
+        "cancelled": {
+          "type": "boolean"
+        },
+        "invocationId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "cancelled",
+        "invocationId"
+      ]
+    },
+    "PluginAiActionHistoryEntry": {
+      "type": "object",
+      "properties": {
+        "canonicalSha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "contributionVersion": {
+          "type": "string"
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "failureCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "invocationId": {
+          "type": "string"
+        },
+        "owner": {
+          "$ref": "#/$defs/PluginContributionOwner"
+        },
+        "status": {
+          "$ref": "#/$defs/PluginAiActionHistoryStatus"
+        },
+        "usage": {
+          "$ref": "#/$defs/PluginAiActionHistoryUsage"
+        }
+      },
+      "required": [
+        "invocationId",
+        "owner",
+        "contributionVersion",
+        "status",
+        "usage",
+        "createdAtMs"
+      ]
+    },
+    "PluginAiActionHistoryListParams": {
+      "type": "object",
+      "properties": {
+        "contributionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 200,
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        },
+        "pluginId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "PluginAiActionHistoryPage": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PluginAiActionHistoryEntry"
+          }
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "items",
+        "total",
+        "offset",
+        "limit"
+      ]
+    },
+    "PluginAiActionHistoryStatus": {
+      "type": "string",
+      "enum": [
+        "succeeded",
+        "failed",
+        "cancelled",
+        "timeout",
+        "stale_activation"
+      ]
+    },
+    "PluginAiActionHistoryUsage": {
+      "type": "object",
+      "properties": {
+        "durationMs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "inputBytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "outputBytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "inputBytes",
+        "outputBytes",
+        "durationMs"
+      ]
+    },
+    "PluginAiActionInvokeParams": {
+      "type": "object",
+      "properties": {
+        "invocation": {
+          "$ref": "#/$defs/AiActionInvocationV1"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "invocation"
+      ]
+    },
+    "PluginAiActionInvokeResult": {
+      "type": "object",
+      "properties": {
+        "canonicalSha256": {
+          "type": "string"
+        },
+        "descriptor": {
+          "$ref": "#/$defs/AiActionContributionDescriptor"
+        },
+        "owner": {
+          "$ref": "#/$defs/PluginContributionOwner"
+        },
+        "result": {
+          "$ref": "#/$defs/AiActionResultV1"
+        }
+      },
+      "required": [
+        "owner",
+        "descriptor",
+        "result",
+        "canonicalSha256"
+      ]
+    },
+    "PluginAiActionPage": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PluginAiActionView"
+          }
+        }
+      },
+      "required": [
+        "items"
+      ]
+    },
+    "PluginAiActionView": {
+      "type": "object",
+      "properties": {
+        "descriptor": {
+          "$ref": "#/$defs/AiActionContributionDescriptor"
+        },
+        "lastFailureCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "owner": {
+          "$ref": "#/$defs/PluginContributionOwner"
+        },
+        "state": {
+          "$ref": "#/$defs/PluginContributionState"
+        }
+      },
+      "required": [
+        "owner",
+        "descriptor",
+        "state"
+      ]
+    },
     "PluginApiRange": {
       "type": "object",
       "properties": {
@@ -15573,6 +16264,24 @@
         {
           "type": "object",
           "properties": {
+            "configSchema": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicConfigSchemaV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "configSchemaVersion": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0
+            },
             "descriptorVersion": {
               "type": "integer",
               "format": "uint32",
@@ -15584,7 +16293,15 @@
             "id": {
               "type": "string"
             },
-            "input": true,
+            "input": {
+              "description": "Legacy inventory metadata. Executable V1 descriptors still carry an object here."
+            },
+            "inputFields": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/AiActionInputFieldV1"
+              }
+            },
             "kind": {
               "type": "string",
               "const": "aiAction"
@@ -15592,11 +16309,37 @@
             "label": {
               "type": "string"
             },
+            "limits": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/AiActionLimitsV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "operationProtocolVersion": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0
+            },
             "placement": {
+              "description": "Kept as text so released inventory-only descriptors remain readable.",
               "type": "string"
             },
             "promptTemplate": {
-              "type": "string"
+              "type": "string",
+              "default": ""
+            },
+            "resultModes": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/AiActionResultModeV1"
+              }
             },
             "version": {
               "type": "string"
@@ -15611,8 +16354,7 @@
             "displayName",
             "label",
             "placement",
-            "input",
-            "promptTemplate"
+            "input"
           ]
         },
         {
@@ -15620,6 +16362,14 @@
           "properties": {
             "bridgeVersion": {
               "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "contractVersion": {
+              "type": [
+                "integer",
+                "null"
+              ],
               "format": "uint32",
               "minimum": 0
             },
@@ -15641,7 +16391,19 @@
             "label": {
               "type": "string"
             },
+            "methods": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/UiPanelBridgeMethodV1"
+              }
+            },
+            "order": {
+              "type": "integer",
+              "format": "int32",
+              "default": 0
+            },
             "placement": {
+              "description": "Kept as text so released inventory-only descriptors remain readable.",
               "type": "string"
             },
             "surface": {
@@ -15715,6 +16477,40 @@
             "capabilities"
           ]
         }
+      ]
+    },
+    "PluginContributionOwner": {
+      "type": "object",
+      "properties": {
+        "activationRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "contributionId": {
+          "type": "string"
+        },
+        "pluginId": {
+          "type": "string"
+        },
+        "versionId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "pluginId",
+        "versionId",
+        "activationRevision",
+        "contributionId"
+      ]
+    },
+    "PluginContributionState": {
+      "type": "string",
+      "enum": [
+        "active",
+        "detached",
+        "degraded"
       ]
     },
     "PluginDeclarativeEntry": {
@@ -16304,6 +17100,81 @@
         "declarative",
         "sandbox",
         "process"
+      ]
+    },
+    "PluginUiPanelBridgeCallParams": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "owner": {
+          "$ref": "#/$defs/PluginContributionOwner"
+        },
+        "params": {
+          "default": null
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "owner",
+        "method"
+      ]
+    },
+    "PluginUiPanelBridgeCallResult": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "owner": {
+          "$ref": "#/$defs/PluginContributionOwner"
+        },
+        "result": true
+      },
+      "required": [
+        "owner",
+        "method",
+        "result"
+      ]
+    },
+    "PluginUiPanelPage": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PluginUiPanelView"
+          }
+        }
+      },
+      "required": [
+        "items"
+      ]
+    },
+    "PluginUiPanelView": {
+      "type": "object",
+      "properties": {
+        "descriptor": {
+          "$ref": "#/$defs/UiPanelContributionDescriptor"
+        },
+        "lastFailureCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "owner": {
+          "$ref": "#/$defs/PluginContributionOwner"
+        },
+        "state": {
+          "$ref": "#/$defs/PluginContributionState"
+        }
+      },
+      "required": [
+        "owner",
+        "descriptor",
+        "state"
       ]
     },
     "PluginUpgradeParams": {
@@ -20594,100 +21465,100 @@
       "type": "object",
       "properties": {
         "ai.batch.cancel": {
-          "$ref": "#/$defs/MethodContract199"
-        },
-        "ai.batch.get": {
-          "$ref": "#/$defs/MethodContract196"
-        },
-        "ai.batch.items": {
-          "$ref": "#/$defs/MethodContract198"
-        },
-        "ai.batch.list": {
-          "$ref": "#/$defs/MethodContract197"
-        },
-        "ai.batch.resume": {
-          "$ref": "#/$defs/MethodContract199"
-        },
-        "ai.batch.start": {
-          "$ref": "#/$defs/MethodContract195"
-        },
-        "ai.conversation.create": {
           "$ref": "#/$defs/MethodContract205"
         },
-        "ai.conversation.list": {
-          "$ref": "#/$defs/MethodContract204"
-        },
-        "ai.conversation.messages": {
-          "$ref": "#/$defs/MethodContract207"
-        },
-        "ai.conversation.update": {
-          "$ref": "#/$defs/MethodContract206"
-        },
-        "ai.credential.delete": {
-          "$ref": "#/$defs/MethodContract185"
-        },
-        "ai.credential.status": {
-          "$ref": "#/$defs/MethodContract185"
-        },
-        "ai.grounding.preview": {
-          "$ref": "#/$defs/MethodContract188"
-        },
-        "ai.provider.catalog": {
-          "$ref": "#/$defs/MethodContract179"
-        },
-        "ai.provider.create": {
-          "$ref": "#/$defs/MethodContract181"
-        },
-        "ai.provider.delete": {
-          "$ref": "#/$defs/MethodContract183"
-        },
-        "ai.provider.list": {
-          "$ref": "#/$defs/MethodContract180"
-        },
-        "ai.provider.test": {
-          "$ref": "#/$defs/MethodContract184"
-        },
-        "ai.provider.update": {
-          "$ref": "#/$defs/MethodContract182"
-        },
-        "ai.quality.extractTerms": {
-          "$ref": "#/$defs/MethodContract203"
-        },
-        "ai.quality.scoreDocument": {
-          "$ref": "#/$defs/MethodContract201"
-        },
-        "ai.quality.semanticQa": {
+        "ai.batch.get": {
           "$ref": "#/$defs/MethodContract202"
         },
-        "ai.result.apply": {
-          "$ref": "#/$defs/MethodContract194"
+        "ai.batch.items": {
+          "$ref": "#/$defs/MethodContract204"
         },
-        "ai.run.cancel": {
-          "$ref": "#/$defs/MethodContract193"
+        "ai.batch.list": {
+          "$ref": "#/$defs/MethodContract203"
         },
-        "ai.run.events": {
-          "$ref": "#/$defs/MethodContract192"
+        "ai.batch.resume": {
+          "$ref": "#/$defs/MethodContract205"
         },
-        "ai.run.get": {
-          "$ref": "#/$defs/MethodContract190"
+        "ai.batch.start": {
+          "$ref": "#/$defs/MethodContract201"
         },
-        "ai.run.list": {
+        "ai.conversation.create": {
+          "$ref": "#/$defs/MethodContract211"
+        },
+        "ai.conversation.list": {
+          "$ref": "#/$defs/MethodContract210"
+        },
+        "ai.conversation.messages": {
+          "$ref": "#/$defs/MethodContract213"
+        },
+        "ai.conversation.update": {
+          "$ref": "#/$defs/MethodContract212"
+        },
+        "ai.credential.delete": {
           "$ref": "#/$defs/MethodContract191"
         },
-        "ai.run.resume": {
-          "$ref": "#/$defs/MethodContract193"
+        "ai.credential.status": {
+          "$ref": "#/$defs/MethodContract191"
         },
-        "ai.run.start": {
-          "$ref": "#/$defs/MethodContract189"
+        "ai.grounding.preview": {
+          "$ref": "#/$defs/MethodContract194"
         },
-        "ai.settings.get": {
-          "$ref": "#/$defs/MethodContract186"
+        "ai.provider.catalog": {
+          "$ref": "#/$defs/MethodContract185"
         },
-        "ai.settings.update": {
+        "ai.provider.create": {
           "$ref": "#/$defs/MethodContract187"
         },
-        "ai.usage.query": {
+        "ai.provider.delete": {
+          "$ref": "#/$defs/MethodContract189"
+        },
+        "ai.provider.list": {
+          "$ref": "#/$defs/MethodContract186"
+        },
+        "ai.provider.test": {
+          "$ref": "#/$defs/MethodContract190"
+        },
+        "ai.provider.update": {
+          "$ref": "#/$defs/MethodContract188"
+        },
+        "ai.quality.extractTerms": {
+          "$ref": "#/$defs/MethodContract209"
+        },
+        "ai.quality.scoreDocument": {
+          "$ref": "#/$defs/MethodContract207"
+        },
+        "ai.quality.semanticQa": {
+          "$ref": "#/$defs/MethodContract208"
+        },
+        "ai.result.apply": {
           "$ref": "#/$defs/MethodContract200"
+        },
+        "ai.run.cancel": {
+          "$ref": "#/$defs/MethodContract199"
+        },
+        "ai.run.events": {
+          "$ref": "#/$defs/MethodContract198"
+        },
+        "ai.run.get": {
+          "$ref": "#/$defs/MethodContract196"
+        },
+        "ai.run.list": {
+          "$ref": "#/$defs/MethodContract197"
+        },
+        "ai.run.resume": {
+          "$ref": "#/$defs/MethodContract199"
+        },
+        "ai.run.start": {
+          "$ref": "#/$defs/MethodContract195"
+        },
+        "ai.settings.get": {
+          "$ref": "#/$defs/MethodContract192"
+        },
+        "ai.settings.update": {
+          "$ref": "#/$defs/MethodContract193"
+        },
+        "ai.usage.query": {
+          "$ref": "#/$defs/MethodContract206"
         },
         "alignment.session.apply": {
           "$ref": "#/$defs/MethodContract92"
@@ -20720,43 +21591,43 @@
           "$ref": "#/$defs/MethodContract98"
         },
         "collab.assignment.complete": {
-          "$ref": "#/$defs/MethodContract165"
+          "$ref": "#/$defs/MethodContract171"
         },
         "collab.assignment.create": {
-          "$ref": "#/$defs/MethodContract164"
+          "$ref": "#/$defs/MethodContract170"
         },
         "collab.assignment.list": {
-          "$ref": "#/$defs/MethodContract163"
+          "$ref": "#/$defs/MethodContract169"
         },
         "collab.lock.acquire": {
-          "$ref": "#/$defs/MethodContract157"
+          "$ref": "#/$defs/MethodContract163"
         },
         "collab.lock.heartbeat": {
-          "$ref": "#/$defs/MethodContract159"
+          "$ref": "#/$defs/MethodContract165"
         },
         "collab.lock.list": {
-          "$ref": "#/$defs/MethodContract160"
-        },
-        "collab.lock.release": {
-          "$ref": "#/$defs/MethodContract158"
-        },
-        "collab.member.add": {
-          "$ref": "#/$defs/MethodContract155"
-        },
-        "collab.member.list": {
-          "$ref": "#/$defs/MethodContract154"
-        },
-        "collab.member.remove": {
-          "$ref": "#/$defs/MethodContract156"
-        },
-        "collab.opLog.list": {
           "$ref": "#/$defs/MethodContract166"
         },
-        "collab.presence.heartbeat": {
+        "collab.lock.release": {
+          "$ref": "#/$defs/MethodContract164"
+        },
+        "collab.member.add": {
           "$ref": "#/$defs/MethodContract161"
         },
-        "collab.presence.list": {
+        "collab.member.list": {
+          "$ref": "#/$defs/MethodContract160"
+        },
+        "collab.member.remove": {
           "$ref": "#/$defs/MethodContract162"
+        },
+        "collab.opLog.list": {
+          "$ref": "#/$defs/MethodContract172"
+        },
+        "collab.presence.heartbeat": {
+          "$ref": "#/$defs/MethodContract167"
+        },
+        "collab.presence.list": {
+          "$ref": "#/$defs/MethodContract168"
         },
         "corpus.fromAlignment": {
           "$ref": "#/$defs/MethodContract95"
@@ -20795,10 +21666,10 @@
           "$ref": "#/$defs/MethodContract100"
         },
         "data.checkHealth": {
-          "$ref": "#/$defs/MethodContract168"
+          "$ref": "#/$defs/MethodContract174"
         },
         "data.createBackup": {
-          "$ref": "#/$defs/MethodContract169"
+          "$ref": "#/$defs/MethodContract175"
         },
         "dictionary.add": {
           "$ref": "#/$defs/MethodContract68"
@@ -20876,7 +21747,7 @@
           "$ref": "#/$defs/MethodContract140"
         },
         "history.list": {
-          "$ref": "#/$defs/MethodContract167"
+          "$ref": "#/$defs/MethodContract173"
         },
         "interop.review.apply": {
           "$ref": "#/$defs/MethodContract79"
@@ -20903,34 +21774,46 @@
           "$ref": "#/$defs/MethodContract84"
         },
         "pipeline.create": {
-          "$ref": "#/$defs/MethodContract171"
-        },
-        "pipeline.get": {
-          "$ref": "#/$defs/MethodContract173"
-        },
-        "pipeline.list": {
-          "$ref": "#/$defs/MethodContract172"
-        },
-        "pipeline.run": {
-          "$ref": "#/$defs/MethodContract175"
-        },
-        "pipeline.run.cancel": {
-          "$ref": "#/$defs/MethodContract178"
-        },
-        "pipeline.run.get": {
           "$ref": "#/$defs/MethodContract177"
         },
-        "pipeline.run.list": {
-          "$ref": "#/$defs/MethodContract176"
+        "pipeline.get": {
+          "$ref": "#/$defs/MethodContract179"
         },
-        "pipeline.run.resume": {
+        "pipeline.list": {
           "$ref": "#/$defs/MethodContract178"
         },
+        "pipeline.run": {
+          "$ref": "#/$defs/MethodContract181"
+        },
+        "pipeline.run.cancel": {
+          "$ref": "#/$defs/MethodContract184"
+        },
+        "pipeline.run.get": {
+          "$ref": "#/$defs/MethodContract183"
+        },
+        "pipeline.run.list": {
+          "$ref": "#/$defs/MethodContract182"
+        },
+        "pipeline.run.resume": {
+          "$ref": "#/$defs/MethodContract184"
+        },
         "pipeline.step.list": {
-          "$ref": "#/$defs/MethodContract170"
+          "$ref": "#/$defs/MethodContract176"
         },
         "pipeline.validate": {
-          "$ref": "#/$defs/MethodContract174"
+          "$ref": "#/$defs/MethodContract180"
+        },
+        "plugin.aiAction.cancel": {
+          "$ref": "#/$defs/MethodContract156"
+        },
+        "plugin.aiAction.history.list": {
+          "$ref": "#/$defs/MethodContract157"
+        },
+        "plugin.aiAction.invoke": {
+          "$ref": "#/$defs/MethodContract155"
+        },
+        "plugin.aiAction.list": {
+          "$ref": "#/$defs/MethodContract154"
         },
         "plugin.disable": {
           "$ref": "#/$defs/MethodContract144"
@@ -20970,6 +21853,12 @@
         },
         "plugin.rollback": {
           "$ref": "#/$defs/MethodContract148"
+        },
+        "plugin.uiPanel.bridge.call": {
+          "$ref": "#/$defs/MethodContract159"
+        },
+        "plugin.uiPanel.list": {
+          "$ref": "#/$defs/MethodContract158"
         },
         "plugin.uninstall": {
           "$ref": "#/$defs/MethodContract144"
@@ -21410,6 +22299,12 @@
         "plugin.permission.deny",
         "plugin.permission.revoke",
         "plugin.permission.audit.list",
+        "plugin.aiAction.list",
+        "plugin.aiAction.invoke",
+        "plugin.aiAction.cancel",
+        "plugin.aiAction.history.list",
+        "plugin.uiPanel.list",
+        "plugin.uiPanel.bridge.call",
         "collab.member.list",
         "collab.member.add",
         "collab.member.remove",
@@ -24613,6 +25508,79 @@
         "metadata",
         "createdAtMs",
         "updatedAtMs"
+      ]
+    },
+    "UiPanelBridgeMethodV1": {
+      "type": "string",
+      "enum": [
+        "panelContext",
+        "activeSelection",
+        "projectContext",
+        "proposeReplacement"
+      ]
+    },
+    "UiPanelContributionDescriptor": {
+      "type": "object",
+      "properties": {
+        "bridgeVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "contractVersion": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "descriptorVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "methods": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UiPanelBridgeMethodV1"
+          }
+        },
+        "order": {
+          "type": "integer",
+          "format": "int32",
+          "default": 0
+        },
+        "placement": {
+          "description": "Kept as text so released inventory-only descriptors remain readable.",
+          "type": "string"
+        },
+        "surface": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "descriptorVersion",
+        "id",
+        "version",
+        "displayName",
+        "label",
+        "placement",
+        "surface",
+        "bridgeVersion"
       ]
     },
     "UpdateEditorPreferencesParams": {

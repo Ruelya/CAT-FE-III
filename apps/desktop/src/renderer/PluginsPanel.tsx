@@ -608,6 +608,11 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
               contributionId={panelPreview.contribution.id}
               contributionName={panelPreview.contribution.displayName}
               revision={panelPreview.plugin.revision}
+              versionId={panelPreview.plugin.activeVersionId ?? ""}
+              allowedMethods={previewBridgeMethods(
+                panelPreview.contribution.methods,
+              )}
+              projectId={projectId}
               onClose={() => setPanelPreview(null)}
             />
           </section>
@@ -1278,4 +1283,34 @@ function scopeHasAuthority(scope: PluginCapabilityScope): boolean {
     scope.kind === "unscoped" ||
     scopeGroups(scope).some((group) => group.values.length > 0)
   );
+}
+
+function previewBridgeMethods(
+  methods:
+    | Extract<PluginContributionDescriptor, { kind: "uiPanel" }>["methods"]
+    | undefined,
+): Array<
+  | "panel.context"
+  | "panel.activeSelection"
+  | "panel.projectContext"
+  | "panel.proposeReplacement"
+> {
+  const declared = methods?.length ? methods : ["panelContext"];
+  const mapped = declared
+    .map((method) => {
+      switch (method) {
+        case "panelContext":
+          return "panel.context" as const;
+        case "activeSelection":
+          return "panel.activeSelection" as const;
+        case "projectContext":
+          return "panel.projectContext" as const;
+        case "proposeReplacement":
+          return "panel.proposeReplacement" as const;
+        default:
+          return null;
+      }
+    })
+    .filter((method): method is NonNullable<typeof method> => method !== null);
+  return mapped.length ? mapped : ["panel.context"];
 }

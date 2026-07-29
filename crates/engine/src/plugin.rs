@@ -25,13 +25,15 @@ use translunar_plugin_runtime::{
     stage_plugin_package,
 };
 use translunar_protocol::{
-    NormalizedPluginManifest, PluginCompatibility, PluginDiagnostic, PluginIdParams,
-    PluginInspectParams, PluginInspection, PluginInstallParams, PluginLifecycleAction,
-    PluginLifecycleResult, PluginListParams, PluginMutationParams, PluginMutationResult,
-    PluginPage, PluginRollbackParams, PluginRuntimeDescriptor as WirePluginRuntimeDescriptor,
-    PluginStatus as WirePluginStatus, PluginSummary, PluginTier as WirePluginTier,
-    PluginUpgradeParams, PluginVersionListParams, PluginVersionPage,
-    PluginVersionState as WirePluginVersionState, PluginVersionSummary,
+    NormalizedPluginManifest, PluginAiActionInvokeParams, PluginAiActionInvokeResult,
+    PluginAiActionPage, PluginCompatibility, PluginContributionOwner, PluginDiagnostic,
+    PluginIdParams, PluginInspectParams, PluginInspection, PluginInstallParams,
+    PluginLifecycleAction, PluginLifecycleResult, PluginListParams, PluginMutationParams,
+    PluginMutationResult, PluginPage, PluginRollbackParams,
+    PluginRuntimeDescriptor as WirePluginRuntimeDescriptor, PluginStatus as WirePluginStatus,
+    PluginSummary, PluginTier as WirePluginTier, PluginUiPanelPage, PluginUpgradeParams,
+    PluginVersionListParams, PluginVersionPage, PluginVersionState as WirePluginVersionState,
+    PluginVersionSummary,
 };
 use translunar_qa_core::QaRuleProvenanceSnapshot;
 use translunar_storage::{
@@ -40,6 +42,7 @@ use translunar_storage::{
 };
 use uuid::Uuid;
 
+use crate::plugin_ai_ui::{AiActionRegistration, ContributionOwnerToken, UiPanelRegistration};
 use crate::plugin_connector::{
     DeclarativePluginEngineConnector, ProcessPluginEngineConnector,
     ReqwestDeclarativeConnectorTransport, SandboxPluginEngineConnector,
@@ -65,6 +68,8 @@ pub(crate) struct PreparedSandboxActivation {
     pipeline_steps: Vec<(String, PipelineStepOwner, Arc<dyn PipelineStep>)>,
     connectors: Vec<EngineConnectorRegistration>,
     connector_metadata: crate::ai::PluginConnectorCatalog,
+    ai_actions: Vec<AiActionRegistration>,
+    ui_panels: Vec<UiPanelRegistration>,
 }
 
 impl EngineService {
@@ -114,6 +119,224 @@ impl EngineService {
             offset: params.offset,
             limit: params.limit.clamp(1, 200),
         })
+    }
+
+    pub fn list_plugin_ai_actions(&self) -> PluginAiActionPage {
+        PluginAiActionPage {
+            items: self.plugin_ai_action_registry.views(),
+        }
+    }
+
+    pub fn invoke_plugin_ai_action(
+        &mut self,
+        params: PluginAiActionInvokeParams,
+    ) -> Result<PluginAiActionInvokeResult> {
+        let invocation_id = params.invocation.invocation_id.clone();
+        let contribution_id = params.invocation.contribution_id.clone();
+        validate_plugin_public_id(&invocation_id, "AI action invocation id")?;
+        if self
+            .store
+            .plugin_ai_action_invocation_exists(&invocation_id)?
+        {
+            return Err(EngineError::InvalidState(
+                "AI action invocation id has already been used".to_string(),
+            ));
+        }
+        let token = translunar_plugin_runtime::SandboxCancellationToken::default();
+        let result = crate::plugin_ai_ui::invoke_ai_action(
+            &self.plugin_ai_action_registry,
+            &self.plugin_sandbox_runtimes,
+            &self.plugin_ai_action_cancels,
+            params.invocation,
+            token,
+        );
+        // History is authoritative: persistence failures surface as Engine errors
+        // after a successful sandbox result so UI never loses provenance silently.
+        match &result {
+            Ok(success) => {
+                self.store.record_plugin_ai_action_invocation(
+                    translunar_storage::NewPluginAiActionInvocation {
+                        id: &invocation_id,
+                        plugin_id: &success.owner.plugin_id,
+                        version_id: &success.owner.version_id,
+                        activation_revision: success.owner.activation_revision,
+                        contribution_id: &success.owner.contribution_id,
+                        contribution_version: &success.descriptor.version,
+                        status: translunar_storage::PluginAiActionInvocationStatus::Succeeded,
+                        failure_code: None,
+                        canonical_sha256: Some(success.canonical_sha256.as_str()),
+                        usage: translunar_storage::PluginAiActionUsageRecord {
+                            input_bytes: success.result.usage.input_bytes,
+                            output_bytes: success.result.usage.output_bytes,
+                            duration_ms: success.result.usage.duration_ms,
+                        },
+                    },
+                )?;
+            }
+            Err(error) => {
+                self.record_failed_ai_action_history(&invocation_id, &contribution_id, error)?;
+            }
+        }
+        result
+    }
+
+    pub fn cancel_plugin_ai_action(
+        &self,
+        params: translunar_protocol::PluginAiActionCancelParams,
+    ) -> Result<translunar_protocol::PluginAiActionCancelResult> {
+        validate_plugin_public_id(&params.invocation_id, "AI action invocation id")?;
+        let cancelled = self.plugin_ai_action_cancels.cancel(&params.invocation_id);
+        Ok(translunar_protocol::PluginAiActionCancelResult {
+            cancelled,
+            invocation_id: params.invocation_id,
+        })
+    }
+
+    pub fn call_plugin_ui_panel_bridge(
+        &self,
+        params: translunar_protocol::PluginUiPanelBridgeCallParams,
+    ) -> Result<translunar_protocol::PluginUiPanelBridgeCallResult> {
+        crate::plugin_ai_ui::call_ui_panel_bridge(
+            &self.plugin_ui_panel_registry,
+            &self.store,
+            params,
+        )
+    }
+
+    fn record_failed_ai_action_history(
+        &mut self,
+        invocation_id: &str,
+        contribution_id: &str,
+        error: &EngineError,
+    ) -> Result<()> {
+        let (plugin_id, failed_contribution, code) = match error {
+            EngineError::PluginAiActionFailed {
+                plugin_id,
+                contribution_id: failed_contribution,
+                code,
+                ..
+            } => (plugin_id.clone(), failed_contribution.clone(), code.clone()),
+            EngineError::PluginCapabilityDenied(denial)
+                if denial.capability_id == PluginCapabilityId::AiAction =>
+            {
+                (
+                    denial.plugin_id.clone(),
+                    denial
+                        .request_id
+                        .clone()
+                        .unwrap_or_else(|| contribution_id.to_string()),
+                    "permission_denied".to_string(),
+                )
+            }
+            _ => return Ok(()),
+        };
+        let status = match code.as_str() {
+            "cancelled" => translunar_storage::PluginAiActionInvocationStatus::Cancelled,
+            "timeout" => translunar_storage::PluginAiActionInvocationStatus::Timeout,
+            "stale_activation" => {
+                translunar_storage::PluginAiActionInvocationStatus::StaleActivation
+            }
+            _ => translunar_storage::PluginAiActionInvocationStatus::Failed,
+        };
+        let view = self
+            .plugin_ai_action_registry
+            .views()
+            .into_iter()
+            .find(|view| {
+                view.owner.plugin_id == plugin_id
+                    && (view.owner.contribution_id == failed_contribution
+                        || view.owner.contribution_id == contribution_id)
+            });
+        let Some(view) = view else {
+            return Ok(());
+        };
+        self.store.record_plugin_ai_action_invocation(
+            translunar_storage::NewPluginAiActionInvocation {
+                id: invocation_id,
+                plugin_id: &view.owner.plugin_id,
+                version_id: &view.owner.version_id,
+                activation_revision: view.owner.activation_revision,
+                contribution_id: &view.owner.contribution_id,
+                contribution_version: &view.descriptor.version,
+                status,
+                failure_code: Some(code.as_str()),
+                canonical_sha256: None,
+                usage: translunar_storage::PluginAiActionUsageRecord {
+                    input_bytes: 0,
+                    output_bytes: 0,
+                    duration_ms: 0,
+                },
+            },
+        )?;
+        Ok(())
+    }
+
+    pub fn list_plugin_ai_action_history(
+        &self,
+        params: translunar_protocol::PluginAiActionHistoryListParams,
+    ) -> Result<translunar_protocol::PluginAiActionHistoryPage> {
+        if let Some(plugin_id) = params.plugin_id.as_deref() {
+            validate_plugin_public_id(plugin_id, "plugin id")?;
+        }
+        if let Some(contribution_id) = params.contribution_id.as_deref() {
+            validate_plugin_public_id(contribution_id, "AI action contribution id")?;
+        }
+        let page = self.store.list_plugin_ai_action_invocations(
+            params.plugin_id.as_deref(),
+            params.contribution_id.as_deref(),
+            params.offset,
+            params.limit,
+        )?;
+        Ok(translunar_protocol::PluginAiActionHistoryPage {
+            items: page
+                .items
+                .into_iter()
+                .map(|item| translunar_protocol::PluginAiActionHistoryEntry {
+                    invocation_id: item.id,
+                    owner: PluginContributionOwner {
+                        plugin_id: item.plugin_id,
+                        version_id: item.version_id,
+                        activation_revision: item.activation_revision,
+                        contribution_id: item.contribution_id,
+                    },
+                    contribution_version: item.contribution_version,
+                    status: match item.status {
+                        translunar_storage::PluginAiActionInvocationStatus::Succeeded => {
+                            translunar_protocol::PluginAiActionHistoryStatus::Succeeded
+                        }
+                        translunar_storage::PluginAiActionInvocationStatus::Failed => {
+                            translunar_protocol::PluginAiActionHistoryStatus::Failed
+                        }
+                        translunar_storage::PluginAiActionInvocationStatus::Cancelled => {
+                            translunar_protocol::PluginAiActionHistoryStatus::Cancelled
+                        }
+                        translunar_storage::PluginAiActionInvocationStatus::Timeout => {
+                            translunar_protocol::PluginAiActionHistoryStatus::Timeout
+                        }
+                        translunar_storage::PluginAiActionInvocationStatus::StaleActivation => {
+                            translunar_protocol::PluginAiActionHistoryStatus::StaleActivation
+                        }
+                    },
+                    failure_code: item.failure_code,
+                    canonical_sha256: item.canonical_sha256,
+                    usage: translunar_protocol::PluginAiActionHistoryUsage {
+                        input_bytes: item.usage.input_bytes,
+                        output_bytes: item.usage.output_bytes,
+                        duration_ms: item.usage.duration_ms,
+                    },
+                    created_at_ms: item.created_at_ms,
+                })
+                .collect(),
+            total: page.total,
+            offset: page.offset,
+            limit: page.limit,
+        })
+    }
+
+    pub fn list_plugin_ui_panels(&self) -> PluginUiPanelPage {
+        PluginUiPanelPage {
+            items: self.plugin_ui_panel_registry.views(),
+        }
     }
 
     pub fn get_plugin(&self, params: PluginIdParams) -> Result<PluginSummary> {
@@ -1625,6 +1848,19 @@ impl EngineService {
                         )?;
                     }
                 }
+                PluginContributionDescriptor::AiAction(value) => {
+                    authorize_contribution(
+                        &authorizer,
+                        record,
+                        version_id,
+                        PluginCapabilityId::AiAction,
+                        PluginCapabilityScope::Contributions {
+                            contribution_ids: vec![value.id.clone()],
+                        },
+                        &value.id,
+                        "ai.action.register",
+                    )?;
+                }
                 PluginContributionDescriptor::UiPanel(value) => {
                     authorize_contribution(
                         &authorizer,
@@ -1713,6 +1949,8 @@ impl EngineService {
             Vec::new();
         let mut connectors = Vec::new();
         let mut connector_metadata = crate::ai::PluginConnectorCatalog::new();
+        let mut ai_actions = Vec::new();
+        let mut ui_panels = Vec::new();
         for contribution in &normalized.contributions {
             match contribution {
                 PluginContributionDescriptor::Filter(value) => {
@@ -1800,7 +2038,34 @@ impl EngineService {
                         Arc::new(adapter),
                     ));
                 }
-                PluginContributionDescriptor::UiPanel(_) => {}
+                PluginContributionDescriptor::AiAction(value) => {
+                    let owner = ContributionOwnerToken {
+                        plugin_id: record.id.clone(),
+                        version_id: version_id.to_string(),
+                        activation_revision: record.revision,
+                        contribution_id: value.id.clone(),
+                    };
+                    ai_actions.push(AiActionRegistration {
+                        owner,
+                        descriptor: value.clone(),
+                        sandbox_key: worker.key().clone(),
+                        authorizer: Arc::clone(&authorizer),
+                    });
+                }
+                PluginContributionDescriptor::UiPanel(value) => {
+                    if value.contract_version.is_some() {
+                        ui_panels.push(UiPanelRegistration {
+                            owner: ContributionOwnerToken {
+                                plugin_id: record.id.clone(),
+                                version_id: version_id.to_string(),
+                                activation_revision: record.revision,
+                                contribution_id: value.id.clone(),
+                            },
+                            descriptor: value.clone(),
+                            authorizer: Arc::clone(&authorizer),
+                        });
+                    }
+                }
                 _ => unreachable!("sandbox host compatibility was checked before preparation"),
             }
         }
@@ -1812,6 +2077,8 @@ impl EngineService {
             pipeline_steps,
             connectors,
             connector_metadata,
+            ai_actions,
+            ui_panels,
         })
     }
 
@@ -1847,6 +2114,17 @@ impl EngineService {
             }
         }
         if let Err(error) = self.plugin_qa_registry.preflight(&prepared.qa_rules) {
+            let _ = prepared.worker.shutdown();
+            return Err(error);
+        }
+        if let Err(error) = self
+            .plugin_ai_action_registry
+            .preflight(&prepared.ai_actions)
+        {
+            let _ = prepared.worker.shutdown();
+            return Err(error);
+        }
+        if let Err(error) = self.plugin_ui_panel_registry.preflight(&prepared.ui_panels) {
             let _ = prepared.worker.shutdown();
             return Err(error);
         }
@@ -1925,6 +2203,54 @@ impl EngineService {
             self.detach_plugin_connectors(&record.id);
             return Err(error);
         }
+        if let Err(error) = self
+            .plugin_ai_action_registry
+            .attach_all(prepared.ai_actions)
+        {
+            self.plugin_qa_registry
+                .detach_generation(&record.id, record.revision);
+            for (step_id, binding) in &registered_pipeline_steps {
+                self.pipeline.cancel_owner(binding);
+                if let Ok(current) = self.pipeline.registry.resolve_binding(step_id)
+                    && current.binding().owner == *binding
+                {
+                    let _ = self.pipeline.registry.unregister_binding(current.binding());
+                }
+                self.plugin_pipeline_owners.remove(step_id);
+            }
+            for registered_id in &registered {
+                let _ = self.filters.unregister(registered_id);
+                self.plugin_filter_owners.remove(registered_id);
+            }
+            let _ = self.plugin_sandbox_runtimes.detach(&key);
+            self.detach_plugin_connectors(&record.id);
+            return Err(error);
+        }
+        if let Err(error) = self.plugin_ui_panel_registry.attach_all(prepared.ui_panels) {
+            self.plugin_ai_action_registry.detach_generation(
+                &record.id,
+                &version_id,
+                record.revision,
+            );
+            self.plugin_qa_registry
+                .detach_generation(&record.id, record.revision);
+            for (step_id, binding) in &registered_pipeline_steps {
+                self.pipeline.cancel_owner(binding);
+                if let Ok(current) = self.pipeline.registry.resolve_binding(step_id)
+                    && current.binding().owner == *binding
+                {
+                    let _ = self.pipeline.registry.unregister_binding(current.binding());
+                }
+                self.plugin_pipeline_owners.remove(step_id);
+            }
+            for registered_id in &registered {
+                let _ = self.filters.unregister(registered_id);
+                self.plugin_filter_owners.remove(registered_id);
+            }
+            let _ = self.plugin_sandbox_runtimes.detach(&key);
+            self.detach_plugin_connectors(&record.id);
+            return Err(error);
+        }
         if let Some(previous_key) = self
             .plugin_sandbox_keys
             .insert(record.id.clone(), key.clone())
@@ -1962,8 +2288,32 @@ impl EngineService {
         }
         if let Some(activation_revision) = self.plugin_activation_revisions.get(plugin_id).copied()
         {
+            // Process and Tier 1 QA detach only need the activation generation.
             self.plugin_qa_registry
                 .detach_generation(plugin_id, activation_revision);
+            // AI/UI registries also key by version_id when a sandbox generation exists.
+            if let Some(version_id) = self
+                .plugin_sandbox_keys
+                .get(plugin_id)
+                .map(|key| key.version_id.clone())
+                .or_else(|| {
+                    self.store
+                        .get_plugin_installation(plugin_id)
+                        .ok()
+                        .and_then(|record| record.active_version_id)
+                })
+            {
+                self.plugin_ai_action_registry.detach_generation(
+                    plugin_id,
+                    &version_id,
+                    activation_revision,
+                );
+                self.plugin_ui_panel_registry.detach_generation(
+                    plugin_id,
+                    &version_id,
+                    activation_revision,
+                );
+            }
         }
         let pipeline_steps = self
             .plugin_pipeline_owners
@@ -2247,6 +2597,20 @@ impl EngineService {
             }
         }
     }
+}
+
+fn validate_plugin_public_id(value: &str, label: &str) -> Result<()> {
+    if value.is_empty()
+        || value.len() > 128
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
+    {
+        return Err(EngineError::InvalidRequest(format!(
+            "{label} is malformed or oversized"
+        )));
+    }
+    Ok(())
 }
 
 fn authorize_contribution(
@@ -3796,6 +4160,69 @@ mod tests {
         assert_eq!(enabled.status, WirePluginStatus::Enabled);
         assert!(service.plugin_processes.is_empty());
         assert_eq!(service.plugin_sandbox_runtimes.len(), 1);
+        let actions = service.list_plugin_ai_actions();
+        assert_eq!(actions.items.len(), 1);
+        assert_eq!(
+            actions.items[0].owner.contribution_id,
+            "example.sandbox-toolkit.terminology"
+        );
+        let panels = service.list_plugin_ui_panels();
+        assert_eq!(panels.items.len(), 1);
+        assert_eq!(panels.items[0].owner.activation_revision, enabled.revision);
+        let invocation = translunar_plugin_runtime::AiActionInvocationV1 {
+            protocol_version: 1,
+            invocation_id: "rewrite-1".to_string(),
+            contribution_id: "example.sandbox-toolkit.terminology".to_string(),
+            operation: "ai.action.invoke".to_string(),
+            context: translunar_plugin_runtime::AiActionContextV1 {
+                selection_text: Some("colour organisation".to_string()),
+                segment_text: "colour organisation".to_string(),
+                source_text: "colour organisation".to_string(),
+                source_locale: "en-GB".to_string(),
+                target_locale: "en-US".to_string(),
+                tags: Vec::new(),
+            },
+            config_schema_version: 1,
+            config: json!({}),
+            deadline_ms: 1_000,
+        };
+        let action = service
+            .invoke_plugin_ai_action(translunar_protocol::PluginAiActionInvokeParams {
+                invocation: invocation.clone(),
+            })
+            .expect("invoke terminology action");
+        let duplicate = service
+            .invoke_plugin_ai_action(translunar_protocol::PluginAiActionInvokeParams { invocation })
+            .expect_err("duplicate invocation id must fail before plugin execution");
+        assert!(matches!(
+            duplicate,
+            EngineError::InvalidState(ref message)
+                if message == "AI action invocation id has already been used"
+        ));
+        assert!(matches!(
+            action.result.proposal,
+            translunar_plugin_runtime::AiActionProposalV1::ReplaceSelection { ref text }
+                if text == "color organization"
+        ));
+        let history = service
+            .list_plugin_ai_action_history(translunar_protocol::PluginAiActionHistoryListParams {
+                plugin_id: Some(installed.id.clone()),
+                contribution_id: Some("example.sandbox-toolkit.terminology".to_string()),
+                offset: 0,
+                limit: 20,
+            })
+            .expect("list AI action history");
+        assert_eq!(history.total, 1);
+        assert_eq!(history.items[0].invocation_id, "rewrite-1");
+        assert_eq!(
+            history.items[0].status,
+            translunar_protocol::PluginAiActionHistoryStatus::Succeeded
+        );
+        assert!(history.items[0].canonical_sha256.is_some());
+        assert!(history.items[0].failure_code.is_none());
+        let history_json = serde_json::to_string(&history).expect("serialize history");
+        assert!(!history_json.contains("colour"));
+        assert!(!history_json.contains("color organization"));
         let source = data.path().join("sandbox-validate.txt");
         std::fs::write(&source, "bounded input").expect("write sandbox input");
         let report = service
@@ -3843,6 +4270,8 @@ mod tests {
             .plugin;
         assert!(reopened.plugin_sandbox_runtimes.is_empty());
         assert!(!reopened.filters.contains("example.sandbox-toolkit.echo"));
+        assert!(reopened.list_plugin_ai_actions().items.is_empty());
+        assert!(reopened.list_plugin_ui_panels().items.is_empty());
         let enabled_again = reopened
             .enable_plugin(PluginMutationParams {
                 plugin_id: installed.id.clone(),

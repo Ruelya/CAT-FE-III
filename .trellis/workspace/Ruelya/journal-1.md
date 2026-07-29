@@ -871,3 +871,24 @@ Implemented and qualified public QA/pipeline plugin contracts, exact lifecycle c
 ### Next Steps
 
 - None - task complete
+
+
+## Session 26: Plugin AI actions and workbench panels
+
+**Date**: 2026-07-30
+**Task**: Plugin AI actions and workbench panels
+**Branch**: `task/07-28-plugin-ai-ui-host`
+
+### Summary
+
+Shipped versioned plugin AI actions and isolated workbench panels, closed Engine-owned bridge authorization and lifecycle behavior, added the public SDK example, and passed supported Node 24 full desktop E2E.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1e4e739` | (see git log) |
+
+### Status
+
+[OK] **Completed**

@@ -9,6 +9,7 @@ const plugin = Object.freeze({
   async invoke(request, host) {
     if (
       request.operation !== "filter.validate" &&
+      request.operation !== "ai.action.invoke" &&
       request.operation !== "echo"
     ) {
       return {
@@ -37,6 +38,27 @@ const plugin = Object.freeze({
             summary.contributionId === request.contributionId &&
             summary.operation === request.operation,
           findings: [],
+        },
+      };
+    }
+    if (request.operation === "ai.action.invoke") {
+      const invocation = request.input;
+      const selected = invocation.context.selectionText ?? "";
+      const rewritten = selected
+        .replaceAll("colour", "color")
+        .replaceAll("organisation", "organization");
+      return {
+        protocolVersion: 1,
+        ok: true,
+        output: {
+          protocolVersion: 1,
+          invocationId: invocation.invocationId,
+          proposal: { kind: "replaceSelection", text: rewritten },
+          usage: {
+            inputBytes: selected.length,
+            outputBytes: rewritten.length,
+            durationMs: 0,
+          },
         },
       };
     }

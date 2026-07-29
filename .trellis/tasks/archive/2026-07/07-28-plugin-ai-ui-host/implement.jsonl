@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/engine-boundary.md","reason":"Authoritative plugin lifecycle, exact-generation ownership, permissions, protocol, persistence, and sandbox contracts."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Authoritative Electron isolation, generated-contract renderer boundary, workbench placement, packaging, and E2E requirements."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Required reasoning for manifest/SDK -> host -> Engine registry -> protocol -> desktop action and panel flows."}
+{"file":".trellis/tasks/07-28-plugin-ai-ui-host/research/findings.md","reason":"Task-specific baseline, fixed product decisions, missing execution paths, and high-risk lifecycle/security gaps."}

@@ -14,14 +14,20 @@ const BRIDGE_MAX_OBJECT_ENTRIES = 1_024;
 const BRIDGE_TIMEOUT_MS = 3_000;
 const MAX_PENDING_REQUESTS = 32;
 
+type PanelBridgeMethod =
+  | "panel.context"
+  | "panel.activeSelection"
+  | "panel.projectContext"
+  | "panel.proposeReplacement";
+
 type PanelMessage =
   | { version: 1; type: "ready"; nonce: string }
   | {
       version: 1;
       type: "request";
       id: string;
-      method: "panel.context";
-      params: Record<string, never>;
+      method: PanelBridgeMethod;
+      params: Record<string, unknown>;
     }
   | { version: 1; type: "cancel"; id: string };
 
@@ -53,6 +59,26 @@ interface PanelBridgeOptions {
     contributionName: string;
     revision: number;
   };
+  /** Full owner token for Engine-owned bridge authorization. */
+  owner: {
+    pluginId: string;
+    versionId: string;
+    activationRevision: number;
+    contributionId: string;
+  };
+  /** Closed methods declared on the panel descriptor; defaults to panel.context only. */
+  allowedMethods?: readonly PanelBridgeMethod[];
+  /** Identifiers only — Engine derives bounded context from store. */
+  projectId?: string;
+  segmentId?: string;
+  /**
+   * Test-only bridge resolver. Production always uses Engine RPC and never
+   * falls back to renderer-local results.
+   */
+  resolveForTest?: (
+    method: PanelBridgeMethod,
+    params: Record<string, unknown>,
+  ) => Promise<Record<string, unknown>>;
   onReady(): void;
   onClosed(reason: BridgeCloseReason): void;
   scheduleTimeout?: (callback: () => void, delay: number) => number;
@@ -81,6 +107,10 @@ interface PluginPanelHostProps {
   contributionId: string;
   contributionName: string;
   revision: number;
+  versionId?: string;
+  allowedMethods?: readonly PanelBridgeMethod[];
+  projectId?: string;
+  segmentId?: string;
   onClose(): void;
 }
 
@@ -90,6 +120,10 @@ export function PluginPanelHost({
   contributionId,
   contributionName,
   revision,
+  versionId = "",
+  allowedMethods = ["panel.context"],
+  projectId,
+  segmentId,
   onClose,
 }: PluginPanelHostProps) {
   const { t } = useLocale();
@@ -166,7 +200,7 @@ export function PluginPanelHost({
       lifecycle.close("revoked", "host_closed");
       if (lifecycleRef.current === lifecycle) lifecycleRef.current = null;
     };
-  }, [contributionId, pluginId, revision]);
+  }, [contributionId, pluginId, revision, projectId, segmentId, versionId]);
 
   const handleLoad = () => {
     const frameWindow = iframeRef.current?.contentWindow;
@@ -193,6 +227,15 @@ export function PluginPanelHost({
       nonce,
       context: { pluginId, contributionId, revision },
       result: { pluginName, contributionName, revision },
+      allowedMethods,
+      owner: {
+        pluginId,
+        versionId,
+        activationRevision: revision,
+        contributionId,
+      },
+      ...(projectId ? { projectId } : {}),
+      ...(segmentId ? { segmentId } : {}),
       onReady: () => {
         if (!lifecycle.closed && lifecycleRef.current === lifecycle) {
           setStatus("ready");
@@ -254,6 +297,11 @@ export function createPanelBridge({
   nonce,
   context,
   result,
+  owner,
+  allowedMethods = ["panel.context"],
+  projectId,
+  segmentId,
+  resolveForTest,
   onReady,
   onClosed,
   scheduleTimeout = (callback, delay) => window.setTimeout(callback, delay),
@@ -262,6 +310,7 @@ export function createPanelBridge({
 }: PanelBridgeOptions): PanelBridge {
   const seenIds = new Set<string>();
   const pending = new Map<string, number>();
+  const methods = new Set(allowedMethods);
   let state: "awaitingReady" | "ready" | "closed" = "awaitingReady";
   let handshakeTimer: number | undefined;
 
@@ -367,19 +416,152 @@ export function createPanelBridge({
     queueTask(() => {
       const activeTimer = pending.get(message.id);
       if (activeTimer === undefined || state !== "ready") return;
-      clearScheduledTimeout(activeTimer);
-      pending.delete(message.id);
-      post({
-        version: BRIDGE_VERSION,
-        type: "result",
-        id: message.id,
+      if (!methods.has(message.method)) {
+        clearScheduledTimeout(activeTimer);
+        pending.delete(message.id);
+        post({
+          version: BRIDGE_VERSION,
+          type: "error",
+          id: message.id,
+          error: {
+            code: "permission_denied",
+            message:
+              "Panel bridge method is not authorized for this contribution.",
+            retryable: false,
+          },
+        });
+        return;
+      }
+      void resolvePanelBridgeResult(
+        message.method,
+        message.params,
         result,
+        owner,
+        projectId,
+        segmentId,
+        resolveForTest,
+      ).then((methodResult) => {
+        const settledTimer = pending.get(message.id);
+        if (settledTimer === undefined || state !== "ready") return;
+        clearScheduledTimeout(settledTimer);
+        pending.delete(message.id);
+        if (methodResult.ok) {
+          post({
+            version: BRIDGE_VERSION,
+            type: "result",
+            id: message.id,
+            result: methodResult.value,
+          });
+        } else {
+          post({
+            version: BRIDGE_VERSION,
+            type: "error",
+            id: message.id,
+            error: methodResult.error,
+          });
+        }
       });
     });
   };
   port.start();
 
   return { close, isClosed: () => state === "closed" };
+}
+
+async function resolvePanelBridgeResult(
+  method: PanelBridgeMethod,
+  params: Record<string, unknown>,
+  result: PanelBridgeOptions["result"],
+  owner: PanelBridgeOptions["owner"],
+  projectId: string | undefined,
+  segmentId: string | undefined,
+  resolveForTest: PanelBridgeOptions["resolveForTest"],
+): Promise<
+  | { ok: true; value: Record<string, unknown> }
+  | {
+      ok: false;
+      error: { code: string; message: string; retryable: boolean };
+    }
+> {
+  // Production path: Engine-owned RPC only. Never trust renderer locale/selection
+  // payloads — pass only identifiers allowed for the closed method shape.
+  // panel.context must stay empty: Engine rejects unknown fields on that method.
+  if (typeof window !== "undefined" && window.translunar?.invoke) {
+    try {
+      const hostParams = hostParamsForBridgeMethod(
+        method,
+        params,
+        projectId,
+        segmentId,
+      );
+      const response = await window.translunar.invoke(
+        "plugin.uiPanel.bridge.call",
+        {
+          owner: {
+            pluginId: owner.pluginId,
+            versionId: owner.versionId,
+            activationRevision: owner.activationRevision,
+            contributionId: owner.contributionId,
+          },
+          method,
+          params: hostParams,
+        },
+      );
+      // Host-owned display labels win over Engine contribution aliases so the
+      // public panel script can show plugin vs contribution names distinctly.
+      const value = response.result as Record<string, unknown>;
+      if (method === "panel.context") {
+        return {
+          ok: true,
+          value: {
+            ...value,
+            pluginName: result.pluginName,
+            contributionName: result.contributionName,
+            revision: result.revision,
+          },
+        };
+      }
+      return { ok: true, value };
+    } catch (cause) {
+      return {
+        ok: false,
+        error: {
+          code: "permission_denied",
+          message:
+            cause instanceof Error
+              ? cause.message
+              : "Panel bridge authorization failed.",
+          retryable: false,
+        },
+      };
+    }
+  }
+  // Unit tests may inject a resolver; production never reaches here with translunar.
+  if (resolveForTest) {
+    try {
+      return { ok: true, value: await resolveForTest(method, params) };
+    } catch (cause) {
+      return {
+        ok: false,
+        error: {
+          code: "permission_denied",
+          message:
+            cause instanceof Error
+              ? cause.message
+              : "Bridge test resolver failed.",
+          retryable: false,
+        },
+      };
+    }
+  }
+  return {
+    ok: false,
+    error: {
+      code: "host_failed",
+      message: "Panel bridge requires Engine authorization.",
+      retryable: false,
+    },
+  };
 }
 
 const PANEL_STATUS_KEYS: Record<PanelStatus, MessageKey> = {
@@ -415,14 +597,14 @@ export function parsePanelMessage(value: unknown): PanelMessage | null {
       message.type === "request" &&
       Object.keys(message).length === 5 &&
       isId(message.id) &&
-      message.method === "panel.context" &&
-      isPanelContextParams(message.params)
+      isPanelBridgeMethod(message.method) &&
+      isPanelRequestParams(message.method, message.params)
     ) {
       return {
         version: 1,
         type: "request",
         id: message.id,
-        method: "panel.context",
+        method: message.method,
         params: message.params,
       };
     }
@@ -430,6 +612,41 @@ export function parsePanelMessage(value: unknown): PanelMessage | null {
     return null;
   }
   return null;
+}
+
+/**
+ * Build Engine bridge params for a closed method. Identifiers are optional on
+ * the host props (workbench may have project/segment) but must only be
+ * forwarded when the method's contract allows them.
+ */
+export function hostParamsForBridgeMethod(
+  method: PanelBridgeMethod,
+  params: Record<string, unknown>,
+  projectId: string | undefined,
+  segmentId: string | undefined,
+): Record<string, unknown> {
+  switch (method) {
+    case "panel.context":
+      return {};
+    case "panel.projectContext": {
+      const hostParams: Record<string, unknown> = {};
+      if (projectId) hostParams.projectId = projectId;
+      return hostParams;
+    }
+    case "panel.activeSelection": {
+      const hostParams: Record<string, unknown> = {};
+      if (projectId) hostParams.projectId = projectId;
+      if (segmentId) hostParams.segmentId = segmentId;
+      return hostParams;
+    }
+    case "panel.proposeReplacement": {
+      const hostParams: Record<string, unknown> = {};
+      if (projectId) hostParams.projectId = projectId;
+      if (segmentId) hostParams.segmentId = segmentId;
+      if (typeof params.text === "string") hostParams.text = params.text;
+      return hostParams;
+    }
+  }
 }
 
 function createNonce(): string {
@@ -452,14 +669,38 @@ function isText(value: unknown, max: number): value is string {
   );
 }
 
-function isPanelContextParams(value: unknown): value is Record<string, never> {
+function isPanelBridgeMethod(value: unknown): value is PanelBridgeMethod {
   return (
-    value !== null &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    Object.getPrototypeOf(value) === Object.prototype &&
-    Reflect.ownKeys(value).length === 0
+    value === "panel.context" ||
+    value === "panel.activeSelection" ||
+    value === "panel.projectContext" ||
+    value === "panel.proposeReplacement"
   );
+}
+
+function isPanelRequestParams(
+  method: PanelBridgeMethod,
+  value: unknown,
+): value is Record<string, unknown> {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Object.prototype
+  ) {
+    return false;
+  }
+  const params = value as Record<string, unknown>;
+  if (method === "panel.proposeReplacement") {
+    return (
+      Reflect.ownKeys(params).length === 1 &&
+      typeof params.text === "string" &&
+      params.text.length >= 1 &&
+      params.text.length <= 256 * 1024 &&
+      !hasControlCharacters(params.text)
+    );
+  }
+  return Reflect.ownKeys(params).length === 0;
 }
 
 function isBoundedJson(value: unknown): boolean {

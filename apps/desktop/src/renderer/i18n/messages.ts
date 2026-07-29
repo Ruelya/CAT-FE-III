@@ -443,6 +443,20 @@ export type MessageKey =
   | "plugins.panel.revoked"
   | "plugins.panel.connectionFailed"
   | "plugins.panel.sessionEnded"
+  | "plugins.actions.aria"
+  | "plugins.actions.title"
+  | "plugins.actions.accept"
+  | "plugins.actions.cancel"
+  | "plugins.actions.cancelled"
+  | "plugins.actions.failure"
+  | "plugins.workbenchPanels.aria"
+  | "plugins.workbenchPanels.title"
+  | "plugins.workbenchPanels.tab"
+  | "plugins.workbenchPanels.refresh"
+  | "plugins.workbenchPanels.loading"
+  | "plugins.workbenchPanels.empty"
+  | "plugins.workbenchPanels.closedHint"
+  | "plugins.workbenchPanels.failure"
   | "plugins.permissionKicker"
   | "plugins.reviewTitle"
   | "plugins.versionChanges"
@@ -2193,6 +2207,20 @@ const enUs: MessageCatalog = {
   "plugins.panel.connectionFailed":
     "The plugin panel could not establish a secure connection.",
   "plugins.panel.sessionEnded": "This plugin panel session has ended.",
+  "plugins.actions.aria": "Plugin AI actions",
+  "plugins.actions.title": "Plugin actions",
+  "plugins.actions.accept": "Accept proposal",
+  "plugins.actions.cancel": "Cancel action",
+  "plugins.actions.cancelled": "The plugin action was cancelled.",
+  "plugins.actions.failure": "The plugin action failed.",
+  "plugins.workbenchPanels.aria": "Plugin panels",
+  "plugins.workbenchPanels.title": "Plugin panels",
+  "plugins.workbenchPanels.tab": "Plugins",
+  "plugins.workbenchPanels.refresh": "Refresh plugin panels",
+  "plugins.workbenchPanels.loading": "Loading plugin panels…",
+  "plugins.workbenchPanels.empty": "No active plugin panels.",
+  "plugins.workbenchPanels.closedHint": "Select a panel tab to open it.",
+  "plugins.workbenchPanels.failure": "Panel inventory failed.",
   "plugins.permissionKicker": "Explicit authority",
   "plugins.reviewTitle": "Permission review",
   "plugins.versionChanges": "Version changes",
@@ -3990,6 +4018,20 @@ const zhCn: MessageCatalog = {
   "plugins.panel.revoked": "已撤销",
   "plugins.panel.connectionFailed": "插件面板无法建立安全连接。",
   "plugins.panel.sessionEnded": "此插件面板会话已结束。",
+  "plugins.actions.aria": "插件 AI 操作",
+  "plugins.actions.title": "插件操作",
+  "plugins.actions.accept": "接受建议",
+  "plugins.actions.cancel": "取消操作",
+  "plugins.actions.cancelled": "插件操作已取消。",
+  "plugins.actions.failure": "插件操作失败。",
+  "plugins.workbenchPanels.aria": "插件面板",
+  "plugins.workbenchPanels.title": "插件面板",
+  "plugins.workbenchPanels.tab": "插件",
+  "plugins.workbenchPanels.refresh": "刷新插件面板",
+  "plugins.workbenchPanels.loading": "正在加载插件面板…",
+  "plugins.workbenchPanels.empty": "没有活动的插件面板。",
+  "plugins.workbenchPanels.closedHint": "选择面板标签以打开。",
+  "plugins.workbenchPanels.failure": "无法加载面板清单。",
   "plugins.permissionKicker": "明确授权",
   "plugins.reviewTitle": "插件权限审查",
   "plugins.versionChanges": "版本变更",

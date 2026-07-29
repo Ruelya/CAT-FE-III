@@ -3213,3 +3213,147 @@ let migration = adapter.migrate_checkpoint(source, target_schema)?;
 store.migrate_pipeline_step_checkpoint(run_id, step_index, migration.checkpoint, &attempt)?;
 // The original binding and source checkpoint remain immutable.
 ```
+
+## Public Plugin AI Actions And Workbench Panels
+
+### 1. Scope / Trigger
+
+Use this contract when changing public plugin AI-action descriptors, bounded
+Tier 2 invocation, action history, workbench-panel registration, panel bridge
+methods, or lifecycle compensation. The Engine owns contribution identity,
+authorization, context derivation, execution, persistence, and stale-generation
+rejection; Electron and React remain presentation/session hosts.
+
+### 2. Signatures
+
+Protocol v1 exposes these generated methods:
+
+```text
+plugin.aiAction.list         EmptyParams                      -> PluginAiActionPage
+plugin.aiAction.invoke       PluginAiActionInvokeParams       -> PluginAiActionInvokeResult
+plugin.aiAction.cancel       PluginAiActionCancelParams       -> PluginAiActionCancelResult
+plugin.aiAction.history.list PluginAiActionHistoryListParams  -> PluginAiActionHistoryPage
+plugin.uiPanel.list          EmptyParams                      -> PluginUiPanelPage
+plugin.uiPanel.bridge.call   PluginUiPanelBridgeCallParams    -> PluginUiPanelBridgeCallResult
+```
+
+Executable AI placements are `editorSelection` and `assistantSidebar`.
+Executable panel placements are `editorSidebar`, `assistantSidebar`, and
+`bottomPanel`. Panel bridge v1 is the closed set `panelContext`,
+`activeSelection`, `projectContext`, and `proposeReplacement`. Migration 22
+owns immutable `plugin_ai_action_invocations` history.
+
+Every runtime contribution is bound to the complete owner token:
+
+```rust
+PluginContributionOwner {
+    plugin_id,
+    version_id,
+    activation_revision,
+    contribution_id,
+}
+```
+
+### 3. Contracts
+
+- Descriptor version, operation protocol version, config-schema version,
+  contribution version, panel contract version, and bridge version are separate
+  axes. Legacy inventory descriptors remain readable but are not executable.
+- AI actions are Tier 2 only. Registration and every invocation independently
+  require exact `ai.action` contribution authority. The Engine shapes context
+  to the descriptor's declared `inputFields`, narrows the per-call deadline to
+  the sandbox worker limit, validates the closed proposal and usage, and
+  canonicalizes output before returning it.
+- An action returns only `replaceSelection`, `replaceTarget`, or
+  `assistantContent` proposals declared by the descriptor. It cannot mutate a
+  segment; acceptance continues through the ordinary revision-safe Engine
+  mutation path. Cancellation, timeout, invalid output, and stale activation
+  publish no proposal.
+- Action history is authoritative and append-only. It stores owner/version,
+  status, failure code, canonical digest, bounded usage, and timestamp, never
+  selected text, prompt/output payloads, credentials, paths, or raw plugin data.
+  A history write failure is an invocation failure, not a best-effort warning.
+- Panel registration/session issuance requires exact `ui.panel` contribution
+  authority. `panelContext` requires only that authority; `activeSelection` and
+  `projectContext` additionally require exact scoped `project.read`;
+  `proposeReplacement` additionally requires exact scoped `project.write`.
+- `plugin.uiPanel.bridge.call` re-resolves the complete owner token and requires
+  the method to be declared. Renderer-supplied context is limited to identifiers
+  (`projectId` and, where applicable, `segmentId`) plus bounded replacement
+  text; the Engine derives project, locale, selection, and segment projections.
+- Enable/restart/upgrade/rollback prepares and attaches complete action/panel
+  generations atomically. Disable, revoke/deny, degradation, uninstall, and
+  failed compensation detach only the matching owner token. In-flight work and
+  sessions cannot target a newer activation with the same public ID.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Unknown version, placement, method, field, proposal, or exceeded bound | Reject before registration/invocation; no partial registry or history |
+| Missing, pending, revoked, stale, or too-narrow contribution grant | `plugin_permission_denied`; denied audit; no plugin call/session side effect |
+| Project bridge method lacks exact project read/write scope | Default-deny with `plugin_permission_denied`; no context or proposal returned |
+| Owner token mismatches the active registry generation | Stale/unavailable failure; never resolve by contribution ID alone |
+| Cancellation, deadline, worker loss, malformed result, or late completion | Typed action failure; no text mutation; unrelated Engine/plugin calls remain healthy |
+| Result text/tag ranges/usage exceed the descriptor contract | `invalid_result`/resource failure; no successful history or proposal |
+| Action-history persistence fails | Return storage/invocation failure; do not report success without durable provenance |
+| Bridge params include undeclared keys, raw locale/text context, or oversized replacement | `invalid_request`; no derived context or mutation proposal |
+
+### 5. Good / Base / Bad Cases
+
+- Good: enable an authorized Tier 2 action and panel, invoke the action with
+  descriptor-shaped context, accept its proposal through the normal segment
+  command, exchange bounded panel context, restart, then revoke and observe
+  exact-generation detach plus durable history.
+- Base: a released inventory-only AI action or panel remains visible as
+  incompatible and cannot register or execute.
+- Bad: pass document text or locales from React as panel authority, key a
+  registry by bare contribution ID, swallow a history error, accept a late
+  completion, or let a panel call an arbitrary Engine method.
+
+### 6. Tests Required
+
+- Runtime/SDK codec tests cover every descriptor/envelope/version, closed enum,
+  unknown field, string/tag/depth/size/deadline/usage bound, and undeclared
+  proposal.
+- Engine/storage tests cover exact-generation attach/detach, built-in and
+  cross-plugin collision isolation, context shaping, cancellation races,
+  timeout, stale completion, immutable migration-22 history, write failure,
+  restart, revoke, upgrade, rollback, and continued ordinary RPC health.
+- Panel security tests cover exact owner reauthorization, declared-method
+  checks, closed params, nested project-read/write grants, bounded derived
+  results, opaque session replay/navigation rejection, and lifecycle teardown.
+- Release gates include strict Clippy/workspace tests, contract drift, SDK
+  tests, focused real-Engine plugin smoke, desktop build, full Electron E2E, and
+  inspected 1250x744, 1680x942, and 1920x1080 evidence.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+let panel = registry.get(&params.owner.contribution_id)?;
+let project = params.params["project"].clone(); // renderer supplied authority
+let _ = store.record_ai_action_history(&entry); // ignored on failure
+```
+
+#### Correct
+
+```rust
+let panel = registry.resolve(&params.owner.contribution_id)?;
+if panel.owner.wire() != params.owner {
+    return Err(EngineError::InvalidState("stale panel owner".to_string()));
+}
+panel.authorizer.authorize(&PluginCapabilityCheck {
+    plugin_id: panel.owner.plugin_id.clone(),
+    version_id: panel.owner.version_id.clone(),
+    capability_id: PluginCapabilityId::ProjectRead,
+    scope: PluginCapabilityScope::Projects {
+        project_ids: vec![project_id.to_string()],
+    },
+    operation: "panel.project.read".to_string(),
+    contribution_id: Some(panel.owner.contribution_id.clone()),
+})?;
+let project = store.get_project(project_id)?; // Engine-derived bounded context
+store.record_plugin_ai_action_invocation(entry)?; // success requires provenance
+```

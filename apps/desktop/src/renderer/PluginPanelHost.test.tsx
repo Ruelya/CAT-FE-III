@@ -2,12 +2,52 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createPanelBridge,
+  hostParamsForBridgeMethod,
   parsePanelMessage,
   type PanelBridgePort,
 } from "./PluginPanelHost";
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe("plugin panel bridge host params", () => {
+  it("never forwards workbench identifiers on panel.context", () => {
+    expect(
+      hostParamsForBridgeMethod("panel.context", {}, "project-1", "segment-1"),
+    ).toEqual({});
+  });
+
+  it("forwards only contract-allowed identifiers per method", () => {
+    expect(
+      hostParamsForBridgeMethod(
+        "panel.projectContext",
+        {},
+        "project-1",
+        "segment-1",
+      ),
+    ).toEqual({ projectId: "project-1" });
+    expect(
+      hostParamsForBridgeMethod(
+        "panel.activeSelection",
+        {},
+        "project-1",
+        "segment-1",
+      ),
+    ).toEqual({ projectId: "project-1", segmentId: "segment-1" });
+    expect(
+      hostParamsForBridgeMethod(
+        "panel.proposeReplacement",
+        { text: "replacement" },
+        "project-1",
+        "segment-1",
+      ),
+    ).toEqual({
+      projectId: "project-1",
+      segmentId: "segment-1",
+      text: "replacement",
+    });
+  });
 });
 
 describe("plugin panel bridge codec", () => {
@@ -158,6 +198,33 @@ describe("plugin panel bridge state machine", () => {
     ).toHaveLength(0);
   });
 
+  it("keeps the deadline active while the Engine resolver is pending", () => {
+    vi.useFakeTimers();
+    const queued: Array<() => void> = [];
+    const harness = createHarness(
+      (callback) => queued.push(callback),
+      () => new Promise<Record<string, unknown>>(() => undefined),
+    );
+    establishReady(harness.port);
+    harness.port.dispatch({
+      version: 1,
+      type: "request",
+      id: "request-pending",
+      method: "panel.context",
+      params: {},
+    });
+
+    queued[0]?.();
+    vi.advanceTimersByTime(3_000);
+
+    expect(harness.bridge.isClosed()).toBe(true);
+    expect(harness.onClosed).toHaveBeenCalledWith("request_timeout");
+    expect(harness.port.messages).toContainEqual(
+      expect.objectContaining({ type: "error", id: "request-pending" }),
+    );
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("external cleanup closes state and prevents late callbacks", () => {
     vi.useFakeTimers();
     const queued: Array<() => void> = [];
@@ -187,6 +254,101 @@ describe("plugin panel bridge state machine", () => {
       ),
     ).toHaveLength(0);
   });
+
+  it("Engine panel.context RPC omits workbench identifiers even when present", async () => {
+    const queued: Array<() => void> = [];
+    const invoke = vi.fn().mockResolvedValue({
+      result: {
+        pluginId: "example.sandbox",
+        contributionId: "example.sandbox.panel",
+        revision: 1,
+        displayName: "Sandbox Toolkit",
+        label: "Toolkit Panel",
+      },
+    });
+    const hostWindow = window as unknown as {
+      translunar?: { invoke: typeof invoke };
+    };
+    const previousTranslunar = hostWindow.translunar;
+    hostWindow.translunar = { invoke };
+    try {
+      const port = new FakePort();
+      const onReady = vi.fn();
+      const onClosed = vi.fn();
+      createPanelBridge({
+        port,
+        nonce: "nonce",
+        context: {
+          pluginId: "example.sandbox",
+          contributionId: "example.sandbox.panel",
+          revision: 1,
+        },
+        result: {
+          pluginName: "Sandbox Toolkit",
+          contributionName: "Toolkit Panel",
+          revision: 1,
+        },
+        owner: {
+          pluginId: "example.sandbox",
+          versionId: "version-1",
+          activationRevision: 1,
+          contributionId: "example.sandbox.panel",
+        },
+        projectId: "project-1",
+        segmentId: "segment-1",
+        onReady,
+        onClosed,
+        queueTask: (callback) => queued.push(callback),
+      });
+      establishReady(port);
+      port.dispatch({
+        version: 1,
+        type: "request",
+        id: "context-1",
+        method: "panel.context",
+        params: {},
+      });
+      queued[0]?.();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(invoke).toHaveBeenCalledWith("plugin.uiPanel.bridge.call", {
+        owner: {
+          pluginId: "example.sandbox",
+          versionId: "version-1",
+          activationRevision: 1,
+          contributionId: "example.sandbox.panel",
+        },
+        method: "panel.context",
+        params: {},
+      });
+      const resultMessage = port.messages.find(
+        (message) =>
+          isRecord(message) &&
+          message.type === "result" &&
+          message.id === "context-1",
+      );
+      expect(isRecord(resultMessage)).toBe(true);
+      expect(isRecord(resultMessage) && isRecord(resultMessage.result)).toBe(
+        true,
+      );
+      if (isRecord(resultMessage) && isRecord(resultMessage.result)) {
+        // Host labels must win when Engine aliases reuse contribution names.
+        expect(resultMessage.result.pluginName).toBe("Sandbox Toolkit");
+        expect(resultMessage.result.contributionName).toBe("Toolkit Panel");
+        expect(resultMessage.result.pluginId).toBe("example.sandbox");
+        expect(resultMessage.result.contributionId).toBe(
+          "example.sandbox.panel",
+        );
+      }
+      expect(onClosed).not.toHaveBeenCalled();
+    } finally {
+      if (previousTranslunar === undefined) {
+        Reflect.deleteProperty(hostWindow, "translunar");
+      } else {
+        hostWindow.translunar = previousTranslunar;
+      }
+    }
+  });
 });
 
 class FakePort implements PanelBridgePort {
@@ -213,7 +375,26 @@ class FakePort implements PanelBridgePort {
   }
 }
 
-function createHarness(queueTask?: (callback: () => void) => void) {
+function createHarness(
+  queueTask?: (callback: () => void) => void,
+  resolveForTest: (
+    method:
+      | "panel.context"
+      | "panel.activeSelection"
+      | "panel.projectContext"
+      | "panel.proposeReplacement",
+    params: Record<string, unknown>,
+  ) => Promise<Record<string, unknown>> = (method) => {
+    if (method === "panel.context") {
+      return Promise.resolve({
+        pluginName: "Sandbox Toolkit",
+        contributionName: "Toolkit Panel",
+        revision: 1,
+      });
+    }
+    return Promise.reject(new Error(`unexpected method ${method}`));
+  },
+) {
   const port = new FakePort();
   const onReady = vi.fn();
   const onClosed = vi.fn();
@@ -230,6 +411,14 @@ function createHarness(queueTask?: (callback: () => void) => void) {
       contributionName: "Toolkit Panel",
       revision: 1,
     },
+    owner: {
+      pluginId: "example.sandbox",
+      versionId: "version-1",
+      activationRevision: 1,
+      contributionId: "example.sandbox.panel",
+    },
+    // Unit tests inject a resolver; production always uses Engine RPC.
+    resolveForTest,
     onReady,
     onClosed,
     ...(queueTask ? { queueTask } : {}),

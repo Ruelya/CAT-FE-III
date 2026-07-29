@@ -14,10 +14,18 @@ window.addEventListener("message", (event) => {
   port.onmessage = ({ data }) => {
     if (data?.version !== 1) return;
     if (data.type === "result" && data.id === "context-1") {
-      pluginName.textContent = String(data.result?.pluginName ?? "Unknown");
-      contributionName.textContent = String(
-        data.result?.contributionName ?? "Unknown",
-      );
+      const pluginLabel =
+        data.result?.pluginName ??
+        data.result?.displayName ??
+        data.result?.pluginId ??
+        "Unknown";
+      const contributionLabel =
+        data.result?.contributionName ??
+        data.result?.label ??
+        data.result?.contributionId ??
+        "Unknown";
+      pluginName.textContent = String(pluginLabel);
+      contributionName.textContent = String(contributionLabel);
       contextList.hidden = false;
       status.textContent = "Connected";
     } else if (data.type === "error" || data.type === "revoked") {

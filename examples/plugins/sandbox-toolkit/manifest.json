@@ -27,15 +27,39 @@
       }
     },
     {
+      "kind": "aiAction",
+      "descriptorVersion": 1,
+      "id": "example.sandbox-toolkit.terminology",
+      "version": "0.1.0",
+      "displayName": "Terminology Rewrite",
+      "label": "Rewrite terminology",
+      "placement": "editorSelection",
+      "input": { "type": "object" },
+      "operationProtocolVersion": 1,
+      "inputFields": ["selectionText", "sourceLocale", "targetLocale"],
+      "resultModes": ["replaceSelection"],
+      "configSchemaVersion": 1,
+      "configSchema": { "schemaVersion": 1, "fields": [] },
+      "limits": {
+        "maxInputBytes": 262144,
+        "maxOutputBytes": 262144,
+        "maxTags": 256,
+        "maxDeadlineMs": 10000
+      }
+    },
+    {
       "kind": "uiPanel",
       "descriptorVersion": 1,
       "id": "example.sandbox-toolkit.panel",
       "version": "0.1.0",
       "displayName": "Sandbox Toolkit Panel",
-      "label": "Sandbox Toolkit",
-      "placement": "plugins.preview",
+      "label": "Terminology",
+      "placement": "editorSidebar",
       "surface": "panel/index.html",
-      "bridgeVersion": 1
+      "bridgeVersion": 1,
+      "contractVersion": 1,
+      "methods": ["panelContext"],
+      "order": 10
     }
   ],
   "permissions": [],
@@ -51,6 +75,15 @@
       "required": true,
       "scope": { "kind": "diagnostics", "categories": ["summary"] },
       "contributionId": "example.sandbox-toolkit.echo"
+    },
+    {
+      "capabilityId": "ai.action",
+      "required": true,
+      "scope": {
+        "kind": "contributions",
+        "contributionIds": ["example.sandbox-toolkit.terminology"]
+      },
+      "contributionId": "example.sandbox-toolkit.terminology"
     },
     {
       "capabilityId": "ui.panel",

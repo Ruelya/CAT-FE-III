@@ -13,8 +13,9 @@ executable runtime tiers:
   run through Node or the Tier 3 process host.
 
 Engine connector and QA/pipeline contracts have closed Tier 2 and Tier 3
-adapters. AI actions and external connectors remain inventory-only surfaces;
-their descriptors do not imply executable support.
+adapters. Public AI actions and workbench panels are executable Tier 2
+surfaces; see [`ai-ui-sdk.md`](./ai-ui-sdk.md). External connectors remain a
+separate inventory/connector path.
 
 ## Package layouts
 
@@ -157,9 +158,11 @@ pnpm test:e2e:desktop
 ```
 
 To try the official package, open Plugins, install
-`examples/plugins/sandbox-toolkit`, review and grant its exact `ui.panel`
-request, enable it, then use **Preview panel**. Disable or revoke the grant to
-close the preview immediately.
+`examples/plugins/sandbox-toolkit`, review and grant its exact `ai.action` and
+`ui.panel` requests, then enable it. Use the Assistant tab for the terminology
+rewrite action (accept the proposal explicitly) and the Plugins workbench tab
+for the mounted panel. Disable or revoke a grant to detach the exact generation
+and close active sessions immediately.
 
 TypeScript helpers live in `@translunar/plugin-sdk`. Rust protocol schema and
 generated TypeScript contracts must remain synchronized with

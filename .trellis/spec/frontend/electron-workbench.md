@@ -2005,3 +2005,121 @@ const active = manifest.permissions.includes("pipeline.register");
 const contribution = plugin.contributions.find((item) => item.id === id);
 renderContributionState(contribution, plugin.status, plugin.lastError);
 ```
+
+## Plugin AI Actions And Workbench Panel Surfaces
+
+### 1. Scope / Trigger
+
+Use this contract when rendering generated plugin AI actions, mounting an
+Engine-registered plugin panel in the workbench, issuing an isolated panel
+session, routing MessagePort bridge requests, or adapting the editor toolbar to
+the space left by plugin and Suggestions docks.
+
+### 2. Signatures
+
+The renderer consumes generated methods only:
+
+```text
+plugin.aiAction.list / invoke / cancel / history.list
+plugin.uiPanel.list / bridge.call
+```
+
+`PluginAiActions` renders `editorSelection` actions in the existing segment
+overflow/action menu and `assistantSidebar` actions in the Assistant surface.
+`PluginWorkbenchPanels` mounts `editorSidebar`, `assistantSidebar`, and
+`bottomPanel` contributions. `PluginPanelHost` receives the exact generated
+`PluginContributionOwner` and hosts only the existing isolated iframe/session
+bridge.
+
+### 3. Contracts
+
+- React renders Engine inventory and exact owner/version/activation/state data;
+  it never scans manifests, imports plugin code, infers grants, or treats a
+  previously seen contribution ID as current authority.
+- Plugin editor-selection actions join the existing accessible segment overflow
+  menu rather than creating another row toolbar. A result remains a proposal.
+  Replacement is applied only after explicit user acceptance through the
+  existing revision-safe target update path.
+- Panel placement is literal: editor-sidebar panels occupy a real side dock,
+  assistant-sidebar panels join the Assistant region, and bottom panels join
+  the bottom panel model. Built-in panels and actions retain their behavior and
+  ordering.
+- Explicit close state survives inventory refresh for the same exact owner.
+  Lifecycle removal, revoke, upgrade, or a different owner generation removes
+  stale state/session authority. A late issue result is revoked rather than
+  mounted.
+- The iframe remains `sandbox="allow-scripts"` with the opaque single-session
+  MessagePort/nonce protocol. There is no production renderer-local bridge
+  fallback. Bridge requests pass the exact owner and only the method's closed
+  identifier payload (`projectId`, `segmentId`) or bounded proposal text; Engine
+  responses supply the context.
+- A bridge request timer remains active until the asynchronous Engine call
+  settles. Timeout, malformed message, unknown cancellation, external revoke,
+  navigation, reload, or unmount closes the port and revokes the asset session.
+- `Workbench` observes `.editor-region` width. Below the compact threshold it
+  moves segment filters into one labeled select, hides redundant TM/button text,
+  and keeps icon-first controls named. No filter, search, TM, history, issue, or
+  confirm capability may disappear. This is container-responsive behavior, not
+  a viewport-only media query.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required UI behavior |
+| --- | --- |
+| Action/panel inventory is detached, degraded, revoked, or replaced | Remove/disable the exact surface; never retain or rebind stale authority |
+| User closes a panel and inventory refreshes unchanged | Keep it closed until explicit reopen |
+| Action is canceled, times out, fails, or returns stale/invalid output | Keep editor text unchanged; show bounded failure; allow subsequent work |
+| Proposal changes text | Require explicit acceptance and use the existing Engine mutation; no direct local patch |
+| Panel issue completes after close/unmount/generation change | Revoke the late session and render no iframe |
+| Bridge method/params are unknown or Engine rejects nested authority | Close/fail the request with bounded feedback; never run a local fallback |
+| Editor region becomes narrow with both docks open | Compact controls without overlap, clipping, row-height distortion, or document overflow |
+| Hidden compact label text | Parent control retains `aria-label`/title and keyboard operation |
+
+### 5. Good / Base / Bad Cases
+
+- Good: open a real editor-sidebar plugin panel, see its nonblank `Connected`
+  content, invoke a selection action, explicitly accept the proposal, close the
+  panel, refresh inventory, restart, and observe exact lifecycle behavior.
+- Base: no active compatible contribution leaves built-in editor/Assistant/
+  panel behavior unchanged and no empty plugin surface mounted.
+- Bad: render selection actions as a second toolbar, apply plugin output on
+  receipt, recreate a closed panel on polling refresh, send raw project context
+  from React, or clear a bridge timeout before the Engine promise resolves.
+
+### 6. Tests Required
+
+- Renderer unit tests cover placement filtering/order, exact-owner close and
+  lifecycle replacement, iframe attributes, nonce/version handshake, bridge
+  timeout through async resolution, cancellation, revoke, and no local fallback.
+- Real-Engine Electron E2E installs/reviews/grants/enables the public Tier 2
+  example, asserts action placement and explicit acceptance, verifies iframe
+  content plus `Connected`, exercises restart/revoke/upgrade/disable/uninstall,
+  and fails on console/page/protocol errors.
+- At 1250x744, assert every visible editor-toolbar item is inside
+  `.editor-region`, pairwise non-overlapping, and document scroll width does not
+  exceed client width. Repeat product evidence at 1680x942 and 1920x1080 and
+  inspect panel content, accessible names, row heights, and horizontal overflow.
+- Run lint, strict typecheck (including E2E), unit tests, production desktop
+  build, and the full desktop E2E suite on supported Node 22/24 lanes.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+const panel = manifest.contributions.find((item) => item.id === panelId);
+const result = await localPanelBridge(method, { project, segment });
+setSegments((rows) => patchTarget(rows, proposal.text));
+```
+
+#### Correct
+
+```tsx
+const panel = enginePanelInventory.items.find((item) => sameOwner(item.owner, owner));
+const result = await window.translunar.invoke("plugin.uiPanel.bridge.call", {
+  owner: panel.owner,
+  method,
+  params: { projectId, segmentId },
+});
+await acceptPluginProposalThroughExistingMutation(result);
+```

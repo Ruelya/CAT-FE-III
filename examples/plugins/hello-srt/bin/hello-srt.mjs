@@ -28,6 +28,15 @@ var PUBLIC_CONTRIBUTION_LIMITS = Object.freeze({
   deadlineMs: 12e4,
 });
 
+// src/ai-ui.ts
+var AI_ACTION_LIMITS = Object.freeze({
+  inputBytes: 1024 * 1024,
+  outputBytes: 1024 * 1024,
+  tags: 1024,
+  deadlineMs: 12e4,
+  methods: 16,
+});
+
 // src/index.ts
 var HOST_API_VERSION = 1;
 var MAX_ENGINE_CONNECTOR_CREDENTIAL_BYTES = 16 * 1024;

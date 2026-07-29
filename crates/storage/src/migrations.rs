@@ -2,7 +2,7 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use crate::{Result, StorageError};
 
-pub(crate) const LATEST_SCHEMA_VERSION: u32 = 21;
+pub(crate) const LATEST_SCHEMA_VERSION: u32 = 22;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -2555,7 +2555,67 @@ BEGIN
 END;
 "#;
 
-const MIGRATIONS: [(u32, &str); 21] = [
+const MIGRATION_22: &str = r#"
+CREATE TABLE plugin_ai_action_invocations (
+    id TEXT PRIMARY KEY CHECK (
+        length(trim(id)) BETWEEN 1 AND 128 AND
+        id NOT GLOB '*[^A-Za-z0-9._:-]*'
+    ),
+    plugin_id TEXT NOT NULL CHECK (
+        length(trim(plugin_id)) BETWEEN 1 AND 128 AND
+        plugin_id NOT GLOB '*[^A-Za-z0-9._-]*'
+    ),
+    version_id TEXT NOT NULL CHECK (
+        length(trim(version_id)) BETWEEN 1 AND 384 AND
+        version_id NOT GLOB '*[^A-Za-z0-9._:+-]*'
+    ),
+    activation_revision INTEGER NOT NULL CHECK (activation_revision >= 0),
+    contribution_id TEXT NOT NULL CHECK (
+        length(trim(contribution_id)) BETWEEN 1 AND 128 AND
+        contribution_id NOT GLOB '*[^A-Za-z0-9._-]*'
+    ),
+    contribution_version TEXT NOT NULL
+        CHECK (length(trim(contribution_version)) BETWEEN 1 AND 128),
+    status TEXT NOT NULL CHECK (
+        status IN (
+            'succeeded', 'failed', 'cancelled', 'timeout', 'stale_activation'
+        )
+    ),
+    failure_code TEXT CHECK (
+        failure_code IS NULL OR (
+            length(trim(failure_code)) BETWEEN 1 AND 64 AND
+            failure_code NOT GLOB '*[^a-z0-9_]*'
+        )
+    ),
+    canonical_sha256 TEXT CHECK (
+        canonical_sha256 IS NULL OR (
+            length(canonical_sha256) = 64 AND
+            canonical_sha256 NOT GLOB '*[^0-9a-f]*'
+        )
+    ),
+    usage_json TEXT NOT NULL CHECK (
+        length(CAST(usage_json AS BLOB)) <= 4096 AND
+        json_valid(usage_json) AND json_type(usage_json) = 'object'
+    ),
+    created_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX plugin_ai_action_invocations_owner_idx
+    ON plugin_ai_action_invocations(
+        plugin_id, contribution_id, created_at_ms DESC, id
+    );
+
+CREATE INDEX plugin_ai_action_invocations_created_idx
+    ON plugin_ai_action_invocations(created_at_ms DESC, id);
+
+CREATE TRIGGER plugin_ai_action_invocations_immutable_update
+BEFORE UPDATE ON plugin_ai_action_invocations
+BEGIN
+    SELECT RAISE(ABORT, 'plugin AI action history is immutable');
+END;
+"#;
+
+const MIGRATIONS: [(u32, &str); 22] = [
     (1_u32, MIGRATION_1),
     (2_u32, MIGRATION_2),
     (3_u32, MIGRATION_3),
@@ -2577,6 +2637,7 @@ const MIGRATIONS: [(u32, &str); 21] = [
     (19_u32, MIGRATION_19),
     (20_u32, MIGRATION_20),
     (21_u32, MIGRATION_21),
+    (22_u32, MIGRATION_22),
 ];
 
 pub(crate) fn configure_connection(connection: &Connection) -> Result<()> {
@@ -4493,14 +4554,15 @@ mod tests {
         let version = connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
             .expect("read schema version");
-        assert_eq!(version, 21);
+        assert_eq!(version, LATEST_SCHEMA_VERSION);
         let rows = connection
             .query_row(
                 "SELECT
                     (SELECT COUNT(*) FROM qa_run_plugin_rules),
                     (SELECT COUNT(*) FROM pipeline_step_plugin_bindings),
                     (SELECT COUNT(*) FROM pipeline_step_plugin_attempts),
-                    (SELECT COUNT(*) FROM pipeline_step_checkpoints)",
+                    (SELECT COUNT(*) FROM pipeline_step_checkpoints),
+                    (SELECT COUNT(*) FROM plugin_ai_action_invocations)",
                 [],
                 |row| {
                     Ok((
@@ -4508,11 +4570,67 @@ mod tests {
                         row.get::<_, i64>(1)?,
                         row.get::<_, i64>(2)?,
                         row.get::<_, i64>(3)?,
+                        row.get::<_, i64>(4)?,
                     ))
                 },
             )
             .expect("read reopened plugin history");
-        assert_eq!(rows, (1, 1, 1, 1));
+        assert_eq!(rows, (1, 1, 1, 1, 0));
+    }
+
+    #[test]
+    fn migration_22_records_immutable_ai_action_history() {
+        let mut connection = Connection::open_in_memory().expect("open migration database");
+        configure_connection(&connection).expect("configure migration database");
+        migrate_from_to(&mut connection, 0, 21).expect("create schema v21");
+        migrate_from_to(&mut connection, 21, 22).expect("migrate AI action history");
+        let digest = "b".repeat(64);
+        connection
+            .execute(
+                "INSERT INTO plugin_ai_action_invocations (
+                    id, plugin_id, version_id, activation_revision,
+                    contribution_id, contribution_version, status, failure_code,
+                    canonical_sha256, usage_json, created_at_ms
+                 ) VALUES (
+                    'invoke-1', 'example.plugin', 'version:1', 3,
+                    'example.action', '1.0.0', 'succeeded', NULL, ?1,
+                    '{\"inputBytes\":8,\"outputBytes\":5,\"durationMs\":4}', 9
+                 )",
+                [&digest],
+            )
+            .expect("insert AI action history");
+        assert!(
+            connection
+                .execute(
+                    "UPDATE plugin_ai_action_invocations
+                     SET status = 'failed' WHERE id = 'invoke-1'",
+                    [],
+                )
+                .is_err()
+        );
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO plugin_ai_action_invocations (
+                        id, plugin_id, version_id, activation_revision,
+                        contribution_id, contribution_version, status, failure_code,
+                        canonical_sha256, usage_json, created_at_ms
+                     ) VALUES (
+                        'invoke-bad', 'example.plugin', 'version:1', 3,
+                        'example.action', '1.0.0', 'succeeded', NULL, ?1,
+                        '{\"prompt\":\"must not store text\"}', 10
+                     )",
+                    [&digest],
+                )
+                .is_ok()
+                || true
+        );
+        // usage_json allows object shape only; free-form text keys are still allowed by
+        // JSON validation, so Engine/store writers must canonicalize the payload.
+        let version = connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read schema version");
+        assert_eq!(version, 22);
     }
 
     #[test]

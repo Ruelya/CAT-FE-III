@@ -203,6 +203,12 @@ pub mod methods {
     pub const PLUGIN_PERMISSION_DENY: &str = "plugin.permission.deny";
     pub const PLUGIN_PERMISSION_REVOKE: &str = "plugin.permission.revoke";
     pub const PLUGIN_PERMISSION_AUDIT_LIST: &str = "plugin.permission.audit.list";
+    pub const PLUGIN_AI_ACTION_LIST: &str = "plugin.aiAction.list";
+    pub const PLUGIN_AI_ACTION_INVOKE: &str = "plugin.aiAction.invoke";
+    pub const PLUGIN_AI_ACTION_CANCEL: &str = "plugin.aiAction.cancel";
+    pub const PLUGIN_AI_ACTION_HISTORY_LIST: &str = "plugin.aiAction.history.list";
+    pub const PLUGIN_UI_PANEL_LIST: &str = "plugin.uiPanel.list";
+    pub const PLUGIN_UI_PANEL_BRIDGE_CALL: &str = "plugin.uiPanel.bridge.call";
     pub const COLLAB_MEMBER_LIST: &str = "collab.member.list";
     pub const COLLAB_MEMBER_ADD: &str = "collab.member.add";
     pub const COLLAB_MEMBER_REMOVE: &str = "collab.member.remove";
@@ -2092,6 +2098,22 @@ pub struct RpcMethodCatalog {
     #[serde(rename = "plugin.permission.audit.list")]
     pub plugin_permission_audit_list:
         MethodContract<PluginCapabilityAuditListParams, PluginCapabilityAuditPage>,
+    #[serde(rename = "plugin.aiAction.list")]
+    pub plugin_ai_action_list: MethodContract<EmptyParams, PluginAiActionPage>,
+    #[serde(rename = "plugin.aiAction.invoke")]
+    pub plugin_ai_action_invoke:
+        MethodContract<PluginAiActionInvokeParams, PluginAiActionInvokeResult>,
+    #[serde(rename = "plugin.aiAction.cancel")]
+    pub plugin_ai_action_cancel:
+        MethodContract<PluginAiActionCancelParams, PluginAiActionCancelResult>,
+    #[serde(rename = "plugin.aiAction.history.list")]
+    pub plugin_ai_action_history_list:
+        MethodContract<PluginAiActionHistoryListParams, PluginAiActionHistoryPage>,
+    #[serde(rename = "plugin.uiPanel.list")]
+    pub plugin_ui_panel_list: MethodContract<EmptyParams, PluginUiPanelPage>,
+    #[serde(rename = "plugin.uiPanel.bridge.call")]
+    pub plugin_ui_panel_bridge_call:
+        MethodContract<PluginUiPanelBridgeCallParams, PluginUiPanelBridgeCallResult>,
     #[serde(rename = "collab.member.list")]
     pub collab_member_list: MethodContract<CollabProjectParams, CollabMemberListResult>,
     #[serde(rename = "collab.member.add")]
