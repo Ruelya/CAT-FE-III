@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Rust quality, deterministic testing, strict linting, and full-scope verification gates."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Typed fail-closed host/protocol errors and sanitized diagnostics review."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Desktop unit/E2E, accessibility, console-error, overflow, and responsive visual checks."}
+{"file":".trellis/tasks/07-28-plugin-ai-ui-host/research/findings.md","reason":"Independent review baseline for provisional AI/UI behavior, exact lifecycle, privacy, and security risks."}

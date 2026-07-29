@@ -1,0 +1,63 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.56s
+     Running unittests src\lib.rs (target\debug\deps\translunar_engine-ac98040b66365d98.exe)
+
+running 46 tests
+test ai::tests::fatal_plugin_host_failure_detaches_only_current_owner_and_cancels_its_work ... ok
+test ai::tests::plugin_connector_profile_uses_exact_registry_source_config_and_provenance ... ok
+test plugin::tests::blue_green_upgrade_rollback_and_restart_keep_immutable_package_roots ... ok
+test plugin::tests::capability_grants_are_revision_safe_durable_scoped_and_isolated ... ok
+test plugin::tests::connector_upgrade_rebinds_compatible_profiles_and_rollback_restores_owner ... ok
+test plugin::tests::declarative_collision_rolls_back_without_detaching_the_owner ... ok
+test plugin::tests::declarative_connector_lifecycle_restores_exact_catalog_and_profile_availability ... ok
+test plugin::tests::declarative_rollback_collision_preflight_keeps_current_version ... ok
+test plugin::tests::declarative_toolkit_runs_without_a_process_and_survives_restart ... ok
+test plugin::tests::declarative_upgrade_and_rollback_replace_every_adapter_version ... ok
+test plugin::tests::duplicate_install_is_rejected_without_mutating_enabled_plugin ... ok
+test plugin::tests::failed_candidate_attach_restores_previous_process_generation ... ok
+test plugin::tests::failed_version_switch_and_restoration_persist_degraded_without_authority ... ok
+test plugin::tests::fatal_process_pipeline_failure_detaches_exact_generation_contributions ... ok
+test plugin::tests::invalid_install_and_missing_grants_have_no_partial_registration ... ok
+test plugin::tests::process_upgrade_preflight_failure_keeps_active_generation_unchanged ... ok
+test plugin::tests::process_upgrade_preflights_pipeline_artifacts_and_stored_config ... ok
+test plugin::tests::process_upgrade_rejects_qa_and_pipeline_collisions_before_version_cas ... ok
+test plugin::tests::real_timeout_failure_is_typed_degraded_and_restart_safe ... ok
+test plugin::tests::sandbox_filter_collision_rejects_candidate_without_detaching_owner ... ok
+test plugin::tests::sandbox_timeout_degrades_only_its_plugin_and_keeps_engine_healthy ... ok
+test plugin::tests::sandbox_toolkit_uses_bounded_runtime_and_detaches_cleanly ... ok
+test plugin::tests::sandbox_upgrade_and_rollback_swap_prepared_runtimes ... ok
+test plugin::tests::sandbox_upgrade_initialization_failure_keeps_active_version_usable ... ok
+test plugin::tests::unsupported_optional_capability_stays_visible_and_cannot_be_granted ... ok
+test plugin::tests::unsupported_v2_install_is_inventory_only_and_never_attaches ... ok
+test plugin::tests::upgrade_scope_expansion_requires_fresh_consent ... ok
+test plugin_ai_ui::tests::panel_registry_detaches_only_the_exact_generation ... ok
+test plugin_ai_ui::tests::registries_reject_reserved_and_conflicting_ids ... ok
+test plugin_connector::tests::declarative_adapter_authorizes_origin_and_maps_bounded_stream ... ok
+test plugin_connector::tests::origin_normalization_and_url_containment_fail_closed ... ok
+test plugin_connector::tests::process_adapter_maps_ordered_events_cancels_and_stays_healthy ... ok
+test plugin_connector::tests::request_paths_do_not_overwrite_fixed_body_fields ... ok
+test plugin_connector::tests::reqwest_transport_forbids_redirects_and_enforces_response_limit ... ok
+test plugin_connector::tests::sandbox_adapter_hands_off_credential_cancels_and_recovers ... ok
+test plugin_connector::tests::sse_mapping_rejects_late_frames_and_preserves_usage ... ok
+test plugin_connector::tests::transport_request_debug_redacts_headers_and_body ... ok
+test plugin_declarative::tests::process_pipeline_cancel_kills_uncooperative_child_and_recycles ... ok
+test plugin_declarative::tests::transform_honors_cancellation_before_operations ... ok
+test plugin_declarative::tests::transform_is_deterministic_and_bounded ... ok
+test plugin_declarative::tests::transform_rejects_deeply_nested_input ... ok
+test tests::detached_plugin_generation_cannot_publish_late_pipeline_result ... ok
+test tests::pipeline_resume_accepts_a_compatible_plugin_generation ... ok
+test tests::plugin_checkpoint_migration_is_recorded_before_resume ... ok
+test tests::plugin_intermediate_checkpoint_survives_restart_and_drives_resume ... ok
+test tests::plugin_pipeline_run_persists_binding_attempt_and_checkpoint ... ok
+
+test result: ok. 46 passed; 0 failed; 0 ignored; 0 measured; 77 filtered out; finished in 13.09s
+
+     Running unittests src\bin\translunar.rs (target\debug\deps\translunar-f649b96ea8227064.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src\main.rs (target\debug\deps\translunar_engine-94c23547a09ec83d.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

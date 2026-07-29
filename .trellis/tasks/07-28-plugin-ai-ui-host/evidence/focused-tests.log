@@ -1,0 +1,110 @@
+=== plugin-sdk ===
+.                                        |  WARN  Unsupported engine: wanted: {"node":">=22.17.0 <23 || >=24 <25"} (current: {"node":"v25.0.0","pnpm":"10.18.3"})
+
+> @translunar/plugin-sdk@0.1.0 pretest K:\Workbench\CAT\packages\plugin-sdk
+> pnpm build:example
+
+../..                                    |  WARN  Unsupported engine: wanted: {"node":">=22.17.0 <23 || >=24 <25"} (current: {"node":"v25.0.0","pnpm":"10.18.3"})
+
+> @translunar/plugin-sdk@0.1.0 build:example K:\Workbench\CAT\packages\plugin-sdk
+> node scripts/build-hello-srt.mjs
+
+
+> @translunar/plugin-sdk@0.1.0 test K:\Workbench\CAT\packages\plugin-sdk
+> vitest run
+
+
+ RUN  v4.1.10 K:/Workbench/CAT/packages/plugin-sdk
+
+ ✓ src/ai-ui.test.ts (4 tests) 7ms
+ ✓ src/qa-pipeline.test.ts (6 tests) 187ms
+ ✓ src/index.test.ts (24 tests) 168ms
+
+ Test Files  3 passed (3)
+      Tests  34 passed (34)
+   Start at  02:02:00
+   Duration  1.01s (transform 245ms, setup 0ms, import 809ms, tests 363ms, environment 0ms)
+
+=== plugin-runtime ai_ui ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+     Running unittests src\lib.rs (target\debug\deps\translunar_plugin_runtime-3e2bc44a736d02f9.exe)
+
+running 4 tests
+test ai_ui::tests::panel_contract_is_closed_versioned_and_tier_two_only ... ok
+test ai_ui::tests::legacy_and_unknown_action_contracts_remain_readable_but_not_executable ... ok
+test ai_ui::tests::executable_action_round_trips_and_returns_only_declared_proposals ... ok
+test ai_ui::tests::invocation_and_result_reject_unknown_fields_and_bounds ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 63 filtered out; finished in 0.00s
+
+=== engine plugin_ai_ui + sandbox toolkit ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.53s
+     Running unittests src\lib.rs (target\debug\deps\translunar_engine-ac98040b66365d98.exe)
+
+running 2 tests
+test plugin_ai_ui::tests::registries_reject_reserved_and_conflicting_ids ... ok
+test plugin_ai_ui::tests::panel_registry_detaches_only_the_exact_generation ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 121 filtered out; finished in 0.00s
+
+     Running unittests src\bin\translunar.rs (target\debug\deps\translunar-f649b96ea8227064.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\main.rs (target\debug\deps\translunar_engine-94c23547a09ec83d.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.51s
+     Running unittests src\lib.rs (target\debug\deps\translunar_engine-ac98040b66365d98.exe)
+
+running 1 test
+test plugin::tests::sandbox_toolkit_uses_bounded_runtime_and_detaches_cleanly ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 122 filtered out; finished in 0.25s
+
+     Running unittests src\bin\translunar.rs (target\debug\deps\translunar-f649b96ea8227064.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\main.rs (target\debug\deps\translunar_engine-94c23547a09ec83d.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+=== storage migration_22 ===
+   Compiling translunar-storage v0.1.0 (K:\Workbench\CAT\crates\storage)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.35s
+     Running unittests src\lib.rs (target\debug\deps\translunar_storage-a5e8d004d3e92381.exe)
+
+running 1 test
+test migrations::tests::migration_22_records_immutable_ai_action_history ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 110 filtered out; finished in 0.07s
+
+     Running unittests src\bin\storage_benchmark.rs (target\debug\deps\storage_benchmark-d35d222327215606.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+=== desktop panel tests ===
+.                                        |  WARN  Unsupported engine: wanted: {"node":">=22.17.0 <23 || >=24 <25"} (current: {"node":"v25.0.0","pnpm":"10.18.3"})
+
+ RUN  v4.1.10 K:/Workbench/CAT/apps/desktop
+
+ ✓ src/main/plugin-asset-sessions.test.ts (8 tests) 57ms
+ ✓ src/renderer/PluginPanelHost.test.tsx (11 tests) 28ms
+ ✓ src/renderer/PluginWorkbenchPanels.test.ts (1 test) 2ms
+
+ Test Files  3 passed (3)
+      Tests  20 passed (20)
+   Start at  02:02:12
+   Duration  3.25s (transform 236ms, setup 767ms, import 408ms, tests 88ms, environment 7.18s)

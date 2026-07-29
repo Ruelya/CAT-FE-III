@@ -684,12 +684,39 @@ impl SandboxWorkerHandle {
         self.invoke_with_credential_and_cancellation(request, None, cancellation)
     }
 
+    pub fn invoke_with_timeout_and_cancellation(
+        &self,
+        request: SandboxInvocationV1,
+        timeout: Duration,
+        cancellation: SandboxCancellationToken,
+    ) -> SandboxResult<SandboxResultV1> {
+        self.invoke_with_credential_timeout_and_cancellation(request, None, timeout, cancellation)
+    }
+
     pub fn invoke_with_credential_and_cancellation(
         &self,
         request: SandboxInvocationV1,
         credential: Option<&str>,
         cancellation: SandboxCancellationToken,
     ) -> SandboxResult<SandboxResultV1> {
+        self.invoke_with_credential_timeout_and_cancellation(
+            request,
+            credential,
+            self.0.limits.invocation,
+            cancellation,
+        )
+    }
+
+    fn invoke_with_credential_timeout_and_cancellation(
+        &self,
+        request: SandboxInvocationV1,
+        credential: Option<&str>,
+        timeout: Duration,
+        cancellation: SandboxCancellationToken,
+    ) -> SandboxResult<SandboxResultV1> {
+        if timeout.is_zero() {
+            return Err(SandboxError::Timeout);
+        }
         if self.state() != SandboxWorkerState::Ready {
             return Err(SandboxError::NotReady);
         }
@@ -700,7 +727,7 @@ impl SandboxWorkerHandle {
         if cancellation.is_cancelled() {
             return Err(SandboxError::Cancelled);
         }
-        let deadline = Instant::now() + self.0.limits.invocation;
+        let deadline = Instant::now() + timeout.min(self.0.limits.invocation);
         let (reply, response) = mpsc::sync_channel(1);
         self.0
             .sender
@@ -2593,6 +2620,28 @@ mod tests {
             worker.invoke_with_cancellation(invocation(Value::Null), token),
             Err(SandboxError::Cancelled)
         );
+    }
+
+    #[test]
+    fn invocation_specific_timeout_narrows_worker_limit() {
+        let (_directory, mut config) = package("export default { invoke() { while (true) {} } };");
+        config.limits.invocation = Duration::from_secs(1);
+        let worker = SandboxWorkerHandle::spawn(
+            config,
+            Arc::new(SandboxHostCallRegistry::default()),
+            Arc::new(AllowAll),
+        )
+        .expect("spawn");
+        let started = Instant::now();
+        assert_eq!(
+            worker.invoke_with_timeout_and_cancellation(
+                invocation(Value::Null),
+                Duration::from_millis(25),
+                SandboxCancellationToken::default(),
+            ),
+            Err(SandboxError::Timeout)
+        );
+        assert!(started.elapsed() < Duration::from_millis(500));
     }
 
     #[test]

@@ -1,10 +1,12 @@
 //! Local plugin manifest validation, process host, and filter adapters.
 
+mod ai_ui;
 mod connector;
 mod declarative;
 mod qa_pipeline;
 mod sandbox;
 
+pub use ai_ui::*;
 pub use connector::*;
 pub use declarative::{
     DECLARATIVE_DEFINITION_VERSION, DeclarativeDocumentFilter, DeclarativeFilterDefinitionV1,
@@ -1193,32 +1195,6 @@ impl PipelineStepContributionDescriptor {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AiActionContributionDescriptor {
-    pub descriptor_version: u32,
-    pub id: String,
-    pub version: String,
-    pub display_name: String,
-    pub label: String,
-    pub placement: String,
-    pub input: Value,
-    pub prompt_template: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct UiPanelContributionDescriptor {
-    pub descriptor_version: u32,
-    pub id: String,
-    pub version: String,
-    pub display_name: String,
-    pub label: String,
-    pub placement: String,
-    pub surface: String,
-    pub bridge_version: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExternalConnectorContributionDescriptor {
     pub descriptor_version: u32,
     pub id: String,
@@ -1656,11 +1632,14 @@ impl NormalizedPluginManifest {
                     PluginContributionDescriptor::PipelineStep(value) => {
                         value.validate_executable_v1(PluginTier::Sandbox).is_ok()
                     }
-                    _ => matches!(
-                        contribution,
-                        PluginContributionDescriptor::Filter(_)
-                            | PluginContributionDescriptor::UiPanel(_)
-                    ),
+                    PluginContributionDescriptor::AiAction(value) => {
+                        value.validate_executable_v1(PluginTier::Sandbox).is_ok()
+                    }
+                    PluginContributionDescriptor::UiPanel(value) => {
+                        value.contract_version.is_none()
+                            || value.validate_executable_v1(PluginTier::Sandbox).is_ok()
+                    }
+                    _ => matches!(contribution, PluginContributionDescriptor::Filter(_)),
                 })
     }
 
@@ -1693,11 +1672,16 @@ impl NormalizedPluginManifest {
                         validate_tier_contribution(PluginTier::Declarative, contribution, true)
                             .is_ok()
                     }
-                    PluginRuntimeDescriptor::Sandbox { .. } => matches!(
-                        contribution,
-                        PluginContributionDescriptor::Filter(_)
-                            | PluginContributionDescriptor::UiPanel(_)
-                    ),
+                    PluginRuntimeDescriptor::Sandbox { .. } => match contribution {
+                        PluginContributionDescriptor::AiAction(value) => {
+                            value.validate_executable_v1(PluginTier::Sandbox).is_ok()
+                        }
+                        PluginContributionDescriptor::UiPanel(value) => {
+                            value.contract_version.is_none()
+                                || value.validate_executable_v1(PluginTier::Sandbox).is_ok()
+                        }
+                        _ => matches!(contribution, PluginContributionDescriptor::Filter(_)),
+                    },
                 },
             }
         };
@@ -2249,6 +2233,20 @@ fn validate_tier_contribution(
             Ok(())
         };
     }
+    if let PluginContributionDescriptor::AiAction(value) = contribution {
+        return if value.operation_protocol_version.is_some() || require_definition {
+            value.validate_executable_v1(tier)
+        } else {
+            Ok(())
+        };
+    }
+    if let PluginContributionDescriptor::UiPanel(value) = contribution {
+        return if value.contract_version.is_some() || require_definition {
+            value.validate_executable_v1(tier)
+        } else {
+            Ok(())
+        };
+    }
     if tier != PluginTier::Declarative {
         return Ok(());
     }
@@ -2407,12 +2405,15 @@ fn validate_contribution(
                 "AI action placement",
                 MAX_SHORT_STRING_BYTES,
             )?;
-            require_text(
-                &value.prompt_template,
-                "AI action promptTemplate",
-                MAX_LONG_STRING_BYTES,
-            )?;
-            validate_json_shape(&value.input, "AI action input", 0)
+            if !value.prompt_template.is_empty() {
+                require_text(
+                    &value.prompt_template,
+                    "AI action promptTemplate",
+                    MAX_LONG_STRING_BYTES,
+                )?;
+            }
+            validate_json_shape(&value.input, "AI action input", 0)?;
+            validate_tier_contribution(PluginTier::Sandbox, contribution, false)
         }
         PluginContributionDescriptor::UiPanel(value) => {
             require_text(&value.label, "UI panel label", MAX_DISPLAY_NAME_BYTES)?;
@@ -2427,7 +2428,7 @@ fn validate_contribution(
                     "UI panel bridgeVersion must be positive".to_string(),
                 ));
             }
-            Ok(())
+            validate_tier_contribution(PluginTier::Sandbox, contribution, false)
         }
         PluginContributionDescriptor::ExternalConnector(value) => {
             validate_string_list(&value.transports, "external connector transports")?;

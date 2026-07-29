@@ -3,6 +3,14 @@ import { stdin as input, stdout as output } from "node:process";
 import { createHash } from "node:crypto";
 
 import type {
+  AiActionContributionDescriptor,
+  UiPanelContributionDescriptor,
+} from "./ai-ui.js";
+import {
+  validateAiActionDescriptor,
+  validateUiPanelDescriptor,
+} from "./ai-ui.js";
+import type {
   PipelineStepContributionDescriptorV1,
   QaRuleContributionDescriptorV1,
 } from "./qa-pipeline.js";
@@ -11,6 +19,7 @@ import {
   validateQaRuleDescriptor,
 } from "./qa-pipeline.js";
 
+export * from "./ai-ui.js";
 export * from "./qa-pipeline.js";
 
 export const HOST_API_VERSION = 1;
@@ -673,30 +682,6 @@ export interface LegacyPipelineStepContributionDescriptor {
 export type PipelineStepContributionDescriptor =
   | LegacyPipelineStepContributionDescriptor
   | PipelineStepContributionDescriptorV1;
-
-export interface AiActionContributionDescriptor {
-  kind: "aiAction";
-  descriptorVersion: 1;
-  id: string;
-  version: string;
-  displayName: string;
-  label: string;
-  placement: string;
-  input: Record<string, unknown>;
-  promptTemplate?: string;
-}
-
-export interface UiPanelContributionDescriptor {
-  kind: "uiPanel";
-  descriptorVersion: 1;
-  id: string;
-  version: string;
-  displayName: string;
-  label: string;
-  placement: string;
-  surface: string;
-  bridgeVersion: number;
-}
 
 export interface ExternalConnectorContributionDescriptor {
   kind: "externalConnector";
@@ -2535,11 +2520,24 @@ export function compatibilityForManifest(
         validatePipelineStepDescriptor(contribution).length === 0
       );
     }
+    if (contribution.kind === "aiAction") {
+      return (
+        contribution.operationProtocolVersion === 1 &&
+        validateAiActionDescriptor(contribution, manifest.runtime.tier)
+          .length === 0
+      );
+    }
+    if (contribution.kind === "uiPanel") {
+      const strict = contribution as UiPanelContributionDescriptor;
+      return strict.contractVersion === undefined
+        ? manifest.runtime.tier === "sandbox"
+        : validateUiPanelDescriptor(strict, manifest.runtime.tier).length === 0;
+    }
     if (manifest.runtime.tier === "process") {
       return contribution.kind === "filter";
     }
     if (manifest.runtime.tier === "sandbox") {
-      return contribution.kind === "filter" || contribution.kind === "uiPanel";
+      return contribution.kind === "filter";
     }
     if (manifest.runtime.tier !== "declarative") return false;
     const errors: string[] = [];

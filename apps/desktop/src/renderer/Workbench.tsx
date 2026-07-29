@@ -75,6 +75,8 @@ import { formatCorpusProvenance } from "./alignment-corpus-utils";
 import { BrandMark } from "./BrandMark";
 import { clearSegmentDrafts, writeSegmentDraft } from "./draft-persist";
 import { GlobalSearchPanel } from "./GlobalSearchPanel";
+import { PluginAiActions } from "./PluginAiActions";
+import { PluginWorkbenchPanels } from "./PluginWorkbenchPanels";
 import { WorkbenchVisualState } from "./WorkbenchVisualState";
 import {
   EDITOR_COMMANDS,
@@ -312,6 +314,8 @@ export function Workbench({
   const composingRef = useRef(new Set<string>());
   const pendingSavesRef = useRef(0);
   const editorGridRef = useRef<HTMLDivElement>(null);
+  const editorRegionRef = useRef<HTMLElement>(null);
+  const [toolbarCompact, setToolbarCompact] = useState(false);
   const editorWindowRequestRef = useRef(0);
   const tmRequestRef = useRef(0);
   const termRequestRef = useRef(0);
@@ -458,6 +462,19 @@ export function Workbench({
       // UI preferences are disposable and must never block translation work.
     }
   }, [followActivePreview, previewHeight, previewMode, suggestionsMode]);
+
+  // Compact the editor toolbar when the plugin dock + suggestions leave a
+  // narrow editor column (e.g. 1250×744 with editorSidebar open).
+  useEffect(() => {
+    const node = editorRegionRef.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width ?? 0;
+      setToolbarCompact(width > 0 && width < 720);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -2266,640 +2283,771 @@ export function Workbench({
       </div>
 
       <main className="workbench-layout">
-        <section
-          id="tutorial-target-edit"
-          className="editor-region"
-          tabIndex={-1}
-        >
-          <div className="editor-toolbar">
-            <div
-              className="filter-group"
-              role="group"
-              aria-label={t("workbench.segmentFilters")}
+        <div className="editor-column">
+          <div className="editor-main-row">
+            <aside
+              className="plugin-editor-dock"
+              aria-label={t("plugins.workbenchPanels.aria")}
             >
-              <FilterButton
-                label={t("workbench.filterAll")}
-                count={counts.total}
-                value="all"
-                active={filter}
-                onChange={setFilter}
+              <PluginWorkbenchPanels
+                placement="editorSidebar"
+                projectId={snapshot.project.id}
+                {...(activeSegment?.id ? { segmentId: activeSegment.id } : {})}
               />
-              <FilterButton
-                label={t("workbench.filterUntranslated")}
-                count={counts.untranslated}
-                value="untranslated"
-                active={filter}
-                onChange={setFilter}
-              />
-              <FilterButton
-                label={t("workbench.filterDraft")}
-                count={counts.draft}
-                value="draft"
-                active={filter}
-                onChange={setFilter}
-              />
-              <FilterButton
-                label={t("workbench.filterConfirmed")}
-                count={counts.confirmed}
-                value="confirmed"
-                active={filter}
-                onChange={setFilter}
-              />
-              <FilterButton
-                label={t("workbench.filterIssues")}
-                count={counts.openIssues}
-                value="issues"
-                active={filter}
-                onChange={setFilter}
-              />
-              <select
-                value={
-                  filter === "tagged" || filter === "commented" ? filter : ""
-                }
-                onChange={(event) =>
-                  setFilter(event.currentTarget.value as SegmentFilter)
-                }
-                aria-label={t("workbench.additionalFilters")}
-              >
-                <option value="" disabled>
-                  {t("workbench.more")}
-                </option>
-                <option value="tagged">{t("workbench.tagged")}</option>
-                <option value="commented">{t("workbench.commented")}</option>
-              </select>
-            </div>
-            <label className="document-search">
-              <Search size={14} />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.currentTarget.value)}
-                placeholder={t("workbench.searchPlaceholder")}
-                aria-label={t("workbench.searchAria")}
-              />
-            </label>
-            <div
-              className="match-scope"
-              role="group"
-              aria-label={t("workbench.exactTmMatching")}
+            </aside>
+            <section
+              id="tutorial-target-edit"
+              ref={editorRegionRef}
+              className="editor-region"
+              tabIndex={-1}
+              data-toolbar-compact={toolbarCompact ? "true" : "false"}
             >
-              <Database size={13} />
-              <span>{t("workbench.exactTm")}</span>
-            </div>
-            <div
-              className="editor-command-strip"
-              role="toolbar"
-              aria-label={t("workbench.editorCommands")}
-            >
-              <button
-                type="button"
-                className="icon-button"
-                onClick={() => setCommandPaletteOpen(true)}
-                title={t("workbench.commandPalette")}
-                aria-label={t("workbench.openCommandPalette")}
-              >
-                <Command size={14} />
-              </button>
-              <button
-                type="button"
-                className="icon-button"
-                onClick={() => setFindOpen(true)}
-                title={t("workbench.findReplace")}
-                aria-label={t("workbench.openFindReplace")}
-              >
-                <Search size={14} />
-              </button>
-              <button
-                type="button"
-                className="icon-button"
-                onClick={() => void undoEditor()}
-                title={t("common.undo")}
-                aria-label={t("workbench.undoAria")}
-              >
-                <RotateCcw size={14} />
-              </button>
-              <button
-                type="button"
-                className="icon-button"
-                onClick={() => void redoEditor()}
-                title={t("common.redo")}
-                aria-label={t("workbench.redoAria")}
-              >
-                <RotateCw size={14} />
-              </button>
-              <button
-                type="button"
-                className="icon-button"
-                onClick={openActiveComments}
-                title={t("common.comments")}
-                aria-label={t("workbench.openComments")}
-              >
-                <MessageSquare size={14} />
-              </button>
-            </div>
-            <div className="issue-nav" aria-label={t("workbench.issueNav")}>
-              <span>{t("common.issue")}</span>
-              <button
-                type="button"
-                className="icon-button"
-                onClick={() => navigateIssue(-1)}
-                disabled={!openIssueIds.length}
-                title={t("workbench.prevIssue")}
-                aria-label={t("workbench.prevIssue")}
-              >
-                <ChevronLeft size={14} />
-              </button>
-              <span className="issue-position">
-                {t("common.positionOf", {
-                  position: issuePosition,
-                  total: openIssueIds.length,
-                })}
-              </span>
-              <button
-                type="button"
-                className="icon-button"
-                onClick={() => navigateIssue(1)}
-                disabled={!openIssueIds.length}
-                title={t("workbench.nextIssue")}
-                aria-label={t("workbench.nextIssue")}
-              >
-                <ChevronRight size={14} />
-              </button>
-            </div>
-            {activeSegment ? (
-              <button
-                className="confirm-button"
-                type="button"
-                onClick={() => confirmSegment(activeSegment.id)}
-                disabled={
-                  actionBusy !== null ||
-                  activeEditorRow?.workflowState === "signed"
+              <div
+                className={
+                  toolbarCompact
+                    ? "editor-toolbar is-compact"
+                    : "editor-toolbar"
                 }
+                data-compact={toolbarCompact ? "true" : "false"}
               >
-                <Check size={14} />
-                {t("workbench.confirm")}
-              </button>
-            ) : null}
-          </div>
+                {toolbarCompact ? (
+                  <label className="filter-compact" data-toolbar-item="filters">
+                    <span className="visually-hidden">
+                      {t("workbench.segmentFilters")}
+                    </span>
+                    <select
+                      value={filter}
+                      onChange={(event) =>
+                        setFilter(event.currentTarget.value as SegmentFilter)
+                      }
+                      aria-label={t("workbench.segmentFilters")}
+                    >
+                      <option value="all">
+                        {t("workbench.filterAll")} ({counts.total})
+                      </option>
+                      <option value="untranslated">
+                        {t("workbench.filterUntranslated")} (
+                        {counts.untranslated})
+                      </option>
+                      <option value="draft">
+                        {t("workbench.filterDraft")} ({counts.draft})
+                      </option>
+                      <option value="confirmed">
+                        {t("workbench.filterConfirmed")} ({counts.confirmed})
+                      </option>
+                      <option value="issues">
+                        {t("workbench.filterIssues")} ({counts.openIssues})
+                      </option>
+                      <option value="tagged">{t("workbench.tagged")}</option>
+                      <option value="commented">
+                        {t("workbench.commented")}
+                      </option>
+                    </select>
+                  </label>
+                ) : (
+                  <div
+                    className="filter-group"
+                    role="group"
+                    aria-label={t("workbench.segmentFilters")}
+                    data-toolbar-item="filters"
+                  >
+                    <FilterButton
+                      label={t("workbench.filterAll")}
+                      count={counts.total}
+                      value="all"
+                      active={filter}
+                      onChange={setFilter}
+                    />
+                    <FilterButton
+                      label={t("workbench.filterUntranslated")}
+                      count={counts.untranslated}
+                      value="untranslated"
+                      active={filter}
+                      onChange={setFilter}
+                    />
+                    <FilterButton
+                      label={t("workbench.filterDraft")}
+                      count={counts.draft}
+                      value="draft"
+                      active={filter}
+                      onChange={setFilter}
+                    />
+                    <FilterButton
+                      label={t("workbench.filterConfirmed")}
+                      count={counts.confirmed}
+                      value="confirmed"
+                      active={filter}
+                      onChange={setFilter}
+                    />
+                    <FilterButton
+                      label={t("workbench.filterIssues")}
+                      count={counts.openIssues}
+                      value="issues"
+                      active={filter}
+                      onChange={setFilter}
+                    />
+                    <select
+                      value={
+                        filter === "tagged" || filter === "commented"
+                          ? filter
+                          : ""
+                      }
+                      onChange={(event) =>
+                        setFilter(event.currentTarget.value as SegmentFilter)
+                      }
+                      aria-label={t("workbench.additionalFilters")}
+                    >
+                      <option value="" disabled>
+                        {t("workbench.more")}
+                      </option>
+                      <option value="tagged">{t("workbench.tagged")}</option>
+                      <option value="commented">
+                        {t("workbench.commented")}
+                      </option>
+                    </select>
+                  </div>
+                )}
+                <label className="document-search" data-toolbar-item="search">
+                  <Search size={14} aria-hidden="true" />
+                  <input
+                    value={search}
+                    onChange={(event) => setSearch(event.currentTarget.value)}
+                    placeholder={t("workbench.searchPlaceholder")}
+                    aria-label={t("workbench.searchAria")}
+                  />
+                </label>
+                <div
+                  className="match-scope"
+                  role="group"
+                  aria-label={t("workbench.exactTmMatching")}
+                  data-toolbar-item="tm"
+                >
+                  <Database size={13} aria-hidden="true" />
+                  <span>{t("workbench.exactTm")}</span>
+                </div>
+                <div
+                  className="editor-command-strip"
+                  role="toolbar"
+                  aria-label={t("workbench.editorCommands")}
+                  data-toolbar-item="commands"
+                >
+                  <button
+                    type="button"
+                    className="icon-button"
+                    onClick={() => setCommandPaletteOpen(true)}
+                    title={t("workbench.commandPalette")}
+                    aria-label={t("workbench.openCommandPalette")}
+                  >
+                    <Command size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    onClick={() => setFindOpen(true)}
+                    title={t("workbench.findReplace")}
+                    aria-label={t("workbench.openFindReplace")}
+                  >
+                    <Search size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    onClick={() => void undoEditor()}
+                    title={t("common.undo")}
+                    aria-label={t("workbench.undoAria")}
+                  >
+                    <RotateCcw size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    onClick={() => void redoEditor()}
+                    title={t("common.redo")}
+                    aria-label={t("workbench.redoAria")}
+                  >
+                    <RotateCw size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    onClick={openActiveComments}
+                    title={t("common.comments")}
+                    aria-label={t("workbench.openComments")}
+                  >
+                    <MessageSquare size={14} />
+                  </button>
+                </div>
+                <div
+                  className="issue-nav"
+                  aria-label={t("workbench.issueNav")}
+                  data-toolbar-item="issues"
+                >
+                  <span className="issue-nav__label">{t("common.issue")}</span>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    onClick={() => navigateIssue(-1)}
+                    disabled={!openIssueIds.length}
+                    title={t("workbench.prevIssue")}
+                    aria-label={t("workbench.prevIssue")}
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                  <span className="issue-position">
+                    {t("common.positionOf", {
+                      position: issuePosition,
+                      total: openIssueIds.length,
+                    })}
+                  </span>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    onClick={() => navigateIssue(1)}
+                    disabled={!openIssueIds.length}
+                    title={t("workbench.nextIssue")}
+                    aria-label={t("workbench.nextIssue")}
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+                {activeSegment ? (
+                  <button
+                    className="confirm-button"
+                    type="button"
+                    data-toolbar-item="confirm"
+                    onClick={() => confirmSegment(activeSegment.id)}
+                    disabled={
+                      actionBusy !== null ||
+                      activeEditorRow?.workflowState === "signed"
+                    }
+                    aria-label={t("workbench.confirm")}
+                    title={t("workbench.confirm")}
+                  >
+                    <Check size={14} aria-hidden="true" />
+                    <span className="confirm-button__label">
+                      {t("workbench.confirm")}
+                    </span>
+                  </button>
+                ) : null}
+              </div>
 
-          <div className="editor-body">
-            <div
-              className="segment-grid"
-              role="region"
-              aria-label={t("workbench.segmentsAria")}
-              aria-busy={editorLoading}
-              ref={editorGridRef}
-              onScroll={onEditorScroll}
-            >
-              <table>
-                <thead>
-                  <tr>
-                    <th className="id-column">ID</th>
-                    <th className="status-column">{t("common.status")}</th>
-                    <th>
-                      {t("workbench.sourceColumn", {
-                        locale: snapshot.project.sourceLocale,
-                      })}
-                    </th>
-                    <th>
-                      {t("workbench.targetColumn", {
-                        locale: snapshot.project.targetLocale,
-                      })}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {editorOffset > 0 ? (
-                    <tr className="virtual-spacer" aria-hidden="true">
-                      <td
-                        colSpan={4}
-                        style={{ height: editorOffset * EDITOR_ROW_HEIGHT }}
-                      />
-                    </tr>
-                  ) : null}
-                  {visibleSegments.map((segment) => {
-                    const issue = openIssueBySegment.get(segment.id);
-                    const active = segment.id === activeId;
-                    const segmentIndex = visibleSegments.findIndex(
-                      (candidate) => candidate.id === segment.id,
-                    );
-                    const nextSegment = visibleSegments[segmentIndex + 1];
-                    const mergeEligible = Boolean(
-                      nextSegment &&
-                      canMergeSplitSiblings(segment, nextSegment),
-                    );
-                    const editorRow = editorRows.find(
-                      (row) => row.segment.id === segment.id,
-                    );
-                    const openCommentCount =
-                      editorRow?.comments.filter((comment) => !comment.resolved)
-                        .length ?? 0;
-                    const autocomplete = active
-                      ? autocompleteForSegment(segment.id)
-                      : null;
-                    return (
-                      <tr
-                        key={segment.id}
-                        className={
-                          active
-                            ? segment.id === flashSegmentId
-                              ? "segment-row active row-flash"
-                              : "segment-row active"
-                            : segment.id === flashSegmentId
-                              ? "segment-row row-flash"
-                              : "segment-row"
-                        }
-                        data-segment-row={segment.id}
-                        aria-rowindex={segment.ordinal + 2}
-                        onClick={() => setActiveId(segment.id)}
-                      >
-                        <td className="id-cell">{segment.ordinal + 1}</td>
-                        <td className="status-cell">
-                          <StatusLamp
-                            segment={segment}
-                            hasIssue={Boolean(issue)}
-                            justConfirmed={segment.id === flashSegmentId}
+              <div className="editor-body">
+                <div
+                  className="segment-grid"
+                  role="region"
+                  aria-label={t("workbench.segmentsAria")}
+                  aria-busy={editorLoading}
+                  ref={editorGridRef}
+                  onScroll={onEditorScroll}
+                >
+                  <table>
+                    <thead>
+                      <tr>
+                        <th className="id-column">ID</th>
+                        <th className="status-column">{t("common.status")}</th>
+                        <th>
+                          {t("workbench.sourceColumn", {
+                            locale: snapshot.project.sourceLocale,
+                          })}
+                        </th>
+                        <th>
+                          {t("workbench.targetColumn", {
+                            locale: snapshot.project.targetLocale,
+                          })}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {editorOffset > 0 ? (
+                        <tr className="virtual-spacer" aria-hidden="true">
+                          <td
+                            colSpan={4}
+                            style={{ height: editorOffset * EDITOR_ROW_HEIGHT }}
                           />
-                        </td>
-                        <td className="source-cell">
-                          <TaggedText
-                            text={segment.sourceText}
-                            tags={editorRow?.sourceTags ?? []}
-                            showNonprinting={preferences.showNonprinting}
-                          />
-                        </td>
-                        <td className="target-cell">
-                          {active ? (
-                            <div
-                              className="segment-tools"
-                              role="toolbar"
-                              aria-label={t("workbench.segmentTools")}
-                              onBlur={(event) => {
-                                if (
-                                  !event.currentTarget.contains(
-                                    event.relatedTarget,
-                                  )
-                                ) {
-                                  setSegmentActionsOpen(false);
-                                }
-                              }}
-                              onKeyDown={(event) => {
-                                if (
-                                  event.key !== "Escape" ||
-                                  !segmentActionsOpen
-                                )
-                                  return;
-                                event.preventDefault();
-                                event.stopPropagation();
-                                setSegmentActionsOpen(false);
-                                window.requestAnimationFrame(() =>
-                                  segmentActionsTriggerRef.current?.focus(),
-                                );
-                              }}
-                            >
-                              <button
-                                type="button"
-                                className="segment-tool-button"
-                                onClick={() => void copyProtectedTags()}
-                                aria-label={t("workbench.copyTags")}
-                                title={t("workbench.copyTags")}
-                                disabled={editorRow?.workflowState === "signed"}
-                              >
-                                <Tags size={14} aria-hidden="true" />
-                              </button>
-                              <button
-                                type="button"
-                                className="segment-tool-button"
-                                onClick={() => void insertProtectedTag(false)}
-                                aria-label={t("workbench.insertTag")}
-                                title={t("workbench.insertTag")}
-                                disabled={editorRow?.workflowState === "signed"}
-                              >
-                                <Tags size={14} aria-hidden="true" />
-                                <span aria-hidden="true">+</span>
-                              </button>
-                              <button
-                                type="button"
-                                className="segment-tool-button"
-                                onClick={() => void insertProtectedTag(true)}
-                                aria-label={t("workbench.insertTagPair")}
-                                title={t("workbench.insertTagPair")}
-                                disabled={editorRow?.workflowState === "signed"}
-                              >
-                                <Tags size={14} aria-hidden="true" />
-                                <span aria-hidden="true">±</span>
-                              </button>
-                              <button
-                                type="button"
-                                className="segment-tool-button segment-comments-button"
-                                onClick={openActiveComments}
-                                aria-label={t("workbench.openCommentsShort")}
-                                title={t("workbench.openCommentsShort")}
-                              >
-                                <MessageSquare size={14} aria-hidden="true" />
-                                {openCommentCount ? (
-                                  <span className="segment-tool-count">
-                                    {openCommentCount}
-                                  </span>
-                                ) : null}
-                              </button>
-                              <div className="segment-overflow-wrap">
-                                <button
-                                  ref={segmentActionsTriggerRef}
-                                  type="button"
-                                  className="segment-tool-button segment-more-trigger"
-                                  aria-haspopup="menu"
-                                  aria-expanded={segmentActionsOpen}
-                                  aria-label={t("common.moreActions")}
-                                  title={t("common.moreActions")}
-                                  onClick={(event) => {
+                        </tr>
+                      ) : null}
+                      {visibleSegments.map((segment) => {
+                        const issue = openIssueBySegment.get(segment.id);
+                        const active = segment.id === activeId;
+                        const segmentIndex = visibleSegments.findIndex(
+                          (candidate) => candidate.id === segment.id,
+                        );
+                        const nextSegment = visibleSegments[segmentIndex + 1];
+                        const mergeEligible = Boolean(
+                          nextSegment &&
+                          canMergeSplitSiblings(segment, nextSegment),
+                        );
+                        const editorRow = editorRows.find(
+                          (row) => row.segment.id === segment.id,
+                        );
+                        const openCommentCount =
+                          editorRow?.comments.filter(
+                            (comment) => !comment.resolved,
+                          ).length ?? 0;
+                        const autocomplete = active
+                          ? autocompleteForSegment(segment.id)
+                          : null;
+                        return (
+                          <tr
+                            key={segment.id}
+                            className={
+                              active
+                                ? segment.id === flashSegmentId
+                                  ? "segment-row active row-flash"
+                                  : "segment-row active"
+                                : segment.id === flashSegmentId
+                                  ? "segment-row row-flash"
+                                  : "segment-row"
+                            }
+                            data-segment-row={segment.id}
+                            aria-rowindex={segment.ordinal + 2}
+                            onClick={() => setActiveId(segment.id)}
+                          >
+                            <td className="id-cell">{segment.ordinal + 1}</td>
+                            <td className="status-cell">
+                              <StatusLamp
+                                segment={segment}
+                                hasIssue={Boolean(issue)}
+                                justConfirmed={segment.id === flashSegmentId}
+                              />
+                            </td>
+                            <td className="source-cell">
+                              <TaggedText
+                                text={segment.sourceText}
+                                tags={editorRow?.sourceTags ?? []}
+                                showNonprinting={preferences.showNonprinting}
+                              />
+                            </td>
+                            <td className="target-cell">
+                              {active ? (
+                                <div
+                                  className="segment-tools"
+                                  role="toolbar"
+                                  aria-label={t("workbench.segmentTools")}
+                                  onBlur={(event) => {
+                                    if (
+                                      !event.currentTarget.contains(
+                                        event.relatedTarget,
+                                      )
+                                    ) {
+                                      setSegmentActionsOpen(false);
+                                    }
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (
+                                      event.key !== "Escape" ||
+                                      !segmentActionsOpen
+                                    )
+                                      return;
+                                    event.preventDefault();
                                     event.stopPropagation();
-                                    setSegmentActionsOpen((open) => !open);
+                                    setSegmentActionsOpen(false);
+                                    window.requestAnimationFrame(() =>
+                                      segmentActionsTriggerRef.current?.focus(),
+                                    );
                                   }}
                                 >
-                                  <MoreHorizontal
-                                    size={16}
-                                    aria-hidden="true"
-                                  />
-                                </button>
-                                {segmentActionsOpen ? (
-                                  <div
-                                    className="segment-overflow-menu"
-                                    role="menu"
-                                    aria-label={t("common.moreActions")}
+                                  <button
+                                    type="button"
+                                    className="segment-tool-button"
+                                    onClick={() => void copyProtectedTags()}
+                                    aria-label={t("workbench.copyTags")}
+                                    title={t("workbench.copyTags")}
+                                    disabled={
+                                      editorRow?.workflowState === "signed"
+                                    }
                                   >
+                                    <Tags size={14} aria-hidden="true" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="segment-tool-button"
+                                    onClick={() =>
+                                      void insertProtectedTag(false)
+                                    }
+                                    aria-label={t("workbench.insertTag")}
+                                    title={t("workbench.insertTag")}
+                                    disabled={
+                                      editorRow?.workflowState === "signed"
+                                    }
+                                  >
+                                    <Tags size={14} aria-hidden="true" />
+                                    <span aria-hidden="true">+</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="segment-tool-button"
+                                    onClick={() =>
+                                      void insertProtectedTag(true)
+                                    }
+                                    aria-label={t("workbench.insertTagPair")}
+                                    title={t("workbench.insertTagPair")}
+                                    disabled={
+                                      editorRow?.workflowState === "signed"
+                                    }
+                                  >
+                                    <Tags size={14} aria-hidden="true" />
+                                    <span aria-hidden="true">±</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="segment-tool-button segment-comments-button"
+                                    onClick={openActiveComments}
+                                    aria-label={t(
+                                      "workbench.openCommentsShort",
+                                    )}
+                                    title={t("workbench.openCommentsShort")}
+                                  >
+                                    <MessageSquare
+                                      size={14}
+                                      aria-hidden="true"
+                                    />
+                                    {openCommentCount ? (
+                                      <span className="segment-tool-count">
+                                        {openCommentCount}
+                                      </span>
+                                    ) : null}
+                                  </button>
+                                  <div className="segment-overflow-wrap">
                                     <button
+                                      ref={segmentActionsTriggerRef}
                                       type="button"
-                                      role="menuitem"
-                                      disabled={
-                                        editorRow?.workflowState === "signed"
-                                      }
+                                      className="segment-tool-button segment-more-trigger"
+                                      aria-haspopup="menu"
+                                      aria-expanded={segmentActionsOpen}
+                                      aria-label={t("common.moreActions")}
+                                      title={t("common.moreActions")}
                                       onClick={(event) => {
                                         event.stopPropagation();
-                                        setSegmentActionsOpen(false);
-                                        void splitActiveSegment();
+                                        setSegmentActionsOpen((open) => !open);
                                       }}
                                     >
-                                      <Split size={14} aria-hidden="true" />
-                                      {t("workbench.splitSegment")}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      role="menuitem"
-                                      disabled={
-                                        !mergeEligible ||
-                                        editorRow?.workflowState === "signed"
-                                      }
-                                      title={
-                                        mergeEligible
-                                          ? t("workbench.mergeNext")
-                                          : "Only sibling segments created by Split can be merged safely"
-                                      }
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        setSegmentActionsOpen(false);
-                                        void mergeActiveSegment();
-                                      }}
-                                    >
-                                      <Combine size={14} aria-hidden="true" />
-                                      {t("workbench.mergeNext")}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      role="menuitem"
-                                      disabled={
-                                        editorRow?.workflowState === "signed"
-                                      }
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        setSegmentActionsOpen(false);
-                                        openSourceCorrection();
-                                      }}
-                                    >
-                                      <Pencil size={14} aria-hidden="true" />
-                                      {t("workbench.correctSource")}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      role="menuitem"
-                                      disabled={
-                                        editorRow?.workflowState === "signed" ||
-                                        !(
-                                          drafts[segment.id] ??
-                                          segment.targetText
-                                        ).trim()
-                                      }
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        setSegmentActionsOpen(false);
-                                        openChineseConversion();
-                                      }}
-                                    >
-                                      <Languages size={14} aria-hidden="true" />
-                                      {t("workbench.openChinese")}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      role="menuitem"
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        setSegmentActionsOpen(false);
-                                        void openReviewPanel();
-                                      }}
-                                    >
-                                      <GitCompareArrows
-                                        size={14}
+                                      <MoreHorizontal
+                                        size={16}
                                         aria-hidden="true"
                                       />
-                                      {t("workbench.openReview")}
                                     </button>
+                                    {segmentActionsOpen ? (
+                                      <div
+                                        className="segment-overflow-menu"
+                                        role="menu"
+                                        aria-label={t("common.moreActions")}
+                                      >
+                                        <PluginAiActions
+                                          activeSegment={segment}
+                                          sourceLocale={
+                                            snapshot.project.sourceLocale
+                                          }
+                                          targetLocale={
+                                            snapshot.project.targetLocale
+                                          }
+                                          onUseTarget={insertMatch}
+                                          placement="editorSelection"
+                                          variant="menu"
+                                          onMenuAction={() =>
+                                            setSegmentActionsOpen(false)
+                                          }
+                                        />
+                                        <button
+                                          type="button"
+                                          role="menuitem"
+                                          disabled={
+                                            editorRow?.workflowState ===
+                                            "signed"
+                                          }
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            setSegmentActionsOpen(false);
+                                            void splitActiveSegment();
+                                          }}
+                                        >
+                                          <Split size={14} aria-hidden="true" />
+                                          {t("workbench.splitSegment")}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          role="menuitem"
+                                          disabled={
+                                            !mergeEligible ||
+                                            editorRow?.workflowState ===
+                                              "signed"
+                                          }
+                                          title={
+                                            mergeEligible
+                                              ? t("workbench.mergeNext")
+                                              : "Only sibling segments created by Split can be merged safely"
+                                          }
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            setSegmentActionsOpen(false);
+                                            void mergeActiveSegment();
+                                          }}
+                                        >
+                                          <Combine
+                                            size={14}
+                                            aria-hidden="true"
+                                          />
+                                          {t("workbench.mergeNext")}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          role="menuitem"
+                                          disabled={
+                                            editorRow?.workflowState ===
+                                            "signed"
+                                          }
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            setSegmentActionsOpen(false);
+                                            openSourceCorrection();
+                                          }}
+                                        >
+                                          <Pencil
+                                            size={14}
+                                            aria-hidden="true"
+                                          />
+                                          {t("workbench.correctSource")}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          role="menuitem"
+                                          disabled={
+                                            editorRow?.workflowState ===
+                                              "signed" ||
+                                            !(
+                                              drafts[segment.id] ??
+                                              segment.targetText
+                                            ).trim()
+                                          }
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            setSegmentActionsOpen(false);
+                                            openChineseConversion();
+                                          }}
+                                        >
+                                          <Languages
+                                            size={14}
+                                            aria-hidden="true"
+                                          />
+                                          {t("workbench.openChinese")}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          role="menuitem"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            setSegmentActionsOpen(false);
+                                            void openReviewPanel();
+                                          }}
+                                        >
+                                          <GitCompareArrows
+                                            size={14}
+                                            aria-hidden="true"
+                                          />
+                                          {t("workbench.openReview")}
+                                        </button>
+                                      </div>
+                                    ) : null}
                                   </div>
-                                ) : null}
-                              </div>
-                            </div>
-                          ) : null}
-                          {editorRow?.targetTags.length ? (
-                            <div
-                              className="target-tag-strip"
-                              aria-label={t("workbench.targetTags")}
-                            >
-                              {editorRow.targetTags.map((tag) => (
+                                </div>
+                              ) : null}
+                              {editorRow?.targetTags.length ? (
+                                <div
+                                  className="target-tag-strip"
+                                  aria-label={t("workbench.targetTags")}
+                                >
+                                  {editorRow.targetTags.map((tag) => (
+                                    <button
+                                      type="button"
+                                      className={
+                                        selectedTargetTagId === tag.id
+                                          ? "tag-capsule selected"
+                                          : "tag-capsule"
+                                      }
+                                      key={tag.id}
+                                      onClick={() =>
+                                        setSelectedTargetTagId(tag.id)
+                                      }
+                                      disabled={
+                                        editorRow.workflowState === "signed"
+                                      }
+                                      aria-label={t(
+                                        "workbench.selectProtectedTag",
+                                        {
+                                          tag: tag.displayText || tag.kind,
+                                          position: tag.position,
+                                        },
+                                      )}
+                                      title={t("workbench.moveTagHint")}
+                                    >
+                                      {tag.displayText || tag.kind}
+                                      <small>{tag.position}</small>
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : null}
+                              <textarea
+                                data-editor-for={segment.id}
+                                value={drafts[segment.id] ?? segment.targetText}
+                                placeholder={t("workbench.untranslated")}
+                                aria-label={t("workbench.targetSegment", {
+                                  ordinal: segment.ordinal + 1,
+                                })}
+                                aria-invalid={Boolean(issue)}
+                                disabled={editorRow?.workflowState === "signed"}
+                                onFocus={() => setActiveId(segment.id)}
+                                onClick={(event) => event.stopPropagation()}
+                                onChange={(event) => {
+                                  updateDraft(
+                                    segment.id,
+                                    event.currentTarget.value,
+                                  );
+                                  if (!composingRef.current.has(segment.id))
+                                    scheduleSave(segment.id);
+                                }}
+                                onCompositionStart={() =>
+                                  onCompositionStart(segment.id)
+                                }
+                                onCompositionEnd={(event) =>
+                                  onCompositionEnd(event, segment.id)
+                                }
+                                onKeyDown={(event) =>
+                                  onTargetKeyDown(event, segment.id)
+                                }
+                              />
+                              {autocomplete ? (
                                 <button
                                   type="button"
-                                  className={
-                                    selectedTargetTagId === tag.id
-                                      ? "tag-capsule selected"
-                                      : "tag-capsule"
-                                  }
-                                  key={tag.id}
-                                  onClick={() => setSelectedTargetTagId(tag.id)}
-                                  disabled={
-                                    editorRow.workflowState === "signed"
-                                  }
+                                  className="autocomplete-tail"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    updateDraft(
+                                      segment.id,
+                                      autocomplete.targetText,
+                                    );
+                                    scheduleSave(segment.id, 80);
+                                  }}
                                   aria-label={t(
-                                    "workbench.selectProtectedTag",
+                                    "workbench.acceptAutocomplete",
                                     {
-                                      tag: tag.displayText || tag.kind,
-                                      position: tag.position,
+                                      provider: autocomplete.provider,
                                     },
                                   )}
-                                  title={t("workbench.moveTagHint")}
                                 >
-                                  {tag.displayText || tag.kind}
-                                  <small>{tag.position}</small>
+                                  <small>{autocomplete.provider}</small>
+                                  <span>{autocomplete.tail}</span>
+                                  <kbd>{t("workbench.tab")}</kbd>
                                 </button>
-                              ))}
-                            </div>
-                          ) : null}
-                          <textarea
-                            data-editor-for={segment.id}
-                            value={drafts[segment.id] ?? segment.targetText}
-                            placeholder={t("workbench.untranslated")}
-                            aria-label={t("workbench.targetSegment", {
-                              ordinal: segment.ordinal + 1,
-                            })}
-                            aria-invalid={Boolean(issue)}
-                            disabled={editorRow?.workflowState === "signed"}
-                            onFocus={() => setActiveId(segment.id)}
-                            onClick={(event) => event.stopPropagation()}
-                            onChange={(event) => {
-                              updateDraft(
-                                segment.id,
-                                event.currentTarget.value,
-                              );
-                              if (!composingRef.current.has(segment.id))
-                                scheduleSave(segment.id);
-                            }}
-                            onCompositionStart={() =>
-                              onCompositionStart(segment.id)
-                            }
-                            onCompositionEnd={(event) =>
-                              onCompositionEnd(event, segment.id)
-                            }
-                            onKeyDown={(event) =>
-                              onTargetKeyDown(event, segment.id)
-                            }
-                          />
-                          {autocomplete ? (
-                            <button
-                              type="button"
-                              className="autocomplete-tail"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                updateDraft(
-                                  segment.id,
-                                  autocomplete.targetText,
-                                );
-                                scheduleSave(segment.id, 80);
-                              }}
-                              aria-label={t("workbench.acceptAutocomplete", {
-                                provider: autocomplete.provider,
-                              })}
-                            >
-                              <small>{autocomplete.provider}</small>
-                              <span>{autocomplete.tail}</span>
-                              <kbd>{t("workbench.tab")}</kbd>
-                            </button>
-                          ) : null}
-                          {issue ? (
-                            <span className="inline-issue">
-                              <AlertTriangle size={12} />
-                              {issue.message}
-                            </span>
-                          ) : null}
-                          {(drafts[segment.id] ?? segment.targetText).trim()
-                            ? editorRow?.tagIssues.map((tagIssue) => (
-                                <span
-                                  className="inline-issue tag-issue"
-                                  key={`${tagIssue.code}-${tagIssue.tagId ?? "all"}`}
-                                >
-                                  <Tags size={12} />
-                                  {tagIssue.message}
+                              ) : null}
+                              {issue ? (
+                                <span className="inline-issue">
+                                  <AlertTriangle size={12} />
+                                  {issue.message}
                                 </span>
-                              ))
-                            : null}
-                          {active && spellFindings.length ? (
-                            <div
-                              className="spell-findings"
-                              aria-label={t("workbench.spellFindingsFrom", {
-                                provider: spellProvider,
-                              })}
-                            >
-                              {spellFindings.slice(0, 4).map((finding) => (
-                                <button
-                                  key={`${finding.provider}-${finding.start}-${finding.word}`}
-                                  type="button"
-                                  onClick={() =>
-                                    void addDictionaryFinding(finding)
-                                  }
-                                  title={t("workbench.addDictionary")}
+                              ) : null}
+                              {(drafts[segment.id] ?? segment.targetText).trim()
+                                ? editorRow?.tagIssues.map((tagIssue) => (
+                                    <span
+                                      className="inline-issue tag-issue"
+                                      key={`${tagIssue.code}-${tagIssue.tagId ?? "all"}`}
+                                    >
+                                      <Tags size={12} />
+                                      {tagIssue.message}
+                                    </span>
+                                  ))
+                                : null}
+                              {active && spellFindings.length ? (
+                                <div
+                                  className="spell-findings"
+                                  aria-label={t("workbench.spellFindingsFrom", {
+                                    provider: spellProvider,
+                                  })}
                                 >
-                                  <AlertTriangle size={10} />
-                                  {finding.word}
-                                  <small>{finding.provider}</small>
-                                </button>
-                              ))}
-                            </div>
-                          ) : null}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {editorTotal > editorOffset + visibleSegments.length ? (
-                    <tr className="virtual-spacer" aria-hidden="true">
-                      <td
-                        colSpan={4}
-                        style={{
-                          height:
-                            (editorTotal -
-                              editorOffset -
-                              visibleSegments.length) *
-                            EDITOR_ROW_HEIGHT,
-                        }}
-                      />
-                    </tr>
+                                  {spellFindings.slice(0, 4).map((finding) => (
+                                    <button
+                                      key={`${finding.provider}-${finding.start}-${finding.word}`}
+                                      type="button"
+                                      onClick={() =>
+                                        void addDictionaryFinding(finding)
+                                      }
+                                      title={t("workbench.addDictionary")}
+                                    >
+                                      <AlertTriangle size={10} />
+                                      {finding.word}
+                                      <small>{finding.provider}</small>
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {editorTotal > editorOffset + visibleSegments.length ? (
+                        <tr className="virtual-spacer" aria-hidden="true">
+                          <td
+                            colSpan={4}
+                            style={{
+                              height:
+                                (editorTotal -
+                                  editorOffset -
+                                  visibleSegments.length) *
+                                EDITOR_ROW_HEIGHT,
+                            }}
+                          />
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                  {visibleSegments.length === 0 && !editorLoading ? (
+                    <WorkbenchVisualState
+                      kind="empty"
+                      variant="grid"
+                      label={t("workbench.noGridMatches")}
+                      action={
+                        hasGridFilters ? (
+                          <button
+                            type="button"
+                            className="button ghost"
+                            onClick={clearGridFilters}
+                          >
+                            {t("workbench.clearGridFilters")}
+                          </button>
+                        ) : undefined
+                      }
+                    />
                   ) : null}
-                </tbody>
-              </table>
-              {visibleSegments.length === 0 && !editorLoading ? (
-                <WorkbenchVisualState
-                  kind="empty"
-                  variant="grid"
-                  label={t("workbench.noGridMatches")}
-                  action={
-                    hasGridFilters ? (
-                      <button
-                        type="button"
-                        className="button ghost"
-                        onClick={clearGridFilters}
-                      >
-                        {t("workbench.clearGridFilters")}
-                      </button>
-                    ) : undefined
+                </div>
+                <DocumentPreview
+                  document={document}
+                  activeSegment={activeSegment}
+                  segments={segments}
+                  total={editorTotal}
+                  mode={previewMode}
+                  onModeChange={setPreviewMode}
+                  height={previewHeight}
+                  onHeightChange={setPreviewHeight}
+                  followActive={followActivePreview}
+                  onFollowActiveChange={setFollowActivePreview}
+                  onNavigateSegment={(segmentId, ordinal) =>
+                    void navigateToPreviewSegment(segmentId, ordinal)
                   }
+                  onSourceCorrected={applyCorrectedSource}
                 />
-              ) : null}
-            </div>
-            <DocumentPreview
-              document={document}
-              activeSegment={activeSegment}
-              segments={segments}
-              total={editorTotal}
-              mode={previewMode}
-              onModeChange={setPreviewMode}
-              height={previewHeight}
-              onHeightChange={setPreviewHeight}
-              followActive={followActivePreview}
-              onFollowActiveChange={setFollowActivePreview}
-              onNavigateSegment={(segmentId, ordinal) =>
-                void navigateToPreviewSegment(segmentId, ordinal)
-              }
-              onSourceCorrected={applyCorrectedSource}
-            />
+              </div>
+            </section>
           </div>
-        </section>
+          <PluginWorkbenchPanels
+            placement="bottomPanel"
+            projectId={snapshot.project.id}
+            {...(activeSegment?.id ? { segmentId: activeSegment.id } : {})}
+          />
+        </div>
 
         <SuggestionsPanel
           projectId={snapshot.project.id}
+          sourceLocale={snapshot.project.sourceLocale}
+          targetLocale={snapshot.project.targetLocale}
           mode={suggestionsMode}
           onModeChange={setSuggestionsMode}
           tab={suggestionTab}
@@ -4633,6 +4781,8 @@ function DocumentPreview({
 
 interface SuggestionsProps {
   projectId: string;
+  sourceLocale: string;
+  targetLocale: string;
   mode: PanelMode;
   onModeChange(mode: PanelMode): void;
   tab: SuggestionTab;
@@ -4653,6 +4803,8 @@ interface SuggestionsProps {
 
 function SuggestionsPanel({
   projectId,
+  sourceLocale,
+  targetLocale,
   mode,
   onModeChange,
   tab,
@@ -4900,12 +5052,26 @@ function SuggestionsPanel({
               />
             ) : null
           ) : tab === "assistant" ? (
-            <AssistantPanel
-              activeSegment={activeSegment}
-              onUseTarget={onInsert}
-              projectId={projectId}
-              onApplyMutation={onApplyMutation}
-            />
+            <>
+              <PluginAiActions
+                activeSegment={activeSegment}
+                sourceLocale={sourceLocale}
+                targetLocale={targetLocale}
+                onUseTarget={onInsert}
+                placement="assistantSidebar"
+              />
+              <PluginWorkbenchPanels
+                placement="assistantSidebar"
+                projectId={projectId}
+                {...(activeSegment?.id ? { segmentId: activeSegment.id } : {})}
+              />
+              <AssistantPanel
+                activeSegment={activeSegment}
+                onUseTarget={onInsert}
+                projectId={projectId}
+                onApplyMutation={onApplyMutation}
+              />
+            </>
           ) : openIssues.length ? (
             openIssues.map((issue) => (
               <article

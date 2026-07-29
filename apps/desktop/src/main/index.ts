@@ -755,45 +755,54 @@ function registerIpc(): void {
       assertTrustedSender(event);
       const request = parsePluginPanelSessionRequest(input);
       const activeEngine = requireEngine();
-      const plugin = await activeEngine.call("plugin.get", {
-        pluginId: request.pluginId,
-      });
-      if (!matchesPluginPanelRequest(plugin, request)) {
+      const [plugin, inventory] = await Promise.all([
+        activeEngine.call("plugin.get", { pluginId: request.pluginId }),
+        activeEngine.call("plugin.uiPanel.list", {}),
+      ]);
+      const panel = inventory.items.find(
+        (item) =>
+          item.owner.pluginId === request.pluginId &&
+          item.owner.contributionId === request.contributionId &&
+          item.owner.activationRevision === request.revision &&
+          item.state === "active",
+      );
+      if (!panel || !matchesPluginPanelRequest(plugin, request)) {
         throw new Error(
           "Plugin panel is not available for this active revision.",
         );
       }
       const activeVersionId = plugin.activeVersionId;
-      if (!activeVersionId) {
+      if (!activeVersionId || activeVersionId !== panel.owner.versionId) {
         throw new Error(
           "Plugin panel is not available for this active revision.",
         );
       }
-      const contribution = (plugin.contributions ?? []).find(
-        (item) => item.kind === "uiPanel" && item.id === request.contributionId,
-      );
-      if (
-        !contribution ||
-        contribution.kind !== "uiPanel" ||
-        contribution.bridgeVersion !== 1
-      ) {
+      if (panel.descriptor.bridgeVersion !== 1) {
         throw new Error("Plugin panel contribution is not available.");
       }
       const issued = await pluginAssetSessions.issue({
         ownerWebContentsId: event.sender.id,
         pluginId: plugin.id,
-        versionId: activeVersionId,
-        revision: plugin.revision,
-        contributionId: contribution.id,
+        versionId: panel.owner.versionId,
+        revision: panel.owner.activationRevision,
+        contributionId: panel.owner.contributionId,
         bridgeVersion: 1,
         packageRoot: plugin.packagePath,
-        surface: contribution.surface,
+        surface: panel.descriptor.surface,
       });
       try {
-        const current = await activeEngine.call("plugin.get", {
-          pluginId: request.pluginId,
-        });
-        if (!matchesPluginPanelRequest(current, request)) {
+        const current = await activeEngine.call("plugin.uiPanel.list", {});
+        if (
+          !current.items.some(
+            (item) =>
+              item.owner.pluginId === panel.owner.pluginId &&
+              item.owner.versionId === panel.owner.versionId &&
+              item.owner.activationRevision ===
+                panel.owner.activationRevision &&
+              item.owner.contributionId === panel.owner.contributionId &&
+              item.state === "active",
+          )
+        ) {
           throw new Error("stale plugin panel request");
         }
         return issued;

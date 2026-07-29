@@ -5,11 +5,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use translunar_filter_core::FilterDescriptor;
 pub use translunar_plugin_runtime::{
+    AiActionContributionDescriptor, AiActionInvocationV1, AiActionResultV1,
     DeclarativeEngineConnectorDefinitionV1, DeclarativeFilterDefinitionV1,
     DeclarativePipelineDefinitionV1, DeclarativeQaPackDefinitionV1, EngineConnectorLimitsV1,
     FilterContributionDescriptor, PluginCapabilityAuditEvent, PluginCapabilityDecision,
     PluginCapabilityId, PluginCapabilityRequest, PluginCapabilityScope,
-    PluginContributionDescriptor, PluginFileArea,
+    PluginContributionDescriptor, PluginFileArea, UiPanelContributionDescriptor,
 };
 
 use crate::{default_actor, default_page_size};
@@ -269,6 +270,155 @@ pub struct PluginSummary {
     pub crash_count: u32,
     pub installed_at_ms: i64,
     pub updated_at_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginContributionOwner {
+    pub plugin_id: String,
+    pub version_id: String,
+    pub activation_revision: u64,
+    pub contribution_id: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum PluginContributionState {
+    Active,
+    Detached,
+    Degraded,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginUiPanelView {
+    pub owner: PluginContributionOwner,
+    pub descriptor: UiPanelContributionDescriptor,
+    pub state: PluginContributionState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_failure_code: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginAiActionInvokeResult {
+    pub owner: PluginContributionOwner,
+    pub descriptor: AiActionContributionDescriptor,
+    pub result: AiActionResultV1,
+    pub canonical_sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginAiActionInvokeParams {
+    pub invocation: AiActionInvocationV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginAiActionCancelParams {
+    pub invocation_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginAiActionCancelResult {
+    pub cancelled: bool,
+    pub invocation_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginUiPanelBridgeCallParams {
+    pub owner: PluginContributionOwner,
+    pub method: String,
+    #[serde(default)]
+    pub params: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginUiPanelBridgeCallResult {
+    pub owner: PluginContributionOwner,
+    pub method: String,
+    pub result: Value,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginAiActionHistoryStatus {
+    Succeeded,
+    Failed,
+    Cancelled,
+    Timeout,
+    StaleActivation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginAiActionHistoryUsage {
+    pub input_bytes: u64,
+    pub output_bytes: u64,
+    pub duration_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginAiActionHistoryEntry {
+    pub invocation_id: String,
+    pub owner: PluginContributionOwner,
+    pub contribution_version: String,
+    pub status: PluginAiActionHistoryStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub canonical_sha256: Option<String>,
+    pub usage: PluginAiActionHistoryUsage,
+    pub created_at_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginAiActionHistoryListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contribution_id: Option<String>,
+    #[serde(default)]
+    pub offset: u32,
+    #[serde(default = "default_page_size")]
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginAiActionHistoryPage {
+    pub items: Vec<PluginAiActionHistoryEntry>,
+    pub total: u32,
+    pub offset: u32,
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginAiActionView {
+    pub owner: PluginContributionOwner,
+    pub descriptor: AiActionContributionDescriptor,
+    pub state: PluginContributionState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_failure_code: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginAiActionPage {
+    pub items: Vec<PluginAiActionView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginUiPanelPage {
+    pub items: Vec<PluginUiPanelView>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

@@ -1600,6 +1600,15 @@ async function handleQaPipelineProcessLine(
   }
 }
 
+// src/ai-ui.ts
+var AI_ACTION_LIMITS = Object.freeze({
+  inputBytes: 1024 * 1024,
+  outputBytes: 1024 * 1024,
+  tags: 1024,
+  deadlineMs: 12e4,
+  methods: 16,
+});
+
 // src/index.ts
 var MAX_ENGINE_CONNECTOR_CREDENTIAL_BYTES = 16 * 1024;
 var ENGINE_CONNECTOR_LIMITS = Object.freeze({

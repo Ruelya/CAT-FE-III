@@ -1,0 +1,24 @@
+enabled {
+  active: 'inventory-v1:example.hello-srt:0.1.0',
+  rev: 1,
+  status: 'enabled'
+}
+upgrade error {
+  code: 'plugin_upgrade_failed',
+  message: 'plugin process failed: plugin process closed stdout'
+}
+after {
+  active: 'inventory-v1:example.hello-srt:0.1.0',
+  rev: 1,
+  status: 'enabled',
+  lastError: undefined
+}
+match active true
+match rev> false
+versions [
+  {
+    id: 'inventory-v1:example.hello-srt:0.1.0',
+    version: '0.1.0',
+    state: 'validated'
+  }
+]

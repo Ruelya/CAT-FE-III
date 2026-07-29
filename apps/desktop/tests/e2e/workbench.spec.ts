@@ -504,12 +504,100 @@ async function dropLocalFiles(
   );
 }
 
+/** Visible toolbar groups must not overlap each other or leave the editor. */
+async function assertEditorToolbarGeometry(page: Page): Promise<void> {
+  const result = await page.evaluate(() => {
+    const region = document.querySelector<HTMLElement>(".editor-region");
+    const toolbar = document.querySelector<HTMLElement>(".editor-toolbar");
+    if (!region || !toolbar) {
+      return { ok: false as const, reason: "missing editor toolbar/region" };
+    }
+    const regionBox = region.getBoundingClientRect();
+    const items = [
+      ...toolbar.querySelectorAll<HTMLElement>("[data-toolbar-item]"),
+    ].filter((el) => {
+      const style = window.getComputedStyle(el);
+      const box = el.getBoundingClientRect();
+      return (
+        style.visibility !== "hidden" &&
+        style.display !== "none" &&
+        box.width > 0 &&
+        box.height > 0
+      );
+    });
+    if (items.length < 2) {
+      return {
+        ok: false as const,
+        reason: `only ${items.length} toolbar items`,
+      };
+    }
+    const boxes = items.map((el) => {
+      const box = el.getBoundingClientRect();
+      return {
+        id: el.getAttribute("data-toolbar-item") ?? el.className,
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+      };
+    });
+    for (const box of boxes) {
+      if (box.left < regionBox.left - 1 || box.right > regionBox.right + 1) {
+        return {
+          ok: false as const,
+          reason: `${box.id} escapes editor-region`,
+          boxes,
+          region: {
+            left: regionBox.left,
+            right: regionBox.right,
+          },
+        };
+      }
+    }
+    for (let i = 0; i < boxes.length; i += 1) {
+      for (let j = i + 1; j < boxes.length; j += 1) {
+        const a = boxes[i]!;
+        const b = boxes[j]!;
+        const overlapX = a.left < b.right - 1 && a.right > b.left + 1;
+        const overlapY = a.top < b.bottom - 1 && a.bottom > b.top + 1;
+        if (overlapX && overlapY) {
+          return {
+            ok: false as const,
+            reason: `${a.id} overlaps ${b.id}`,
+            boxes,
+          };
+        }
+      }
+    }
+    const overflow = {
+      body: document.body.scrollWidth - document.body.clientWidth,
+      html:
+        document.documentElement.scrollWidth -
+        document.documentElement.clientWidth,
+    };
+    if (overflow.body > 1 || overflow.html > 1) {
+      return {
+        ok: false as const,
+        reason: "document horizontal overflow",
+        overflow,
+      };
+    }
+    return {
+      ok: true as const,
+      boxes,
+      compact: toolbar.dataset.compact === "true",
+    };
+  });
+  expect(result.ok, JSON.stringify(result)).toBe(true);
+}
+
 async function captureResponsiveSurface(
   harness: ElectronHarness,
   testInfo: TestInfo,
   label: string,
   evidenceDirectory?: string,
   containedSelector?: string,
+  options?: { assertToolbarAt1250?: boolean },
 ): Promise<void> {
   if (evidenceDirectory) mkdirSync(evidenceDirectory, { recursive: true });
   for (const viewport of [
@@ -518,7 +606,7 @@ async function captureResponsiveSurface(
     { width: 1920, height: 1080 },
   ]) {
     await resizeWindow(harness.application, viewport.width, viewport.height);
-    await harness.page.waitForTimeout(120);
+    await harness.page.waitForTimeout(180);
     const overflow = await harness.page.evaluate(() => ({
       body: document.body.scrollWidth - document.body.clientWidth,
       html:
@@ -536,6 +624,13 @@ async function captureResponsiveSurface(
         .locator(containedSelector)
         .evaluate((element) => element.scrollWidth - element.clientWidth);
       expect(containedOverflow).toBeLessThanOrEqual(1);
+    }
+    if (
+      options?.assertToolbarAt1250 &&
+      viewport.width === 1250 &&
+      viewport.height === 744
+    ) {
+      await assertEditorToolbarGeometry(harness.page);
     }
     const screenshot = await harness.page.screenshot({
       path: testInfo.outputPath(
@@ -1769,6 +1864,552 @@ test("hosts a Tier 2 sandbox panel through an opaque revocable session", async (
     await pluginRow.getByRole("button", { name: "Uninstall" }).click();
     await expect(panel.locator(".plugins-panel__item")).toHaveCount(0);
     expect(await hasSandboxFilter()).toBe(false);
+    expect(
+      consoleErrors.filter(
+        (message) =>
+          !/content security policy|refused to connect/iu.test(message),
+      ),
+    ).toEqual([]);
+  } finally {
+    await closeHarness(harness);
+  }
+});
+
+test("mounts plugin AI actions and workbench panels in declared placements", async ({
+  browserName,
+}, testInfo) => {
+  expect(browserName).toBe("chromium");
+  test.setTimeout(300_000);
+  const workspaceRoot = resolve(process.cwd(), "..", "..");
+  const pluginSource = join(
+    workspaceRoot,
+    "examples",
+    "plugins",
+    "sandbox-toolkit",
+  );
+  const evidenceDirectory = join(
+    workspaceRoot,
+    ".trellis",
+    "tasks",
+    "07-28-plugin-ai-ui-host",
+    "evidence",
+    "screenshots",
+  );
+  const pluginId = "example.sandbox-toolkit";
+  const actionContributionId = "example.sandbox-toolkit.terminology";
+  const panelContributionId = "example.sandbox-toolkit.panel";
+  const harness = await launchHarness("plugin-ai-ui-host", { pluginSource });
+  const { page, consoleErrors } = harness;
+
+  const currentPlugin = () =>
+    page.evaluate(async (id) => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      return api.invoke("plugin.get", { pluginId: id });
+    }, pluginId);
+  const aiUiSurfaces = () =>
+    page.evaluate(
+      async ({ actionId, panelId }) => {
+        const api = (window as unknown as { translunar: DesktopApi })
+          .translunar;
+        const [actions, panels] = await Promise.all([
+          api.invoke("plugin.aiAction.list", {}),
+          api.invoke("plugin.uiPanel.list", {}),
+        ]);
+        const action = actions.items.find(
+          (item) => item.descriptor.id === actionId,
+        );
+        const panel = panels.items.find(
+          (item) => item.descriptor.id === panelId,
+        );
+        return {
+          actionActive: action?.state === "active",
+          panelActive: panel?.state === "active",
+          actionVersionId: action?.owner.versionId ?? null,
+          panelVersionId: panel?.owner.versionId ?? null,
+          actionPluginId: action?.owner.pluginId ?? null,
+          panelPluginId: panel?.owner.pluginId ?? null,
+        };
+      },
+      { actionId: actionContributionId, panelId: panelContributionId },
+    );
+  const expectSurfacesActive = async (versionId?: string | null) => {
+    await expect
+      .poll(async () => {
+        const surfaces = await aiUiSurfaces();
+        return {
+          actionActive: surfaces.actionActive,
+          panelActive: surfaces.panelActive,
+          actionPluginId: surfaces.actionPluginId,
+          panelPluginId: surfaces.panelPluginId,
+          actionVersionId: versionId
+            ? surfaces.actionVersionId
+            : surfaces.actionVersionId != null,
+          panelVersionId: versionId
+            ? surfaces.panelVersionId
+            : surfaces.panelVersionId != null,
+        };
+      })
+      .toEqual({
+        actionActive: true,
+        panelActive: true,
+        actionPluginId: pluginId,
+        panelPluginId: pluginId,
+        actionVersionId: versionId ?? true,
+        panelVersionId: versionId ?? true,
+      });
+  };
+  const expectSurfacesAbsent = async () => {
+    await expect
+      .poll(async () => {
+        const surfaces = await aiUiSurfaces();
+        return {
+          actionActive: surfaces.actionActive,
+          panelActive: surfaces.panelActive,
+        };
+      })
+      .toEqual({ actionActive: false, panelActive: false });
+  };
+  const dismissBlockingOverlays = async () => {
+    // Accepting an AI rewrite can leave a recoverable draft journal entry that
+    // mounts after Engine restart/reload and intercepts pointer events.
+    const draftDialog = page.getByRole("dialog", {
+      name: "Unsaved drafts found",
+    });
+    if (await draftDialog.isVisible().catch(() => false)) {
+      await draftDialog.getByRole("button", { name: "Close dialog" }).click();
+      await expect(draftDialog).toBeHidden();
+    }
+  };
+  const ensureWorkbenchVisible = async () => {
+    await dismissBlockingOverlays();
+    const segments = page.getByRole("region", {
+      name: "Translation segments",
+    });
+    if (!(await segments.isVisible().catch(() => false))) {
+      await page.getByRole("button", { name: "Back to workbench" }).click();
+    }
+    await expect(segments).toBeVisible();
+    await dismissBlockingOverlays();
+  };
+  /**
+   * Assert declared AI/UI chrome is present on the workbench.
+   * When requireConnected is true, open the editorSidebar host and wait for
+   * the public panel script to report Connected (used after restart/re-grant).
+   * Upgrade/rollback only need inventory ownership plus tab/action presence —
+   * reopening the iframe across generation key changes is flaky under inventory polls.
+   */
+  const assertWorkbenchSurfaces = async (options?: {
+    requireConnected?: boolean;
+    versionLabel?: string;
+  }) => {
+    const requireConnected = options?.requireConnected ?? false;
+    await ensureWorkbenchVisible();
+    const row = page.locator(".segment-row").first();
+    await row.click();
+    const editorPanels = page.locator(
+      '.plugin-workbench-panels[data-placement="editorSidebar"]',
+    );
+    await expect(editorPanels).toBeVisible({ timeout: 15_000 });
+    const panelTab = editorPanels.getByRole("tab").first();
+    await expect(panelTab).toBeVisible({ timeout: 15_000 });
+    if (options?.versionLabel) {
+      await expect(panelTab).toContainText(options.versionLabel);
+    }
+    if (requireConnected) {
+      // Open only while closed so retries never toggle a successful open shut.
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        if ((await editorPanels.getAttribute("data-open")) === "true") break;
+        await panelTab.click({ force: true });
+        try {
+          await expect(editorPanels).toHaveAttribute("data-open", "true", {
+            timeout: 2_500,
+          });
+          break;
+        } catch {
+          // Inventory remount mid-click can drop the open state; retry while closed.
+        }
+      }
+      await expect(editorPanels).toHaveAttribute("data-open", "true", {
+        timeout: 5_000,
+      });
+      await expect(
+        editorPanels
+          .locator(".plugin-panel-host iframe")
+          .contentFrame()
+          .locator("#status"),
+      ).toHaveText("Connected", { timeout: 15_000 });
+    }
+    await openSegmentActions(row);
+    const menu = row.locator(".segment-overflow-menu");
+    await expect(
+      menu.locator(".plugin-ai-actions__menu-item").filter({
+        hasText: "Rewrite terminology",
+      }),
+    ).toBeVisible({ timeout: 15_000 });
+    await page.keyboard.press("Escape");
+    return { row, editorPanels };
+  };
+  const openPluginsPanel = async () => {
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "Project insights" }).click();
+    await page.getByRole("tab", { name: "Plugins" }).click();
+    return page.locator(".plugins-panel");
+  };
+
+  try {
+    await importFixture(page);
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "Project insights" }).click();
+    await page.getByRole("tab", { name: "Plugins" }).click();
+    const panel = page.locator(".plugins-panel");
+    await panel.getByRole("button", { name: "Install package…" }).click();
+    await grantInstalledPluginPermissions(page);
+    let pluginRow = panel.locator(".plugins-panel__item", {
+      hasText: "Sandbox Toolkit",
+    });
+    await pluginRow.getByRole("button", { name: "Enable" }).click();
+    await expect(pluginRow.locator('[data-status="enabled"]')).toHaveText(
+      "enabled",
+    );
+
+    // Editor selection actions + editorSidebar panels live outside the Plugins tab.
+    await page.getByRole("button", { name: "Back to workbench" }).click();
+    await expect(
+      page.getByRole("region", { name: "Translation segments" }),
+    ).toBeVisible();
+    const row = page.locator(".segment-row").first();
+    await row.click();
+
+    const editorPanels = page.locator(
+      '.plugin-workbench-panels[data-placement="editorSidebar"]',
+    );
+    await expect(editorPanels).toBeVisible({ timeout: 15_000 });
+    // Explicit open — surface starts closed.
+    await expect(editorPanels).toHaveAttribute("data-open", "false");
+    await editorPanels.getByRole("tab").first().click({ force: true });
+    await expect(editorPanels).toHaveAttribute("data-open", "true");
+    const iframe = editorPanels.locator(".plugin-panel-host iframe");
+    await expect(iframe).toBeVisible({ timeout: 15_000 });
+    const frame = iframe.contentFrame();
+    await expect(frame.locator("#status")).toHaveText("Connected", {
+      timeout: 15_000,
+    });
+    await expect(frame.locator("#plugin-name")).not.toHaveText("Unknown");
+    await expect(frame.locator("#contribution-name")).not.toHaveText("Unknown");
+    await expect(frame.locator("#context")).toBeVisible();
+
+    // Explicit close stays closed across inventory refresh.
+    await editorPanels
+      .locator(".plugin-workbench-panels__provenance .icon-button")
+      .click();
+    await expect(editorPanels).toHaveAttribute("data-open", "false");
+    // Wait for one inventory poll cycle without a fixed brittle sleep.
+    await expect
+      .poll(async () => {
+        const surfaces = await aiUiSurfaces();
+        const stillClosed =
+          (await editorPanels.getAttribute("data-open")) === "false";
+        return surfaces.panelActive && stillClosed;
+      })
+      .toBe(true);
+    await editorPanels.getByRole("tab").first().click({ force: true });
+    await expect(
+      editorPanels
+        .locator(".plugin-panel-host iframe")
+        .contentFrame()
+        .locator("#status"),
+    ).toHaveText("Connected", { timeout: 15_000 });
+
+    // EditorSelection actions live in the segment overflow menu.
+    await openSegmentActions(row);
+    const menu = row.locator(".segment-overflow-menu");
+    const actionItem = menu.locator(".plugin-ai-actions__menu-item").filter({
+      hasText: "Rewrite terminology",
+    });
+    await expect(actionItem).toBeVisible({ timeout: 15_000 });
+
+    await page.getByRole("tab", { name: /Assistant/i }).click();
+    const assistantActions = page.locator(
+      '.plugin-ai-actions[data-placement="assistantSidebar"]',
+    );
+    // sandbox-toolkit only declares editorSelection for the action.
+    await expect(assistantActions).toHaveCount(0);
+
+    // Keep panel open with connected content for viewport evidence.
+    await expect(
+      editorPanels
+        .locator(".plugin-panel-host iframe")
+        .contentFrame()
+        .locator("#status"),
+    ).toHaveText("Connected", { timeout: 15_000 });
+    await captureResponsiveSurface(
+      harness,
+      testInfo,
+      "plugin-ai-ui-editor",
+      evidenceDirectory,
+      ".editor-region",
+      { assertToolbarAt1250: true },
+    );
+
+    await row.click();
+    await openSegmentActions(row);
+    await menu
+      .locator(".plugin-ai-actions__menu-item")
+      .filter({ hasText: "Rewrite terminology" })
+      .click();
+    await expect(page.locator(".plugin-ai-actions__menu-proposal")).toBeVisible(
+      { timeout: 15_000 },
+    );
+    await page
+      .locator(".plugin-ai-actions__menu-proposal")
+      .getByRole("button", { name: /Accept/i })
+      .click();
+
+    // --- Official-example lifecycle after action acceptance ---
+    const enabledBeforeRestart = await currentPlugin();
+    expect(enabledBeforeRestart.status).toBe("enabled");
+    const originalVersionId = enabledBeforeRestart.activeVersionId;
+    expect(originalVersionId).toBeTruthy();
+    await expectSurfacesActive(originalVersionId);
+
+    // Engine restart + page reload reconnects action/panel surfaces.
+    await page.evaluate("window.translunar.restartEngine()");
+    await page.reload();
+    await expect(
+      page.getByRole("region", { name: "Translation segments" }),
+    ).toBeVisible();
+    await dismissBlockingOverlays();
+    await expect
+      .poll(async () => (await currentPlugin()).status)
+      .toBe("enabled");
+    await expectSurfacesActive(originalVersionId);
+    await assertWorkbenchSurfaces({ requireConnected: true });
+
+    // Revoke a required permission → disabled/detached, surfaces absent.
+    await page.evaluate(async (id) => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      const requests = await api.invoke("plugin.permission.request.list", {
+        pluginId: id,
+        offset: 0,
+        limit: 20,
+      });
+      const required = requests.items.find(
+        (request) =>
+          request.capabilityId === "diagnostics.read" &&
+          request.decision === "granted",
+      );
+      if (!required) {
+        throw new Error("granted diagnostics.read permission is missing");
+      }
+      await api.invoke("plugin.permission.revoke", {
+        pluginId: id,
+        requestId: required.id,
+        expectedRevision: required.revision,
+        actor: "desktop-e2e",
+        reason: "verify AI/UI surface detach on required permission revoke",
+      });
+    }, pluginId);
+    await expect
+      .poll(async () => (await currentPlugin()).status)
+      .toBe("disabled");
+    await expectSurfacesAbsent();
+    await expect(
+      page.locator('.plugin-workbench-panels[data-placement="editorSidebar"]'),
+    ).toHaveCount(0);
+    const rowAfterRevoke = page.locator(".segment-row").first();
+    await rowAfterRevoke.click();
+    await openSegmentActions(rowAfterRevoke);
+    await expect(
+      rowAfterRevoke
+        .locator(".segment-overflow-menu .plugin-ai-actions__menu-item")
+        .filter({ hasText: "Rewrite terminology" }),
+    ).toHaveCount(0);
+    await page.keyboard.press("Escape");
+
+    // Re-grant, recover, enable → surfaces restored.
+    const pluginsPanel = await openPluginsPanel();
+    pluginRow = pluginsPanel.locator(".plugins-panel__item", {
+      hasText: "Sandbox Toolkit",
+    });
+    await expect(pluginRow.locator('[data-status="disabled"]')).toHaveText(
+      "disabled",
+    );
+    await pluginRow.getByRole("button", { name: "Review permissions" }).click();
+    const permissionDialog = page.getByRole("dialog", {
+      name: "Permission review",
+    });
+    await permissionDialog
+      .getByPlaceholder("Record why this permission decision is appropriate")
+      .fill("Desktop E2E AI/UI required permission re-grant");
+    const diagnosticsPermission = permissionDialog.locator(
+      ".plugins-permission-request",
+      { hasText: "diagnostics.read" },
+    );
+    await diagnosticsPermission.getByRole("button", { name: "Grant" }).click();
+    await expect(
+      diagnosticsPermission.locator('[data-decision="granted"]'),
+    ).toBeVisible();
+    await permissionDialog
+      .getByRole("button", { name: "Close dialog" })
+      .click();
+    await pluginRow.getByRole("button", { name: "Enable" }).click();
+    await expect(pluginRow.locator('[data-status="enabled"]')).toHaveText(
+      "enabled",
+    );
+    await expectSurfacesActive(originalVersionId);
+    await page.getByRole("button", { name: "Back to workbench" }).click();
+    await assertWorkbenchSurfaces({ requireConnected: true });
+
+    // Create sandbox-toolkit 1.0.1 in harness data dir and upgrade.
+    const upgradeSource = join(
+      harness.dataDirectory,
+      "sandbox-toolkit-upgrade-source",
+    );
+    cpSync(pluginSource, upgradeSource, { recursive: true });
+    const upgradeManifestPath = join(upgradeSource, "manifest.json");
+    const upgradeManifest = JSON.parse(
+      readFileSync(upgradeManifestPath, "utf8"),
+    ) as {
+      version: string;
+      contributions: Array<{ version: string }>;
+    };
+    upgradeManifest.version = "1.0.1";
+    for (const contribution of upgradeManifest.contributions) {
+      contribution.version = "1.0.1";
+    }
+    writeFileSync(
+      upgradeManifestPath,
+      `${JSON.stringify(upgradeManifest, null, 2)}\n`,
+      "utf8",
+    );
+    const beforeUpgrade = await currentPlugin();
+    expect(beforeUpgrade.activeVersionId).toBe(originalVersionId);
+    const upgraded = await page.evaluate(
+      ({ id, sourcePath, expectedRevision }) => {
+        const api = (window as unknown as { translunar: DesktopApi })
+          .translunar;
+        return api.invoke("plugin.upgrade", {
+          pluginId: id,
+          sourcePath,
+          expectedRevision,
+          actor: "desktop-e2e",
+          reason: "exercise AI/UI surface rebind on compatible upgrade",
+        });
+      },
+      {
+        id: pluginId,
+        sourcePath: upgradeSource,
+        expectedRevision: beforeUpgrade.revision,
+      },
+    );
+    expect(upgraded.plugin.version).toBe("1.0.1");
+    expect(upgraded.plugin.revision).toBe(beforeUpgrade.revision + 1);
+    expect(upgraded.activeVersionId).toBeTruthy();
+    expect(upgraded.activeVersionId).not.toBe(originalVersionId);
+    await expect
+      .poll(async () => {
+        const plugin = await currentPlugin();
+        return {
+          version: plugin.version,
+          status: plugin.status,
+          activeVersionId: plugin.activeVersionId,
+          revision: plugin.revision,
+        };
+      })
+      .toEqual({
+        version: "1.0.1",
+        status: "enabled",
+        activeVersionId: upgraded.activeVersionId,
+        revision: upgraded.plugin.revision,
+      });
+    await expectSurfacesActive(upgraded.activeVersionId);
+    await assertWorkbenchSurfaces({ versionLabel: "1.0.1" });
+
+    // Rollback to the original version and assert restoration.
+    const rolledBack = await page.evaluate(
+      ({ id, versionId, expectedRevision }) => {
+        const api = (window as unknown as { translunar: DesktopApi })
+          .translunar;
+        return api.invoke("plugin.rollback", {
+          pluginId: id,
+          versionId,
+          expectedRevision,
+          actor: "desktop-e2e",
+          reason: "exercise AI/UI surface rebind on rollback",
+        });
+      },
+      {
+        id: pluginId,
+        versionId: originalVersionId!,
+        expectedRevision: upgraded.plugin.revision,
+      },
+    );
+    expect(rolledBack.activeVersionId).toBe(originalVersionId);
+    expect(rolledBack.plugin.revision).toBe(upgraded.plugin.revision + 1);
+    await expect
+      .poll(async () => {
+        const plugin = await currentPlugin();
+        return {
+          version: plugin.version,
+          status: plugin.status,
+          activeVersionId: plugin.activeVersionId,
+          revision: plugin.revision,
+        };
+      })
+      .toEqual({
+        version: enabledBeforeRestart.version,
+        status: "enabled",
+        activeVersionId: originalVersionId,
+        revision: rolledBack.plugin.revision,
+      });
+    await expectSurfacesActive(originalVersionId);
+    await assertWorkbenchSurfaces({
+      versionLabel: enabledBeforeRestart.version,
+    });
+
+    // Disable and uninstall — surfaces gone; ordinary Engine RPC remains healthy.
+    const pluginsPanelFinal = await openPluginsPanel();
+    pluginRow = pluginsPanelFinal.locator(".plugins-panel__item", {
+      hasText: "Sandbox Toolkit",
+    });
+    await pluginRow.getByRole("button", { name: "Disable" }).click();
+    await expect(pluginRow.locator('[data-status="disabled"]')).toHaveText(
+      "disabled",
+    );
+    await expectSurfacesAbsent();
+    await pluginRow.getByRole("button", { name: "Uninstall" }).click();
+    await expect(pluginsPanelFinal.locator(".plugins-panel__item")).toHaveCount(
+      0,
+    );
+    await expect
+      .poll(async () =>
+        page.evaluate(async (id) => {
+          const api = (window as unknown as { translunar: DesktopApi })
+            .translunar;
+          try {
+            await api.invoke("plugin.get", { pluginId: id });
+            return "present";
+          } catch {
+            return "absent";
+          }
+        }, pluginId),
+      )
+      .toBe("absent");
+    await expectSurfacesAbsent();
+    await page.getByRole("button", { name: "Back to workbench" }).click();
+    await expect(
+      page.getByRole("region", { name: "Translation segments" }),
+    ).toBeVisible();
+    await expect(
+      page.locator('.plugin-workbench-panels[data-placement="editorSidebar"]'),
+    ).toHaveCount(0);
+    const healthyProjects = await page.evaluate(async () => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      return api.invoke("project.list", { offset: 0, limit: 10 });
+    });
+    expect(healthyProjects.items.length).toBeGreaterThan(0);
+    expect(healthyProjects.items[0]?.name).toBeTruthy();
+
     expect(
       consoleErrors.filter(
         (message) =>

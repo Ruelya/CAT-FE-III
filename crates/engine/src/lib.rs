@@ -165,6 +165,7 @@ mod curation;
 mod local_api;
 mod local_auth;
 mod plugin;
+mod plugin_ai_ui;
 mod plugin_capability;
 mod plugin_connector;
 mod plugin_declarative;
@@ -236,6 +237,14 @@ pub enum EngineError {
 
     #[error("plugin sandbox failed: {0}")]
     PluginSandboxFailed(String),
+
+    #[error("plugin AI action `{contribution_id}` from `{plugin_id}` failed ({code}): {message}")]
+    PluginAiActionFailed {
+        plugin_id: String,
+        contribution_id: String,
+        code: String,
+        message: String,
+    },
 
     #[error("engine I/O failed: {0}")]
     Io(#[from] std::io::Error),
@@ -357,6 +366,9 @@ fn engine_error_code(error: &EngineError) -> &'static str {
         EngineError::PluginPermissionDenied(_) => "plugin_permission_denied",
         EngineError::PluginCapabilityDenied(_) => "plugin_permission_denied",
         EngineError::PluginProcessFailed(_) => "plugin_process_failed",
+        EngineError::PluginSandboxFailed(_) | EngineError::PluginAiActionFailed { .. } => {
+            "plugin_sandbox_failed"
+        }
         EngineError::Import(_) => "unsupported_document",
         EngineError::CorpusImport(FilterError::NotFound(_)) => "not_found",
         EngineError::CorpusImport(_) | EngineError::CorpusInput(_) => "unsupported_corpus_input",
@@ -3229,6 +3241,9 @@ pub struct EngineService {
     >,
     plugin_filter_owners: std::collections::BTreeMap<String, String>,
     plugin_qa_registry: qa::PluginQaRegistry,
+    plugin_ai_action_registry: plugin_ai_ui::PluginAiActionRegistry,
+    plugin_ui_panel_registry: plugin_ai_ui::PluginUiPanelRegistry,
+    plugin_ai_action_cancels: plugin_ai_ui::AiActionCancelRegistry,
     plugin_pipeline_owners: std::collections::BTreeMap<String, PipelineStepOwner>,
     plugin_activation_revisions: std::collections::BTreeMap<String, u64>,
     plugin_capabilities: plugin_capability::PluginCapabilityService,
@@ -3306,6 +3321,9 @@ impl EngineService {
             pending_sandbox_workers: std::collections::BTreeMap::new(),
             plugin_filter_owners: std::collections::BTreeMap::new(),
             plugin_qa_registry,
+            plugin_ai_action_registry: plugin_ai_ui::PluginAiActionRegistry::default(),
+            plugin_ui_panel_registry: plugin_ai_ui::PluginUiPanelRegistry::default(),
+            plugin_ai_action_cancels: plugin_ai_ui::AiActionCancelRegistry::default(),
             plugin_pipeline_owners: std::collections::BTreeMap::new(),
             plugin_activation_revisions: std::collections::BTreeMap::new(),
             plugin_capabilities,
@@ -6840,12 +6858,59 @@ pub struct RpcDispatcher {
     initialized: bool,
 }
 
+/// Handle that can cancel AI actions without borrowing the full dispatcher mutably.
+#[derive(Clone)]
+pub struct RpcCancelHandle {
+    cancels: plugin_ai_ui::AiActionCancelRegistry,
+}
+
+impl RpcCancelHandle {
+    pub fn handle_cancel(&self, request: RpcRequest) -> RpcResponse {
+        let id = request.id.clone();
+        if request.jsonrpc != "2.0" {
+            return RpcResponse::failure(
+                id,
+                rpc_error(EngineError::InvalidRequest(
+                    "jsonrpc must be exactly '2.0'".to_string(),
+                )),
+            );
+        }
+        if request.method != methods::PLUGIN_AI_ACTION_CANCEL {
+            return RpcResponse::failure(
+                id,
+                rpc_error(EngineError::InvalidRequest(
+                    "cancel handle only accepts plugin.aiAction.cancel".to_string(),
+                )),
+            );
+        }
+        match parse_params::<translunar_protocol::PluginAiActionCancelParams>(request.params) {
+            Ok(params) => {
+                let cancelled = self.cancels.cancel(&params.invocation_id);
+                match serialize_result(translunar_protocol::PluginAiActionCancelResult {
+                    cancelled,
+                    invocation_id: params.invocation_id,
+                }) {
+                    Ok(value) => RpcResponse::success(id, value),
+                    Err(error) => RpcResponse::failure(id, rpc_error(error)),
+                }
+            }
+            Err(error) => RpcResponse::failure(id, rpc_error(error)),
+        }
+    }
+}
+
 impl RpcDispatcher {
     pub fn open(data_dir: impl AsRef<Path>) -> Result<Self> {
         Ok(Self {
             service: EngineService::open(data_dir)?,
             initialized: false,
         })
+    }
+
+    pub fn shared_cancel_handle(&self) -> RpcCancelHandle {
+        RpcCancelHandle {
+            cancels: self.service.plugin_ai_action_cancels.clone(),
+        }
     }
 
     pub fn handle(&mut self, request: RpcRequest) -> RpcResponse {
@@ -7372,6 +7437,30 @@ impl RpcDispatcher {
             methods::PLUGIN_PERMISSION_AUDIT_LIST => serialize_result(
                 self.service
                     .list_plugin_capability_audit(parse_params(request.params)?)?,
+            ),
+            methods::PLUGIN_AI_ACTION_LIST => {
+                parse_params::<EmptyParams>(request.params)?;
+                serialize_result(self.service.list_plugin_ai_actions())
+            }
+            methods::PLUGIN_AI_ACTION_INVOKE => serialize_result(
+                self.service
+                    .invoke_plugin_ai_action(parse_params(request.params)?)?,
+            ),
+            methods::PLUGIN_AI_ACTION_CANCEL => serialize_result(
+                self.service
+                    .cancel_plugin_ai_action(parse_params(request.params)?)?,
+            ),
+            methods::PLUGIN_AI_ACTION_HISTORY_LIST => serialize_result(
+                self.service
+                    .list_plugin_ai_action_history(parse_params(request.params)?)?,
+            ),
+            methods::PLUGIN_UI_PANEL_LIST => {
+                parse_params::<EmptyParams>(request.params)?;
+                serialize_result(self.service.list_plugin_ui_panels())
+            }
+            methods::PLUGIN_UI_PANEL_BRIDGE_CALL => serialize_result(
+                self.service
+                    .call_plugin_ui_panel_bridge(parse_params(request.params)?)?,
             ),
             methods::TM_LOOKUP_EXACT => {
                 serialize_result(self.service.lookup_exact(parse_params(request.params)?)?)
@@ -7947,6 +8036,20 @@ fn rpc_error(error: EngineError) -> RpcError {
             code: ErrorCode::PluginSandboxFailed,
             message,
             data: None,
+        },
+        EngineError::PluginAiActionFailed {
+            plugin_id,
+            contribution_id,
+            code,
+            message,
+        } => RpcError {
+            code: ErrorCode::PluginSandboxFailed,
+            message,
+            data: Some(json!({
+                "pluginId": plugin_id,
+                "contributionId": contribution_id,
+                "failureCode": code,
+            })),
         },
         EngineError::Import(FilterError::PluginPermissionDenied {
             plugin_id,

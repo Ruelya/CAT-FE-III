@@ -1,0 +1,8 @@
+ WARN  Unsupported engine: wanted: {"node":">=22.17.0 <23 || >=24 <25"} (current: {"node":"v25.0.0","pnpm":"10.18.3"})
+
+> translunar-cat@0.1.0 test:e2e:engine K:\Workbench\CAT
+> cargo build -p translunar-engine && node scripts/engine-smoke.mjs
+
+   Compiling translunar-engine v0.1.0 (K:\Workbench\CAT\crates\engine)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.25s
+Focused plugin-runtime Engine smoke passed.

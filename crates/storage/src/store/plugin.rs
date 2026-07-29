@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use rusqlite::{OptionalExtension, Row, TransactionBehavior, params};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use translunar_filter_core::FilterDescriptor;
 use translunar_plugin_runtime::{
@@ -72,6 +73,85 @@ pub struct PluginInstallationRecord {
     pub normalized_manifest_json: Value,
     pub compatibility_json: Value,
     pub diagnostics_json: Value,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PluginAiActionInvocationStatus {
+    Succeeded,
+    Failed,
+    Cancelled,
+    Timeout,
+    StaleActivation,
+}
+
+impl PluginAiActionInvocationStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Succeeded => "succeeded",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+            Self::Timeout => "timeout",
+            Self::StaleActivation => "stale_activation",
+        }
+    }
+
+    fn parse(value: &str) -> Result<Self> {
+        match value {
+            "succeeded" => Ok(Self::Succeeded),
+            "failed" => Ok(Self::Failed),
+            "cancelled" => Ok(Self::Cancelled),
+            "timeout" => Ok(Self::Timeout),
+            "stale_activation" => Ok(Self::StaleActivation),
+            other => Err(StorageError::InvalidData(format!(
+                "unknown AI action invocation status {other}"
+            ))),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginAiActionUsageRecord {
+    pub input_bytes: u64,
+    pub output_bytes: u64,
+    pub duration_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewPluginAiActionInvocation<'a> {
+    pub id: &'a str,
+    pub plugin_id: &'a str,
+    pub version_id: &'a str,
+    pub activation_revision: u64,
+    pub contribution_id: &'a str,
+    pub contribution_version: &'a str,
+    pub status: PluginAiActionInvocationStatus,
+    pub failure_code: Option<&'a str>,
+    pub canonical_sha256: Option<&'a str>,
+    pub usage: PluginAiActionUsageRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginAiActionInvocationRecord {
+    pub id: String,
+    pub plugin_id: String,
+    pub version_id: String,
+    pub activation_revision: u64,
+    pub contribution_id: String,
+    pub contribution_version: String,
+    pub status: PluginAiActionInvocationStatus,
+    pub failure_code: Option<String>,
+    pub canonical_sha256: Option<String>,
+    pub usage: PluginAiActionUsageRecord,
+    pub created_at_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginAiActionInvocationPage {
+    pub items: Vec<PluginAiActionInvocationRecord>,
+    pub total: u32,
+    pub offset: u32,
+    pub limit: u32,
 }
 
 impl PluginInstallationRecord {
@@ -1573,6 +1653,163 @@ impl Store {
         Ok(quarantine)
     }
 
+    pub fn record_plugin_ai_action_invocation(
+        &mut self,
+        record: NewPluginAiActionInvocation,
+    ) -> Result<PluginAiActionInvocationRecord> {
+        require_nonempty(record.id, "AI action invocation id")?;
+        require_nonempty(record.plugin_id, "plugin id")?;
+        require_nonempty(record.version_id, "version id")?;
+        require_nonempty(record.contribution_id, "contribution id")?;
+        require_nonempty(record.contribution_version, "contribution version")?;
+        let status = record.status.as_str();
+        let usage_json = serde_json::to_string(&record.usage)?;
+        if usage_json.len() > 4_096 {
+            return Err(StorageError::InvalidData(
+                "AI action usage payload is oversized".to_string(),
+            ));
+        }
+        let created_at_ms = now_ms();
+        self.connection.execute(
+            "INSERT INTO plugin_ai_action_invocations (
+                id, plugin_id, version_id, activation_revision, contribution_id,
+                contribution_version, status, failure_code, canonical_sha256,
+                usage_json, created_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                record.id,
+                record.plugin_id,
+                record.version_id,
+                to_i64(record.activation_revision)?,
+                record.contribution_id,
+                record.contribution_version,
+                status,
+                record.failure_code,
+                record.canonical_sha256,
+                usage_json,
+                created_at_ms,
+            ],
+        )?;
+        Ok(PluginAiActionInvocationRecord {
+            id: record.id.to_string(),
+            plugin_id: record.plugin_id.to_string(),
+            version_id: record.version_id.to_string(),
+            activation_revision: record.activation_revision,
+            contribution_id: record.contribution_id.to_string(),
+            contribution_version: record.contribution_version.to_string(),
+            status: record.status,
+            failure_code: record.failure_code.map(str::to_string),
+            canonical_sha256: record.canonical_sha256.map(str::to_string),
+            usage: record.usage,
+            created_at_ms,
+        })
+    }
+
+    pub fn plugin_ai_action_invocation_exists(&self, invocation_id: &str) -> Result<bool> {
+        let exists = self
+            .connection
+            .query_row(
+                "SELECT 1 FROM plugin_ai_action_invocations WHERE id = ?1",
+                [invocation_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .is_some();
+        Ok(exists)
+    }
+
+    pub fn list_plugin_ai_action_invocations(
+        &self,
+        plugin_id: Option<&str>,
+        contribution_id: Option<&str>,
+        offset: u32,
+        limit: u32,
+    ) -> Result<PluginAiActionInvocationPage> {
+        let limit = limit.clamp(1, MAX_PAGE_SIZE);
+        let (total, items) = match (plugin_id, contribution_id) {
+            (Some(plugin_id), Some(contribution_id)) => {
+                let total: i64 = self.connection.query_row(
+                    "SELECT COUNT(*) FROM plugin_ai_action_invocations
+                     WHERE plugin_id = ?1 AND contribution_id = ?2",
+                    params![plugin_id, contribution_id],
+                    |row| row.get(0),
+                )?;
+                let mut statement = self.connection.prepare(
+                    "SELECT id, plugin_id, version_id, activation_revision, contribution_id,
+                            contribution_version, status, failure_code, canonical_sha256,
+                            usage_json, created_at_ms
+                     FROM plugin_ai_action_invocations
+                     WHERE plugin_id = ?1 AND contribution_id = ?2
+                     ORDER BY created_at_ms DESC, id DESC
+                     LIMIT ?3 OFFSET ?4",
+                )?;
+                let items = statement
+                    .query_map(
+                        params![
+                            plugin_id,
+                            contribution_id,
+                            i64::from(limit),
+                            i64::from(offset)
+                        ],
+                        map_ai_action_invocation_row,
+                    )?
+                    .collect::<std::result::Result<Vec<_>, _>>()?;
+                (total, items)
+            }
+            (Some(plugin_id), None) => {
+                let total: i64 = self.connection.query_row(
+                    "SELECT COUNT(*) FROM plugin_ai_action_invocations WHERE plugin_id = ?1",
+                    params![plugin_id],
+                    |row| row.get(0),
+                )?;
+                let mut statement = self.connection.prepare(
+                    "SELECT id, plugin_id, version_id, activation_revision, contribution_id,
+                            contribution_version, status, failure_code, canonical_sha256,
+                            usage_json, created_at_ms
+                     FROM plugin_ai_action_invocations
+                     WHERE plugin_id = ?1
+                     ORDER BY created_at_ms DESC, id DESC
+                     LIMIT ?2 OFFSET ?3",
+                )?;
+                let items = statement
+                    .query_map(
+                        params![plugin_id, i64::from(limit), i64::from(offset)],
+                        map_ai_action_invocation_row,
+                    )?
+                    .collect::<std::result::Result<Vec<_>, _>>()?;
+                (total, items)
+            }
+            _ => {
+                let total: i64 = self.connection.query_row(
+                    "SELECT COUNT(*) FROM plugin_ai_action_invocations",
+                    [],
+                    |row| row.get(0),
+                )?;
+                let mut statement = self.connection.prepare(
+                    "SELECT id, plugin_id, version_id, activation_revision, contribution_id,
+                            contribution_version, status, failure_code, canonical_sha256,
+                            usage_json, created_at_ms
+                     FROM plugin_ai_action_invocations
+                     ORDER BY created_at_ms DESC, id DESC
+                     LIMIT ?1 OFFSET ?2",
+                )?;
+                let items = statement
+                    .query_map(
+                        params![i64::from(limit), i64::from(offset)],
+                        map_ai_action_invocation_row,
+                    )?
+                    .collect::<std::result::Result<Vec<_>, _>>()?;
+                (total, items)
+            }
+        };
+        Ok(PluginAiActionInvocationPage {
+            items,
+            total: to_u32(total)?,
+            offset,
+            limit,
+        })
+    }
+
     fn ensure_plugin_exists(&self, plugin_id: &str) -> Result<()> {
         self.connection
             .query_row(
@@ -2061,6 +2298,31 @@ fn manifest_from_projection(
 
 fn path_string(path: &Path) -> String {
     path.to_string_lossy().into_owned()
+}
+
+fn map_ai_action_invocation_row(row: &Row<'_>) -> rusqlite::Result<PluginAiActionInvocationRecord> {
+    let usage_json: String = row.get(9)?;
+    let usage: PluginAiActionUsageRecord = serde_json::from_str(&usage_json).map_err(|error| {
+        conversion_error(
+            9,
+            StorageError::InvalidData(format!("invalid AI action usage payload: {error}")),
+        )
+    })?;
+    let status = PluginAiActionInvocationStatus::parse(&row.get::<_, String>(6)?)
+        .map_err(|error| conversion_error(6, error))?;
+    Ok(PluginAiActionInvocationRecord {
+        id: row.get(0)?,
+        plugin_id: row.get(1)?,
+        version_id: row.get(2)?,
+        activation_revision: read_u64(row, 3)?,
+        contribution_id: row.get(4)?,
+        contribution_version: row.get(5)?,
+        status,
+        failure_code: row.get(7)?,
+        canonical_sha256: row.get(8)?,
+        usage,
+        created_at_ms: row.get(10)?,
+    })
 }
 
 // Keep conversion_error referenced for row mapping helpers consistency.
