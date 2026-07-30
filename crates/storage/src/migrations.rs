@@ -2,7 +2,7 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use crate::{Result, StorageError};
 
-pub(crate) const LATEST_SCHEMA_VERSION: u32 = 23;
+pub(crate) const LATEST_SCHEMA_VERSION: u32 = 24;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -2810,7 +2810,45 @@ CREATE INDEX external_connector_invocations_profile_idx
     ON external_connector_invocations(profile_id, created_at_ms DESC, id);
 "#;
 
-const MIGRATIONS: [(u32, &str); 23] = [
+/// Additive provenance for plugin installations and immutable versions.
+/// Existing rows backfill to localDirectory with null distribution metadata.
+const MIGRATION_24: &str = r#"
+ALTER TABLE plugin_installations
+    ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'localDirectory'
+    CHECK (source_kind IN ('localDirectory', 'localArchive', 'bundled'));
+ALTER TABLE plugin_installations
+    ADD COLUMN distribution_json TEXT
+    CHECK (
+        distribution_json IS NULL OR (
+            json_valid(distribution_json) AND
+            json_type(distribution_json) = 'object' AND
+            length(CAST(distribution_json AS BLOB)) <= 4096
+        )
+    );
+
+ALTER TABLE plugin_versions
+    ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'localDirectory'
+    CHECK (source_kind IN ('localDirectory', 'localArchive', 'bundled'));
+ALTER TABLE plugin_versions
+    ADD COLUMN distribution_json TEXT
+    CHECK (
+        distribution_json IS NULL OR (
+            json_valid(distribution_json) AND
+            json_type(distribution_json) = 'object' AND
+            length(CAST(distribution_json AS BLOB)) <= 4096
+        )
+    );
+
+UPDATE plugin_installations
+SET source_kind = 'localDirectory'
+WHERE source_kind IS NULL OR trim(source_kind) = '';
+
+UPDATE plugin_versions
+SET source_kind = 'localDirectory'
+WHERE source_kind IS NULL OR trim(source_kind) = '';
+"#;
+
+const MIGRATIONS: [(u32, &str); 24] = [
     (1_u32, MIGRATION_1),
     (2_u32, MIGRATION_2),
     (3_u32, MIGRATION_3),
@@ -2834,6 +2872,7 @@ const MIGRATIONS: [(u32, &str); 23] = [
     (21_u32, MIGRATION_21),
     (22_u32, MIGRATION_22),
     (23_u32, MIGRATION_23),
+    (24_u32, MIGRATION_24),
 ];
 
 pub(crate) fn configure_connection(connection: &Connection) -> Result<()> {

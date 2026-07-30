@@ -25,21 +25,84 @@ external descriptors remain readable but never attach.
 # Tier 1: manifest only
 my-toolkit/
   manifest.json
+  LICENSE
 
 # Tier 3: process entry
 my-filter/
   manifest.json
+  LICENSE
   bin/entry.mjs
 
 # Tier 2: sandboxed logic and panel
 my-sandbox-toolkit/
   manifest.json
+  LICENSE
   entry.mjs
   lib/helper.mjs
   panel/index.html
   panel/panel.mjs
   panel/panel.css
 ```
+
+### Local package forms
+
+- **Directory**: any package root that contains `manifest.json`.
+- **`.tlplugin` archive**: closed deterministic ZIP transport. The archive root
+  must include a `.tlplugin-format` marker (`{"formatVersion":1}`) and exactly
+  one plugin package with `manifest.json`. Extraction rejects absolute/drive/
+  UNC paths, `..`, duplicates, case-fold collisions, links, encryption,
+  unsupported compression, zip bombs, and excess count/depth/path/byte limits
+  before any managed package is published.
+- Directory and archive forms of identical package files produce the same
+  canonical package SHA-256. Container metadata never participates in package
+  identity.
+
+Build and check offline core archives from the allowlist:
+
+```bash
+node scripts/package-plugins.mjs
+node scripts/package-plugins.mjs --check
+```
+
+### Distribution metadata
+
+Released packages should declare bounded distribution metadata in
+`manifest.json`:
+
+```json
+{
+  "distribution": {
+    "publisher": "Translunar",
+    "license": "MIT",
+    "homepage": "https://example.com/plugins/my-toolkit"
+  }
+}
+```
+
+Release-bundled packages also require a root `LICENSE` / `LICENSE.*` file.
+Legacy packages without `distribution` remain installable; they project
+`distribution = null`.
+
+### Source badges (host-derived only)
+
+Installation provenance is derived by the Engine, never by the manifest or UI:
+
+| Badge | Meaning |
+| --- | --- |
+| `localDirectory` | Installed from a local package directory |
+| `localArchive` | Installed from a local `.tlplugin` file |
+| `bundled` | Applied from the Engine-configured offline core catalog |
+
+A missing or corrupt bundled catalog fails closed for catalog listing only.
+Local install and ordinary Engine health continue.
+
+### Desktop management
+
+The Plugins surface supports inspect-before-install for directories and
+`.tlplugin` files, offline bundled catalog install/update/restore, exact
+permission review, local upgrade, immutable version history, rollback,
+enable/disable, diagnostics, and uninstall. Every mutation uses Engine
+optimistic revision and keeps domain authority in Rust.
 
 See `examples/plugins/tier1-toolkit` for a complete Tier 1 filter, QA pack,
 and pipeline transform. See `examples/plugins/hello-srt` for the Tier 3 SRT
@@ -52,6 +115,13 @@ static panel.
 See `examples/plugins/qa-pipeline-process` and
 [`qa-pipeline-sdk.md`](./qa-pipeline-sdk.md) for the public deterministic QA
 rule and resumable pipeline-step contract.
+
+### Isolation honesty
+
+Tier 1 is declarative evaluation inside the host. Tier 2 is an Engine-owned
+JavaScript sandbox with closed host calls — not an OS process sandbox. Tier 3
+is a child process over stdio — not AppContainer, seccomp, or per-plugin OS
+users. Do not claim OS-level isolation for Tier 2 or Tier 3.
 
 ## Tier 2 contract
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   AiConnectorCatalogItem,
   AiProviderProfile,
+  PluginBundledSummary,
   PluginCapabilityAuditEntry,
   PluginCapabilityChangeKind,
   PluginCapabilityId,
@@ -9,18 +10,22 @@ import type {
   PluginCapabilityReview,
   PluginCapabilityScope,
   PluginContributionDescriptor,
+  PluginInspection,
   PluginSummary,
+  PluginVersionSummary,
   PipelineRunSnapshot,
 } from "@translunar/contracts";
 import {
   Ban,
   Eye,
+  History,
   PackagePlus,
   Puzzle,
   RefreshCw,
   RotateCcw,
   ShieldCheck,
   ShieldEllipsis,
+  Upload,
   X,
 } from "lucide-react";
 
@@ -96,7 +101,22 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
     plugin: PluginSummary;
     contribution: Extract<PluginContributionDescriptor, { kind: "uiPanel" }>;
   } | null>(null);
+  const [bundled, setBundled] = useState<PluginBundledSummary[]>([]);
+  const [bundledAvailable, setBundledAvailable] = useState(false);
+  const [inspection, setInspection] = useState<{
+    sourcePath: string;
+    result: PluginInspection;
+    mode: "install" | "upgrade";
+    pluginId?: string;
+    expectedRevision?: number;
+  } | null>(null);
+  const [versionHistory, setVersionHistory] = useState<{
+    plugin: PluginSummary;
+    versions: PluginVersionSummary[];
+  } | null>(null);
   const dialogRef = useRef<HTMLElement>(null);
+  const inspectionDialogRef = useRef<HTMLElement>(null);
+  const historyDialogRef = useRef<HTMLElement>(null);
 
   const closeReview = useCallback(() => {
     if (busyId === null) {
@@ -106,12 +126,24 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
     }
   }, [busyId]);
   useFocusTrap(dialogRef, { active: review !== null, onEscape: closeReview });
+  useFocusTrap(inspectionDialogRef, {
+    active: inspection !== null,
+    onEscape: () => {
+      if (busyId === null) setInspection(null);
+    },
+  });
+  useFocusTrap(historyDialogRef, {
+    active: versionHistory !== null,
+    onEscape: () => {
+      if (busyId === null) setVersionHistory(null);
+    },
+  });
 
   const load = useCallback(async (preserveError = false) => {
     setLoading(true);
     if (!preserveError) setError(null);
     try {
-      const [page, profiles, catalog] = await Promise.all([
+      const [page, profiles, catalog, bundledPage] = await Promise.all([
         window.translunar.invoke("plugin.list", {
           offset: 0,
           limit: 100,
@@ -121,6 +153,16 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
           limit: 100,
         }),
         window.translunar.invoke("ai.provider.catalog", {}),
+        window.translunar
+          .invoke("plugin.bundled.list", { offset: 0, limit: 100 })
+          .catch(() => ({
+            items: [] as PluginBundledSummary[],
+            total: 0,
+            offset: 0,
+            limit: 100,
+            catalogAvailable: false,
+            diagnostics: [],
+          })),
       ]);
       const executablePlugins = page.items.filter((plugin) =>
         (plugin.contributions ?? []).some(
@@ -147,6 +189,8 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
       setProviderProfiles(profiles.items);
       setConnectorCatalog(catalog.items);
       setContributionPermissions(Object.fromEntries(permissionEntries));
+      setBundled(bundledPage.items);
+      setBundledAvailable(bundledPage.catalogAvailable);
     } catch (cause) {
       setError(formatError(cause));
     } finally {
@@ -211,25 +255,136 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
     }
   };
 
-  const install = async () => {
+  const beginInspect = async (
+    mode: "install" | "upgrade",
+    plugin?: PluginSummary,
+  ) => {
     setError(null);
     try {
       const sourcePath = await window.translunar.selectPluginPackage();
       if (!sourcePath) return;
-      setBusyId("install");
-      const result = await window.translunar.invoke("plugin.install", {
+      setBusyId(mode === "install" ? "inspect-install" : `inspect:${plugin?.id}`);
+      const result = await window.translunar.invoke("plugin.inspect", {
         sourcePath,
-        actor: "desktop",
-        reason: "install from Plugins panel",
       });
-      await load();
-      await onRefresh();
-      await openReview(result.plugin.id);
+      if (
+        mode === "upgrade" &&
+        plugin &&
+        result.normalizedManifest.id !== plugin.id
+      ) {
+        throw new Error(
+          t("plugins.inspectIdMismatch", {
+            expected: plugin.id,
+            actual: result.normalizedManifest.id,
+          }),
+        );
+      }
+      setInspection({
+        sourcePath,
+        result,
+        mode,
+        ...(plugin
+          ? { pluginId: plugin.id, expectedRevision: plugin.revision }
+          : {}),
+      });
+    } catch (cause) {
+      setError(formatError(cause));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const confirmInspection = async () => {
+    if (!inspection) return;
+    setBusyId("confirm-inspection");
+    setError(null);
+    try {
+      if (inspection.mode === "install") {
+        const result = await window.translunar.invoke("plugin.install", {
+          sourcePath: inspection.sourcePath,
+          actor: "desktop",
+          reason: "install from Plugins panel",
+        });
+        setInspection(null);
+        await load();
+        await onRefresh();
+        await openReview(result.plugin.id);
+      } else {
+        await window.translunar.invoke("plugin.upgrade", {
+          pluginId: inspection.pluginId!,
+          sourcePath: inspection.sourcePath,
+          expectedRevision: inspection.expectedRevision!,
+          actor: "desktop",
+          reason: "upgrade from Plugins panel",
+        });
+        setInspection(null);
+        await load();
+        await onRefresh();
+      }
     } catch (cause) {
       const message = formatError(cause);
       setError(message);
       await load(true);
       setError(message);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const applyBundled = async (item: PluginBundledSummary) => {
+    setBusyId(`bundled:${item.pluginId}`);
+    setError(null);
+    try {
+      const installed = plugins.find((plugin) => plugin.id === item.pluginId);
+      await window.translunar.invoke("plugin.bundled.apply", {
+        pluginId: item.pluginId,
+        ...(installed ? { expectedRevision: installed.revision } : {}),
+        actor: "desktop",
+        reason: "apply bundled core plugin",
+      });
+      await load();
+      await onRefresh();
+    } catch (cause) {
+      setError(formatError(cause));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const openVersionHistory = async (plugin: PluginSummary) => {
+    setBusyId(`history:${plugin.id}`);
+    setError(null);
+    try {
+      const page = await window.translunar.invoke("plugin.version.list", {
+        pluginId: plugin.id,
+        offset: 0,
+        limit: 100,
+      });
+      setVersionHistory({ plugin, versions: page.items });
+    } catch (cause) {
+      setError(formatError(cause));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const rollbackVersion = async (version: PluginVersionSummary) => {
+    if (!versionHistory) return;
+    setBusyId(`rollback:${version.id}`);
+    setError(null);
+    try {
+      await window.translunar.invoke("plugin.rollback", {
+        pluginId: versionHistory.plugin.id,
+        versionId: version.id,
+        expectedRevision: versionHistory.plugin.revision,
+        actor: "desktop",
+        reason: "rollback from Plugins panel",
+      });
+      setVersionHistory(null);
+      await load();
+      await onRefresh();
+    } catch (cause) {
+      setError(formatError(cause));
     } finally {
       setBusyId(null);
     }
@@ -321,7 +476,7 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
           <button
             type="button"
             className="primary"
-            onClick={() => void install()}
+            onClick={() => void beginInspect("install")}
             disabled={busyId !== null}
           >
             <PackagePlus size={14} aria-hidden />
@@ -335,6 +490,58 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
           {error}
         </p>
       ) : null}
+
+      <section
+        className="plugins-panel__band"
+        aria-labelledby="plugins-bundled-heading"
+      >
+        <header className="plugins-panel__band-header">
+          <h3 id="plugins-bundled-heading">{t("plugins.bundledTitle")}</h3>
+          <p className="plugins-panel__lede">
+            {bundledAvailable
+              ? t("plugins.bundledLede")
+              : t("plugins.bundledUnavailable")}
+          </p>
+        </header>
+        {bundledAvailable && bundled.length > 0 ? (
+          <ul className="plugins-panel__list plugins-panel__list--bundled">
+            {bundled.map((item) => (
+              <li key={item.pluginId} className="plugins-panel__row">
+                <div className="plugins-panel__row-main">
+                  <strong>{item.displayName}</strong>
+                  <span className="plugins-panel__meta">
+                    {item.pluginId} · v{item.version} · {item.tier} ·{" "}
+                    {item.publisher} · {item.license} ·{" "}
+                    {t(`plugins.bundledState.${item.installState}`)}
+                  </span>
+                </div>
+                <div className="plugins-panel__row-actions">
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={
+                      busyId !== null || item.installState === "current"
+                    }
+                    onClick={() => void applyBundled(item)}
+                  >
+                    {item.installState === "available"
+                      ? t("plugins.bundledInstall")
+                      : item.installState === "updateAvailable"
+                        ? t("plugins.bundledUpdate")
+                        : t("plugins.bundledCurrent")}
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="plugins-panel__empty">{t("plugins.bundledEmpty")}</p>
+        )}
+      </section>
+
+      <h3 className="plugins-panel__band-header" id="plugins-installed-heading">
+        {t("plugins.installedTitle")}
+      </h3>
 
       {loading ? (
         <p className="plugins-panel__empty">{t("plugins.loading")}</p>
@@ -371,6 +578,23 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
                     <span>v{plugin.version}</span>
                     <span>{plugin.tier}</span>
                     <span data-status={plugin.status}>{plugin.status}</span>
+                    <span className="plugins-panel__badge">
+                      {t(`plugins.source.${plugin.sourceKind ?? "localDirectory"}`)}
+                    </span>
+                    {plugin.distribution ? (
+                      <span>
+                        {plugin.distribution.publisher} ·{" "}
+                        {plugin.distribution.license}
+                      </span>
+                    ) : null}
+                    {plugin.packageSha256 ? (
+                      <span title={plugin.packageSha256}>
+                        sha256:{plugin.packageSha256.slice(0, 12)}
+                      </span>
+                    ) : null}
+                    <span>
+                      {t("plugins.crashCount", { count: plugin.crashCount })}
+                    </span>
                   </div>
                   <div className="plugins-panel__meta">
                     {t("plugins.permissions", {
@@ -556,6 +780,22 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
                     <ShieldEllipsis size={14} aria-hidden />
                     {t("plugins.review")}
                   </button>
+                  <button
+                    type="button"
+                    disabled={busyId !== null}
+                    onClick={() => void beginInspect("upgrade", plugin)}
+                  >
+                    <Upload size={14} aria-hidden />
+                    {t("plugins.upgrade")}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyId !== null}
+                    onClick={() => void openVersionHistory(plugin)}
+                  >
+                    <History size={14} aria-hidden />
+                    {t("plugins.versionHistory")}
+                  </button>
                   {plugin.status === "enabled" ? (
                     <button
                       type="button"
@@ -587,6 +827,169 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
           })}
         </ul>
       )}
+
+      {inspection ? (
+        <div className="plugins-panel__dialog-backdrop" role="presentation">
+          <section
+            ref={inspectionDialogRef}
+            className="plugins-panel__dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="plugins-inspect-heading"
+          >
+            <header className="plugins-panel__dialog-header">
+              <h3 id="plugins-inspect-heading">{t("plugins.inspectTitle")}</h3>
+              <button
+                type="button"
+                disabled={busyId !== null}
+                onClick={() => setInspection(null)}
+              >
+                <X size={14} aria-hidden />
+                {t("common.close")}
+              </button>
+            </header>
+            <div className="plugins-panel__dialog-body">
+              <dl className="plugins-panel__inspect">
+                <div>
+                  <dt>{t("plugins.inspectId")}</dt>
+                  <dd>{inspection.result.normalizedManifest.id}</dd>
+                </div>
+                <div>
+                  <dt>{t("plugins.inspectVersion")}</dt>
+                  <dd>{inspection.result.normalizedManifest.version}</dd>
+                </div>
+                <div>
+                  <dt>{t("plugins.inspectTier")}</dt>
+                  <dd>{inspection.result.normalizedManifest.runtime.tier}</dd>
+                </div>
+                <div>
+                  <dt>{t("plugins.inspectSource")}</dt>
+                  <dd>
+                    {t(`plugins.source.${inspection.result.sourceKind}`)}
+                  </dd>
+                </div>
+                <div>
+                  <dt>{t("plugins.inspectHash")}</dt>
+                  <dd title={inspection.result.packageSha256}>
+                    {inspection.result.packageSha256.slice(0, 16)}…
+                  </dd>
+                </div>
+                <div>
+                  <dt>{t("plugins.inspectLicense")}</dt>
+                  <dd>
+                    {inspection.result.distribution
+                      ? `${inspection.result.distribution.publisher} · ${inspection.result.distribution.license}`
+                      : t("plugins.inspectLicenseNone")}
+                  </dd>
+                </div>
+                <div>
+                  <dt>{t("plugins.inspectCompatibility")}</dt>
+                  <dd>
+                    {inspection.result.compatibility.compatible
+                      ? t("plugins.compatibilityReady")
+                      : t("plugins.compatibilityBlocked")}
+                  </dd>
+                </div>
+                <div>
+                  <dt>{t("plugins.inspectContributions")}</dt>
+                  <dd>
+                    {inspection.result.normalizedManifest.contributions.length}
+                  </dd>
+                </div>
+              </dl>
+              <div className="plugins-panel__dialog-actions">
+                <button
+                  type="button"
+                  disabled={busyId !== null}
+                  onClick={() => setInspection(null)}
+                >
+                  {t("common.cancel")}
+                </button>
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={
+                    busyId !== null ||
+                    (inspection.mode === "install" &&
+                      !inspection.result.canInstall) ||
+                    !inspection.result.compatibility.compatible
+                  }
+                  onClick={() => void confirmInspection()}
+                >
+                  {inspection.mode === "install"
+                    ? t("plugins.inspectConfirmInstall")
+                    : t("plugins.inspectConfirmUpgrade")}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {versionHistory ? (
+        <div className="plugins-panel__dialog-backdrop" role="presentation">
+          <section
+            ref={historyDialogRef}
+            className="plugins-panel__dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="plugins-history-heading"
+          >
+            <header className="plugins-panel__dialog-header">
+              <h3 id="plugins-history-heading">
+                {t("plugins.versionHistoryTitle", {
+                  name: versionHistory.plugin.displayName,
+                })}
+              </h3>
+              <button
+                type="button"
+                disabled={busyId !== null}
+                onClick={() => setVersionHistory(null)}
+              >
+                <X size={14} aria-hidden />
+                {t("common.close")}
+              </button>
+            </header>
+            <div className="plugins-panel__dialog-body">
+              <ul className="plugins-panel__list">
+                {versionHistory.versions.map((version) => {
+                  const isActive =
+                    versionHistory.plugin.activeVersionId === version.id;
+                  return (
+                    <li key={version.id} className="plugins-panel__row">
+                      <div className="plugins-panel__row-main">
+                        <strong>v{version.version}</strong>
+                        <span className="plugins-panel__meta">
+                          {version.state}
+                          {isActive ? ` · ${t("plugins.versionActive")}` : ""}
+                          {version.packageSha256
+                            ? ` · sha256:${version.packageSha256.slice(0, 12)}`
+                            : ""}
+                          {` · ${t(`plugins.source.${version.sourceKind ?? "localDirectory"}`)}`}
+                        </span>
+                      </div>
+                      <div className="plugins-panel__row-actions">
+                        <button
+                          type="button"
+                          disabled={
+                            busyId !== null ||
+                            isActive ||
+                            version.state !== "validated"
+                          }
+                          onClick={() => void rollbackVersion(version)}
+                        >
+                          <RotateCcw size={14} aria-hidden />
+                          {t("plugins.rollback")}
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       <PipelineHistory
         snapshots={pipelineRuns}

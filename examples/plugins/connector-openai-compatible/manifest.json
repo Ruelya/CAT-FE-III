@@ -3,11 +3,16 @@
   "id": "example.connector-openai-compatible",
   "displayName": "OpenAI-compatible Loopback Connector",
   "version": "1.0.0",
-  "hostApi": { "min": 1, "max": 1 },
+  "hostApi": {
+    "min": 1,
+    "max": 1
+  },
   "runtime": {
     "tier": "declarative",
     "runtimeVersion": 1,
-    "entry": { "kind": "manifest" }
+    "entry": {
+      "kind": "manifest"
+    }
   },
   "contributions": [
     {
@@ -18,7 +23,11 @@
       "displayName": "OpenAI-compatible Loopback",
       "protocol": "translunar.engineConnector.v1",
       "contractVersion": 1,
-      "operations": ["validateConfig", "test", "generate"],
+      "operations": [
+        "validateConfig",
+        "test",
+        "generate"
+      ],
       "configSchemaVersion": 1,
       "configSchema": {
         "schemaVersion": 1,
@@ -39,8 +48,14 @@
             "required": true,
             "defaultValue": "stream",
             "options": [
-              { "value": "stream", "label": "Streaming" },
-              { "value": "json", "label": "Single response" }
+              {
+                "value": "stream",
+                "label": "Streaming"
+              },
+              {
+                "value": "json",
+                "label": "Single response"
+              }
             ]
           }
         ]
@@ -64,36 +79,91 @@
           "method": "POST"
         },
         "fixedHeaders": [
-          { "name": "x-client", "value": "translunar-tier1-fixture" }
+          {
+            "name": "x-client",
+            "value": "translunar-tier1-fixture"
+          }
         ],
-        "authentication": { "kind": "bearer" },
+        "authentication": {
+          "kind": "bearer"
+        },
         "request": {
           "fixedBody": {},
-          "modelPath": ["model"],
-          "messagesPath": ["messages"],
-          "sourceTextPath": ["source_text"],
-          "sourceLocalePath": ["source_locale"],
-          "targetLocalePath": ["target_locale"],
-          "streamPath": ["stream"]
+          "modelPath": [
+            "model"
+          ],
+          "messagesPath": [
+            "messages"
+          ],
+          "sourceTextPath": [
+            "source_text"
+          ],
+          "sourceLocalePath": [
+            "source_locale"
+          ],
+          "targetLocalePath": [
+            "target_locale"
+          ],
+          "streamPath": [
+            "stream"
+          ]
         },
         "response": {
           "kind": "serverSentEvents",
-          "deltaPath": ["choices", "0", "delta", "content"],
-          "finishReasonPath": ["choices", "0", "finish_reason"],
+          "deltaPath": [
+            "choices",
+            "0",
+            "delta",
+            "content"
+          ],
+          "finishReasonPath": [
+            "choices",
+            "0",
+            "finish_reason"
+          ],
           "usage": {
-            "inputTokensPath": ["usage", "prompt_tokens"],
-            "outputTokensPath": ["usage", "completion_tokens"],
-            "totalTokensPath": ["usage", "total_tokens"]
+            "inputTokensPath": [
+              "usage",
+              "prompt_tokens"
+            ],
+            "outputTokensPath": [
+              "usage",
+              "completion_tokens"
+            ],
+            "totalTokensPath": [
+              "usage",
+              "total_tokens"
+            ]
           },
           "doneMarker": "[DONE]",
           "maxLineBytes": 65536
         },
         "failures": [
-          { "status": 400, "code": "protocol", "retryable": false },
-          { "status": 401, "code": "authentication", "retryable": false },
-          { "status": 429, "code": "rateLimit", "retryable": true },
-          { "status": 500, "code": "unavailable", "retryable": true },
-          { "status": 503, "code": "unavailable", "retryable": true }
+          {
+            "status": 400,
+            "code": "protocol",
+            "retryable": false
+          },
+          {
+            "status": 401,
+            "code": "authentication",
+            "retryable": false
+          },
+          {
+            "status": 429,
+            "code": "rateLimit",
+            "retryable": true
+          },
+          {
+            "status": 500,
+            "code": "unavailable",
+            "retryable": true
+          },
+          {
+            "status": 503,
+            "code": "unavailable",
+            "retryable": true
+          }
         ]
       }
     }
@@ -105,7 +175,11 @@
       "required": true,
       "scope": {
         "kind": "operations",
-        "operations": ["validateConfig", "test", "generate"]
+        "operations": [
+          "validateConfig",
+          "test",
+          "generate"
+        ]
       },
       "contributionId": "example.connector-openai-compatible.chat"
     },
@@ -114,9 +188,16 @@
       "required": true,
       "scope": {
         "kind": "network",
-        "origins": ["http://127.0.0.1:43123"]
+        "origins": [
+          "http://127.0.0.1:43123"
+        ]
       },
       "contributionId": "example.connector-openai-compatible.chat"
     }
-  ]
+  ],
+  "distribution": {
+    "publisher": "Translunar",
+    "license": "MIT",
+    "homepage": "https://github.com/Ruelya/translunar-cat"
+  }
 }

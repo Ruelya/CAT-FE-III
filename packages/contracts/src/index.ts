@@ -189,6 +189,8 @@ export const ENGINE_METHODS = [
   "plugin.version.list",
   "plugin.upgrade",
   "plugin.rollback",
+  "plugin.bundled.list",
+  "plugin.bundled.apply",
   "plugin.permission.request.list",
   "plugin.permission.review",
   "plugin.permission.grant",

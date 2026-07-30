@@ -2773,6 +2773,7 @@ dependencies = [
  "translunar-qa-core",
  "uuid",
  "zeroize",
+ "zip",
 ]
 
 [[package]]

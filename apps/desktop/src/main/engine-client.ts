@@ -48,6 +48,7 @@ export interface EngineClientOptions {
 export class EngineClient {
   readonly #executable: string;
   #dataDirectory: string;
+  #bundledPluginRoot: string | null;
   #child: ChildProcessWithoutNullStreams | null = null;
   #buffer = "";
   #nextId = 1;
@@ -64,14 +65,19 @@ export class EngineClient {
   constructor(
     executable: string,
     dataDirectory: string,
-    options: EngineClientOptions = {},
+    options: EngineClientOptions & { bundledPluginRoot?: string | null } = {},
   ) {
     this.#executable = executable;
     this.#dataDirectory = dataDirectory;
+    this.#bundledPluginRoot = options.bundledPluginRoot ?? null;
     this.#maxRestartAttempts = options.maxRestartAttempts ?? 3;
     this.#onUnexpectedExit = options.onUnexpectedExit;
     this.#onReconnected = options.onReconnected;
     this.#onRestartFailed = options.onRestartFailed;
+  }
+
+  setBundledPluginRoot(path: string | null): void {
+    this.#bundledPluginRoot = path;
   }
 
   get dataDirectory(): string {
@@ -88,7 +94,7 @@ export class EngineClient {
     // Allow Node scripts as the Engine executable (used by process-level tests).
     const isNodeScript = /\.[cm]?js$/iu.test(this.#executable);
     const command = isNodeScript ? process.execPath : this.#executable;
-    const args = isNodeScript
+    const baseArgs = isNodeScript
       ? [
           this.#executable,
           "--data-dir",
@@ -97,6 +103,10 @@ export class EngineClient {
           "stdio",
         ]
       : ["--data-dir", this.#dataDirectory, "--protocol", "stdio"];
+    const args =
+      this.#bundledPluginRoot && this.#bundledPluginRoot.length > 0
+        ? [...baseArgs, "--bundled-plugin-root", this.#bundledPluginRoot]
+        : baseArgs;
     const child = spawn(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,

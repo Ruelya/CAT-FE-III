@@ -3,12 +3,18 @@
   "id": "example.qa-pipeline-process",
   "displayName": "QA and resumable pipeline example",
   "version": "1.0.0",
-  "hostApi": { "min": 1, "max": 1 },
+  "hostApi": {
+    "min": 1,
+    "max": 1
+  },
   "runtime": {
     "tier": "process",
     "runtimeVersion": 1,
     "protocolVersion": 1,
-    "entry": { "kind": "node", "path": "bin/qa-pipeline-process.mjs" }
+    "entry": {
+      "kind": "node",
+      "path": "bin/qa-pipeline-process.mjs"
+    }
   },
   "contributions": [
     {
@@ -22,7 +28,10 @@
       "severity": "warning",
       "definition": {},
       "ruleKind": "mechanical",
-      "categories": ["custom", "terminology"],
+      "categories": [
+        "custom",
+        "terminology"
+      ],
       "configSchemaVersion": 1,
       "configSchema": {
         "schemaVersion": 1,
@@ -35,7 +44,9 @@
           }
         ]
       },
-      "config": { "brand": "ACME" },
+      "config": {
+        "brand": "ACME"
+      },
       "limits": {
         "maxFindings": 64,
         "maxMessageBytes": 1024,
@@ -85,7 +96,9 @@
       "capabilityId": "qa.register",
       "scope": {
         "kind": "contributions",
-        "contributionIds": ["example.qa.brand-compliance"]
+        "contributionIds": [
+          "example.qa.brand-compliance"
+        ]
       },
       "contributionId": "example.qa.brand-compliance"
     },
@@ -93,9 +106,16 @@
       "capabilityId": "pipeline.register",
       "scope": {
         "kind": "contributions",
-        "contributionIds": ["example.pipeline.batch-normalize"]
+        "contributionIds": [
+          "example.pipeline.batch-normalize"
+        ]
       },
       "contributionId": "example.pipeline.batch-normalize"
     }
-  ]
+  ],
+  "distribution": {
+    "publisher": "Translunar",
+    "license": "MIT",
+    "homepage": "https://github.com/Ruelya/translunar-cat"
+  }
 }

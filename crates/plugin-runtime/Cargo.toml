@@ -21,6 +21,7 @@ translunar-pipeline = { path = "../pipeline" }
 translunar-qa-core = { path = "../qa-core" }
 uuid.workspace = true
 zeroize.workspace = true
+zip.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

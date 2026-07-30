@@ -1,0 +1,36 @@
+{
+  "builtAt": "deterministic",
+  "outDir": "apps/desktop/resources/plugins",
+  "packages": [
+    {
+      "pluginId": "example.connector-openai-compatible",
+      "version": "1.0.0",
+      "packageSha256": "7686a130945bd5e2a2d2d1179e8955ff19427fce861c6038794ff11c4153d004",
+      "archiveSha256": "95e596ceac53b6947d3d828946c7f0fe08da086032b443fc6cd0307b807328ce"
+    },
+    {
+      "pluginId": "example.hello-srt",
+      "version": "0.1.0",
+      "packageSha256": "0e677421d20817bf2a020861cf745d94ff1f2eb495471df3567fd35ddf40c625",
+      "archiveSha256": "9e841edd79c5a78840d8bb70d5e3360c4d77baaccc112ae19d4054b25f8722a2"
+    },
+    {
+      "pluginId": "example.qa-pipeline-process",
+      "version": "1.0.0",
+      "packageSha256": "b3d9f2c9e8dff1dc2eaf75717c7408ba14e41b6b71eedcb768465ffb6d0aa6e0",
+      "archiveSha256": "c866e2aa95fb7a10b4d9cbf58f22daf192cc9c69ce3578d8f455df4abb9f64d6"
+    },
+    {
+      "pluginId": "example.sandbox-toolkit",
+      "version": "0.1.0",
+      "packageSha256": "110e12374d7b38c431868204f19746fe33ba47fe1d4956622a8c69d1c232668b",
+      "archiveSha256": "026eb1c19dc951db52e6f8cbb884ec03d04d538b83677d7c7636a02a529667df"
+    },
+    {
+      "pluginId": "example.tier1-toolkit",
+      "version": "1.0.0",
+      "packageSha256": "c4045917f1d1a8f1b87699ca9251a1130928cdc959f088aea8054ac03d739ef7",
+      "archiveSha256": "09691a8c5bb1bb5f3585bfa3b9fe40fe0a05839296a3948131c48bc9b7c63336"
+    }
+  ]
+}

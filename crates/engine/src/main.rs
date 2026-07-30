@@ -13,6 +13,10 @@ struct Arguments {
     #[arg(long)]
     data_dir: PathBuf,
 
+    /// Optional trusted read-only root containing offline bundled core plugins.
+    #[arg(long)]
+    bundled_plugin_root: Option<PathBuf>,
+
     #[arg(long, value_enum, default_value_t = Protocol::Stdio)]
     protocol: Protocol,
 }
@@ -30,14 +34,19 @@ fn main() -> Result<()> {
         .init();
     let arguments = Arguments::parse();
     match arguments.protocol {
-        Protocol::Stdio => run_stdio(arguments.data_dir),
+        Protocol::Stdio => run_stdio(arguments.data_dir, arguments.bundled_plugin_root),
     }
 }
 
-fn run_stdio(data_dir: PathBuf) -> Result<()> {
-    let mut dispatcher = RpcDispatcher::open(&data_dir)
-        .with_context(|| format!("failed to open data directory {}", data_dir.display()))?;
-    info!(data_dir = %data_dir.display(), "engine started");
+fn run_stdio(data_dir: PathBuf, bundled_plugin_root: Option<PathBuf>) -> Result<()> {
+    let mut dispatcher =
+        RpcDispatcher::open_with_bundled_plugin_root(&data_dir, bundled_plugin_root.clone())
+            .with_context(|| format!("failed to open data directory {}", data_dir.display()))?;
+    info!(
+        data_dir = %data_dir.display(),
+        bundled_plugin_root = ?bundled_plugin_root.as_ref().map(|path| path.display().to_string()),
+        "engine started"
+    );
 
     let stdin = io::stdin();
     let mut stdout = io::stdout().lock();

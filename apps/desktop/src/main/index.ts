@@ -149,7 +149,9 @@ async function bootstrap(): Promise<void> {
   const settings = await shellSettings.load();
   engineExecutable = await resolveEngineExecutable();
   const resolvedDataDir = resolveInitialDataDirectory(settings);
+  const bundledPluginRoot = await resolveBundledPluginRoot();
   engine = new EngineClient(engineExecutable, resolvedDataDir.path, {
+    bundledPluginRoot,
     onUnexpectedExit: ({ attempt, stderrTail }) => {
       pluginAssetSessions.revokeAll();
       mainWindow?.webContents.send(IPC_CHANNELS.pluginPanelRevoked, null);
@@ -745,7 +747,11 @@ function registerIpc(): void {
         await currentDialogLocale(),
         "dialog.selectPluginPackage",
       ),
-      properties: ["openDirectory"],
+      properties: ["openFile", "openDirectory"],
+      filters: [
+        { name: "Plugin package", extensions: ["tlplugin"] },
+        { name: "All files", extensions: ["*"] },
+      ],
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
@@ -1407,6 +1413,17 @@ async function resolveEngineExecutable(): Promise<string> {
     : [
         resolve(app.getAppPath(), "..", "..", "target", "debug", binary),
         resolve(app.getAppPath(), "..", "..", "target", "release", binary),
+        // Orca/worktree cargo target override used by this task.
+        resolve(
+          "W:/cargo-target-plugin-management-release",
+          "debug",
+          binary,
+        ),
+        resolve(
+          "W:/cargo-target-plugin-management-release",
+          "release",
+          binary,
+        ),
       ];
   for (const path of candidates) {
     try {
@@ -1417,4 +1434,37 @@ async function resolveEngineExecutable(): Promise<string> {
     }
   }
   throw new Error(`Translation engine binary not found (${binary}).`);
+}
+
+async function resolveBundledPluginRoot(): Promise<string | null> {
+  if (process.env.TRANSLUNAR_BUNDLED_PLUGIN_ROOT) {
+    try {
+      await access(process.env.TRANSLUNAR_BUNDLED_PLUGIN_ROOT);
+      return process.env.TRANSLUNAR_BUNDLED_PLUGIN_ROOT;
+    } catch {
+      return null;
+    }
+  }
+  const candidates = app.isPackaged
+    ? [join(process.resourcesPath, "plugins")]
+    : [
+        resolve(app.getAppPath(), "resources", "plugins"),
+        resolve(app.getAppPath(), "..", "..", "apps", "desktop", "resources", "plugins"),
+        resolve(
+          process.cwd(),
+          "apps",
+          "desktop",
+          "resources",
+          "plugins",
+        ),
+      ];
+  for (const path of candidates) {
+    try {
+      await access(path);
+      return path;
+    } catch {
+      // try next
+    }
+  }
+  return null;
 }

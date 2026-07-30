@@ -197,6 +197,8 @@ pub mod methods {
     pub const PLUGIN_VERSION_LIST: &str = "plugin.version.list";
     pub const PLUGIN_UPGRADE: &str = "plugin.upgrade";
     pub const PLUGIN_ROLLBACK: &str = "plugin.rollback";
+    pub const PLUGIN_BUNDLED_LIST: &str = "plugin.bundled.list";
+    pub const PLUGIN_BUNDLED_APPLY: &str = "plugin.bundled.apply";
     pub const PLUGIN_PERMISSION_REQUEST_LIST: &str = "plugin.permission.request.list";
     pub const PLUGIN_PERMISSION_REVIEW: &str = "plugin.permission.review";
     pub const PLUGIN_PERMISSION_GRANT: &str = "plugin.permission.grant";
@@ -2090,6 +2092,10 @@ pub struct RpcMethodCatalog {
     pub plugin_upgrade: MethodContract<PluginUpgradeParams, PluginLifecycleResult>,
     #[serde(rename = "plugin.rollback")]
     pub plugin_rollback: MethodContract<PluginRollbackParams, PluginLifecycleResult>,
+    #[serde(rename = "plugin.bundled.list")]
+    pub plugin_bundled_list: MethodContract<PluginBundledListParams, PluginBundledPage>,
+    #[serde(rename = "plugin.bundled.apply")]
+    pub plugin_bundled_apply: MethodContract<PluginBundledApplyParams, PluginBundledApplyResult>,
     #[serde(rename = "plugin.permission.request.list")]
     pub plugin_permission_request_list:
         MethodContract<PluginCapabilityRequestListParams, PluginCapabilityRequestPage>,
@@ -2448,6 +2454,15 @@ pub struct ProtocolCatalog {
     pub plugin_version_summary: PluginVersionSummary,
     pub plugin_version_page: PluginVersionPage,
     pub plugin_lifecycle_result: PluginLifecycleResult,
+    pub plugin_package_source_kind: PluginPackageSourceKind,
+    pub plugin_distribution_metadata: PluginDistributionMetadata,
+    pub plugin_bundled_list_params: PluginBundledListParams,
+    pub plugin_bundled_page: PluginBundledPage,
+    pub plugin_bundled_summary: PluginBundledSummary,
+    pub plugin_bundled_apply_params: PluginBundledApplyParams,
+    pub plugin_bundled_apply_result: PluginBundledApplyResult,
+    pub plugin_bundled_install_state: PluginBundledInstallState,
+    pub plugin_bundled_apply_action: PluginBundledApplyAction,
     pub operation_page: OperationPage,
     pub create_backup_params: CreateBackupParams,
     pub backup_result: BackupResult,
@@ -2598,6 +2613,8 @@ mod tests {
             "plugin.version.list",
             "plugin.upgrade",
             "plugin.rollback",
+            "plugin.bundled.list",
+            "plugin.bundled.apply",
         ] {
             assert!(properties.contains_key(method), "missing method {method}");
         }

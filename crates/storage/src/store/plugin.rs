@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use translunar_filter_core::FilterDescriptor;
 use translunar_plugin_runtime::{
-    PluginContributions, PluginEntry, PluginManifest, PluginTier, hash_plugin_package,
-    load_normalized_manifest,
+    PluginContributions, PluginDistributionMetadata, PluginEntry, PluginManifest,
+    PluginPackageSourceKind, PluginTier, hash_plugin_package, load_normalized_manifest,
 };
 
 use super::{
@@ -73,6 +73,9 @@ pub struct PluginInstallationRecord {
     pub normalized_manifest_json: Value,
     pub compatibility_json: Value,
     pub diagnostics_json: Value,
+    /// Host-derived provenance mirrored from the active version.
+    pub source_kind: PluginPackageSourceKind,
+    pub distribution: Option<PluginDistributionMetadata>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -188,6 +191,8 @@ pub struct UpsertNormalizedPluginInstallation {
     pub status: PluginStatus,
     pub last_error: Option<String>,
     pub source_manifest_version: u32,
+    pub source_kind: PluginPackageSourceKind,
+    pub distribution: Option<PluginDistributionMetadata>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,6 +240,8 @@ pub struct PluginVersionRecord {
     pub activated_at_ms: Option<i64>,
     pub deactivated_at_ms: Option<i64>,
     pub failed_at_ms: Option<i64>,
+    pub source_kind: PluginPackageSourceKind,
+    pub distribution: Option<PluginDistributionMetadata>,
 }
 
 /// Complete immutable version payload.  The installation projection fields are
@@ -262,6 +269,8 @@ pub struct NewPluginVersion {
     pub diagnostics_json: Value,
     pub state: PluginVersionState,
     pub installed_at_ms: i64,
+    pub source_kind: PluginPackageSourceKind,
+    pub distribution: Option<PluginDistributionMetadata>,
 }
 
 #[derive(Debug, Clone)]
@@ -275,13 +284,14 @@ const INSTALLATION_COLUMNS: &str = "id, display_name, version, tier, status, pac
     entry_json, manifest_json, contributions_json, requested_permissions_json,
     granted_permissions_json, last_error, crash_count, revision,
     installed_at_ms, updated_at_ms, active_version_id, package_sha256,
-    runtime_json, normalized_manifest_json, compatibility_json, diagnostics_json";
+    runtime_json, normalized_manifest_json, compatibility_json, diagnostics_json,
+    source_kind, distribution_json";
 
 const VERSION_COLUMNS: &str = "id, plugin_id, version, package_sha256, package_path,
     managed_package_path, manifest_version, original_manifest_json, runtime_json,
     normalized_manifest_json, contributions_json, compatibility_json,
     diagnostics_json, state, installed_at_ms, activated_at_ms,
-    deactivated_at_ms, failed_at_ms";
+    deactivated_at_ms, failed_at_ms, source_kind, distribution_json";
 
 const MAX_PLUGIN_DIAGNOSTICS_BYTES: usize = 16 * 1024;
 const MAX_PLUGIN_DIAGNOSTIC_COUNT: usize = 128;
@@ -775,10 +785,10 @@ impl Store {
                     granted_permissions_json, last_error, crash_count, revision,
                     installed_at_ms, updated_at_ms, active_version_id,
                     runtime_json, normalized_manifest_json, compatibility_json,
-                    diagnostics_json
+                    diagnostics_json, source_kind, distribution_json
                  ) VALUES (
                     ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
-                    0, 0, ?13, ?13, NULL, ?14, ?15, ?16, ?17
+                    0, 0, ?13, ?13, NULL, ?14, ?15, ?16, ?17, ?18, NULL
                  )",
                 params![
                     manifest.id,
@@ -798,6 +808,7 @@ impl Store {
                     normalized_manifest_json.to_string(),
                     compatibility_json.to_string(),
                     json!([]).to_string(),
+                    PluginPackageSourceKind::LocalDirectory.as_str(),
                 ],
             )?;
             let version_id = format!("install-v1:{}:{}", manifest.id, manifest.version);
@@ -822,6 +833,8 @@ impl Store {
                 diagnostics_json: json!([]),
                 state: PluginVersionState::Validated,
                 installed_at_ms: now,
+                source_kind: PluginPackageSourceKind::LocalDirectory,
+                distribution: None,
             };
             validate_version_input(&version)?;
             let requested_capabilities = super::plugin_permissions::requests_from_manifest_values(
@@ -892,15 +905,22 @@ impl Store {
                 "plugin id is already installed".to_string(),
             ));
         }
+        let distribution_json = input
+            .distribution
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|error| StorageError::InvalidData(error.to_string()))?;
         tx.execute(
             "INSERT INTO plugin_installations (
                 id, display_name, version, tier, status, package_path, entry_json,
                 manifest_json, contributions_json, requested_permissions_json,
                 granted_permissions_json, last_error, crash_count, revision,
                 installed_at_ms, updated_at_ms, active_version_id, package_sha256,
-                runtime_json, normalized_manifest_json, compatibility_json, diagnostics_json
+                runtime_json, normalized_manifest_json, compatibility_json, diagnostics_json,
+                source_kind, distribution_json
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
-                       0, 0, ?13, ?13, NULL, ?14, ?15, ?16, ?17, ?18)",
+                       0, 0, ?13, ?13, NULL, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
             params![
                 input.manifest.id,
                 input.manifest.display_name,
@@ -920,6 +940,8 @@ impl Store {
                 input.normalized_manifest_json.to_string(),
                 input.compatibility_json.to_string(),
                 input.diagnostics_json.to_string(),
+                input.source_kind.as_str(),
+                distribution_json,
             ],
         )?;
         let version = NewPluginVersion {
@@ -943,6 +965,8 @@ impl Store {
             diagnostics_json: input.diagnostics_json,
             state: PluginVersionState::Validated,
             installed_at_ms: now,
+            source_kind: input.source_kind,
+            distribution: input.distribution,
         };
         validate_version_input(&version)?;
         let requested_capabilities = super::plugin_permissions::requests_from_manifest_values(
@@ -1312,6 +1336,12 @@ impl Store {
         let normalized_manifest_json = input.normalized_manifest_json.to_string();
         let compatibility_json = input.compatibility_json.to_string();
         let diagnostics_json = input.diagnostics_json.to_string();
+        let distribution_json = input
+            .distribution
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|error| StorageError::InvalidData(error.to_string()))?;
         let package_path = path_string(&input.package_path);
         let updated = tx.execute(
             "UPDATE plugin_installations SET
@@ -1322,8 +1352,9 @@ impl Store {
                 revision = revision + 1, updated_at_ms = ?12,
                 active_version_id = ?13, package_sha256 = ?14,
                 runtime_json = ?15, normalized_manifest_json = ?16,
-                compatibility_json = ?17, diagnostics_json = ?18
-             WHERE id = ?1 AND revision = ?19",
+                compatibility_json = ?17, diagnostics_json = ?18,
+                source_kind = ?19, distribution_json = ?20
+             WHERE id = ?1 AND revision = ?21",
             params![
                 plugin_id,
                 input.display_name,
@@ -1343,6 +1374,8 @@ impl Store {
                 normalized_manifest_json,
                 compatibility_json,
                 diagnostics_json,
+                input.source_kind.as_str(),
+                distribution_json,
                 to_i64(expected_revision)?,
             ],
         )?;
@@ -1496,6 +1529,12 @@ impl Store {
              WHERE plugin_id = ?1 AND id = ?2",
             params![plugin_id, version_id, now],
         )?;
+        let distribution_json = version
+            .distribution
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|error| StorageError::InvalidData(error.to_string()))?;
         let updated = tx.execute(
             "UPDATE plugin_installations SET
                 display_name = ?2, version = ?3, tier = ?4,
@@ -1506,8 +1545,8 @@ impl Store {
                 active_version_id = ?12, package_sha256 = ?13,
                 runtime_json = ?14, normalized_manifest_json = ?15,
                 compatibility_json = ?16, diagnostics_json = ?17,
-                status = ?18
-             WHERE id = ?1 AND revision = ?19",
+                status = ?18, source_kind = ?19, distribution_json = ?20
+             WHERE id = ?1 AND revision = ?21",
             params![
                 plugin_id,
                 display_name,
@@ -1532,6 +1571,8 @@ impl Store {
                 version.compatibility_json.to_string(),
                 version.diagnostics_json.to_string(),
                 rollback_status,
+                version.source_kind.as_str(),
+                distribution_json,
                 to_i64(expected_revision)?,
             ],
         )?;
@@ -1991,13 +2032,19 @@ fn insert_plugin_version_tx(
     input: &NewPluginVersion,
 ) -> Result<()> {
     let managed_package_path = input.managed_package_path.as_deref().map(path_string);
+    let distribution_json = input
+        .distribution
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|error| StorageError::InvalidData(error.to_string()))?;
     tx.execute(
         "INSERT INTO plugin_versions (
             id, plugin_id, version, package_sha256, package_path, managed_package_path,
             manifest_version, original_manifest_json, runtime_json,
             normalized_manifest_json, contributions_json, compatibility_json,
-            diagnostics_json, state, installed_at_ms
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            diagnostics_json, state, installed_at_ms, source_kind, distribution_json
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         params![
             input.id,
             input.plugin_id,
@@ -2014,6 +2061,8 @@ fn insert_plugin_version_tx(
             input.diagnostics_json.to_string(),
             input.state.as_str(),
             input.installed_at_ms,
+            input.source_kind.as_str(),
+            distribution_json,
         ],
     )?;
     Ok(())
@@ -2030,6 +2079,8 @@ fn map_plugin_version_row(row: &Row<'_>) -> rusqlite::Result<PluginVersionRecord
             Box::new(error),
         )
     })?;
+    let source_kind = parse_source_kind_row(row, 18)?;
+    let distribution = optional_distribution_row(row, 19)?;
     Ok(PluginVersionRecord {
         id: row.get(0)?,
         plugin_id: row.get(1)?,
@@ -2049,6 +2100,36 @@ fn map_plugin_version_row(row: &Row<'_>) -> rusqlite::Result<PluginVersionRecord
         activated_at_ms: row.get(15)?,
         deactivated_at_ms: row.get(16)?,
         failed_at_ms: row.get(17)?,
+        source_kind,
+        distribution,
+    })
+}
+
+fn parse_source_kind_row(row: &Row<'_>, index: usize) -> rusqlite::Result<PluginPackageSourceKind> {
+    let value: String = row.get(index)?;
+    PluginPackageSourceKind::parse(&value).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(
+            index,
+            rusqlite::types::Type::Text,
+            Box::new(StorageError::InvalidData(error.to_string())),
+        )
+    })
+}
+
+fn optional_distribution_row(
+    row: &Row<'_>,
+    index: usize,
+) -> rusqlite::Result<Option<PluginDistributionMetadata>> {
+    let raw: Option<String> = row.get(index)?;
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    serde_json::from_str(&raw).map(Some).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(
+            index,
+            rusqlite::types::Type::Text,
+            Box::new(StorageError::InvalidData(error.to_string())),
+        )
     })
 }
 
@@ -2222,6 +2303,8 @@ fn map_plugin_row(row: &Row<'_>) -> rusqlite::Result<PluginInstallationRecord> {
         normalized_manifest_json,
         compatibility_json,
         diagnostics_json,
+        source_kind: parse_source_kind_row(row, 22)?,
+        distribution: optional_distribution_row(row, 23)?,
     })
 }
 
@@ -2500,6 +2583,8 @@ mod tests {
             diagnostics_json: json!([]),
             state: PluginVersionState::Validated,
             installed_at_ms: 10,
+            source_kind: PluginPackageSourceKind::LocalDirectory,
+            distribution: None,
         }
     }
 
