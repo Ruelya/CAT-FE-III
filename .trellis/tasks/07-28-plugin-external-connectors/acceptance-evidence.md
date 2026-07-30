@@ -56,6 +56,11 @@ Passing commands:
 Repository baseline/environment failures, reproduced independently of connector
 changes:
 
+- GitHub Actions run `30511971473` for PR #2 stops at the same three pre-task
+  gates as `master` run `30494253588`: Linux Rust format reports the repository's
+  existing CRLF newline baseline, while both Node jobs stop at Electron's SUID
+  sandbox integrity check. The matching `master` failure proves these red gates
+  are not introduced by the connector diff; no downstream CI step ran.
 - `pnpm format:check`: repository-wide Prettier baseline reports 185 files;
   every task-owned JS/TS/JSON/Markdown file passes targeted Prettier, and Rust fmt
   passes.
