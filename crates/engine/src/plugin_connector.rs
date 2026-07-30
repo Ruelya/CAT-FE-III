@@ -831,6 +831,7 @@ fn map_process_error(error: &PluginRuntimeError) -> EngineConnectorFailure {
         PluginRuntimeError::Conflict(_) => EngineConnectorFailure::InvalidRequest,
         PluginRuntimeError::Protocol(_)
         | PluginRuntimeError::Remote(_)
+        | PluginRuntimeError::ExternalConnectorFailure(_)
         | PluginRuntimeError::Json(_) => EngineConnectorFailure::Protocol,
         PluginRuntimeError::InvalidManifest(_)
         | PluginRuntimeError::NotFound(_)

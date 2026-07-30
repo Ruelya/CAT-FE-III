@@ -5,6 +5,7 @@
   "version": "1.0.0",
   "hostApi": { "min": 1, "max": 1 },
   "runtime": {
+    "tier": "process",
     "runtimeVersion": 1,
     "protocolVersion": 1,
     "entry": { "kind": "node", "path": "bin/external-connector-fixture.mjs" }
@@ -18,12 +19,24 @@
       "displayName": "Fixture external system",
       "transports": ["http"],
       "checkpointVersion": 1,
-      "capabilities": { "pull": true, "push": true, "poll": true, "webhook": true },
+      "capabilities": {
+        "pull": true,
+        "push": true,
+        "poll": true,
+        "webhook": true
+      },
       "protocol": "translunar.externalConnector.v1",
       "contractVersion": 1,
       "configSchemaVersion": 1,
       "checkpointSchemaVersion": 1,
-      "operations": ["validateConfig", "test", "pull", "push", "poll", "webhook"],
+      "operations": [
+        "validateConfig",
+        "test",
+        "pull",
+        "push",
+        "poll",
+        "webhook"
+      ],
       "origins": ["http://127.0.0.1:43124"],
       "credentialSlots": [
         {
@@ -65,7 +78,14 @@
       "contributionId": "example.external-connector-fixture.system",
       "scope": {
         "kind": "operations",
-        "operations": ["validateConfig", "test", "pull", "push", "poll", "webhook"]
+        "operations": [
+          "validateConfig",
+          "test",
+          "pull",
+          "push",
+          "poll",
+          "webhook"
+        ]
       }
     },
     {

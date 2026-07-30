@@ -43,9 +43,6 @@ use translunar_storage::{
 use uuid::Uuid;
 
 use crate::plugin_ai_ui::{AiActionRegistration, ContributionOwnerToken, UiPanelRegistration};
-use crate::plugin_external_connector::{
-    ExternalConnectorOwnerToken, ExternalConnectorRegistration, fixture_external_connector_host,
-};
 use crate::plugin_connector::{
     DeclarativePluginEngineConnector, ProcessPluginEngineConnector,
     ReqwestDeclarativeConnectorTransport, SandboxPluginEngineConnector,
@@ -53,6 +50,11 @@ use crate::plugin_connector::{
 use crate::plugin_declarative::{
     DeclarativePipelineStep, DeclarativePluginQaRule, ProcessPluginPipelineStep,
     ProcessPluginQaRule, SandboxPluginPipelineStep, SandboxPluginQaRule,
+};
+use crate::plugin_external_connector::{
+    ExternalConnectorOwnerToken, ExternalConnectorRegistration,
+    declarative_external_connector_host, process_external_connector_host,
+    sandbox_external_connector_host,
 };
 use crate::qa::{QaRuleExecutor, QaRuleExecutorFailure, QaRuleExecutorSnapshot};
 use crate::{EngineError, EngineService, Result};
@@ -1453,7 +1455,9 @@ impl EngineService {
                         }
                         let executable = value
                             .executable_v1(translunar_plugin_runtime::PluginTier::Declarative)
-                            .map_err(|error| EngineError::PluginInvalidManifest(error.to_string()))?;
+                            .map_err(|error| {
+                                EngineError::PluginInvalidManifest(error.to_string())
+                            })?;
                         for operation in &executable.operations {
                             authorize_contribution(
                                 &authorizer,
@@ -1492,7 +1496,7 @@ impl EngineService {
                             executable,
                             tier: translunar_plugin_runtime::PluginTier::Declarative,
                             authorizer: Arc::clone(&authorizer),
-                            host: fixture_external_connector_host(),
+                            host: declarative_external_connector_host(),
                             cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                         });
                     }
@@ -1706,12 +1710,13 @@ impl EngineService {
         let process = match self.pending_plugin_processes.remove(&pending_key) {
             Some(process) => process,
             None => {
-                let process = Arc::new(PluginProcess::new_with_public_descriptors(
+                let process = Arc::new(PluginProcess::new_with_all_public_descriptors(
                     resolve_managed_path(self.store.paths().root.as_path(), &record.package_path),
                     record.manifest.clone(),
                     connector_descriptors.clone(),
                     qa_rule_descriptors.clone(),
                     pipeline_step_descriptors.clone(),
+                    external_connector_descriptors.clone(),
                 ));
                 process.ensure_started().map_err(map_plugin_error)?;
                 process
@@ -1814,7 +1819,10 @@ impl EngineService {
                     executable,
                     tier: translunar_plugin_runtime::PluginTier::Process,
                     authorizer: Arc::clone(&authorizer),
-                    host: fixture_external_connector_host(),
+                    host: process_external_connector_host(
+                        Arc::clone(&process),
+                        descriptor.id.clone(),
+                    ),
                     cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 });
             }
@@ -1845,7 +1853,10 @@ impl EngineService {
             process.stop();
             return Err(error);
         }
-        if let Err(error) = self.external_connector_registry.preflight(&external_connectors) {
+        if let Err(error) = self
+            .external_connector_registry
+            .preflight(&external_connectors)
+        {
             process.stop();
             return Err(error);
         }
@@ -1938,7 +1949,10 @@ impl EngineService {
         {
             previous.stop();
         }
-        if let Err(error) = self.external_connector_registry.attach_all(external_connectors) {
+        if let Err(error) = self
+            .external_connector_registry
+            .attach_all(external_connectors)
+        {
             self.unregister_plugin_filters(&record.id);
             process.stop();
             return Err(error);
@@ -2084,12 +2098,6 @@ impl EngineService {
                         &value.id,
                         "pipeline.register",
                     )?;
-                }
-                _ => {
-                    return Err(EngineError::PluginCapabilityUnsupported(format!(
-                        "unsupported sandbox contribution {}",
-                        contribution.id()
-                    )));
                 }
             }
         }
@@ -2268,11 +2276,10 @@ impl EngineService {
                         executable,
                         tier: translunar_plugin_runtime::PluginTier::Sandbox,
                         authorizer: Arc::clone(&authorizer),
-                        host: fixture_external_connector_host(),
+                        host: sandbox_external_connector_host(worker.clone(), value.id.clone()),
                         cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     });
                 }
-                _ => unreachable!("sandbox host compatibility was checked before preparation"),
             }
         }
         Ok(PreparedSandboxActivation {
@@ -2566,8 +2573,7 @@ impl EngineService {
                     activation_revision,
                 );
             } else {
-                self.external_connector_registry
-                    .detach_plugin(plugin_id);
+                self.external_connector_registry.detach_plugin(plugin_id);
             }
         } else {
             self.external_connector_registry.detach_plugin(plugin_id);
@@ -3746,6 +3752,9 @@ fn map_plugin_error(error: translunar_plugin_runtime::PluginRuntimeError) -> Eng
         PluginRuntimeError::Process(message)
         | PluginRuntimeError::Protocol(message)
         | PluginRuntimeError::Remote(message) => EngineError::PluginProcessFailed(message),
+        PluginRuntimeError::ExternalConnectorFailure(failure) => EngineError::PluginProcessFailed(
+            format!("external connector {} failed", failure.code.as_str()),
+        ),
         PluginRuntimeError::Timeout(duration) => {
             EngineError::PluginProcessFailed(format!("plugin timed out after {duration:?}"))
         }

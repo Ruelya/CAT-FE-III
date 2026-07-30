@@ -8,6 +8,7 @@
 import {
   ExternalConnectorHandlerError,
   startProcessExternalConnector,
+  verifyHmacSha256WebhookSignature,
   type ExternalConnectorHandlerV1,
   type ExternalConnectorInvocationContextV1,
   type ExternalConnectorRequestV1,
@@ -33,6 +34,32 @@ function requireToken(context: ExternalConnectorInvocationContextV1): void {
       requestId: "unknown",
       code: "authentication",
       message: "authentication failed",
+      retryable: false,
+    });
+  }
+}
+
+function requireWebhookSignature(
+  request: Extract<ExternalConnectorRequestV1, { operation: "webhook" }>,
+  context: ExternalConnectorInvocationContextV1,
+): void {
+  const secret = context.credentials.apiToken;
+  const signature = request.payload.signature;
+  if (
+    !secret ||
+    !signature ||
+    !verifyHmacSha256WebhookSignature({
+      body: JSON.stringify(request.payload.body),
+      signature,
+      secret,
+      prefix: "sha256=",
+    })
+  ) {
+    throw new ExternalConnectorHandlerError({
+      contractVersion: 1,
+      requestId: request.requestId,
+      code: "authentication",
+      message: "webhook signature verification failed",
       retryable: false,
     });
   }
@@ -146,6 +173,7 @@ const handler: ExternalConnectorHandlerV1 = {
   },
   async webhook(request, context) {
     requireToken(context);
+    requireWebhookSignature(request, context);
     return {
       operation: "webhook",
       items: [

@@ -3328,7 +3328,8 @@ impl EngineService {
             plugin_ai_action_registry: plugin_ai_ui::PluginAiActionRegistry::default(),
             plugin_ui_panel_registry: plugin_ai_ui::PluginUiPanelRegistry::default(),
             plugin_ai_action_cancels: plugin_ai_ui::AiActionCancelRegistry::default(),
-            external_connector_registry: plugin_external_connector::ExternalConnectorRegistry::default(),
+            external_connector_registry:
+                plugin_external_connector::ExternalConnectorRegistry::default(),
             external_connector_credentials:
                 plugin_external_connector::default_external_connector_credential_store(),
             plugin_pipeline_owners: std::collections::BTreeMap::new(),

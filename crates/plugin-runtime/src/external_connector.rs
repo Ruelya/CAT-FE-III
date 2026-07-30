@@ -746,9 +746,7 @@ impl ExternalConnectorRequestHeaderV1 {
             MAX_EXTERNAL_CONNECTOR_REQUEST_ID_BYTES,
         )?;
         if self.deadline_ms == 0 || self.deadline_ms > limits.max_deadline_ms {
-            return Err(invalid(
-                "request deadlineMs is outside descriptor bounds",
-            ));
+            return Err(invalid("request deadlineMs is outside descriptor bounds"));
         }
         self.binding.validate()?;
         if let Some(key) = &self.idempotency_key {
@@ -1423,7 +1421,8 @@ fn validate_config_shape(
                     MAX_EXTERNAL_CONNECTOR_CONFIG_VALUE_BYTES,
                 )?;
             }
-            EngineConnectorConfigValueV1::Boolean(_) | EngineConnectorConfigValueV1::Integer(_) => {}
+            EngineConnectorConfigValueV1::Boolean(_) | EngineConnectorConfigValueV1::Integer(_) => {
+            }
         }
     }
     Ok(())
@@ -1457,9 +1456,7 @@ fn normalize_origin(origin: &str) -> Result<String> {
         return Err(invalid("origin is malformed"));
     }
     if !origin_scheme_allowed(origin) {
-        return Err(invalid(
-            "origin must use HTTPS except for loopback HTTP",
-        ));
+        return Err(invalid("origin must use HTTPS except for loopback HTTP"));
     }
     Ok(origin.to_string())
 }
@@ -1504,9 +1501,7 @@ fn validate_origin_and_endpoint(origin: &str, url_template: &str) -> Result<()> 
         return Err(invalid("urlTemplate is malformed"));
     }
     if url_template != normalized && !url_template.starts_with(&format!("{normalized}/")) {
-        return Err(invalid(
-            "urlTemplate must remain under destinationOrigin",
-        ));
+        return Err(invalid("urlTemplate must remain under destinationOrigin"));
     }
     Ok(())
 }

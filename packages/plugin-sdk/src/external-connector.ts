@@ -10,7 +10,10 @@ import { createInterface } from "node:readline";
 import { stdin as input, stdout as output } from "node:process";
 import { createHash } from "node:crypto";
 
-import type { EngineConnectorConfigSchemaV1, EngineConnectorConfigV1 } from "./index.js";
+import type {
+  EngineConnectorConfigSchemaV1,
+  EngineConnectorConfigV1,
+} from "./index.js";
 import {
   ENGINE_CONNECTOR_CONFIG_SCHEMA_VERSION,
   HOST_API_VERSION,
@@ -205,9 +208,14 @@ export interface ExternalConnectorInvocationContextV1 {
 
 export interface ExternalConnectorHandlerV1 {
   validateConfig(
-    request: Extract<ExternalConnectorRequestV1, { operation: "validateConfig" }>,
+    request: Extract<
+      ExternalConnectorRequestV1,
+      { operation: "validateConfig" }
+    >,
     context: ExternalConnectorInvocationContextV1,
-  ): Promise<Extract<ExternalConnectorResultV1, { operation: "validateConfig" }>>;
+  ): Promise<
+    Extract<ExternalConnectorResultV1, { operation: "validateConfig" }>
+  >;
   test(
     request: Extract<ExternalConnectorRequestV1, { operation: "test" }>,
     context: ExternalConnectorInvocationContextV1,
@@ -325,12 +333,17 @@ export function defineExternalConnector(
     limits?: Partial<ExternalConnectorLimitsV1>;
   },
 ): ExternalConnectorContributionDescriptorV1 {
-  const operations = contribution.operations;
+  const { limits: limitOverrides, ...descriptor } = contribution;
+  const operations = descriptor.operations;
   if (!operations.includes("validateConfig") || !operations.includes("test")) {
     throw new Error("external connector must declare validateConfig and test");
   }
-  if (!operations.some((op) => ["pull", "push", "poll", "webhook"].includes(op))) {
-    throw new Error("external connector must declare at least one exchange operation");
+  if (
+    !operations.some((op) => ["pull", "push", "poll", "webhook"].includes(op))
+  ) {
+    throw new Error(
+      "external connector must declare at least one exchange operation",
+    );
   }
   return {
     kind: "externalConnector",
@@ -339,8 +352,8 @@ export function defineExternalConnector(
     contractVersion: 1,
     configSchemaVersion: EXTERNAL_CONNECTOR_CONFIG_SCHEMA_VERSION,
     checkpointSchemaVersion: EXTERNAL_CONNECTOR_CHECKPOINT_SCHEMA_VERSION,
-    limits: { ...defaultExternalConnectorLimits(), ...contribution.limits },
-    ...contribution,
+    ...descriptor,
+    limits: { ...defaultExternalConnectorLimits(), ...limitOverrides },
   };
 }
 
@@ -448,7 +461,9 @@ export function createSandboxExternalConnectorPlugin(options: {
   return {
     async invoke(invocation, _host, context) {
       if (invocation.contributionId !== options.contributionId) {
-        throw new Error("contribution does not match external connector handler");
+        throw new Error(
+          "contribution does not match external connector handler",
+        );
       }
       if (invocation.operation === "externalConnector.cancel") {
         const request = invocation.input as { requestId: string };
@@ -467,10 +482,14 @@ export function createSandboxExternalConnectorPlugin(options: {
       active.set(request.requestId, controller);
       const credentials = { ...(context?.credentials ?? {}) };
       try {
-        return await dispatchExternalConnectorHandler(options.handler, request, {
-          credentials,
-          signal: controller.signal,
-        });
+        return await dispatchExternalConnectorHandler(
+          options.handler,
+          request,
+          {
+            credentials,
+            signal: controller.signal,
+          },
+        );
       } finally {
         for (const key of Object.keys(credentials)) delete credentials[key];
         active.delete(request.requestId);

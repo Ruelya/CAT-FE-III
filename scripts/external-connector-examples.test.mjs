@@ -37,6 +37,7 @@ describe("external connector fixture package", () => {
     assert.deepEqual(contribution.origins, ["http://127.0.0.1:43124"]);
     const source = readFileSync(join(fixtureDir, "src", "index.ts"), "utf8");
     assert.match(source, /@translunar\/plugin-sdk/);
+    assert.match(source, /verifyHmacSha256WebhookSignature/);
     assert.doesNotMatch(
       source,
       /(?:crates\/|packages\/contracts|apps\/desktop)/u,

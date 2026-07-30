@@ -221,8 +221,7 @@ impl Store {
         let config_hash = hash_json(&input.configuration)?;
         let origins_json = serde_json::to_string(&input.origins)?;
         let operations_json = serde_json::to_string(&input.operations)?;
-        let configuration_json =
-            serde_json::to_string(&input.configuration)?;
+        let configuration_json = serde_json::to_string(&input.configuration)?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -285,10 +284,10 @@ impl Store {
             .query_row(params![profile_id], row_to_profile_base)
             .optional()?
             .ok_or_else(|| StorageError::NotFound {
-                entity: "external_connector_profile".into(),
+                entity: "external_connector_profile",
                 id: profile_id.to_string(),
             })?;
-        Ok(self.with_credential_slots(profile)?)
+        self.with_credential_slots(profile)
     }
 
     pub fn list_external_connector_profiles(
@@ -305,10 +304,11 @@ impl Store {
                 |row| row.get(0),
             )?
         } else {
-            self.connection
-                .query_row("SELECT COUNT(*) FROM external_connector_profiles", [], |row| {
-                    row.get(0)
-                })?
+            self.connection.query_row(
+                "SELECT COUNT(*) FROM external_connector_profiles",
+                [],
+                |row| row.get(0),
+            )?
         };
         let mut statement = self.connection.prepare(
             "SELECT id, display_name, contribution_id, plugin_id, version_id,
@@ -321,10 +321,8 @@ impl Store {
              ORDER BY updated_at_ms DESC, id
              LIMIT ?2 OFFSET ?3",
         )?;
-        let rows = statement.query_map(
-            params![contribution_id, limit, offset],
-            row_to_profile_base,
-        )?;
+        let rows =
+            statement.query_map(params![contribution_id, limit, offset], row_to_profile_base)?;
         let mut items = Vec::new();
         for row in rows {
             items.push(self.with_credential_slots(row?)?);
@@ -345,8 +343,7 @@ impl Store {
         }
         let now = now_ms();
         let config_hash = hash_json(&update.configuration)?;
-        let configuration_json =
-            serde_json::to_string(&update.configuration)?;
+        let configuration_json = serde_json::to_string(&update.configuration)?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -380,14 +377,14 @@ impl Store {
                 .unwrap_or(false);
             return if exists {
                 Err(StorageError::EntityConflict {
-                    entity: "external_connector_profile".into(),
+                    entity: "external_connector_profile",
                     id: profile_id.to_string(),
                     expected_revision: update.expected_revision,
                     actual_revision: 0,
                 })
             } else {
                 Err(StorageError::NotFound {
-                    entity: "external_connector_profile".into(),
+                    entity: "external_connector_profile",
                     id: profile_id.to_string(),
                 })
             };
@@ -419,14 +416,14 @@ impl Store {
                 .unwrap_or(false);
             return if exists {
                 Err(StorageError::EntityConflict {
-                    entity: "external_connector_profile".into(),
+                    entity: "external_connector_profile",
                     id: profile_id.to_string(),
-                    expected_revision: expected_revision,
+                    expected_revision,
                     actual_revision: 0,
                 })
             } else {
                 Err(StorageError::NotFound {
-                    entity: "external_connector_profile".into(),
+                    entity: "external_connector_profile",
                     id: profile_id.to_string(),
                 })
             };
@@ -454,14 +451,14 @@ impl Store {
             )
             .optional()?
             .ok_or_else(|| StorageError::NotFound {
-                entity: "external_connector_profile".into(),
+                entity: "external_connector_profile",
                 id: profile_id.to_string(),
             })?;
         if profile_revision as u64 != expected_revision {
             return Err(StorageError::EntityConflict {
-                entity: "external_connector_profile".into(),
+                entity: "external_connector_profile",
                 id: profile_id.to_string(),
-                expected_revision: expected_revision,
+                expected_revision,
                 actual_revision: profile_revision as u64,
             });
         }
@@ -473,7 +470,7 @@ impl Store {
         )?;
         if updated == 0 {
             return Err(StorageError::NotFound {
-                entity: "external_connector_credential_slot".into(),
+                entity: "external_connector_credential_slot",
                 id: format!("{profile_id}/{slot_id}"),
             });
         }
@@ -625,7 +622,10 @@ impl Store {
     pub fn finalize_external_connector_success(
         &mut self,
         input: FinalizeExternalConnectorSuccess,
-    ) -> Result<(ExternalConnectorInvocationRecord, Option<ExternalConnectorCheckpointRecord>)> {
+    ) -> Result<(
+        ExternalConnectorInvocationRecord,
+        Option<ExternalConnectorCheckpointRecord>,
+    )> {
         let now = now_ms();
         let result_json = serde_json::to_string(&input.result)?;
         let result_hash = hash_json(&input.result)?;
@@ -651,7 +651,7 @@ impl Store {
             let actual = current_revision.unwrap_or(0) as u64;
             if actual != expected {
                 return Err(StorageError::EntityConflict {
-                    entity: "external_connector_checkpoint".into(),
+                    entity: "external_connector_checkpoint",
                     id: format!("{}/{}", input.profile_id, stream_id),
                     expected_revision: expected,
                     actual_revision: actual,
@@ -930,15 +930,9 @@ fn row_to_invocation(row: &Row<'_>) -> rusqlite::Result<ExternalConnectorInvocat
             .transpose()?,
         failure_code: row.get(11)?,
         failure_message: row.get(12)?,
-        retryable: row
-            .get::<_, Option<i64>>(13)?
-            .map(|value| value != 0),
-        retry_after_ms: row
-            .get::<_, Option<i64>>(14)?
-            .map(|value| value as u64),
-        checkpoint_revision: row
-            .get::<_, Option<i64>>(15)?
-            .map(|value| value as u64),
+        retryable: row.get::<_, Option<i64>>(13)?.map(|value| value != 0),
+        retry_after_ms: row.get::<_, Option<i64>>(14)?.map(|value| value as u64),
+        checkpoint_revision: row.get::<_, Option<i64>>(15)?.map(|value| value as u64),
         plugin_id: row.get(16)?,
         version_id: row.get(17)?,
         contribution_id: row.get(18)?,
@@ -1092,9 +1086,11 @@ mod tests {
             .expect("load checkpoint")
             .expect("present");
         assert_eq!(loaded.revision, 1);
-        assert!(!serde_json::to_string(&loaded.payload)
-            .unwrap()
-            .contains("secret"));
+        assert!(
+            !serde_json::to_string(&loaded.payload)
+                .unwrap()
+                .contains("secret")
+        );
     }
 
     #[test]
@@ -1129,9 +1125,11 @@ mod tests {
                 retry_after_ms: None,
             })
             .expect("fail");
-        assert!(store
-            .get_external_connector_checkpoint(&profile.id, "default")
-            .expect("checkpoint lookup")
-            .is_none());
+        assert!(
+            store
+                .get_external_connector_checkpoint(&profile.id, "default")
+                .expect("checkpoint lookup")
+                .is_none()
+        );
     }
 }
