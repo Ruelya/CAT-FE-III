@@ -25,7 +25,8 @@
     "07-27-plugin-tier1-declarative",
     "07-27-plugin-tier2-sandbox",
     "07-27-plugin-engine-connectors",
-    "07-27-plugin-qa-pipeline-sdk"
+    "07-27-plugin-qa-pipeline-sdk",
+    "07-30-plugin-management-release"
   ],
   "parent": "07-19-complete-full-cat-prd",
   "relatedFiles": [],

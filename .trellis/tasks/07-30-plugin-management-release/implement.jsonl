@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend pre-development checklist and generated protocol/Engine/storage quality gates."}
+{"file":".trellis/spec/backend/engine-boundary.md","reason":"Authoritative plugin lifecycle, exact-generation, package integrity, permissions, diagnostics, and transaction contracts."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Additive migration 24, immutable version provenance, CAS, restart, and rollback persistence requirements."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Closed typed package/catalog/lifecycle failures and sensitive path/payload redaction rules."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Electron main/preload/renderer ownership, generated RPC use, workbench accessibility, packaging, and E2E boundaries."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Trace package metadata and lifecycle state through runtime, Store, Engine, generated contracts, Electron, and React without duplicated authority."}
+{"file":".trellis/tasks/07-30-plugin-management-release/research/codebase-contracts.md","reason":"Confirmed current lifecycle, package, UI, release gaps, reusable code paths, and explicit P-10 versus P-11 boundary."}
