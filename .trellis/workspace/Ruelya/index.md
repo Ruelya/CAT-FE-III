@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 26
+- **Total Sessions**: 27
 - **Last Active**: 2026-07-30
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~894 | Active |
+| `journal-1.md` | ~930 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 27 | 2026-07-30 | External system connector SDK | `c55cbe7`, `fbdd4b9`, `0e47e86`, `f2f8d01` | `task/07-28-plugin-external-connectors` |
 | 26 | 2026-07-30 | Plugin AI actions and workbench panels | `1e4e739` | `task/07-28-plugin-ai-ui-host` |
 | 25 | 2026-07-28 | Complete public plugin QA and pipeline SDK | `d6458bdb965d7fbf21f2e726aad93a024c2da99b` | `master` |
 | 24 | 2026-07-27 | Complete plugin Engine connectors | `bb39ab6` | `master` |
