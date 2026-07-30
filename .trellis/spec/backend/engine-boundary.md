@@ -3357,3 +3357,152 @@ panel.authorizer.authorize(&PluginCapabilityCheck {
 let project = store.get_project(project_id)?; // Engine-derived bounded context
 store.record_plugin_ai_action_invocation(entry)?; // success requires provenance
 ```
+
+## External System Connector Boundary
+
+### 1. Scope / Trigger
+
+Use this contract when changing executable `externalConnector` descriptors,
+profiles, credential slots, Engine invocation routing, durable checkpoints,
+idempotency receipts, or plugin lifecycle compensation. The Engine owns exact
+plugin-generation identity, authorization, credential delivery, host selection,
+result validation, and persistence. Automation owns durable scheduling, retries,
+webhook ingress and delivery, and application writes.
+
+### 2. Signatures
+
+Executable descriptors use protocol `translunar.externalConnector.v1` with
+contract, configuration-schema, and checkpoint-schema version `1`. The closed
+operation set is `validateConfig`, `test`, `pull`, `push`, `poll`, and `webhook`;
+`validateConfig` and `test` are mandatory, and at least one exchange operation
+must be declared.
+
+Protocol v1 exposes these generated methods:
+
+```text
+externalConnector.catalog           EmptyParams                              -> ExternalConnectorCatalogPage
+externalConnector.profile.list      ExternalConnectorProfileListParams       -> ExternalConnectorProfilePage
+externalConnector.profile.create    ExternalConnectorProfileCreateParams     -> ExternalConnectorProfile
+externalConnector.profile.update    ExternalConnectorProfileUpdateParams     -> ExternalConnectorProfile
+externalConnector.profile.delete    ExternalConnectorProfileRevisionParams   -> EmptyResult
+externalConnector.credential.set    ExternalConnectorCredentialSetParams     -> ExternalConnectorCredentialStatus
+externalConnector.credential.delete ExternalConnectorCredentialDeleteParams  -> ExternalConnectorCredentialStatus
+externalConnector.credential.status ExternalConnectorCredentialStatusParams  -> ExternalConnectorCredentialStatus
+externalConnector.invoke            ExternalConnectorInvokeParams            -> ExternalConnectorInvokeResult
+externalConnector.checkpoint.get    ExternalConnectorCheckpointGetParams     -> ExternalConnectorCheckpointView
+```
+
+Migration 23 owns `external_connector_profiles`,
+`external_connector_credential_slots`, `external_connector_checkpoints`, and
+`external_connector_invocations`. Successful finalization uses
+`Store::finalize_external_connector_success(FinalizeExternalConnectorSuccess)`
+to commit the invocation receipt and optional checkpoint compare-and-swap in one
+SQLite transaction.
+
+### 3. Contracts
+
+- Executable registration is exact-generation: plugin ID, immutable version ID,
+  activation revision, contribution ID, contract version, and registry
+  generation must match. Inventory-only legacy descriptors remain readable but
+  cannot execute.
+- Registration and every call authorize `external.connector` for the exact
+  declared operation and contribution. Network use additionally authorizes
+  `network.connect` for every normalized fixed origin; plugin input cannot widen
+  either scope.
+- Tier 1 routes through the bounded declarative HTTP host: fixed origins, no
+  redirects, bounded request/response mapping, Engine-owned credential
+  injection, and declarative HMAC webhook verification. Tier 2 routes only
+  closed `externalConnector.*` methods through QuickJS and receives a bounded
+  named credential map that is cleared and zeroized after each invocation. Tier
+  3 routes the same envelopes through a supervised newline JSON-RPC process.
+  Production lifecycle registration must never use the fixture host.
+- Credential values live only under the dedicated
+  `translunar-cat.external-connector` keyring namespace. Serializable requests,
+  SQLite, audit, diagnostics, logs, checkpoints, idempotency records, and safe
+  errors may contain slot presence or status, never a credential value.
+- Same operation and idempotency key with the same canonical request hash
+  replays the bounded durable receipt; a changed hash is a typed conflict. Raw
+  item content and credentials are not retained in the idempotency index.
+- A validated success may advance a checkpoint only through the atomic
+  invocation-finalization transaction and the expected revision CAS. Failure,
+  cancellation, timeout, permission denial, host crash, malformed output, stale
+  owner, or stale registry generation never advances it.
+- Disable, revoke, degradation, shutdown, upgrade, rollback, and uninstall
+  cancel work and detach only the exact generation. Synchronous HTTP/process
+  results are rechecked against that generation after host return and before
+  persistence, so a detached late result cannot commit.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Unknown protocol/version/field/operation, missing required operation, or exceeded descriptor/envelope bound | Reject before registry or Store mutation |
+| Undeclared operation or missing exact `external.connector` grant | Typed permission/invalid-operation failure, denied audit, and no host call |
+| Origin is non-normalized, redirected, or lacks exact `network.connect` authority | Reject before network access; no origin widening |
+| Credential slot is undeclared, absent, stale, or placed in a serializable request | Typed configuration/authentication failure; no secret persistence or disclosure |
+| Same idempotency key and hash | Replay the completed bounded receipt without another host side effect |
+| Same idempotency key with a changed request hash | Typed conflict; existing receipt and checkpoint remain unchanged |
+| Expected checkpoint revision is stale or finalization storage fails | Entire finalization transaction fails; invocation is not reported successful and checkpoint does not advance |
+| Cancellation, deadline, host crash, malformed/oversize result, detach, or stale generation | Typed closed failure; no checkpoint advance; unrelated Engine/plugin calls remain healthy |
+
+### 5. Good / Base / Bad Cases
+
+- Good: register an authorized production Tier 3 connector, set declared slots
+  through the keyring boundary, invoke pull/push/poll/signed-webhook operations,
+  atomically commit receipts and checkpoints, replay a stable idempotency key,
+  restart, then revoke and observe exact-generation cancellation and detach.
+- Base: an inventory-only legacy connector remains discoverable but is marked
+  incompatible and cannot create an executable profile or invoke a host.
+- Bad: serialize a credential, route production lifecycle work through
+  `fixture_external_connector_host`, follow an HTTP redirect, authorize only a
+  coarse capability, persist before the post-host generation recheck, advance a
+  checkpoint after failure, or retry under a changed request hash.
+
+### 6. Tests Required
+
+- Runtime/SDK codec tests cover every operation, version, unknown field, closed
+  enum, malformed/non-finite JSON value, credential-in-request attempt, and all
+  configured depth/count/string/payload/deadline bounds.
+- Host tests cover Tier 1 request/response mapping, credential placement, HMAC
+  verification, fixed-origin enforcement and redirect rejection; Tier 2 named
+  credential isolation plus clearing after every invocation; and Tier 3
+  supervised JSON-RPC protocol/failure containment.
+- The official public-SDK-only process fixture must exercise authenticated
+  pull, push, poll, and signed webhook through the real Engine process host.
+- Storage tests cover migration 23, keyring slot-status-only persistence,
+  same-hash replay, changed-hash conflict, successful invocation plus checkpoint
+  CAS, failed finalization rollback, restart, and schema-version provenance.
+- Engine lifecycle tests cover exact-generation attach/detach, the post-host
+  generation recheck, cancel/timeout/revoke/disable/upgrade/rollback/uninstall,
+  cross-plugin isolation, and ordinary RPC health after each destructive event.
+- Release gates include strict Rust formatting and Clippy, focused workspace
+  tests, TypeScript lint/typecheck, contract generation drift, SDK/example
+  tests, documentation checks, and secret scans. Pre-existing unrelated
+  full-repository failures must be recorded rather than claimed as passing.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+let host = fixture_external_connector_host(); // test helper in production
+let result = host(descriptor, request, context).await?;
+store.write_checkpoint(result.checkpoint)?; // detached/stale call can commit
+```
+
+#### Correct
+
+```rust
+let lease = registry.acquire_exact(&profile.owner_token())?;
+authorize_external_connector_operation(&lease, request.operation())?;
+let result = lease.production_host.invoke(request, credentials).await?;
+registry.require_exact_generation(&lease)?;
+let (invocation, checkpoint) = store.finalize_external_connector_success(
+    FinalizeExternalConnectorSuccess {
+        expected_checkpoint_revision,
+        checkpoint_payload: result.checkpoint_payload(),
+        result: result.into_bounded_receipt(),
+        ..finalization
+    },
+)?;
+```
