@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend quality gate and required full-scope checks for the cross-layer implementation."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Regression, migration, restart, process smoke, generated-contract, and evidence quality requirements."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Verify atomic checkpoint/idempotency behavior, migration safety, constraints, CAS conflicts, and secret absence."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Verify stable failure codes, bounded diagnostics, and credential/content redaction."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Verify every generated and runtime consumer shares one contract and preserves exact provenance."}
+{"file":".trellis/tasks/07-28-plugin-external-connectors/research/codebase-contracts.md","reason":"Check implementation against researched existing patterns and the explicit automation boundary."}

@@ -1609,6 +1609,20 @@ var AI_ACTION_LIMITS = Object.freeze({
   methods: 16,
 });
 
+// src/external-connector.ts
+var EXTERNAL_CONNECTOR_LIMITS = Object.freeze({
+  configBytes: 64 * 1024,
+  items: 256,
+  itemTextBytes: 256 * 1024,
+  metadataEntries: 32,
+  checkpointBytes: 64 * 1024,
+  deadlineMs: 12e4,
+  requestBytes: 256 * 1024,
+  responseBytes: 1024 * 1024,
+  requestIdBytes: 128,
+  credentialBytes: 16 * 1024,
+});
+
 // src/index.ts
 var MAX_ENGINE_CONNECTOR_CREDENTIAL_BYTES = 16 * 1024;
 var ENGINE_CONNECTOR_LIMITS = Object.freeze({

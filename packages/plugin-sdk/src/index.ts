@@ -18,9 +18,11 @@ import {
   validatePipelineStepDescriptor,
   validateQaRuleDescriptor,
 } from "./qa-pipeline.js";
+import type { ExternalConnectorContributionDescriptorV1 } from "./external-connector.js";
 
 export * from "./ai-ui.js";
 export * from "./qa-pipeline.js";
+export * from "./external-connector.js";
 
 export const HOST_API_VERSION = 1;
 export const NORMALIZED_MANIFEST_VERSION = 1;
@@ -683,7 +685,8 @@ export type PipelineStepContributionDescriptor =
   | LegacyPipelineStepContributionDescriptor
   | PipelineStepContributionDescriptorV1;
 
-export interface ExternalConnectorContributionDescriptor {
+/** Released inventory-only shape. Readable but never executable. */
+export interface LegacyExternalConnectorContributionDescriptor {
   kind: "externalConnector";
   descriptorVersion: 1;
   id: string;
@@ -692,7 +695,12 @@ export interface ExternalConnectorContributionDescriptor {
   transports: string[];
   checkpointVersion: number;
   capabilities: Record<string, boolean>;
+  contractVersion?: undefined;
 }
+
+export type ExternalConnectorContributionDescriptor =
+  | LegacyExternalConnectorContributionDescriptor
+  | ExternalConnectorContributionDescriptorV1;
 
 export type PluginContributionDescriptor =
   | FilterContributionDescriptor

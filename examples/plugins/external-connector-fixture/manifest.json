@@ -1,0 +1,81 @@
+{
+  "manifestVersion": 2,
+  "id": "example.external-connector-fixture",
+  "displayName": "External connector fixture",
+  "version": "1.0.0",
+  "hostApi": { "min": 1, "max": 1 },
+  "runtime": {
+    "runtimeVersion": 1,
+    "protocolVersion": 1,
+    "entry": { "kind": "node", "path": "bin/external-connector-fixture.mjs" }
+  },
+  "contributions": [
+    {
+      "kind": "externalConnector",
+      "descriptorVersion": 1,
+      "id": "example.external-connector-fixture.system",
+      "version": "1.0.0",
+      "displayName": "Fixture external system",
+      "transports": ["http"],
+      "checkpointVersion": 1,
+      "capabilities": { "pull": true, "push": true, "poll": true, "webhook": true },
+      "protocol": "translunar.externalConnector.v1",
+      "contractVersion": 1,
+      "configSchemaVersion": 1,
+      "checkpointSchemaVersion": 1,
+      "operations": ["validateConfig", "test", "pull", "push", "poll", "webhook"],
+      "origins": ["http://127.0.0.1:43124"],
+      "credentialSlots": [
+        {
+          "id": "apiToken",
+          "label": "API token",
+          "required": true,
+          "operations": ["test", "pull", "push", "poll", "webhook"]
+        }
+      ],
+      "configSchema": {
+        "schemaVersion": 1,
+        "fields": [
+          {
+            "key": "scenario",
+            "label": "Scenario",
+            "fieldType": "text",
+            "required": false,
+            "defaultValue": "success"
+          }
+        ]
+      },
+      "limits": {
+        "maxConfigBytes": 65536,
+        "maxItems": 256,
+        "maxItemTextBytes": 262144,
+        "maxMetadataEntries": 32,
+        "maxCheckpointBytes": 65536,
+        "maxDeadlineMs": 120000,
+        "maxRequestBytes": 262144,
+        "maxResponseBytes": 1048576
+      }
+    }
+  ],
+  "permissions": [],
+  "capabilities": [
+    {
+      "capabilityId": "external.connector",
+      "required": true,
+      "contributionId": "example.external-connector-fixture.system",
+      "scope": {
+        "kind": "operations",
+        "operations": ["validateConfig", "test", "pull", "push", "poll", "webhook"]
+      }
+    },
+    {
+      "capabilityId": "network.connect",
+      "required": true,
+      "contributionId": "example.external-connector-fixture.system",
+      "scope": {
+        "kind": "network",
+        "origins": ["http://127.0.0.1:43124"]
+      }
+    }
+  ]
+}

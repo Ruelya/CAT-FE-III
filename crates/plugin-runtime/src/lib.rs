@@ -3,6 +3,7 @@
 mod ai_ui;
 mod connector;
 mod declarative;
+mod external_connector;
 mod qa_pipeline;
 mod sandbox;
 
@@ -13,6 +14,7 @@ pub use declarative::{
     DeclarativeFilterLimits, DeclarativePipelineDefinitionV1, DeclarativePipelineOperation,
     DeclarativeQaPackDefinitionV1,
 };
+pub use external_connector::*;
 pub use qa_pipeline::*;
 pub use sandbox::{
     DEFAULT_SANDBOX_LIMITS, SANDBOX_PROTOCOL_VERSION, SandboxCancellationToken,
@@ -1200,9 +1202,106 @@ pub struct ExternalConnectorContributionDescriptor {
     pub id: String,
     pub version: String,
     pub display_name: String,
+    /// Inventory-era transport list. Executable V1 still serializes a stable
+    /// inventory projection derived from declared origins/operations.
     pub transports: Vec<String>,
     pub checkpoint_version: u32,
     pub capabilities: BTreeMap<String, bool>,
+    /// Absent only on the released inventory-only descriptor. Such a
+    /// descriptor remains readable but is never executable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contract_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_schema_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_schema_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operations: Option<Vec<ExternalConnectorOperationV1>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origins: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_slots: Option<Vec<ExternalConnectorCredentialSlotV1>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_schema: Option<EngineConnectorConfigSchemaV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits: Option<ExternalConnectorLimitsV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declarative: Option<Box<DeclarativeExternalConnectorDefinitionV1>>,
+}
+
+impl ExternalConnectorContributionDescriptor {
+    pub fn validate_executable_v1(&self, tier: PluginTier) -> Result<()> {
+        let protocol = self.protocol.as_deref().ok_or_else(|| {
+            PluginRuntimeError::CapabilityUnsupported(
+                "external connector protocol is missing".to_string(),
+            )
+        })?;
+        let operations = self.operations.as_ref().ok_or_else(|| {
+            PluginRuntimeError::CapabilityUnsupported(
+                "external connector operations are missing".to_string(),
+            )
+        })?;
+        let origins = self.origins.as_ref().ok_or_else(|| {
+            PluginRuntimeError::CapabilityUnsupported(
+                "external connector origins are missing".to_string(),
+            )
+        })?;
+        let credential_slots = self.credential_slots.as_deref().unwrap_or(&[]);
+        let config_schema = self.config_schema.as_ref().ok_or_else(|| {
+            PluginRuntimeError::CapabilityUnsupported(
+                "external connector config schema is missing".to_string(),
+            )
+        })?;
+        let limits = self.limits.as_ref().ok_or_else(|| {
+            PluginRuntimeError::CapabilityUnsupported(
+                "external connector limits are missing".to_string(),
+            )
+        })?;
+        let executable = ExternalConnectorExecutableDescriptorV1 {
+            protocol: protocol.to_string(),
+            contract_version: self.contract_version.unwrap_or(0),
+            config_schema_version: self.config_schema_version.unwrap_or(0),
+            checkpoint_schema_version: self.checkpoint_schema_version.unwrap_or(0),
+            operations: operations.clone(),
+            origins: origins.clone(),
+            credential_slots: credential_slots.to_vec(),
+            config_schema: config_schema.clone(),
+            limits: limits.clone(),
+            declarative: self.declarative.clone(),
+        };
+        executable.validate(tier)
+    }
+
+    pub fn is_executable_v1(&self, tier: PluginTier) -> bool {
+        self.validate_executable_v1(tier).is_ok()
+    }
+
+    pub fn executable_v1(
+        &self,
+        tier: PluginTier,
+    ) -> Result<ExternalConnectorExecutableDescriptorV1> {
+        self.validate_executable_v1(tier)?;
+        Ok(ExternalConnectorExecutableDescriptorV1 {
+            protocol: self.protocol.clone().unwrap_or_default(),
+            contract_version: self.contract_version.unwrap_or(0),
+            config_schema_version: self.config_schema_version.unwrap_or(0),
+            checkpoint_schema_version: self.checkpoint_schema_version.unwrap_or(0),
+            operations: self.operations.clone().unwrap_or_default(),
+            origins: self.origins.clone().unwrap_or_default(),
+            credential_slots: self.credential_slots.clone().unwrap_or_default(),
+            config_schema: self
+                .config_schema
+                .clone()
+                .expect("validated executable descriptor has config schema"),
+            limits: self
+                .limits
+                .clone()
+                .expect("validated executable descriptor has limits"),
+            declarative: self.declarative.clone(),
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -2213,6 +2312,7 @@ fn contribution_allowed(tier: PluginTier, kind: PluginContributionKind) -> bool 
                 | PluginContributionKind::EngineConnector
                 | PluginContributionKind::QaRule
                 | PluginContributionKind::PipelineStep
+                | PluginContributionKind::ExternalConnector
         ),
         PluginTier::Sandbox => true,
         PluginTier::Process => !matches!(kind, PluginContributionKind::UiPanel),
@@ -2227,6 +2327,13 @@ fn validate_tier_contribution(
     if let PluginContributionDescriptor::EngineConnector(value) = contribution {
         // The released skeletal descriptor has no contractVersion. Keep it
         // inventory-readable, but only the strict V1 shape is executable.
+        return if value.contract_version.is_some() || require_definition {
+            value.validate_executable_v1(tier)
+        } else {
+            Ok(())
+        };
+    }
+    if let PluginContributionDescriptor::ExternalConnector(value) = contribution {
         return if value.contract_version.is_some() || require_definition {
             value.validate_executable_v1(tier)
         } else {
@@ -2442,6 +2549,8 @@ fn validate_contribution(
                     "external connector has too many capabilities".to_string(),
                 ));
             }
+            // Inventory-only descriptors remain readable. Executable V1 is
+            // validated against the package runtime tier in validate_tier_contribution.
             Ok(())
         }
     }

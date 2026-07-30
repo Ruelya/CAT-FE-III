@@ -46,6 +46,7 @@ mod alignment;
 mod collab;
 mod curation;
 mod discussion;
+mod external_connector;
 mod lifecycle;
 mod plugin;
 mod plugin_permissions;
@@ -74,6 +75,14 @@ pub use alignment::{
 pub use collab::*;
 pub use curation::*;
 pub use discussion::*;
+pub use external_connector::{
+    ClaimExternalConnectorIdempotency, ExternalConnectorCheckpointRecord,
+    ExternalConnectorCredentialPresence, ExternalConnectorIdempotencyClaim,
+    ExternalConnectorInvocationRecord, ExternalConnectorInvocationStatus,
+    ExternalConnectorProfileRecord, ExternalConnectorProfileUpdate,
+    FinalizeExternalConnectorFailure, FinalizeExternalConnectorSuccess,
+    NewExternalConnectorProfile,
+};
 pub use lifecycle::{
     AnalysisProfileRecord, AnalysisRunRecord, ArchiveDocumentData, ArchiveSegmentData,
     ArchiveTermbaseData, ArchiveTmLibraryData, GlobalSearchQuery, GlobalSearchResult,

@@ -1,0 +1,5 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend pre-development checklist and cross-layer ownership rules for Rust Engine, protocol, storage, and process smoke changes."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Additive SQLite migration, transaction, restart, conflict, and secret-persistence requirements for profiles, checkpoints, and idempotency."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Typed safe failures and sensitive-data redaction rules across runtime, Engine, storage, and protocol boundaries."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Map descriptor, SDK, protocol, Store, Engine, host, and later automation data flow without duplicated contracts."}
+{"file":".trellis/tasks/07-28-plugin-external-connectors/research/codebase-contracts.md","reason":"Repository evidence, reusable precedents, and the P-08 versus automation ownership boundary established during planning."}
