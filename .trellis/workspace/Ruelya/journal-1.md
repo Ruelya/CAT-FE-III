@@ -892,3 +892,39 @@ Shipped versioned plugin AI actions and isolated workbench panels, closed Engine
 ### Status
 
 [OK] **Completed**
+
+
+## Session 27: External system connector SDK
+
+**Date**: 2026-07-30
+**Task**: External system connector SDK
+**Branch**: `task/07-28-plugin-external-connectors`
+
+### Summary
+
+Delivered and independently reviewed the V1 external connector SDK, production Tier 1/2/3 hosts, Engine-owned credentials, checkpoints/idempotency, public fixture, contracts, docs, and acceptance evidence; recorded matching master CI baseline failures.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c55cbe7` | (see git log) |
+| `fbdd4b9` | (see git log) |
+| `0e47e86` | (see git log) |
+| `f2f8d01` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

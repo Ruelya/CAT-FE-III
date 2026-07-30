@@ -209,6 +209,16 @@ pub mod methods {
     pub const PLUGIN_AI_ACTION_HISTORY_LIST: &str = "plugin.aiAction.history.list";
     pub const PLUGIN_UI_PANEL_LIST: &str = "plugin.uiPanel.list";
     pub const PLUGIN_UI_PANEL_BRIDGE_CALL: &str = "plugin.uiPanel.bridge.call";
+    pub const EXTERNAL_CONNECTOR_CATALOG: &str = "externalConnector.catalog";
+    pub const EXTERNAL_CONNECTOR_PROFILE_LIST: &str = "externalConnector.profile.list";
+    pub const EXTERNAL_CONNECTOR_PROFILE_CREATE: &str = "externalConnector.profile.create";
+    pub const EXTERNAL_CONNECTOR_PROFILE_UPDATE: &str = "externalConnector.profile.update";
+    pub const EXTERNAL_CONNECTOR_PROFILE_DELETE: &str = "externalConnector.profile.delete";
+    pub const EXTERNAL_CONNECTOR_CREDENTIAL_SET: &str = "externalConnector.credential.set";
+    pub const EXTERNAL_CONNECTOR_CREDENTIAL_DELETE: &str = "externalConnector.credential.delete";
+    pub const EXTERNAL_CONNECTOR_CREDENTIAL_STATUS: &str = "externalConnector.credential.status";
+    pub const EXTERNAL_CONNECTOR_INVOKE: &str = "externalConnector.invoke";
+    pub const EXTERNAL_CONNECTOR_CHECKPOINT_GET: &str = "externalConnector.checkpoint.get";
     pub const COLLAB_MEMBER_LIST: &str = "collab.member.list";
     pub const COLLAB_MEMBER_ADD: &str = "collab.member.add";
     pub const COLLAB_MEMBER_REMOVE: &str = "collab.member.remove";
@@ -2114,6 +2124,35 @@ pub struct RpcMethodCatalog {
     #[serde(rename = "plugin.uiPanel.bridge.call")]
     pub plugin_ui_panel_bridge_call:
         MethodContract<PluginUiPanelBridgeCallParams, PluginUiPanelBridgeCallResult>,
+    #[serde(rename = "externalConnector.catalog")]
+    pub external_connector_catalog: MethodContract<EmptyParams, ExternalConnectorCatalogPage>,
+    #[serde(rename = "externalConnector.profile.list")]
+    pub external_connector_profile_list:
+        MethodContract<ExternalConnectorProfileListParams, ExternalConnectorProfilePage>,
+    #[serde(rename = "externalConnector.profile.create")]
+    pub external_connector_profile_create:
+        MethodContract<ExternalConnectorProfileCreateParams, ExternalConnectorProfile>,
+    #[serde(rename = "externalConnector.profile.update")]
+    pub external_connector_profile_update:
+        MethodContract<ExternalConnectorProfileUpdateParams, ExternalConnectorProfile>,
+    #[serde(rename = "externalConnector.profile.delete")]
+    pub external_connector_profile_delete:
+        MethodContract<ExternalConnectorProfileRevisionParams, EmptyResult>,
+    #[serde(rename = "externalConnector.credential.set")]
+    pub external_connector_credential_set:
+        MethodContract<ExternalConnectorCredentialSetParams, ExternalConnectorCredentialStatus>,
+    #[serde(rename = "externalConnector.credential.delete")]
+    pub external_connector_credential_delete:
+        MethodContract<ExternalConnectorCredentialDeleteParams, ExternalConnectorCredentialStatus>,
+    #[serde(rename = "externalConnector.credential.status")]
+    pub external_connector_credential_status:
+        MethodContract<ExternalConnectorCredentialStatusParams, ExternalConnectorCredentialStatus>,
+    #[serde(rename = "externalConnector.invoke")]
+    pub external_connector_invoke:
+        MethodContract<ExternalConnectorInvokeParams, ExternalConnectorInvokeResult>,
+    #[serde(rename = "externalConnector.checkpoint.get")]
+    pub external_connector_checkpoint_get:
+        MethodContract<ExternalConnectorCheckpointGetParams, ExternalConnectorCheckpointView>,
     #[serde(rename = "collab.member.list")]
     pub collab_member_list: MethodContract<CollabProjectParams, CollabMemberListResult>,
     #[serde(rename = "collab.member.add")]

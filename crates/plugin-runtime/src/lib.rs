@@ -3,6 +3,7 @@
 mod ai_ui;
 mod connector;
 mod declarative;
+mod external_connector;
 mod qa_pipeline;
 mod sandbox;
 
@@ -13,6 +14,7 @@ pub use declarative::{
     DeclarativeFilterLimits, DeclarativePipelineDefinitionV1, DeclarativePipelineOperation,
     DeclarativeQaPackDefinitionV1,
 };
+pub use external_connector::*;
 pub use qa_pipeline::*;
 pub use sandbox::{
     DEFAULT_SANDBOX_LIMITS, SANDBOX_PROTOCOL_VERSION, SandboxCancellationToken,
@@ -108,6 +110,8 @@ pub enum PluginRuntimeError {
     Protocol(String),
     #[error("plugin operation failed: {0}")]
     Remote(String),
+    #[error("external connector failed: {0:?}")]
+    ExternalConnectorFailure(ExternalConnectorFailureV1),
     #[error("plugin timed out after {0:?}")]
     Timeout(Duration),
     #[error("I/O failed: {0}")]
@@ -1200,9 +1204,106 @@ pub struct ExternalConnectorContributionDescriptor {
     pub id: String,
     pub version: String,
     pub display_name: String,
+    /// Inventory-era transport list. Executable V1 still serializes a stable
+    /// inventory projection derived from declared origins/operations.
     pub transports: Vec<String>,
     pub checkpoint_version: u32,
     pub capabilities: BTreeMap<String, bool>,
+    /// Absent only on the released inventory-only descriptor. Such a
+    /// descriptor remains readable but is never executable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contract_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_schema_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_schema_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operations: Option<Vec<ExternalConnectorOperationV1>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origins: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_slots: Option<Vec<ExternalConnectorCredentialSlotV1>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_schema: Option<EngineConnectorConfigSchemaV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits: Option<ExternalConnectorLimitsV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declarative: Option<Box<DeclarativeExternalConnectorDefinitionV1>>,
+}
+
+impl ExternalConnectorContributionDescriptor {
+    pub fn validate_executable_v1(&self, tier: PluginTier) -> Result<()> {
+        let protocol = self.protocol.as_deref().ok_or_else(|| {
+            PluginRuntimeError::CapabilityUnsupported(
+                "external connector protocol is missing".to_string(),
+            )
+        })?;
+        let operations = self.operations.as_ref().ok_or_else(|| {
+            PluginRuntimeError::CapabilityUnsupported(
+                "external connector operations are missing".to_string(),
+            )
+        })?;
+        let origins = self.origins.as_ref().ok_or_else(|| {
+            PluginRuntimeError::CapabilityUnsupported(
+                "external connector origins are missing".to_string(),
+            )
+        })?;
+        let credential_slots = self.credential_slots.as_deref().unwrap_or(&[]);
+        let config_schema = self.config_schema.as_ref().ok_or_else(|| {
+            PluginRuntimeError::CapabilityUnsupported(
+                "external connector config schema is missing".to_string(),
+            )
+        })?;
+        let limits = self.limits.as_ref().ok_or_else(|| {
+            PluginRuntimeError::CapabilityUnsupported(
+                "external connector limits are missing".to_string(),
+            )
+        })?;
+        let executable = ExternalConnectorExecutableDescriptorV1 {
+            protocol: protocol.to_string(),
+            contract_version: self.contract_version.unwrap_or(0),
+            config_schema_version: self.config_schema_version.unwrap_or(0),
+            checkpoint_schema_version: self.checkpoint_schema_version.unwrap_or(0),
+            operations: operations.clone(),
+            origins: origins.clone(),
+            credential_slots: credential_slots.to_vec(),
+            config_schema: config_schema.clone(),
+            limits: limits.clone(),
+            declarative: self.declarative.clone(),
+        };
+        executable.validate(tier)
+    }
+
+    pub fn is_executable_v1(&self, tier: PluginTier) -> bool {
+        self.validate_executable_v1(tier).is_ok()
+    }
+
+    pub fn executable_v1(
+        &self,
+        tier: PluginTier,
+    ) -> Result<ExternalConnectorExecutableDescriptorV1> {
+        self.validate_executable_v1(tier)?;
+        Ok(ExternalConnectorExecutableDescriptorV1 {
+            protocol: self.protocol.clone().unwrap_or_default(),
+            contract_version: self.contract_version.unwrap_or(0),
+            config_schema_version: self.config_schema_version.unwrap_or(0),
+            checkpoint_schema_version: self.checkpoint_schema_version.unwrap_or(0),
+            operations: self.operations.clone().unwrap_or_default(),
+            origins: self.origins.clone().unwrap_or_default(),
+            credential_slots: self.credential_slots.clone().unwrap_or_default(),
+            config_schema: self
+                .config_schema
+                .clone()
+                .expect("validated executable descriptor has config schema"),
+            limits: self
+                .limits
+                .clone()
+                .expect("validated executable descriptor has limits"),
+            declarative: self.declarative.clone(),
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1572,6 +1673,7 @@ impl NormalizedPluginManifest {
                 PluginContributionDescriptor::EngineConnector(_)
                     | PluginContributionDescriptor::QaRule(_)
                     | PluginContributionDescriptor::PipelineStep(_)
+                    | PluginContributionDescriptor::ExternalConnector(_)
             )
         });
         if filters.is_empty() && !has_public_process_contribution {
@@ -2213,6 +2315,7 @@ fn contribution_allowed(tier: PluginTier, kind: PluginContributionKind) -> bool 
                 | PluginContributionKind::EngineConnector
                 | PluginContributionKind::QaRule
                 | PluginContributionKind::PipelineStep
+                | PluginContributionKind::ExternalConnector
         ),
         PluginTier::Sandbox => true,
         PluginTier::Process => !matches!(kind, PluginContributionKind::UiPanel),
@@ -2227,6 +2330,13 @@ fn validate_tier_contribution(
     if let PluginContributionDescriptor::EngineConnector(value) = contribution {
         // The released skeletal descriptor has no contractVersion. Keep it
         // inventory-readable, but only the strict V1 shape is executable.
+        return if value.contract_version.is_some() || require_definition {
+            value.validate_executable_v1(tier)
+        } else {
+            Ok(())
+        };
+    }
+    if let PluginContributionDescriptor::ExternalConnector(value) = contribution {
         return if value.contract_version.is_some() || require_definition {
             value.validate_executable_v1(tier)
         } else {
@@ -2442,6 +2552,8 @@ fn validate_contribution(
                     "external connector has too many capabilities".to_string(),
                 ));
             }
+            // Inventory-only descriptors remain readable. Executable V1 is
+            // validated against the package runtime tier in validate_tier_contribution.
             Ok(())
         }
     }
@@ -2699,6 +2811,23 @@ impl HandshakeContributions {
                 .collect(),
         }
     }
+
+    fn external_connector_descriptors(&self) -> Vec<ExternalConnectorContributionDescriptor> {
+        match self {
+            Self::Legacy(_) => Vec::new(),
+            Self::Normalized(contributions) => contributions
+                .iter()
+                .filter_map(|contribution| match contribution {
+                    PluginContributionDescriptor::ExternalConnector(descriptor)
+                        if descriptor.contract_version.is_some() =>
+                    {
+                        Some(descriptor.clone())
+                    }
+                    _ => None,
+                })
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -2802,6 +2931,7 @@ pub struct PluginProcess {
     connector_descriptors: Vec<EngineConnectorContributionDescriptor>,
     qa_rule_descriptors: Vec<QaRuleContributionDescriptor>,
     pipeline_step_descriptors: Vec<PipelineStepContributionDescriptor>,
+    external_connector_descriptors: Vec<ExternalConnectorContributionDescriptor>,
     state: Mutex<Option<ProcessState>>,
     start_lock: Mutex<()>,
     next_generation: AtomicU64,
@@ -2833,12 +2963,31 @@ impl PluginProcess {
         qa_rule_descriptors: Vec<QaRuleContributionDescriptor>,
         pipeline_step_descriptors: Vec<PipelineStepContributionDescriptor>,
     ) -> Self {
+        Self::new_with_all_public_descriptors(
+            package_dir,
+            manifest,
+            connector_descriptors,
+            qa_rule_descriptors,
+            pipeline_step_descriptors,
+            Vec::new(),
+        )
+    }
+
+    pub fn new_with_all_public_descriptors(
+        package_dir: PathBuf,
+        manifest: PluginManifest,
+        connector_descriptors: Vec<EngineConnectorContributionDescriptor>,
+        qa_rule_descriptors: Vec<QaRuleContributionDescriptor>,
+        pipeline_step_descriptors: Vec<PipelineStepContributionDescriptor>,
+        external_connector_descriptors: Vec<ExternalConnectorContributionDescriptor>,
+    ) -> Self {
         Self {
             package_dir,
             manifest,
             connector_descriptors,
             qa_rule_descriptors,
             pipeline_step_descriptors,
+            external_connector_descriptors,
             state: Mutex::new(None),
             start_lock: Mutex::new(()),
             next_generation: AtomicU64::new(1),
@@ -2880,12 +3029,25 @@ impl PluginProcess {
                 _ => None,
             })
             .collect();
-        Ok(Self::new_with_public_descriptors(
+        let external_connector_descriptors = manifest
+            .contributions
+            .iter()
+            .filter_map(|contribution| match contribution {
+                PluginContributionDescriptor::ExternalConnector(descriptor)
+                    if descriptor.contract_version.is_some() =>
+                {
+                    Some(descriptor.clone())
+                }
+                _ => None,
+            })
+            .collect();
+        Ok(Self::new_with_all_public_descriptors(
             package_dir,
             manifest.to_legacy_process_manifest()?,
             connector_descriptors,
             qa_rule_descriptors,
             pipeline_step_descriptors,
+            external_connector_descriptors,
         ))
     }
 
@@ -2931,6 +3093,16 @@ impl PluginProcess {
             if !pipeline_step_ids.insert(descriptor.id.as_str()) {
                 return Err(PluginRuntimeError::InvalidManifest(format!(
                     "duplicate process pipeline contribution {}",
+                    descriptor.id
+                )));
+            }
+        }
+        let mut external_connector_ids = BTreeSet::new();
+        for descriptor in &self.external_connector_descriptors {
+            descriptor.validate_executable_v1(PluginTier::Process)?;
+            if !external_connector_ids.insert(descriptor.id.as_str()) {
+                return Err(PluginRuntimeError::InvalidManifest(format!(
+                    "duplicate process external connector contribution {}",
                     descriptor.id
                 )));
             }
@@ -2990,6 +3162,15 @@ impl PluginProcess {
             self.stop();
             return Err(PluginRuntimeError::Protocol(
                 "plugin handshake pipeline step inventory does not match the manifest".to_string(),
+            ));
+        }
+        if handshake.contributions.external_connector_descriptors()
+            != self.external_connector_descriptors
+        {
+            self.stop();
+            return Err(PluginRuntimeError::Protocol(
+                "plugin handshake external connector inventory does not match the manifest"
+                    .to_string(),
             ));
         }
         Ok(())
@@ -3189,6 +3370,36 @@ impl PluginProcess {
     ) -> Result<T> {
         self.ensure_started()?;
         self.call_started(method, params, timeout)
+    }
+
+    pub fn call_external_connector(
+        &self,
+        contribution_id: &str,
+        request: &ExternalConnectorRequestV1,
+        context: &ExternalConnectorInvocationContextV1,
+        timeout: Duration,
+    ) -> Result<ExternalConnectorResultV1> {
+        let descriptor = self
+            .external_connector_descriptors
+            .iter()
+            .find(|descriptor| descriptor.id == contribution_id)
+            .ok_or_else(|| {
+                PluginRuntimeError::CapabilityUnsupported(format!(
+                    "unknown external connector contribution {contribution_id}"
+                ))
+            })?;
+        let executable = descriptor.executable_v1(PluginTier::Process)?;
+        request.validate(&executable.limits)?;
+        context.validate_slots(&executable.slots_for(request.operation()))?;
+        let method = format!("externalConnector.{}", request.operation().as_str());
+        let params = json!({
+            "request": request,
+            "credentials": context.credentials,
+        });
+        let deadline = timeout.min(Duration::from_millis(request.header().deadline_ms));
+        let result = self.call::<ExternalConnectorResultV1>(&method, params, deadline)?;
+        result.validate(&executable.limits)?;
+        Ok(result)
     }
 
     pub fn call_qa_rule(
@@ -4098,6 +4309,16 @@ fn dispatch_frame(
         return;
     }
     if frame.get("error").is_some() {
+        if call.method.starts_with("externalConnector.")
+            && let Some(data) = frame.pointer("/error/data").cloned()
+            && let Ok(failure) = serde_json::from_value::<ExternalConnectorFailureV1>(data)
+            && failure.validate().is_ok()
+        {
+            let _ = call
+                .sender
+                .send(Err(PluginRuntimeError::ExternalConnectorFailure(failure)));
+            return;
+        }
         let _ = call.sender.send(Err(PluginRuntimeError::Remote(format!(
             "{}: plugin operation failed",
             call.method
@@ -4396,6 +4617,9 @@ impl ProcessDocumentFilter {
                 let kind = match &other {
                     PluginRuntimeError::Timeout(_) => PluginProcessFailureKind::Timeout,
                     PluginRuntimeError::Protocol(_) | PluginRuntimeError::Json(_) => {
+                        PluginProcessFailureKind::Protocol
+                    }
+                    PluginRuntimeError::ExternalConnectorFailure(_) => {
                         PluginProcessFailureKind::Protocol
                     }
                     PluginRuntimeError::Io(_) => PluginProcessFailureKind::Io,
@@ -4761,6 +4985,7 @@ pub fn remove_package(path: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use std::fs;
+    use std::process::Command;
     use tempfile::tempdir;
 
     fn v2_contributions() -> Vec<Value> {
@@ -4876,6 +5101,81 @@ mod tests {
             "limits": EngineConnectorLimitsV1::default()
         }))
         .expect("process connector descriptor")
+    }
+
+    fn external_connector_request(
+        operation: ExternalConnectorOperationV1,
+    ) -> ExternalConnectorRequestV1 {
+        let header = ExternalConnectorRequestHeaderV1 {
+            contract_version: 1,
+            request_id: format!("fixture-{}", operation.as_str()),
+            deadline_ms: 2_000,
+            binding: ExternalConnectorProfileBindingV1 {
+                profile_id: "fixture-profile".into(),
+                contribution_id: "example.external-connector-fixture.system".into(),
+                plugin_id: "example.external-connector-fixture".into(),
+                version_id: "install-v1:example.external-connector-fixture:1.0.0".into(),
+                activation_revision: 1,
+                contract_version: 1,
+                config_schema_version: 1,
+                checkpoint_schema_version: 1,
+            },
+            idempotency_key: Some(format!("fixture-{}", operation.as_str())),
+            expected_checkpoint_revision: None,
+            attempt: 1,
+            config: BTreeMap::new(),
+        };
+        match operation {
+            ExternalConnectorOperationV1::Pull => ExternalConnectorRequestV1::Pull {
+                header,
+                payload: ExternalConnectorPullPayloadV1 {
+                    stream_id: "default".into(),
+                    cursor: None,
+                    limit: 10,
+                    source_locale: None,
+                    target_locale: None,
+                },
+            },
+            ExternalConnectorOperationV1::Push => ExternalConnectorRequestV1::Push {
+                header,
+                payload: ExternalConnectorPushPayloadV1 {
+                    stream_id: "default".into(),
+                    items: vec![ExternalConnectorItemV1 {
+                        external_id: "item-1".into(),
+                        external_revision: None,
+                        source_locale: "en".into(),
+                        target_locale: "zh".into(),
+                        source_text: "hello".into(),
+                        target_text: None,
+                        context: None,
+                        metadata: BTreeMap::new(),
+                    }],
+                },
+            },
+            ExternalConnectorOperationV1::Poll => ExternalConnectorRequestV1::Poll {
+                header,
+                payload: ExternalConnectorPollPayloadV1 {
+                    stream_id: "default".into(),
+                    cursor: None,
+                    limit: 10,
+                },
+            },
+            ExternalConnectorOperationV1::Webhook => ExternalConnectorRequestV1::Webhook {
+                header,
+                payload: ExternalConnectorWebhookPayloadV1 {
+                    stream_id: "default".into(),
+                    event_id: "event-1".into(),
+                    event_type: "translation.updated".into(),
+                    body: json!({"id": "event-1"}),
+                    headers: BTreeMap::new(),
+                    signature: Some(
+                        "sha256=697e575fd989c9f6c2fc161d5914efafed4701b5ce1e72903be07f0f7253452d"
+                            .into(),
+                    ),
+                },
+            },
+            _ => unreachable!("fixture exchange operations only"),
+        }
     }
 
     fn connector_generate_request(
@@ -5938,6 +6238,67 @@ setInterval(() => {}, 1_000);
             .call("test.echo", json!(true), Duration::from_secs(2))
             .expect("late event is discarded");
         assert!(echoed);
+    }
+
+    #[test]
+    fn official_external_connector_fixture_runs_all_exchange_operations_through_process_host() {
+        if Command::new(node_executable())
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
+        let package_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples/plugins/external-connector-fixture");
+        let manifest = load_normalized_manifest(&package_dir).expect("official fixture manifest");
+        let descriptor = manifest
+            .contributions
+            .iter()
+            .find_map(|contribution| match contribution {
+                PluginContributionDescriptor::ExternalConnector(descriptor) => {
+                    Some(descriptor.clone())
+                }
+                _ => None,
+            })
+            .expect("official fixture connector");
+        let process = PluginProcess::from_normalized_manifest(package_dir, &manifest)
+            .expect("official process host");
+        let fixture_credential = ["fixture", "token", "not", "for", "production"].join("-");
+        let context = ExternalConnectorInvocationContextV1 {
+            credentials: BTreeMap::from([("apiToken".into(), fixture_credential)]),
+        };
+        for operation in [
+            ExternalConnectorOperationV1::Pull,
+            ExternalConnectorOperationV1::Push,
+            ExternalConnectorOperationV1::Poll,
+            ExternalConnectorOperationV1::Webhook,
+        ] {
+            let request = external_connector_request(operation);
+            let result = process
+                .call_external_connector(&descriptor.id, &request, &context, Duration::from_secs(2))
+                .unwrap_or_else(|error| panic!("{} failed: {error:?}", operation.as_str()));
+            assert_eq!(result.operation(), operation);
+        }
+        let mut bad_webhook = external_connector_request(ExternalConnectorOperationV1::Webhook);
+        if let ExternalConnectorRequestV1::Webhook { payload, .. } = &mut bad_webhook {
+            payload.signature = Some("sha256=invalid".into());
+        }
+        assert!(matches!(
+            process.call_external_connector(
+                &descriptor.id,
+                &bad_webhook,
+                &context,
+                Duration::from_secs(2),
+            ),
+            Err(PluginRuntimeError::ExternalConnectorFailure(
+                ExternalConnectorFailureV1 {
+                    code: ExternalConnectorFailureCodeV1::Authentication,
+                    ..
+                }
+            ))
+        ));
+        process.stop();
     }
 
     #[test]

@@ -169,6 +169,7 @@ mod plugin_ai_ui;
 mod plugin_capability;
 mod plugin_connector;
 mod plugin_declarative;
+mod plugin_external_connector;
 pub use local_api::{LocalApiConfig, run_pipeline, serve as serve_local_api, validate_bind};
 pub use local_auth::{LocalApiTokenStore, default_token_store, ensure_token, rotate_token};
 mod qa;
@@ -3244,6 +3245,9 @@ pub struct EngineService {
     plugin_ai_action_registry: plugin_ai_ui::PluginAiActionRegistry,
     plugin_ui_panel_registry: plugin_ai_ui::PluginUiPanelRegistry,
     plugin_ai_action_cancels: plugin_ai_ui::AiActionCancelRegistry,
+    external_connector_registry: plugin_external_connector::ExternalConnectorRegistry,
+    external_connector_credentials:
+        std::sync::Arc<dyn plugin_external_connector::ExternalConnectorCredentialStore>,
     plugin_pipeline_owners: std::collections::BTreeMap<String, PipelineStepOwner>,
     plugin_activation_revisions: std::collections::BTreeMap<String, u64>,
     plugin_capabilities: plugin_capability::PluginCapabilityService,
@@ -3324,6 +3328,10 @@ impl EngineService {
             plugin_ai_action_registry: plugin_ai_ui::PluginAiActionRegistry::default(),
             plugin_ui_panel_registry: plugin_ai_ui::PluginUiPanelRegistry::default(),
             plugin_ai_action_cancels: plugin_ai_ui::AiActionCancelRegistry::default(),
+            external_connector_registry:
+                plugin_external_connector::ExternalConnectorRegistry::default(),
+            external_connector_credentials:
+                plugin_external_connector::default_external_connector_credential_store(),
             plugin_pipeline_owners: std::collections::BTreeMap::new(),
             plugin_activation_revisions: std::collections::BTreeMap::new(),
             plugin_capabilities,
@@ -7461,6 +7469,46 @@ impl RpcDispatcher {
             methods::PLUGIN_UI_PANEL_BRIDGE_CALL => serialize_result(
                 self.service
                     .call_plugin_ui_panel_bridge(parse_params(request.params)?)?,
+            ),
+            methods::EXTERNAL_CONNECTOR_CATALOG => {
+                parse_params::<EmptyParams>(request.params)?;
+                serialize_result(self.service.list_external_connector_catalog())
+            }
+            methods::EXTERNAL_CONNECTOR_PROFILE_LIST => serialize_result(
+                self.service
+                    .list_external_connector_profiles(parse_params(request.params)?)?,
+            ),
+            methods::EXTERNAL_CONNECTOR_PROFILE_CREATE => serialize_result(
+                self.service
+                    .create_external_connector_profile(parse_params(request.params)?)?,
+            ),
+            methods::EXTERNAL_CONNECTOR_PROFILE_UPDATE => serialize_result(
+                self.service
+                    .update_external_connector_profile(parse_params(request.params)?)?,
+            ),
+            methods::EXTERNAL_CONNECTOR_PROFILE_DELETE => serialize_result(
+                self.service
+                    .delete_external_connector_profile(parse_params(request.params)?)?,
+            ),
+            methods::EXTERNAL_CONNECTOR_CREDENTIAL_SET => serialize_result(
+                self.service
+                    .set_external_connector_credential(parse_params(request.params)?)?,
+            ),
+            methods::EXTERNAL_CONNECTOR_CREDENTIAL_DELETE => serialize_result(
+                self.service
+                    .delete_external_connector_credential(parse_params(request.params)?)?,
+            ),
+            methods::EXTERNAL_CONNECTOR_CREDENTIAL_STATUS => serialize_result(
+                self.service
+                    .external_connector_credential_status(parse_params(request.params)?)?,
+            ),
+            methods::EXTERNAL_CONNECTOR_INVOKE => serialize_result(
+                self.service
+                    .invoke_external_connector(parse_params(request.params)?)?,
+            ),
+            methods::EXTERNAL_CONNECTOR_CHECKPOINT_GET => serialize_result(
+                self.service
+                    .get_external_connector_checkpoint(parse_params(request.params)?)?,
             ),
             methods::TM_LOOKUP_EXACT => {
                 serialize_result(self.service.lookup_exact(parse_params(request.params)?)?)

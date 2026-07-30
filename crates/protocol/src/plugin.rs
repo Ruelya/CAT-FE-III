@@ -767,3 +767,186 @@ mod tests {
         assert!(legacy.diagnostics.is_empty());
     }
 }
+
+// --- External system connector (P-08) -----------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalConnectorCatalogEntry {
+    pub owner: PluginContributionOwner,
+    pub contract_version: u32,
+    pub operations: Vec<String>,
+    pub origins: Vec<String>,
+    pub credential_slots: Vec<String>,
+    pub config_schema_version: u32,
+    pub checkpoint_schema_version: u32,
+    pub display_name: String,
+    pub state: PluginContributionState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalConnectorCatalogPage {
+    pub items: Vec<ExternalConnectorCatalogEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalConnectorProfileCreateParams {
+    pub contribution_id: String,
+    pub display_name: String,
+    pub configuration: Value,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalConnectorProfileUpdateParams {
+    pub profile_id: String,
+    pub display_name: String,
+    pub configuration: Value,
+    pub enabled: bool,
+    pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalConnectorProfileIdParams {
+    pub profile_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalConnectorProfileRevisionParams {
+    pub profile_id: String,
+    pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalConnectorProfileListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contribution_id: Option<String>,
+    #[serde(default)]
+    pub offset: u32,
+    #[serde(default = "default_page_size")]
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalConnectorCredentialSlotStatus {
+    pub slot_id: String,
+    pub present: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalConnectorProfile {
+    pub id: String,
+    pub display_name: String,
+    pub contribution_id: String,
+    pub plugin_id: String,
+    pub version_id: String,
+    pub activation_revision: u64,
+    pub contract_version: u32,
+    pub config_schema_version: u32,
+    pub checkpoint_schema_version: u32,
+    pub configuration: Value,
+    pub enabled: bool,
+    pub credential_slots: Vec<ExternalConnectorCredentialSlotStatus>,
+    pub origins: Vec<String>,
+    pub operations: Vec<String>,
+    pub revision: u64,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalConnectorProfilePage {
+    pub items: Vec<ExternalConnectorProfile>,
+    pub total: u32,
+    pub offset: u32,
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalConnectorCredentialSetParams {
+    pub profile_id: String,
+    pub slot_id: String,
+    pub secret: String,
+    pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalConnectorCredentialDeleteParams {
+    pub profile_id: String,
+    pub slot_id: String,
+    pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalConnectorCredentialStatusParams {
+    pub profile_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalConnectorCredentialStatus {
+    pub profile_id: String,
+    pub slots: Vec<ExternalConnectorCredentialSlotStatus>,
+    pub revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalConnectorInvokeParams {
+    pub profile_id: String,
+    pub request: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalConnectorInvokeResult {
+    pub profile_id: String,
+    pub request_id: String,
+    pub operation: String,
+    pub result: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_revision: Option<u64>,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalConnectorCheckpointGetParams {
+    pub profile_id: String,
+    pub stream_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalConnectorCheckpointView {
+    pub profile_id: String,
+    pub stream_id: String,
+    pub schema_version: u32,
+    pub revision: u64,
+    pub payload: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    pub payload_hash: String,
+    pub plugin_id: String,
+    pub version_id: String,
+    pub contribution_id: String,
+    pub activation_revision: u64,
+    pub created_at_ms: i64,
+}

@@ -7851,6 +7851,96 @@
         "response"
       ]
     },
+    "DeclarativeExternalConnectorDefinitionV1": {
+      "type": "object",
+      "properties": {
+        "definitionVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "failures": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExternalConnectorFailureMappingV1"
+          }
+        },
+        "poll": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExternalConnectorEndpointMappingV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pull": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExternalConnectorEndpointMappingV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "push": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExternalConnectorEndpointMappingV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "test": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExternalConnectorEndpointMappingV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "validateConfig": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExternalConnectorEndpointMappingV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "webhook": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExternalConnectorEndpointMappingV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "webhookSignature": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExternalConnectorWebhookSignatureV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "definitionVersion"
+      ]
+    },
     "DeclarativeFilterDefinitionV1": {
       "type": "object",
       "properties": {
@@ -9640,6 +9730,883 @@
       "required": [
         "outputPath",
         "translatedSegments"
+      ]
+    },
+    "ExternalConnectorAuthenticationV1": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "none"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "bearer"
+            },
+            "slot": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "slot"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "header"
+            },
+            "name": {
+              "type": "string"
+            },
+            "slot": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "name",
+            "slot"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "query"
+            },
+            "name": {
+              "type": "string"
+            },
+            "slot": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "name",
+            "slot"
+          ]
+        }
+      ]
+    },
+    "ExternalConnectorCatalogEntry": {
+      "type": "object",
+      "properties": {
+        "checkpointSchemaVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "configSchemaVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "contractVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "credentialSlots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "origins": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "owner": {
+          "$ref": "#/$defs/PluginContributionOwner"
+        },
+        "state": {
+          "$ref": "#/$defs/PluginContributionState"
+        }
+      },
+      "required": [
+        "owner",
+        "contractVersion",
+        "operations",
+        "origins",
+        "credentialSlots",
+        "configSchemaVersion",
+        "checkpointSchemaVersion",
+        "displayName",
+        "state"
+      ]
+    },
+    "ExternalConnectorCatalogPage": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExternalConnectorCatalogEntry"
+          }
+        }
+      },
+      "required": [
+        "items"
+      ]
+    },
+    "ExternalConnectorCheckpointGetParams": {
+      "type": "object",
+      "properties": {
+        "profileId": {
+          "type": "string"
+        },
+        "streamId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "streamId"
+      ]
+    },
+    "ExternalConnectorCheckpointView": {
+      "type": "object",
+      "properties": {
+        "activationRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "contributionId": {
+          "type": "string"
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "payload": true,
+        "payloadHash": {
+          "type": "string"
+        },
+        "pluginId": {
+          "type": "string"
+        },
+        "profileId": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "schemaVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "streamId": {
+          "type": "string"
+        },
+        "versionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "profileId",
+        "streamId",
+        "schemaVersion",
+        "revision",
+        "payload",
+        "payloadHash",
+        "pluginId",
+        "versionId",
+        "contributionId",
+        "activationRevision",
+        "createdAtMs"
+      ]
+    },
+    "ExternalConnectorCredentialDeleteParams": {
+      "type": "object",
+      "properties": {
+        "expectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "profileId": {
+          "type": "string"
+        },
+        "slotId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "slotId",
+        "expectedRevision"
+      ]
+    },
+    "ExternalConnectorCredentialSetParams": {
+      "type": "object",
+      "properties": {
+        "expectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "profileId": {
+          "type": "string"
+        },
+        "secret": {
+          "type": "string"
+        },
+        "slotId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "slotId",
+        "secret",
+        "expectedRevision"
+      ]
+    },
+    "ExternalConnectorCredentialSlotStatus": {
+      "type": "object",
+      "properties": {
+        "present": {
+          "type": "boolean"
+        },
+        "slotId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "slotId",
+        "present"
+      ]
+    },
+    "ExternalConnectorCredentialSlotV1": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExternalConnectorOperationV1"
+          }
+        },
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "required",
+        "operations"
+      ]
+    },
+    "ExternalConnectorCredentialStatus": {
+      "type": "object",
+      "properties": {
+        "profileId": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "slots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExternalConnectorCredentialSlotStatus"
+          }
+        }
+      },
+      "required": [
+        "profileId",
+        "slots",
+        "revision"
+      ]
+    },
+    "ExternalConnectorCredentialStatusParams": {
+      "type": "object",
+      "properties": {
+        "profileId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "profileId"
+      ]
+    },
+    "ExternalConnectorEndpointMappingV1": {
+      "type": "object",
+      "properties": {
+        "authentication": {
+          "$ref": "#/$defs/ExternalConnectorAuthenticationV1"
+        },
+        "checkpointPath": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "destinationOrigin": {
+          "type": "string"
+        },
+        "fixedBody": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "fixedHeaders": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExternalConnectorHeaderV1"
+          }
+        },
+        "fixedQuery": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "hasMorePath": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "itemsPath": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "method": {
+          "$ref": "#/$defs/ExternalConnectorHttpMethodV1"
+        },
+        "receiptsPath": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "urlTemplate": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "destinationOrigin",
+        "urlTemplate",
+        "method",
+        "authentication"
+      ]
+    },
+    "ExternalConnectorFailureCodeV1": {
+      "type": "string",
+      "enum": [
+        "invalidConfig",
+        "authentication",
+        "conflict",
+        "rateLimit",
+        "timeout",
+        "unavailable",
+        "protocol",
+        "payloadSize",
+        "cancelled",
+        "hostCrash",
+        "permissionDenied",
+        "staleGeneration",
+        "idempotencyConflict"
+      ]
+    },
+    "ExternalConnectorFailureMappingV1": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ExternalConnectorFailureCodeV1"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "code",
+        "retryable"
+      ]
+    },
+    "ExternalConnectorHeaderV1": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "value"
+      ]
+    },
+    "ExternalConnectorHttpMethodV1": {
+      "type": "string",
+      "enum": [
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    "ExternalConnectorInvokeParams": {
+      "type": "object",
+      "properties": {
+        "profileId": {
+          "type": "string"
+        },
+        "request": true
+      },
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "request"
+      ]
+    },
+    "ExternalConnectorInvokeResult": {
+      "type": "object",
+      "properties": {
+        "checkpointRevision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "operation": {
+          "type": "string"
+        },
+        "profileId": {
+          "type": "string"
+        },
+        "replayed": {
+          "type": "boolean"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "result": true
+      },
+      "required": [
+        "profileId",
+        "requestId",
+        "operation",
+        "result",
+        "replayed"
+      ]
+    },
+    "ExternalConnectorLimitsV1": {
+      "type": "object",
+      "properties": {
+        "maxCheckpointBytes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "maxConfigBytes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "maxDeadlineMs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "maxItemTextBytes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "maxItems": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "maxMetadataEntries": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "maxRequestBytes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "maxResponseBytes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "maxConfigBytes",
+        "maxItems",
+        "maxItemTextBytes",
+        "maxMetadataEntries",
+        "maxCheckpointBytes",
+        "maxDeadlineMs",
+        "maxRequestBytes",
+        "maxResponseBytes"
+      ]
+    },
+    "ExternalConnectorOperationV1": {
+      "type": "string",
+      "enum": [
+        "validateConfig",
+        "test",
+        "pull",
+        "push",
+        "poll",
+        "webhook"
+      ]
+    },
+    "ExternalConnectorProfile": {
+      "type": "object",
+      "properties": {
+        "activationRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "checkpointSchemaVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "configSchemaVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "configuration": true,
+        "contractVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "contributionId": {
+          "type": "string"
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "credentialSlots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExternalConnectorCredentialSlotStatus"
+          }
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "origins": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "pluginId": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "versionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "displayName",
+        "contributionId",
+        "pluginId",
+        "versionId",
+        "activationRevision",
+        "contractVersion",
+        "configSchemaVersion",
+        "checkpointSchemaVersion",
+        "configuration",
+        "enabled",
+        "credentialSlots",
+        "origins",
+        "operations",
+        "revision",
+        "createdAtMs",
+        "updatedAtMs"
+      ]
+    },
+    "ExternalConnectorProfileCreateParams": {
+      "type": "object",
+      "properties": {
+        "configuration": true,
+        "contributionId": {
+          "type": "string"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "contributionId",
+        "displayName",
+        "configuration"
+      ]
+    },
+    "ExternalConnectorProfileListParams": {
+      "type": "object",
+      "properties": {
+        "contributionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 200,
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "ExternalConnectorProfilePage": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExternalConnectorProfile"
+          }
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "items",
+        "total",
+        "offset",
+        "limit"
+      ]
+    },
+    "ExternalConnectorProfileRevisionParams": {
+      "type": "object",
+      "properties": {
+        "expectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "profileId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "expectedRevision"
+      ]
+    },
+    "ExternalConnectorProfileUpdateParams": {
+      "type": "object",
+      "properties": {
+        "configuration": true,
+        "displayName": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "profileId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "displayName",
+        "configuration",
+        "enabled",
+        "expectedRevision"
+      ]
+    },
+    "ExternalConnectorWebhookSignatureV1": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "none"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "header": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "hmacSha256"
+            },
+            "prefix": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "slot": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "header",
+            "slot"
+          ]
+        }
       ]
     },
     "FilterCapabilities": {
@@ -11451,10 +12418,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabProjectParams"
+          "$ref": "#/$defs/EmptyParams"
         },
         "result": {
-          "$ref": "#/$defs/CollabMemberListResult"
+          "$ref": "#/$defs/ExternalConnectorCatalogPage"
         }
       },
       "required": [
@@ -11466,10 +12433,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabMemberAddParams"
+          "$ref": "#/$defs/ExternalConnectorProfileListParams"
         },
         "result": {
-          "$ref": "#/$defs/CollabMember"
+          "$ref": "#/$defs/ExternalConnectorProfilePage"
         }
       },
       "required": [
@@ -11481,10 +12448,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabMemberRemoveParams"
+          "$ref": "#/$defs/ExternalConnectorProfileCreateParams"
         },
         "result": {
-          "$ref": "#/$defs/EmptyResult"
+          "$ref": "#/$defs/ExternalConnectorProfile"
         }
       },
       "required": [
@@ -11496,10 +12463,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabLockAcquireParams"
+          "$ref": "#/$defs/ExternalConnectorProfileUpdateParams"
         },
         "result": {
-          "$ref": "#/$defs/CollabLock"
+          "$ref": "#/$defs/ExternalConnectorProfile"
         }
       },
       "required": [
@@ -11511,7 +12478,7 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabLockActorParams"
+          "$ref": "#/$defs/ExternalConnectorProfileRevisionParams"
         },
         "result": {
           "$ref": "#/$defs/EmptyResult"
@@ -11526,10 +12493,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabLockActorParams"
+          "$ref": "#/$defs/ExternalConnectorCredentialSetParams"
         },
         "result": {
-          "$ref": "#/$defs/CollabLock"
+          "$ref": "#/$defs/ExternalConnectorCredentialStatus"
         }
       },
       "required": [
@@ -11541,10 +12508,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabProjectParams"
+          "$ref": "#/$defs/ExternalConnectorCredentialDeleteParams"
         },
         "result": {
-          "$ref": "#/$defs/CollabLockListResult"
+          "$ref": "#/$defs/ExternalConnectorCredentialStatus"
         }
       },
       "required": [
@@ -11556,10 +12523,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabPresenceHeartbeatParams"
+          "$ref": "#/$defs/ExternalConnectorCredentialStatusParams"
         },
         "result": {
-          "$ref": "#/$defs/CollabPresence"
+          "$ref": "#/$defs/ExternalConnectorCredentialStatus"
         }
       },
       "required": [
@@ -11571,10 +12538,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabProjectParams"
+          "$ref": "#/$defs/ExternalConnectorInvokeParams"
         },
         "result": {
-          "$ref": "#/$defs/CollabPresenceListResult"
+          "$ref": "#/$defs/ExternalConnectorInvokeResult"
         }
       },
       "required": [
@@ -11586,10 +12553,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabProjectParams"
+          "$ref": "#/$defs/ExternalConnectorCheckpointGetParams"
         },
         "result": {
-          "$ref": "#/$defs/CollabAssignmentListResult"
+          "$ref": "#/$defs/ExternalConnectorCheckpointView"
         }
       },
       "required": [
@@ -11616,10 +12583,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabAssignmentCreateParams"
+          "$ref": "#/$defs/CollabProjectParams"
         },
         "result": {
-          "$ref": "#/$defs/CollabAssignment"
+          "$ref": "#/$defs/CollabMemberListResult"
         }
       },
       "required": [
@@ -11631,10 +12598,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabAssignmentCompleteParams"
+          "$ref": "#/$defs/CollabMemberAddParams"
         },
         "result": {
-          "$ref": "#/$defs/CollabAssignment"
+          "$ref": "#/$defs/CollabMember"
         }
       },
       "required": [
@@ -11646,10 +12613,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabOpLogListParams"
+          "$ref": "#/$defs/CollabMemberRemoveParams"
         },
         "result": {
-          "$ref": "#/$defs/CollabOpLogPage"
+          "$ref": "#/$defs/EmptyResult"
         }
       },
       "required": [
@@ -11661,10 +12628,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/HistoryListParams"
+          "$ref": "#/$defs/CollabLockAcquireParams"
         },
         "result": {
-          "$ref": "#/$defs/OperationPage"
+          "$ref": "#/$defs/CollabLock"
         }
       },
       "required": [
@@ -11676,10 +12643,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/EmptyParams"
+          "$ref": "#/$defs/CollabLockActorParams"
         },
         "result": {
-          "$ref": "#/$defs/DataHealthReport"
+          "$ref": "#/$defs/EmptyResult"
         }
       },
       "required": [
@@ -11691,10 +12658,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CreateBackupParams"
+          "$ref": "#/$defs/CollabLockActorParams"
         },
         "result": {
-          "$ref": "#/$defs/BackupResult"
+          "$ref": "#/$defs/CollabLock"
         }
       },
       "required": [
@@ -11706,10 +12673,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/EmptyParams"
+          "$ref": "#/$defs/CollabProjectParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineCapabilityResult"
+          "$ref": "#/$defs/CollabLockListResult"
         }
       },
       "required": [
@@ -11721,10 +12688,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CreatePipelineParams"
+          "$ref": "#/$defs/CollabPresenceHeartbeatParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineDefinition"
+          "$ref": "#/$defs/CollabPresence"
         }
       },
       "required": [
@@ -11736,10 +12703,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PipelineListParams"
+          "$ref": "#/$defs/CollabProjectParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineDefinitionPage"
+          "$ref": "#/$defs/CollabPresenceListResult"
         }
       },
       "required": [
@@ -11751,10 +12718,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PipelineIdParams"
+          "$ref": "#/$defs/CollabProjectParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineDefinition"
+          "$ref": "#/$defs/CollabAssignmentListResult"
         }
       },
       "required": [
@@ -11781,10 +12748,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ValidatePipelineParams"
+          "$ref": "#/$defs/CollabAssignmentCreateParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineValidationResult"
+          "$ref": "#/$defs/CollabAssignment"
         }
       },
       "required": [
@@ -11796,10 +12763,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/RunPipelineParams"
+          "$ref": "#/$defs/CollabAssignmentCompleteParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineRunSnapshot"
+          "$ref": "#/$defs/CollabAssignment"
         }
       },
       "required": [
@@ -11811,10 +12778,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PipelineRunListParams"
+          "$ref": "#/$defs/CollabOpLogListParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineRunPage"
+          "$ref": "#/$defs/CollabOpLogPage"
         }
       },
       "required": [
@@ -11826,10 +12793,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PipelineRunIdParams"
+          "$ref": "#/$defs/HistoryListParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineRunSnapshot"
+          "$ref": "#/$defs/OperationPage"
         }
       },
       "required": [
@@ -11841,10 +12808,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/PipelineRunRevisionParams"
+          "$ref": "#/$defs/EmptyParams"
         },
         "result": {
-          "$ref": "#/$defs/PipelineRunSnapshot"
+          "$ref": "#/$defs/DataHealthReport"
         }
       },
       "required": [
@@ -11856,10 +12823,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiProviderCatalogParams"
+          "$ref": "#/$defs/CreateBackupParams"
         },
         "result": {
-          "$ref": "#/$defs/AiProviderCatalogResult"
+          "$ref": "#/$defs/BackupResult"
         }
       },
       "required": [
@@ -11871,10 +12838,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiProviderListParams"
+          "$ref": "#/$defs/EmptyParams"
         },
         "result": {
-          "$ref": "#/$defs/AiProviderPage"
+          "$ref": "#/$defs/PipelineCapabilityResult"
         }
       },
       "required": [
@@ -11886,10 +12853,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiProviderCreateParams"
+          "$ref": "#/$defs/CreatePipelineParams"
         },
         "result": {
-          "$ref": "#/$defs/AiProviderProfile"
+          "$ref": "#/$defs/PipelineDefinition"
         }
       },
       "required": [
@@ -11901,10 +12868,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiProviderUpdateParams"
+          "$ref": "#/$defs/PipelineListParams"
         },
         "result": {
-          "$ref": "#/$defs/AiProviderProfile"
+          "$ref": "#/$defs/PipelineDefinitionPage"
         }
       },
       "required": [
@@ -11916,10 +12883,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiProfileRevisionParams"
+          "$ref": "#/$defs/PipelineIdParams"
         },
         "result": {
-          "$ref": "#/$defs/EmptyResult"
+          "$ref": "#/$defs/PipelineDefinition"
         }
       },
       "required": [
@@ -11946,10 +12913,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiProfileIdParams"
+          "$ref": "#/$defs/ValidatePipelineParams"
         },
         "result": {
-          "$ref": "#/$defs/AiProviderTestResult"
+          "$ref": "#/$defs/PipelineValidationResult"
         }
       },
       "required": [
@@ -11961,10 +12928,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiProfileIdParams"
+          "$ref": "#/$defs/RunPipelineParams"
         },
         "result": {
-          "$ref": "#/$defs/AiCredentialStatus"
+          "$ref": "#/$defs/PipelineRunSnapshot"
         }
       },
       "required": [
@@ -11976,10 +12943,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiSettingsGetParams"
+          "$ref": "#/$defs/PipelineRunListParams"
         },
         "result": {
-          "$ref": "#/$defs/AiSettings"
+          "$ref": "#/$defs/PipelineRunPage"
         }
       },
       "required": [
@@ -11991,10 +12958,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiSettingsUpdateParams"
+          "$ref": "#/$defs/PipelineRunIdParams"
         },
         "result": {
-          "$ref": "#/$defs/AiSettings"
+          "$ref": "#/$defs/PipelineRunSnapshot"
         }
       },
       "required": [
@@ -12006,10 +12973,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiGroundingPreviewParams"
+          "$ref": "#/$defs/PipelineRunRevisionParams"
         },
         "result": {
-          "$ref": "#/$defs/AiGroundingPreviewResult"
+          "$ref": "#/$defs/PipelineRunSnapshot"
         }
       },
       "required": [
@@ -12021,10 +12988,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiRunStartParams"
+          "$ref": "#/$defs/AiProviderCatalogParams"
         },
         "result": {
-          "$ref": "#/$defs/AiRun"
+          "$ref": "#/$defs/AiProviderCatalogResult"
         }
       },
       "required": [
@@ -12036,10 +13003,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiRunIdParams"
+          "$ref": "#/$defs/AiProviderListParams"
         },
         "result": {
-          "$ref": "#/$defs/AiRun"
+          "$ref": "#/$defs/AiProviderPage"
         }
       },
       "required": [
@@ -12051,10 +13018,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiRunListParams"
+          "$ref": "#/$defs/AiProviderCreateParams"
         },
         "result": {
-          "$ref": "#/$defs/AiRunPage"
+          "$ref": "#/$defs/AiProviderProfile"
         }
       },
       "required": [
@@ -12066,10 +13033,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiRunEventsParams"
+          "$ref": "#/$defs/AiProviderUpdateParams"
         },
         "result": {
-          "$ref": "#/$defs/AiRunEventPage"
+          "$ref": "#/$defs/AiProviderProfile"
         }
       },
       "required": [
@@ -12081,10 +13048,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiRunRevisionParams"
+          "$ref": "#/$defs/AiProfileRevisionParams"
         },
         "result": {
-          "$ref": "#/$defs/AiRun"
+          "$ref": "#/$defs/EmptyResult"
         }
       },
       "required": [
@@ -12126,10 +13093,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiResultApplyParams"
+          "$ref": "#/$defs/AiProfileIdParams"
         },
         "result": {
-          "$ref": "#/$defs/EditorMutationResult"
+          "$ref": "#/$defs/AiProviderTestResult"
         }
       },
       "required": [
@@ -12141,10 +13108,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiBatchStartParams"
+          "$ref": "#/$defs/AiProfileIdParams"
         },
         "result": {
-          "$ref": "#/$defs/AiBatchRun"
+          "$ref": "#/$defs/AiCredentialStatus"
         }
       },
       "required": [
@@ -12156,10 +13123,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiBatchIdParams"
+          "$ref": "#/$defs/AiSettingsGetParams"
         },
         "result": {
-          "$ref": "#/$defs/AiBatchRun"
+          "$ref": "#/$defs/AiSettings"
         }
       },
       "required": [
@@ -12171,10 +13138,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiBatchListParams"
+          "$ref": "#/$defs/AiSettingsUpdateParams"
         },
         "result": {
-          "$ref": "#/$defs/AiBatchPage"
+          "$ref": "#/$defs/AiSettings"
         }
       },
       "required": [
@@ -12186,10 +13153,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiBatchItemsParams"
+          "$ref": "#/$defs/AiGroundingPreviewParams"
         },
         "result": {
-          "$ref": "#/$defs/AiBatchItemPage"
+          "$ref": "#/$defs/AiGroundingPreviewResult"
         }
       },
       "required": [
@@ -12201,10 +13168,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiBatchRevisionParams"
+          "$ref": "#/$defs/AiRunStartParams"
         },
         "result": {
-          "$ref": "#/$defs/AiBatchRun"
+          "$ref": "#/$defs/AiRun"
         }
       },
       "required": [
@@ -12216,10 +13183,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiUsageQueryParams"
+          "$ref": "#/$defs/AiRunIdParams"
         },
         "result": {
-          "$ref": "#/$defs/AiUsageQueryResult"
+          "$ref": "#/$defs/AiRun"
         }
       },
       "required": [
@@ -12231,10 +13198,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiQualityDocumentParams"
+          "$ref": "#/$defs/AiRunListParams"
         },
         "result": {
-          "$ref": "#/$defs/QualityScoreReport"
+          "$ref": "#/$defs/AiRunPage"
         }
       },
       "required": [
@@ -12246,10 +13213,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiQualityDocumentParams"
+          "$ref": "#/$defs/AiRunEventsParams"
         },
         "result": {
-          "$ref": "#/$defs/SemanticQaReport"
+          "$ref": "#/$defs/AiRunEventPage"
         }
       },
       "required": [
@@ -12261,10 +13228,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiTermExtractParams"
+          "$ref": "#/$defs/AiRunRevisionParams"
         },
         "result": {
-          "$ref": "#/$defs/TermExtractReport"
+          "$ref": "#/$defs/AiRun"
         }
       },
       "required": [
@@ -12291,10 +13258,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiConversationListParams"
+          "$ref": "#/$defs/AiResultApplyParams"
         },
         "result": {
-          "$ref": "#/$defs/AiConversationPage"
+          "$ref": "#/$defs/EditorMutationResult"
         }
       },
       "required": [
@@ -12306,10 +13273,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiConversationCreateParams"
+          "$ref": "#/$defs/AiBatchStartParams"
         },
         "result": {
-          "$ref": "#/$defs/AiConversation"
+          "$ref": "#/$defs/AiBatchRun"
         }
       },
       "required": [
@@ -12321,10 +13288,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiConversationUpdateParams"
+          "$ref": "#/$defs/AiBatchIdParams"
         },
         "result": {
-          "$ref": "#/$defs/AiConversation"
+          "$ref": "#/$defs/AiBatchRun"
         }
       },
       "required": [
@@ -12336,10 +13303,100 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiConversationMessagesParams"
+          "$ref": "#/$defs/AiBatchListParams"
         },
         "result": {
-          "$ref": "#/$defs/AiConversationMessagePage"
+          "$ref": "#/$defs/AiBatchPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract214": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiBatchItemsParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiBatchItemPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract215": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiBatchRevisionParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiBatchRun"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract216": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiUsageQueryParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiUsageQueryResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract217": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiQualityDocumentParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QualityScoreReport"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract218": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiQualityDocumentParams"
+        },
+        "result": {
+          "$ref": "#/$defs/SemanticQaReport"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract219": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiTermExtractParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermExtractReport"
         }
       },
       "required": [
@@ -12355,6 +13412,66 @@
         },
         "result": {
           "$ref": "#/$defs/DiscussionMessage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract220": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiConversationListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiConversationPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract221": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiConversationCreateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiConversation"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract222": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiConversationUpdateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiConversation"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract223": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiConversationMessagesParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiConversationMessagePage"
         }
       },
       "required": [
@@ -16435,10 +17552,63 @@
                 "type": "boolean"
               }
             },
+            "checkpointSchemaVersion": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0
+            },
             "checkpointVersion": {
               "type": "integer",
               "format": "uint32",
               "minimum": 0
+            },
+            "configSchema": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/EngineConnectorConfigSchemaV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "configSchemaVersion": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0
+            },
+            "contractVersion": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0
+            },
+            "credentialSlots": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "$ref": "#/$defs/ExternalConnectorCredentialSlotV1"
+              }
+            },
+            "declarative": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DeclarativeExternalConnectorDefinitionV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "descriptorVersion": {
               "type": "integer",
@@ -16455,7 +17625,43 @@
               "type": "string",
               "const": "externalConnector"
             },
+            "limits": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ExternalConnectorLimitsV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "operations": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "$ref": "#/$defs/ExternalConnectorOperationV1"
+              }
+            },
+            "origins": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "protocol": {
+              "description": "Absent only on the released inventory-only descriptor. Such a\ndescriptor remains readable but is never executable.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "transports": {
+              "description": "Inventory-era transport list. Executable V1 still serializes a stable\ninventory projection derived from declared origins/operations.",
               "type": "array",
               "items": {
                 "type": "string"
@@ -21465,100 +22671,100 @@
       "type": "object",
       "properties": {
         "ai.batch.cancel": {
-          "$ref": "#/$defs/MethodContract205"
+          "$ref": "#/$defs/MethodContract215"
         },
         "ai.batch.get": {
-          "$ref": "#/$defs/MethodContract202"
-        },
-        "ai.batch.items": {
-          "$ref": "#/$defs/MethodContract204"
-        },
-        "ai.batch.list": {
-          "$ref": "#/$defs/MethodContract203"
-        },
-        "ai.batch.resume": {
-          "$ref": "#/$defs/MethodContract205"
-        },
-        "ai.batch.start": {
-          "$ref": "#/$defs/MethodContract201"
-        },
-        "ai.conversation.create": {
-          "$ref": "#/$defs/MethodContract211"
-        },
-        "ai.conversation.list": {
-          "$ref": "#/$defs/MethodContract210"
-        },
-        "ai.conversation.messages": {
-          "$ref": "#/$defs/MethodContract213"
-        },
-        "ai.conversation.update": {
           "$ref": "#/$defs/MethodContract212"
         },
+        "ai.batch.items": {
+          "$ref": "#/$defs/MethodContract214"
+        },
+        "ai.batch.list": {
+          "$ref": "#/$defs/MethodContract213"
+        },
+        "ai.batch.resume": {
+          "$ref": "#/$defs/MethodContract215"
+        },
+        "ai.batch.start": {
+          "$ref": "#/$defs/MethodContract211"
+        },
+        "ai.conversation.create": {
+          "$ref": "#/$defs/MethodContract221"
+        },
+        "ai.conversation.list": {
+          "$ref": "#/$defs/MethodContract220"
+        },
+        "ai.conversation.messages": {
+          "$ref": "#/$defs/MethodContract223"
+        },
+        "ai.conversation.update": {
+          "$ref": "#/$defs/MethodContract222"
+        },
         "ai.credential.delete": {
-          "$ref": "#/$defs/MethodContract191"
+          "$ref": "#/$defs/MethodContract201"
         },
         "ai.credential.status": {
-          "$ref": "#/$defs/MethodContract191"
+          "$ref": "#/$defs/MethodContract201"
         },
         "ai.grounding.preview": {
-          "$ref": "#/$defs/MethodContract194"
+          "$ref": "#/$defs/MethodContract204"
         },
         "ai.provider.catalog": {
-          "$ref": "#/$defs/MethodContract185"
-        },
-        "ai.provider.create": {
-          "$ref": "#/$defs/MethodContract187"
-        },
-        "ai.provider.delete": {
-          "$ref": "#/$defs/MethodContract189"
-        },
-        "ai.provider.list": {
-          "$ref": "#/$defs/MethodContract186"
-        },
-        "ai.provider.test": {
-          "$ref": "#/$defs/MethodContract190"
-        },
-        "ai.provider.update": {
-          "$ref": "#/$defs/MethodContract188"
-        },
-        "ai.quality.extractTerms": {
-          "$ref": "#/$defs/MethodContract209"
-        },
-        "ai.quality.scoreDocument": {
-          "$ref": "#/$defs/MethodContract207"
-        },
-        "ai.quality.semanticQa": {
-          "$ref": "#/$defs/MethodContract208"
-        },
-        "ai.result.apply": {
-          "$ref": "#/$defs/MethodContract200"
-        },
-        "ai.run.cancel": {
-          "$ref": "#/$defs/MethodContract199"
-        },
-        "ai.run.events": {
-          "$ref": "#/$defs/MethodContract198"
-        },
-        "ai.run.get": {
-          "$ref": "#/$defs/MethodContract196"
-        },
-        "ai.run.list": {
-          "$ref": "#/$defs/MethodContract197"
-        },
-        "ai.run.resume": {
-          "$ref": "#/$defs/MethodContract199"
-        },
-        "ai.run.start": {
           "$ref": "#/$defs/MethodContract195"
         },
+        "ai.provider.create": {
+          "$ref": "#/$defs/MethodContract197"
+        },
+        "ai.provider.delete": {
+          "$ref": "#/$defs/MethodContract199"
+        },
+        "ai.provider.list": {
+          "$ref": "#/$defs/MethodContract196"
+        },
+        "ai.provider.test": {
+          "$ref": "#/$defs/MethodContract200"
+        },
+        "ai.provider.update": {
+          "$ref": "#/$defs/MethodContract198"
+        },
+        "ai.quality.extractTerms": {
+          "$ref": "#/$defs/MethodContract219"
+        },
+        "ai.quality.scoreDocument": {
+          "$ref": "#/$defs/MethodContract217"
+        },
+        "ai.quality.semanticQa": {
+          "$ref": "#/$defs/MethodContract218"
+        },
+        "ai.result.apply": {
+          "$ref": "#/$defs/MethodContract210"
+        },
+        "ai.run.cancel": {
+          "$ref": "#/$defs/MethodContract209"
+        },
+        "ai.run.events": {
+          "$ref": "#/$defs/MethodContract208"
+        },
+        "ai.run.get": {
+          "$ref": "#/$defs/MethodContract206"
+        },
+        "ai.run.list": {
+          "$ref": "#/$defs/MethodContract207"
+        },
+        "ai.run.resume": {
+          "$ref": "#/$defs/MethodContract209"
+        },
+        "ai.run.start": {
+          "$ref": "#/$defs/MethodContract205"
+        },
         "ai.settings.get": {
-          "$ref": "#/$defs/MethodContract192"
+          "$ref": "#/$defs/MethodContract202"
         },
         "ai.settings.update": {
-          "$ref": "#/$defs/MethodContract193"
+          "$ref": "#/$defs/MethodContract203"
         },
         "ai.usage.query": {
-          "$ref": "#/$defs/MethodContract206"
+          "$ref": "#/$defs/MethodContract216"
         },
         "alignment.session.apply": {
           "$ref": "#/$defs/MethodContract92"
@@ -21591,43 +22797,43 @@
           "$ref": "#/$defs/MethodContract98"
         },
         "collab.assignment.complete": {
-          "$ref": "#/$defs/MethodContract171"
+          "$ref": "#/$defs/MethodContract181"
         },
         "collab.assignment.create": {
-          "$ref": "#/$defs/MethodContract170"
+          "$ref": "#/$defs/MethodContract180"
         },
         "collab.assignment.list": {
-          "$ref": "#/$defs/MethodContract169"
+          "$ref": "#/$defs/MethodContract179"
         },
         "collab.lock.acquire": {
-          "$ref": "#/$defs/MethodContract163"
+          "$ref": "#/$defs/MethodContract173"
         },
         "collab.lock.heartbeat": {
-          "$ref": "#/$defs/MethodContract165"
+          "$ref": "#/$defs/MethodContract175"
         },
         "collab.lock.list": {
-          "$ref": "#/$defs/MethodContract166"
+          "$ref": "#/$defs/MethodContract176"
         },
         "collab.lock.release": {
-          "$ref": "#/$defs/MethodContract164"
+          "$ref": "#/$defs/MethodContract174"
         },
         "collab.member.add": {
-          "$ref": "#/$defs/MethodContract161"
+          "$ref": "#/$defs/MethodContract171"
         },
         "collab.member.list": {
-          "$ref": "#/$defs/MethodContract160"
+          "$ref": "#/$defs/MethodContract170"
         },
         "collab.member.remove": {
-          "$ref": "#/$defs/MethodContract162"
-        },
-        "collab.opLog.list": {
           "$ref": "#/$defs/MethodContract172"
         },
+        "collab.opLog.list": {
+          "$ref": "#/$defs/MethodContract182"
+        },
         "collab.presence.heartbeat": {
-          "$ref": "#/$defs/MethodContract167"
+          "$ref": "#/$defs/MethodContract177"
         },
         "collab.presence.list": {
-          "$ref": "#/$defs/MethodContract168"
+          "$ref": "#/$defs/MethodContract178"
         },
         "corpus.fromAlignment": {
           "$ref": "#/$defs/MethodContract95"
@@ -21666,10 +22872,10 @@
           "$ref": "#/$defs/MethodContract100"
         },
         "data.checkHealth": {
-          "$ref": "#/$defs/MethodContract174"
+          "$ref": "#/$defs/MethodContract184"
         },
         "data.createBackup": {
-          "$ref": "#/$defs/MethodContract175"
+          "$ref": "#/$defs/MethodContract185"
         },
         "dictionary.add": {
           "$ref": "#/$defs/MethodContract68"
@@ -21743,11 +22949,41 @@
         "engine.initialize": {
           "$ref": "#/$defs/MethodContract"
         },
+        "externalConnector.catalog": {
+          "$ref": "#/$defs/MethodContract160"
+        },
+        "externalConnector.checkpoint.get": {
+          "$ref": "#/$defs/MethodContract169"
+        },
+        "externalConnector.credential.delete": {
+          "$ref": "#/$defs/MethodContract166"
+        },
+        "externalConnector.credential.set": {
+          "$ref": "#/$defs/MethodContract165"
+        },
+        "externalConnector.credential.status": {
+          "$ref": "#/$defs/MethodContract167"
+        },
+        "externalConnector.invoke": {
+          "$ref": "#/$defs/MethodContract168"
+        },
+        "externalConnector.profile.create": {
+          "$ref": "#/$defs/MethodContract162"
+        },
+        "externalConnector.profile.delete": {
+          "$ref": "#/$defs/MethodContract164"
+        },
+        "externalConnector.profile.list": {
+          "$ref": "#/$defs/MethodContract161"
+        },
+        "externalConnector.profile.update": {
+          "$ref": "#/$defs/MethodContract163"
+        },
         "filter.list": {
           "$ref": "#/$defs/MethodContract140"
         },
         "history.list": {
-          "$ref": "#/$defs/MethodContract173"
+          "$ref": "#/$defs/MethodContract183"
         },
         "interop.review.apply": {
           "$ref": "#/$defs/MethodContract79"
@@ -21774,34 +23010,34 @@
           "$ref": "#/$defs/MethodContract84"
         },
         "pipeline.create": {
-          "$ref": "#/$defs/MethodContract177"
+          "$ref": "#/$defs/MethodContract187"
         },
         "pipeline.get": {
-          "$ref": "#/$defs/MethodContract179"
+          "$ref": "#/$defs/MethodContract189"
         },
         "pipeline.list": {
-          "$ref": "#/$defs/MethodContract178"
+          "$ref": "#/$defs/MethodContract188"
         },
         "pipeline.run": {
-          "$ref": "#/$defs/MethodContract181"
+          "$ref": "#/$defs/MethodContract191"
         },
         "pipeline.run.cancel": {
-          "$ref": "#/$defs/MethodContract184"
+          "$ref": "#/$defs/MethodContract194"
         },
         "pipeline.run.get": {
-          "$ref": "#/$defs/MethodContract183"
+          "$ref": "#/$defs/MethodContract193"
         },
         "pipeline.run.list": {
-          "$ref": "#/$defs/MethodContract182"
+          "$ref": "#/$defs/MethodContract192"
         },
         "pipeline.run.resume": {
-          "$ref": "#/$defs/MethodContract184"
+          "$ref": "#/$defs/MethodContract194"
         },
         "pipeline.step.list": {
-          "$ref": "#/$defs/MethodContract176"
+          "$ref": "#/$defs/MethodContract186"
         },
         "pipeline.validate": {
-          "$ref": "#/$defs/MethodContract180"
+          "$ref": "#/$defs/MethodContract190"
         },
         "plugin.aiAction.cancel": {
           "$ref": "#/$defs/MethodContract156"
@@ -22305,6 +23541,16 @@
         "plugin.aiAction.history.list",
         "plugin.uiPanel.list",
         "plugin.uiPanel.bridge.call",
+        "externalConnector.catalog",
+        "externalConnector.profile.list",
+        "externalConnector.profile.create",
+        "externalConnector.profile.update",
+        "externalConnector.profile.delete",
+        "externalConnector.credential.set",
+        "externalConnector.credential.delete",
+        "externalConnector.credential.status",
+        "externalConnector.invoke",
+        "externalConnector.checkpoint.get",
         "collab.member.list",
         "collab.member.add",
         "collab.member.remove",

@@ -14,8 +14,10 @@ executable runtime tiers:
 
 Engine connector and QA/pipeline contracts have closed Tier 2 and Tier 3
 adapters. Public AI actions and workbench panels are executable Tier 2
-surfaces; see [`ai-ui-sdk.md`](./ai-ui-sdk.md). External connectors remain a
-separate inventory/connector path.
+surfaces; see [`ai-ui-sdk.md`](./ai-ui-sdk.md). External system connectors
+(P-08) have a closed V1 executable contract for pull/push/poll/webhook;
+see [`external-connector-sdk.md`](./external-connector-sdk.md). Inventory-only
+external descriptors remain readable but never attach.
 
 ## Package layouts
 

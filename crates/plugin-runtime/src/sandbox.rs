@@ -229,7 +229,7 @@ impl Drop for SandboxEphemeralCredential {
 
 struct SandboxInvocationEnvelope {
     request: SandboxInvocationV1,
-    credential: Option<SandboxEphemeralCredential>,
+    credentials: BTreeMap<String, SandboxEphemeralCredential>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -676,6 +676,20 @@ impl SandboxWorkerHandle {
         )
     }
 
+    pub fn invoke_with_credentials_and_cancellation(
+        &self,
+        request: SandboxInvocationV1,
+        credentials: &BTreeMap<String, String>,
+        timeout: Duration,
+        cancellation: SandboxCancellationToken,
+    ) -> SandboxResult<SandboxResultV1> {
+        let credentials = credentials
+            .iter()
+            .map(|(key, value)| Ok((key.clone(), SandboxEphemeralCredential::new(value)?)))
+            .collect::<SandboxResult<BTreeMap<_, _>>>()?;
+        self.invoke_with_ephemeral_credentials(request, credentials, timeout, cancellation)
+    }
+
     pub fn invoke_with_cancellation(
         &self,
         request: SandboxInvocationV1,
@@ -724,6 +738,19 @@ impl SandboxWorkerHandle {
         let credential = credential
             .map(SandboxEphemeralCredential::new)
             .transpose()?;
+        let credentials = credential
+            .map(|value| BTreeMap::from([("credential".to_string(), value)]))
+            .unwrap_or_default();
+        self.invoke_with_ephemeral_credentials(request, credentials, timeout, cancellation)
+    }
+
+    fn invoke_with_ephemeral_credentials(
+        &self,
+        request: SandboxInvocationV1,
+        credentials: BTreeMap<String, SandboxEphemeralCredential>,
+        timeout: Duration,
+        cancellation: SandboxCancellationToken,
+    ) -> SandboxResult<SandboxResultV1> {
         if cancellation.is_cancelled() {
             return Err(SandboxError::Cancelled);
         }
@@ -734,7 +761,7 @@ impl SandboxWorkerHandle {
             .try_send(WorkerRequest::Invoke {
                 envelope: SandboxInvocationEnvelope {
                     request,
-                    credential,
+                    credentials,
                 },
                 cancellation: cancellation.clone(),
                 deadline,
@@ -1185,15 +1212,8 @@ fn worker_main(
                 reply,
             } => {
                 interrupt.begin(deadline, cancellation);
-                let result = runtime.invoke(
-                    envelope.request,
-                    envelope
-                        .credential
-                        .as_ref()
-                        .map(SandboxEphemeralCredential::expose),
-                    deadline,
-                );
-                drop(envelope.credential);
+                let result = runtime.invoke(envelope.request, &envelope.credentials, deadline);
+                drop(envelope.credentials);
                 interrupt.clear();
                 let fatal = result.as_ref().err().is_some_and(SandboxError::is_fatal);
                 let _ = reply.send(result);
@@ -1299,7 +1319,7 @@ impl WorkerRuntime {
     fn invoke(
         &mut self,
         request: SandboxInvocationV1,
-        credential: Option<&str>,
+        credentials: &BTreeMap<String, SandboxEphemeralCredential>,
         deadline: Instant,
     ) -> SandboxResult<SandboxResultV1> {
         let host_state = Arc::new(Mutex::new(InvocationHostState::new(
@@ -1335,9 +1355,26 @@ impl WorkerRuntime {
             let invocation_context = Object::new(ctx.clone()).map_err(|_| SandboxError::Codec {
                 reason: "invocation context",
             })?;
-            if let Some(credential) = credential {
+            if let Some(credential) = credentials.get("credential") {
                 invocation_context
-                    .set("credential", credential)
+                    .set("credential", credential.expose())
+                    .map_err(|_| SandboxError::Codec {
+                        reason: "invocation context",
+                    })?;
+            }
+            if !credentials.is_empty() {
+                let credential_map = Object::new(ctx.clone()).map_err(|_| SandboxError::Codec {
+                    reason: "invocation context",
+                })?;
+                for (key, value) in credentials {
+                    credential_map
+                        .set(key.as_str(), value.expose())
+                        .map_err(|_| SandboxError::Codec {
+                            reason: "invocation context",
+                        })?;
+                }
+                invocation_context
+                    .set("credentials", credential_map)
                     .map_err(|_| SandboxError::Codec {
                         reason: "invocation context",
                     })?;
@@ -1350,7 +1387,11 @@ impl WorkerRuntime {
             )) {
                 Ok(value) => value,
                 Err(error) => {
-                    clear_invocation_credential(&ctx, &invocation_context, credential.is_some())?;
+                    clear_invocation_credentials(
+                        &ctx,
+                        &invocation_context,
+                        !credentials.is_empty(),
+                    )?;
                     return Err(take_host_error(&host_state)
                         .unwrap_or_else(|| map_js_error(error, "invoke", &self.interrupt)));
                 }
@@ -1358,11 +1399,15 @@ impl WorkerRuntime {
             let value = match settle_value(value, &ctx, deadline, &self.interrupt, "invoke") {
                 Ok(value) => value,
                 Err(error) => {
-                    clear_invocation_credential(&ctx, &invocation_context, credential.is_some())?;
+                    clear_invocation_credentials(
+                        &ctx,
+                        &invocation_context,
+                        !credentials.is_empty(),
+                    )?;
                     return Err(take_host_error(&host_state).unwrap_or(error));
                 }
             };
-            clear_invocation_credential(&ctx, &invocation_context, credential.is_some())?;
+            clear_invocation_credentials(&ctx, &invocation_context, !credentials.is_empty())?;
             if let Some(error) = take_host_error(&host_state) {
                 return Err(error);
             }
@@ -1398,14 +1443,19 @@ impl WorkerRuntime {
     }
 }
 
-fn clear_invocation_credential<'js>(
+fn clear_invocation_credentials<'js>(
     ctx: &Ctx<'js>,
     invocation_context: &Object<'js>,
-    had_credential: bool,
+    had_credentials: bool,
 ) -> SandboxResult<()> {
-    if had_credential {
+    if had_credentials {
         invocation_context
             .remove("credential")
+            .map_err(|_| SandboxError::Codec {
+                reason: "invocation context",
+            })?;
+        invocation_context
+            .remove("credentials")
             .map_err(|_| SandboxError::Codec {
                 reason: "invocation context",
             })?;
@@ -2396,6 +2446,66 @@ mod tests {
     }
 
     #[test]
+    fn named_credential_slots_are_ephemeral_and_cleared_together() {
+        let (_directory, worker) = spawn(
+            r#"
+            let retainedContext;
+            export default {
+              invoke(_request, _host, context) {
+                const previousSlots = retainedContext === undefined
+                  ? null
+                  : Object.keys(retainedContext.credentials ?? {});
+                retainedContext = context;
+                return { protocolVersion: 1, ok: true, output: {
+                  slots: Object.keys(context.credentials ?? {}).sort(),
+                  combinedBytes: (context.credentials?.apiToken?.length ?? 0)
+                    + (context.credentials?.webhookSecret?.length ?? 0),
+                  previousSlots
+                } };
+              }
+            };
+            "#,
+        );
+        let credentials = BTreeMap::from([
+            ("apiToken".to_string(), "ephemeral-token".to_string()),
+            (
+                "webhookSecret".to_string(),
+                "ephemeral-signature".to_string(),
+            ),
+        ]);
+        let first = worker
+            .invoke_with_credentials_and_cancellation(
+                invocation(Value::Null),
+                &credentials,
+                Duration::from_secs(1),
+                SandboxCancellationToken::default(),
+            )
+            .expect("invoke with named credentials");
+        assert_eq!(
+            first.output,
+            Some(json!({
+                "slots": ["apiToken", "webhookSecret"],
+                "combinedBytes": "ephemeral-token".len() + "ephemeral-signature".len(),
+                "previousSlots": null
+            }))
+        );
+
+        let mut second_request = invocation(Value::Null);
+        second_request.invocation_id = "invocation-2".to_string();
+        let second = worker
+            .invoke(second_request)
+            .expect("invoke without credentials");
+        assert_eq!(
+            second.output,
+            Some(json!({
+                "slots": [],
+                "combinedBytes": 0,
+                "previousSlots": []
+            }))
+        );
+    }
+
+    #[test]
     fn node_and_host_globals_are_absent() {
         let (_directory, worker) = spawn(
             r#"
@@ -2555,7 +2665,7 @@ mod tests {
                 WorkerRequest::Invoke {
                     envelope: SandboxInvocationEnvelope {
                         request: invocation(Value::Null),
-                        credential: None,
+                        credentials: BTreeMap::new(),
                     },
                     cancellation: SandboxCancellationToken::default(),
                     deadline: Instant::now() + Duration::from_millis(100),

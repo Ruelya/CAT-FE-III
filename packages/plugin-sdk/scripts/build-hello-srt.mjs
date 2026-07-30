@@ -64,3 +64,7 @@ await buildExample(
   "qa-pipeline-sandbox.mjs",
   "neutral",
 );
+await buildExample(
+  "examples/plugins/external-connector-fixture",
+  "external-connector-fixture.mjs",
+);

@@ -51,6 +51,11 @@ use crate::plugin_declarative::{
     DeclarativePipelineStep, DeclarativePluginQaRule, ProcessPluginPipelineStep,
     ProcessPluginQaRule, SandboxPluginPipelineStep, SandboxPluginQaRule,
 };
+use crate::plugin_external_connector::{
+    ExternalConnectorOwnerToken, ExternalConnectorRegistration,
+    declarative_external_connector_host, process_external_connector_host,
+    sandbox_external_connector_host,
+};
 use crate::qa::{QaRuleExecutor, QaRuleExecutorFailure, QaRuleExecutorSnapshot};
 use crate::{EngineError, EngineService, Result};
 
@@ -70,6 +75,7 @@ pub(crate) struct PreparedSandboxActivation {
     connector_metadata: crate::ai::PluginConnectorCatalog,
     ai_actions: Vec<AiActionRegistration>,
     ui_panels: Vec<UiPanelRegistration>,
+    external_connectors: Vec<ExternalConnectorRegistration>,
 }
 
 impl EngineService {
@@ -1283,6 +1289,7 @@ impl EngineService {
             let mut pipeline_steps = Vec::new();
             let mut connectors = Vec::new();
             let mut connector_metadata = crate::ai::PluginConnectorCatalog::new();
+            let mut external_connectors = Vec::new();
             for contribution in &normalized.contributions {
                 match contribution {
                     PluginContributionDescriptor::Filter(value) => {
@@ -1442,6 +1449,57 @@ impl EngineService {
                             Arc::new(step),
                         ));
                     }
+                    PluginContributionDescriptor::ExternalConnector(value) => {
+                        if value.contract_version.is_none() {
+                            continue;
+                        }
+                        let executable = value
+                            .executable_v1(translunar_plugin_runtime::PluginTier::Declarative)
+                            .map_err(|error| {
+                                EngineError::PluginInvalidManifest(error.to_string())
+                            })?;
+                        for operation in &executable.operations {
+                            authorize_contribution(
+                                &authorizer,
+                                record,
+                                &version_id,
+                                PluginCapabilityId::ExternalConnector,
+                                PluginCapabilityScope::Operations {
+                                    operations: vec![operation.as_str().to_string()],
+                                },
+                                &value.id,
+                                operation.as_str(),
+                            )?;
+                        }
+                        for origin in &executable.origins {
+                            authorize_contribution(
+                                &authorizer,
+                                record,
+                                &version_id,
+                                PluginCapabilityId::NetworkConnect,
+                                PluginCapabilityScope::Network {
+                                    origins: vec![origin.clone()],
+                                },
+                                &value.id,
+                                "network.connect",
+                            )?;
+                        }
+                        external_connectors.push(ExternalConnectorRegistration {
+                            owner: ExternalConnectorOwnerToken {
+                                plugin_id: record.id.clone(),
+                                version_id: version_id.clone(),
+                                activation_revision: record.revision,
+                                contribution_id: value.id.clone(),
+                                contract_version: executable.contract_version,
+                            },
+                            descriptor: value.clone(),
+                            executable,
+                            tier: translunar_plugin_runtime::PluginTier::Declarative,
+                            authorizer: Arc::clone(&authorizer),
+                            host: declarative_external_connector_host(),
+                            cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                        });
+                    }
                     _ => {
                         return Err(EngineError::PluginCapabilityUnsupported(format!(
                             "unsupported declarative contribution {}",
@@ -1491,6 +1549,20 @@ impl EngineService {
                 self.plugin_pipeline_owners.insert(id, owner);
             }
             self.plugin_qa_registry.attach_all(qa_rules)?;
+            if let Err(error) = self
+                .external_connector_registry
+                .preflight(&external_connectors)
+            {
+                self.unregister_plugin_filters(&record.id);
+                return Err(error);
+            }
+            if let Err(error) = self
+                .external_connector_registry
+                .attach_all(external_connectors)
+            {
+                self.unregister_plugin_filters(&record.id);
+                return Err(error);
+            }
             self.plugin_activation_revisions
                 .insert(record.id.clone(), record.revision);
             return Ok(());
@@ -1540,8 +1612,51 @@ impl EngineService {
                 _ => None,
             })
             .collect::<Vec<_>>();
+        let external_connector_descriptors = normalized
+            .contributions
+            .iter()
+            .filter_map(|contribution| match contribution {
+                PluginContributionDescriptor::ExternalConnector(value)
+                    if value.contract_version.is_some() =>
+                {
+                    Some(value.clone())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
         for descriptor in &connector_descriptors {
             authorize_connector_registration(&authorizer, record, &version_id, descriptor)?;
+        }
+        for descriptor in &external_connector_descriptors {
+            let executable = descriptor
+                .executable_v1(translunar_plugin_runtime::PluginTier::Process)
+                .map_err(|error| EngineError::PluginInvalidManifest(error.to_string()))?;
+            for operation in &executable.operations {
+                authorize_contribution(
+                    &authorizer,
+                    record,
+                    &version_id,
+                    PluginCapabilityId::ExternalConnector,
+                    PluginCapabilityScope::Operations {
+                        operations: vec![operation.as_str().to_string()],
+                    },
+                    &descriptor.id,
+                    operation.as_str(),
+                )?;
+            }
+            for origin in &executable.origins {
+                authorize_contribution(
+                    &authorizer,
+                    record,
+                    &version_id,
+                    PluginCapabilityId::NetworkConnect,
+                    PluginCapabilityScope::Network {
+                        origins: vec![origin.clone()],
+                    },
+                    &descriptor.id,
+                    "network.connect",
+                )?;
+            }
         }
         for descriptor in &qa_rule_descriptors {
             authorize_contribution(
@@ -1595,12 +1710,13 @@ impl EngineService {
         let process = match self.pending_plugin_processes.remove(&pending_key) {
             Some(process) => process,
             None => {
-                let process = Arc::new(PluginProcess::new_with_public_descriptors(
+                let process = Arc::new(PluginProcess::new_with_all_public_descriptors(
                     resolve_managed_path(self.store.paths().root.as_path(), &record.package_path),
                     record.manifest.clone(),
                     connector_descriptors.clone(),
                     qa_rule_descriptors.clone(),
                     pipeline_step_descriptors.clone(),
+                    external_connector_descriptors.clone(),
                 ));
                 process.ensure_started().map_err(map_plugin_error)?;
                 process
@@ -1686,23 +1802,61 @@ impl EngineService {
                     Vec::new(),
                 )?);
             }
+            let mut external_connectors = Vec::new();
+            for descriptor in &external_connector_descriptors {
+                let executable = descriptor
+                    .executable_v1(translunar_plugin_runtime::PluginTier::Process)
+                    .map_err(|error| EngineError::PluginInvalidManifest(error.to_string()))?;
+                external_connectors.push(ExternalConnectorRegistration {
+                    owner: ExternalConnectorOwnerToken {
+                        plugin_id: record.id.clone(),
+                        version_id: version_id.clone(),
+                        activation_revision: record.revision,
+                        contribution_id: descriptor.id.clone(),
+                        contract_version: executable.contract_version,
+                    },
+                    descriptor: descriptor.clone(),
+                    executable,
+                    tier: translunar_plugin_runtime::PluginTier::Process,
+                    authorizer: Arc::clone(&authorizer),
+                    host: process_external_connector_host(
+                        Arc::clone(&process),
+                        descriptor.id.clone(),
+                    ),
+                    cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                });
+            }
             Ok((
                 filters,
                 connector_registrations,
                 connector_metadata,
                 pipeline_steps,
                 qa_rules,
+                external_connectors,
             ))
         })();
-        let (filters, connector_registrations, connector_metadata, pipeline_steps, qa_rules) =
-            match prepared {
-                Ok(prepared) => prepared,
-                Err(error) => {
-                    process.stop();
-                    return Err(error);
-                }
-            };
+        let (
+            filters,
+            connector_registrations,
+            connector_metadata,
+            pipeline_steps,
+            qa_rules,
+            external_connectors,
+        ) = match prepared {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                process.stop();
+                return Err(error);
+            }
+        };
         if let Err(error) = self.plugin_qa_registry.preflight(&qa_rules) {
+            process.stop();
+            return Err(error);
+        }
+        if let Err(error) = self
+            .external_connector_registry
+            .preflight(&external_connectors)
+        {
             process.stop();
             return Err(error);
         }
@@ -1795,6 +1949,14 @@ impl EngineService {
         {
             previous.stop();
         }
+        if let Err(error) = self
+            .external_connector_registry
+            .attach_all(external_connectors)
+        {
+            self.unregister_plugin_filters(&record.id);
+            process.stop();
+            return Err(error);
+        }
         self.plugin_activation_revisions
             .insert(record.id.clone(), record.revision);
         Ok(())
@@ -1877,6 +2039,40 @@ impl EngineService {
                 PluginContributionDescriptor::EngineConnector(value) => {
                     authorize_connector_registration(&authorizer, record, version_id, value)?;
                 }
+                PluginContributionDescriptor::ExternalConnector(value) => {
+                    if value.contract_version.is_none() {
+                        continue;
+                    }
+                    let executable = value
+                        .executable_v1(translunar_plugin_runtime::PluginTier::Sandbox)
+                        .map_err(|error| EngineError::PluginInvalidManifest(error.to_string()))?;
+                    for operation in &executable.operations {
+                        authorize_contribution(
+                            &authorizer,
+                            record,
+                            version_id,
+                            PluginCapabilityId::ExternalConnector,
+                            PluginCapabilityScope::Operations {
+                                operations: vec![operation.as_str().to_string()],
+                            },
+                            &value.id,
+                            operation.as_str(),
+                        )?;
+                    }
+                    for origin in &executable.origins {
+                        authorize_contribution(
+                            &authorizer,
+                            record,
+                            version_id,
+                            PluginCapabilityId::NetworkConnect,
+                            PluginCapabilityScope::Network {
+                                origins: vec![origin.clone()],
+                            },
+                            &value.id,
+                            "network.connect",
+                        )?;
+                    }
+                }
                 PluginContributionDescriptor::QaRule(value) => {
                     authorize_contribution(
                         &authorizer,
@@ -1902,12 +2098,6 @@ impl EngineService {
                         &value.id,
                         "pipeline.register",
                     )?;
-                }
-                _ => {
-                    return Err(EngineError::PluginCapabilityUnsupported(format!(
-                        "unsupported sandbox contribution {}",
-                        contribution.id()
-                    )));
                 }
             }
         }
@@ -1951,6 +2141,7 @@ impl EngineService {
         let mut connector_metadata = crate::ai::PluginConnectorCatalog::new();
         let mut ai_actions = Vec::new();
         let mut ui_panels = Vec::new();
+        let mut external_connectors = Vec::new();
         for contribution in &normalized.contributions {
             match contribution {
                 PluginContributionDescriptor::Filter(value) => {
@@ -2066,7 +2257,29 @@ impl EngineService {
                         });
                     }
                 }
-                _ => unreachable!("sandbox host compatibility was checked before preparation"),
+                PluginContributionDescriptor::ExternalConnector(value) => {
+                    if value.contract_version.is_none() {
+                        continue;
+                    }
+                    let executable = value
+                        .executable_v1(translunar_plugin_runtime::PluginTier::Sandbox)
+                        .map_err(|error| EngineError::PluginInvalidManifest(error.to_string()))?;
+                    external_connectors.push(ExternalConnectorRegistration {
+                        owner: ExternalConnectorOwnerToken {
+                            plugin_id: record.id.clone(),
+                            version_id: version_id.to_string(),
+                            activation_revision: record.revision,
+                            contribution_id: value.id.clone(),
+                            contract_version: executable.contract_version,
+                        },
+                        descriptor: value.clone(),
+                        executable,
+                        tier: translunar_plugin_runtime::PluginTier::Sandbox,
+                        authorizer: Arc::clone(&authorizer),
+                        host: sandbox_external_connector_host(worker.clone(), value.id.clone()),
+                        cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    });
+                }
             }
         }
         Ok(PreparedSandboxActivation {
@@ -2079,6 +2292,7 @@ impl EngineService {
             connector_metadata,
             ai_actions,
             ui_panels,
+            external_connectors,
         })
     }
 
@@ -2125,6 +2339,13 @@ impl EngineService {
             return Err(error);
         }
         if let Err(error) = self.plugin_ui_panel_registry.preflight(&prepared.ui_panels) {
+            let _ = prepared.worker.shutdown();
+            return Err(error);
+        }
+        if let Err(error) = self
+            .external_connector_registry
+            .preflight(&prepared.external_connectors)
+        {
             let _ = prepared.worker.shutdown();
             return Err(error);
         }
@@ -2251,6 +2472,39 @@ impl EngineService {
             self.detach_plugin_connectors(&record.id);
             return Err(error);
         }
+        if let Err(error) = self
+            .external_connector_registry
+            .attach_all(prepared.external_connectors)
+        {
+            self.plugin_ui_panel_registry.detach_generation(
+                &record.id,
+                &version_id,
+                record.revision,
+            );
+            self.plugin_ai_action_registry.detach_generation(
+                &record.id,
+                &version_id,
+                record.revision,
+            );
+            self.plugin_qa_registry
+                .detach_generation(&record.id, record.revision);
+            for (step_id, binding) in &registered_pipeline_steps {
+                self.pipeline.cancel_owner(binding);
+                if let Ok(current) = self.pipeline.registry.resolve_binding(step_id)
+                    && current.binding().owner == *binding
+                {
+                    let _ = self.pipeline.registry.unregister_binding(current.binding());
+                }
+                self.plugin_pipeline_owners.remove(step_id);
+            }
+            for registered_id in &registered {
+                let _ = self.filters.unregister(registered_id);
+                self.plugin_filter_owners.remove(registered_id);
+            }
+            let _ = self.plugin_sandbox_runtimes.detach(&key);
+            self.detach_plugin_connectors(&record.id);
+            return Err(error);
+        }
         if let Some(previous_key) = self
             .plugin_sandbox_keys
             .insert(record.id.clone(), key.clone())
@@ -2313,7 +2567,16 @@ impl EngineService {
                     &version_id,
                     activation_revision,
                 );
+                self.external_connector_registry.detach_generation(
+                    plugin_id,
+                    &version_id,
+                    activation_revision,
+                );
+            } else {
+                self.external_connector_registry.detach_plugin(plugin_id);
             }
+        } else {
+            self.external_connector_registry.detach_plugin(plugin_id);
         }
         let pipeline_steps = self
             .plugin_pipeline_owners
@@ -3489,6 +3752,9 @@ fn map_plugin_error(error: translunar_plugin_runtime::PluginRuntimeError) -> Eng
         PluginRuntimeError::Process(message)
         | PluginRuntimeError::Protocol(message)
         | PluginRuntimeError::Remote(message) => EngineError::PluginProcessFailed(message),
+        PluginRuntimeError::ExternalConnectorFailure(failure) => EngineError::PluginProcessFailed(
+            format!("external connector {} failed", failure.code.as_str()),
+        ),
         PluginRuntimeError::Timeout(duration) => {
             EngineError::PluginProcessFailed(format!("plugin timed out after {duration:?}"))
         }

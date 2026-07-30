@@ -2,7 +2,7 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use crate::{Result, StorageError};
 
-pub(crate) const LATEST_SCHEMA_VERSION: u32 = 22;
+pub(crate) const LATEST_SCHEMA_VERSION: u32 = 23;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE projects (
@@ -2615,7 +2615,202 @@ BEGIN
 END;
 "#;
 
-const MIGRATIONS: [(u32, &str); 22] = [
+/// External system connector profiles, credential presence, append-only
+/// checkpoints, and idempotency receipts. Secrets stay out of SQLite.
+const MIGRATION_23: &str = r#"
+CREATE TABLE external_connector_profiles (
+    id TEXT PRIMARY KEY
+        CHECK (
+            length(trim(id)) BETWEEN 1 AND 128 AND
+            id NOT GLOB '*[^A-Za-z0-9._-]*'
+        ),
+    display_name TEXT NOT NULL
+        CHECK (length(trim(display_name)) BETWEEN 1 AND 120),
+    contribution_id TEXT NOT NULL
+        CHECK (
+            length(trim(contribution_id)) BETWEEN 1 AND 128 AND
+            contribution_id NOT GLOB '*[^A-Za-z0-9._-]*'
+        ),
+    plugin_id TEXT NOT NULL CHECK (
+        length(trim(plugin_id)) BETWEEN 1 AND 128 AND
+        plugin_id NOT GLOB '*[^A-Za-z0-9._-]*'
+    ),
+    version_id TEXT NOT NULL CHECK (
+        length(trim(version_id)) BETWEEN 1 AND 384 AND
+        version_id NOT GLOB '*[^A-Za-z0-9._:-]*'
+    ),
+    activation_revision INTEGER NOT NULL CHECK (activation_revision >= 1),
+    contract_version INTEGER NOT NULL CHECK (contract_version = 1),
+    config_schema_version INTEGER NOT NULL CHECK (config_schema_version >= 1),
+    checkpoint_schema_version INTEGER NOT NULL CHECK (checkpoint_schema_version >= 1),
+    configuration_json TEXT NOT NULL CHECK (
+        length(CAST(configuration_json AS BLOB)) <= 65536 AND
+        json_valid(configuration_json) AND json_type(configuration_json) = 'object'
+    ),
+    origins_json TEXT NOT NULL CHECK (
+        length(CAST(origins_json AS BLOB)) <= 8192 AND
+        json_valid(origins_json) AND json_type(origins_json) = 'array'
+    ),
+    operations_json TEXT NOT NULL CHECK (
+        length(CAST(operations_json AS BLOB)) <= 4096 AND
+        json_valid(operations_json) AND json_type(operations_json) = 'array'
+    ),
+    descriptor_hash TEXT NOT NULL CHECK (
+        length(descriptor_hash) = 64 AND descriptor_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    config_hash TEXT NOT NULL CHECK (
+        length(config_hash) = 64 AND config_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX external_connector_profiles_owner_idx
+    ON external_connector_profiles(
+        plugin_id, version_id, contribution_id, id
+    );
+
+CREATE INDEX external_connector_profiles_contribution_idx
+    ON external_connector_profiles(contribution_id, updated_at_ms DESC, id);
+
+CREATE TABLE external_connector_credential_slots (
+    profile_id TEXT NOT NULL
+        REFERENCES external_connector_profiles(id) ON DELETE CASCADE,
+    slot_id TEXT NOT NULL
+        CHECK (
+            length(trim(slot_id)) BETWEEN 1 AND 64 AND
+            slot_id NOT GLOB '*[^A-Za-z0-9._-]*'
+        ),
+    present INTEGER NOT NULL DEFAULT 0 CHECK (present IN (0, 1)),
+    updated_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (profile_id, slot_id)
+) STRICT;
+
+CREATE TABLE external_connector_checkpoints (
+    profile_id TEXT NOT NULL
+        REFERENCES external_connector_profiles(id) ON DELETE CASCADE,
+    stream_id TEXT NOT NULL
+        CHECK (
+            length(trim(stream_id)) BETWEEN 1 AND 128 AND
+            stream_id NOT GLOB '*[^A-Za-z0-9._-]*'
+        ),
+    revision INTEGER NOT NULL CHECK (revision >= 1),
+    schema_version INTEGER NOT NULL CHECK (schema_version >= 1),
+    payload_json TEXT NOT NULL CHECK (
+        length(CAST(payload_json AS BLOB)) <= 65536 AND
+        json_valid(payload_json)
+    ),
+    payload_hash TEXT NOT NULL CHECK (
+        length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    cursor TEXT CHECK (
+        cursor IS NULL OR (
+            length(trim(cursor)) BETWEEN 1 AND 512 AND
+            cursor NOT GLOB '*[[:cntrl:]]*'
+        )
+    ),
+    plugin_id TEXT NOT NULL,
+    version_id TEXT NOT NULL,
+    contribution_id TEXT NOT NULL,
+    activation_revision INTEGER NOT NULL CHECK (activation_revision >= 1),
+    created_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (profile_id, stream_id, revision)
+) STRICT;
+
+CREATE INDEX external_connector_checkpoints_current_idx
+    ON external_connector_checkpoints(profile_id, stream_id, revision DESC);
+
+CREATE TRIGGER external_connector_checkpoints_immutable_update
+BEFORE UPDATE ON external_connector_checkpoints
+BEGIN
+    SELECT RAISE(ABORT, 'external connector checkpoints are append-only');
+END;
+
+CREATE TABLE external_connector_invocations (
+    id TEXT PRIMARY KEY
+        CHECK (
+            length(trim(id)) BETWEEN 1 AND 128 AND
+            id NOT GLOB '*[^A-Za-z0-9._-]*'
+        ),
+    profile_id TEXT NOT NULL
+        REFERENCES external_connector_profiles(id) ON DELETE CASCADE,
+    operation TEXT NOT NULL
+        CHECK (
+            operation IN (
+                'validateConfig', 'test', 'pull', 'push', 'poll', 'webhook'
+            )
+        ),
+    idempotency_key TEXT CHECK (
+        idempotency_key IS NULL OR (
+            length(trim(idempotency_key)) BETWEEN 1 AND 128 AND
+            idempotency_key NOT GLOB '*[^A-Za-z0-9._-]*'
+        )
+    ),
+    request_hash TEXT NOT NULL CHECK (
+        length(request_hash) = 64 AND request_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    request_id TEXT NOT NULL CHECK (
+        length(trim(request_id)) BETWEEN 1 AND 128 AND
+        request_id NOT GLOB '*[^A-Za-z0-9._-]*'
+    ),
+    stream_id TEXT CHECK (
+        stream_id IS NULL OR (
+            length(trim(stream_id)) BETWEEN 1 AND 128 AND
+            stream_id NOT GLOB '*[^A-Za-z0-9._-]*'
+        )
+    ),
+    status TEXT NOT NULL CHECK (
+        status IN (
+            'in_flight', 'succeeded', 'failed', 'cancelled', 'timeout',
+            'conflict'
+        )
+    ),
+    attempt INTEGER NOT NULL DEFAULT 1 CHECK (attempt BETWEEN 1 AND 32),
+    result_hash TEXT CHECK (
+        result_hash IS NULL OR (
+            length(result_hash) = 64 AND result_hash NOT GLOB '*[^0-9a-f]*'
+        )
+    ),
+    result_json TEXT CHECK (
+        result_json IS NULL OR (
+            length(CAST(result_json AS BLOB)) <= 1048576 AND
+            json_valid(result_json)
+        )
+    ),
+    failure_code TEXT CHECK (
+        failure_code IS NULL OR (
+            length(trim(failure_code)) BETWEEN 1 AND 64 AND
+            failure_code NOT GLOB '*[^a-zA-Z0-9_]*'
+        )
+    ),
+    failure_message TEXT CHECK (
+        failure_message IS NULL OR length(CAST(failure_message AS BLOB)) <= 1024
+    ),
+    retryable INTEGER CHECK (retryable IS NULL OR retryable IN (0, 1)),
+    retry_after_ms INTEGER CHECK (
+        retry_after_ms IS NULL OR (
+            retry_after_ms >= 0 AND retry_after_ms <= 120000
+        )
+    ),
+    checkpoint_revision INTEGER CHECK (
+        checkpoint_revision IS NULL OR checkpoint_revision >= 1
+    ),
+    plugin_id TEXT NOT NULL,
+    version_id TEXT NOT NULL,
+    contribution_id TEXT NOT NULL,
+    activation_revision INTEGER NOT NULL CHECK (activation_revision >= 1),
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    UNIQUE (profile_id, operation, idempotency_key)
+) STRICT;
+
+CREATE INDEX external_connector_invocations_profile_idx
+    ON external_connector_invocations(profile_id, created_at_ms DESC, id);
+"#;
+
+const MIGRATIONS: [(u32, &str); 23] = [
     (1_u32, MIGRATION_1),
     (2_u32, MIGRATION_2),
     (3_u32, MIGRATION_3),
@@ -2638,6 +2833,7 @@ const MIGRATIONS: [(u32, &str); 22] = [
     (20_u32, MIGRATION_20),
     (21_u32, MIGRATION_21),
     (22_u32, MIGRATION_22),
+    (23_u32, MIGRATION_23),
 ];
 
 pub(crate) fn configure_connection(connection: &Connection) -> Result<()> {
