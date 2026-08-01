@@ -3888,6 +3888,31 @@ staged.source_kind = classify_source_kind(
 // the picker fixture at that copy when asserting localArchive provenance.
 ```
 
+## Plugin Ecosystem Parent Completion Boundary
+
+**Context**: Parent task `07-19-plugin-runtime-sdk` (P-01..P-10) is delivered
+through ten independently archived children covering Tier 1–3 hosts, capability
+grants/audit, Engine/QA/pipeline/AI/UI/external contribution SDKs, and desktop
+management / `.tlplugin` / offline bundled catalog. Detailed executable
+contracts live in the plugin sections of this file, plus
+`database-guidelines.md` (plugin storage/migrations) and
+`frontend/electron-workbench.md` (Plugins panel surfaces).
+
+**Completion rule**:
+
+- Feature archive of the parent requires: all ten children `completed` with
+  task-owned evidence, and no MVP exclusion of a P-01..P-10 family.
+- Feature archive does **not** require re-running the full monorepo quality
+  matrix on the parent branch. Child-focused Engine smoke, package tests, and
+  plugin desktop E2E are the implementation evidence boundary.
+- Full repository, Engine, desktop, SDK/example, and plugin E2E gates on one
+  immutable release candidate are owned by
+  `07-19-full-prd-release-qualification` (WP2 quality lanes, WP3 plugin-crash
+  isolation at NFR scale, WP5 ecosystem/integration acceptance).
+
+**Do not**: claim workspace-wide clippy/desktop green from a child closeout
+that only proved its focused surface; re-audit stale or residual E2E gaps
+(Versions UI, stale-revision recovery, reduced-motion) at release qualification.
 
 ## Collaboration Local MVP Boundary
 
