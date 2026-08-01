@@ -664,7 +664,11 @@ mod tests {
                 limit: 50,
             })
             .expect("list verified catalog");
-        assert!(page.catalog_available, "catalog diagnostics: {:?}", page.diagnostics);
+        assert!(
+            page.catalog_available,
+            "catalog diagnostics: {:?}",
+            page.diagnostics
+        );
         assert_eq!(page.total, 5);
         assert!(
             page.items
@@ -696,9 +700,9 @@ mod tests {
         }
         let index_path = root.join("index.json");
         let mut index: serde_json::Value =
-            serde_json::from_slice(&fs::read(&index_path).expect("read index")).expect("parse index");
-        index["packages"][0]["packageSha256"] =
-            serde_json::Value::String("0".repeat(64));
+            serde_json::from_slice(&fs::read(&index_path).expect("read index"))
+                .expect("parse index");
+        index["packages"][0]["packageSha256"] = serde_json::Value::String("0".repeat(64));
         fs::write(
             &index_path,
             serde_json::to_vec_pretty(&index).expect("serialize tampered index"),
@@ -893,9 +897,11 @@ mod tests {
             .expect("serialize empty index"),
         )
         .expect("write empty index");
-        let forged_service =
-            EngineService::open_with_bundled_plugin_root(data.path().join("forged-data"), Some(forged_root.clone()))
-                .expect("open with empty catalog");
+        let forged_service = EngineService::open_with_bundled_plugin_root(
+            data.path().join("forged-data"),
+            Some(forged_root.clone()),
+        )
+        .expect("open with empty catalog");
         let unlisted = forged_root.join(archive_name);
         let unlisted_inspect = forged_service
             .inspect_plugin(PluginInspectParams {
@@ -1016,8 +1022,8 @@ mod tests {
         );
 
         // Local directory install remains healthy while catalog is degraded.
-        let local = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../examples/plugins/hello-srt");
+        let local =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/plugins/hello-srt");
         let installed = service
             .install_plugin(PluginInstallParams {
                 source_path: local.to_string_lossy().into_owned(),

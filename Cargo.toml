@@ -61,3 +61,9 @@ url = "2.5.8"
 uuid = { version = "1.24.0", features = ["serde", "v7"] }
 zeroize = "1.8.2"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+
+# Strip symbols from release Engine binaries packaged into the desktop app.
+# Full-workspace LTO is intentionally omitted: it multiplies clean-package
+# wall time without moving the Electron Chromium floor under the installer gate.
+[profile.release]
+strip = true

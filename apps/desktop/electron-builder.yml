@@ -7,11 +7,13 @@ directories:
 files:
   - dist/**/*
   - package.json
-# scripts/package-desktop.mjs creates a fresh resource directory containing
-# exactly the verified host-platform/host-arch Engine binary. Direct
-# electron-builder invocation intentionally fails when this environment value
-# is absent, because copying target/release wholesale can bundle a stale
-# opposite-platform binary.
+  - "!**/.package-engine-resource/**"
+# scripts/package-desktop.mjs stages a verified host Engine under
+# apps/desktop/.package-engine-resource and exports TRANSLUNAR_ENGINE_RESOURCE_DIR
+# as that *relative* name. Absolute temp paths break on Windows because
+# electron-builder joins `from` against the project directory.
+# Direct electron-builder invocation without the env intentionally fails so
+# target/release is never copied wholesale (stale opposite-platform risk).
 extraResources:
   - from: ${env.TRANSLUNAR_ENGINE_RESOURCE_DIR}
     to: engine
@@ -19,6 +21,11 @@ extraResources:
     to: examples
   - from: resources/plugins/
     to: plugins
+# Ship only locales the product UI supports (en-US / zh-CN). Full Chromium
+# locale packs add ~45 MB and are unused by Translunar CAT.
+electronLanguages:
+  - en-US
+  - zh-CN
 asar: true
 compression: maximum
 win:

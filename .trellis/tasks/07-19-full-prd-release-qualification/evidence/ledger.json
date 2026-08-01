@@ -1,0 +1,321 @@
+{
+  "schemaVersion": 1,
+  "candidateSha": "8c8df12fceef913073b683c0cfe0877dd8148aac",
+  "generatedAt": "2026-08-02T04:00:00+08:00",
+  "statusLegend": ["pass", "fail", "blocked-external", "not-applicable", "partial", "not-run"],
+  "qualificationTaskAc": [
+    {
+      "id": "AC1",
+      "title": "ID-by-ID ledger mapped with immutable evidence",
+      "status": "partial",
+      "evidence": ["evidence/ledger.json", "evidence/final-report.md"],
+      "notes": "Parent AC + RQ buckets mapped; exhaustive per-PRD-ID executable command binding is incomplete where owning tasks lack fresh SHA-bound re-runs."
+    },
+    {
+      "id": "AC2",
+      "title": "Node 22 and Node 24 quality lanes zero required skips",
+      "status": "fail",
+      "evidence": ["evidence/platforms/windows-x64-node24.json", "evidence/automated/lane-summary.md"],
+      "notes": "Node 24 partial: format/eslint fail; default engine smoke fail; E2E incomplete. Node 22 blocked-external."
+    },
+    {
+      "id": "AC3",
+      "title": "Native Windows and macOS packages pass size/arch/install gates",
+      "status": "fail",
+      "evidence": ["evidence/automated/package-dir.log", "evidence/automated/release-package-check.log"],
+      "notes": "Windows dir package size fail + missing Engine. macOS blocked-external."
+    },
+    {
+      "id": "AC4",
+      "title": "A11y and visual matrices including Workbench macOS/font gates",
+      "status": "fail",
+      "evidence": ["evidence/manual/a11y-status.md"],
+      "notes": "Automated axe suite lives in desktop E2E (incomplete). Native NVDA/VoiceOver/CJK IME/macOS fonts blocked-external or not-run."
+    },
+    {
+      "id": "AC5",
+      "title": "NFR performance/capacity/reliability evidence",
+      "status": "fail",
+      "evidence": ["evidence/benchmarks/storage-100k.json"],
+      "notes": "100k storage-benchmark only; no 1M fuzzy P95, no 50k open isolation, no full fault-injection campaign on this candidate freeze."
+    },
+    {
+      "id": "AC6",
+      "title": "Format/fidelity corpus + layout review",
+      "status": "fail",
+      "evidence": ["evidence/automated/engine-smoke-default.log", "evidence/fidelity/status.md"],
+      "notes": "Default smoke dies on PDF. Non-PDF formats not fully re-qualified on this run because smoke aborts early. Human layout review not-run."
+    },
+    {
+      "id": "AC7",
+      "title": "AI/asset/plugin/API/CLI/collab acceptance",
+      "status": "partial",
+      "evidence": [
+        "evidence/automated/engine-smoke-plugin.log",
+        "evidence/automated/engine-smoke-api.log",
+        "evidence/automated/engine-smoke-ai-quality.log",
+        "evidence/automated/engine-smoke-collab.log",
+        "evidence/automated/engine-smoke-curation.log",
+        "evidence/automated/engine-smoke-qa-pipeline.log"
+      ],
+      "notes": "Focused engine smokes pass. Two-client collab server, six live providers, full public SDK half-day exercise, and GUI-free asset-sink path not fully closed as release evidence."
+    },
+    {
+      "id": "AC8",
+      "title": "Usability and success standards",
+      "status": "blocked-external",
+      "evidence": ["evidence/manual/usability-status.md"],
+      "notes": "Requires human studies; no fabricated pass."
+    },
+    {
+      "id": "AC9",
+      "title": "Security/privacy/governance/docs",
+      "status": "partial",
+      "evidence": ["evidence/automated/docs-electron.log", "evidence/manual/security-docs.md"],
+      "notes": "docs:check pass; SECURITY/LICENSE/COC present; keyring code paths covered by unit tests. Full threat-suite and secret redaction audit not re-run as dedicated lane."
+    },
+    {
+      "id": "AC10",
+      "title": "Final candidate-SHA manifest; no skips",
+      "status": "fail",
+      "evidence": ["evidence/manifest.json", "evidence/final-report.md"],
+      "notes": "Manifest published for this SHA but overall FAIL with required gaps remaining."
+    }
+  ],
+  "parentAcceptanceCriteria": [
+    {
+      "id": "parent-bootstrap-archived",
+      "status": "pass",
+      "owner": "archive/2026-07/00-bootstrap-guidelines",
+      "notes": "Bootstrap task archived under 2026-07."
+    },
+    {
+      "id": "parent-prd-id-mapping",
+      "status": "partial",
+      "owner": "07-19-complete-full-cat-prd + children",
+      "notes": "Many IDs mapped via archived children; gap matrix and remaining-work-plan still call out incomplete extension scope. Qualification does not re-close product gaps."
+    },
+    {
+      "id": "parent-windows-multiformat-install",
+      "status": "fail",
+      "owner": "platform-packaging + filters",
+      "evidence": ["automated/release-package-check.log", "automated/engine-smoke-default.log"]
+    },
+    {
+      "id": "parent-format-roundtrip",
+      "status": "fail",
+      "owner": "filter tasks",
+      "notes": "Default smoke failed before completing multi-format round-trip on this host."
+    },
+    {
+      "id": "parent-tm-tb",
+      "status": "partial",
+      "owner": "07-19-tm-termbase-asset-hub",
+      "notes": "Unit/storage tests pass; process-level re-qualification incomplete (default smoke failed)."
+    },
+    {
+      "id": "parent-six-ai-connectors",
+      "status": "partial",
+      "owner": "07-19-ai-engine-grounding / plugin-engine-connectors",
+      "notes": "Deterministic fixtures and AI unit tests pass; six live provider qualification not re-run."
+    },
+    {
+      "id": "parent-editor-c01-c20",
+      "status": "partial",
+      "owner": "07-19-professional-editor",
+      "notes": "Desktop unit tests pass; E2E incomplete at freeze."
+    },
+    {
+      "id": "parent-asset-curation",
+      "status": "partial",
+      "owner": "07-19-asset-curation-center",
+      "evidence": ["automated/engine-smoke-curation.log"],
+      "notes": "Focused curation smoke pass; full dirty-data corpus rate not re-measured here."
+    },
+    {
+      "id": "parent-plugin-sdk",
+      "status": "partial",
+      "owner": "07-19-plugin-runtime-sdk + tier children",
+      "evidence": ["automated/engine-smoke-plugin.log", "automated/desktop-unit.log"]
+    },
+    {
+      "id": "parent-api-cli",
+      "status": "partial",
+      "owner": "07-19-api-cli-automation",
+      "evidence": ["automated/engine-smoke-api.log"],
+      "notes": "Focused API/CLI smoke pass; full pretranslate path per gap matrix still product-owned."
+    },
+    {
+      "id": "parent-collab-two-client",
+      "status": "fail",
+      "owner": "07-19-collaboration-server",
+      "evidence": ["automated/engine-smoke-collab.log"],
+      "notes": "Local primitives smoke pass only; two-client server/sync acceptance not evidenced."
+    },
+    {
+      "id": "parent-packaging-a11y-ci",
+      "status": "fail",
+      "owner": "07-19-platform-packaging-product-shell",
+      "evidence": ["automated/package-dir.log", "automated/release-package-check.log"]
+    },
+    {
+      "id": "parent-full-quality-gate",
+      "status": "fail",
+      "notes": "format/eslint/default smoke/package size red."
+    }
+  ],
+  "prdModules": [
+    {
+      "module": "A lifecycle",
+      "status": "partial",
+      "owner": "07-19-project-lifecycle-analytics / 07-20-project-lifecycle-acceptance",
+      "executable": "cargo test -p translunar-storage; desktop E2E lifecycle (incomplete)"
+    },
+    {
+      "module": "B formats",
+      "status": "fail",
+      "owner": "office/text/pdf filter tasks",
+      "executable": "engine-smoke default (FAIL pdfinfo)",
+      "notes": "B-07 PDF blocked/fail on this host."
+    },
+    {
+      "module": "C editor",
+      "status": "partial",
+      "owner": "07-19-professional-editor"
+    },
+    {
+      "module": "D/E TM/TB",
+      "status": "partial",
+      "owner": "07-19-tm-termbase-asset-hub"
+    },
+    {
+      "module": "F/G AI",
+      "status": "partial",
+      "owner": "07-19-ai-engine-grounding / advanced-ai-quality"
+    },
+    {
+      "module": "H/I QA review collab",
+      "status": "partial",
+      "owner": "07-19-qa-review-workflow / collaboration-server",
+      "notes": "I-05..I-08 two-client fail for release."
+    },
+    {
+      "module": "J alignment",
+      "status": "partial",
+      "owner": "07-21-alignment-reference-corpora"
+    },
+    {
+      "module": "AC curation",
+      "status": "partial",
+      "owner": "07-19-asset-curation-center",
+      "executable": "TRANSLUNAR_SMOKE_SCOPE=curation"
+    },
+    {
+      "module": "K analytics",
+      "status": "partial",
+      "owner": "project-lifecycle-analytics"
+    },
+    {
+      "module": "L interop",
+      "status": "partial",
+      "owner": "interop child tasks"
+    },
+    {
+      "module": "P plugins",
+      "status": "partial",
+      "owner": "plugin-* tasks",
+      "executable": "plugin/qa-pipeline smokes pass"
+    },
+    {
+      "module": "X API",
+      "status": "partial",
+      "owner": "07-19-api-cli-automation"
+    },
+    {
+      "module": "M/N platform",
+      "status": "fail",
+      "owner": "platform-packaging-product-shell",
+      "notes": "Size + Engine packaging fail on Windows; macOS blocked-external."
+    },
+    {
+      "module": "NFR §8",
+      "status": "fail",
+      "owner": "multiple",
+      "executable": "benchmarks/storage-100k.json partial only"
+    },
+    {
+      "module": "§2.5 non-goals",
+      "status": "not-applicable",
+      "notes": "Customer portals, billing, heavy enterprise RBAC, mobile/web, self-trained MT, speech interpretation remain excluded."
+    }
+  ],
+  "hardBlockers": [
+    {
+      "id": "HB1",
+      "summary": "Windows package missing Engine binary (path join bug)",
+      "status": "fail",
+      "mitigation": "mitigated-in-tree / re-qualification pending — relative .package-engine-resource staging; not proven on freeze SHA",
+      "owner": "07-19-platform-packaging-product-shell / package-desktop.mjs",
+      "evidence": "automated/package-dir.log"
+    },
+    {
+      "id": "HB2",
+      "summary": "Package size 383 MB exceeds 200 MiB PRD gate",
+      "status": "fail",
+      "mitigation": "mitigated-in-tree / re-qualification pending — dual installer 200 MiB vs unpacked 420 MiB ceilings + electronLanguages prune; freeze still fail",
+      "owner": "platform packaging",
+      "evidence": "automated/release-package-check.log"
+    },
+    {
+      "id": "HB3",
+      "summary": "Default engine smoke fails on PDF without pdfinfo",
+      "status": "fail",
+      "owner": "env Poppler + 07-19-pdf-ocr-workflow",
+      "evidence": "automated/engine-smoke-default.log"
+    },
+    {
+      "id": "HB4",
+      "summary": "format:check + cargo fmt + eslint red on candidate SHA",
+      "status": "fail",
+      "owner": "repo hygiene / owning packages",
+      "evidence": "automated/format-check.log, cargo-fmt.log, eslint.log"
+    },
+    {
+      "id": "HB5",
+      "summary": "Node 22 lane not executed",
+      "status": "blocked-external",
+      "owner": "CI/runner provisioning"
+    },
+    {
+      "id": "HB6",
+      "summary": "macOS native package, fonts, VoiceOver, CJK package evidence missing",
+      "status": "blocked-external",
+      "owner": "macOS CI runner"
+    },
+    {
+      "id": "HB7",
+      "summary": "1M TM / 5M capacity / full NFR fixtures not re-run",
+      "status": "fail",
+      "owner": "performance fixtures + owning storage/TM tasks"
+    },
+    {
+      "id": "HB8",
+      "summary": "Two-client collaboration acceptance not evidenced",
+      "status": "fail",
+      "owner": "07-19-collaboration-server"
+    },
+    {
+      "id": "HB9",
+      "summary": "User studies / productivity comparison not run",
+      "status": "blocked-external",
+      "owner": "product/research ops"
+    },
+    {
+      "id": "HB10",
+      "summary": "Desktop E2E required PDF test skipped (34 pass / 1 skip); not zero-skip release gate",
+      "status": "fail",
+      "owner": "env Poppler/Tesseract + pdf-ocr-workflow + desktop E2E",
+      "evidence": "automated/desktop-e2e.log"
+    }
+  ]
+}

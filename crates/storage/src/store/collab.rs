@@ -271,11 +271,10 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let current =
-            get_segment_lock(&tx, segment_id)?.ok_or_else(|| StorageError::NotFound {
-                entity: "segment_lock",
-                id: segment_id.to_string(),
-            })?;
+        let current = get_segment_lock(&tx, segment_id)?.ok_or_else(|| StorageError::NotFound {
+            entity: "segment_lock",
+            id: segment_id.to_string(),
+        })?;
         if current.actor_id != actor_id {
             return Err(StorageError::EntityConflict {
                 entity: "segment_lock",
@@ -311,11 +310,10 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let current =
-            get_segment_lock(&tx, segment_id)?.ok_or_else(|| StorageError::NotFound {
-                entity: "segment_lock",
-                id: segment_id.to_string(),
-            })?;
+        let current = get_segment_lock(&tx, segment_id)?.ok_or_else(|| StorageError::NotFound {
+            entity: "segment_lock",
+            id: segment_id.to_string(),
+        })?;
         if current.actor_id != actor_id {
             return Err(StorageError::EntityConflict {
                 entity: "segment_lock",
@@ -568,7 +566,6 @@ impl Store {
         let items = rows.collect::<std::result::Result<Vec<_>, _>>()?;
         Ok((items, to_u32(total)?))
     }
-
 }
 
 fn get_collab_member(
@@ -726,12 +723,7 @@ mod tests {
             .expect("create project");
 
         let owner = store
-            .add_collab_member(
-                &project.id,
-                "alice",
-                CollabRole::Owner,
-                "alice",
-            )
+            .add_collab_member(&project.id, "alice", CollabRole::Owner, "alice")
             .expect("add owner");
         assert_eq!(owner.role, CollabRole::Owner);
         store
@@ -746,13 +738,7 @@ mod tests {
         );
 
         let lock = store
-            .acquire_segment_lock(
-                &project.id,
-                "doc-1",
-                "seg-1",
-                "alice",
-                Some(60_000),
-            )
+            .acquire_segment_lock(&project.id, "doc-1", "seg-1", "alice", Some(60_000))
             .expect("acquire lock");
         assert_eq!(lock.actor_id, "alice");
         let conflict = store
@@ -789,15 +775,7 @@ mod tests {
         );
 
         let assignment = store
-            .create_assignment(
-                &project.id,
-                "doc-1",
-                "bob",
-                0,
-                2,
-                None,
-                "alice",
-            )
+            .create_assignment(&project.id, "doc-1", "bob", 0, 2, None, "alice")
             .expect("create assignment");
         let completed = store
             .complete_assignment(&assignment.id, assignment.revision, "bob")
@@ -834,9 +812,7 @@ mod tests {
         store
             .release_segment_lock("seg-1", "alice")
             .expect("release lock");
-        let (ops, total) = store
-            .list_collab_ops(&project.id, 0, 50)
-            .expect("list ops");
+        let (ops, total) = store.list_collab_ops(&project.id, 0, 50).expect("list ops");
         assert!(total >= 5);
         assert!(ops.iter().any(|op| op.kind == "member.upsert"));
         assert!(ops.iter().any(|op| op.kind == "lock.acquire"));
@@ -943,13 +919,7 @@ mod tests {
             .create_project("Expiry", "en-US", "zh-CN", "general")
             .expect("create project");
         store
-            .acquire_segment_lock(
-                &project.id,
-                "doc-1",
-                "seg-exp",
-                "alice",
-                Some(1_000),
-            )
+            .acquire_segment_lock(&project.id, "doc-1", "seg-exp", "alice", Some(1_000))
             .expect("short lock");
         // Force expiry by rewriting expires_at_ms into the past.
         store

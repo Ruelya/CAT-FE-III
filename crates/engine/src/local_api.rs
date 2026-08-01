@@ -359,9 +359,8 @@ fn query_u32(request: &HttpRequest, key: &str) -> Option<u32> {
 /// Decode a typed request body. Structural JSON mistakes become `invalid_request` (400),
 /// never `EngineError::Json` / HTTP 500.
 fn decode_params<T: DeserializeOwned>(body: Value) -> Result<T> {
-    serde_json::from_value(body).map_err(|error| {
-        EngineError::InvalidRequest(format!("invalid request body: {error}"))
-    })
+    serde_json::from_value(body)
+        .map_err(|error| EngineError::InvalidRequest(format!("invalid request body: {error}")))
 }
 
 /// HTTP status for Engine failures, aligned with the protocol/RPC taxonomy.
@@ -465,14 +464,16 @@ pub fn run_pipeline_with_project(
         qa_override: None,
     }) {
         Ok(result) => result,
-        Err(EngineError::QaGateBlocked { .. }) => service.export_document(ExportDocumentParams {
-            document_id: imported.document.id.clone(),
-            output_path: output.to_string_lossy().into_owned(),
-            qa_override: Some(QaOverrideInput {
-                actor: "cli".into(),
-                reason: "CLI/API automation export with open QA findings".into(),
-            }),
-        })?,
+        Err(EngineError::QaGateBlocked { .. }) => {
+            service.export_document(ExportDocumentParams {
+                document_id: imported.document.id.clone(),
+                output_path: output.to_string_lossy().into_owned(),
+                qa_override: Some(QaOverrideInput {
+                    actor: "cli".into(),
+                    reason: "CLI/API automation export with open QA findings".into(),
+                }),
+            })?
+        }
         Err(error) => return Err(error),
     };
     Ok(json!({
@@ -592,9 +593,7 @@ mod tests {
         let project_id = project["id"].as_str().expect("project id");
 
         let source_path = source.to_string_lossy().replace('\\', "\\\\");
-        let import_body = format!(
-            r#"{{"projectId":"{project_id}","sourcePath":"{source_path}"}}"#
-        );
+        let import_body = format!(r#"{{"projectId":"{project_id}","sourcePath":"{source_path}"}}"#);
         let import = exchange(
             addr,
             &format!(
@@ -604,15 +603,8 @@ mod tests {
         );
         assert!(import.contains("200"));
         let imported = json_body(&import);
-        let document_id = imported["document"]["id"]
-            .as_str()
-            .expect("document id");
-        assert!(
-            imported["document"]["segmentCount"]
-                .as_u64()
-                .unwrap_or(0)
-                >= 1
-        );
+        let document_id = imported["document"]["id"].as_str().expect("document id");
+        assert!(imported["document"]["segmentCount"].as_u64().unwrap_or(0) >= 1);
 
         let documents = exchange(
             addr,
@@ -650,13 +642,8 @@ mod tests {
         // CLI helper path remains covered for durable rows without HTTP.
         let mut engine = service.lock().unwrap();
         let cli_output = directory.path().join("cli-out.txt");
-        let summary = run_pipeline(
-            &mut engine,
-            source,
-            cli_output.clone(),
-            "API CLI helper",
-        )
-        .unwrap();
+        let summary =
+            run_pipeline(&mut engine, source, cli_output.clone(), "API CLI helper").unwrap();
         assert!(cli_output.is_file());
         assert!(summary["segmentCount"].as_u64().unwrap() >= 1);
         assert!(!summary["projectId"].as_str().unwrap().is_empty());
@@ -728,7 +715,10 @@ mod tests {
             ),
         );
         assert!(create.contains("200"), "create project: {create}");
-        let project_id = json_body(&create)["id"].as_str().expect("project id").to_string();
+        let project_id = json_body(&create)["id"]
+            .as_str()
+            .expect("project id")
+            .to_string();
 
         // 2) Unsupported / unmatchable document → protocol import code, not internal_error.
         let junk = directory.path().join("no-filter.unknownext");

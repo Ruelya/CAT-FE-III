@@ -439,7 +439,9 @@ async function confirmPluginInspection(
   ).toBeVisible();
   // Hash is shown as a 16-char prefix with an ellipsis; distribution /
   // capability diagnostics are optional for older local packages.
-  await expect(dialog.locator("dd").filter({ hasText: /…$/u }).first()).toBeVisible();
+  await expect(
+    dialog.locator("dd").filter({ hasText: /…$/u }).first(),
+  ).toBeVisible();
   const confirmLabel =
     mode === "install" ? "Install package" : "Upgrade package";
   await dialog.getByRole("button", { name: confirmLabel, exact: true }).click();
@@ -1330,7 +1332,9 @@ test("installs release-bundled and .tlplugin packages without exposing archive p
     "example.hello-srt-0.1.0.tlplugin",
   );
   expect(existsSync(catalogArchivePath)).toBe(true);
-  const localArchiveDir = mkdtempSync(join(tmpdir(), "translunar-tlplugin-local-"));
+  const localArchiveDir = mkdtempSync(
+    join(tmpdir(), "translunar-tlplugin-local-"),
+  );
   const archivePath = join(localArchiveDir, "example.hello-srt-0.1.0.tlplugin");
   cpSync(catalogArchivePath, archivePath);
   expect(existsSync(archivePath)).toBe(true);
@@ -1393,7 +1397,9 @@ test("installs release-bundled and .tlplugin packages without exposing archive p
     await expect(installedRow).not.toContainText("resources");
 
     // Bundled apply does not auto-open permission review; grant then enable.
-    await installedRow.getByRole("button", { name: "Review permissions" }).click();
+    await installedRow
+      .getByRole("button", { name: "Review permissions" })
+      .click();
     await grantInstalledPluginPermissions(page);
     await installedRow.getByRole("button", { name: "Enable" }).click();
     await expect(installedRow.locator('[data-status="enabled"]')).toHaveText(

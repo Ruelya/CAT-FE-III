@@ -151,9 +151,7 @@ fn memory_token_store_from_test_token(test_token: Option<&str>) -> Result<Memory
     let store = MemoryTokenStore::default();
     if let Some(token) = test_token {
         store.set(token).map_err(|error| {
-            EngineError::InvalidRequest(format!(
-                "TRANSLUNAR_API_TEST_TOKEN is invalid: {error}"
-            ))
+            EngineError::InvalidRequest(format!("TRANSLUNAR_API_TEST_TOKEN is invalid: {error}"))
         })?;
     }
     Ok(store)
@@ -162,7 +160,8 @@ fn memory_token_store_from_test_token(test_token: Option<&str>) -> Result<Memory
 /// Fill 32 bytes from the OS CSPRNG and base64url-encode (no padding).
 pub fn generate_token() -> String {
     let mut material = [0_u8; MIN_TOKEN_DECODED_BYTES];
-    getrandom::getrandom(&mut material).expect("operating-system CSPRNG is required for API tokens");
+    getrandom::getrandom(&mut material)
+        .expect("operating-system CSPRNG is required for API tokens");
     URL_SAFE_NO_PAD.encode(material)
 }
 
@@ -208,9 +207,7 @@ fn validate_token(token: &str) -> Result<()> {
         ));
     }
     let decoded = URL_SAFE_NO_PAD.decode(trimmed.as_bytes()).map_err(|_| {
-        EngineError::InvalidRequest(
-            "local API token must be base64url-encoded random bytes".into(),
-        )
+        EngineError::InvalidRequest("local API token must be base64url-encoded random bytes".into())
     })?;
     if decoded.len() < MIN_TOKEN_DECODED_BYTES {
         return Err(EngineError::InvalidRequest(format!(
@@ -330,8 +327,10 @@ mod tests {
             "rotated API token must not appear in SQLite"
         );
         // Service namespace markers should also stay out of the DB blob.
-        assert!(!db_bytes.windows(LOCAL_API_CREDENTIAL_SERVICE.len()).any(|window| {
-            window == LOCAL_API_CREDENTIAL_SERVICE.as_bytes()
-        }));
+        assert!(
+            !db_bytes
+                .windows(LOCAL_API_CREDENTIAL_SERVICE.len())
+                .any(|window| { window == LOCAL_API_CREDENTIAL_SERVICE.as_bytes() })
+        );
     }
 }

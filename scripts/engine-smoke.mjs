@@ -1519,7 +1519,10 @@ async function main() {
         `allowlist denial must use policy_denied with project/profile ids, got: ${JSON.stringify(error)}`,
       );
     }
-    assert(allowlistDenied, "disallowed AI profile must be rejected over stdio");
+    assert(
+      allowlistDenied,
+      "disallowed AI profile must be rejected over stdio",
+    );
     await processHandle.call("project.update", {
       projectId: project.id,
       name: tightened.name,
@@ -2160,8 +2163,7 @@ async function exerciseFocusedApiCliSmoke(dataDirectory) {
   writeFileSync(sourcePath, sourceBody, "utf8");
 
   // Fixed 32-byte base64url token (32× 0x07); must pass validate_token.
-  const fixedTestToken =
-    "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc";
+  const fixedTestToken = "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc";
   const testEnv = {
     ...process.env,
     TRANSLUNAR_API_TEST_MODE: "1",
@@ -2267,7 +2269,10 @@ async function exerciseFocusedApiCliSmoke(dataDirectory) {
     assert(healthJson.ok === true, "health ok");
 
     const denied = await fetch(`http://127.0.0.1:${port}/v1/projects`);
-    assert(denied.status === 401, `expected 401 without token, got ${denied.status}`);
+    assert(
+      denied.status === 401,
+      `expected 401 without token, got ${denied.status}`,
+    );
 
     const authHeaders = {
       Authorization: `Bearer ${tokenJson.token}`,
@@ -3176,7 +3181,9 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
   assert(
     bundledPage.catalogAvailable &&
       bundledPage.total >= 1 &&
-      bundledPage.items.some((item) => item.pluginId === "example.tier1-toolkit"),
+      bundledPage.items.some(
+        (item) => item.pluginId === "example.tier1-toolkit",
+      ),
     "verified bundled catalog should list allowlisted packages",
   );
   const bundledSerialized = JSON.stringify(bundledPage);
@@ -3254,7 +3261,10 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
     offset: 0,
     limit: 10,
   });
-  assert(Array.isArray(health.items), "engine health survives degraded catalog");
+  assert(
+    Array.isArray(health.items),
+    "engine health survives degraded catalog",
+  );
 }
 
 async function exerciseQaPipelinePluginSmoke(

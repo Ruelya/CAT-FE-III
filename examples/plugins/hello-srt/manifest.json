@@ -16,9 +16,7 @@
         "id": "example.hello-srt",
         "version": "0.1.0",
         "displayName": "Hello SRT",
-        "extensions": [
-          "srt"
-        ],
+        "extensions": ["srt"],
         "capabilities": {
           "import": true,
           "export": true,
@@ -30,10 +28,7 @@
       }
     ]
   },
-  "permissions": [
-    "file.read:source",
-    "file.write:output"
-  ],
+  "permissions": ["file.read:source", "file.write:output"],
   "distribution": {
     "publisher": "Translunar",
     "license": "MIT",

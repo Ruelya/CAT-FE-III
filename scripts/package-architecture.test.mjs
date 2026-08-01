@@ -46,6 +46,19 @@ test("electron-builder consumes only the isolated verified Engine resource direc
   );
   assert.match(config, /\$\{env\.TRANSLUNAR_ENGINE_RESOURCE_DIR\}/u);
   assert.doesNotMatch(config, /from:\s*\.\.\/\.\.\/target\/release/iu);
+  // Product UI locales only — full Chromium locale packs bloat the package.
+  assert.match(config, /electronLanguages:/u);
+  assert.match(config, /en-US/u);
+  assert.match(config, /zh-CN/u);
+});
+
+test("package-desktop stages Engine via relative path under apps/desktop", async () => {
+  const source = await readFile(resolve("scripts/package-desktop.mjs"), "utf8");
+  // Must not feed absolute temp paths into electron-builder extraResources
+  // (Windows joins them under apps/desktop and drops the Engine).
+  assert.match(source, /\.package-engine-resource/u);
+  assert.match(source, /TRANSLUNAR_ENGINE_RESOURCE_DIR:\s*engineResourceRel/u);
+  assert.doesNotMatch(source, /mkdtemp|tmpdir\(\)/u);
 });
 
 test("rejects cross-platform packaging targets and allows host and dir builds", () => {
