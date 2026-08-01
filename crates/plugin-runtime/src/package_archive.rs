@@ -7,14 +7,15 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use unicode_normalization::UnicodeNormalization;
 use uuid::Uuid;
 use zip::CompressionMethod;
 use zip::ZipArchive;
 
 use crate::{
-    MAX_PACKAGE_DEPTH, MAX_PACKAGE_FILES, MAX_PACKAGE_PATH_BYTES, MAX_PACKAGE_TOTAL_BYTES,
-    MANIFEST_FILE_NAME, NormalizedPluginManifest, PluginPackageHash, PluginRuntimeError, Result,
-    StagedPluginPackage, copy_dir_secure, hash_plugin_package, inspect_plugin_package,
+    MANIFEST_FILE_NAME, MAX_PACKAGE_DEPTH, MAX_PACKAGE_FILES, MAX_PACKAGE_PATH_BYTES,
+    MAX_PACKAGE_TOTAL_BYTES, NormalizedPluginManifest, PluginPackageHash, PluginRuntimeError,
+    Result, StagedPluginPackage, copy_dir_secure, hash_plugin_package, inspect_plugin_package,
     is_reparse_point, normalize_relative_path, reject_reparse, remove_package,
 };
 
@@ -28,6 +29,9 @@ pub const TLPLUGIN_FORMAT_VERSION: u32 = 1;
 pub const MAX_ARCHIVE_BYTES: u64 = 64 * 1024 * 1024;
 /// Reject zip bombs where uncompressed/compressed exceeds this ratio for any entry.
 pub const MAX_COMPRESSION_RATIO: u64 = 100;
+/// Explicit directory records are also bounded so a tiny archive cannot spend
+/// unbounded work on metadata-only entries.
+const MAX_ARCHIVE_ENTRIES: usize = MAX_PACKAGE_FILES * 2;
 
 /// Host-derived package provenance. Never trusted from a manifest or renderer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -75,7 +79,11 @@ const MAX_HOMEPAGE_BYTES: usize = 512;
 
 impl PluginDistributionMetadata {
     pub fn validate(&self) -> Result<()> {
-        require_bounded_text(&self.publisher, "distribution.publisher", MAX_PUBLISHER_BYTES)?;
+        require_bounded_text(
+            &self.publisher,
+            "distribution.publisher",
+            MAX_PUBLISHER_BYTES,
+        )?;
         require_bounded_text(&self.license, "distribution.license", MAX_LICENSE_BYTES)?;
         validate_license_expression(&self.license)?;
         if let Some(homepage) = &self.homepage {
@@ -213,9 +221,15 @@ pub fn extract_tlplugin_archive(archive_path: &Path, destination: &Path) -> Resu
     let mut archive = ZipArchive::new(file).map_err(|error| {
         PluginRuntimeError::PackageInvalid(format!("invalid plugin archive: {error}"))
     })?;
+    if archive.len() > MAX_ARCHIVE_ENTRIES {
+        return Err(PluginRuntimeError::PackageInvalid(
+            "archive contains too many entries".to_string(),
+        ));
+    }
 
     let mut planned: Vec<PlannedEntry> = Vec::new();
     let mut seen_exact = BTreeSet::new();
+    let mut seen_unicode_normalized = BTreeSet::new();
     let mut seen_folded = BTreeSet::new();
     let mut format_marker_body: Option<Vec<u8>> = None;
     let mut total_uncompressed = 0_u64;
@@ -278,11 +292,9 @@ pub fn extract_tlplugin_archive(archive_path: &Path, destination: &Path) -> Resu
             }
             let mut body = Vec::new();
             let mut limited = entry.take(MAX_PACKAGE_TOTAL_BYTES.saturating_add(1));
-            limited
-                .read_to_end(&mut body)
-                .map_err(|error| PluginRuntimeError::PackageInvalid(format!(
-                    "cannot read format marker: {error}"
-                )))?;
+            limited.read_to_end(&mut body).map_err(|error| {
+                PluginRuntimeError::PackageInvalid(format!("cannot read format marker: {error}"))
+            })?;
             if body.len() as u64 > 4 * 1024 {
                 return Err(PluginRuntimeError::PackageInvalid(
                     "format marker exceeds size limit".to_string(),
@@ -293,6 +305,11 @@ pub fn extract_tlplugin_archive(archive_path: &Path, destination: &Path) -> Resu
                     "archive contains duplicate format marker".to_string(),
                 ));
             }
+            // Reserve the marker under the same collision policy as package
+            // paths. A case/unicode lookalike must not become package content.
+            seen_exact.insert(normalized.clone());
+            seen_unicode_normalized.insert(unicode_normalized_path_key(&normalized));
+            seen_folded.insert(casefold_path_key(&normalized));
             continue;
         }
 
@@ -301,8 +318,12 @@ pub fn extract_tlplugin_archive(archive_path: &Path, destination: &Path) -> Resu
                 "archive contains duplicate entry path: {normalized}"
             )));
         }
-        let folded = normalized.to_ascii_lowercase();
-        if !seen_folded.insert(folded) {
+        if !seen_unicode_normalized.insert(unicode_normalized_path_key(&normalized)) {
+            return Err(PluginRuntimeError::PackageInvalid(format!(
+                "archive contains unicode-normalization colliding entry path: {normalized}"
+            )));
+        }
+        if !seen_folded.insert(casefold_path_key(&normalized)) {
             return Err(PluginRuntimeError::PackageInvalid(format!(
                 "archive contains case-fold colliding entry path: {normalized}"
             )));
@@ -430,7 +451,8 @@ pub fn extract_tlplugin_archive(archive_path: &Path, destination: &Path) -> Resu
                     "archive entry exceeded declared uncompressed size".to_string(),
                 ));
             }
-            out.write_all(&buffer[..read]).map_err(PluginRuntimeError::Io)?;
+            out.write_all(&buffer[..read])
+                .map_err(PluginRuntimeError::Io)?;
         }
         if written != plan.size {
             return Err(PluginRuntimeError::PackageInvalid(
@@ -466,14 +488,27 @@ struct PlannedEntry {
 
 fn guard_compression_ratio(compressed: u64, uncompressed: u64) -> Result<()> {
     if compressed == 0 {
-        return Ok(());
+        if uncompressed == 0 {
+            return Ok(());
+        }
+        return Err(PluginRuntimeError::PackageInvalid(
+            "archive entry has an invalid compressed size".to_string(),
+        ));
     }
-    if uncompressed / compressed > MAX_COMPRESSION_RATIO {
+    if uncompressed > compressed.saturating_mul(MAX_COMPRESSION_RATIO) {
         return Err(PluginRuntimeError::PackageInvalid(
             "archive entry exceeds compression ratio limit".to_string(),
         ));
     }
     Ok(())
+}
+
+fn unicode_normalized_path_key(path: &str) -> String {
+    path.nfc().collect()
+}
+
+fn casefold_path_key(path: &str) -> String {
+    path.nfkc().flat_map(char::to_lowercase).collect()
 }
 
 fn normalize_archive_entry_name(raw: &str, is_dir: bool) -> Result<String> {
@@ -506,6 +541,15 @@ fn normalize_archive_entry_name(raw: &str, is_dir: bool) -> Result<String> {
             "archive contains an empty entry name".to_string(),
         ));
     }
+    let without_trailing_separator = raw.trim_end_matches(['/', '\\']);
+    if without_trailing_separator
+        .split(['/', '\\'])
+        .any(|component| component.is_empty() || component == ".")
+    {
+        return Err(PluginRuntimeError::PackageInvalid(
+            "archive entry path contains an empty or dot component".to_string(),
+        ));
+    }
     if is_dir {
         // Directory entries may end with `/`; normalize without requiring a file leaf.
         let normalized = trimmed.replace('\\', "/");
@@ -516,9 +560,6 @@ fn normalize_archive_entry_name(raw: &str, is_dir: bool) -> Result<String> {
         }
         let mut parts = Vec::new();
         for component in normalized.split('/') {
-            if component.is_empty() || component == "." {
-                continue;
-            }
             if component == ".." {
                 return Err(PluginRuntimeError::PackageInvalid(
                     "archive entry contains an escaping path component".to_string(),
@@ -657,10 +698,10 @@ fn require_bounded_text(value: &str, label: &str, max_bytes: usize) -> Result<()
 
 fn validate_license_expression(value: &str) -> Result<()> {
     // Closed SPDX-style subset: identifiers, WITH/AND/OR, parentheses, `+`.
-    if !value.chars().all(|ch| {
-        ch.is_ascii_alphanumeric()
-            || matches!(ch, '-' | '.' | '+' | '(' | ')' | ' ')
-    }) {
+    if !value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '.' | '+' | '(' | ')' | ' '))
+    {
         return Err(PluginRuntimeError::InvalidManifest(
             "distribution.license contains unsupported characters".to_string(),
         ));
@@ -864,6 +905,25 @@ mod tests {
         fs::write(dir.join("README.md"), "fixture\n").expect("readme");
     }
 
+    fn write_test_archive(
+        archive_path: &Path,
+        entries: &[(&str, &[u8])],
+        compression: CompressionMethod,
+    ) {
+        let file = File::create(archive_path).expect("create archive");
+        let mut zip = zip::ZipWriter::new(file);
+        let options = SimpleFileOptions::default()
+            .compression_method(compression)
+            .last_modified_time(zip::DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).unwrap());
+        zip.start_file(TLPLUGIN_FORMAT_MARKER, options).unwrap();
+        zip.write_all(br#"{"formatVersion":1}"#).unwrap();
+        for (name, body) in entries {
+            zip.start_file(name, options).unwrap();
+            zip.write_all(body).unwrap();
+        }
+        zip.finish().unwrap();
+    }
+
     #[test]
     fn directory_and_archive_share_canonical_hash() {
         let temp = tempdir().expect("temp");
@@ -892,11 +952,7 @@ mod tests {
                 .last_modified_time(
                     zip::DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).unwrap(),
                 );
-            zip.start_file(
-                TLPLUGIN_FORMAT_MARKER,
-                options,
-            )
-            .unwrap();
+            zip.start_file(TLPLUGIN_FORMAT_MARKER, options).unwrap();
             zip.write_all(br#"{"formatVersion":1}"#).unwrap();
             zip.start_file("../escape.txt", options).unwrap();
             zip.write_all(b"nope").unwrap();
@@ -905,8 +961,72 @@ mod tests {
         let dest = temp.path().join("out");
         fs::create_dir_all(&dest).unwrap();
         let error = extract_tlplugin_archive(&archive_path, &dest).expect_err("must reject");
-        assert!(error.to_string().contains("escaping") || error.to_string().contains("relative") || error.to_string().contains("safe"));
+        assert!(
+            error.to_string().contains("escaping")
+                || error.to_string().contains("relative")
+                || error.to_string().contains("safe")
+        );
         assert!(dest.read_dir().unwrap().next().is_none() || !dest.join("escape.txt").exists());
+    }
+
+    #[test]
+    fn rejects_absolute_drive_unc_and_dot_paths_before_write() {
+        let temp = tempdir().expect("temp");
+        for (index, name) in [
+            "/absolute.txt",
+            "C:/drive.txt",
+            "\\\\server\\share.txt",
+            "nested/./dot.txt",
+            "nested//empty.txt",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let archive = temp.path().join(format!("unsafe-{index}.tlplugin"));
+            write_test_archive(&archive, &[(name, b"nope")], CompressionMethod::Stored);
+            let destination = temp.path().join(format!("out-{index}"));
+            fs::create_dir(&destination).unwrap();
+            extract_tlplugin_archive(&archive, &destination).expect_err("unsafe path");
+            assert!(destination.read_dir().unwrap().next().is_none());
+        }
+    }
+
+    #[test]
+    fn rejects_casefold_and_unicode_collisions_before_write() {
+        let temp = tempdir().expect("temp");
+        let collision_sets: [Vec<(&str, &[u8])>; 2] = [
+            vec![("README.md", b"one"), ("readme.md", b"two")],
+            vec![("caf\u{e9}.txt", b"one"), ("cafe\u{301}.txt", b"two")],
+        ];
+        for (index, entries) in collision_sets.iter().enumerate() {
+            let archive = temp.path().join(format!("collision-{index}.tlplugin"));
+            write_test_archive(&archive, entries, CompressionMethod::Stored);
+            let destination = temp.path().join(format!("collision-out-{index}"));
+            fs::create_dir(&destination).unwrap();
+            let error = extract_tlplugin_archive(&archive, &destination)
+                .expect_err("colliding paths must fail");
+            assert!(
+                error.to_string().contains("duplicate") || error.to_string().contains("colliding")
+            );
+            assert!(destination.read_dir().unwrap().next().is_none());
+        }
+    }
+
+    #[test]
+    fn rejects_high_ratio_entry_before_write() {
+        let temp = tempdir().expect("temp");
+        let archive = temp.path().join("ratio-bomb.tlplugin");
+        let body = vec![0_u8; 1024 * 1024];
+        write_test_archive(
+            &archive,
+            &[("manifest.json", body.as_slice())],
+            CompressionMethod::Deflated,
+        );
+        let destination = temp.path().join("out");
+        fs::create_dir(&destination).unwrap();
+        let error = extract_tlplugin_archive(&archive, &destination).expect_err("ratio bomb");
+        assert!(error.to_string().contains("compression ratio"));
+        assert!(destination.read_dir().unwrap().next().is_none());
     }
 
     #[test]
@@ -969,4 +1089,300 @@ mod tests {
         };
         assert!(bad.validate().is_err());
     }
+
+    fn assert_empty_destination(destination: &Path) {
+        assert!(
+            destination
+                .read_dir()
+                .expect("read destination")
+                .next()
+                .is_none(),
+            "destination must remain empty after rejection"
+        );
+    }
+
+    fn set_zip_encryption_flag(bytes: &mut [u8]) {
+        let mut offset = 0_usize;
+        while offset + 30 <= bytes.len() {
+            if &bytes[offset..offset + 4] == b"PK\x03\x04" {
+                let flag_start = offset + 6;
+                let flags = u16::from_le_bytes(bytes[flag_start..flag_start + 2].try_into().unwrap());
+                bytes[flag_start..flag_start + 2]
+                    .copy_from_slice(&(flags | 1).to_le_bytes());
+                let name_len =
+                    u16::from_le_bytes(bytes[offset + 26..offset + 28].try_into().unwrap()) as usize;
+                let extra_len =
+                    u16::from_le_bytes(bytes[offset + 28..offset + 30].try_into().unwrap()) as usize;
+                let comp_size =
+                    u32::from_le_bytes(bytes[offset + 18..offset + 22].try_into().unwrap()) as usize;
+                offset += 30 + name_len + extra_len + comp_size;
+                continue;
+            }
+            if &bytes[offset..offset + 4] == b"PK\x01\x02" {
+                let flag_start = offset + 8;
+                let flags = u16::from_le_bytes(bytes[flag_start..flag_start + 2].try_into().unwrap());
+                bytes[flag_start..flag_start + 2]
+                    .copy_from_slice(&(flags | 1).to_le_bytes());
+                let name_len =
+                    u16::from_le_bytes(bytes[offset + 28..offset + 30].try_into().unwrap()) as usize;
+                let extra_len =
+                    u16::from_le_bytes(bytes[offset + 30..offset + 32].try_into().unwrap()) as usize;
+                let comment_len =
+                    u16::from_le_bytes(bytes[offset + 32..offset + 34].try_into().unwrap()) as usize;
+                offset += 46 + name_len + extra_len + comment_len;
+                continue;
+            }
+            break;
+        }
+    }
+
+    fn set_zip_uncompressed_size(bytes: &mut [u8], size: u32) {
+        let mut offset = 0_usize;
+        while offset + 30 <= bytes.len() {
+            if &bytes[offset..offset + 4] == b"PK\x03\x04" {
+                bytes[offset + 22..offset + 26].copy_from_slice(&size.to_le_bytes());
+                let name_len =
+                    u16::from_le_bytes(bytes[offset + 26..offset + 28].try_into().unwrap()) as usize;
+                let extra_len =
+                    u16::from_le_bytes(bytes[offset + 28..offset + 30].try_into().unwrap()) as usize;
+                let comp_size =
+                    u32::from_le_bytes(bytes[offset + 18..offset + 22].try_into().unwrap()) as usize;
+                offset += 30 + name_len + extra_len + comp_size;
+                continue;
+            }
+            if &bytes[offset..offset + 4] == b"PK\x01\x02" {
+                bytes[offset + 24..offset + 28].copy_from_slice(&size.to_le_bytes());
+                let name_len =
+                    u16::from_le_bytes(bytes[offset + 28..offset + 30].try_into().unwrap()) as usize;
+                let extra_len =
+                    u16::from_le_bytes(bytes[offset + 30..offset + 32].try_into().unwrap()) as usize;
+                let comment_len =
+                    u16::from_le_bytes(bytes[offset + 32..offset + 34].try_into().unwrap()) as usize;
+                offset += 46 + name_len + extra_len + comment_len;
+                continue;
+            }
+            break;
+        }
+    }
+
+    #[test]
+    fn rejects_encrypted_symlink_special_count_depth_path_and_size() {
+        let temp = tempdir().expect("temp");
+
+        // Encrypted entry (flag bit 0) is rejected before any write.
+        {
+            let archive = temp.path().join("encrypted.tlplugin");
+            write_test_archive(
+                &archive,
+                &[("payload.txt", b"secret")],
+                CompressionMethod::Stored,
+            );
+            let mut bytes = fs::read(&archive).expect("read archive");
+            set_zip_encryption_flag(&mut bytes);
+            fs::write(&archive, bytes).expect("write encrypted");
+            let destination = temp.path().join("out-encrypted");
+            fs::create_dir(&destination).unwrap();
+            let error = extract_tlplugin_archive(&archive, &destination).expect_err("encrypted");
+            let message = error.to_string().to_ascii_lowercase();
+            // Zip may surface encryption via the encrypted() gate or as a
+            // password-required failure while opening the entry — either path
+            // is a typed package rejection before any extraction write.
+            assert!(
+                message.contains("encrypted")
+                    || message.contains("password")
+                    || message.contains("decrypt"),
+                "{error}"
+            );
+            assert_empty_destination(&destination);
+        }
+
+        // Symlink entry is rejected before any write.
+        {
+            let archive = temp.path().join("symlink.tlplugin");
+            let file = File::create(&archive).expect("create");
+            let mut zip = zip::ZipWriter::new(file);
+            let options = SimpleFileOptions::default()
+                .compression_method(CompressionMethod::Stored)
+                .last_modified_time(
+                    zip::DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).unwrap(),
+                );
+            zip.start_file(TLPLUGIN_FORMAT_MARKER, options).unwrap();
+            zip.write_all(br#"{"formatVersion":1}"#).unwrap();
+            zip.add_symlink("link.txt", "../escape", options).unwrap();
+            zip.finish().unwrap();
+            let destination = temp.path().join("out-symlink");
+            fs::create_dir(&destination).unwrap();
+            let error = extract_tlplugin_archive(&archive, &destination).expect_err("symlink");
+            assert!(
+                error.to_string().to_ascii_lowercase().contains("symlink"),
+                "{error}"
+            );
+            assert_empty_destination(&destination);
+        }
+
+        // Special Unix file type (FIFO via external attributes) is rejected.
+        {
+            let archive = temp.path().join("special.tlplugin");
+            write_test_archive(
+                &archive,
+                &[("fifo.txt", b"nope")],
+                CompressionMethod::Stored,
+            );
+            let mut bytes = fs::read(&archive).expect("read");
+            // Patch central-directory external attributes to S_IFIFO | 0644.
+            let fifo_mode: u32 = 0o010644;
+            let mut offset = 0_usize;
+            while offset + 46 <= bytes.len() {
+                if &bytes[offset..offset + 4] == b"PK\x01\x02" {
+                    let name_len = u16::from_le_bytes(
+                        bytes[offset + 28..offset + 30].try_into().unwrap(),
+                    ) as usize;
+                    let extra_len = u16::from_le_bytes(
+                        bytes[offset + 30..offset + 32].try_into().unwrap(),
+                    ) as usize;
+                    let comment_len = u16::from_le_bytes(
+                        bytes[offset + 32..offset + 34].try_into().unwrap(),
+                    ) as usize;
+                    let name_start = offset + 46;
+                    let name = &bytes[name_start..name_start + name_len];
+                    if name == b"fifo.txt" {
+                        let attrs = fifo_mode << 16;
+                        bytes[offset + 38..offset + 42].copy_from_slice(&attrs.to_le_bytes());
+                    }
+                    offset += 46 + name_len + extra_len + comment_len;
+                    continue;
+                }
+                if &bytes[offset..offset + 4] == b"PK\x05\x06" {
+                    break;
+                }
+                offset += 1;
+            }
+            fs::write(&archive, bytes).expect("write special");
+            let destination = temp.path().join("out-special");
+            fs::create_dir(&destination).unwrap();
+            let error = extract_tlplugin_archive(&archive, &destination).expect_err("special");
+            assert!(
+                error.to_string().to_ascii_lowercase().contains("special"),
+                "{error}"
+            );
+            assert_empty_destination(&destination);
+        }
+
+        // Entry count hard cap.
+        {
+            let archive = temp.path().join("too-many-entries.tlplugin");
+            let file = File::create(&archive).expect("create");
+            let mut zip = zip::ZipWriter::new(file);
+            let options = SimpleFileOptions::default()
+                .compression_method(CompressionMethod::Stored)
+                .last_modified_time(
+                    zip::DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).unwrap(),
+                );
+            // MAX_ARCHIVE_ENTRIES = MAX_PACKAGE_FILES * 2; include the format
+            // marker so total entries exceed the cap.
+            let overflow = super::MAX_ARCHIVE_ENTRIES + 1;
+            for index in 0..overflow {
+                let name = if index == 0 {
+                    TLPLUGIN_FORMAT_MARKER.to_string()
+                } else {
+                    format!("e{index}")
+                };
+                zip.start_file(&name, options).unwrap();
+                if index == 0 {
+                    zip.write_all(br#"{"formatVersion":1}"#).unwrap();
+                }
+            }
+            zip.finish().unwrap();
+            let destination = temp.path().join("out-count");
+            fs::create_dir(&destination).unwrap();
+            let error = extract_tlplugin_archive(&archive, &destination).expect_err("count");
+            assert!(
+                error.to_string().to_ascii_lowercase().contains("too many"),
+                "{error}"
+            );
+            assert_empty_destination(&destination);
+        }
+
+        // Depth overflow.
+        {
+            let deep = (0..=MAX_PACKAGE_DEPTH)
+                .map(|index| format!("d{index}"))
+                .collect::<Vec<_>>()
+                .join("/");
+            let archive = temp.path().join("deep.tlplugin");
+            write_test_archive(
+                &archive,
+                &[(&deep, b"too deep")],
+                CompressionMethod::Stored,
+            );
+            let destination = temp.path().join("out-depth");
+            fs::create_dir(&destination).unwrap();
+            let error = extract_tlplugin_archive(&archive, &destination).expect_err("depth");
+            let message = error.to_string().to_ascii_lowercase();
+            assert!(
+                message.contains("depth")
+                    || message.contains("nesting")
+                    || message.contains("path"),
+                "{error}"
+            );
+            assert_empty_destination(&destination);
+        }
+
+        // Path component length overflow.
+        {
+            let long_name = "p".repeat(MAX_PACKAGE_PATH_BYTES + 1);
+            let archive = temp.path().join("long-path.tlplugin");
+            write_test_archive(
+                &archive,
+                &[(&long_name, b"too long")],
+                CompressionMethod::Stored,
+            );
+            let destination = temp.path().join("out-path");
+            fs::create_dir(&destination).unwrap();
+            let error = extract_tlplugin_archive(&archive, &destination).expect_err("path");
+            let message = error.to_string().to_ascii_lowercase();
+            assert!(
+                message.contains("path")
+                    || message.contains("long")
+                    || message.contains("component")
+                    || message.contains("oversized")
+                    || message.contains("empty"),
+                "{error}"
+            );
+            assert_empty_destination(&destination);
+        }
+
+        // Declared uncompressed size above the total package byte limit.
+        {
+            let archive = temp.path().join("oversized.tlplugin");
+            write_test_archive(
+                &archive,
+                &[("payload.txt", b"tiny")],
+                CompressionMethod::Stored,
+            );
+            let mut bytes = fs::read(&archive).expect("read");
+            let huge = u32::try_from(
+                MAX_PACKAGE_TOTAL_BYTES
+                    .saturating_add(1)
+                    .min(u64::from(u32::MAX)),
+            )
+            .unwrap_or(u32::MAX);
+            set_zip_uncompressed_size(&mut bytes, huge);
+            fs::write(&archive, bytes).expect("write oversized headers");
+            let destination = temp.path().join("out-size");
+            fs::create_dir(&destination).unwrap();
+            let error = extract_tlplugin_archive(&archive, &destination).expect_err("size");
+            let message = error.to_string().to_ascii_lowercase();
+            assert!(
+                message.contains("byte")
+                    || message.contains("limit")
+                    || message.contains("ratio")
+                    || message.contains("oversized")
+                    || message.contains("size"),
+                "{error}"
+            );
+            assert_empty_destination(&destination);
+        }
+    }
+
 }

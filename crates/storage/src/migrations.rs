@@ -4131,19 +4131,21 @@ mod tests {
                 |row| row.get::<_, i64>(0),
             )
             .expect("count version columns");
-        assert_eq!(version_columns, 18);
+        // Migration 18 seeded 18 columns; migration 24 adds source_kind + distribution_json.
+        assert_eq!(version_columns, 20);
         let projection_columns = connection
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('plugin_installations')
                  WHERE name IN (
                     'active_version_id', 'package_sha256', 'runtime_json',
-                    'normalized_manifest_json', 'compatibility_json', 'diagnostics_json'
+                    'normalized_manifest_json', 'compatibility_json', 'diagnostics_json',
+                    'source_kind', 'distribution_json'
                  )",
                 [],
                 |row| row.get::<_, i64>(0),
             )
             .expect("count projection columns");
-        assert_eq!(projection_columns, 6);
+        assert_eq!(projection_columns, 8);
     }
 
     #[test]
@@ -4898,5 +4900,174 @@ mod tests {
             )
             .expect("count rolled back plugin history tables");
         assert_eq!(prior_statement_count, 0);
+    }
+
+    #[test]
+    fn migration_24_backfills_local_directory_provenance_and_survives_reopen() {
+        let temp = tempfile::tempdir().expect("temporary migration directory");
+        let database = temp.path().join("translunar.sqlite3");
+        let mut connection = Connection::open(&database).expect("open pre-v24 database");
+        configure_connection(&connection).expect("configure pre-v24 database");
+        migrate_from_to(&mut connection, 0, 23).expect("create schema v23");
+
+        let package_sha = "a".repeat(64);
+        let runtime = r#"{"tier":"process","runtimeVersion":1,"entry":{"kind":"node","path":"entry.mjs"}}"#;
+        let normalized = r#"{"id":"example.legacy","displayName":"Legacy","version":"1.0.0"}"#;
+        let installation_contributions = r#"{"filters":[]}"#;
+        let version_contributions = r#"[]"#;
+        let compatibility = r#"{"compatible":true}"#;
+        let diagnostics = r#"[]"#;
+        let entry = r#"{"kind":"node","path":"entry.mjs"}"#;
+        let manifest = r#"{"manifestVersion":1,"id":"example.legacy","displayName":"Legacy","version":"1.0.0"}"#;
+        let permissions = r#"["file.read:source"]"#;
+
+        connection
+            .execute(
+                "INSERT INTO plugin_installations (
+                    id, display_name, version, tier, status, package_path, entry_json,
+                    manifest_json, contributions_json, requested_permissions_json,
+                    granted_permissions_json, last_error, crash_count, revision,
+                    installed_at_ms, updated_at_ms, active_version_id, package_sha256,
+                    runtime_json, normalized_manifest_json, compatibility_json, diagnostics_json
+                 ) VALUES (
+                    'example.legacy', 'Legacy', '1.0.0', 'process', 'enabled',
+                    'plugins/example.legacy', ?1, ?2, ?3, ?4, ?4, NULL, 0, 1,
+                    100, 100, NULL, ?5, ?6, ?7, ?8, ?9
+                 )",
+                rusqlite::params![
+                    entry,
+                    manifest,
+                    installation_contributions,
+                    permissions,
+                    package_sha,
+                    runtime,
+                    normalized,
+                    compatibility,
+                    diagnostics
+                ],
+            )
+            .expect("insert pre-v24 installation");
+        connection
+            .execute(
+                "INSERT INTO plugin_versions (
+                    id, plugin_id, version, package_sha256, package_path, managed_package_path,
+                    manifest_version, original_manifest_json, runtime_json,
+                    normalized_manifest_json, contributions_json, compatibility_json,
+                    diagnostics_json, state, installed_at_ms, activated_at_ms,
+                    deactivated_at_ms, failed_at_ms
+                 ) VALUES (
+                    'version:1', 'example.legacy', '1.0.0', ?1, 'plugins/example.legacy',
+                    'plugins/example.legacy', 1, ?2, ?3, ?4, ?5, ?6, ?7, 'validated',
+                    100, 100, NULL, NULL
+                 )",
+                rusqlite::params![
+                    package_sha,
+                    manifest,
+                    runtime,
+                    normalized,
+                    version_contributions,
+                    compatibility,
+                    diagnostics
+                ],
+            )
+            .expect("insert pre-v24 version");
+        connection
+            .execute(
+                "UPDATE plugin_installations
+                 SET active_version_id = 'version:1'
+                 WHERE id = 'example.legacy'",
+                [],
+            )
+            .expect("link active version");
+
+        migrate_from_to(&mut connection, 23, 24).expect("apply migration 24");
+        drop(connection);
+
+        let mut reopened = Connection::open(&database).expect("reopen migrated database");
+        configure_connection(&reopened).expect("configure reopened database");
+        migrate(&mut reopened).expect("idempotent migrate on reopen");
+
+        let installation = reopened
+            .query_row(
+                "SELECT source_kind, distribution_json FROM plugin_installations
+                 WHERE id = 'example.legacy'",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                    ))
+                },
+            )
+            .expect("read installation provenance");
+        assert_eq!(installation.0, "localDirectory");
+        assert_eq!(installation.1, None);
+
+        let version = reopened
+            .query_row(
+                "SELECT source_kind, distribution_json FROM plugin_versions
+                 WHERE id = 'version:1'",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                    ))
+                },
+            )
+            .expect("read version provenance");
+        assert_eq!(version.0, "localDirectory");
+        assert_eq!(version.1, None);
+
+        reopened
+            .execute(
+                "UPDATE plugin_versions
+                 SET source_kind = 'bundled',
+                     distribution_json = ?1
+                 WHERE id = 'version:1'",
+                [r#"{"publisher":"Translunar","license":"MIT"}"#],
+            )
+            .expect("write closed bundled provenance");
+        let updated = reopened
+            .query_row(
+                "SELECT source_kind, distribution_json FROM plugin_versions
+                 WHERE id = 'version:1'",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                    ))
+                },
+            )
+            .expect("read updated provenance");
+        assert_eq!(updated.0, "bundled");
+        assert!(updated.1.contains("Translunar"));
+
+        assert!(
+            reopened
+                .execute(
+                    "UPDATE plugin_installations
+                     SET source_kind = 'marketplace' WHERE id = 'example.legacy'",
+                    [],
+                )
+                .is_err(),
+            "closed source kinds must reject marketplace spoofing"
+        );
+        assert!(
+            reopened
+                .execute(
+                    "UPDATE plugin_installations
+                     SET distribution_json = ?1 WHERE id = 'example.legacy'",
+                    [format!("{{\"publisher\":\"{}\"}}", "x".repeat(5000))],
+                )
+                .is_err(),
+            "distribution_json must stay bounded"
+        );
+
+        let schema = reopened
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("read schema version");
+        assert_eq!(schema, 24);
     }
 }

@@ -5,32 +5,32 @@
     {
       "pluginId": "example.connector-openai-compatible",
       "version": "1.0.0",
-      "packageSha256": "7686a130945bd5e2a2d2d1179e8955ff19427fce861c6038794ff11c4153d004",
-      "archiveSha256": "95e596ceac53b6947d3d828946c7f0fe08da086032b443fc6cd0307b807328ce"
+      "packageSha256": "d3561037232151782f9cbbb2063c76f48314b02893c0edf4ea29d63d907ccc3c",
+      "archiveSha256": "ab71c36ea7427aace8ecd2bebda9f53e44d48eddb7cb92ba2ae96475c3a76f85"
     },
     {
       "pluginId": "example.hello-srt",
       "version": "0.1.0",
-      "packageSha256": "0e677421d20817bf2a020861cf745d94ff1f2eb495471df3567fd35ddf40c625",
-      "archiveSha256": "9e841edd79c5a78840d8bb70d5e3360c4d77baaccc112ae19d4054b25f8722a2"
+      "packageSha256": "8b66a87437ca38cb93db881af084a088a62c0089c85e39d95efb9821a442c60b",
+      "archiveSha256": "ea4212648bb410750080dc3254263cf8b8df7c7045fb81f0a2a83e63aa71d7d5"
     },
     {
       "pluginId": "example.qa-pipeline-process",
       "version": "1.0.0",
-      "packageSha256": "b3d9f2c9e8dff1dc2eaf75717c7408ba14e41b6b71eedcb768465ffb6d0aa6e0",
-      "archiveSha256": "c866e2aa95fb7a10b4d9cbf58f22daf192cc9c69ce3578d8f455df4abb9f64d6"
+      "packageSha256": "e6d40f11054046499be9b842a091ae4ad4a2ed1c3c41d6a8118fbf4b2787983e",
+      "archiveSha256": "97b335571bafbd201f116b8d6272efe3a9da73a53440a2c3b32779df6c4b6ae7"
     },
     {
       "pluginId": "example.sandbox-toolkit",
       "version": "0.1.0",
-      "packageSha256": "110e12374d7b38c431868204f19746fe33ba47fe1d4956622a8c69d1c232668b",
-      "archiveSha256": "026eb1c19dc951db52e6f8cbb884ec03d04d538b83677d7c7636a02a529667df"
+      "packageSha256": "def66a5ebfc358531f4875d398899e503249f324fc328b36c736420590f94088",
+      "archiveSha256": "987df2877968abddef5f2c1d5133e2e0b346513adf22cbb2165bfd41fa5abf1e"
     },
     {
       "pluginId": "example.tier1-toolkit",
       "version": "1.0.0",
-      "packageSha256": "c4045917f1d1a8f1b87699ca9251a1130928cdc959f088aea8054ac03d739ef7",
-      "archiveSha256": "09691a8c5bb1bb5f3585bfa3b9fe40fe0a05839296a3948131c48bc9b7c63336"
+      "packageSha256": "35e9c6f1fe41c6a5200e7483e97823cd09cd35f0483e08067d2399c0da5a4d46",
+      "archiveSha256": "3a5f6fcebacd0bb568a5bce35eb1a1e14e3183ce2727237ca58e97982031f622"
     }
   ]
 }

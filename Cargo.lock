@@ -2771,6 +2771,7 @@ dependencies = [
  "translunar-filter-core",
  "translunar-pipeline",
  "translunar-qa-core",
+ "unicode-normalization",
  "uuid",
  "zeroize",
  "zip",

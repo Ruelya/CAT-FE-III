@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import {
   copyFileSync,
   existsSync,
+  mkdtempSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -33,7 +34,9 @@ const outDir = resolve(outIdx >= 0 ? args[outIdx + 1] : defaultOut);
 
 const allowlist = JSON.parse(readFileSync(allowlistPath, "utf8"));
 if (allowlist.catalogVersion !== 1) {
-  throw new Error(`unsupported allowlist catalogVersion ${allowlist.catalogVersion}`);
+  throw new Error(
+    `unsupported allowlist catalogVersion ${allowlist.catalogVersion}`,
+  );
 }
 
 function walkFiles(dir, base = dir, acc = []) {
@@ -91,8 +94,10 @@ function packageSha256(packageDir) {
 }
 
 function requireLicense(packageDir) {
-  const names = readdirSync(packageDir);
-  const ok = names.some((name) => {
+  const names = readdirSync(packageDir, { withFileTypes: true });
+  const ok = names.some((entry) => {
+    if (!entry.isFile()) return false;
+    const name = entry.name;
     const upper = name.toUpperCase();
     return (
       upper === "LICENSE" ||
@@ -101,7 +106,85 @@ function requireLicense(packageDir) {
       upper.startsWith("LICENCE.")
     );
   });
-  if (!ok) throw new Error(`missing LICENSE in ${packageDir}`);
+  if (!ok) throw new Error(`missing regular LICENSE in ${packageDir}`);
+  const license = names.find(
+    (entry) =>
+      entry.isFile() &&
+      ["LICENSE", "LICENCE"].some((prefix) =>
+        entry.name.toUpperCase().startsWith(prefix),
+      ),
+  );
+  if (license && statSync(join(packageDir, license.name)).size === 0) {
+    throw new Error(`empty LICENSE in ${packageDir}`);
+  }
+}
+
+function validateReleaseSafety(packageDir, allowlistItem, manifest) {
+  const normalizedPath = allowlistItem.path.replace(/\\/g, "/");
+  if (
+    normalizedPath.startsWith("/") ||
+    normalizedPath.includes("..") ||
+    !normalizedPath.startsWith("examples/plugins/")
+  ) {
+    throw new Error(
+      `allowlist path is not a public example: ${allowlistItem.path}`,
+    );
+  }
+  if (tierOf(manifest) !== allowlistItem.tier) {
+    throw new Error(
+      `package ${allowlistItem.id} tier ${tierOf(manifest)} != allowlist ${allowlistItem.tier}`,
+    );
+  }
+  const contributions = Array.isArray(manifest.contributions)
+    ? manifest.contributions
+    : Object.entries(manifest.contributions ?? {}).flatMap(([kind, values]) => {
+        const normalizedKind = kind === "filters" ? "filter" : kind;
+        return Array.isArray(values)
+          ? values.map((value) => ({ ...value, kind: normalizedKind }))
+          : [];
+      });
+  const kinds = new Set(contributions.map((contribution) => contribution.kind));
+  for (const surface of allowlistItem.surfaces ?? []) {
+    if (!kinds.has(surface)) {
+      throw new Error(
+        `package ${allowlistItem.id} is missing allowlisted ${surface} surface`,
+      );
+    }
+  }
+  for (const path of walkFiles(packageDir)) {
+    const lower = path.toLowerCase();
+    if (
+      lower
+        .split("/")
+        .some(
+          (name) =>
+            name === ".env" ||
+            name.startsWith(".env.") ||
+            name.includes("credential") ||
+            name.endsWith(".pem") ||
+            name.endsWith(".key"),
+        )
+    ) {
+      throw new Error(`credential-shaped release path: ${path}`);
+    }
+    const bytes = readFileSync(join(packageDir, path));
+    if (bytes.includes(0)) continue;
+    const text = bytes.toString("utf8");
+    if (
+      /-----BEGIN [^-]*PRIVATE KEY-----|\b(?:sk|ghp|xox[baprs])-[A-Za-z0-9_-]{16,}\b|\bAKIA[0-9A-Z]{16}\b/u.test(
+        text,
+      )
+    ) {
+      throw new Error(`credential-shaped content in ${path}`);
+    }
+    if (
+      /(?:[A-Za-z]:\\Users\\|[A-Za-z]:\\Workspaces?\\|\/home\/[^/]+\/|\/Users\/[^/]+\/)/u.test(
+        text,
+      )
+    ) {
+      throw new Error(`private absolute path in ${path}`);
+    }
+  }
 }
 
 function validateManifest(packageDir, expectedId) {
@@ -115,7 +198,9 @@ function validateManifest(packageDir, expectedId) {
   }
   const dist = manifest.distribution;
   if (!dist?.publisher || !dist?.license) {
-    throw new Error(`package ${expectedId} missing distribution.publisher/license`);
+    throw new Error(
+      `package ${expectedId} missing distribution.publisher/license`,
+    );
   }
   if (dist.homepage && !String(dist.homepage).startsWith("https://")) {
     throw new Error(`package ${expectedId} homepage must be https`);
@@ -157,11 +242,9 @@ with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compressleve
         info.compress_type = zipfile.ZIP_DEFLATED
         zf.writestr(info, data)
 `;
-  const result = spawnSync(
-    "python",
-    ["-c", script, packageDir, archivePath],
-    { encoding: "utf8" },
-  );
+  const result = spawnSync("python", ["-c", script, packageDir, archivePath], {
+    encoding: "utf8",
+  });
   if (result.status !== 0) {
     throw new Error(
       `python archive build failed: ${result.stderr || result.stdout || result.status}`,
@@ -170,9 +253,14 @@ with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compressleve
 }
 
 function contributionCount(manifest) {
-  if (Array.isArray(manifest.contributions)) return manifest.contributions.length;
-  if (manifest.contributions?.filters) return manifest.contributions.filters.length;
-  return 0;
+  if (Array.isArray(manifest.contributions)) {
+    return manifest.contributions.length;
+  }
+  const contributions = manifest.contributions ?? {};
+  return Object.values(contributions).reduce(
+    (sum, value) => sum + (Array.isArray(value) ? value.length : 0),
+    0,
+  );
 }
 
 function tierOf(manifest) {
@@ -181,36 +269,42 @@ function tierOf(manifest) {
 
 function buildCatalog() {
   const packages = [];
-  const temp = join(root, ".tmp", "plugin-core-build");
-  rmSync(temp, { recursive: true, force: true });
-  mkdirSync(temp, { recursive: true });
+  const tempRoot = join(root, ".tmp");
+  mkdirSync(tempRoot, { recursive: true });
+  const temp = mkdtempSync(join(tempRoot, "plugin-core-build-"));
 
-  for (const item of allowlist.packages) {
-    const packageDir = resolve(root, item.path);
-    if (!existsSync(packageDir)) {
-      throw new Error(`package path missing: ${item.path}`);
+  try {
+    for (const item of allowlist.packages) {
+      const packageDir = resolve(root, item.path);
+      if (!existsSync(packageDir)) {
+        throw new Error(`package path missing: ${item.path}`);
+      }
+      const manifest = validateManifest(packageDir, item.id);
+      validateReleaseSafety(packageDir, item, manifest);
+      const packageHash = packageSha256(packageDir);
+      const archiveName = `${item.id.replace(/[^A-Za-z0-9._-]+/g, "_")}-${manifest.version}.tlplugin`;
+      const archivePath = join(temp, archiveName);
+      buildArchiveWithPython(packageDir, archivePath);
+      const archiveHash = sha256File(archivePath);
+      packages.push({
+        pluginId: item.id,
+        displayName: manifest.displayName,
+        version: manifest.version,
+        tier: tierOf(manifest),
+        archive: archiveName,
+        packageSha256: packageHash.sha256,
+        archiveSha256: archiveHash,
+        publisher: manifest.distribution.publisher,
+        license: manifest.distribution.license,
+        homepage: manifest.distribution.homepage ?? null,
+        contributionCount: contributionCount(manifest),
+        sourcePath: item.path,
+        archivePath,
+      });
     }
-    const manifest = validateManifest(packageDir, item.id);
-    const packageHash = packageSha256(packageDir);
-    const archiveName = `${item.id.replace(/[^A-Za-z0-9._-]+/g, "_")}-${manifest.version}.tlplugin`;
-    const archivePath = join(temp, archiveName);
-    buildArchiveWithPython(packageDir, archivePath);
-    const archiveHash = sha256File(archivePath);
-    packages.push({
-      pluginId: item.id,
-      displayName: manifest.displayName,
-      version: manifest.version,
-      tier: tierOf(manifest),
-      archive: archiveName,
-      packageSha256: packageHash.sha256,
-      archiveSha256: archiveHash,
-      publisher: manifest.distribution.publisher,
-      license: manifest.distribution.license,
-      homepage: manifest.distribution.homepage ?? null,
-      contributionCount: contributionCount(manifest),
-      sourcePath: item.path,
-      archivePath,
-    });
+  } catch (error) {
+    rmSync(temp, { recursive: true, force: true });
+    throw error;
   }
 
   packages.sort((a, b) => a.pluginId.localeCompare(b.pluginId));
@@ -253,7 +347,10 @@ function writeCatalog({ packages, index }) {
   for (const pkg of packages) {
     copyFileSync(pkg.archivePath, join(outDir, pkg.archive));
   }
-  writeFileSync(join(outDir, "index.json"), `${JSON.stringify(index, null, 2)}\n`);
+  writeFileSync(
+    join(outDir, "index.json"),
+    `${JSON.stringify(index, null, 2)}\n`,
+  );
   const evidence = {
     builtAt: "deterministic",
     outDir: relative(root, outDir).split("\\").join("/"),
@@ -281,7 +378,9 @@ function checkCatalog({ packages, index }) {
     packages: existing.packages,
   });
   if (expected !== actual) {
-    throw new Error("bundled plugin catalog index drifted from allowlist rebuild");
+    throw new Error(
+      "bundled plugin catalog index drifted from allowlist rebuild",
+    );
   }
   for (const pkg of packages) {
     const path = join(outDir, pkg.archive);
@@ -296,13 +395,17 @@ function checkCatalog({ packages, index }) {
   console.log(`plugin catalog check ok (${packages.length} packages)`);
 }
 
-const built = buildCatalog();
-if (checkOnly) {
-  checkCatalog(built);
-} else {
-  writeCatalog(built);
-  console.log(
-    `wrote ${built.packages.length} core plugin archives to ${relative(root, outDir)}`,
-  );
+let built;
+try {
+  built = buildCatalog();
+  if (checkOnly) {
+    checkCatalog(built);
+  } else {
+    writeCatalog(built);
+    console.log(
+      `wrote ${built.packages.length} core plugin archives to ${relative(root, outDir)}`,
+    );
+  }
+} finally {
+  if (built) rmSync(built.temp, { recursive: true, force: true });
 }
-rmSync(built.temp, { recursive: true, force: true });

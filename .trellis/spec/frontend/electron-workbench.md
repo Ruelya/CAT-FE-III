@@ -1482,38 +1482,64 @@ if (!response.ok) return Promise.reject(response.error);
 
 ### 1. Scope / Trigger
 
-Use this contract for the Project Insights Plugins tab, package-directory
-selection, plugin lifecycle actions, plugin diagnostics, or desktop plugin E2E.
-The surface projects Engine-owned state; it never implements lifecycle policy.
+Use this contract for the Project Insights Plugins tab, local package selection
+(directory or `.tlplugin`), inspection confirmation, offline bundled catalog,
+version history/rollback UI, plugin lifecycle actions, diagnostics, or desktop
+plugin E2E. The surface projects Engine-owned state; it never implements
+lifecycle policy or provenance authority.
 
 ### 2. Signatures
 
 ```typescript
 window.translunar.selectPluginPackage(): Promise<string | null>;
+window.translunar.invoke("plugin.inspect", PluginInspectParams);
 window.translunar.invoke("plugin.list", { offset, limit }): Promise<PluginPage>;
 window.translunar.invoke("plugin.install", PluginInstallParams);
+window.translunar.invoke("plugin.upgrade", PluginUpgradeParams);
+window.translunar.invoke("plugin.version.list", PluginVersionListParams);
+window.translunar.invoke("plugin.rollback", PluginRollbackParams);
+window.translunar.invoke("plugin.bundled.list", PluginBundledListParams);
+window.translunar.invoke("plugin.bundled.apply", PluginBundledApplyParams);
 window.translunar.invoke("plugin.enable" | "plugin.disable" |
   "plugin.uninstall", PluginMutationParams);
 ```
 
-`PluginsPanel` accepts only `onRefresh(): Promise<void>`. Its rows consume the
-generated `PluginSummary` fields `status`, permissions, `lastError`, revision,
-and contribution descriptors.
+Main starts Engine with packaged resources when present:
+
+```text
+translunar-engine --data-dir <…> --bundled-plugin-root <resources/plugins>
+```
+
+`PluginsPanel` accepts only `onRefresh(): Promise<void>`. Rows consume generated
+`PluginSummary` / `PluginBundledSummary` fields including `sourceKind`,
+distribution, hash prefixes, contributions, diagnostics, and revision.
 
 ### 3. Contracts
 
 - Project Insights owns the Plugins tab; package selection remains in Electron
-  main. `TRANSLUNAR_TEST_PLUGIN_SOURCE` replaces only the dialog result in E2E.
+  main. The picker accepts a directory **or** a `.tlplugin` file.
+  `TRANSLUNAR_TEST_PLUGIN_SOURCE` replaces only the dialog result in E2E.
+- Local install/upgrade **must** call `plugin.inspect` and show an inspection
+  confirmation (identity, version, tier, source, hash prefix, compatibility,
+  license/publisher, contributions, capability risks, diagnostics) before any
+  install/upgrade mutation.
+- Bundled catalog uses `plugin.bundled.list` / `plugin.bundled.apply` with
+  catalog package **ids** only. Renderer state never stores or displays absolute
+  resource paths, archive filenames under `resources/plugins`, or raw package
+  bytes. Source badges (`local directory` / `local archive` / `bundled`) are
+  Engine projections, not client guesses.
 - Renderer code uses generated `plugin.*` method types and the shared structured
   invoke envelope. It never imports plugin code, reads manifests, opens SQLite,
-  infers status, or registers contributions.
+  infers status, classifies provenance, or registers contributions.
 - Declarative rows render the generated `tier: "declarative"` projection and
   the same Engine-owned lifecycle controls as process rows. A manifest-only
   package never needs an entry script, process status, or renderer evaluator;
   its filter, QA, and pipeline inventory appears only after Engine enable.
-- Install, enable, disable, and uninstall expose one busy state, clear the
-  previous alert, invoke Engine, reload summaries, and refresh owning project
-  data. Cancellation changes nothing.
+- Install, enable, disable, upgrade, rollback, bundled apply, and uninstall
+  expose one busy state, clear the previous alert, pass the current Engine
+  revision, invoke Engine, reload plugin + bundled + permission + panel-session
+  projections together, and refresh owning project data. Cancellation changes
+  nothing.
 - An external process failure can occur during document work rather than a
   panel button. The panel Refresh action must then show Engine-owned
   `degraded` and `lastError`; it does not synthesize the transition locally.
@@ -1522,16 +1548,20 @@ and contribution descriptors.
   `failureKind`, and `retryable`.
 - Enabled status uses the confirmed color, degraded uses warning, and error
   text uses the shared error token. Long permission/error text wraps inside the
-  row; actions remain reachable at supported viewports.
+  row; actions remain reachable at supported viewports. EN and zh-CN strings
+  are required.
 
 ### 4. Validation & Error Matrix
 
 | Condition | Required UI behavior |
 | --- | --- |
 | Package dialog canceled | No Engine call, no alert, current list unchanged |
+| User cancels inspection confirmation | No install/upgrade mutation |
 | Install/lifecycle RPC fails | Named alert shows formatted error; busy state clears |
+| Stale revision on mutation | Typed conflict alert; reload Engine projections; do not invent success |
 | Plugin process crashes during document import | Structured rejection retains code/data; Refresh shows degraded row and safe lastError |
 | Degraded plugin after Engine restart | Row remains degraded and contribution is absent from `filter.list` |
+| Catalog unavailable | Empty bundled band + safe diagnostics; local install still offered |
 | Tier 1 package is installed without grants | Show installed/pending review; no contribution appears and no process starts |
 | Tier 1 grant is revoked | Reload Engine-owned disabled status; filter, QA, and pipeline adapters are absent |
 | Empty list | Render localized empty state, not a placeholder plugin |
@@ -1539,17 +1569,25 @@ and contribution descriptors.
 
 ### 5. Good / Base / Bad Cases
 
-- Good: install, enable, verify contribution, restart, disable, and uninstall
-  from one named Plugins surface.
+- Good: inspect then install a local archive, apply a bundled catalog entry,
+  review permissions, enable, list versions, roll back, disable, and uninstall
+  from one named Plugins surface without developer tools.
 - Base: refresh after an out-of-panel crash and render the durable degraded row
   without a console error.
 - Bad: catch an Engine error as `String(error)` before reading its code/data,
-  import the plugin entry in React, or set status to degraded optimistically.
+  import the plugin entry in React, set status/sourceKind optimistically, or
+  pass a filesystem path into `plugin.bundled.apply`.
 
 ### 6. Tests Required
 
 - Real-Engine E2E covers empty/install/enabled/restart/disabled/uninstalled and
-  crash/degraded/restart paths.
+  crash/degraded/restart paths on a **fresh** desktop build (not a stale dist).
+- Bundled Path A: catalog available, install/restore allowlisted core package,
+  `sourceKind === "bundled"`, no resource path / `.tlplugin` name leak in UI or
+  serialized catalog projections.
+- Local archive Path B: fixture archive path must sit **outside** the configured
+  bundled root (copy catalog archive to a temp dir); assert inspect and installed
+  row both show `local archive`, then uninstall with empty console errors.
 - The Tier 1 real-Engine flow installs the official manifest-only toolkit,
   reviews and grants every request, enables without a child process, survives
   app restart, and then disables and uninstalls with no page/console errors.
@@ -1557,8 +1595,8 @@ and contribution descriptors.
   safe lastError, a subsequent ordinary RPC, and no stderr leakage.
 - Assert every button/tab/region has an accessible name and console/page error
   collections remain empty.
-- Capture and inspect 1250x744, 1680x942, and 1920x1080 for both enabled and
-  degraded states; assert no global horizontal overflow or incoherent overlap.
+- Capture and inspect 1250x744, 1680x942, and 1920x1080 for installed, bundled,
+  inspection, and permission states; assert no global horizontal overflow.
 
 ### 7. Wrong vs Correct
 
@@ -1570,13 +1608,26 @@ catch (error) {
 }
 ```
 
+```typescript
+// Points fixture at resources/plugins/*.tlplugin then expects "local archive"
+// after install — Engine correctly classifies verified catalog archives as bundled.
+env.TRANSLUNAR_TEST_PLUGIN_SOURCE = path.join(resourcesPlugins, "example.hello-srt-0.1.0.tlplugin");
+```
+
 #### Correct
 
 ```typescript
 catch (error: unknown) {
   setError(formatError(error));
-  await load(); // Render Engine-owned status, revision, and lastError.
+  await load(); // Render Engine-owned status, revision, sourceKind, and lastError.
 }
+```
+
+```typescript
+const tempArchive = path.join(mkdtempSync(...), "hello-srt.tlplugin");
+copyFileSync(catalogArchive, tempArchive);
+env.TRANSLUNAR_TEST_PLUGIN_SOURCE = tempArchive;
+// Assert inspect + installed row both show local archive; no absolute path in UI.
 ```
 
 ## Plugin Permission Review Surface

@@ -44,7 +44,7 @@ fn run_stdio(data_dir: PathBuf, bundled_plugin_root: Option<PathBuf>) -> Result<
             .with_context(|| format!("failed to open data directory {}", data_dir.display()))?;
     info!(
         data_dir = %data_dir.display(),
-        bundled_plugin_root = ?bundled_plugin_root.as_ref().map(|path| path.display().to_string()),
+        bundled_plugin_root_configured = bundled_plugin_root.is_some(),
         "engine started"
     );
 

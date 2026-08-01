@@ -3274,10 +3274,15 @@ impl EngineService {
     ) -> Result<Self> {
         let data_dir = data_dir.as_ref().to_path_buf();
         let ai = ai::AiManager::new(data_dir.clone())?;
-        Self::open_with_ai(data_dir, ai, bundled_plugin_root)
+        Self::open_with_ai_and_root(data_dir, ai, bundled_plugin_root)
     }
 
-    fn open_with_ai(
+    #[allow(dead_code)]
+    fn open_with_ai(data_dir: PathBuf, ai: ai::AiManager) -> Result<Self> {
+        Self::open_with_ai_and_root(data_dir, ai, None)
+    }
+
+    fn open_with_ai_and_root(
         data_dir: PathBuf,
         ai: ai::AiManager,
         bundled_plugin_root: Option<PathBuf>,
@@ -3356,9 +3361,8 @@ impl EngineService {
             plugin_pipeline_owners: std::collections::BTreeMap::new(),
             plugin_activation_revisions: std::collections::BTreeMap::new(),
             plugin_capabilities,
-            bundled_plugin_root: bundled_plugin_root.and_then(|root| {
-                root.canonicalize().ok().filter(|path| path.is_dir())
-            }),
+            bundled_plugin_root: bundled_plugin_root
+                .and_then(|root| root.canonicalize().ok().filter(|path| path.is_dir())),
         };
         service.reload_enabled_plugins()?;
         Ok(service)

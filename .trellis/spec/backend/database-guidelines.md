@@ -177,6 +177,40 @@ receive bounded diagnostics; normalization never silently deletes history.
 The tested concurrency boundary is SQLite CAS plus the serialized Engine
 dispatcher, not ownership by multiple independent Engine processes.
 
+### Migration 24: package provenance and distribution metadata
+
+Migration 24 is an append-only extension after migrations 16–23. It adds
+host-derived provenance and optional distribution JSON to both the active
+installation projection and immutable version history:
+
+```text
+plugin_installations.source_kind
+  TEXT NOT NULL DEFAULT 'localDirectory'
+  CHECK (source_kind IN ('localDirectory', 'localArchive', 'bundled'))
+
+plugin_installations.distribution_json
+  TEXT NULL
+  CHECK (NULL or json object, valid JSON, <= 4096 bytes)
+
+plugin_versions.source_kind
+  same closed enum as installations
+
+plugin_versions.distribution_json
+  same bounds as installations
+```
+
+Contracts:
+
+- Existing rows backfill to `localDirectory` with null distribution; released
+  migrations 16–24 remain immutable after ship.
+- Version rows own historical provenance; the installation row mirrors the
+  active version for list/get projections.
+- `source_kind` is written only by Engine lifecycle after
+  `classify_source_kind`; Store must not accept a renderer-supplied provenance
+  override.
+- `distribution_json` stores the closed publisher/license/homepage object (or
+  null for legacy packages). It is not a grant of bundled authority.
+
 ## Plugin capability decisions and audit
 
 ### 1. Scope / Trigger

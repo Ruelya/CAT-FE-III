@@ -1852,8 +1852,25 @@ pub fn decode_normalized_manifest(
     validate_manifest_shape(&value, source_version)?;
     let normalized = match source_version {
         MANIFEST_VERSION_V1 => {
+            let distribution: Option<PluginDistributionMetadata> = value
+                .get("distribution")
+                .map(|value| serde_json::from_value(value.clone()))
+                .transpose()
+                .map_err(|error| {
+                    PluginRuntimeError::InvalidManifest(format!(
+                        "cannot parse distribution metadata: {error}"
+                    ))
+                })?;
+            if let Some(distribution) = &distribution {
+                distribution.validate()?;
+            }
+            let mut legacy_value = value.clone();
+            legacy_value
+                .as_object_mut()
+                .expect("manifest object")
+                .remove("distribution");
             let manifest: RawPluginManifestV1 =
-                serde_json::from_value(value.clone()).map_err(|error| {
+                serde_json::from_value(legacy_value).map_err(|error| {
                     PluginRuntimeError::InvalidManifest(format!("cannot parse manifest: {error}"))
                 })?;
             validate_manifest(&manifest, package_dir)?;
@@ -1900,7 +1917,7 @@ pub fn decode_normalized_manifest(
                     &manifest.permissions,
                     &manifest.capabilities,
                 )?,
-                distribution: None,
+                distribution,
                 original_manifest_json: value,
             }
         }

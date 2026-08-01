@@ -1,66 +1,114 @@
 # Acceptance Evidence: Plugin Management and Release Qualification
 
-Date: 2026-07-30  
-Branch: `task/07-30-plugin-management-release`  
-Worktree: `K:\Workbench\Orca\CAT\07-30-plugin-management-release`  
-Node: `C:/Program Files/nodejs/node.exe` 24.17.0  
-Cargo target: `W:/cargo-target-plugin-management-release`
+Date: 2026-08-01  
+Branch: `task/07-28-plugin-management-release`  
+Worktree: `K:\Workbench\CAT`  
+Node: 24.17.0  
+Quality loop: findings-1..5 green (0 open blocker/major); verify-1, verify-2  
+Closeout: residual risks recorded honestly below (not claimed green)
 
 ## Requirement mapping
 
 | ID | Requirement summary | Evidence |
 | --- | --- | --- |
 | R1 | Closed `.tlplugin` ZIP + deterministic pack | `crates/plugin-runtime/src/package_archive.rs`, `scripts/package-plugins.mjs`, tests `package_archive::*` |
-| R2 | Distribution metadata + Engine-derived provenance + bundled catalog | Migration 24, `plugin_bundled.rs`, protocol `plugin.bundled.*`, `source_kind` |
-| R3 | Integrity + lifecycle rehash/compensation | Engine install re-hash before activation; existing upgrade/rollback CAS paths extended with provenance |
-| R4 | Desktop inspect/bundled/upgrade/history/rollback | `PluginsPanel.tsx`, picker openFile+openDirectory, i18n EN/zh-CN |
-| R5 | Official packages + public docs | allowlist + LICENSE/distribution on core examples, `docs/plugins/README.md` |
-| R6 | Qualification + evidence | this file + focused tests + catalog hashes |
+| R2 | Distribution metadata + Engine-derived provenance + bundled catalog | Migration 24; `plugin_bundled.rs` `classify_source_kind`; protocol `plugin.bundled.*`; host-only `sourceKind` |
+| R3 | Integrity + lifecycle rehash/compensation | Engine install/upgrade re-hash before activation; restart managed-hash verify; upgrade/rollback CAS with provenance |
+| R4 | Desktop inspect/bundled/upgrade/history/rollback | `PluginsPanel.tsx`, dual-mode picker, inspect confirmation, i18n EN/zh-CN; Versions UI E2E residual |
+| R5 | Official packages + public docs | allowlist + LICENSE/distribution on 5 core examples, `docs/plugins/README.md`, `apps/desktop/resources/plugins/` |
+| R6 | Qualification + evidence | this file + focused unit/smoke + fresh Electron matrix + review/verify reports |
 
 ## Acceptance criteria
 
 | AC | Status | Proof |
 | --- | --- | --- |
-| AC-01 | Covered by unit tests | `directory_and_archive_share_canonical_hash` |
-| AC-02 | Covered by unit tests | `rejects_path_traversal_before_write`, `rejects_missing_format_marker`; extraction guards for encryption/compression/ratio/limits |
-| AC-03 | Covered by pack gate | `validateManifest` requires publisher/license; LICENSE file required; legacy packages keep optional distribution |
-| AC-04 | Covered by design + Engine | catalog loads only from `--bundled-plugin-root`; missing catalog returns `catalogAvailable: false` without startup failure; `classify_source_kind` only when path under root |
-| AC-05 | Covered by existing lifecycle + install rehash | same-version hash conflict retained; managed-tree rehash before install commit |
-| AC-06 | Covered by existing upgrade CAS | prior generation retained until candidate validation/CAS; provenance fields added |
-| AC-07 | Covered by existing rollback path | rollback copies version provenance into installation projection |
-| AC-08 | Desktop workflows implemented | inspect confirm, bundled apply, upgrade, version history, rollback, enable/disable/uninstall |
-| AC-09 | UI + i18n | source/license/hash/crash/contribution/diagnostic projections; EN + zh-CN strings; CSS wrap-safe bands |
-| AC-10 | Core allowlist pack | 5 production-safe examples with LICENSE + distribution; deterministic archives under `apps/desktop/resources/plugins/` |
-| AC-11 | Validation | focused Rust package_archive + storage plugin tests; contracts regenerated; residual gates recorded below |
-| AC-12 | Evidence | package hashes below; no credentials/private paths in catalog index or evidence |
+| AC-01 | Pass (unit) | `directory_and_archive_share_canonical_hash`; JS/Rust package hash parity for allowlisted packages |
+| AC-02 | Pass (unit) | traversal / absolute-drive-UNC / casefold+unicode collision / missing marker / compression ratio; fail before write |
+| AC-03 | Pass (pack gate) | `validateManifest` requires publisher/license; LICENSE required; legacy distribution optional |
+| AC-04 | Pass (Engine + E2E) | verified catalog list; missing root degrades catalog only; tampered index fails closed; provenance only via verified index + hash; inspect/install/upgrade share `classify_source_kind` (F8) |
+| AC-05 | Pass (lifecycle) | `duplicate_install_is_idempotent_*`; managed-tree rehash before install commit |
+| AC-06 | Pass (lifecycle) | `blue_green_upgrade_rollback_*`; `failed_candidate_attach_restores_*` |
+| AC-07 | Pass (Engine path) | rollback reuses version CAS + provenance; connector/AI host E2E exercise upgrade+rollback RPC |
+| AC-08 | Pass with residuals | inspect → install directory/archive; bundled apply; permission review; enable/disable/uninstall without dev tools. **Versions dialog / UI rollback / stale-revision Plugins recovery not dedicated Electron E2E** |
+| AC-09 | Pass with residuals | source/license/hash/contribution/diagnostic projections; EN+zh-CN; three-viewport overflow/screenshots green on fresh build; **reduced-motion not specially tested** |
+| AC-10 | Pass | 5 production-safe examples with LICENSE + distribution; `node scripts/package-plugins.mjs --check` ok |
+| AC-11 | Focused green | package_archive, storage plugin + migration_24, engine plugin_bundled + lifecycle, contracts, plugin Engine smoke, fresh desktop E2E plugin matrix. **Full workspace clippy / monorepo non-plugin E2E not reclaimed green** |
+| AC-12 | Pass | package hashes below; catalog scan no private paths/credentials; diagnostics bounded |
 
 ## Core catalog hashes
 
 Generated by `node scripts/package-plugins.mjs` into `apps/desktop/resources/plugins/`.
 
-See `apps/desktop/resources/plugins/evidence-manifest.json` and `index.json` for exact `packageSha256` / `archiveSha256` pairs. Catalog is offline and allowlist-only; fixtures with fixed credentials are excluded.
+From `evidence-manifest.json` (2026-08-01 rebuild):
 
-## Validation commands (executed or attempted)
+| pluginId | version | packageSha256 | archiveSha256 |
+| --- | --- | --- | --- |
+| example.connector-openai-compatible | 1.0.0 | `d3561037232151782f9cbbb2063c76f48314b02893c0edf4ea29d63d907ccc3c` | `ab71c36ea7427aace8ecd2bebda9f53e44d48eddb7cb92ba2ae96475c3a76f85` |
+| example.hello-srt | 0.1.0 | `8b66a87437ca38cb93db881af084a088a62c0089c85e39d95efb9821a442c60b` | `ea4212648bb410750080dc3254263cf8b8df7c7045fb81f0a2a83e63aa71d7d5` |
+| example.qa-pipeline-process | 1.0.0 | `e6d40f11054046499be9b842a091ae4ad4a2ed1c3c41d6a8118fbf4b2787983e` | `97b335571bafbd201f116b8d6272efe3a9da73a53440a2c3b32779df6c4b6ae7` |
+| example.sandbox-toolkit | 0.1.0 | `def66a5ebfc358531f4875d398899e503249f324fc328b36c736420590f94088` | `987df2877968abddef5f2c1d5133e2e0b346513adf22cbb2165bfd41fa5abf1e` |
+| example.tier1-toolkit | 1.0.0 | `35e9c6f1fe41c6a5200e7483e97823cd09cd35f0483e08067d2399c0da5a4d46` | `3a5f6fcebacd0bb568a5bce35eb1a1e14e3183ce2727237ca58e97982031f622` |
+
+Catalog is offline and allowlist-only; fixtures with fixed credentials are excluded.
+
+## Validation commands (executed across implement + quality loop)
 
 ```text
+# package materializer
 cargo test -p translunar-plugin-runtime package_archive
+
+# storage plugin + migration 24
 cargo test -p translunar-storage plugin --lib
-cargo check -p translunar-engine
-cargo run -p translunar-protocol --bin export-schema -- packages/contracts/src/protocol.schema.json
-pnpm --filter @translunar/contracts generate
+cargo test -p translunar-storage --lib migration_24
+
+# engine bundled + lifecycle + classify consistency (incl. F8 unit)
+cargo test -p translunar-engine --lib plugin_bundled
+cargo test -p translunar-engine --lib duplicate_install_is_idempotent
+cargo test -p translunar-engine --lib blue_green_upgrade_rollback
+cargo test -p translunar-engine --lib failed_candidate_attach
+
+# packaging
 node scripts/package-plugins.mjs
 node scripts/package-plugins.mjs --check
-pnpm contracts:check
-pnpm docs:check
+
+# Engine smoke (plugin scope) — archive + bundled paths extended in scripts/engine-smoke.mjs
+# TRANSLUNAR_SMOKE_SCOPE=plugin node scripts/engine-smoke.mjs
+
+# Desktop E2E (fresh pnpm build required)
+# cd apps/desktop && pnpm build
+# pnpm exec playwright test tests/e2e/workbench.spec.ts --grep "plugin|release-bundled|tlplugin|…"
+# verify-2: 6/7 pass on first full matrix; Path B failed then fixed (F7/F8)
+# post-fix: focused "installs release-bundled and .tlplugin" 1/1 pass
 ```
 
-## Residual risk / baselines
+## Quality-loop evidence pointers
 
-- Full workspace `cargo clippy` / full `pnpm test` / real Engine smoke / Electron E2E may require longer CI capacity; run the implement.md matrix before merge.
-- Screenshot capture at 1250×744 / 1680×942 / 1920×1080 should be attached when Electron E2E is executed in an interactive display session.
-- Archive builder uses Python zipfile for deterministic timestamps; package identity remains the Rust canonical tree hash independent of archive container bytes.
-- Bundled apply reuses install/upgrade path; provenance is reclassified to `bundled` when the archive path is under the configured root.
+| Artifact | Role |
+| --- | --- |
+| `review/findings-1.md` … `findings-5.md` | Review judgments; findings-5: 0 open blocker/major |
+| `review/verify-1.md` | First verify (stale-dist risks surfaced) |
+| `review/verify-2.md` | Fresh-build seven-case plugin Electron matrix + Path A/B analysis |
+| F7 fix | Path B fixture copies archive outside bundled root before picker |
+| F8 fix | `inspect_plugin` uses same `classify_source_kind` as install/upgrade |
+
+## Residual risk / baselines (honest — do not claim green)
+
+- Plugins **Versions** dialog, version history list, and UI rollback entry: no
+  dedicated Electron E2E. Engine unit + connector/AI host upgrade/rollback RPC
+  paths exist; acceptance does not claim UI-dialog coverage.
+- Plugin **stale-revision** typed error + desktop recovery on Plugins surface:
+  no dedicated Electron E2E.
+- **Reduced-motion** mode: not specially tested.
+- After F7/F8, only the focused bundled + `.tlplugin` case was re-run; full
+  seven-case matrix was not re-executed. Optional confidence boost, not a
+  closeout blocker (verify-2 already green on the other six cases).
+- Full workspace `cargo clippy --workspace --all-targets -D warnings` and
+  non-plugin monorepo E2E were not claimed green in this task.
+- Unrelated leftover screenshot paths under other task dirs
+  (`07-26-plugin-*`, `07-28-plugin-ai-ui-host`) are not part of this commit
+  scope; Orchestrator should not stage them with this branch.
 
 ## Out of scope confirmation
 
-No remote marketplace, remote signing/index, app auto-updater changes, new contribution families, or OS-sandbox claims were introduced.
+No remote marketplace, remote signing/index, app auto-updater changes, new
+contribution families, or OS-sandbox claims were introduced.

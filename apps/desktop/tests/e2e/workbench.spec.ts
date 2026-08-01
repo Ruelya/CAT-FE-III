@@ -424,6 +424,35 @@ async function openApplicationMenu(page: Page): Promise<void> {
   ).toBeVisible();
 }
 
+async function confirmPluginInspection(
+  page: Page,
+  mode: "install" | "upgrade" = "install",
+): Promise<void> {
+  const dialog = page.getByRole("dialog", { name: "Inspect package" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText("Plugin ID", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Version", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Source", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Package hash", { exact: true })).toBeVisible();
+  await expect(
+    dialog.getByText("Compatibility", { exact: true }),
+  ).toBeVisible();
+  // Hash is shown as a 16-char prefix with an ellipsis; distribution /
+  // capability diagnostics are optional for older local packages.
+  await expect(dialog.locator("dd").filter({ hasText: /…$/u }).first()).toBeVisible();
+  const confirmLabel =
+    mode === "install" ? "Install package" : "Upgrade package";
+  await dialog.getByRole("button", { name: confirmLabel, exact: true }).click();
+  await expect(dialog).toBeHidden();
+}
+
+async function installPluginPackageFromPicker(page: Page): Promise<void> {
+  const panel = page.locator(".plugins-panel");
+  await panel.getByRole("button", { name: "Install package…" }).click();
+  await confirmPluginInspection(page, "install");
+  await grantInstalledPluginPermissions(page);
+}
+
 async function grantInstalledPluginPermissions(page: Page): Promise<void> {
   const dialog = page.getByRole("dialog", { name: "Permission review" });
   await expect(dialog).toBeVisible();
@@ -1181,10 +1210,12 @@ test("manages a local process plugin through Project Insights with the real Engi
     await page.getByRole("tab", { name: "Plugins" }).click();
 
     const panel = page.locator(".plugins-panel");
-    await expect(page.getByRole("heading", { name: "Plugins" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Plugins", exact: true, level: 2 }),
+    ).toBeVisible();
+    await expect(panel.locator("#plugins-heading")).toHaveText("Plugins");
     await expect(panel).toContainText("No plugins installed");
-    await panel.getByRole("button", { name: "Install package…" }).click();
-    await grantInstalledPluginPermissions(page);
+    await installPluginPackageFromPicker(page);
 
     let pluginRow = panel.locator(".plugins-panel__item", {
       hasText: "Hello SRT",
@@ -1282,6 +1313,167 @@ test("manages a local process plugin through Project Insights with the real Engi
   }
 });
 
+test("installs release-bundled and .tlplugin packages without exposing archive paths", async ({
+  browserName,
+}) => {
+  expect(browserName).toBe("chromium");
+  test.setTimeout(180_000);
+  const workspaceRoot = resolve(process.cwd(), "..", "..");
+  // Catalog archive is under the trusted bundled root; Path B must use a copy
+  // outside that root so install/inspect derive `local archive`, not `bundled`.
+  const catalogArchivePath = join(
+    workspaceRoot,
+    "apps",
+    "desktop",
+    "resources",
+    "plugins",
+    "example.hello-srt-0.1.0.tlplugin",
+  );
+  expect(existsSync(catalogArchivePath)).toBe(true);
+  const localArchiveDir = mkdtempSync(join(tmpdir(), "translunar-tlplugin-local-"));
+  const archivePath = join(localArchiveDir, "example.hello-srt-0.1.0.tlplugin");
+  cpSync(catalogArchivePath, archivePath);
+  expect(existsSync(archivePath)).toBe(true);
+
+  // Path A: bundled catalog install/restore (no picker path involved).
+  const bundledHarness = await launchHarness("plugin-bundled-catalog");
+  try {
+    const { page, consoleErrors } = bundledHarness;
+    await importFixture(page);
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "Project insights" }).click();
+    await page.getByRole("tab", { name: "Plugins" }).click();
+    const panel = page.locator(".plugins-panel");
+    await expect(
+      page.getByRole("heading", {
+        name: "Plugins",
+        exact: true,
+        level: 2,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Bundled core plugins", exact: true }),
+    ).toBeVisible();
+
+    const bundledProbe = await page.evaluate(async () => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      const pageResult = await api.invoke("plugin.bundled.list", {
+        offset: 0,
+        limit: 50,
+      });
+      return {
+        catalogAvailable: pageResult.catalogAvailable,
+        total: pageResult.total,
+        serialized: JSON.stringify(pageResult),
+        ids: pageResult.items.map((item) => item.pluginId),
+      };
+    });
+    expect(bundledProbe.catalogAvailable).toBe(true);
+    expect(bundledProbe.total).toBeGreaterThan(0);
+    expect(bundledProbe.serialized).not.toContain(".tlplugin");
+    expect(bundledProbe.serialized).not.toMatch(/resources[/\\]plugins/i);
+    expect(bundledProbe.ids).toContain("example.tier1-toolkit");
+
+    const bundledRow = panel.locator(".plugins-panel__row", {
+      hasText: "Tier 1 Toolkit",
+    });
+    await expect(bundledRow).toBeVisible();
+    await expect(bundledRow).not.toContainText(".tlplugin");
+    await bundledRow.getByRole("button", { name: "Install" }).click();
+
+    const installedRow = panel.locator(".plugins-panel__item", {
+      hasText: "Tier 1 Toolkit",
+    });
+    await expect(installedRow).toBeVisible();
+    await expect(installedRow.locator('[data-status="installed"]')).toHaveText(
+      "installed",
+    );
+    await expect(installedRow).toContainText("bundled");
+    await expect(installedRow).not.toContainText(".tlplugin");
+    await expect(installedRow).not.toContainText("resources");
+
+    // Bundled apply does not auto-open permission review; grant then enable.
+    await installedRow.getByRole("button", { name: "Review permissions" }).click();
+    await grantInstalledPluginPermissions(page);
+    await installedRow.getByRole("button", { name: "Enable" }).click();
+    await expect(installedRow.locator('[data-status="enabled"]')).toHaveText(
+      "enabled",
+    );
+
+    const installedProbe = await page.evaluate(async () => {
+      const api = (window as unknown as { translunar: DesktopApi }).translunar;
+      const plugin = await api.invoke("plugin.get", {
+        pluginId: "example.tier1-toolkit",
+      });
+      const bundled = await api.invoke("plugin.bundled.list", {
+        offset: 0,
+        limit: 50,
+      });
+      return {
+        sourceKind: plugin.sourceKind,
+        packagePath: plugin.packagePath,
+        bundledSerialized: JSON.stringify(bundled),
+      };
+    });
+    expect(installedProbe.sourceKind).toBe("bundled");
+    // Managed package_path under the Engine data dir is allowed; the trusted
+    // release archive path under resources/plugins must never surface.
+    expect(installedProbe.packagePath).not.toMatch(/resources[/\\]plugins/i);
+    expect(installedProbe.packagePath).not.toContain(
+      "example.tier1-toolkit-1.0.0.tlplugin",
+    );
+    expect(installedProbe.bundledSerialized).not.toContain(".tlplugin");
+
+    // Catalog row shows Current / restore once the same hash is installed.
+    await expect(
+      bundledRow.getByRole("button", { name: "Current" }),
+    ).toBeDisabled();
+
+    await installedRow.getByRole("button", { name: "Uninstall" }).click();
+    await expect(
+      panel.locator(".plugins-panel__item", { hasText: "Tier 1 Toolkit" }),
+    ).toHaveCount(0);
+    expect(consoleErrors).toEqual([]);
+  } finally {
+    await closeHarness(bundledHarness);
+  }
+
+  // Path B: closed .tlplugin via picker fixture → inspect → confirm → install.
+  const archiveHarness = await launchHarness("plugin-tlplugin-archive", {
+    pluginSource: archivePath,
+  });
+  try {
+    const { page, consoleErrors } = archiveHarness;
+    await importFixture(page);
+    await openApplicationMenu(page);
+    await page.getByRole("button", { name: "Project insights" }).click();
+    await page.getByRole("tab", { name: "Plugins" }).click();
+    const panel = page.locator(".plugins-panel");
+    await panel.getByRole("button", { name: "Install package…" }).click();
+
+    const inspectDialog = page.getByRole("dialog", { name: "Inspect package" });
+    await expect(inspectDialog).toBeVisible();
+    await expect(inspectDialog).toContainText("example.hello-srt");
+    await expect(inspectDialog).toContainText("local archive");
+    await expect(inspectDialog).toContainText("0.1.0");
+    await confirmPluginInspection(page, "install");
+    await grantInstalledPluginPermissions(page);
+
+    const pluginRow = panel.locator(".plugins-panel__item", {
+      hasText: "Hello SRT",
+    });
+    await expect(pluginRow).toBeVisible();
+    await expect(pluginRow).toContainText("local archive");
+    await expect(pluginRow).not.toContainText(archivePath);
+    await expect(pluginRow).not.toContainText(localArchiveDir);
+    await pluginRow.getByRole("button", { name: "Uninstall" }).click();
+    expect(consoleErrors).toEqual([]);
+  } finally {
+    await closeHarness(archiveHarness);
+    await rm(localArchiveDir, { recursive: true, force: true });
+  }
+});
+
 test("uses the official OpenAI-compatible connector through its visible lifecycle", async ({
   browserName,
 }, testInfo) => {
@@ -1309,6 +1501,7 @@ test("uses the official OpenAI-compatible connector through its visible lifecycl
     await page.getByRole("tab", { name: "Plugins" }).click();
     const panel = page.locator(".plugins-panel");
     await panel.getByRole("button", { name: "Install package…" }).click();
+    await confirmPluginInspection(page, "install");
 
     const permissionDialog = page.getByRole("dialog", {
       name: "Permission review",
@@ -1629,8 +1822,7 @@ test("hosts a Tier 2 sandbox panel through an opaque revocable session", async (
     await page.getByRole("tab", { name: "Plugins" }).click();
 
     const panel = page.locator(".plugins-panel");
-    await panel.getByRole("button", { name: "Install package…" }).click();
-    await grantInstalledPluginPermissions(page);
+    await installPluginPackageFromPicker(page);
     let pluginRow = panel.locator(".plugins-panel__item", {
       hasText: "Sandbox Toolkit",
     });
@@ -2062,8 +2254,7 @@ test("mounts plugin AI actions and workbench panels in declared placements", asy
     await page.getByRole("button", { name: "Project insights" }).click();
     await page.getByRole("tab", { name: "Plugins" }).click();
     const panel = page.locator(".plugins-panel");
-    await panel.getByRole("button", { name: "Install package…" }).click();
-    await grantInstalledPluginPermissions(page);
+    await installPluginPackageFromPicker(page);
     let pluginRow = panel.locator(".plugins-panel__item", {
       hasText: "Sandbox Toolkit",
     });
@@ -2465,8 +2656,7 @@ test("manages a manifest-only Tier 1 toolkit through the real Electron lifecycle
     await page.getByRole("button", { name: "Project insights" }).click();
     await page.getByRole("tab", { name: "Plugins" }).click();
     const panel = page.locator(".plugins-panel");
-    await panel.getByRole("button", { name: "Install package…" }).click();
-    await grantInstalledPluginPermissions(page);
+    await installPluginPackageFromPicker(page);
 
     let pluginRow = panel.locator(".plugins-panel__item", {
       hasText: "Tier 1 Toolkit",
@@ -2683,8 +2873,7 @@ test("isolates a crashed process plugin and shows its durable degraded state", a
     await page.getByRole("button", { name: "Project insights" }).click();
     await page.getByRole("tab", { name: "Plugins" }).click();
     const panel = page.locator(".plugins-panel");
-    await panel.getByRole("button", { name: "Install package…" }).click();
-    await grantInstalledPluginPermissions(page);
+    await installPluginPackageFromPicker(page);
     let pluginRow = panel.locator(".plugins-panel__item", {
       hasText: "Crash Filter Fixture",
     });

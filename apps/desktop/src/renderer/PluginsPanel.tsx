@@ -48,6 +48,20 @@ interface PluginsPanelProps {
   onRefresh(): Promise<void>;
 }
 
+type PluginInspectionState =
+  | {
+      sourcePath: string;
+      result: PluginInspection;
+      mode: "install";
+    }
+  | {
+      sourcePath: string;
+      result: PluginInspection;
+      mode: "upgrade";
+      pluginId: string;
+      expectedRevision: number;
+    };
+
 const EFFECT_KEYS: Partial<Record<PluginCapabilityId, MessageKey>> = {
   "file.read": "plugins.effect.fileRead",
   "file.write": "plugins.effect.fileWrite",
@@ -103,13 +117,9 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
   } | null>(null);
   const [bundled, setBundled] = useState<PluginBundledSummary[]>([]);
   const [bundledAvailable, setBundledAvailable] = useState(false);
-  const [inspection, setInspection] = useState<{
-    sourcePath: string;
-    result: PluginInspection;
-    mode: "install" | "upgrade";
-    pluginId?: string;
-    expectedRevision?: number;
-  } | null>(null);
+  const [inspection, setInspection] = useState<PluginInspectionState | null>(
+    null,
+  );
   const [versionHistory, setVersionHistory] = useState<{
     plugin: PluginSummary;
     versions: PluginVersionSummary[];
@@ -263,7 +273,9 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
     try {
       const sourcePath = await window.translunar.selectPluginPackage();
       if (!sourcePath) return;
-      setBusyId(mode === "install" ? "inspect-install" : `inspect:${plugin?.id}`);
+      setBusyId(
+        mode === "install" ? "inspect-install" : `inspect:${plugin?.id}`,
+      );
       const result = await window.translunar.invoke("plugin.inspect", {
         sourcePath,
       });
@@ -279,14 +291,17 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
           }),
         );
       }
-      setInspection({
-        sourcePath,
-        result,
-        mode,
-        ...(plugin
-          ? { pluginId: plugin.id, expectedRevision: plugin.revision }
-          : {}),
-      });
+      if (mode === "upgrade" && plugin) {
+        setInspection({
+          sourcePath,
+          result,
+          mode,
+          pluginId: plugin.id,
+          expectedRevision: plugin.revision,
+        });
+      } else {
+        setInspection({ sourcePath, result, mode: "install" });
+      }
     } catch (cause) {
       setError(formatError(cause));
     } finally {
@@ -310,10 +325,13 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
         await onRefresh();
         await openReview(result.plugin.id);
       } else {
+        if (panelPreview?.plugin.id === inspection.pluginId) {
+          setPanelPreview(null);
+        }
         await window.translunar.invoke("plugin.upgrade", {
-          pluginId: inspection.pluginId!,
+          pluginId: inspection.pluginId,
           sourcePath: inspection.sourcePath,
-          expectedRevision: inspection.expectedRevision!,
+          expectedRevision: inspection.expectedRevision,
           actor: "desktop",
           reason: "upgrade from Plugins panel",
         });
@@ -336,6 +354,7 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
     setError(null);
     try {
       const installed = plugins.find((plugin) => plugin.id === item.pluginId);
+      if (panelPreview?.plugin.id === item.pluginId) setPanelPreview(null);
       await window.translunar.invoke("plugin.bundled.apply", {
         pluginId: item.pluginId,
         ...(installed ? { expectedRevision: installed.revision } : {}),
@@ -345,7 +364,10 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
       await load();
       await onRefresh();
     } catch (cause) {
-      setError(formatError(cause));
+      const message = formatError(cause);
+      setError(message);
+      await load(true);
+      setError(message);
     } finally {
       setBusyId(null);
     }
@@ -373,6 +395,9 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
     setBusyId(`rollback:${version.id}`);
     setError(null);
     try {
+      if (panelPreview?.plugin.id === versionHistory.plugin.id) {
+        setPanelPreview(null);
+      }
       await window.translunar.invoke("plugin.rollback", {
         pluginId: versionHistory.plugin.id,
         versionId: version.id,
@@ -384,7 +409,11 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
       await load();
       await onRefresh();
     } catch (cause) {
-      setError(formatError(cause));
+      const message = formatError(cause);
+      setVersionHistory(null);
+      setError(message);
+      await load(true);
+      setError(message);
     } finally {
       setBusyId(null);
     }
@@ -520,7 +549,9 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
                     type="button"
                     className="primary"
                     disabled={
-                      busyId !== null || item.installState === "current"
+                      busyId !== null ||
+                      item.installState === "current" ||
+                      item.installState === "installed"
                     }
                     onClick={() => void applyBundled(item)}
                   >
@@ -528,7 +559,9 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
                       ? t("plugins.bundledInstall")
                       : item.installState === "updateAvailable"
                         ? t("plugins.bundledUpdate")
-                        : t("plugins.bundledCurrent")}
+                        : item.installState === "current"
+                          ? t("plugins.bundledCurrent")
+                          : t("plugins.bundledState.installed")}
                   </button>
                 </div>
               </li>
@@ -579,7 +612,9 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
                     <span>{plugin.tier}</span>
                     <span data-status={plugin.status}>{plugin.status}</span>
                     <span className="plugins-panel__badge">
-                      {t(`plugins.source.${plugin.sourceKind ?? "localDirectory"}`)}
+                      {t(
+                        `plugins.source.${plugin.sourceKind ?? "localDirectory"}`,
+                      )}
                     </span>
                     {plugin.distribution ? (
                       <span>
@@ -864,9 +899,7 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
                 </div>
                 <div>
                   <dt>{t("plugins.inspectSource")}</dt>
-                  <dd>
-                    {t(`plugins.source.${inspection.result.sourceKind}`)}
-                  </dd>
+                  <dd>{t(`plugins.source.${inspection.result.sourceKind}`)}</dd>
                 </div>
                 <div>
                   <dt>{t("plugins.inspectHash")}</dt>
