@@ -172,7 +172,8 @@ mod plugin_connector;
 mod plugin_declarative;
 mod plugin_external_connector;
 pub use local_api::{
-    LocalApiConfig, run_pipeline, run_pipeline_with_project, serve as serve_local_api, validate_bind,
+    LocalApiConfig, run_pipeline, run_pipeline_with_project, serve as serve_local_api,
+    validate_bind,
 };
 pub use local_auth::{LocalApiTokenStore, default_token_store, ensure_token, rotate_token};
 mod qa;

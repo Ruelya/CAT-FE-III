@@ -3,6 +3,596 @@
 // packages/plugin-sdk/src/index.ts
 import { createInterface } from "node:readline";
 import { stdin as input, stdout as output } from "node:process";
+
+// packages/plugin-sdk/src/qa-pipeline.ts
+var PUBLIC_CONTRIBUTION_LIMITS = Object.freeze({
+  descriptorBytes: 64 * 1024,
+  configBytes: 64 * 1024,
+  checkpointBytes: 1024 * 1024,
+  invocationBytes: 4 * 1024 * 1024,
+  resultBytes: 8 * 1024 * 1024,
+  jsonDepth: 16,
+  jsonNodes: 65536,
+  collectionItems: 4096,
+  textBytes: 1024 * 1024,
+  qaFindings: 1024,
+  qaMessageBytes: 2048,
+  qaEvidenceItems: 128,
+  qaEvidenceTextBytes: 4096,
+  qaRelatedSegments: 128,
+  usageUnits: 1e9,
+  deadlineMs: 12e4,
+});
+var qaCategories = /* @__PURE__ */ new Set([
+  "completeness",
+  "numbers",
+  "tags",
+  "punctuation",
+  "whitespace",
+  "repetition",
+  "length",
+  "terminology",
+  "consistency",
+  "custom",
+]);
+var qaSeverities = /* @__PURE__ */ new Set(["error", "warning", "info"]);
+var artifactKinds = /* @__PURE__ */ new Set([
+  "none",
+  "project",
+  "document",
+  "segments",
+  "qaFindings",
+  "json",
+]);
+function utf8Bytes(value) {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index);
+    if (codeUnit <= 127) {
+      bytes += 1;
+    } else if (codeUnit <= 2047) {
+      bytes += 2;
+    } else if (
+      codeUnit >= 55296 &&
+      codeUnit <= 56319 &&
+      index + 1 < value.length
+    ) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 56320 && next <= 57343) {
+        bytes += 4;
+        index += 1;
+      } else {
+        bytes += 3;
+      }
+    } else {
+      bytes += 3;
+    }
+  }
+  return bytes;
+}
+function jsonBytes(value) {
+  try {
+    return utf8Bytes(JSON.stringify(value));
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+function strictObject(value, keys, label, errors) {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Object.prototype
+  ) {
+    errors.push(`${label} must be a plain object`);
+    return void 0;
+  }
+  const record = value;
+  const allowed = new Set(keys);
+  for (const key of Object.keys(record)) {
+    if (!allowed.has(key))
+      errors.push(`${label} contains unknown field ${key}`);
+  }
+  return record;
+}
+function boundaryString(value, label, maxBytes, errors) {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    utf8Bytes(value) > maxBytes ||
+    /[\u0000-\u001f\u007f]/u.test(value)
+  ) {
+    errors.push(`${label} is empty, malformed, or oversized`);
+    return false;
+  }
+  return true;
+}
+function boundaryId(value, label, errors) {
+  if (!boundaryString(value, label, 128, errors)) return false;
+  if (!/^[A-Za-z0-9._:-]+$/u.test(value)) {
+    errors.push(`${label} contains unsupported characters`);
+    return false;
+  }
+  return true;
+}
+function boundedInteger(value, min, max, label, errors) {
+  if (!Number.isSafeInteger(value) || value < min || value > max) {
+    errors.push(`${label} must be an integer between ${min} and ${max}`);
+    return false;
+  }
+  return true;
+}
+function validatePublicJson(
+  value,
+  maxBytes = PUBLIC_CONTRIBUTION_LIMITS.resultBytes,
+) {
+  let nodes = 0;
+  const stack = /* @__PURE__ */ new Set();
+  const walk = (candidate, depth) => {
+    nodes += 1;
+    if (
+      nodes > PUBLIC_CONTRIBUTION_LIMITS.jsonNodes ||
+      depth > PUBLIC_CONTRIBUTION_LIMITS.jsonDepth
+    ) {
+      return false;
+    }
+    if (
+      candidate === null ||
+      typeof candidate === "boolean" ||
+      typeof candidate === "string"
+    ) {
+      return (
+        typeof candidate !== "string" ||
+        utf8Bytes(candidate) <= PUBLIC_CONTRIBUTION_LIMITS.textBytes
+      );
+    }
+    if (typeof candidate === "number") return Number.isFinite(candidate);
+    if (typeof candidate !== "object" || stack.has(candidate)) return false;
+    stack.add(candidate);
+    if (Array.isArray(candidate)) {
+      const valid2 =
+        candidate.length <= PUBLIC_CONTRIBUTION_LIMITS.collectionItems &&
+        candidate.every((item) => walk(item, depth + 1));
+      stack.delete(candidate);
+      return valid2;
+    }
+    if (Object.getPrototypeOf(candidate) !== Object.prototype) {
+      stack.delete(candidate);
+      return false;
+    }
+    const entries = Object.entries(candidate);
+    const valid =
+      entries.length <= PUBLIC_CONTRIBUTION_LIMITS.collectionItems &&
+      entries.every(
+        ([key, item]) =>
+          utf8Bytes(key) <= 256 &&
+          !/[\u0000-\u001f\u007f]/u.test(key) &&
+          walk(item, depth + 1),
+      );
+    stack.delete(candidate);
+    return valid;
+  };
+  return walk(value, 0) && jsonBytes(value) <= maxBytes;
+}
+function validatePublicConfigSchema(value) {
+  const errors = [];
+  const schema = strictObject(
+    value,
+    ["schemaVersion", "fields"],
+    "config schema",
+    errors,
+  );
+  if (schema?.schemaVersion !== 1)
+    errors.push("config schemaVersion must be 1");
+  if (!Array.isArray(schema?.fields) || schema.fields.length > 128) {
+    errors.push(
+      "config schema fields must be an array with at most 128 entries",
+    );
+    return errors;
+  }
+  const keys = /* @__PURE__ */ new Set();
+  schema.fields.forEach((candidate, index) => {
+    const field = strictObject(
+      candidate,
+      [
+        "key",
+        "label",
+        "fieldType",
+        "required",
+        "defaultValue",
+        "min",
+        "max",
+        "options",
+      ],
+      `config field ${index}`,
+      errors,
+    );
+    if (!field) return;
+    if (boundaryId(field.key, `config field ${index} key`, errors)) {
+      if (keys.has(field.key))
+        errors.push(`config field ${field.key} is duplicated`);
+      keys.add(field.key);
+    }
+    boundaryString(field.label, `config field ${index} label`, 256, errors);
+    if (
+      !["text", "boolean", "integer", "number", "select", "json"].includes(
+        String(field.fieldType),
+      )
+    ) {
+      errors.push(`config field ${index} fieldType is unsupported`);
+    }
+    if (typeof field.required !== "boolean")
+      errors.push(`config field ${index} required must be boolean`);
+    if (field.min !== void 0 && !Number.isSafeInteger(field.min))
+      errors.push(`config field ${index} min must be an integer`);
+    if (field.max !== void 0 && !Number.isSafeInteger(field.max))
+      errors.push(`config field ${index} max must be an integer`);
+    if (
+      typeof field.min === "number" &&
+      typeof field.max === "number" &&
+      field.min > field.max
+    ) {
+      errors.push(`config field ${index} range is invalid`);
+    }
+    const options = field.options ?? [];
+    if (!Array.isArray(options) || options.length > 128) {
+      errors.push(`config field ${index} options are invalid`);
+    } else {
+      const optionValues = /* @__PURE__ */ new Set();
+      for (const [optionIndex, candidateOption] of options.entries()) {
+        const option = strictObject(
+          candidateOption,
+          ["value", "label"],
+          `config option ${optionIndex}`,
+          errors,
+        );
+        if (option) {
+          boundaryString(option.value, "config option value", 256, errors);
+          boundaryString(option.label, "config option label", 256, errors);
+          if (typeof option.value === "string") {
+            if (optionValues.has(option.value))
+              errors.push(`config field ${index} has duplicate option values`);
+            optionValues.add(option.value);
+          }
+        }
+      }
+    }
+    if (
+      (field.fieldType === "select") !==
+      (Array.isArray(options) && options.length > 0)
+    ) {
+      errors.push(`config field ${index} select/options contract is invalid`);
+    }
+    if (
+      field.defaultValue !== void 0 &&
+      !validatePublicJson(
+        field.defaultValue,
+        PUBLIC_CONTRIBUTION_LIMITS.configBytes,
+      )
+    ) {
+      errors.push(`config field ${index} defaultValue is invalid`);
+    } else if (
+      field.defaultValue !== void 0 &&
+      !configFieldAccepts(field, field.defaultValue)
+    ) {
+      errors.push(
+        `config field ${index} defaultValue does not match fieldType`,
+      );
+    }
+  });
+  if (jsonBytes(value) > PUBLIC_CONTRIBUTION_LIMITS.descriptorBytes)
+    errors.push("config schema is oversized");
+  return errors;
+}
+function configFieldAccepts(field, value) {
+  switch (field.fieldType) {
+    case "text":
+      return typeof value === "string" && utf8Bytes(value) <= 16 * 1024;
+    case "select":
+      return (
+        typeof value === "string" &&
+        (field.options ?? []).some((option) => option.value === value)
+      );
+    case "boolean":
+      return typeof value === "boolean";
+    case "integer":
+      return (
+        Number.isSafeInteger(value) &&
+        (field.min === void 0 || value >= field.min) &&
+        (field.max === void 0 || value <= field.max)
+      );
+    case "number":
+      return (
+        typeof value === "number" &&
+        Number.isFinite(value) &&
+        (field.min === void 0 || value >= field.min) &&
+        (field.max === void 0 || value <= field.max)
+      );
+    case "json":
+      return validatePublicJson(value, PUBLIC_CONTRIBUTION_LIMITS.configBytes);
+  }
+}
+function validatePublicConfig(value, schema) {
+  const errors = validatePublicConfigSchema(schema);
+  const config = strictObject(
+    value,
+    schema.fields.map((field) => field.key),
+    "config",
+    errors,
+  );
+  if (!config || jsonBytes(value) > PUBLIC_CONTRIBUTION_LIMITS.configBytes) {
+    if (jsonBytes(value) > PUBLIC_CONTRIBUTION_LIMITS.configBytes)
+      errors.push("config is oversized");
+    return errors;
+  }
+  for (const field of schema.fields) {
+    const candidate = config[field.key];
+    if (candidate === void 0) {
+      if (field.required && field.defaultValue === void 0)
+        errors.push(`config is missing required field ${field.key}`);
+    } else if (!configFieldAccepts(field, candidate)) {
+      errors.push(`config field ${field.key} has an invalid value`);
+    }
+  }
+  return errors;
+}
+function validateQaRuleDescriptor(value) {
+  const errors = [];
+  const descriptor2 = strictObject(
+    value,
+    [
+      "kind",
+      "descriptorVersion",
+      "operationProtocolVersion",
+      "id",
+      "version",
+      "displayName",
+      "ruleType",
+      "severity",
+      "definition",
+      "ruleKind",
+      "categories",
+      "configSchemaVersion",
+      "configSchema",
+      "limits",
+      "config",
+    ],
+    "QA descriptor",
+    errors,
+  );
+  if (!descriptor2) return errors;
+  if (
+    descriptor2.kind !== "qaRule" ||
+    descriptor2.descriptorVersion !== 1 ||
+    descriptor2.operationProtocolVersion !== 1 ||
+    descriptor2.ruleType !== "mechanical" ||
+    descriptor2.ruleKind !== "mechanical" ||
+    descriptor2.configSchemaVersion !== 1
+  ) {
+    errors.push(
+      "QA descriptor versions and kinds must use the closed V1 contract",
+    );
+  }
+  boundaryId(descriptor2.id, "QA id", errors);
+  boundaryString(descriptor2.version, "QA version", 128, errors);
+  boundaryString(descriptor2.displayName, "QA displayName", 256, errors);
+  if (!qaSeverities.has(String(descriptor2.severity)))
+    errors.push("QA severity is unsupported");
+  if (
+    !Array.isArray(descriptor2.categories) ||
+    descriptor2.categories.length === 0 ||
+    descriptor2.categories.length > 256 ||
+    descriptor2.categories.some(
+      (category) => !qaCategories.has(String(category)),
+    )
+  )
+    errors.push("QA categories are invalid");
+  else if (
+    descriptor2.categories.some(
+      (category, index, values) =>
+        index > 0 && String(values[index - 1]) >= String(category),
+    )
+  )
+    errors.push("QA categories must be unique and deterministically ordered");
+  if (
+    typeof descriptor2.definition !== "object" ||
+    descriptor2.definition === null ||
+    Array.isArray(descriptor2.definition) ||
+    Object.keys(descriptor2.definition).length !== 0
+  )
+    errors.push("QA definition must be the closed empty V1 object");
+  errors.push(...validatePublicConfigSchema(descriptor2.configSchema));
+  if (descriptor2.config !== void 0 && descriptor2.configSchema)
+    errors.push(
+      ...validatePublicConfig(descriptor2.config, descriptor2.configSchema),
+    );
+  const limits = strictObject(
+    descriptor2.limits,
+    [
+      "maxFindings",
+      "maxMessageBytes",
+      "maxEvidenceItems",
+      "maxRelatedSegmentIds",
+      "maxDeadlineMs",
+    ],
+    "QA limits",
+    errors,
+  );
+  if (limits) {
+    boundedInteger(
+      limits.maxFindings,
+      1,
+      PUBLIC_CONTRIBUTION_LIMITS.qaFindings,
+      "QA maxFindings",
+      errors,
+    );
+    boundedInteger(
+      limits.maxMessageBytes,
+      1,
+      PUBLIC_CONTRIBUTION_LIMITS.qaMessageBytes,
+      "QA maxMessageBytes",
+      errors,
+    );
+    boundedInteger(
+      limits.maxEvidenceItems,
+      1,
+      PUBLIC_CONTRIBUTION_LIMITS.qaEvidenceItems,
+      "QA maxEvidenceItems",
+      errors,
+    );
+    boundedInteger(
+      limits.maxRelatedSegmentIds,
+      0,
+      PUBLIC_CONTRIBUTION_LIMITS.qaRelatedSegments,
+      "QA maxRelatedSegmentIds",
+      errors,
+    );
+    boundedInteger(
+      limits.maxDeadlineMs,
+      1,
+      PUBLIC_CONTRIBUTION_LIMITS.deadlineMs,
+      "QA maxDeadlineMs",
+      errors,
+    );
+  }
+  if (jsonBytes(value) > PUBLIC_CONTRIBUTION_LIMITS.descriptorBytes)
+    errors.push("QA descriptor is oversized");
+  return errors;
+}
+function validatePipelineStepDescriptor(value) {
+  const errors = [];
+  const descriptor2 = strictObject(
+    value,
+    [
+      "kind",
+      "descriptorVersion",
+      "operationProtocolVersion",
+      "id",
+      "version",
+      "displayName",
+      "input",
+      "output",
+      "configSchemaVersion",
+      "configSchema",
+      "resumable",
+      "cancellable",
+      "checkpointSchemaVersion",
+      "limits",
+    ],
+    "pipeline descriptor",
+    errors,
+  );
+  if (!descriptor2) return errors;
+  if (
+    descriptor2.kind !== "pipelineStep" ||
+    descriptor2.descriptorVersion !== 1 ||
+    descriptor2.operationProtocolVersion !== 1 ||
+    descriptor2.configSchemaVersion !== 1 ||
+    descriptor2.cancellable !== true
+  )
+    errors.push(
+      "pipeline descriptor versions and flags must use the closed V1 contract",
+    );
+  boundaryId(descriptor2.id, "pipeline id", errors);
+  boundaryString(descriptor2.version, "pipeline version", 128, errors);
+  boundaryString(descriptor2.displayName, "pipeline displayName", 256, errors);
+  if (
+    !artifactKinds.has(String(descriptor2.input)) ||
+    descriptor2.input === "none"
+  )
+    errors.push("pipeline input artifact kind is invalid");
+  if (
+    !artifactKinds.has(String(descriptor2.output)) ||
+    descriptor2.output === "none"
+  )
+    errors.push("pipeline output artifact kind is invalid");
+  if (typeof descriptor2.resumable !== "boolean")
+    errors.push("pipeline resumable must be boolean");
+  if (
+    descriptor2.resumable === true
+      ? descriptor2.checkpointSchemaVersion !== 1
+      : descriptor2.checkpointSchemaVersion !== void 0
+  )
+    errors.push("pipeline checkpoint schema must be 1 exactly when resumable");
+  errors.push(...validatePublicConfigSchema(descriptor2.configSchema));
+  const limits = strictObject(
+    descriptor2.limits,
+    [
+      "maxInputBytes",
+      "maxOutputBytes",
+      "maxConfigBytes",
+      "maxCheckpointBytes",
+      "maxDeadlineMs",
+    ],
+    "pipeline limits",
+    errors,
+  );
+  if (limits) {
+    boundedInteger(
+      limits.maxInputBytes,
+      1,
+      PUBLIC_CONTRIBUTION_LIMITS.invocationBytes,
+      "pipeline maxInputBytes",
+      errors,
+    );
+    boundedInteger(
+      limits.maxOutputBytes,
+      1,
+      PUBLIC_CONTRIBUTION_LIMITS.resultBytes,
+      "pipeline maxOutputBytes",
+      errors,
+    );
+    boundedInteger(
+      limits.maxConfigBytes,
+      1,
+      PUBLIC_CONTRIBUTION_LIMITS.configBytes,
+      "pipeline maxConfigBytes",
+      errors,
+    );
+    boundedInteger(
+      limits.maxCheckpointBytes,
+      0,
+      PUBLIC_CONTRIBUTION_LIMITS.checkpointBytes,
+      "pipeline maxCheckpointBytes",
+      errors,
+    );
+    boundedInteger(
+      limits.maxDeadlineMs,
+      1,
+      PUBLIC_CONTRIBUTION_LIMITS.deadlineMs,
+      "pipeline maxDeadlineMs",
+      errors,
+    );
+  }
+  if (jsonBytes(value) > PUBLIC_CONTRIBUTION_LIMITS.descriptorBytes)
+    errors.push("pipeline descriptor is oversized");
+  return errors;
+}
+
+// packages/plugin-sdk/src/ai-ui.ts
+var AI_ACTION_LIMITS = Object.freeze({
+  inputBytes: 1024 * 1024,
+  outputBytes: 1024 * 1024,
+  tags: 1024,
+  deadlineMs: 12e4,
+  methods: 16,
+});
+
+// packages/plugin-sdk/src/external-connector.ts
+var EXTERNAL_CONNECTOR_LIMITS = Object.freeze({
+  configBytes: 64 * 1024,
+  items: 256,
+  itemTextBytes: 256 * 1024,
+  metadataEntries: 32,
+  checkpointBytes: 64 * 1024,
+  deadlineMs: 12e4,
+  requestBytes: 256 * 1024,
+  responseBytes: 1024 * 1024,
+  requestIdBytes: 128,
+  credentialBytes: 16 * 1024,
+});
+
+// packages/plugin-sdk/src/index.ts
 var HOST_API_VERSION = 1;
 var NORMALIZED_MANIFEST_VERSION = 1;
 var RUNTIME_DESCRIPTOR_VERSION = 1;
@@ -12,7 +602,7 @@ var DECLARATIVE_DEFINITION_VERSION = 1;
 var SANDBOX_BRIDGE_VERSION = 1;
 var ENGINE_CONNECTOR_CONTRACT_VERSION = 1;
 var ENGINE_CONNECTOR_PROTOCOL_V1 = "translunar.engineConnector.v1";
-var ENGINE_CONNECTOR_CONFIG_SCHEMA_VERSION = 1;
+var ENGINE_CONNECTOR_CONFIG_SCHEMA_VERSION2 = 1;
 var MAX_ENGINE_CONNECTOR_CREDENTIAL_BYTES = 16 * 1024;
 var ENGINE_CONNECTOR_LIMITS = Object.freeze({
   configBytes: 64 * 1024,
@@ -268,7 +858,7 @@ function validateEngineConnectorRequest(
           errors,
         );
         if (typeof record.content === "string") {
-          totalBytes += utf8Bytes(record.content);
+          totalBytes += utf8Bytes2(record.content);
         }
       }
       if (totalBytes > ENGINE_CONNECTOR_LIMITS.sourceTextBytes) {
@@ -344,7 +934,7 @@ var EngineConnectorEventSequenceValidatorV1 = class {
       errors.push("connector event sequence is not contiguous");
     }
     const nextOutputBytes =
-      this.outputBytes + (event.kind === "delta" ? utf8Bytes(event.text) : 0);
+      this.outputBytes + (event.kind === "delta" ? utf8Bytes2(event.text) : 0);
     if (nextOutputBytes > this.limits.maxOutputBytes) {
       errors.push("connector delta stream exceeds maxOutputBytes");
     }
@@ -656,7 +1246,7 @@ function validateConnectorConfigSchema(value, errors) {
     errors,
   );
   if (!schema) return;
-  if (schema.schemaVersion !== ENGINE_CONNECTOR_CONFIG_SCHEMA_VERSION) {
+  if (schema.schemaVersion !== ENGINE_CONNECTOR_CONFIG_SCHEMA_VERSION2) {
     errors.push("connector config schemaVersion must be 1");
   }
   if (
@@ -724,7 +1314,7 @@ function validateConnectorConfigSchema(value, errors) {
     }
     if (
       typeof defaultValue === "string" &&
-      utf8Bytes(defaultValue) > ENGINE_CONNECTOR_LIMITS.configValueBytes
+      utf8Bytes2(defaultValue) > ENGINE_CONNECTOR_LIMITS.configValueBytes
     ) {
       errors.push(`connector config field ${index} defaultValue is oversized`);
     }
@@ -1152,12 +1742,12 @@ function validateConnectorConfig(value, maxBytes, errors) {
       );
     } else if (
       typeof entry === "string" &&
-      utf8Bytes(entry) > ENGINE_CONNECTOR_LIMITS.configValueBytes
+      utf8Bytes2(entry) > ENGINE_CONNECTOR_LIMITS.configValueBytes
     ) {
       errors.push(`connector config field ${key} is oversized`);
     }
   }
-  if (jsonBytes(value) > maxBytes)
+  if (jsonBytes2(value) > maxBytes)
     errors.push("connector config exceeds its byte limit");
 }
 function validateConnectorUsage(value, errors) {
@@ -1192,7 +1782,7 @@ function validateJsonPath(value, label, errors) {
     if (
       typeof segment !== "string" ||
       !/^[A-Za-z0-9_-]+$/u.test(segment) ||
-      utf8Bytes(segment) > ENGINE_CONNECTOR_LIMITS.jsonPathSegmentBytes
+      utf8Bytes2(segment) > ENGINE_CONNECTOR_LIMITS.jsonPathSegmentBytes
     ) {
       errors.push(`${label} contains a malformed JSON path segment`);
     }
@@ -1227,7 +1817,7 @@ function validateConfigKey(value, label, errors) {
   if (
     typeof value !== "string" ||
     !/^[A-Za-z0-9._-]+$/u.test(value) ||
-    utf8Bytes(value) > ENGINE_CONNECTOR_LIMITS.configKeyBytes
+    utf8Bytes2(value) > ENGINE_CONNECTOR_LIMITS.configKeyBytes
   ) {
     errors.push(`${label} is malformed or oversized`);
   }
@@ -1236,7 +1826,7 @@ function validateRequestId(value, errors) {
   if (
     typeof value !== "string" ||
     !/^[A-Za-z0-9._-]+$/u.test(value) ||
-    utf8Bytes(value) > ENGINE_CONNECTOR_LIMITS.requestIdBytes
+    utf8Bytes2(value) > ENGINE_CONNECTOR_LIMITS.requestIdBytes
   ) {
     errors.push("connector requestId is malformed or oversized");
   }
@@ -1245,7 +1835,7 @@ function validateLocale(value, label, errors) {
   if (
     typeof value !== "string" ||
     !/^[A-Za-z0-9-]+$/u.test(value) ||
-    utf8Bytes(value) > ENGINE_CONNECTOR_LIMITS.localeBytes
+    utf8Bytes2(value) > ENGINE_CONNECTOR_LIMITS.localeBytes
   ) {
     errors.push(`${label} is malformed or oversized`);
   }
@@ -1285,8 +1875,8 @@ function boundedString(value, minBytes, maxBytes, label, errors) {
   if (
     typeof value !== "string" ||
     value.includes("\0") ||
-    utf8Bytes(value) < minBytes ||
-    utf8Bytes(value) > maxBytes
+    utf8Bytes2(value) < minBytes ||
+    utf8Bytes2(value) > maxBytes
   ) {
     errors.push(
       `${label} must contain between ${minBytes} and ${maxBytes} UTF-8 bytes`,
@@ -1298,12 +1888,12 @@ function integerRange(value, min, max, label, errors) {
     errors.push(`${label} must be an integer between ${min} and ${max}`);
   }
 }
-function utf8Bytes(value) {
+function utf8Bytes2(value) {
   return new TextEncoder().encode(value).length;
 }
-function jsonBytes(value) {
+function jsonBytes2(value) {
   try {
-    return utf8Bytes(JSON.stringify(value));
+    return utf8Bytes2(JSON.stringify(value));
   } catch {
     return Number.POSITIVE_INFINITY;
   }
@@ -1480,6 +2070,18 @@ function validateNormalizedManifest(manifest2) {
       errors.push(
         ...validateEngineConnectorDescriptor(contribution, runtime.tier),
       );
+    }
+    if (
+      contribution.kind === "qaRule" &&
+      contribution.operationProtocolVersion !== void 0
+    ) {
+      errors.push(...validateQaRuleDescriptor(contribution));
+    }
+    if (
+      contribution.kind === "pipelineStep" &&
+      contribution.operationProtocolVersion !== void 0
+    ) {
+      errors.push(...validatePipelineStepDescriptor(contribution));
     }
     if (contribution.kind === "uiPanel") {
       if (
@@ -2022,7 +2624,7 @@ async function handleConnectorProcessLine(line, options, contribution, active) {
       if (
         typeof params.credential !== "string" ||
         params.credential.includes("\0") ||
-        utf8Bytes(params.credential) > MAX_ENGINE_CONNECTOR_CREDENTIAL_BYTES
+        utf8Bytes2(params.credential) > MAX_ENGINE_CONNECTOR_CREDENTIAL_BYTES
       ) {
         throw new Error("connector credential is malformed or oversized");
       }

@@ -4559,7 +4559,10 @@ mod tests {
                 limit: 20,
             })
             .expect("list interactive runs");
-        assert_eq!(runs.total, 0, "denied interactive start must not create a run");
+        assert_eq!(
+            runs.total, 0,
+            "denied interactive start must not create a run"
+        );
 
         let batch_error = service
             .start_ai_batch(AiBatchStartParams {

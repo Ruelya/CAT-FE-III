@@ -28,10 +28,7 @@
       "severity": "warning",
       "definition": {},
       "ruleKind": "mechanical",
-      "categories": [
-        "custom",
-        "terminology"
-      ],
+      "categories": ["custom", "terminology"],
       "configSchemaVersion": 1,
       "configSchema": {
         "schemaVersion": 1,
@@ -96,9 +93,7 @@
       "capabilityId": "qa.register",
       "scope": {
         "kind": "contributions",
-        "contributionIds": [
-          "example.qa.brand-compliance"
-        ]
+        "contributionIds": ["example.qa.brand-compliance"]
       },
       "contributionId": "example.qa.brand-compliance"
     },
@@ -106,9 +101,7 @@
       "capabilityId": "pipeline.register",
       "scope": {
         "kind": "contributions",
-        "contributionIds": [
-          "example.pipeline.batch-normalize"
-        ]
+        "contributionIds": ["example.pipeline.batch-normalize"]
       },
       "contributionId": "example.pipeline.batch-normalize"
     }

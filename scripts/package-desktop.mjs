@@ -9,8 +9,7 @@
  */
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { copyFile, mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { copyFile, mkdir, readFile, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -104,16 +103,22 @@ async function main() {
   console.log(`engine binary: ${enginePath}`);
   console.log(`package arch: ${packageArch} (Engine=${engineArch}, host-only)`);
 
-  const engineResourceDir = await mkdtemp(
-    join(tmpdir(), "translunar-engine-package-"),
-  );
+  // Stage the verified Engine under apps/desktop with a *relative* path.
+  // electron-builder resolves extraResources `from` against the project dir
+  // (apps/desktop). Absolute Windows paths like C:\Users\...\Temp\... get
+  // incorrectly joined (apps/desktop\C:\Users\...), so the Engine never ships.
+  // Keep the staging directory inside desktopDir and pass only a relative name.
+  const engineResourceRel = ".package-engine-resource";
+  const engineResourceDir = join(desktopDir, engineResourceRel);
   const env = {
     ...process.env,
     TRANSLUNAR_PACKAGE_ARCH: packageArch,
-    TRANSLUNAR_ENGINE_RESOURCE_DIR: engineResourceDir,
+    TRANSLUNAR_ENGINE_RESOURCE_DIR: engineResourceRel,
   };
 
   try {
+    await rm(engineResourceDir, { recursive: true, force: true });
+    await mkdir(engineResourceDir, { recursive: true });
     await copyFile(enginePath, join(engineResourceDir, engineName));
     // Ensure desktop dist is built.
     await run(

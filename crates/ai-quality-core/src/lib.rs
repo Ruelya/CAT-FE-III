@@ -197,22 +197,18 @@ pub fn extract_terms(
         .into_iter()
         .filter(|(_, frequency)| *frequency >= options.minimum_frequency)
         .map(|(source_term, frequency)| {
-            let suggested_target = targets
-                .get(&source_term)
-                .and_then(|map| {
-                    let mut ranked = map.iter().collect::<Vec<_>>();
-                    ranked.sort_by(|left, right| {
-                        right.1.cmp(left.1).then_with(|| left.0.cmp(right.0))
-                    });
-                    ranked.first().and_then(|(term, count)| {
-                        // Strict majority only: ties / exact half leave suggested_target empty.
-                        if **count * 2 > frequency {
-                            Some((*term).clone())
-                        } else {
-                            None
-                        }
-                    })
-                });
+            let suggested_target = targets.get(&source_term).and_then(|map| {
+                let mut ranked = map.iter().collect::<Vec<_>>();
+                ranked.sort_by(|left, right| right.1.cmp(left.1).then_with(|| left.0.cmp(right.0)));
+                ranked.first().and_then(|(term, count)| {
+                    // Strict majority only: ties / exact half leave suggested_target empty.
+                    if **count * 2 > frequency {
+                        Some((*term).clone())
+                    } else {
+                        None
+                    }
+                })
+            });
             TermCandidate {
                 example_segment_ids: examples.get(&source_term).cloned().unwrap_or_default(),
                 source_term,

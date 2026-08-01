@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "kind": "release-qualification-manifest",
+  "candidate": {
+    "sha": "8c8df12fceef913073b683c0cfe0877dd8148aac",
+    "shortSha": "8c8df12",
+    "branch": "task/07-19-full-prd-release-qualification",
+    "subject": "chore(task): archive 07-19-plugin-runtime-sdk",
+    "frozenAt": "2026-08-02T03:45:03+08:00"
+  },
+  "runner": {
+    "os": "Windows_NT",
+    "uname": "MINGW64_NT-10.0-26220 x86_64",
+    "arch": "x64",
+    "hostname": "LAPTOP-NGBBBQ70"
+  },
+  "toolVersions": {
+    "node": "v24.17.0",
+    "pnpm": "10.18.3",
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "electron": "41.10.3",
+    "python": "3.13.7"
+  },
+  "lockfileHashes": {
+    "pnpm-lock.yaml": "a6f6ebaec98911971f156c4f3a91bf4a3c24fa3c10089db472c4c788662d37fc",
+    "Cargo.lock": "f264ef4d1dd8937db7cfa1a924b8b8baed5b32147063421bf3735ccb48384c24",
+    "package.json": "7f71ea9c24205a3aa966c15f5f1e170f84d27035db835659b24a85f8c0ea9b87",
+    "rust-toolchain.toml": "f32338bdcf61d8100b7125baa6a4822dfb41c81c8299489df0475436c6218f7a"
+  },
+  "engineBinaries": {
+    "debug": "8eb1d95c7b85f8369b1d94b686cf3a57fe7326e1a173ff5f976251b3c6ae2494",
+    "release": "2cc5a2d2a2ad986cb9758a97253a5035e17351134a0dbb13709b121eb7aed4e5"
+  },
+  "records": [
+    "automated/lane-summary.md",
+    "automated/contracts-check.log",
+    "automated/format-check.log",
+    "automated/cargo-fmt.log",
+    "automated/eslint.log",
+    "automated/clippy.log",
+    "automated/typecheck.log",
+    "automated/cargo-test.log",
+    "automated/desktop-unit.log",
+    "automated/docs-electron.log",
+    "automated/engine-smoke-default.log",
+    "automated/engine-smoke-plugin.log",
+    "automated/engine-smoke-qa-pipeline.log",
+    "automated/engine-smoke-api.log",
+    "automated/engine-smoke-ai-quality.log",
+    "automated/engine-smoke-collab.log",
+    "automated/engine-smoke-curation.log",
+    "automated/package-dir.log",
+    "automated/release-package-check.log",
+    "automated/plugins-package-check.log",
+    "automated/desktop-e2e.log",
+    "platforms/windows-x64-node24.json",
+    "benchmarks/storage-100k.json",
+    "ledger.json",
+    "final-report.md"
+  ],
+  "overallVerdict": "FAIL",
+  "notes": "Honest selective qualification on Windows Node 24 only. Node 22 lane, macOS native package/a11y, full 1M TM fixtures, user studies, and complete format layout review were not closed on this runner."
+}

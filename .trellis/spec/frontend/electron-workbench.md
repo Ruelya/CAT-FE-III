@@ -1910,6 +1910,48 @@ frameWindow.postMessage({ version: 1, type: "translunar.plugin.initialize", nonc
   installer invocation. Backup failure leaves the downloaded package staged
   but must not start installation.
 
+### Convention: Engine resource path and package size gates
+
+**What**: `scripts/package-desktop.mjs` stages the verified host Engine under
+`apps/desktop/.package-engine-resource` and exports
+`TRANSLUNAR_ENGINE_RESOURCE_DIR` as that **relative** name only. `extraResources`
+in `electron-builder.yml` copies from `${env.TRANSLUNAR_ENGINE_RESOURCE_DIR}` to
+`engine`. Chromium locales are limited via `electronLanguages: [en-US, zh-CN]`.
+
+**Why**: electron-builder resolves `extraResources.from` against the project
+directory (`apps/desktop`). An absolute Windows temp path is joined as
+`apps/desktop\C:\Users\...\Temp\...`, so the Engine never ships
+(`file source doesn't exist`). Full Chromium locale packs bloat the package by
+~45 MiB without product benefit.
+
+**Hard gates** (`pnpm release:package:check`, see `docs/packaging.md`):
+
+| Artifact | Ceiling | Source |
+| --- | --- | --- |
+| Downloadable installer (`.exe` / `.dmg` / `.zip` / …) | **200 MiB** | PRD N-02 安装包 |
+| Unpacked `*-unpacked` directory | **420 MiB** | Electron 41 runtime floor + app + Engine |
+
+Do **not** re-apply the 200 MiB installer ceiling to the intermediate
+`package:dir` tree — Electron alone already exceeds it. Always assert
+`resources/engine/<host binary>` exists after package.
+
+**Wrong**:
+```js
+// Absolute temp path → Windows drops Engine from the package
+TRANSLUNAR_ENGINE_RESOURCE_DIR = await mkdtemp(join(tmpdir(), "engine-"));
+```
+
+**Correct**:
+```js
+const engineResourceRel = ".package-engine-resource";
+// Stage under apps/desktop; pass only the relative name to electron-builder
+TRANSLUNAR_ENGINE_RESOURCE_DIR = engineResourceRel;
+```
+
+**Tests required**: `package-architecture.test.mjs` (relative staging +
+`electronLanguages`); `release:package:check` after a real `package:dir` /
+installer build on a new candidate SHA.
+
 ## E2E Product-Shell Regression Contracts
 
 ### 1. Scope / Trigger

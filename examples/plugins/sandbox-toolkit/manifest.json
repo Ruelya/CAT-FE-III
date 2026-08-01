@@ -22,9 +22,7 @@
       "id": "example.sandbox-toolkit.echo",
       "version": "0.1.0",
       "displayName": "Sandbox Echo",
-      "extensions": [
-        "sandbox-echo"
-      ],
+      "extensions": ["sandbox-echo"],
       "capabilities": {
         "import": false,
         "export": false,
@@ -46,14 +44,8 @@
         "type": "object"
       },
       "operationProtocolVersion": 1,
-      "inputFields": [
-        "selectionText",
-        "sourceLocale",
-        "targetLocale"
-      ],
-      "resultModes": [
-        "replaceSelection"
-      ],
+      "inputFields": ["selectionText", "sourceLocale", "targetLocale"],
+      "resultModes": ["replaceSelection"],
       "configSchemaVersion": 1,
       "configSchema": {
         "schemaVersion": 1,
@@ -77,9 +69,7 @@
       "surface": "panel/index.html",
       "bridgeVersion": 1,
       "contractVersion": 1,
-      "methods": [
-        "panelContext"
-      ],
+      "methods": ["panelContext"],
       "order": 10
     }
   ],
@@ -90,9 +80,7 @@
       "required": true,
       "scope": {
         "kind": "file",
-        "areas": [
-          "source"
-        ]
+        "areas": ["source"]
       },
       "contributionId": "example.sandbox-toolkit.echo"
     },
@@ -101,9 +89,7 @@
       "required": true,
       "scope": {
         "kind": "diagnostics",
-        "categories": [
-          "summary"
-        ]
+        "categories": ["summary"]
       },
       "contributionId": "example.sandbox-toolkit.echo"
     },
@@ -112,9 +98,7 @@
       "required": true,
       "scope": {
         "kind": "contributions",
-        "contributionIds": [
-          "example.sandbox-toolkit.terminology"
-        ]
+        "contributionIds": ["example.sandbox-toolkit.terminology"]
       },
       "contributionId": "example.sandbox-toolkit.terminology"
     },
@@ -123,9 +107,7 @@
       "required": true,
       "scope": {
         "kind": "contributions",
-        "contributionIds": [
-          "example.sandbox-toolkit.panel"
-        ]
+        "contributionIds": ["example.sandbox-toolkit.panel"]
       },
       "contributionId": "example.sandbox-toolkit.panel"
     }

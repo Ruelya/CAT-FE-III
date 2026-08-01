@@ -73,7 +73,7 @@ export function engineErrorCode(error: unknown): string | null {
   if (typeof error !== "object" || error === null || !("code" in error)) {
     return null;
   }
-  const code = (error as { code: unknown }).code;
+  const code = error.code;
   return typeof code === "string" ? code : null;
 }
 
@@ -85,7 +85,7 @@ export function engineErrorDataField(
   if (typeof error !== "object" || error === null || !("data" in error)) {
     return null;
   }
-  const data = (error as { data: unknown }).data;
+  const data = error.data;
   if (typeof data !== "object" || data === null || !(field in data)) {
     return null;
   }

@@ -1106,29 +1106,35 @@ mod tests {
         while offset + 30 <= bytes.len() {
             if &bytes[offset..offset + 4] == b"PK\x03\x04" {
                 let flag_start = offset + 6;
-                let flags = u16::from_le_bytes(bytes[flag_start..flag_start + 2].try_into().unwrap());
-                bytes[flag_start..flag_start + 2]
-                    .copy_from_slice(&(flags | 1).to_le_bytes());
+                let flags =
+                    u16::from_le_bytes(bytes[flag_start..flag_start + 2].try_into().unwrap());
+                bytes[flag_start..flag_start + 2].copy_from_slice(&(flags | 1).to_le_bytes());
                 let name_len =
-                    u16::from_le_bytes(bytes[offset + 26..offset + 28].try_into().unwrap()) as usize;
+                    u16::from_le_bytes(bytes[offset + 26..offset + 28].try_into().unwrap())
+                        as usize;
                 let extra_len =
-                    u16::from_le_bytes(bytes[offset + 28..offset + 30].try_into().unwrap()) as usize;
+                    u16::from_le_bytes(bytes[offset + 28..offset + 30].try_into().unwrap())
+                        as usize;
                 let comp_size =
-                    u32::from_le_bytes(bytes[offset + 18..offset + 22].try_into().unwrap()) as usize;
+                    u32::from_le_bytes(bytes[offset + 18..offset + 22].try_into().unwrap())
+                        as usize;
                 offset += 30 + name_len + extra_len + comp_size;
                 continue;
             }
             if &bytes[offset..offset + 4] == b"PK\x01\x02" {
                 let flag_start = offset + 8;
-                let flags = u16::from_le_bytes(bytes[flag_start..flag_start + 2].try_into().unwrap());
-                bytes[flag_start..flag_start + 2]
-                    .copy_from_slice(&(flags | 1).to_le_bytes());
+                let flags =
+                    u16::from_le_bytes(bytes[flag_start..flag_start + 2].try_into().unwrap());
+                bytes[flag_start..flag_start + 2].copy_from_slice(&(flags | 1).to_le_bytes());
                 let name_len =
-                    u16::from_le_bytes(bytes[offset + 28..offset + 30].try_into().unwrap()) as usize;
+                    u16::from_le_bytes(bytes[offset + 28..offset + 30].try_into().unwrap())
+                        as usize;
                 let extra_len =
-                    u16::from_le_bytes(bytes[offset + 30..offset + 32].try_into().unwrap()) as usize;
+                    u16::from_le_bytes(bytes[offset + 30..offset + 32].try_into().unwrap())
+                        as usize;
                 let comment_len =
-                    u16::from_le_bytes(bytes[offset + 32..offset + 34].try_into().unwrap()) as usize;
+                    u16::from_le_bytes(bytes[offset + 32..offset + 34].try_into().unwrap())
+                        as usize;
                 offset += 46 + name_len + extra_len + comment_len;
                 continue;
             }
@@ -1142,22 +1148,28 @@ mod tests {
             if &bytes[offset..offset + 4] == b"PK\x03\x04" {
                 bytes[offset + 22..offset + 26].copy_from_slice(&size.to_le_bytes());
                 let name_len =
-                    u16::from_le_bytes(bytes[offset + 26..offset + 28].try_into().unwrap()) as usize;
+                    u16::from_le_bytes(bytes[offset + 26..offset + 28].try_into().unwrap())
+                        as usize;
                 let extra_len =
-                    u16::from_le_bytes(bytes[offset + 28..offset + 30].try_into().unwrap()) as usize;
+                    u16::from_le_bytes(bytes[offset + 28..offset + 30].try_into().unwrap())
+                        as usize;
                 let comp_size =
-                    u32::from_le_bytes(bytes[offset + 18..offset + 22].try_into().unwrap()) as usize;
+                    u32::from_le_bytes(bytes[offset + 18..offset + 22].try_into().unwrap())
+                        as usize;
                 offset += 30 + name_len + extra_len + comp_size;
                 continue;
             }
             if &bytes[offset..offset + 4] == b"PK\x01\x02" {
                 bytes[offset + 24..offset + 28].copy_from_slice(&size.to_le_bytes());
                 let name_len =
-                    u16::from_le_bytes(bytes[offset + 28..offset + 30].try_into().unwrap()) as usize;
+                    u16::from_le_bytes(bytes[offset + 28..offset + 30].try_into().unwrap())
+                        as usize;
                 let extra_len =
-                    u16::from_le_bytes(bytes[offset + 30..offset + 32].try_into().unwrap()) as usize;
+                    u16::from_le_bytes(bytes[offset + 30..offset + 32].try_into().unwrap())
+                        as usize;
                 let comment_len =
-                    u16::from_le_bytes(bytes[offset + 32..offset + 34].try_into().unwrap()) as usize;
+                    u16::from_le_bytes(bytes[offset + 32..offset + 34].try_into().unwrap())
+                        as usize;
                 offset += 46 + name_len + extra_len + comment_len;
                 continue;
             }
@@ -1234,15 +1246,15 @@ mod tests {
             let mut offset = 0_usize;
             while offset + 46 <= bytes.len() {
                 if &bytes[offset..offset + 4] == b"PK\x01\x02" {
-                    let name_len = u16::from_le_bytes(
-                        bytes[offset + 28..offset + 30].try_into().unwrap(),
-                    ) as usize;
-                    let extra_len = u16::from_le_bytes(
-                        bytes[offset + 30..offset + 32].try_into().unwrap(),
-                    ) as usize;
-                    let comment_len = u16::from_le_bytes(
-                        bytes[offset + 32..offset + 34].try_into().unwrap(),
-                    ) as usize;
+                    let name_len =
+                        u16::from_le_bytes(bytes[offset + 28..offset + 30].try_into().unwrap())
+                            as usize;
+                    let extra_len =
+                        u16::from_le_bytes(bytes[offset + 30..offset + 32].try_into().unwrap())
+                            as usize;
+                    let comment_len =
+                        u16::from_le_bytes(bytes[offset + 32..offset + 34].try_into().unwrap())
+                            as usize;
                     let name_start = offset + 46;
                     let name = &bytes[name_start..name_start + name_len];
                     if name == b"fifo.txt" {
@@ -1310,11 +1322,7 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join("/");
             let archive = temp.path().join("deep.tlplugin");
-            write_test_archive(
-                &archive,
-                &[(&deep, b"too deep")],
-                CompressionMethod::Stored,
-            );
+            write_test_archive(&archive, &[(&deep, b"too deep")], CompressionMethod::Stored);
             let destination = temp.path().join("out-depth");
             fs::create_dir(&destination).unwrap();
             let error = extract_tlplugin_archive(&archive, &destination).expect_err("depth");
@@ -1384,5 +1392,4 @@ mod tests {
             assert_empty_destination(&destination);
         }
     }
-
 }

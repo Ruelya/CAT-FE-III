@@ -58,7 +58,12 @@ Configuration: `apps/desktop/electron-builder.yml`.
 - Ship only the matching-platform Engine binary under `resources/engine/`.
 - Prefer `asar` + maximum compression.
 - Keep optional heavy AI/QE models out of the installer.
-- **Hard gate:** measured artifact ≤ **200 MB** (`pnpm release:package:check`).
+- Limit Chromium `electronLanguages` to product locales (`en-US`, `zh-CN`).
+- Stage Engine via relative `apps/desktop/.package-engine-resource` (never absolute temp paths — Windows path-join drops the binary).
+- Strip symbols from the release Engine binary (`Cargo.toml` `[profile.release]` strip = true).
+- **Hard gates** (`pnpm release:package:check`):
+  - Downloadable **installer** (NSIS / DMG / ZIP) ≤ **200 MiB** (PRD N-02 安装包).
+  - **Unpacked** `*-unpacked` tree ≤ **420 MiB** (Electron 41 Chromium floor + app + Engine; not redefinable as 200 MiB without changing shell runtime).
 
 ### Signing
 

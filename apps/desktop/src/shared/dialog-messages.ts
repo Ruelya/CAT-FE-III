@@ -53,7 +53,8 @@ const enUs: DialogCatalog = {
   "dialog.selectInteropTable": "Open bilingual table",
   "dialog.selectTaskPackageInput": "Open offline task package",
   "dialog.selectCorpusInput": "Import reference corpus",
-  "dialog.selectPluginPackage": "Select plugin package directory or .tlplugin file",
+  "dialog.selectPluginPackage":
+    "Select plugin package directory or .tlplugin file",
   "dialog.selectDataDirectory": "Choose data directory",
   "dialog.selectBackupDestination": "Choose backup destination parent folder",
   "dialog.selectRestoreSource": "Choose backup folder to restore",

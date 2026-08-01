@@ -2084,7 +2084,8 @@ const enUs: MessageCatalog = {
   "dialog.selectInteropTable": "Open bilingual table",
   "dialog.selectTaskPackageInput": "Open offline task package",
   "dialog.selectCorpusInput": "Import reference corpus",
-  "dialog.selectPluginPackage": "Select plugin package directory or .tlplugin file",
+  "dialog.selectPluginPackage":
+    "Select plugin package directory or .tlplugin file",
   "nav.home": "Home",
   "plural.backup": "{count, plural, one {# backup} other {# backups}}",
   "plural.draft": "{count, plural, one {# draft} other {# drafts}}",

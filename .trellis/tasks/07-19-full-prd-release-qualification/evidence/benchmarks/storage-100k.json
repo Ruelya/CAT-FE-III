@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "candidateSha": "8c8df12fceef913073b683c0cfe0877dd8148aac",
+  "command": "cargo run -p translunar-storage --bin storage-benchmark --release",
+  "note": "CLI ignores --help and always runs default 100k fixture; not a 1M TM suite.",
+  "result": {
+    "segmentCount": 100000,
+    "historyCount": 100000,
+    "coldOpenMs": 320,
+    "projectCountMs": 47,
+    "firstPageMs": 8,
+    "middlePageMs": 13,
+    "lastPageMs": 15,
+    "historyPageMs": 27,
+    "editorFirstPageMs": 15,
+    "editorMiddlePageMs": 20,
+    "editorSearchMs": 143,
+    "editorWindowRows": 100,
+    "tmUnitCount": 100000,
+    "tmExactSearchMs": 311,
+    "tmFuzzySearchMs": 321,
+    "peakRssKib": null,
+    "retainedDirectory": null
+  },
+  "thresholds": {
+    "open_10k_ms": 3000,
+    "open_50k_ms": 10000,
+    "tm_1m_fuzzy_p95_ms": 200,
+    "capacity_project_segments": 100000,
+    "capacity_tm_pairs": 5000000
+  },
+  "verdict": {
+    "capacity_100k_project_ran": true,
+    "capacity_5m_tm": "not-run",
+    "tm_1m_fuzzy": "not-run",
+    "open_10k_50k_explicit": "not-isolated-fixture",
+    "cold_open_ms_320_vs_app_cold_start_3s": "different-metric-storage-open-only"
+  }
+}

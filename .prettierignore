@@ -16,6 +16,7 @@ target/
 .firecrawl/
 .opencode/
 .trellis/
+.grok/
 AGENTS.md
 docs/**
 !docs/architecture.md
@@ -24,3 +25,5 @@ packages/contracts/src/protocol.generated.ts
 packages/contracts/src/protocol.schema.json
 fixtures/**/*.docx
 pnpm-lock.yaml
+apps/desktop/release/
+apps/desktop/.package-engine-resource/

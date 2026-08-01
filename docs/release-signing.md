@@ -32,7 +32,7 @@ pnpm release:install-smoke --platform darwin
 
 ## Gates
 
-- Artifact size **≤ 200 MB** (measured by `scripts/release-package-check.mjs`)
+- Installer artifact size **≤ 200 MiB**; unpacked dir **≤ 420 MiB** (measured by `scripts/release-package-check.mjs`; see `docs/packaging.md`)
 - Clean install / launch / Engine smoke with isolated data directory
 - No account or login requirement
 - First usable project path on CI fixtures **≤ 3 minutes**

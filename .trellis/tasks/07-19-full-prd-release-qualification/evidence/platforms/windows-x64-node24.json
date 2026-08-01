@@ -1,0 +1,165 @@
+{
+  "schemaVersion": 1,
+  "lane": "quality-node24-windows-x64",
+  "candidateSha": "8c8df12fceef913073b683c0cfe0877dd8148aac",
+  "runner": {
+    "os": "Windows 10/11 (build 26220)",
+    "arch": "x64",
+    "shell": "MINGW64 bash"
+  },
+  "toolVersions": {
+    "node": "v24.17.0",
+    "pnpm": "10.18.3",
+    "rustc": "1.97.1",
+    "cargo": "1.97.1",
+    "electron": "41.10.3"
+  },
+  "commands": [
+    {
+      "command": "pnpm contracts:check",
+      "exit": 0,
+      "durationSec": 10,
+      "evidence": "automated/contracts-check.log"
+    },
+    {
+      "command": "pnpm docs:check",
+      "exit": 0,
+      "durationSec": 1,
+      "evidence": "automated/docs-electron.log"
+    },
+    {
+      "command": "pnpm electron:install:check",
+      "exit": 0,
+      "durationSec": 1,
+      "evidence": "automated/docs-electron.log"
+    },
+    {
+      "command": "pnpm release:package:gate-test",
+      "exit": 0,
+      "durationSec": 1,
+      "tests": { "pass": 18, "fail": 0, "skip": 0 }
+    },
+    {
+      "command": "pnpm release:install-smoke:test",
+      "exit": 0,
+      "durationSec": 1,
+      "tests": { "pass": 5, "fail": 0, "skip": 0 }
+    },
+    {
+      "command": "pnpm format:check",
+      "exit": 1,
+      "durationSec": 13,
+      "evidence": "automated/format-check.log",
+      "notes": "Prettier: 95 files (product + .grok tooling). Product-scoped apps/crates/packages/scripts/examples: 44 files."
+    },
+    {
+      "command": "cargo fmt --all -- --check",
+      "exit": 1,
+      "durationSec": 4,
+      "evidence": "automated/cargo-fmt.log"
+    },
+    {
+      "command": "pnpm exec eslint apps packages/contracts/src",
+      "exit": 1,
+      "durationSec": 19,
+      "evidence": "automated/eslint.log",
+      "notes": "2 errors in apps/desktop/src/renderer/workbench-utils.ts (unnecessary type assertions)."
+    },
+    {
+      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "exit": 0,
+      "durationSec": 19,
+      "evidence": "automated/clippy.log"
+    },
+    {
+      "command": "pnpm typecheck",
+      "exit": 0,
+      "durationSec": 18,
+      "evidence": "automated/typecheck.log"
+    },
+    {
+      "command": "cargo test --workspace",
+      "exit": 0,
+      "durationSec": 94,
+      "evidence": "automated/cargo-test.log",
+      "notes": "All crate unit/integration tests green (engine 146, storage 117, plugin-runtime 84, etc.)."
+    },
+    {
+      "command": "pnpm toolchain:test + desktop/plugin-sdk unit + package helper tests",
+      "exit": 0,
+      "durationSec": 17,
+      "tests": {
+        "toolchain": 11,
+        "desktopVitest": 175,
+        "pluginSdk": 37,
+        "connectorAndPluginScripts": 9
+      },
+      "evidence": "automated/desktop-unit.log"
+    },
+    {
+      "command": "node scripts/engine-smoke.mjs (default)",
+      "exit": 1,
+      "durationSec": 8,
+      "evidence": "automated/engine-smoke-default.log",
+      "notes": "Fails on PDF import: pdfinfo tool missing/failed on host PATH."
+    },
+    {
+      "command": "TRANSLUNAR_SMOKE_SCOPE=plugin|qa-pipeline|api|ai-quality|collab|curation",
+      "exit": 0,
+      "evidence": "automated/engine-smoke-*.log"
+    },
+    {
+      "command": "cargo build -p translunar-engine --release && node scripts/package-desktop.mjs --dir",
+      "exit": 0,
+      "durationSec": 191,
+      "evidence": "automated/package-dir.log",
+      "notes": "electron-builder reported missing Engine resource path (absolute path joined under apps/desktop). resources/engine absent in win-unpacked."
+    },
+    {
+      "command": "pnpm release:package:check",
+      "exit": 1,
+      "evidence": "automated/release-package-check.log",
+      "notes": "383.36 MB > 200 MB gate; Engine missing from package."
+    },
+    {
+      "command": "pnpm plugins:package:check",
+      "exit": 0,
+      "evidence": "automated/plugins-package-check.log"
+    },
+    {
+      "command": "pnpm exec playwright test (apps/desktop)",
+      "exit": 0,
+      "durationSec": 563,
+      "tests": { "pass": 34, "fail": 0, "skip": 1 },
+      "evidence": "automated/desktop-e2e.log",
+      "notes": "Required PDF workbench E2E skipped without full Poppler/Tesseract; zero-required-skip gate fails despite exit 0."
+    }
+  ],
+  "externalBlocks": [
+    {
+      "item": "Node 22.17+ clean lane",
+      "status": "blocked-external",
+      "reason": "Host has Node v24.17.0 active; nvm lists only v25.0.0 installed (lts/jod alias not present as local install)."
+    },
+    {
+      "item": "macOS package / native a11y / font package gates",
+      "status": "blocked-external",
+      "reason": "No macOS runner on this Windows host."
+    },
+    {
+      "item": "Full Poppler pdfinfo + Tesseract for default engine smoke / PDF E2E",
+      "status": "blocked-external",
+      "reason": "pdftotext present under mingw64; pdfinfo not on PATH; tesseract not found. filter-pdf unit tests silently skip when tools_available() is false."
+    },
+    {
+      "item": "Signing/notarization secrets",
+      "status": "blocked-external",
+      "reason": "No CSC_LINK / Apple notarization secrets; unsigned development packaging only."
+    },
+    {
+      "item": "User studies (RQ8)",
+      "status": "blocked-external",
+      "reason": "Requires human participants; not executable by automated qualification alone."
+    }
+  ]
+}

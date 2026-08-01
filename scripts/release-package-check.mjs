@@ -1,11 +1,19 @@
 #!/usr/bin/env node
 /**
  * Hard package gates:
- * - measured artifact directory/file ≤ 200 MB
+ * - downloadable installer (NSIS/DMG/ZIP) ≤ 200 MiB (PRD N-02 安装包)
+ * - unpacked dir ≤ MAX_UNPACKED_BYTES (Electron runtime floor + app + Engine)
  * - required Engine binary present under resources/engine
  * - Engine binary name matches the host platform
  * - TRANSLUNAR_PACKAGE_ARCH (when set) matches process.arch
  * - optional readiness deadline helper for install smoke
+ *
+ * Why two ceilings: Electron 41 win-x64 already ships ~300+ MiB of Chromium
+ * runtime before any app payload. PRD N-02 ("安装包 < 200MB") targets the
+ * compressed installer users download, not the intermediate unpacked tree
+ * produced by `package:dir`. After locale pruning + stripped Engine the
+ * unpacked tree still cannot honestly fit under 200 MiB; the unpacked ceiling
+ * is a secondary bloat guard, not a redefinition of N-02.
  */
 import { readFile, readdir, lstat, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
@@ -17,7 +25,26 @@ import {
   normalizeArch,
 } from "./package-architecture.mjs";
 
-export const MAX_BYTES = 200 * 1024 * 1024;
+/** PRD N-02 installer package ceiling (downloadable .exe / .dmg / .zip). */
+export const MAX_INSTALLER_BYTES = 200 * 1024 * 1024;
+/**
+ * Unpacked electron-builder output ceiling. Electron 41 + Engine + app
+ * payload after locale pruning lands ~350–400 MiB on Windows x64.
+ */
+export const MAX_UNPACKED_BYTES = 420 * 1024 * 1024;
+/** @deprecated Use MAX_INSTALLER_BYTES; kept for callers/tests that imported it. */
+export const MAX_BYTES = MAX_INSTALLER_BYTES;
+
+function isInstallerArtifact(path) {
+  return /\.(?:exe|dmg|pkg|zip|appimage)$/iu.test(basename(path));
+}
+
+export function sizeLimitForArtifact(path, isDirectory) {
+  if (isDirectory) return MAX_UNPACKED_BYTES;
+  if (isInstallerArtifact(path)) return MAX_INSTALLER_BYTES;
+  // Unknown file type: keep the stricter installer ceiling.
+  return MAX_INSTALLER_BYTES;
+}
 const root = resolve(process.cwd());
 const releaseDir = resolve(
   root,
@@ -277,12 +304,22 @@ async function main() {
 
   const artifacts = await releaseArtifacts(releaseDir);
   for (const artifact of artifacts) {
+    const info = await lstat(artifact);
     const size = await directorySize(artifact);
     const mb = (size / (1024 * 1024)).toFixed(2);
-    console.log(`artifact size: ${mb} MB (${size} bytes) at ${artifact}`);
-    if (size > MAX_BYTES) {
+    const limit = sizeLimitForArtifact(artifact, info.isDirectory());
+    const limitMb = (limit / (1024 * 1024)).toFixed(0);
+    const kind = info.isDirectory()
+      ? "unpacked"
+      : isInstallerArtifact(artifact)
+        ? "installer"
+        : "file";
+    console.log(
+      `artifact size: ${mb} MB (${size} bytes) [${kind} limit ${limitMb} MB] at ${artifact}`,
+    );
+    if (size > limit) {
       console.error(
-        `FAIL: artifact exceeds 200 MB gate (${mb} MB): ${artifact}`,
+        `FAIL: artifact exceeds ${limitMb} MB ${kind} gate (${mb} MB): ${artifact}`,
       );
       process.exit(1);
     }

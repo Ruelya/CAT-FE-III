@@ -4911,7 +4911,8 @@ mod tests {
         migrate_from_to(&mut connection, 0, 23).expect("create schema v23");
 
         let package_sha = "a".repeat(64);
-        let runtime = r#"{"tier":"process","runtimeVersion":1,"entry":{"kind":"node","path":"entry.mjs"}}"#;
+        let runtime =
+            r#"{"tier":"process","runtimeVersion":1,"entry":{"kind":"node","path":"entry.mjs"}}"#;
         let normalized = r#"{"id":"example.legacy","displayName":"Legacy","version":"1.0.0"}"#;
         let installation_contributions = r#"{"filters":[]}"#;
         let version_contributions = r#"[]"#;
@@ -4992,12 +4993,7 @@ mod tests {
                 "SELECT source_kind, distribution_json FROM plugin_installations
                  WHERE id = 'example.legacy'",
                 [],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, Option<String>>(1)?,
-                    ))
-                },
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
             )
             .expect("read installation provenance");
         assert_eq!(installation.0, "localDirectory");
@@ -5008,12 +5004,7 @@ mod tests {
                 "SELECT source_kind, distribution_json FROM plugin_versions
                  WHERE id = 'version:1'",
                 [],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, Option<String>>(1)?,
-                    ))
-                },
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
             )
             .expect("read version provenance");
         assert_eq!(version.0, "localDirectory");
@@ -5033,12 +5024,7 @@ mod tests {
                 "SELECT source_kind, distribution_json FROM plugin_versions
                  WHERE id = 'version:1'",
                 [],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                    ))
-                },
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
             )
             .expect("read updated provenance");
         assert_eq!(updated.0, "bundled");
