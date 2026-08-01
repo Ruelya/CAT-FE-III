@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   clampPreviewHeight,
+  engineErrorCode,
+  engineErrorDataField,
   fileName,
+  formatEngineError,
   formatError,
   isConfirmShortcut,
   nextVisibleSegmentId,
@@ -56,5 +59,26 @@ describe("workbench interaction guards", () => {
     expect(formatError({ code: "conflict", message: "revision changed" })).toBe(
       "revision changed",
     );
+  });
+
+  it("localizes policy_denied through the product catalog when t is provided", () => {
+    const denial = {
+      code: "policy_denied",
+      message: "the selected AI profile is not allowed for this project",
+      data: {
+        reason: "policy_denied",
+        projectId: "proj-1",
+        profileId: "prof-2",
+      },
+    };
+    expect(engineErrorCode(denial)).toBe("policy_denied");
+    expect(engineErrorDataField(denial, "profileId")).toBe("prof-2");
+    expect(formatEngineError(denial)).toBe(denial.message);
+    expect(
+      formatEngineError(denial, (key, vars) => {
+        expect(key).toBe("error.allowlistDenied");
+        return `denied:${String(vars?.profileId ?? "")}`;
+      }),
+    ).toBe("denied:prof-2");
   });
 });

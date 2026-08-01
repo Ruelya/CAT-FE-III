@@ -2168,7 +2168,16 @@ impl PipelineStep for AiPretranslateStep {
                 options: config.grounding,
             },
         )
-        .map_err(|_| PipelineError::Execution("AI batch could not start".to_string()))?;
+        .map_err(|error| match error {
+            // Preserve stable allowlist denial identity for pipeline consumers.
+            EngineError::PolicyDenied {
+                project_id,
+                profile_id,
+            } => PipelineError::Execution(format!(
+                "policy_denied: AI profile {profile_id} is not allowed for project {project_id}"
+            )),
+            _ => PipelineError::Execution("AI batch could not start".to_string()),
+        })?;
         loop {
             let current = store.get_ai_batch(&batch.id).map_err(|_| {
                 PipelineError::Execution("AI batch state is unavailable".to_string())

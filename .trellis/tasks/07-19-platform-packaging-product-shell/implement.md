@@ -17,77 +17,111 @@
 
 ### 1. Shell settings and complete localization
 
-- [ ] Add validated main-process shell settings and system-locale IPC.
-- [ ] Implement typed message registry, interpolation/plural/date/number
+- [x] Add validated main-process shell settings and system-locale IPC.
+- [x] Implement typed message registry, interpolation/plural/date/number
       formatting, provider/selector, persisted locale and missing-key tests.
-- [ ] Migrate product-facing renderer/main/preload/tutorial/update/backup/
+- [x] Migrate product-facing renderer/main/preload/tutorial/update/backup/
       restore/error/status/aria copy; keep an audited technical-string list.
-- [ ] Add bilingual layout/smoke coverage and ensure Chinese strings are not
+- [x] Add bilingual layout/smoke coverage and ensure Chinese strings are not
       English placeholders.
+
+**Residual (honest):** `Workbench.tsx` remains excluded from the hard-coded
+copy audit (owned by a separate visual task). Protocol/`formatError` technical
+payloads stay on the audited technical-string list; product-facing
+`policy_denied` is localized via `formatEngineError` + `error.allowlistDenied`
+on AI surfaces (Live Assistant / AI Control).
 
 ### 2. Data directory, backup, and restore
 
-- [ ] Add main-process directory picker, path/ancestor/free-space/workspace
+- [x] Add main-process directory picker, path/ancestor/free-space/workspace
       validation and typed responses.
-- [ ] Implement staged copy, health/manifest validation, atomic swap, restart,
+- [x] Implement staged copy, health/manifest validation, atomic swap, restart,
       rollback and cleanup. Keep `TRANSLUNAR_DATA_DIR` test override.
-- [ ] Add one-click backup destination/history UI using `data.createBackup`.
-- [ ] Add restore preview/validation and no-clobber staged restore; verify
+- [x] Add one-click backup destination/history UI using `data.createBackup`.
+- [x] Add restore preview/validation and no-clobber staged restore; verify
       Engine initialize/health before committing the swap.
-- [ ] Test cancellation, malformed/incompatible/low-space, overwrite, late
+- [x] Test cancellation, malformed/incompatible/low-space, overwrite, late
       restart failure, and secret exclusion.
+
+**Evidence:** `DataDirectoryManager` + confirmed restore token boundary;
+backup privacy unit test excludes credential-shaped ad-hoc files; Engine
+storage backup also excludes credential-shaped paths at every depth.
 
 ### 3. Engine allowlist enforcement
 
-- [ ] Add one shared Rust policy helper and stable typed denial data.
-- [ ] Enforce it before interactive AI, batch AI, and pipeline pretranslation;
+- [x] Add one shared Rust policy helper and stable typed denial data.
+- [x] Enforce it before interactive AI, batch AI, and pipeline pretranslation;
       test empty/permissive, exact allow, deny, disabled/missing, and existing
       project behavior.
-- [ ] Wire project settings UI and generated contract updates if needed.
+- [x] Wire project settings UI and generated contract updates if needed.
+
+**This pass added:** interactive + batch start deny tests; pipeline
+pretranslation deny test with `policy_denied` in step message; stdio smoke
+block in `scripts/engine-smoke.mjs`; renderer localization of `policy_denied`
+on AI surfaces; pipeline step maps `PolicyDenied` to a message containing
+`policy_denied` (PipelineError has no typed PolicyDenied variant).
 
 ### 4. Crash-safe restart and drafts
 
-- [ ] Add bounded automatic EngineClient restart/backoff and reconnect event;
+- [x] Add bounded automatic EngineClient restart/backoff and reconnect event;
       preserve intentional stop semantics and stderr-tail diagnostics.
-- [ ] Add atomic size-bounded draft journal API and renderer recovery reducer;
+- [x] Add atomic size-bounded draft journal API and renderer recovery reducer;
       never use localStorage for source/target text.
-- [ ] Restore/discard/copy stale drafts with expected-revision checks and clear
+- [x] Restore/discard/copy stale drafts with expected-revision checks and clear
       acknowledged entries through the normal segment update path.
-- [ ] Add unit/process/Electron crash and stale-revision tests.
+- [x] Add unit/process/Electron crash and stale-revision tests.
+
+**Evidence:** real child-process exit + force-kill unit tests; E2E
+`engine-crash-recovery.spec.ts`.
 
 ### 5. Interactive tutorial/example project
 
-- [ ] Add first-run detection, bilingual reducer-driven overlay, real target
+- [x] Add first-run detection, bilingual reducer-driven overlay, real target
       controls, focus trap, progress/skip/resume/restart state.
-- [ ] Add a bundled permissively licensed example project and an offline
+- [x] Add a bundled permissively licensed example project and an offline
       create/open action through the normal Engine import path.
-- [ ] Add packaged-resource and tutorial state tests.
+- [x] Add packaged-resource and tutorial state tests.
 
 ### 6. Update service
 
-- [ ] Add a main-process UpdateManager abstraction and deterministic fixture
+- [x] Add a main-process UpdateManager abstraction and deterministic fixture
       feed adapter.
-- [ ] Implement automatic/manual checks, status, download/install, defer,
+- [x] Implement automatic/manual checks, status, download/install, defer,
       disable, active-edit guard, pre-update backup, health validation and
       rollback/manual recovery.
-- [ ] Add optional signing/notarization hooks with explicit unsigned result;
+- [x] Add optional signing/notarization hooks with explicit unsigned result;
       test fixture feed transitions and failure paths.
+
+**Evidence:** `HttpFeedAdapter` + `FixtureFeedAdapter` + electron-updater
+production path; install ledger / rollback paths covered by unit tests.
+Real signed feed/credentials remain optional (no-op unsigned when absent).
 
 ### 7. Release packaging and CI
 
-- [ ] Make electron-builder output deterministic and platform-specific; bundle
+- [x] Make electron-builder output deterministic and platform-specific; bundle
       only the matching release Engine binary and declare macOS minimum OS.
-- [ ] Add artifact-size/readiness/no-login/install-smoke scripts with a hard
+- [x] Add artifact-size/readiness/no-login/install-smoke scripts with a hard
       200 MB gate and a three-minute clean-machine gate.
-- [ ] Add Windows and macOS GitHub Actions package/sign/notarize/smoke/upload
+- [x] Add Windows and macOS GitHub Actions package/sign/notarize/smoke/upload
       jobs plus release/signing documentation.
+
+**Residual (honest):** Installer/package smoke on native Windows/macOS runners
+is CI-job evidence (`package-windows.yml` / `package-macos.yml`); this implement
+pass did not re-run full `pnpm package:win` / `package:mac` on the local host.
+Gate helper unit tests (`package-architecture`, `release-package-check`,
+`release-install-smoke`) pass locally.
 
 ### 8. Accessibility and governance
 
-- [ ] Add axe/keyboard/focus/contrast/reduced-motion checks at all supported
+- [x] Add axe/keyboard/focus/contrast/reduced-motion checks at all supported
       viewports and document the manual acceptance matrix.
-- [ ] Add Apache-2.0 `LICENSE`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, issue
+- [x] Add Apache-2.0 `LICENSE`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, issue
       templates/forms, and release/contribution guidance.
+
+**Residual (honest):** Automated axe/keyboard cover Project Home, Settings
+(dialog including Backup/Update), and Tutorial at three viewports.
+Workbench/QA/Export axe+keyboard and color-contrast remain manual per
+`docs/accessibility-matrix.md`. Native screen-reader passes are manual.
 
 ## Required validation
 

@@ -2959,11 +2959,11 @@ mod tests {
         PluginContributions, PluginEntry, PluginEntryKind, PluginManifest, PluginTier,
     };
     use translunar_protocol::{
-        AiBatchStartParams, AiProfileIdParams, AiProviderCreateParams, AiProviderListParams,
-        AiProviderUpdateParams, AiRunListParams, AiRunStartParams, AiSettingsUpdateParams,
-        ConfirmSegmentParams, CreatePipelineParams, CurationRunParams, ImportDocumentParams,
-        PipelineRunIdParams, ProjectAnalyticsParams, RunPipelineParams, UpdateProjectParams,
-        UpdateTargetParams,
+        AiBatchListParams, AiBatchStartParams, AiProfileIdParams, AiProviderCreateParams,
+        AiProviderListParams, AiProviderUpdateParams, AiRunListParams, AiRunStartParams,
+        AiSettingsUpdateParams, ConfirmSegmentParams, CreatePipelineParams, CreateProjectParams,
+        CurationRunParams, ImportDocumentParams, PipelineRunIdParams, ProjectAnalyticsParams,
+        RunPipelineParams, UpdateProjectParams, UpdateTargetParams,
     };
     use translunar_storage::{
         AlignmentLinkRecord, AlignmentSessionRecord, NewAlignmentSession, NewTmLibrary,
@@ -4417,6 +4417,254 @@ mod tests {
             })
             .expect("list alignment runs");
         assert_eq!(runs.total, 0, "denied refinement must not create a run");
+    }
+
+    /// Shared fixture: project + document + segment + credentialed profile + AI enabled.
+    fn seed_allowlist_ai_context(
+        service: &mut EngineService,
+        root: &std::path::Path,
+    ) -> (
+        translunar_domain::Project,
+        translunar_domain::Document,
+        translunar_domain::Segment,
+        translunar_protocol::AiProviderProfile,
+    ) {
+        let project = service
+            .create_project(CreateProjectParams {
+                name: "Allowlist AI project".to_string(),
+                source_locale: "en-US".to_string(),
+                target_locale: "zh-CN".to_string(),
+                domain: "technical".to_string(),
+            })
+            .expect("create allowlist project");
+        let source = root.join("allowlist-source.txt");
+        std::fs::write(&source, "Allowlist segment.\n").expect("write allowlist source");
+        let document = service
+            .import_document(ImportDocumentParams {
+                project_id: project.id.clone(),
+                source_path: source.to_string_lossy().into_owned(),
+                relative_path: None,
+                filter_id: Some("builtin.txt".to_string()),
+                options: Default::default(),
+            })
+            .expect("import allowlist source")
+            .document;
+        let segment = service
+            .store
+            .list_segments(&document.id, 0, 10)
+            .expect("list allowlist segments")
+            .0
+            .remove(0);
+        let profile = service
+            .create_ai_provider(AiProviderCreateParams {
+                name: "Allowlist AI fixture".to_string(),
+                kind: Some(AiProviderKind::OpenaiCompatible),
+                source: None,
+                base_url: "http://127.0.0.1:9".to_string(),
+                model: "fixture-model".to_string(),
+                timeout_ms: 1_000,
+                max_response_bytes: 1_048_576,
+                enabled: true,
+                config_schema_version: None,
+                configuration: serde_json::Value::Null,
+            })
+            .expect("create allowlist profile");
+        service
+            .set_ai_credential(SetAiCredentialParams {
+                profile_id: profile.id.clone(),
+                secret: "allowlist-secret".to_string(),
+            })
+            .expect("set allowlist credential");
+        let settings = service
+            .get_ai_settings(AiSettingsGetParams::default())
+            .expect("allowlist AI settings");
+        service
+            .update_ai_settings(AiSettingsUpdateParams {
+                enabled: true,
+                default_profile_id: Some(profile.id.clone()),
+                monthly_token_budget: None,
+                allow_interactive: true,
+                allow_batch: true,
+                allowed_origins: Vec::new(),
+                expected_revision: settings.revision,
+            })
+            .expect("enable allowlist AI");
+        (project, document, segment, profile)
+    }
+
+    fn tighten_engine_allowlist(
+        service: &mut EngineService,
+        project: &translunar_domain::Project,
+        engine_allowlist: Vec<String>,
+        actor: &str,
+    ) -> translunar_domain::Project {
+        let mut configuration = project.configuration.clone();
+        configuration.engine_allowlist = engine_allowlist;
+        service
+            .update_project(UpdateProjectParams {
+                project_id: project.id.clone(),
+                name: project.name.clone(),
+                source_locale: project.source_locale.clone(),
+                target_locale: project.target_locale.clone(),
+                domain: project.domain.clone(),
+                configuration,
+                expected_revision: project.revision,
+                actor: actor.to_string(),
+                correlation_id: None,
+            })
+            .expect("tighten engine allowlist")
+    }
+
+    #[test]
+    fn interactive_and_batch_ai_starts_enforce_project_allowlist() {
+        let root = tempdir().expect("interactive allowlist directory");
+        let credentials = Arc::new(MemoryCredentialStore::default());
+        let manager = AiManager::with_credentials(root.path().to_path_buf(), credentials)
+            .expect("create AI manager");
+        let mut service = EngineService::open_with_ai(root.path().to_path_buf(), manager)
+            .expect("open allowlist AI engine");
+        let (project, document, segment, profile) =
+            seed_allowlist_ai_context(&mut service, root.path());
+        let project = tighten_engine_allowlist(
+            &mut service,
+            &project,
+            vec!["not-this-profile".to_string()],
+            "interactive-allowlist-test",
+        );
+
+        let run_error = service
+            .start_ai_run(AiRunStartParams {
+                project_id: project.id.clone(),
+                segment_id: segment.id.clone(),
+                profile_id: profile.id.clone(),
+                expected_revision: segment.revision,
+                action: AiAction::Translate,
+                prompt: String::new(),
+                options: GroundingOptions::default(),
+                conversation_id: None,
+                max_attempts: 1,
+            })
+            .expect_err("disallowed interactive profile must be rejected");
+        assert!(matches!(
+            run_error,
+            EngineError::PolicyDenied {
+                ref project_id,
+                ref profile_id,
+            } if project_id == &project.id && profile_id == &profile.id
+        ));
+        let runs = service
+            .list_ai_runs(AiRunListParams {
+                project_id: Some(project.id.clone()),
+                offset: 0,
+                limit: 20,
+            })
+            .expect("list interactive runs");
+        assert_eq!(runs.total, 0, "denied interactive start must not create a run");
+
+        let batch_error = service
+            .start_ai_batch(AiBatchStartParams {
+                project_id: project.id.clone(),
+                document_id: Some(document.id.clone()),
+                profile_id: profile.id.clone(),
+                tm_threshold: 85,
+                concurrency: 1,
+                requests_per_minute: 60,
+                max_attempts: 1,
+                replace_drafts: false,
+                options: GroundingOptions::default(),
+            })
+            .expect_err("disallowed batch profile must be rejected");
+        assert!(matches!(
+            batch_error,
+            EngineError::PolicyDenied {
+                ref project_id,
+                ref profile_id,
+            } if project_id == &project.id && profile_id == &profile.id
+        ));
+        let batches = service
+            .list_ai_batches(AiBatchListParams {
+                project_id: project.id,
+                offset: 0,
+                limit: 20,
+            })
+            .expect("list AI batches");
+        assert_eq!(
+            batches.total, 0,
+            "denied batch start must not create a durable batch"
+        );
+    }
+
+    #[test]
+    fn pipeline_pretranslation_enforces_project_allowlist() {
+        let root = tempdir().expect("pipeline allowlist directory");
+        let credentials = Arc::new(MemoryCredentialStore::default());
+        let manager = AiManager::with_credentials(root.path().to_path_buf(), credentials)
+            .expect("create AI manager");
+        let mut service = EngineService::open_with_ai(root.path().to_path_buf(), manager)
+            .expect("open pipeline allowlist engine");
+        let (project, document, _segment, profile) =
+            seed_allowlist_ai_context(&mut service, root.path());
+        let project = tighten_engine_allowlist(
+            &mut service,
+            &project,
+            vec!["other-profile-only".to_string()],
+            "pipeline-allowlist-test",
+        );
+        let definition = service
+            .create_pipeline(CreatePipelineParams {
+                project_id: Some(project.id.clone()),
+                name: "Allowlist blocked pretranslation".to_string(),
+                steps: vec![PipelineStepDefinition {
+                    key: "pretranslate".to_string(),
+                    step_id: "core.ai.pretranslate".to_string(),
+                    config: json!({
+                        "profileId": profile.id,
+                        "requestsPerMinute": 60
+                    }),
+                }],
+            })
+            .expect("create allowlist pipeline");
+        let run = service
+            .run_pipeline(RunPipelineParams {
+                definition_id: definition.id,
+                project_id: project.id.clone(),
+                document_id: Some(document.id),
+                input: Value::Null,
+            })
+            .expect("start pipeline run");
+        for _ in 0..300 {
+            let snapshot = service
+                .get_pipeline_run(PipelineRunIdParams {
+                    run_id: run.run.id.clone(),
+                })
+                .expect("poll allowlist pipeline");
+            if snapshot.run.status.is_terminal() {
+                assert_eq!(snapshot.run.status, PipelineRunStatus::Failed);
+                let step_error = snapshot.steps[0]
+                    .error
+                    .as_ref()
+                    .map(|failure| failure.message.as_str())
+                    .unwrap_or_default();
+                assert!(
+                    step_error.contains("policy_denied"),
+                    "pipeline step must surface allowlist denial, got: {step_error}"
+                );
+                let batches = service
+                    .list_ai_batches(AiBatchListParams {
+                        project_id: project.id,
+                        offset: 0,
+                        limit: 20,
+                    })
+                    .expect("list pipeline batches");
+                assert_eq!(
+                    batches.total, 0,
+                    "pipeline allowlist denial must not create a batch"
+                );
+                return;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        panic!("pipeline allowlist denial did not finish");
     }
 
     #[test]

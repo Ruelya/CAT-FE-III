@@ -39,7 +39,7 @@ import {
   X,
 } from "lucide-react";
 
-import { formatError } from "./workbench-utils";
+import { formatEngineError } from "./workbench-utils";
 import { createAssistantTurn, type ReasoningLevel } from "./assistant-state";
 import { useLocale } from "./i18n/LocaleProvider";
 import type { MessageKey } from "./i18n/messages";
@@ -172,7 +172,7 @@ export function LiveAssistantPanel({
           await loadMessages(first.id);
         }
       } catch (reason) {
-        if (!cancelled) setError(formatError(reason));
+        if (!cancelled) setError(formatEngineError(reason, t));
       }
     };
     void load();
@@ -206,7 +206,7 @@ export function LiveAssistantPanel({
     setActiveConversationId(conversationId);
     setConversationOpen(false);
     void loadMessages(conversationId).catch((reason: unknown) =>
-      setError(formatError(reason)),
+      setError(formatEngineError(reason, t)),
     );
   };
 
@@ -392,7 +392,7 @@ export function LiveAssistantPanel({
       }
     } catch (reason) {
       setWaitingForFirstToken(false);
-      setError(formatError(reason));
+      setError(formatEngineError(reason, t));
     } finally {
       setBusy(false);
     }
@@ -409,7 +409,7 @@ export function LiveAssistantPanel({
       setRun(canceled);
       setWaitingForFirstToken(false);
     } catch (reason) {
-      setError(formatError(reason));
+      setError(formatEngineError(reason, t));
     } finally {
       setCancelBusy(false);
     }
@@ -429,7 +429,7 @@ export function LiveAssistantPanel({
       await pollRun(resumed);
     } catch (reason) {
       setWaitingForFirstToken(false);
-      setError(formatError(reason));
+      setError(formatEngineError(reason, t));
     } finally {
       setBusy(false);
     }
@@ -450,7 +450,7 @@ export function LiveAssistantPanel({
       setStreamText("");
       setWaitingForFirstToken(false);
     } catch (reason) {
-      setError(formatError(reason));
+      setError(formatEngineError(reason, t));
     } finally {
       setBusy(false);
     }

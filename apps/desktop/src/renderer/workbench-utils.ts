@@ -1,5 +1,7 @@
 import type { Segment } from "@translunar/contracts";
 
+import type { FormatVars, MessageKey } from "./i18n/messages";
+
 export type PanelMode = "docked" | "collapsed" | "maximized";
 
 export const PREVIEW_MIN_HEIGHT = 120;
@@ -13,6 +15,8 @@ export interface ConfirmKeyInput {
   isComposing: boolean;
   keyCode?: number;
 }
+
+export type TranslateFn = (key: MessageKey, vars?: FormatVars) => string;
 
 export function isConfirmShortcut(
   input: ConfirmKeyInput,
@@ -62,6 +66,45 @@ export function clampPreviewHeight(value: number): number {
 
 export function fileName(path: string): string {
   return path.split(/[\\/]/u).filter(Boolean).at(-1) ?? path;
+}
+
+/** Stable Engine/desktop error code when present on a structured rejection. */
+export function engineErrorCode(error: unknown): string | null {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return null;
+  }
+  const code = (error as { code: unknown }).code;
+  return typeof code === "string" ? code : null;
+}
+
+/** String field from structured Engine error `data` (camelCase protocol shape). */
+export function engineErrorDataField(
+  error: unknown,
+  field: string,
+): string | null {
+  if (typeof error !== "object" || error === null || !("data" in error)) {
+    return null;
+  }
+  const data = (error as { data: unknown }).data;
+  if (typeof data !== "object" || data === null || !(field in data)) {
+    return null;
+  }
+  const value = (data as Record<string, unknown>)[field];
+  return typeof value === "string" ? value : null;
+}
+
+/**
+ * Format Engine/desktop boundary errors for product UI.
+ * Maps known product-facing codes (`policy_denied`) through the catalog when
+ * `t` is supplied; other protocol messages remain audited technical English.
+ */
+export function formatEngineError(error: unknown, t?: TranslateFn): string {
+  if (t && engineErrorCode(error) === "policy_denied") {
+    return t("error.allowlistDenied", {
+      profileId: engineErrorDataField(error, "profileId") ?? "—",
+    });
+  }
+  return formatError(error);
 }
 
 export function formatError(error: unknown): string {

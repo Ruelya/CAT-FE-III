@@ -28,7 +28,7 @@ import {
   X,
 } from "lucide-react";
 
-import { formatError } from "./workbench-utils";
+import { formatEngineError } from "./workbench-utils";
 import { useLocale } from "./i18n/LocaleProvider";
 
 interface AiControlPageProps {
@@ -163,7 +163,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
     void load()
       .then(() => loadUsage())
       .catch((reason: unknown) => {
-        if (!cancelled) setError(formatError(reason));
+        if (!cancelled) setError(formatEngineError(reason, t));
       });
     return () => {
       cancelled = true;
@@ -195,7 +195,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
           current.map((item) => (item.id === batch.id ? batch : item)),
         );
       } catch (reason) {
-        if (!cancelled) setError(formatError(reason));
+        if (!cancelled) setError(formatEngineError(reason, t));
       }
     };
     void refresh();
@@ -218,7 +218,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
     try {
       await action();
     } catch (reason) {
-      setError(formatError(reason));
+      setError(formatEngineError(reason, t));
     } finally {
       setBusy(null);
     }
