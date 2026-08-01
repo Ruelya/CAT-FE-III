@@ -21,7 +21,9 @@
       "id": "example.tier1.lines",
       "version": "1.0.0",
       "displayName": "CAT line records",
-      "extensions": ["catlines"],
+      "extensions": [
+        "catlines"
+      ],
       "capabilities": {
         "import": true,
         "export": true,
@@ -87,17 +89,23 @@
         "operations": [
           {
             "operation": "assert",
-            "path": ["schemaVersion"],
+            "path": [
+              "schemaVersion"
+            ],
             "equals": 1
           },
           {
             "operation": "set",
-            "path": ["status"],
+            "path": [
+              "status"
+            ],
             "value": "ready"
           },
           {
             "operation": "regexReplace",
-            "path": ["title"],
+            "path": [
+              "title"
+            ],
             "pattern": "\\s+",
             "replacement": " ",
             "maxReplacements": 100
@@ -114,7 +122,9 @@
       "capabilityId": "file.read",
       "scope": {
         "kind": "file",
-        "areas": ["source"]
+        "areas": [
+          "source"
+        ]
       },
       "contributionId": "example.tier1.lines"
     },
@@ -122,7 +132,9 @@
       "capabilityId": "file.write",
       "scope": {
         "kind": "file",
-        "areas": ["output"]
+        "areas": [
+          "output"
+        ]
       },
       "contributionId": "example.tier1.lines"
     },
@@ -130,7 +142,9 @@
       "capabilityId": "qa.register",
       "scope": {
         "kind": "contributions",
-        "contributionIds": ["example.tier1.qa"]
+        "contributionIds": [
+          "example.tier1.qa"
+        ]
       },
       "contributionId": "example.tier1.qa"
     },
@@ -138,9 +152,16 @@
       "capabilityId": "pipeline.register",
       "scope": {
         "kind": "contributions",
-        "contributionIds": ["example.tier1.normalize"]
+        "contributionIds": [
+          "example.tier1.normalize"
+        ]
       },
       "contributionId": "example.tier1.normalize"
     }
-  ]
+  ],
+  "distribution": {
+    "publisher": "Translunar",
+    "license": "MIT",
+    "homepage": "https://github.com/Ruelya/translunar-cat"
+  }
 }

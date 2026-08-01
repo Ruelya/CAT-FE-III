@@ -3,6 +3,72 @@
   gap: 1rem;
 }
 
+.plugins-panel__band {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.plugins-panel__band-header {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.plugins-panel__list--bundled .plugins-panel__row,
+.plugins-panel__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.plugins-panel__row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.plugins-panel__row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.plugins-panel__badge {
+  display: inline-flex;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  font-size: 0.75rem;
+}
+
+.plugins-panel__inspect {
+  display: grid;
+  grid-template-columns: minmax(8rem, 12rem) 1fr;
+  gap: 0.35rem 0.75rem;
+  margin: 0 0 1rem;
+}
+
+.plugins-panel__inspect dt {
+  font-weight: 600;
+}
+
+.plugins-panel__inspect dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.plugins-panel__dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
 .plugins-panel__header {
   display: flex;
   justify-content: space-between;

@@ -4,6 +4,7 @@ mod ai_ui;
 mod connector;
 mod declarative;
 mod external_connector;
+mod package_archive;
 mod qa_pipeline;
 mod sandbox;
 
@@ -15,6 +16,12 @@ pub use declarative::{
     DeclarativeQaPackDefinitionV1,
 };
 pub use external_connector::*;
+pub use package_archive::{
+    MAX_ARCHIVE_BYTES, MAX_COMPRESSION_RATIO, PluginDistributionMetadata, PluginPackageSourceKind,
+    TLPLUGIN_EXTENSION, TLPLUGIN_FORMAT_MARKER, TLPLUGIN_FORMAT_VERSION, build_tlplugin_archive,
+    extract_tlplugin_archive, inspect_plugin_source, is_tlplugin_path, materialize_plugin_package,
+    package_has_license_file, validate_release_package_requirements,
+};
 pub use qa_pipeline::*;
 pub use sandbox::{
     DEFAULT_SANDBOX_LIMITS, SANDBOX_PROTOCOL_VERSION, SandboxCancellationToken,
@@ -47,8 +54,6 @@ use translunar_filter_core::{
     FilterDescriptor, FilterError, FilterEvent, FilterEventStream, ImportRequest,
     PluginProcessFailureKind, ProbeResult, ValidationReport,
 };
-use uuid::Uuid;
-
 pub const HOST_API_VERSION: u32 = 1;
 pub const MANIFEST_FILE_NAME: &str = "manifest.json";
 pub const NORMALIZED_MANIFEST_VERSION: u32 = 1;
@@ -79,10 +84,10 @@ const MAX_LIST_ITEMS: usize = 256;
 const MAX_MAP_ENTRIES: usize = 128;
 const MAX_JSON_DESCRIPTOR_BYTES: usize = 64 * 1024;
 const MAX_JSON_DEPTH: usize = 16;
-const MAX_PACKAGE_FILES: usize = 4096;
-const MAX_PACKAGE_TOTAL_BYTES: u64 = 512 * 1024 * 1024;
-const MAX_PACKAGE_PATH_BYTES: usize = 512;
-const MAX_PACKAGE_DEPTH: usize = 32;
+pub(crate) const MAX_PACKAGE_FILES: usize = 4096;
+pub(crate) const MAX_PACKAGE_TOTAL_BYTES: u64 = 512 * 1024 * 1024;
+pub(crate) const MAX_PACKAGE_PATH_BYTES: usize = 512;
+pub(crate) const MAX_PACKAGE_DEPTH: usize = 32;
 
 #[derive(Debug, Error)]
 pub enum PluginRuntimeError {
@@ -1406,6 +1411,9 @@ pub struct RawPluginManifestV2 {
     pub permissions: Vec<String>,
     #[serde(default)]
     pub capabilities: Vec<PluginCapabilityRequest>,
+    /// Optional closed distribution metadata. Required for release-bundled packages.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub distribution: Option<PluginDistributionMetadata>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1422,6 +1430,9 @@ pub struct NormalizedPluginManifest {
     pub requested_permissions: Vec<String>,
     #[serde(default)]
     pub requested_capabilities: Vec<PluginCapabilityRequest>,
+    /// Projected distribution metadata; null/absent for legacy packages.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub distribution: Option<PluginDistributionMetadata>,
     pub original_manifest_json: Value,
 }
 
@@ -1457,6 +1468,8 @@ pub struct PluginPackageHash {
 #[derive(Debug, Clone)]
 pub struct StagedPluginPackage {
     pub path: PathBuf,
+    /// Host-derived provenance for this staged package (never from the manifest).
+    pub source_kind: PluginPackageSourceKind,
     pub normalized_manifest: NormalizedPluginManifest,
     pub package_hash: PluginPackageHash,
 }
@@ -1839,8 +1852,25 @@ pub fn decode_normalized_manifest(
     validate_manifest_shape(&value, source_version)?;
     let normalized = match source_version {
         MANIFEST_VERSION_V1 => {
+            let distribution: Option<PluginDistributionMetadata> = value
+                .get("distribution")
+                .map(|value| serde_json::from_value(value.clone()))
+                .transpose()
+                .map_err(|error| {
+                    PluginRuntimeError::InvalidManifest(format!(
+                        "cannot parse distribution metadata: {error}"
+                    ))
+                })?;
+            if let Some(distribution) = &distribution {
+                distribution.validate()?;
+            }
+            let mut legacy_value = value.clone();
+            legacy_value
+                .as_object_mut()
+                .expect("manifest object")
+                .remove("distribution");
             let manifest: RawPluginManifestV1 =
-                serde_json::from_value(value.clone()).map_err(|error| {
+                serde_json::from_value(legacy_value).map_err(|error| {
                     PluginRuntimeError::InvalidManifest(format!("cannot parse manifest: {error}"))
                 })?;
             validate_manifest(&manifest, package_dir)?;
@@ -1887,6 +1917,7 @@ pub fn decode_normalized_manifest(
                     &manifest.permissions,
                     &manifest.capabilities,
                 )?,
+                distribution,
                 original_manifest_json: value,
             }
         }
@@ -1898,6 +1929,9 @@ pub fn decode_normalized_manifest(
             validate_manifest_v2(&manifest, package_dir)?;
             let requested_capabilities =
                 normalize_capability_requests(&manifest.permissions, &manifest.capabilities)?;
+            if let Some(distribution) = &manifest.distribution {
+                distribution.validate()?;
+            }
             NormalizedPluginManifest {
                 normalized_version: NORMALIZED_MANIFEST_VERSION,
                 source_manifest_version: MANIFEST_VERSION_V2,
@@ -1909,6 +1943,7 @@ pub fn decode_normalized_manifest(
                 contributions: manifest.contributions,
                 requested_permissions: manifest.permissions,
                 requested_capabilities,
+                distribution: manifest.distribution,
                 original_manifest_json: value,
             }
         }
@@ -2581,7 +2616,7 @@ fn validate_string_list(values: &[String], label: &str) -> Result<()> {
     Ok(())
 }
 
-fn normalize_relative_path(value: &str, label: &str) -> Result<String> {
+pub(crate) fn normalize_relative_path(value: &str, label: &str) -> Result<String> {
     if value.is_empty() || value.len() > MAX_PACKAGE_PATH_BYTES || value.contains('\0') {
         return Err(PluginRuntimeError::PackageInvalid(format!(
             "{label} is empty or oversized"
@@ -2660,7 +2695,7 @@ fn ensure_regular_package_file(root: &Path, relative: &str, label: &str) -> Resu
     Ok(())
 }
 
-fn reject_reparse(path: &Path, label: &str) -> Result<()> {
+pub(crate) fn reject_reparse(path: &Path, label: &str) -> Result<()> {
     let metadata = std::fs::symlink_metadata(path).map_err(|error| {
         PluginRuntimeError::PackageInvalid(format!("{label} is unavailable: {error}"))
     })?;
@@ -2673,13 +2708,13 @@ fn reject_reparse(path: &Path, label: &str) -> Result<()> {
 }
 
 #[cfg(windows)]
-fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
+pub(crate) fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
     use std::os::windows::fs::MetadataExt;
     metadata.file_attributes() & 0x400 != 0
 }
 
 #[cfg(not(windows))]
-fn is_reparse_point(_metadata: &std::fs::Metadata) -> bool {
+pub(crate) fn is_reparse_point(_metadata: &std::fs::Metadata) -> bool {
     false
 }
 
@@ -4871,37 +4906,12 @@ pub fn inspect_plugin_package(
     Ok((normalized, package_hash))
 }
 
-/// Copy a source package into a unique staging directory and hash the staged
-/// bytes.  The destination is created with `create_dir`, so an existing path
-/// can never be clobbered.
+/// Copy or extract a source package into a unique staging directory and hash
+/// the staged bytes. Directories and `.tlplugin` archives share one path.
+/// The destination is created with `create_dir`, so an existing path can never
+/// be clobbered.
 pub fn stage_plugin_package(source: &Path, staging_root: &Path) -> Result<StagedPluginPackage> {
-    reject_reparse(source, "plugin source")?;
-    if !source.is_dir() {
-        return Err(PluginRuntimeError::PackageInvalid(
-            "plugin source must be a directory".to_string(),
-        ));
-    }
-    std::fs::create_dir_all(staging_root)?;
-    let staging = staging_root.join(format!("stage-{}", Uuid::now_v7()));
-    std::fs::create_dir(&staging).map_err(|error| {
-        PluginRuntimeError::PackageInvalid(format!("cannot reserve staging directory: {error}"))
-    })?;
-    if let Err(error) = copy_dir_secure(source, &staging, 0) {
-        let _ = std::fs::remove_dir_all(&staging);
-        return Err(error);
-    }
-    let result = inspect_plugin_package(&staging);
-    match result {
-        Ok((normalized_manifest, package_hash)) => Ok(StagedPluginPackage {
-            path: staging,
-            normalized_manifest,
-            package_hash,
-        }),
-        Err(error) => {
-            let _ = std::fs::remove_dir_all(&staging);
-            Err(error)
-        }
-    }
+    materialize_plugin_package(source, staging_root, None)
 }
 
 pub fn publish_staged_package(staged: &Path, destination: &Path) -> Result<()> {
@@ -4938,7 +4948,7 @@ pub fn copy_package(source: &Path, destination: &Path) -> Result<()> {
     copy_dir_secure(source, destination, 0)
 }
 
-fn copy_dir_secure(source: &Path, destination: &Path, depth: usize) -> Result<()> {
+pub(crate) fn copy_dir_secure(source: &Path, destination: &Path, depth: usize) -> Result<()> {
     if depth > MAX_PACKAGE_DEPTH {
         return Err(PluginRuntimeError::PackageInvalid(
             "package exceeds directory nesting limit".to_string(),

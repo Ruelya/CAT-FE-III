@@ -2204,25 +2204,65 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
   });
   assert(enabled.plugin.status === "enabled", "enable status");
 
-  let duplicateError;
-  try {
-    await processHandle.call("plugin.install", {
-      sourcePath: pluginSource,
-      grantRequested: false,
-      actor: "smoke",
-      reason: "duplicate install must fail closed",
-    });
-  } catch (error) {
-    duplicateError = error;
-  }
-  assert(duplicateError?.code === "invalid_state", "duplicate typed conflict");
-  const afterDuplicate = await processHandle.call("plugin.get", {
+  // Same version + same package bytes is idempotent: identity/hash/revision and
+  // the active generation must stay put (no fail-closed invalid_state).
+  const idempotent = await processHandle.call("plugin.install", {
+    sourcePath: pluginSource,
+    grantRequested: false,
+    actor: "smoke",
+    reason: "duplicate install same hash must be idempotent",
+  });
+  assert(idempotent.plugin.id === enabled.plugin.id, "idempotent install id");
+  assert(
+    idempotent.plugin.packageSha256 === enabled.plugin.packageSha256 &&
+      idempotent.plugin.revision === enabled.plugin.revision &&
+      idempotent.plugin.status === "enabled" &&
+      idempotent.plugin.activeVersionId === enabled.plugin.activeVersionId,
+    "same-version same-hash install is idempotent without revision churn",
+  );
+  const afterIdempotent = await processHandle.call("plugin.get", {
     pluginId: "example.hello-srt",
   });
   assert(
-    afterDuplicate.revision === enabled.plugin.revision &&
-      afterDuplicate.status === "enabled",
-    "duplicate install leaves enabled record unchanged",
+    afterIdempotent.revision === enabled.plugin.revision &&
+      afterIdempotent.status === "enabled" &&
+      afterIdempotent.packageSha256 === enabled.plugin.packageSha256 &&
+      afterIdempotent.activeVersionId === enabled.plugin.activeVersionId,
+    "idempotent install leaves enabled record and active generation unchanged",
+  );
+
+  // Same declared version with different package bytes is a typed conflict.
+  const conflictSource = join(fixtureDirectory, "hello-srt-conflict");
+  cpSync(pluginSource, conflictSource, { recursive: true });
+  writeFileSync(
+    join(conflictSource, "README.md"),
+    `# conflict payload ${Date.now()}\n`,
+    "utf8",
+  );
+  let conflictError;
+  try {
+    await processHandle.call("plugin.install", {
+      sourcePath: conflictSource,
+      grantRequested: false,
+      actor: "smoke",
+      reason: "same version different bytes must conflict",
+    });
+  } catch (error) {
+    conflictError = error;
+  }
+  assert(
+    conflictError?.code === "plugin_conflict",
+    "same-version different-bytes install returns plugin_conflict",
+  );
+  const afterConflict = await processHandle.call("plugin.get", {
+    pluginId: "example.hello-srt",
+  });
+  assert(
+    afterConflict.revision === enabled.plugin.revision &&
+      afterConflict.status === "enabled" &&
+      afterConflict.packageSha256 === enabled.plugin.packageSha256 &&
+      afterConflict.activeVersionId === enabled.plugin.activeVersionId,
+    "plugin_conflict leaves enabled active state unchanged",
   );
 
   const filters = await processHandle.call("filter.list", {});
@@ -2333,11 +2373,15 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
   const afterFailedUpgrade = await processHandle.call("plugin.get", {
     pluginId: "example.hello-srt",
   });
+  // Process handshake failures abort before version CAS: active projection,
+  // revision, and history must stay on the last successful upgrade (matches
+  // engine unit coverage for the same rejecting candidate fixture).
   assert(
     afterFailedUpgrade.activeVersionId ===
       upgradedAfterRestart.activeVersionId &&
-      afterFailedUpgrade.revision > upgradedAfterRestart.revision,
-    "failed candidate rolls back to the active projection with audited revisions",
+      afterFailedUpgrade.revision === upgradedAfterRestart.revision &&
+      afterFailedUpgrade.status === "enabled",
+    "failed process candidate leaves the active projection and revision unchanged",
   );
   const failedHistory = await processHandle.call("plugin.version.list", {
     pluginId: "example.hello-srt",
@@ -2345,9 +2389,9 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
     limit: 20,
   });
   assert(
-    failedHistory.total === 3 &&
-      failedHistory.items.some((item) => item.state === "failed"),
-    "failed candidate is retained in version history",
+    failedHistory.total === 2 &&
+      !failedHistory.items.some((item) => item.state === "failed"),
+    "pre-CAS process handshake failure does not retain a failed version row",
   );
 
   const rolledBack = await processHandle.call("plugin.rollback", {
@@ -2540,32 +2584,36 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
     reason: "uninstall Tier 1 toolkit",
   });
 
-  const unsupportedSource = join(fixtureDirectory, "declarative-plugin");
+  // Inventory a parseable process package whose QA contribution does not meet
+  // the public V1 executable contract — inspectable, installable as inventory,
+  // but not attachable on enable.
+  const unsupportedSource = join(fixtureDirectory, "unsupported-qa-plugin");
   mkdirSync(unsupportedSource, { recursive: true });
   writeFileSync(
     join(unsupportedSource, "manifest.json"),
     JSON.stringify(
       {
         manifestVersion: 2,
-        id: "example.declarative-smoke",
-        displayName: "Declarative smoke",
+        id: "example.unsupported-qa-smoke",
+        displayName: "Unsupported QA smoke",
         version: "1.0.0",
         hostApi: { min: 1, max: 1 },
         runtime: {
-          tier: "declarative",
+          tier: "process",
           runtimeVersion: 1,
-          entry: { kind: "manifest" },
+          protocolVersion: 1,
+          entry: { kind: "node", path: "bin/noop.mjs" },
         },
         contributions: [
           {
             kind: "qaRule",
             descriptorVersion: 1,
-            id: "example.declarative-smoke.rule",
+            id: "example.unsupported-qa-smoke.rule",
             version: "1.0.0",
             displayName: "Smoke rule",
             ruleType: "style",
             severity: "warning",
-            definition: { pattern: "smoke" },
+            definition: {},
           },
         ],
         permissions: [],
@@ -2573,6 +2621,12 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
       null,
       2,
     ),
+    "utf8",
+  );
+  mkdirSync(join(unsupportedSource, "bin"), { recursive: true });
+  writeFileSync(
+    join(unsupportedSource, "bin", "noop.mjs"),
+    "process.stdin.resume();\n",
     "utf8",
   );
   const unsupportedInspection = await processHandle.call("plugin.inspect", {
@@ -2763,7 +2817,139 @@ async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
     "plugin uninstalled",
   );
 
-  await processHandle.call("project.list", { offset: 0, limit: 10 });
+  // Closed .tlplugin archive inspect/install (directory path already covered).
+  const archivePath = join(
+    root,
+    "apps",
+    "desktop",
+    "resources",
+    "plugins",
+    "example.hello-srt-0.1.0.tlplugin",
+  );
+  assert(existsSync(archivePath), "release-built hello-srt archive present");
+  const archiveInspection = await processHandle.call("plugin.inspect", {
+    sourcePath: archivePath,
+  });
+  assert(
+    archiveInspection.canInstall &&
+      archiveInspection.compatibility.compatible &&
+      archiveInspection.sourceKind === "localArchive" &&
+      typeof archiveInspection.packageSha256 === "string" &&
+      archiveInspection.packageSha256.length === 64,
+    ".tlplugin inspect should report a local archive identity",
+  );
+  const archiveInstalled = await processHandle.call("plugin.install", {
+    sourcePath: archivePath,
+    grantRequested: false,
+    actor: "smoke",
+    reason: "install from closed .tlplugin archive",
+  });
+  assert(
+    archiveInstalled.plugin.id === "example.hello-srt" &&
+      archiveInstalled.plugin.packageSha256 === archiveInspection.packageSha256,
+    ".tlplugin install publishes the inspected package hash",
+  );
+  await processHandle.call("plugin.uninstall", {
+    pluginId: archiveInstalled.plugin.id,
+    expectedRevision: archiveInstalled.plugin.revision,
+    actor: "smoke",
+    reason: "remove archive install before bundled apply",
+  });
+
+  // Bundled catalog list/apply + degraded isolation require a trusted root.
+  const bundledRoot = join(root, "apps", "desktop", "resources", "plugins");
+  await processHandle.setBundledPluginRoot(bundledRoot);
+  await processHandle.restart();
+  await processHandle.call("engine.initialize", {
+    protocolVersion: 1,
+    client: { name: "plugin-bundled-smoke", version: "0.1.0" },
+  });
+  const bundledPage = await processHandle.call("plugin.bundled.list", {
+    offset: 0,
+    limit: 50,
+  });
+  assert(
+    bundledPage.catalogAvailable &&
+      bundledPage.total >= 1 &&
+      bundledPage.items.some((item) => item.pluginId === "example.tier1-toolkit"),
+    "verified bundled catalog should list allowlisted packages",
+  );
+  const bundledSerialized = JSON.stringify(bundledPage);
+  assert(
+    !bundledSerialized.includes(bundledRoot) &&
+      !bundledSerialized.includes(".tlplugin") &&
+      !/"archive"\s*:/.test(bundledSerialized),
+    "bundled list payloads must not expose archive filesystem paths",
+  );
+  const bundledApply = await processHandle.call("plugin.bundled.apply", {
+    pluginId: "example.tier1-toolkit",
+    actor: "smoke",
+    reason: "bundled install from catalog",
+  });
+  assert(
+    (bundledApply.action === "installed" ||
+      bundledApply.action === "unchanged") &&
+      bundledApply.plugin.id === "example.tier1-toolkit" &&
+      bundledApply.plugin.sourceKind === "bundled",
+    "bundled apply should install with host-derived bundled provenance",
+  );
+  const bundledRestore = await processHandle.call("plugin.bundled.apply", {
+    pluginId: "example.tier1-toolkit",
+    expectedRevision: bundledApply.plugin.revision,
+    actor: "smoke",
+    reason: "bundled restore/current is idempotent",
+  });
+  assert(
+    bundledRestore.action === "unchanged" ||
+      bundledRestore.action === "installed" ||
+      bundledRestore.action === "upgraded",
+    "second bundled apply remains a typed lifecycle action",
+  );
+  await processHandle.call("plugin.uninstall", {
+    pluginId: bundledApply.plugin.id,
+    expectedRevision: bundledRestore.plugin.revision,
+    actor: "smoke",
+    reason: "remove bundled install before degraded catalog proof",
+  });
+
+  // Missing catalog root degrades only the catalog surface.
+  const degradedRoot = join(fixtureDirectory, "missing-bundled-root");
+  await processHandle.setBundledPluginRoot(degradedRoot);
+  await processHandle.restart();
+  await processHandle.call("engine.initialize", {
+    protocolVersion: 1,
+    client: { name: "plugin-degraded-catalog", version: "0.1.0" },
+  });
+  const degradedCatalog = await processHandle.call("plugin.bundled.list", {
+    offset: 0,
+    limit: 20,
+  });
+  assert(
+    !degradedCatalog.catalogAvailable && degradedCatalog.items.length === 0,
+    "missing bundled root degrades catalog only",
+  );
+  const localAfterDegrade = await processHandle.call("plugin.install", {
+    sourcePath: pluginSource,
+    grantRequested: false,
+    actor: "smoke",
+    reason: "local install still works with degraded catalog",
+  });
+  assert(
+    localAfterDegrade.plugin.id === "example.hello-srt" &&
+      localAfterDegrade.plugin.sourceKind === "localDirectory",
+    "local install remains healthy under degraded catalog",
+  );
+  await processHandle.call("plugin.uninstall", {
+    pluginId: localAfterDegrade.plugin.id,
+    expectedRevision: localAfterDegrade.plugin.revision,
+    actor: "smoke",
+    reason: "cleanup post-degrade local install",
+  });
+  const health = await processHandle.call("project.list", {
+    offset: 0,
+    limit: 10,
+  });
+  assert(Array.isArray(health.items), "engine health survives degraded catalog");
 }
 
 async function exerciseQaPipelinePluginSmoke(
@@ -7526,32 +7712,38 @@ class EngineProcess {
   #nextId = 1;
   #buffer = "";
   #waiters = [];
+  #bundledPluginRoot = null;
 
-  static async start(binaryPath, dataDir) {
-    const processHandle = new EngineProcess(binaryPath, dataDir);
+  static async start(binaryPath, dataDir, options = {}) {
+    const processHandle = new EngineProcess(binaryPath, dataDir, options);
     await processHandle.#start();
     return processHandle;
   }
 
-  constructor(binaryPath, dataDir) {
+  constructor(binaryPath, dataDir, options = {}) {
     this.binaryPath = binaryPath;
     this.dataDir = dataDir;
+    this.#bundledPluginRoot = options.bundledPluginRoot ?? null;
+  }
+
+  setBundledPluginRoot(path) {
+    this.#bundledPluginRoot = path;
   }
 
   async #start() {
-    this.#child = spawn(
-      this.binaryPath,
-      ["--data-dir", this.dataDir, "--protocol", "stdio"],
-      {
-        stdio: ["pipe", "pipe", "pipe"],
-        windowsHide: true,
-        env: {
-          ...process.env,
-          TRANSLUNAR_AI_TEST_MODE: "1",
-          TRANSLUNAR_AI_TEST_CREDENTIAL: "engine-smoke-secret",
-        },
+    const args = ["--data-dir", this.dataDir, "--protocol", "stdio"];
+    if (this.#bundledPluginRoot) {
+      args.push("--bundled-plugin-root", this.#bundledPluginRoot);
+    }
+    this.#child = spawn(this.binaryPath, args, {
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+      env: {
+        ...process.env,
+        TRANSLUNAR_AI_TEST_MODE: "1",
+        TRANSLUNAR_AI_TEST_CREDENTIAL: "engine-smoke-secret",
       },
-    );
+    });
     this.#child.stdout.setEncoding("utf8");
     this.#child.stdout.on("data", (chunk) => this.#consume(chunk));
     this.#child.stderr.on("data", (chunk) => process.stderr.write(chunk));

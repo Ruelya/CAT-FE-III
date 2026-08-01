@@ -1156,6 +1156,40 @@ export type MessageKey =
   | "workbench.exportedSegments"
   | "plugins.disable"
   | "plugins.uninstall"
+  | "plugins.bundledTitle"
+  | "plugins.bundledLede"
+  | "plugins.bundledUnavailable"
+  | "plugins.bundledEmpty"
+  | "plugins.bundledInstall"
+  | "plugins.bundledUpdate"
+  | "plugins.bundledCurrent"
+  | "plugins.bundledState.available"
+  | "plugins.bundledState.installed"
+  | "plugins.bundledState.updateAvailable"
+  | "plugins.bundledState.current"
+  | "plugins.installedTitle"
+  | "plugins.upgrade"
+  | "plugins.versionHistory"
+  | "plugins.versionHistoryTitle"
+  | "plugins.versionActive"
+  | "plugins.rollback"
+  | "plugins.inspectTitle"
+  | "plugins.inspectId"
+  | "plugins.inspectVersion"
+  | "plugins.inspectTier"
+  | "plugins.inspectSource"
+  | "plugins.inspectHash"
+  | "plugins.inspectLicense"
+  | "plugins.inspectLicenseNone"
+  | "plugins.inspectCompatibility"
+  | "plugins.inspectContributions"
+  | "plugins.inspectConfirmInstall"
+  | "plugins.inspectConfirmUpgrade"
+  | "plugins.inspectIdMismatch"
+  | "plugins.source.localDirectory"
+  | "plugins.source.localArchive"
+  | "plugins.source.bundled"
+  | "plugins.crashCount"
   | "export.checkAgainInline"
   | "export.warningsRemainInline"
   | "export.publicationBodyInline"
@@ -2050,7 +2084,7 @@ const enUs: MessageCatalog = {
   "dialog.selectInteropTable": "Open bilingual table",
   "dialog.selectTaskPackageInput": "Open offline task package",
   "dialog.selectCorpusInput": "Import reference corpus",
-  "dialog.selectPluginPackage": "Select plugin package directory",
+  "dialog.selectPluginPackage": "Select plugin package directory or .tlplugin file",
   "nav.home": "Home",
   "plural.backup": "{count, plural, one {# backup} other {# backups}}",
   "plural.draft": "{count, plural, one {# draft} other {# drafts}}",
@@ -2146,7 +2180,7 @@ const enUs: MessageCatalog = {
   "plugins.installPackage": "Install package…",
   "plugins.loading": "Loading plugins…",
   "plugins.empty":
-    "No plugins installed. Choose a package directory that contains manifest.json.",
+    "No plugins installed. Choose a package directory or .tlplugin archive.",
   "plugins.permissions": "permissions: {list}",
   "plugins.permissionsNone": "none",
   "plugins.connectorProfiles": "{count} provider profiles",
@@ -2964,6 +2998,43 @@ const enUs: MessageCatalog = {
     "Exported {count} translated segments to {name}.",
   "plugins.disable": "Disable",
   "plugins.uninstall": "Uninstall",
+  "plugins.bundledTitle": "Bundled core plugins",
+  "plugins.bundledLede":
+    "Offline release-bundled packages managed by the Engine. Paths are never exposed to the renderer.",
+  "plugins.bundledUnavailable":
+    "Bundled catalog is unavailable. Local install and installed plugins still work.",
+  "plugins.bundledEmpty": "No bundled packages are listed.",
+  "plugins.bundledInstall": "Install",
+  "plugins.bundledUpdate": "Update",
+  "plugins.bundledCurrent": "Current",
+  "plugins.bundledState.available": "available",
+  "plugins.bundledState.installed": "installed",
+  "plugins.bundledState.updateAvailable": "update available",
+  "plugins.bundledState.current": "current",
+  "plugins.installedTitle": "Installed plugins",
+  "plugins.upgrade": "Upgrade…",
+  "plugins.versionHistory": "Versions",
+  "plugins.versionHistoryTitle": "Versions — {name}",
+  "plugins.versionActive": "active",
+  "plugins.rollback": "Roll back",
+  "plugins.inspectTitle": "Inspect package",
+  "plugins.inspectId": "Plugin ID",
+  "plugins.inspectVersion": "Version",
+  "plugins.inspectTier": "Tier",
+  "plugins.inspectSource": "Source",
+  "plugins.inspectHash": "Package hash",
+  "plugins.inspectLicense": "Publisher / license",
+  "plugins.inspectLicenseNone": "none declared",
+  "plugins.inspectCompatibility": "Compatibility",
+  "plugins.inspectContributions": "Contributions",
+  "plugins.inspectConfirmInstall": "Install package",
+  "plugins.inspectConfirmUpgrade": "Upgrade package",
+  "plugins.inspectIdMismatch":
+    "Upgrade package id {actual} does not match installed plugin {expected}.",
+  "plugins.source.localDirectory": "local directory",
+  "plugins.source.localArchive": "local archive",
+  "plugins.source.bundled": "bundled",
+  "plugins.crashCount": "crashes: {count}",
   "export.checkAgainInline": "Check again",
   "export.warningsRemainInline":
     "Warnings and waived findings remain visible in the QA report.",
@@ -3867,7 +3938,7 @@ const zhCn: MessageCatalog = {
   "dialog.selectInteropTable": "打开双语对照表",
   "dialog.selectTaskPackageInput": "打开离线任务包",
   "dialog.selectCorpusInput": "导入参考语料",
-  "dialog.selectPluginPackage": "选择插件包目录",
+  "dialog.selectPluginPackage": "选择插件包目录或 .tlplugin 文件",
   "nav.home": "首页",
   "plural.backup": "{count, plural, one {# 条备份} other {# 条备份}}",
   "plural.draft": "{count, plural, one {# 条草稿} other {# 条草稿}}",
@@ -3961,7 +4032,7 @@ const zhCn: MessageCatalog = {
   "plugins.lede": "安装本地插件、审查分范围授权，并控制插件贡献项。",
   "plugins.installPackage": "安装插件包…",
   "plugins.loading": "正在加载插件…",
-  "plugins.empty": "尚未安装插件。请选择包含 manifest.json 的包目录。",
+  "plugins.empty": "尚未安装插件。请选择包目录或 .tlplugin 归档。",
   "plugins.permissions": "权限：{list}",
   "plugins.permissionsNone": "无",
   "plugins.connectorProfiles": "{count} 个提供方配置",
@@ -4746,6 +4817,43 @@ const zhCn: MessageCatalog = {
   "workbench.exportedSegments": "已导出 {count} 个已翻译句段到 {name}。",
   "plugins.disable": "禁用",
   "plugins.uninstall": "卸载",
+  "plugins.bundledTitle": "随附核心插件",
+  "plugins.bundledLede":
+    "由 Engine 管理的离线发行随附包。渲染层不会接触资源路径。",
+  "plugins.bundledUnavailable":
+    "随附目录不可用。本地安装与已安装插件仍可正常使用。",
+  "plugins.bundledEmpty": "没有列出的随附包。",
+  "plugins.bundledInstall": "安装",
+  "plugins.bundledUpdate": "更新",
+  "plugins.bundledCurrent": "已是最新",
+  "plugins.bundledState.available": "可安装",
+  "plugins.bundledState.installed": "已安装",
+  "plugins.bundledState.updateAvailable": "有更新",
+  "plugins.bundledState.current": "当前版本",
+  "plugins.installedTitle": "已安装插件",
+  "plugins.upgrade": "升级…",
+  "plugins.versionHistory": "版本",
+  "plugins.versionHistoryTitle": "版本 — {name}",
+  "plugins.versionActive": "当前",
+  "plugins.rollback": "回滚",
+  "plugins.inspectTitle": "检查插件包",
+  "plugins.inspectId": "插件 ID",
+  "plugins.inspectVersion": "版本",
+  "plugins.inspectTier": "层级",
+  "plugins.inspectSource": "来源",
+  "plugins.inspectHash": "包哈希",
+  "plugins.inspectLicense": "发行方 / 许可证",
+  "plugins.inspectLicenseNone": "未声明",
+  "plugins.inspectCompatibility": "兼容性",
+  "plugins.inspectContributions": "贡献数",
+  "plugins.inspectConfirmInstall": "安装此包",
+  "plugins.inspectConfirmUpgrade": "升级此包",
+  "plugins.inspectIdMismatch":
+    "升级包 ID {actual} 与已安装插件 {expected} 不一致。",
+  "plugins.source.localDirectory": "本地目录",
+  "plugins.source.localArchive": "本地归档",
+  "plugins.source.bundled": "随附",
+  "plugins.crashCount": "崩溃次数：{count}",
   "export.checkAgainInline": "重新检查",
   "export.warningsRemainInline": "警告与已豁免问题仍可在质检报告中查看。",
   "export.publicationBodyInline": "输出会经过校验，且绝不会覆盖已存在的目标。",

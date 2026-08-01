@@ -17,8 +17,8 @@ extraResources:
     to: engine
   - from: resources/examples/
     to: examples
-  - from: ../../examples/plugins/sandbox-toolkit/
-    to: plugins/sandbox-toolkit
+  - from: resources/plugins/
+    to: plugins
 asar: true
 compression: maximum
 win:

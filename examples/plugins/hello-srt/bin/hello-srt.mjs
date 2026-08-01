@@ -519,6 +519,11 @@ var manifest_default = {
     ],
   },
   permissions: ["file.read:source", "file.write:output"],
+  distribution: {
+    publisher: "Translunar",
+    license: "MIT",
+    homepage: "https://github.com/Ruelya/translunar-cat",
+  },
 };
 
 // ../../examples/plugins/hello-srt/src/index.ts

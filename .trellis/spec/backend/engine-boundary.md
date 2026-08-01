@@ -3506,3 +3506,185 @@ let (invocation, checkpoint) = store.finalize_external_connector_success(
     },
 )?;
 ```
+
+## Plugin Package Archive, Bundled Catalog, And Provenance
+
+### 1. Scope / Trigger
+
+Use this contract when changing `.tlplugin` materialization, release packaging,
+bundled offline catalog loading, host-derived package provenance, migration 24
+distribution columns, `plugin.inspect`/`plugin.install`/`plugin.upgrade`
+source classification, or `plugin.bundled.*` RPCs. Archives, indexes, manifests,
+and renderer requests are untrusted; only the configured Engine bundled root
+plus a verified index grants `bundled` provenance.
+
+### 2. Signatures
+
+Engine CLI (additive):
+
+```text
+translunar-engine --data-dir <PATH> [--protocol stdio]
+                  [--bundled-plugin-root <PATH>]
+```
+
+Protocol v1 methods (generated contracts only):
+
+```text
+plugin.inspect         PluginInspectParams       -> PluginInspection
+plugin.install         PluginInstallParams       -> PluginMutationResult
+plugin.upgrade         PluginUpgradeParams       -> PluginMutationResult
+plugin.bundled.list    PluginBundledListParams   -> PluginBundledPage
+plugin.bundled.apply   PluginBundledApplyParams  -> PluginBundledApplyResult
+```
+
+`engine.initialize` advertises `plugin.archive.tlplugin.v1` and
+`plugin.bundled.catalog.v1` when the runtime supports them.
+
+Closed transport constants (`crates/plugin-runtime`):
+
+```text
+extension:           .tlplugin
+format marker file:  .tlplugin-format  { "formatVersion": 1 }
+MAX_ARCHIVE_BYTES:   64 MiB
+MAX_COMPRESSION_RATIO: 100
+uncompressed limits: same package file/depth/path/byte caps as directory packages
+```
+
+Host-derived source kinds (wire camelCase):
+
+```text
+localDirectory | localArchive | bundled
+```
+
+Release packager:
+
+```text
+node scripts/package-plugins.mjs            # build archives + index
+node scripts/package-plugins.mjs --check    # drift gate vs allowlist
+scripts/plugin-core-allowlist.json          # explicit IDs/paths only
+apps/desktop/resources/plugins/index.json   # closed catalog
+```
+
+### 3. Contracts
+
+- Directory and `.tlplugin` inputs share one materialize → normalize → hash
+  path. Identical package bytes yield the same canonical package SHA-256;
+  archive container metadata never enters package identity.
+- Extraction rejects absolute/drive/UNC paths, `..`, empty or duplicate
+  normalized paths, case-fold/unicode collisions, links/reparse entries,
+  encryption, unsupported compression, multiple package roots, excess
+  count/depth/path/bytes, and compression-ratio bombs **before** any managed
+  package write. Staging cleans up on every failure.
+- `PluginPackageSourceKind` is never a manifest field and is never trusted from
+  the renderer. Detected kind is `localDirectory` or `localArchive` from the
+  source path; `classify_source_kind` may promote to `bundled` only when:
+  1. Engine was started with `--bundled-plugin-root`,
+  2. the source path canonicalizes to an archive named by the verified index,
+  3. the archive bytes match the index `archiveSha256`.
+  A path merely under the resources directory, or an unlisted archive there,
+  must **not** become `bundled`.
+- **`inspect_plugin`, `install_plugin`, and `upgrade_plugin` must all call the
+  same `classify_source_kind` on the materialized source** before projecting
+  or persisting provenance. Inspect remains side-effect free and still cleans
+  staging after classification.
+- Bundled catalog load validates `index.json` catalog version, every allowlisted
+  archive hash, and package metadata. Missing or corrupt catalog degrades only
+  catalog availability (`catalogAvailable: false` + bounded diagnostics) and
+  never blocks Engine open or ordinary local install.
+- `plugin.bundled.apply` resolves only an index package id inside the configured
+  root. Uninstalled → normal install; newer matching package → normal upgrade
+  with expected revision; same version+hash → idempotent. Downgrade is never
+  implicit. Uninstall removes managed generations only; it never deletes
+  release-bundled source archives under the packaged root.
+- Optional closed manifest `distribution` carries bounded `publisher`,
+  SPDX-style `license`, and optional HTTPS `homepage`. Legacy packages project
+  `distribution = null`. Release allowlist packages require distribution plus
+  root `LICENSE`/`LICENSE.*`.
+- Migration 24 adds `source_kind` and `distribution_json` to
+  `plugin_installations` and `plugin_versions`. Legacy rows backfill
+  `localDirectory` with null distribution. Version rows own historical
+  provenance; the installation row mirrors the active version.
+- Safe diagnostics and RPC projections never include absolute managed/resource
+  paths, archive entry payloads, credentials, or stack traces. Desktop may show
+  source badges and hash prefixes only.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Malicious archive entry (traversal, absolute, link, bomb, bad compression) | Typed package error; no staging publish; no SQLite mutation |
+| Missing/invalid `.tlplugin-format` or multi-root package | Typed package error before write |
+| Same plugin version + same package hash | Idempotent success; no revision churn |
+| Same semantic version + different package hash | Typed conflict; active generation unchanged |
+| Managed-tree rehash mismatch before activation | Typed integrity error; candidate never activates |
+| Catalog index/archive hash tamper or missing root | Catalog unavailable; local plugins and Engine health intact |
+| Local archive bytes match a verified index entry under bundled root | `sourceKind = bundled` after classify |
+| Same archive bytes outside verified index path | `sourceKind = localArchive` |
+| Renderer/manifest claims `bundled` or spoofs provenance | Ignored; Engine re-derives from materialization context |
+| `plugin.bundled.apply` unknown id or unavailable catalog | Typed not-found / catalog error; no install side effect |
+| Stale `expectedRevision` on apply/upgrade/rollback | `conflict`; prior active generation remains authoritative |
+
+### 5. Good / Base / Bad Cases
+
+- Good: pack allowlisted examples with stable hashes, install a local
+  `.tlplugin` outside the catalog as `localArchive`, apply a catalog entry as
+  `bundled`, restart, upgrade, roll back, uninstall; catalog archives remain on
+  disk.
+- Base: missing `--bundled-plugin-root` yields empty catalog and full local
+  directory/archive install still works.
+- Bad: trust a renderer `sourceKind`, skip `classify_source_kind` on inspect,
+  treat any path under `resources/plugins` as bundled, auto-activate catalog
+  packages on Engine start, or delete bundled archives on uninstall.
+
+### 6. Tests Required
+
+- `package_archive` unit tests: directory/archive canonical hash parity;
+  traversal/absolute/collision/link/compression/bomb rejection; cleanup on
+  failure.
+- Engine tests: verified catalog list; missing root degrades catalog only;
+  tampered index fails closed for catalog; provenance promotion only for
+  verified index archives; inspect/install/upgrade share classification;
+  duplicate install idempotent; blue/green upgrade and failed-candidate
+  compensation.
+- Storage: migration 24 fresh/upgrade backfill; source_kind check constraints.
+- Packager: `package-plugins.mjs --check` allowlist drift; secret/path scan of
+  index and archives.
+- Real Engine smoke: archive inspect/install + bundled list/apply lifecycle.
+- Electron E2E on a **fresh** desktop build: inspect-before-mutate, bundled
+  Path A, local `.tlplugin` Path B with fixture **outside** the catalog root,
+  permission review, uninstall, empty console/page errors, three viewports.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+// Inspect trusts materializer detection only; install later reclassifies.
+// Same catalog archive path shows localArchive on inspect, bundled after install.
+Ok(PluginInspection {
+    source_kind: staged.source_kind,
+    ..
+})
+```
+
+```typescript
+// E2E points TRANSLUNAR_TEST_PLUGIN_SOURCE at resources/plugins/*.tlplugin
+// and asserts "local archive" after install — host correctly marks bundled.
+```
+
+#### Correct
+
+```rust
+staged.source_kind = classify_source_kind(
+    source,
+    self.bundled_plugin_root.as_deref(),
+    staged.source_kind,
+);
+// inspect, install, and upgrade share this classification before return/persist
+```
+
+```typescript
+// Copy the catalog archive to a temp dir outside the bundled root, then point
+// the picker fixture at that copy when asserting localArchive provenance.
+```
+

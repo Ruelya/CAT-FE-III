@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Strict Rust/workspace, focused regression, smoke, generated-contract, and evidence review gates."}
+{"file":".trellis/spec/backend/engine-boundary.md","reason":"Verify exact-generation compensation, package integrity, authorization, diagnostics, and host health across the full lifecycle."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Verify additive migration, immutable provenance, optimistic revisions, restart, hash failure, and rollback atomicity."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Verify closed errors and absence of credentials, private paths, raw plugin payloads, and stack traces."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Verify trusted picker/startup boundary, generated types, keyboard/focus/i18n behavior, responsive screenshots, and real Electron E2E."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Verify one authoritative source for distribution metadata, provenance, catalog state, revisions, and lifecycle outcomes."}
+{"file":".trellis/tasks/07-30-plugin-management-release/research/codebase-contracts.md","reason":"Check all implementation and evidence against researched existing paths, gaps, and the local-only P-10 scope."}

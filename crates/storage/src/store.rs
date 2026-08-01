@@ -9008,9 +9008,11 @@ fn validate_pipeline_plugin_attempt_payloads(
     })?;
     let input_hash = pipeline_json_hash(input)?;
     let output_hash = pipeline_json_hash(output)?;
+    // Engine records missing usage as `{}` (see plugin_attempt); validation
+    // must use the same default so declarative steps without usage still commit.
     if attempt.input_hash != input_hash
         || attempt.output_hash.as_deref() != Some(output_hash.as_str())
-        || attempt.usage != usage.cloned().unwrap_or(Value::Null)
+        || attempt.usage != usage.cloned().unwrap_or_else(|| serde_json::json!({}))
         || attempt.failure.is_some()
     {
         return Err(StorageError::InvalidState(

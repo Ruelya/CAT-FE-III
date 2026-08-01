@@ -21,8 +21,8 @@ use translunar_plugin_runtime::{
     PluginProcess, PluginRuntimeDescriptor, ProcessDocumentFilter, QaRuleContributionDescriptor,
     SandboxDocumentFilter, SandboxError, SandboxHostCallRegistry, SandboxHostMethod,
     SandboxRuntimeConfig, SandboxRuntimeKey, SandboxWorkerHandle, StagedPluginPackage,
-    inspect_plugin_package, publish_staged_package, remove_package, sandbox_safe_diagnostic,
-    stage_plugin_package,
+    inspect_plugin_package, is_tlplugin_path, materialize_plugin_package, publish_staged_package,
+    remove_package, sandbox_safe_diagnostic, stage_plugin_package, verify_plugin_package_hash,
 };
 use translunar_protocol::{
     NormalizedPluginManifest, PluginAiActionInvokeParams, PluginAiActionInvokeResult,
@@ -98,6 +98,20 @@ impl EngineService {
     pub(crate) fn reload_enabled_plugins(&mut self) -> Result<()> {
         let enabled = self.store.list_enabled_plugins()?;
         for record in enabled {
+            if let Some(expected_hash) = record.package_sha256.as_deref() {
+                let package_path =
+                    resolve_managed_path(self.store.paths().root.as_path(), &record.package_path);
+                if let Err(error) = verify_plugin_package_hash(&package_path, expected_hash) {
+                    let message = bounded_plugin_message(&format!(
+                        "managed plugin package hash verification failed: {error}"
+                    ));
+                    let _ = self
+                        .store
+                        .record_plugin_crash(&record.id, record.revision, message);
+                    self.unregister_plugin_filters(&record.id);
+                    continue;
+                }
+            }
             if let Some(compatibility) = parse_compatibility(&record.compatibility_json)
                 && !compatibility.compatible
             {
@@ -353,17 +367,40 @@ impl EngineService {
 
     pub fn inspect_plugin(&self, params: PluginInspectParams) -> Result<PluginInspection> {
         let source = checked_source_path(&params.source_path)?;
-        let (normalized, package_hash) =
-            inspect_plugin_package(&source).map_err(map_plugin_error)?;
-        let compatibility = to_wire_compatibility(normalized.compatibility());
-        let already_installed = self.store.get_plugin_installation(&normalized.id).is_ok();
-        Ok(PluginInspection {
-            normalized_manifest: to_wire_normalized_manifest(normalized)?,
-            package_sha256: package_hash.sha256,
-            can_install: compatibility.compatible && !already_installed,
-            compatibility,
-            diagnostics: Vec::new(),
-        })
+        let mut staged = materialize_plugin_package(
+            &source,
+            &self.store.paths().temporary.join("plugin-staging"),
+            None,
+        )
+        .map_err(map_plugin_error)?;
+        // Same host-derived provenance as install/upgrade (R3/R4).
+        staged.source_kind = crate::plugin_bundled::classify_source_kind(
+            &source,
+            self.bundled_plugin_root.as_deref(),
+            staged.source_kind,
+        );
+        let compatibility = to_wire_compatibility(staged.normalized_manifest.compatibility());
+        let already_installed = self
+            .store
+            .get_plugin_installation(&staged.normalized_manifest.id)
+            .is_ok();
+        let inspection = match to_wire_normalized_manifest(staged.normalized_manifest.clone()) {
+            Ok(normalized_manifest) => PluginInspection {
+                normalized_manifest,
+                package_sha256: staged.package_hash.sha256.clone(),
+                can_install: compatibility.compatible && !already_installed,
+                compatibility,
+                diagnostics: Vec::new(),
+                source_kind: staged.source_kind,
+                distribution: staged.normalized_manifest.distribution.clone(),
+            },
+            Err(error) => {
+                cleanup_staged(&staged);
+                return Err(error);
+            }
+        };
+        cleanup_staged(&staged);
+        Ok(inspection)
     }
 
     pub fn list_plugin_versions(
@@ -398,11 +435,29 @@ impl EngineService {
                 },
             ));
         }
-        let staged = stage_plugin_package(
+        let mut staged = stage_plugin_package(
             &source,
             &self.store.paths().temporary.join("plugin-staging"),
         )
         .map_err(map_plugin_error)?;
+        staged.source_kind = crate::plugin_bundled::classify_source_kind(
+            &source,
+            self.bundled_plugin_root.as_deref(),
+            staged.source_kind,
+        );
+        let staged_hash = match translunar_plugin_runtime::hash_plugin_package(&staged.path) {
+            Ok(hash) => hash,
+            Err(error) => {
+                cleanup_staged(&staged);
+                return Err(map_plugin_error(error));
+            }
+        };
+        if staged_hash.sha256 != staged.package_hash.sha256 {
+            cleanup_staged(&staged);
+            return Err(EngineError::PluginPackageHashMismatch(
+                "staged package hash changed before publication".to_string(),
+            ));
+        }
         if staged.normalized_manifest.id != params.plugin_id {
             cleanup_staged(&staged);
             return Err(EngineError::PluginConflict(
@@ -482,6 +537,19 @@ impl EngineService {
                 cleanup_staged(&staged);
                 return Err(map_plugin_error(error));
             }
+            let managed_hash = translunar_plugin_runtime::hash_plugin_package(
+                &candidate_destination,
+            )
+            .map_err(|error| {
+                let _ = remove_package(&candidate_destination);
+                map_plugin_error(error)
+            })?;
+            if managed_hash.sha256 != staged.package_hash.sha256 {
+                let _ = remove_package(&candidate_destination);
+                return Err(EngineError::PluginPackageHashMismatch(
+                    "managed package hash mismatch after publication".to_string(),
+                ));
+            }
             if let Err(error) = self.store.insert_plugin_version(input) {
                 let _ = remove_package(&candidate_destination);
                 return Err(error.into());
@@ -502,6 +570,17 @@ impl EngineService {
         if let Err(error) = publish_staged_package(&staged.path, &candidate_destination) {
             cleanup_staged(&staged);
             return Err(map_plugin_error(error));
+        }
+        let managed_hash = translunar_plugin_runtime::hash_plugin_package(&candidate_destination)
+            .map_err(|error| {
+            let _ = remove_package(&candidate_destination);
+            map_plugin_error(error)
+        })?;
+        if managed_hash.sha256 != staged.package_hash.sha256 {
+            let _ = remove_package(&candidate_destination);
+            return Err(EngineError::PluginPackageHashMismatch(
+                "managed package hash mismatch after publication".to_string(),
+            ));
         }
         let input = new_version_from_staged(
             &staged,
@@ -770,28 +849,66 @@ impl EngineService {
 
     pub fn install_plugin(&mut self, params: PluginInstallParams) -> Result<PluginMutationResult> {
         let source = checked_source_path(&params.source_path)?;
-        let (normalized, source_hash) =
-            inspect_plugin_package(&source).map_err(map_plugin_error)?;
+        let mut staged = stage_plugin_package(
+            &source,
+            &self.store.paths().temporary.join("plugin-staging"),
+        )
+        .map_err(map_plugin_error)?;
+        staged.source_kind = crate::plugin_bundled::classify_source_kind(
+            &source,
+            self.bundled_plugin_root.as_deref(),
+            staged.source_kind,
+        );
+        // Re-hash managed candidate tree before publication for integrity.
+        let rehash = translunar_plugin_runtime::hash_plugin_package(&staged.path)
+            .map_err(map_plugin_error)?;
+        if rehash.sha256 != staged.package_hash.sha256 {
+            cleanup_staged(&staged);
+            return Err(EngineError::PluginPackageHashMismatch(
+                "staged package hash changed before publication".to_string(),
+            ));
+        }
+        let normalized = staged.normalized_manifest.clone();
         match self.store.get_plugin_installation(&normalized.id) {
-            Ok(_) => {
+            Ok(existing) => {
+                if existing.version == normalized.version {
+                    if existing.package_sha256.as_deref()
+                        == Some(staged.package_hash.sha256.as_str())
+                    {
+                        let managed_path = resolve_managed_path(
+                            self.store.paths().root.as_path(),
+                            &existing.package_path,
+                        );
+                        if let Some(expected_hash) = existing.package_sha256.as_deref()
+                            && verify_plugin_package_hash(&managed_path, expected_hash).is_err()
+                        {
+                            cleanup_staged(&staged);
+                            return Err(EngineError::PluginPackageHashMismatch(
+                                "installed package bytes differ from recorded hash".to_string(),
+                            ));
+                        }
+                        cleanup_staged(&staged);
+                        return Ok(PluginMutationResult {
+                            plugin: to_summary(existing),
+                        });
+                    }
+                    cleanup_staged(&staged);
+                    return Err(EngineError::PluginConflict(format!(
+                        "plugin version {} already exists with a different package hash",
+                        normalized.version
+                    )));
+                }
+                cleanup_staged(&staged);
                 return Err(EngineError::InvalidState(format!(
                     "plugin {} is already installed",
                     normalized.id
                 )));
             }
             Err(translunar_storage::StorageError::NotFound { .. }) => {}
-            Err(error) => return Err(error.into()),
-        }
-        let staged = stage_plugin_package(
-            &source,
-            &self.store.paths().temporary.join("plugin-staging"),
-        )
-        .map_err(map_plugin_error)?;
-        if staged.package_hash.sha256 != source_hash.sha256 {
-            cleanup_staged(&staged);
-            return Err(EngineError::PluginPackageHashMismatch(
-                "source package changed while it was being staged".to_string(),
-            ));
+            Err(error) => {
+                cleanup_staged(&staged);
+                return Err(error.into());
+            }
         }
         let destination = version_package_destination(
             &self.store,
@@ -802,6 +919,17 @@ impl EngineService {
         if let Err(error) = publish_staged_package(&staged.path, &destination) {
             cleanup_staged(&staged);
             return Err(map_plugin_error(error));
+        }
+        let managed_hash =
+            translunar_plugin_runtime::hash_plugin_package(&destination).map_err(|error| {
+                let _ = remove_package(&destination);
+                map_plugin_error(error)
+            })?;
+        if managed_hash.sha256 != staged.package_hash.sha256 {
+            let _ = remove_package(&destination);
+            return Err(EngineError::PluginPackageHashMismatch(
+                "managed package hash mismatch after publication".to_string(),
+            ));
         }
         let compatibility = normalized.compatibility();
         let legacy_manifest = legacy_inventory_manifest(&normalized);
@@ -822,6 +950,8 @@ impl EngineService {
                 status: PluginStatus::Installed,
                 last_error: None,
                 source_manifest_version: normalized.source_manifest_version,
+                source_kind: staged.source_kind,
+                distribution: normalized.distribution.clone(),
             })
             .inspect_err(|_| {
                 let _ = remove_package(&destination);
@@ -3150,12 +3280,20 @@ fn authorize_connector_registration(
 
 fn checked_source_path(value: &str) -> Result<PathBuf> {
     let path = PathBuf::from(value.trim());
-    if value.trim().is_empty() || !path.is_dir() {
+    if value.trim().is_empty() {
         return Err(EngineError::InvalidRequest(
-            "plugin sourcePath must be an existing directory".to_string(),
+            "plugin sourcePath must be a non-empty path".to_string(),
         ));
     }
-    Ok(path)
+    if path.is_dir() {
+        return Ok(path);
+    }
+    if path.is_file() && is_tlplugin_path(&path) {
+        return Ok(path);
+    }
+    Err(EngineError::InvalidRequest(
+        "plugin sourcePath must be an existing directory or .tlplugin archive".to_string(),
+    ))
 }
 
 fn version_package_destination(
@@ -3392,7 +3530,7 @@ fn bounded_plugin_message(message: &str) -> String {
     bounded
 }
 
-fn resolve_managed_path(root: &Path, path: &Path) -> PathBuf {
+pub(crate) fn resolve_managed_path(root: &Path, path: &Path) -> PathBuf {
     if path.is_absolute() {
         path.to_path_buf()
     } else {
@@ -3575,6 +3713,8 @@ fn new_version_from_staged(
         diagnostics_json: json!([]),
         state: PluginVersionState::Validated,
         installed_at_ms: chrono::Utc::now().timestamp_millis(),
+        source_kind: staged.source_kind,
+        distribution: staged.normalized_manifest.distribution.clone(),
     })
 }
 
@@ -3616,6 +3756,8 @@ fn candidate_installation_from_version(
         normalized_manifest_json: version.normalized_manifest_json.clone(),
         compatibility_json: version.compatibility_json.clone(),
         diagnostics_json: version.diagnostics_json.clone(),
+        source_kind: version.source_kind,
+        distribution: version.distribution.clone(),
     })
 }
 
@@ -3663,6 +3805,8 @@ pub(crate) fn to_summary(record: PluginInstallationRecord) -> PluginSummary {
         crash_count: record.crash_count,
         installed_at_ms: record.installed_at_ms,
         updated_at_ms: record.updated_at_ms,
+        source_kind: record.source_kind,
+        distribution: record.distribution,
     }
 }
 
@@ -3722,6 +3866,8 @@ fn to_version_summary(record: PluginVersionRecord) -> Result<PluginVersionSummar
         activated_at_ms: record.activated_at_ms,
         deactivated_at_ms: record.deactivated_at_ms,
         failed_at_ms: record.failed_at_ms,
+        source_kind: record.source_kind,
+        distribution: record.distribution,
     })
 }
 
@@ -5629,7 +5775,7 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_install_is_rejected_without_mutating_enabled_plugin() {
+    fn duplicate_install_is_idempotent_without_mutating_enabled_plugin() {
         let data = tempdir().expect("data directory");
         let mut service = EngineService::open(data.path()).expect("open engine");
         let source = hello_srt_source();
@@ -5683,15 +5829,16 @@ mod tests {
         assert!(service.filters.contains("example.hello-srt"));
         assert!(service.plugin_processes.contains_key("example.hello-srt"));
 
-        let error = service
+        let repeated = service
             .install_plugin(PluginInstallParams {
                 source_path: source.to_string_lossy().into_owned(),
                 grant_requested: false,
                 actor: "test".to_string(),
                 reason: "duplicate".to_string(),
             })
-            .expect_err("duplicate id must fail");
-        assert!(matches!(error, EngineError::InvalidState(_)));
+            .expect("same version and hash install is idempotent")
+            .plugin;
+        assert_eq!(repeated, enabled);
 
         let after = service
             .get_plugin(PluginIdParams {

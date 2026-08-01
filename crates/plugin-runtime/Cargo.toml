@@ -19,8 +19,10 @@ translunar-domain = { path = "../domain" }
 translunar-filter-core = { path = "../filter-core" }
 translunar-pipeline = { path = "../pipeline" }
 translunar-qa-core = { path = "../qa-core" }
+unicode-normalization.workspace = true
 uuid.workspace = true
 zeroize.workspace = true
+zip.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

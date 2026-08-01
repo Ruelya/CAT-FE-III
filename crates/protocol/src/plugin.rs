@@ -10,7 +10,8 @@ pub use translunar_plugin_runtime::{
     DeclarativePipelineDefinitionV1, DeclarativeQaPackDefinitionV1, EngineConnectorLimitsV1,
     FilterContributionDescriptor, PluginCapabilityAuditEvent, PluginCapabilityDecision,
     PluginCapabilityId, PluginCapabilityRequest, PluginCapabilityScope,
-    PluginContributionDescriptor, PluginFileArea, UiPanelContributionDescriptor,
+    PluginContributionDescriptor, PluginDistributionMetadata, PluginFileArea,
+    PluginPackageSourceKind, UiPanelContributionDescriptor,
 };
 
 use crate::{default_actor, default_page_size};
@@ -114,6 +115,8 @@ pub struct NormalizedPluginManifest {
     pub requested_permissions: Vec<String>,
     #[serde(default)]
     pub requested_capabilities: Vec<PluginCapabilityRequest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub distribution: Option<PluginDistributionMetadata>,
     pub original_manifest_json: Value,
 }
 
@@ -238,6 +241,10 @@ pub struct PluginInspection {
     pub compatibility: PluginCompatibility,
     pub diagnostics: Vec<PluginDiagnostic>,
     pub can_install: bool,
+    /// Host-derived source kind for the inspected path (never from the manifest).
+    pub source_kind: PluginPackageSourceKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub distribution: Option<PluginDistributionMetadata>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -270,6 +277,15 @@ pub struct PluginSummary {
     pub crash_count: u32,
     pub installed_at_ms: i64,
     pub updated_at_ms: i64,
+    /// Host-derived provenance of the active package version.
+    #[serde(default = "default_local_directory_source")]
+    pub source_kind: PluginPackageSourceKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub distribution: Option<PluginDistributionMetadata>,
+}
+
+fn default_local_directory_source() -> PluginPackageSourceKind {
+    PluginPackageSourceKind::LocalDirectory
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -465,6 +481,97 @@ pub struct PluginVersionSummary {
     pub deactivated_at_ms: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failed_at_ms: Option<i64>,
+    #[serde(default = "default_local_directory_source")]
+    pub source_kind: PluginPackageSourceKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub distribution: Option<PluginDistributionMetadata>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum PluginBundledInstallState {
+    Available,
+    Installed,
+    UpdateAvailable,
+    Current,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginBundledListParams {
+    #[serde(default = "default_page_size")]
+    pub limit: u32,
+    #[serde(default)]
+    pub offset: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginBundledSummary {
+    pub plugin_id: String,
+    pub display_name: String,
+    pub version: String,
+    pub tier: PluginTier,
+    pub package_sha256: String,
+    pub archive_sha256: String,
+    pub publisher: String,
+    pub license: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub homepage: Option<String>,
+    pub contribution_count: u32,
+    pub install_state: PluginBundledInstallState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub installed_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub installed_package_sha256: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginBundledPage {
+    pub items: Vec<PluginBundledSummary>,
+    pub total: u32,
+    pub offset: u32,
+    pub limit: u32,
+    /// True when the Engine has a healthy, verified bundled catalog root.
+    pub catalog_available: bool,
+    #[serde(default)]
+    pub diagnostics: Vec<PluginDiagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginBundledApplyParams {
+    pub plugin_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_revision: Option<u64>,
+    #[serde(default = "default_actor")]
+    pub actor: String,
+    #[serde(default = "default_bundled_apply_reason")]
+    pub reason: String,
+}
+
+fn default_bundled_apply_reason() -> String {
+    "apply bundled plugin".to_string()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum PluginBundledApplyAction {
+    Installed,
+    Upgraded,
+    Unchanged,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginBundledApplyResult {
+    pub plugin: PluginSummary,
+    pub action: PluginBundledApplyAction,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_version_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_version_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

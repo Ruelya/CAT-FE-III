@@ -149,7 +149,9 @@ async function bootstrap(): Promise<void> {
   const settings = await shellSettings.load();
   engineExecutable = await resolveEngineExecutable();
   const resolvedDataDir = resolveInitialDataDirectory(settings);
+  const bundledPluginRoot = await resolveBundledPluginRoot();
   engine = new EngineClient(engineExecutable, resolvedDataDir.path, {
+    bundledPluginRoot,
     onUnexpectedExit: ({ attempt, stderrTail }) => {
       pluginAssetSessions.revokeAll();
       mainWindow?.webContents.send(IPC_CHANNELS.pluginPanelRevoked, null);
@@ -740,12 +742,24 @@ function registerIpc(): void {
     if (process.env.TRANSLUNAR_TEST_PLUGIN_SOURCE) {
       return process.env.TRANSLUNAR_TEST_PLUGIN_SOURCE;
     }
+    const locale = await currentDialogLocale();
+    const copy = pluginPackagePickerCopy(locale);
+    const choice = await dialog.showMessageBox(requireWindow(), {
+      type: "question",
+      title: dialogTitle(locale, "dialog.selectPluginPackage"),
+      message: copy.message,
+      buttons: [copy.archive, copy.directory, copy.cancel],
+      defaultId: 0,
+      cancelId: 2,
+      noLink: true,
+    });
+    if (choice.response === 2) return null;
     const result = await dialog.showOpenDialog(requireWindow(), {
-      title: dialogTitle(
-        await currentDialogLocale(),
-        "dialog.selectPluginPackage",
-      ),
-      properties: ["openDirectory"],
+      title: dialogTitle(locale, "dialog.selectPluginPackage"),
+      properties: choice.response === 0 ? ["openFile"] : ["openDirectory"],
+      ...(choice.response === 0
+        ? { filters: [{ name: "Plugin package", extensions: ["tlplugin"] }] }
+        : {}),
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
@@ -1417,4 +1431,61 @@ async function resolveEngineExecutable(): Promise<string> {
     }
   }
   throw new Error(`Translation engine binary not found (${binary}).`);
+}
+
+async function resolveBundledPluginRoot(): Promise<string | null> {
+  if (process.env.TRANSLUNAR_BUNDLED_PLUGIN_ROOT) {
+    try {
+      await access(process.env.TRANSLUNAR_BUNDLED_PLUGIN_ROOT);
+      return process.env.TRANSLUNAR_BUNDLED_PLUGIN_ROOT;
+    } catch {
+      return null;
+    }
+  }
+  const candidates = app.isPackaged
+    ? [join(process.resourcesPath, "plugins")]
+    : [
+        resolve(app.getAppPath(), "resources", "plugins"),
+        resolve(
+          app.getAppPath(),
+          "..",
+          "..",
+          "apps",
+          "desktop",
+          "resources",
+          "plugins",
+        ),
+        resolve(process.cwd(), "apps", "desktop", "resources", "plugins"),
+      ];
+  for (const path of candidates) {
+    try {
+      await access(path);
+      return path;
+    } catch {
+      // try next
+    }
+  }
+  return null;
+}
+
+function pluginPackagePickerCopy(locale: string): {
+  message: string;
+  archive: string;
+  directory: string;
+  cancel: string;
+} {
+  if (locale.toLocaleLowerCase().startsWith("zh")) {
+    return {
+      message: "请选择 .tlplugin 归档文件或插件目录。",
+      archive: "选择 .tlplugin 文件",
+      directory: "选择插件目录",
+      cancel: "取消",
+    };
+  }
+  return {
+    message: "Choose a .tlplugin archive or a plugin directory.",
+    archive: "Choose .tlplugin file",
+    directory: "Choose plugin directory",
+    cancel: "Cancel",
+  };
 }

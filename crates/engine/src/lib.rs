@@ -166,6 +166,7 @@ mod local_api;
 mod local_auth;
 mod plugin;
 mod plugin_ai_ui;
+mod plugin_bundled;
 mod plugin_capability;
 mod plugin_connector;
 mod plugin_declarative;
@@ -3251,16 +3252,41 @@ pub struct EngineService {
     plugin_pipeline_owners: std::collections::BTreeMap<String, PipelineStepOwner>,
     plugin_activation_revisions: std::collections::BTreeMap<String, u64>,
     plugin_capabilities: plugin_capability::PluginCapabilityService,
+    /// Optional trusted read-only root for offline bundled core plugins.
+    bundled_plugin_root: Option<PathBuf>,
 }
 
 impl EngineService {
     pub fn open(data_dir: impl AsRef<Path>) -> Result<Self> {
-        let data_dir = data_dir.as_ref().to_path_buf();
-        let ai = ai::AiManager::new(data_dir.clone())?;
-        Self::open_with_ai(data_dir, ai)
+        Self::open_with_options(data_dir, None)
     }
 
+    pub fn open_with_bundled_plugin_root(
+        data_dir: impl AsRef<Path>,
+        bundled_plugin_root: Option<PathBuf>,
+    ) -> Result<Self> {
+        Self::open_with_options(data_dir, bundled_plugin_root)
+    }
+
+    fn open_with_options(
+        data_dir: impl AsRef<Path>,
+        bundled_plugin_root: Option<PathBuf>,
+    ) -> Result<Self> {
+        let data_dir = data_dir.as_ref().to_path_buf();
+        let ai = ai::AiManager::new(data_dir.clone())?;
+        Self::open_with_ai_and_root(data_dir, ai, bundled_plugin_root)
+    }
+
+    #[allow(dead_code)]
     fn open_with_ai(data_dir: PathBuf, ai: ai::AiManager) -> Result<Self> {
+        Self::open_with_ai_and_root(data_dir, ai, None)
+    }
+
+    fn open_with_ai_and_root(
+        data_dir: PathBuf,
+        ai: ai::AiManager,
+        bundled_plugin_root: Option<PathBuf>,
+    ) -> Result<Self> {
         let filters = FilterRegistry::default();
         filters
             .register(Arc::new(DocxFilter))
@@ -3335,6 +3361,8 @@ impl EngineService {
             plugin_pipeline_owners: std::collections::BTreeMap::new(),
             plugin_activation_revisions: std::collections::BTreeMap::new(),
             plugin_capabilities,
+            bundled_plugin_root: bundled_plugin_root
+                .and_then(|root| root.canonicalize().ok().filter(|path| path.is_dir())),
         };
         service.reload_enabled_plugins()?;
         Ok(service)
@@ -6909,8 +6937,15 @@ impl RpcCancelHandle {
 
 impl RpcDispatcher {
     pub fn open(data_dir: impl AsRef<Path>) -> Result<Self> {
+        Self::open_with_bundled_plugin_root(data_dir, None)
+    }
+
+    pub fn open_with_bundled_plugin_root(
+        data_dir: impl AsRef<Path>,
+        bundled_plugin_root: Option<PathBuf>,
+    ) -> Result<Self> {
         Ok(Self {
-            service: EngineService::open(data_dir)?,
+            service: EngineService::open_with_bundled_plugin_root(data_dir, bundled_plugin_root)?,
             initialized: false,
         })
     }
@@ -7422,6 +7457,14 @@ impl RpcDispatcher {
                 self.service
                     .rollback_plugin(parse_params(request.params)?)?,
             ),
+            methods::PLUGIN_BUNDLED_LIST => serialize_result(
+                self.service
+                    .list_bundled_plugins(parse_params(request.params)?)?,
+            ),
+            methods::PLUGIN_BUNDLED_APPLY => serialize_result(
+                self.service
+                    .apply_bundled_plugin(parse_params(request.params)?)?,
+            ),
             methods::PLUGIN_PERMISSION_REQUEST_LIST => serialize_result(
                 self.service
                     .list_plugin_capability_requests(parse_params(request.params)?)?,
@@ -7866,6 +7909,8 @@ impl RpcDispatcher {
                 "plugin.version-history.v1".to_string(),
                 "plugin.upgrade.v1".to_string(),
                 "plugin.rollback.v1".to_string(),
+                "plugin.bundled.catalog.v1".to_string(),
+                "plugin.archive.tlplugin.v1".to_string(),
                 "plugin.permissions.v1".to_string(),
                 "plugin.qa-rule.v1".to_string(),
                 "plugin.pipeline-step.v1".to_string(),
