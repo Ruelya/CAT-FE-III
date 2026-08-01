@@ -2827,6 +2827,7 @@ fn alignment_refinement_error_code(error: &StorageError) -> &'static str {
         StorageError::NotFound { .. }
         | StorageError::Conflict { .. }
         | StorageError::EntityConflict { .. }
+        | StorageError::LockHeld { .. }
         | StorageError::InvalidState(_) => "alignment_stale",
         StorageError::Alignment(_) => "alignment_response_invalid",
         StorageError::Database(_)

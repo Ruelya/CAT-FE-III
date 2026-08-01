@@ -154,8 +154,7 @@ pub struct CollabAssignmentCreateParams {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CollabAssignmentCompleteParams {
     pub assignment_id: String,
-    #[serde(default)]
-    pub expected_revision: Option<u64>,
+    pub expected_revision: u64,
     #[serde(default = "default_actor")]
     pub actor_id: String,
 }
@@ -213,4 +212,39 @@ pub struct CollabOpLogPage {
     pub total: u32,
     pub after_sequence: u64,
     pub limit: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn assignment_complete_requires_expected_revision() {
+        let ok: CollabAssignmentCompleteParams = serde_json::from_value(json!({
+            "assignmentId": "assign-1",
+            "expectedRevision": 0,
+            "actorId": "bob"
+        }))
+        .expect("expectedRevision present must deserialize");
+        assert_eq!(ok.expected_revision, 0);
+
+        assert!(
+            serde_json::from_value::<CollabAssignmentCompleteParams>(json!({
+                "assignmentId": "assign-1",
+                "actorId": "bob"
+            }))
+            .is_err(),
+            "missing expectedRevision must be rejected"
+        );
+        assert!(
+            serde_json::from_value::<CollabAssignmentCompleteParams>(json!({
+                "assignmentId": "assign-1",
+                "expectedRevision": null,
+                "actorId": "bob"
+            }))
+            .is_err(),
+            "null expectedRevision must be rejected"
+        );
+    }
 }

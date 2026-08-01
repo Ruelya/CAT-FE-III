@@ -3842,3 +3842,195 @@ staged.source_kind = classify_source_kind(
 // the picker fixture at that copy when asserting localArchive provenance.
 ```
 
+
+## Collaboration Local MVP Boundary
+
+### 1. Scope / Trigger
+
+Use this contract when changing self-hosted team collaboration primitives:
+project membership/roles, advisory segment locks, presence heartbeats,
+assignments, or the append-only collaboration operation log. Cross-layer
+surfaces are `crates/protocol` (`collab.rs`), `crates/storage` (migration 17 +
+`store/collab.rs`), `crates/engine` (`collab.rs` + error mapping), and generated
+contracts under `packages/contracts`. Offline single-user Engine workflows must
+remain complete without requiring a multi-node collab server.
+
+This is **local-first foundation** only: no multi-node CRDT, no enterprise RBAC,
+and no automatic asset replica pull/push. The op-log is the durable replay
+surface for later sync consumers.
+
+### 2. Signatures
+
+Additive protocol-v1 methods (capability `collab.local.v1`):
+
+```text
+collab.member.list       CollabProjectParams            -> CollabMemberListResult
+collab.member.add        CollabMemberAddParams          -> CollabMember
+collab.member.remove     CollabMemberRemoveParams       -> EmptyResult
+collab.lock.acquire      CollabLockAcquireParams        -> CollabLock
+collab.lock.release      CollabLockActorParams          -> EmptyResult
+collab.lock.heartbeat    CollabLockActorParams          -> CollabLock
+collab.lock.list         CollabProjectParams            -> CollabLockListResult
+collab.presence.heartbeat CollabPresenceHeartbeatParams -> CollabPresence
+collab.presence.list     CollabProjectParams            -> CollabPresenceListResult
+collab.assignment.list   CollabProjectParams            -> CollabAssignmentListResult
+collab.assignment.create CollabAssignmentCreateParams   -> CollabAssignment
+collab.assignment.complete CollabAssignmentCompleteParams -> CollabAssignment
+collab.opLog.list        CollabOpLogListParams          -> CollabOpLogPage
+```
+
+SQLite migration **17** owns:
+
+```text
+collab_members(project_id, actor_id, role owner|member, …)
+collab_segment_locks(segment_id PK, project_id, document_id, actor_id,
+                     expires_at_ms, revision, …)
+collab_presence(project_id, actor_id PK, document_id?, segment_id?,
+                expires_at_ms, …)
+collab_assignments(id, project_id, document_id, assignee, ordinal range,
+                   due_at_ms?, status open|completed|canceled, revision, …)
+collab_op_log(id, project_id, sequence, kind, payload_json object, actor_id,
+              created_at_ms) UNIQUE(project_id, sequence)
+```
+
+`CollabAssignmentCompleteParams` wire shape (required revision — **not**
+`Option` / `serde(default)`):
+
+```rust
+pub struct CollabAssignmentCompleteParams {
+    pub assignment_id: String,
+    pub expected_revision: u64, // required on the wire as expectedRevision
+    #[serde(default = "default_actor")]
+    pub actor_id: String,
+}
+```
+
+### 3. Contracts
+
+- **Offline-first**: collaboration tables are additive. Single-user projects
+  remain valid without explicit membership; collab RPCs are optional extras.
+- **Roles**: `owner` | `member` only. Membership upserts use
+  `ON CONFLICT DO UPDATE` and emit op kind `member.upsert`; remove emits
+  `member.remove`.
+- **Locks are advisory Engine gates**, not OS locks. Default lock TTL is
+  60_000 ms; default presence TTL is 30_000 ms; both clamp to a minimum of
+  1_000 ms. Acquire/list purge expired rows lazily with wall-clock
+  `expires_at_ms`. Conflicting acquire by another live holder returns typed
+  `StorageError::LockHeld` mapped to JSON-RPC `conflict` with
+  `entity=segment_lock`, `holderActorId`, and `expiresAtMs`.
+- **Presence** is ephemeral: heartbeat upserts rows; list omits
+  `expires_at_ms <= now`. Presence does **not** append op-log entries.
+- **Assignment revision safety**: `collab.assignment.complete` **requires**
+  `expectedRevision: u64`. Missing/null fields fail protocol deserialization
+  (`invalid_request`) with **no** storage side effects. Stale revision returns
+  `conflict` (`entity=assignment`) without mutating status, revision, or
+  op-log. Successful complete sets `status=completed`, increments revision by
+  exactly one, and appends one `assignment.complete` op in the same transaction.
+- **Transactional op-log (sync foundation)**: every membership, lock, and
+  assignment **mutation** that records an op must run in one SQLite
+  `TransactionBehavior::Immediate` transaction that includes, in order:
+  1. entity write (insert/update/delete),
+  2. project-scoped sequence allocation
+     (`COALESCE(MAX(sequence),0)+1` under that write transaction),
+  3. `collab_op_log` insert,
+  4. commit.
+  If op insert fails, the entity change must roll back (no durable drift
+  between entity state and op-log).
+- **Lock heartbeat is a mutation**: `collab.lock.heartbeat` extends
+  `expires_at_ms`, increments lock revision, and **must** append
+  `lock.heartbeat` with payload including `segmentId`, `actorId`,
+  `expiresAtMs`, and `revision`. Release emits `lock.release`; acquire emits
+  `lock.acquire`.
+- **Recorded op kinds (MVP)**:
+  `member.upsert`, `member.remove`, `lock.acquire`, `lock.release`,
+  `lock.heartbeat`, `assignment.create`, `assignment.complete`.
+- **Op-log list**: `afterSequence` + bounded `limit` (clamped 1..200), ordered
+  ascending by `sequence`, returns `total` for the filtered page window.
+- Protocol structs are camelCase on the wire; regenerate
+  `packages/contracts` with any collab wire change (`pnpm contracts:check`).
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Unknown method / bad params shape (incl. missing `expectedRevision`) | `invalid_request`; no entity or op-log write |
+| Project missing on member add | `not_found` for project; no member/op |
+| Member remove of unknown actor | `not_found` (`collab_member`); no op |
+| Lock held by another non-expired actor | `conflict`, `entity=segment_lock`, `holderActorId`, `expiresAtMs` |
+| Lock release/heartbeat by non-holder | `conflict` on `segment_lock`; lock/op unchanged |
+| Lock/assignment id missing | `not_found` |
+| Assignment complete with stale `expectedRevision` | `conflict` (`entity=assignment`); status/revision/op-log unchanged |
+| Assignment complete with matching revision | `status=completed`, revision N→N+1, exactly one `assignment.complete` op |
+| `ordinalEnd < ordinalStart` on create | `invalid_request` / invalid data; no assignment/op |
+| Op-log insert failure mid mutation | Entire Immediate transaction rolls back; no partial entity |
+
+### 5. Good / Base / Bad Cases
+
+- Good: add members, restart Engine on the same data dir, list still contains
+  them; A acquires a segment lock, B receives typed holder conflict; A
+  heartbeats and `collab.opLog.list` shows contiguous sequences including
+  `lock.heartbeat`; assignment create → complete with exact revision.
+- Base: presence heartbeat appears in list with short TTL and is omitted after
+  wall-clock expiry; expired locks are re-acquirable by another actor without
+  explicit release.
+- Bad: treat `expectedRevision` as optional / defaulting to skip revision
+  checks; autocommit entity write then append op in a second statement; omit
+  op for lock heartbeat; invent multi-node CRDT semantics in the renderer.
+
+### 6. Tests Required
+
+- Protocol unit: deserialize rejects missing/null `expectedRevision`; accepts
+  present `u64` including `0`.
+- Storage collab tests: membership/lock/presence/assignment/op-log round-trip
+  across restart; continuous sequences; `lock.heartbeat` kind present; stale
+  complete does not write; **rollback** when op-log insert fails leaves no
+  member/lock/assignment/op residue; expired lock/presence omitted from lists.
+- Engine/stdio focused smoke (`TRANSLUNAR_SMOKE_SCOPE=collab`): restart
+  membership persistence, typed lock holder conflict, assignment complete +
+  stale conflict, representative op kinds (`member.upsert`, `lock.acquire`,
+  `assignment.complete`).
+- Regression hardening (recommended, accepted residual if deferred): black-box
+  coverage for **missing** `expectedRevision` and real wall-clock TTL sleep
+  (see task verify probe) inside long-lived collab smoke.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+// Optional revision lets clients omit the field and complete unconditionally.
+#[serde(default)]
+pub expected_revision: Option<u64>;
+// ...
+if let Some(expected) = expected_revision {
+    if current.revision != expected { /* conflict */ }
+}
+// Autocommit entity, then append op outside a shared Immediate transaction.
+store.execute(insert_member)?;
+append_collab_op(...)?; // crash between these desyncs AC-05 replay
+// Heartbeat extends lease but never records an op.
+```
+
+#### Correct
+
+```rust
+pub expected_revision: u64; // required wire field; missing => invalid_request
+let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+// entity write + sequence allocation + op insert, then commit
+append_collab_op(&tx, project_id, "lock.heartbeat", json!({
+    "segmentId": segment_id,
+    "actorId": actor_id,
+    "expiresAtMs": lock.expires_at_ms,
+    "revision": lock.revision,
+}), actor_id)?;
+tx.commit()?;
+```
+
+```typescript
+// Always send the authoritative revision from the last list/create response.
+await invoke("collab.assignment.complete", {
+  assignmentId,
+  expectedRevision: assignment.revision,
+  actorId,
+});
+```

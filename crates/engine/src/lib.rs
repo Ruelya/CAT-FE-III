@@ -350,7 +350,8 @@ fn engine_error_code(error: &EngineError) -> &'static str {
     match error {
         EngineError::Storage(StorageError::NotFound { .. }) => "not_found",
         EngineError::Storage(StorageError::Conflict { .. })
-        | EngineError::Storage(StorageError::EntityConflict { .. }) => "conflict",
+        | EngineError::Storage(StorageError::EntityConflict { .. })
+        | EngineError::Storage(StorageError::LockHeld { .. }) => "conflict",
         EngineError::Import(FilterError::PluginPermissionDenied { .. })
         | EngineError::CorpusImport(FilterError::PluginPermissionDenied { .. })
         | EngineError::Export(FilterError::PluginPermissionDenied { .. }) => {
@@ -8345,6 +8346,23 @@ fn rpc_error(error: EngineError) -> RpcError {
                 "id": id,
                 "expectedRevision": expected_revision,
                 "actualRevision": actual_revision,
+            })),
+        },
+        EngineError::Storage(StorageError::LockHeld {
+            segment_id,
+            holder_actor_id,
+            revision,
+            expires_at_ms,
+        }) => RpcError {
+            code: ErrorCode::Conflict,
+            message: format!("segment lock held by {holder_actor_id}"),
+            data: Some(json!({
+                "entity": "segment_lock",
+                "id": segment_id,
+                "holderActorId": holder_actor_id,
+                "expectedRevision": revision,
+                "actualRevision": revision,
+                "expiresAtMs": expires_at_ms,
             })),
         },
         EngineError::QaGateBlocked {
