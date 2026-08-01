@@ -204,15 +204,15 @@ pub fn extract_terms(
                     ranked.sort_by(|left, right| {
                         right.1.cmp(left.1).then_with(|| left.0.cmp(right.0))
                     });
-                    ranked.first().map(|(term, count)| {
-                        if **count * 2 >= frequency {
+                    ranked.first().and_then(|(term, count)| {
+                        // Strict majority only: ties / exact half leave suggested_target empty.
+                        if **count * 2 > frequency {
                             Some((*term).clone())
                         } else {
                             None
                         }
                     })
-                })
-                .flatten();
+                });
             TermCandidate {
                 example_segment_ids: examples.get(&source_term).cloned().unwrap_or_default(),
                 source_term,
@@ -311,6 +311,19 @@ fn score_segment(segment: &QualitySegment) -> Result<SegmentQualityScore> {
             "negation_mismatch",
             -30,
             "Negation cues appear mismatched",
+        );
+    }
+
+    if !source.is_empty()
+        && !target.is_empty()
+        && punctuation_signature(source) != punctuation_signature(target)
+    {
+        push_factor(
+            &mut factors,
+            &mut score,
+            "punctuation_mismatch",
+            -15,
+            "Sentence punctuation kinds differ between source and target",
         );
     }
 
@@ -443,6 +456,24 @@ fn number_tokens(text: &str) -> Vec<String> {
         .collect::<Vec<_>>();
     values.sort();
     values
+}
+
+/// Language-safe punctuation multiset: ASCII and CJK sentence marks map to the same kind.
+fn punctuation_signature(text: &str) -> Vec<&'static str> {
+    let mut kinds = text
+        .chars()
+        .filter_map(|character| match character {
+            '.' | '。' => Some("period"),
+            '?' | '？' => Some("question"),
+            '!' | '！' => Some("exclamation"),
+            ';' | '；' => Some("semicolon"),
+            ':' | '：' => Some("colon"),
+            '…' => Some("ellipsis"),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    kinds.sort_unstable();
+    kinds
 }
 
 fn placeholder_tokens(text: &str) -> Vec<String> {
@@ -590,5 +621,80 @@ mod tests {
                 .iter()
                 .any(|item| item.source_term == "actuator" && item.frequency >= 2)
         );
+    }
+
+    #[test]
+    fn suggested_target_uses_strict_majority_not_tie() {
+        let options = TermExtractOptions {
+            minimum_frequency: 2,
+            maximum_candidates: 10,
+        };
+
+        let stable = extract_terms(
+            "doc",
+            &[
+                seg("1", 0, "Replace the actuator housing", "更换执行器外壳"),
+                seg("2", 1, "Clean the actuator housing", "更换执行器外壳"),
+            ],
+            options.clone(),
+        )
+        .unwrap();
+        let actuator = stable
+            .candidates
+            .iter()
+            .find(|item| item.source_term == "actuator")
+            .expect("actuator candidate");
+        assert_eq!(actuator.frequency, 2);
+        assert_eq!(
+            actuator.suggested_target.as_deref(),
+            Some("更换执行器外壳"),
+            "repeated identical target is a strict majority"
+        );
+
+        let conflicting = extract_terms(
+            "doc",
+            &[
+                seg("1", 0, "Replace the actuator housing", "更换执行器外壳"),
+                seg("2", 1, "Clean the actuator housing", "清洁执行器外壳"),
+            ],
+            options,
+        )
+        .unwrap();
+        let actuator = conflicting
+            .candidates
+            .iter()
+            .find(|item| item.source_term == "actuator")
+            .expect("actuator candidate");
+        assert_eq!(actuator.frequency, 2);
+        assert_eq!(
+            actuator.suggested_target, None,
+            "50/50 split must leave suggested_target empty"
+        );
+    }
+
+    #[test]
+    fn punctuation_mismatch_factor_affects_score() {
+        // CJK period is treated as the same kind as ASCII period (language-safe).
+        let clean = score_document("doc", &[seg("ok", 0, "Hello world.", "你好世界。")]).unwrap();
+        assert_eq!(clean.scores[0].score, 100);
+        assert_eq!(clean.scores[0].route, QualityRoute::Auto);
+        assert!(
+            clean.scores[0]
+                .factors
+                .iter()
+                .all(|factor| factor.code != "punctuation_mismatch")
+        );
+
+        // Same wording length; only terminal punctuation kind differs.
+        let mismatched = score_document("doc", &[seg("bad", 0, "Done!", "Done.")]).unwrap();
+        let score = &mismatched.scores[0];
+        assert!(
+            score
+                .factors
+                .iter()
+                .any(|factor| factor.code == "punctuation_mismatch" && factor.delta == -15)
+        );
+        assert_eq!(score.score, 85);
+        assert_eq!(score.route, QualityRoute::Auto);
     }
 }
