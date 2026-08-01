@@ -6,8 +6,8 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use serde_json::json;
 use translunar_engine::{
-    EngineService, LocalApiConfig, default_token_store, ensure_token, rotate_token, run_pipeline,
-    serve_local_api, validate_bind,
+    EngineService, LocalApiConfig, default_token_store, ensure_token, rotate_token,
+    run_pipeline_with_project, serve_local_api, validate_bind,
 };
 use translunar_protocol::{CreateProjectParams, ProjectListParams};
 
@@ -58,6 +58,9 @@ enum Command {
         output: PathBuf,
         #[arg(long, default_value = "CLI project")]
         name: String,
+        /// Reuse an existing project instead of creating one.
+        #[arg(long)]
+        project_id: Option<String>,
     },
 }
 
@@ -95,7 +98,7 @@ fn main() -> Result<()> {
 
     match arguments.command {
         Command::Token { action } => {
-            let store = default_token_store();
+            let store = default_token_store()?;
             match action {
                 TokenCommand::Ensure => {
                     let token = ensure_token(store.as_ref())?;
@@ -138,7 +141,7 @@ fn main() -> Result<()> {
                 allow_remote,
             };
             validate_bind(&config)?;
-            let tokens = default_token_store();
+            let tokens = default_token_store()?;
             let token = ensure_token(tokens.as_ref())?;
             let service = Arc::new(Mutex::new(EngineService::open(&arguments.data_dir)?));
             if arguments.json {
@@ -197,6 +200,7 @@ fn main() -> Result<()> {
             source,
             output,
             name,
+            project_id,
         } => {
             if !source.is_file() {
                 bail!("source does not exist: {}", source.display());
@@ -205,7 +209,13 @@ fn main() -> Result<()> {
                 std::fs::create_dir_all(parent)?;
             }
             let mut service = EngineService::open(&arguments.data_dir)?;
-            let summary = run_pipeline(&mut service, source, output.clone(), &name)?;
+            let summary = run_pipeline_with_project(
+                &mut service,
+                source,
+                output.clone(),
+                &name,
+                project_id.as_deref(),
+            )?;
             emit(
                 arguments.json,
                 summary.clone(),

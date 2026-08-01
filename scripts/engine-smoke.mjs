@@ -2040,10 +2040,20 @@ async function exerciseFocusedApiCliSmoke(dataDirectory) {
   );
   const sourcePath = join(fixtureDirectory, "sample.txt");
   const outputPath = join(fixtureDirectory, "out.txt");
+  const httpOutputPath = join(fixtureDirectory, "http-out.txt");
   const sourceBody = ["Hello API CLI smoke.", "", "Second unit.", ""].join(
     String.fromCharCode(10),
   );
   writeFileSync(sourcePath, sourceBody, "utf8");
+
+  // Fixed 32-byte base64url token (32× 0x07); must pass validate_token.
+  const fixedTestToken =
+    "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc";
+  const testEnv = {
+    ...process.env,
+    TRANSLUNAR_API_TEST_MODE: "1",
+    TRANSLUNAR_API_TEST_TOKEN: fixedTestToken,
+  };
 
   const run = spawnSync(
     cli,
@@ -2061,29 +2071,42 @@ async function exerciseFocusedApiCliSmoke(dataDirectory) {
     ],
     {
       encoding: "utf8",
-      env: {
-        ...process.env,
-        TRANSLUNAR_API_TEST_MODE: "1",
-        TRANSLUNAR_API_TEST_TOKEN: "test-local-api-token-value-32b",
-      },
+      env: testEnv,
     },
   );
   assert(run.status === 0, `cli run failed: ${run.stderr || run.stdout}`);
   const summary = JSON.parse(run.stdout);
   assert(summary.projectId, "project id");
+  assert(summary.documentId, "document id");
   assert(summary.segmentCount >= 1, "segments");
   assert(existsSync(outputPath), "export exists");
+
+  // Second process: durable project row after CLI exit (AC-03).
+  const projectList = spawnSync(
+    cli,
+    ["--data-dir", dataDirectory, "--json", "project", "list"],
+    {
+      encoding: "utf8",
+      env: testEnv,
+    },
+  );
+  assert(
+    projectList.status === 0,
+    `project list failed: ${projectList.stderr || projectList.stdout}`,
+  );
+  const projectPage = JSON.parse(projectList.stdout);
+  assert(
+    Array.isArray(projectPage.items) &&
+      projectPage.items.some((item) => item.id === summary.projectId),
+    `second-process project list must include projectId ${summary.projectId}`,
+  );
 
   const token = spawnSync(
     cli,
     ["--data-dir", dataDirectory, "--json", "token", "ensure"],
     {
       encoding: "utf8",
-      env: {
-        ...process.env,
-        TRANSLUNAR_API_TEST_MODE: "1",
-        TRANSLUNAR_API_TEST_TOKEN: "test-local-api-token-value-32b",
-      },
+      env: testEnv,
     },
   );
   assert(
@@ -2092,6 +2115,175 @@ async function exerciseFocusedApiCliSmoke(dataDirectory) {
   );
   const tokenJson = JSON.parse(token.stdout);
   assert(tokenJson.token, "token present");
+  assert(
+    tokenJson.token === fixedTestToken,
+    "test token should come from env memory backend",
+  );
+
+  const status = spawnSync(
+    cli,
+    ["--data-dir", dataDirectory, "--json", "token", "status"],
+    { encoding: "utf8", env: testEnv },
+  );
+  assert(status.status === 0, `token status failed: ${status.stderr}`);
+  assert(JSON.parse(status.stdout).configured === true, "token configured");
+
+  // Loopback HTTP: health open, protected routes require bearer.
+  const port = 17431 + Math.floor(Math.random() * 1000);
+  const server = spawn(
+    cli,
+    [
+      "--data-dir",
+      dataDirectory,
+      "serve",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      String(port),
+    ],
+    {
+      env: testEnv,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  try {
+    await waitForLocalApi(port, 15_000);
+    const health = await fetch(`http://127.0.0.1:${port}/health`);
+    assert(health.ok, "health should be public");
+    const healthJson = await health.json();
+    assert(healthJson.ok === true, "health ok");
+
+    const denied = await fetch(`http://127.0.0.1:${port}/v1/projects`);
+    assert(denied.status === 401, `expected 401 without token, got ${denied.status}`);
+
+    const authHeaders = {
+      Authorization: `Bearer ${tokenJson.token}`,
+      "Content-Type": "application/json",
+    };
+    // Second process (serve): durable CLI document after run exit (AC-03).
+    const cliDocuments = await fetch(
+      `http://127.0.0.1:${port}/v1/projects/${summary.projectId}/documents`,
+      { headers: authHeaders },
+    );
+    const cliDocPage = await cliDocuments.json();
+    assert(
+      cliDocuments.ok,
+      `list CLI documents failed: ${cliDocuments.status} ${JSON.stringify(cliDocPage)}`,
+    );
+    assert(
+      Array.isArray(cliDocPage.items) &&
+        cliDocPage.items.some((item) => item.id === summary.documentId),
+      `documents list must include documentId ${summary.documentId}`,
+    );
+
+    const created = await fetch(`http://127.0.0.1:${port}/v1/projects`, {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        name: "HTTP smoke project",
+        sourceLocale: "en-US",
+        targetLocale: "zh-CN",
+        domain: "general",
+      }),
+    });
+    assert(created.ok, `create project failed: ${created.status}`);
+    const project = await created.json();
+    assert(project.id, "created project id");
+
+    const imported = await fetch(
+      `http://127.0.0.1:${port}/v1/projects/${project.id}/import`,
+      {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({
+          projectId: project.id,
+          sourcePath: sourcePath,
+        }),
+      },
+    );
+    const importJson = await imported.json();
+    assert(
+      imported.ok,
+      `import failed: ${imported.status} ${JSON.stringify(importJson)}`,
+    );
+    const documentId = importJson.document?.id;
+    assert(documentId, "imported document id");
+    assert(importJson.document.segmentCount >= 1, "imported segments");
+
+    const documents = await fetch(
+      `http://127.0.0.1:${port}/v1/projects/${project.id}/documents`,
+      { headers: authHeaders },
+    );
+    const docPage = await documents.json();
+    assert(
+      documents.ok,
+      `list documents failed: ${documents.status} ${JSON.stringify(docPage)}`,
+    );
+    assert(docPage.total >= 1, "document page total");
+
+    const qa = await fetch(
+      `http://127.0.0.1:${port}/v1/documents/${documentId}/qa`,
+      {
+        method: "POST",
+        headers: authHeaders,
+        body: "{}",
+      },
+    );
+    const qaJson = await qa.json();
+    assert(qa.ok, `qa failed: ${qa.status} ${JSON.stringify(qaJson)}`);
+    assert(Array.isArray(qaJson.issues), "qa issues array");
+
+    const exported = await fetch(
+      `http://127.0.0.1:${port}/v1/documents/${documentId}/export`,
+      {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({
+          documentId,
+          outputPath: httpOutputPath,
+          qaOverride: {
+            actor: "smoke",
+            reason: "api smoke export with open findings",
+          },
+        }),
+      },
+    );
+    const exportJson = await exported.json();
+    assert(
+      exported.ok,
+      `export failed: ${exported.status} ${JSON.stringify(exportJson)}`,
+    );
+    assert(existsSync(httpOutputPath), "http export exists");
+  } finally {
+    if (!server.killed) {
+      server.kill("SIGTERM");
+    }
+    // Windows may need a second chance if serve is mid-accept.
+    await new Promise((resolveWait) => setTimeout(resolveWait, 200));
+    if (!server.killed) {
+      server.kill("SIGKILL");
+    }
+  }
+}
+
+async function waitForLocalApi(port, timeoutMs) {
+  const started = Date.now();
+  let lastError;
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/health`);
+      if (response.ok) {
+        return;
+      }
+      lastError = new Error(`health status ${response.status}`);
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+  }
+  throw new Error(
+    `local API did not become ready on port ${port}: ${lastError}`,
+  );
 }
 
 async function exerciseFocusedPluginSmoke(processHandle, dataDirectory) {
