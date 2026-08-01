@@ -43,6 +43,17 @@ pub enum StorageError {
         actual_revision: u64,
     },
 
+    /// Advisory segment lock held by another actor (collaborative write gate).
+    #[error(
+        "segment lock held by {holder_actor_id} for {segment_id} (expires_at_ms={expires_at_ms})"
+    )]
+    LockHeld {
+        segment_id: String,
+        holder_actor_id: String,
+        revision: u64,
+        expires_at_ms: i64,
+    },
+
     #[error("invalid state: {0}")]
     InvalidState(String),
 

@@ -396,7 +396,8 @@ fn error_code(error: &EngineError) -> &'static str {
         | EngineError::Export(FilterError::NotFound(_))
         | EngineError::CorpusImport(FilterError::NotFound(_)) => "not_found",
         EngineError::Storage(StorageError::EntityConflict { .. })
-        | EngineError::Storage(StorageError::Conflict { .. }) => "conflict",
+        | EngineError::Storage(StorageError::Conflict { .. })
+        | EngineError::Storage(StorageError::LockHeld { .. }) => "conflict",
         EngineError::QaGateBlocked { .. } => "qa_gate_blocked",
         EngineError::Import(_) => "unsupported_document",
         EngineError::Export(_)

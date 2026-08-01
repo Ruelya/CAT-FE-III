@@ -2989,7 +2989,7 @@ export interface MethodContract183 {
 export interface CollabAssignmentCompleteParams {
   actorId?: string;
   assignmentId: string;
-  expectedRevision?: number | null;
+  expectedRevision: number;
 }
 export interface MethodContract182 {
   params: CollabAssignmentCreateParams;

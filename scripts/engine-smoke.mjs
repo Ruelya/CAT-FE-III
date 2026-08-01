@@ -1901,6 +1901,22 @@ async function exerciseFocusedCollabSmoke(processHandle) {
     projectId: project.id,
   });
   assert(members.items.length >= 2, "members");
+
+  // AC-01: membership survives Engine restart (same data dir).
+  await processHandle.restart();
+  await processHandle.call("engine.initialize", {
+    protocolVersion: 1,
+    client: { name: "engine-smoke", version: "0.1.0" },
+  });
+  const membersAfterRestart = await processHandle.call("collab.member.list", {
+    projectId: project.id,
+  });
+  assert(
+    membersAfterRestart.items.some((item) => item.actorId === "alice") &&
+      membersAfterRestart.items.some((item) => item.actorId === "bob"),
+    "members persist across restart",
+  );
+
   const lock = await processHandle.call("collab.lock.acquire", {
     projectId: project.id,
     documentId: imported.document.id,
@@ -1909,7 +1925,7 @@ async function exerciseFocusedCollabSmoke(processHandle) {
     ttlMs: 60000,
   });
   assert(lock.actorId === "alice", "lock holder");
-  let conflicted = false;
+  // AC-02: typed conflict includes current holder.
   try {
     await processHandle.call("collab.lock.acquire", {
       projectId: project.id,
@@ -1917,10 +1933,18 @@ async function exerciseFocusedCollabSmoke(processHandle) {
       segmentId: segments.items[0].id,
       actorId: "bob",
     });
+    throw new Error("bob lock acquire unexpectedly succeeded");
   } catch (error) {
-    conflicted = true;
+    assert(error?.code === "conflict", "bob should get conflict code");
+    assert(
+      error?.data?.holderActorId === "alice",
+      "conflict data must include holderActorId",
+    );
+    assert(
+      error?.data?.entity === "segment_lock",
+      "conflict entity is segment_lock",
+    );
   }
-  assert(conflicted, "bob should conflict");
   await processHandle.call("collab.presence.heartbeat", {
     projectId: project.id,
     actorId: "alice",
@@ -1942,11 +1966,31 @@ async function exerciseFocusedCollabSmoke(processHandle) {
     ordinalEnd: 0,
     createdBy: "alice",
   });
+  const listed = await processHandle.call("collab.assignment.list", {
+    projectId: project.id,
+  });
+  assert(
+    listed.items.some((item) => item.id === assignment.id),
+    "assignment list contains created row",
+  );
   await processHandle.call("collab.assignment.complete", {
     assignmentId: assignment.id,
     expectedRevision: assignment.revision,
     actorId: "bob",
   });
+  try {
+    await processHandle.call("collab.assignment.complete", {
+      assignmentId: assignment.id,
+      expectedRevision: assignment.revision,
+      actorId: "bob",
+    });
+    throw new Error("stale assignment complete unexpectedly succeeded");
+  } catch (error) {
+    assert(
+      error?.code === "conflict",
+      "stale assignment complete should conflict",
+    );
+  }
   await processHandle.call("collab.lock.release", {
     segmentId: segments.items[0].id,
     actorId: "alice",
@@ -1957,6 +2001,12 @@ async function exerciseFocusedCollabSmoke(processHandle) {
     limit: 50,
   });
   assert(ops.total >= 3, "op log entries");
+  assert(
+    ops.items.some((item) => item.kind === "member.upsert") &&
+      ops.items.some((item) => item.kind === "lock.acquire") &&
+      ops.items.some((item) => item.kind === "assignment.complete"),
+    "op log covers membership/lock/assignment mutations",
+  );
 }
 
 async function exerciseFocusedAiQualitySmoke(processHandle) {

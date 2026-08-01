@@ -5488,18 +5488,15 @@
           "type": "string"
         },
         "expectedRevision": {
-          "type": [
-            "integer",
-            "null"
-          ],
+          "type": "integer",
           "format": "uint64",
-          "default": null,
           "minimum": 0
         }
       },
       "additionalProperties": false,
       "required": [
-        "assignmentId"
+        "assignmentId",
+        "expectedRevision"
       ]
     },
     "CollabAssignmentCreateParams": {
