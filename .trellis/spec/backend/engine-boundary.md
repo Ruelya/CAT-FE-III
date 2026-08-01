@@ -3239,6 +3239,19 @@ if env::var("TRANSLUNAR_API_TEST_MODE").as_deref() == Ok("1") {
   `ai.quality.extractTerms` are report-only and must not mutate termbases or
   export gates automatically.
 - Advertise `ai.quality.offline` from initialize. Heavy models remain optional.
+- **QE factors (R1):** offline `score_segment` includes emptiness/equality, length
+  ratio, number retention, placeholder retention, negation mismatch, and
+  **punctuation** (`punctuation_mismatch`, delta −15). Punctuation is a
+  language-safe multiset of sentence-mark *kinds* (ASCII and CJK period /
+  question / exclamation / semicolon / colon / ellipsis map to the same kind);
+  kind multiset mismatch between source and target applies the factor.
+- **Routes:** score 0–100 → `auto` (≥85), `review` (60–84), `human` (<60). QE
+  never silently alters export gates.
+- **Term suggested target (R3 / F1):** when co-occurring targets for a source
+  term are ranked by frequency, emit `suggestedTarget` only under a **strict
+  majority** (`count * 2 > frequency`). Ties and exact half (e.g. 1/2 vs 1/2)
+  leave `suggestedTarget` empty for human confirmation. Do not use
+  `count * 2 >= frequency`.
 
 ## Collaboration primitives
 

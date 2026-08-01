@@ -57,13 +57,13 @@ but offline heuristics must work without network access.
 
 ## Acceptance criteria
 
-- [ ] AC-01: Scoring a fixture document returns one score+route per segment with
+- [x] AC-01: Scoring a fixture document returns one score+route per segment with
       explanations and is deterministic across runs.
-- [ ] AC-02: Semantic QA returns structured findings for planted empty/equal/
+- [x] AC-02: Semantic QA returns structured findings for planted empty/equal/
       number-mismatch cases without requiring a provider.
-- [ ] AC-03: Term extraction returns bounded candidates with frequencies for a
+- [x] AC-03: Term extraction returns bounded candidates with frequencies for a
       repeated-source fixture and never writes the termbase by itself.
-- [ ] AC-04: Focused unit tests and Engine smoke scope `ai-quality` pass; desktop
+- [x] AC-04: Focused unit tests and Engine smoke scope `ai-quality` pass; desktop
       stdio path remains compatible.
 
 ## Constraints
