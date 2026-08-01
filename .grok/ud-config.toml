@@ -1,0 +1,240 @@
+# =============================================================================
+# Grok Build — user-defined config template (ud-config.toml)
+# =============================================================================
+# 用法：
+#   1. 把本文件内容合并进  ~/.grok/config.toml  （或整文件替换后按需改密钥）
+#   2. 改 [model.*] 里的 base_url / model / env_key 等占位符
+#   3. 重启 grok 或新开会话；可用 `grok models` / `grok inspect` 校验
+#
+# 重要限制（官方文档）：
+#   - 模型、subagent、UI、auth 等 **只读** ~/.grok/config.toml
+#   - 项目级 .grok/config.toml **只**贡献 [mcp_servers] / [plugins] / [permission]
+#   - 因此本模板设计为「用户级」配置，不是项目级 .grok/config.toml
+#
+# 刻意不写的部分：
+#   - [mcp_servers.*]：当前 MCP 已由 Claude/Cursor 兼容层与现有发现自动加载
+#   - 官方订阅模型（grok-4.5 等）：保持 grok login 会话鉴权即可，无需 base_url/api_key
+#   - hooks：已由 ~/.grok/hooks、~/.claude/settings、项目 .claude 等合并，不必重复
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# 从现有 ~/.grok/config.toml 抄来的偏好（可按需改）
+# -----------------------------------------------------------------------------
+
+disabled_mcp_servers = [
+    "shrimp-task-manager",
+    "memory",
+    "fast-context",
+    "time",
+    "browseros",
+    "firecrawl",
+    "firecrawl-mcp",
+]
+
+[cli]
+installer = "internal"
+auto_update = true
+
+[ui]
+max_thoughts_width = 120
+theme = "auto"
+fork_secondary_model = "grok-build"
+yolo = true
+compact_mode = false
+permission_mode = "always-approve"   # 与现网一致；可选: default / auto / plan / bypassPermissions 等
+show_timeline = true
+
+[marketplace]
+official_marketplace_auto_installed = true
+default_skills_installs_purged = true
+
+[[marketplace.sources]]
+name = "xAI Official"
+git = "https://github.com/xai-org/plugin-marketplace.git"
+
+[plugins]
+disabled = ["user/949660f8/warp"]
+
+
+# -----------------------------------------------------------------------------
+# 模型总控
+# -----------------------------------------------------------------------------
+# 官方订阅 grok-4.5：不写 [model.grok-4.5]，走 grok login / 会话 token。
+# moe-hub 第三方：一律 [model.<id>] + base_url + api_backend + 鉴权。
+#
+# reasoning / 思维等级（canonical）：
+#   none | minimal | low | medium | high | xhigh | max
+# （部分文档将 max 视同 xhigh；plan 明确用 max，review 用 xhigh。）
+#
+# 本项目 Autoloop 路由：
+#   trellis-plan    → gpt-5.6-sol  + effort max
+#   trellis-review  → gpt-5.6-sol  + effort xhigh
+#   其余 trellis-* 与主会话 → grok-4.5 + effort high
+
+[models]
+default = "grok-4.5"
+default_reasoning_effort = "high"
+
+# -----------------------------------------------------------------------------
+# 第三方：moe-hub（非 grok-4.5 均走此 base_url）
+# -----------------------------------------------------------------------------
+# api_backend: "chat_completions" | "responses" | "messages"
+# 鉴权：api_key > env_key > 登录会话 > XAI_API_KEY
+# 官方 grok-* 不要填 api_key/env_key。
+#
+# system_prompt_label：替换 "You are <label>…" 身份句为真实模型名（残留 Grok 字样正常）。
+# supports_reasoning_effort + reasoning_efforts：自定义模型必须显式声明，
+#   否则 /effort 会显示 "current model does not support reasoning effort"。
+#   Responses 后端不会像 messages 那样自动打开 effort。
+# reasoning_efforts.value：none|minimal|low|medium|high|xhigh|max（max 与 xhigh 是不同档）
+
+[model."gpt-5.6-sol"]
+model = "gpt-5.6-sol"
+base_url = "https://axonhub.moe-hub.top/v1"
+name = "GPT 5.6 Sol"
+description = "Most Capable All-round Model (moe-hub)"
+api_backend = "responses"
+api_key = "ah-2ebaf6acf4107b0212ce20c5de9086e0e3694de423aa7d1f5d76a92ebfc01668"
+context_window = 272000
+system_prompt_label = "gpt-5.6-sol"
+supports_reasoning_effort = true
+reasoning_efforts = [
+  { value = "low", label = "Low" },
+  { value = "medium", label = "Medium" },
+  { value = "high", label = "High" },
+  { value = "xhigh", label = "X-High", default = true },
+  { value = "max", label = "Max" },
+]
+
+[model."gpt-5.6-terra"]
+model = "gpt-5.6-terra"
+base_url = "https://axonhub.moe-hub.top/v1"
+name = "GPT 5.6 Terra"
+description = "Medium Cost, All-round Model (moe-hub)"
+api_backend = "responses"
+api_key = "ah-2ebaf6acf4107b0212ce20c5de9086e0e3694de423aa7d1f5d76a92ebfc01668"
+context_window = 272000
+system_prompt_label = "gpt-5.6-terra"
+supports_reasoning_effort = true
+reasoning_efforts = [
+  { value = "low", label = "Low" },
+  { value = "medium", label = "Medium" },
+  { value = "high", label = "High" },
+  { value = "xhigh", label = "X-High", default = true },
+  { value = "max", label = "Max" },
+]
+
+[model."claude-opus-4-8"]
+model = "claude-opus-4-8"
+base_url = "https://axonhub.moe-hub.top/v1"
+name = "Claude Opus 4.8"
+description = "Most Capable All-round Model (moe-hub)"
+api_backend = "messages"
+api_key = "ah-2ebaf6acf4107b0212ce20c5de9086e0e3694de423aa7d1f5d76a92ebfc01668"
+context_window = 1000000
+system_prompt_label = "claude-opus-4-8"
+supports_reasoning_effort = true
+reasoning_efforts = [
+  { value = "low", label = "Low" },
+  { value = "medium", label = "Medium" },
+  { value = "high", label = "High" },
+  { value = "xhigh", label = "X-High" },
+  { value = "max", label = "Max", default = true },
+]
+
+[model."claude-opus-5"]
+model = "claude-opus-5"
+base_url = "https://axonhub.moe-hub.top/v1"
+name = "Claude Opus 5"
+description = "Most Capable All-round Model (moe-hub)"
+api_backend = "messages"
+api_key = "ah-2ebaf6acf4107b0212ce20c5de9086e0e3694de423aa7d1f5d76a92ebfc01668"
+context_window = 1000000
+system_prompt_label = "claude-opus-5"
+supports_reasoning_effort = true
+reasoning_efforts = [
+  { value = "low", label = "Low" },
+  { value = "medium", label = "Medium" },
+  { value = "high", label = "High" },
+  { value = "xhigh", label = "X-High" },
+  { value = "max", label = "Max", default = true },
+]
+
+[model."claude-fable-5"]
+model = "claude-fable-5"
+base_url = "https://axonhub.moe-hub.top/v1"
+name = "Claude Fable 5"
+description = "The Most Capable Model (moe-hub)"
+api_backend = "messages"
+api_key = "ah-2ebaf6acf4107b0212ce20c5de9086e0e3694de423aa7d1f5d76a92ebfc01668"
+context_window = 1000000
+system_prompt_label = "claude-fable-5"
+supports_reasoning_effort = true
+reasoning_efforts = [
+  { value = "low", label = "Low" },
+  { value = "medium", label = "Medium" },
+  { value = "high", label = "High" },
+  { value = "xhigh", label = "X-High" },
+  { value = "max", label = "Max", default = true },
+]
+
+# -----------------------------------------------------------------------------
+# Subagents：开关 + 按类型指定模型
+# -----------------------------------------------------------------------------
+# 模型优先级：
+#   1. [subagents.models].<type>
+#   2. agent frontmatter `model`
+#   3. 父会话模型
+#
+# 思维等级：config 的 [subagents.models] 只路由 model，不设 effort。
+# effort 写在 .grok/agents/*.md frontmatter（`effort:`），与下方约定一致。
+#
+# Autoloop agents（.grok/agents/）：
+#   trellis-plan / trellis-research / trellis-implement /
+#   trellis-review / trellis-verify / trellis-fix / trellis-closeout
+# 内置（默认勿用于 Trellis autoloop）：general-purpose / explore / plan
+
+[subagents]
+enabled = true
+
+[subagents.toggle]
+general-purpose = true
+explore = true
+plan = true
+
+# key = spawn 时的 subagent_type（与 agent frontmatter name 一致）
+[subagents.models]
+# —— 高阶（moe-hub gpt-5.6-sol）——
+trellis-plan    = "gpt-5.6-sol"
+trellis-review  = "gpt-5.6-sol"
+# 内置 plan 若被误 spawn，与 trellis-plan 同模型
+plan            = "gpt-5.6-sol"
+
+# —— 其余 worker / 常用内置：官方 grok-4.5 ——
+trellis-research  = "grok-4.5"
+trellis-implement = "grok-4.5"
+trellis-verify    = "grok-4.5"
+trellis-fix       = "grok-4.5"
+trellis-closeout  = "grok-4.5"
+general-purpose   = "grok-4.5"
+explore           = "grok-4.5"
+
+# -----------------------------------------------------------------------------
+# 会话 / 功能
+# -----------------------------------------------------------------------------
+
+[features]
+codebase_indexing = true
+remote_fetch = true
+
+# =============================================================================
+# Agent frontmatter 约定（写在 .grok/agents/*.md，与 [subagents.models] 对齐）
+# =============================================================================
+# trellis-plan:    model: gpt-5.6-sol   effort: max
+# trellis-review:  model: gpt-5.6-sol   effort: xhigh
+# 其余 trellis-*:  model: grok-4.5      effort: high
+#
+# 合并进 ~/.grok/config.toml 后：新开 `grok --agent orchestrator` 会话生效。
+# =============================================================================
+)

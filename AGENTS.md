@@ -20,76 +20,27 @@ Managed by Trellis. Edits outside this block are preserved; edits inside may be 
 
 <!-- TRELLIS:END -->
 
-# Channel dispatch policy (CAT)
+## Multi-agent policy (project override — not managed by Trellis)
 
-Session-level rule (not per-task). Workflow is channel-driven and uses Claude
-for both implementation and independent quality checks unless the user
-explicitly requests another provider.
-
-## Implement → Claude
-
-When Phase 2 needs implementation, main session:
-
-```bash
-trellis channel spawn impl-<topic> \
-  --agent implement --provider claude --as implement \
-  …
-```
-
-- Card: `.trellis/agents/implement.md` (`provider: claude`). Pass
-  `--provider claude` explicitly so the durable channel log records routing.
-- Implement workers edit the shared worktree directly with focused edits and
-  run their scoped validation. Do not default to a diff-only handoff for the
-  main session to re-apply; return a diff only when direct editing is genuinely
-  unavailable or unsafe.
-- Do **not** put this choice in `task.py start` / PRD.
-- Main session only — workers must not re-spawn channel peers.
-
-## Dispatch handshake (mandatory)
-
-The main session must treat channel dispatch as a readiness protocol, not as
-fire-and-forget process creation. For every targeted worker, keep this order:
-
-```text
-create → spawn → durable spawned/error → strict send → turn_started → wait done/error
-```
-
-- `channel spawn` is successful only when it returns after a new durable
-  `spawned` event. A supervisor PID, a pid sidecar, or a zero exit status before
-  that event is not a worker handle or a delivery acknowledgement.
-- Every targeted prompt uses
-  `--delivery-mode requireRunningWorker`. A non-zero `send` (including an
-  `undeliverable` event) is a dispatch failure; stop and inspect raw events
-  instead of waiting for a worker result.
-- After a successful send, confirm a `turn_started` event for the target before
-  beginning a long `done`/`error` wait. Use `trellis channel messages <name>
-  --raw` when diagnosing any gap.
-- Keep create, spawn, readiness confirmation, and the first send in one host
-  execution context when possible; short-lived shells may reap a detached
-  supervisor before it finishes its startup handshake.
-- Do not use `--tag`, infer completion from message text, or mechanically
-  re-apply a worker's diff when the worker can edit the shared worktree. A diff
-  handoff is only a fallback when direct editing is genuinely unavailable or
-  unsafe.
-
-## Check / other → stock template
-
-```bash
-trellis channel spawn cr-<topic> --agent check --provider claude --as check …
-# optional cross-provider: --provider claude|codex --as check-cc|check-cx
-```
-
-Claude remains the default for check, research, and finish steps.
-
-Check prompts follow the same readiness and strict-delivery handshake above;
-the main session reads raw events and retains final judgment.
+- **`trellis channel` is disabled in this project.** Do not run `trellis channel …`, do not load the `trellis-channel` skill, and do not spawn channel workers / forum boards for CAT work.
+- If a `trellis update` restores `trellis-channel` skill files, still treat channel as forbidden until this section is removed.
+- **Grok autoloop (preferred on Grok Build):**
+  1. Main session agent **`orchestrator`** (`~/.grok/agents/orchestrator.md`) — no `write`/`search_replace`; decides + spawns + git/task.py.
+  2. Workers only: `trellis-plan` / `trellis-research` / `trellis-implement` / `trellis-review` / `trellis-verify` / `trellis-fix` / `trellis-closeout`.
+  3. **Research:** plan-phase batch (+ rare implement escape); **not** for review/fix. **No `trellis-check`.** Quality = review (verify **mission**) ⇄ **trellis-verify** (rich report) ⇄ fix under `{task}/review/`.
+  4. Orchestrator may recommend **high-value only** skills/MCP in worker prompts.
+  5. Per task branch `task/<dir>` → commit → Orchestrator merges **main**. No default worktree/PR.
+  6. Contract: `.trellis/workflow.md` (Grok Autoloop Mode) + `.trellis/spec/guides/autoloop-orchestration.md`. Optional: `.grok/workflows/trellis-autoloop.rhai`.
+  7. Do **not** spawn `general-purpose` / `explore` / built-in `plan` for Trellis autoloop.
+- **Also ok:** Orca for worktree/handoff when explicitly needed (not the default autoloop path).
+- Trellis task artifacts remain process source of truth. Worker prompts start with `Active task: <path>`.
 
 # Code Retrieval Guide
 1. **基础检索 (Foundational Retrieval)**：
    * 禁止基于假设（Assumption）回答。
    * 任何需要理解代码上下文、探索性搜索、或通过自然语言定位代码的场景，**优先使用** `mcp__fast_context__fast_context_search`。
    * 使用自然语言（NL）构建语义查询（Where / What / How），获取项目上下文，尤其适用于新任务开始前的代码调研、架构理解、业务逻辑分析与调用链追踪。
-   * **必须使用 `fast_context_search` 的场景**：
+   * **必须使 用 `fast_context_search` 的场景**：
      - 探索性搜索（不确定代码所在文件或目录）
      - 用自然语言描述要找的逻辑（如“XX部署流程”“XX事件处理”）
      - 理解业务逻辑和调用链路
