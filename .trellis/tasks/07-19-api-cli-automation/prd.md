@@ -61,16 +61,20 @@ export and sink results into the local asset hub without opening the GUI.
 
 ## Acceptance criteria
 
-- [ ] AC-01: `translunar serve` binds loopback, requires bearer token, and
+- [x] AC-01: `translunar serve` binds loopback, requires bearer token, and
       rejects missing/invalid tokens on protected routes.
-- [ ] AC-02: Authenticated API can create a project, import a fixture, list
+- [x] AC-02: Authenticated API can create a project, import a fixture, list
       documents, run document QA, and export without the GUI.
-- [ ] AC-03: `translunar run` completes import → QA → export into `--data-dir`
+- [x] AC-03: `translunar run` completes import → QA → export into `--data-dir`
       and leaves durable project/document rows after exit.
-- [ ] AC-04: Token ensure/rotate uses OS keyring (or test memory backend) and
+- [x] AC-04: Token ensure/rotate uses OS keyring (or test memory backend) and
       never writes the secret into SQLite.
-- [ ] AC-05: Desktop stdio engine path still works; focused API/CLI smoke and
+- [x] AC-05: Desktop stdio engine path still works; focused API/CLI smoke and
       package quality gates pass for owned surfaces.
+
+Evidence: `review/verify-1.md`, `review/findings-3.md` (F1–F6 fixed; quality
+green). Residual: live OS keyring not exercised in disposable CI/test-mode runs;
+X-03..X-07 remain out of scope.
 
 ## Constraints
 

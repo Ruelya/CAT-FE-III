@@ -6,13 +6,15 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
+use translunar_filter_core::FilterError;
 use translunar_protocol::{
     CreateProjectParams, DocumentListParams, EmptyParams, ExportDocumentParams,
     ImportDocumentParams, ProjectListParams, QaOverrideInput, TermbaseListParams,
     TmLibraryListParams,
 };
+use translunar_storage::StorageError;
 
 use crate::local_auth::{LocalApiTokenStore, authorize};
 use crate::{EngineError, EngineService, Result};
@@ -127,16 +129,18 @@ fn handle_connection(
             ]
         }),
         ("GET", "/v1/projects") => {
-            let params: ProjectListParams =
-                serde_json::from_value(body.clone()).unwrap_or(ProjectListParams {
+            let params: ProjectListParams = match decode_params(body.clone()) {
+                Ok(params) => params,
+                Err(_) => ProjectListParams {
                     lifecycle: None,
                     offset: 0,
                     limit: 50,
-                });
+                },
+            };
             serde_json::to_value(engine.list_projects(params)?)?
         }
         ("POST", "/v1/projects") => {
-            let params: CreateProjectParams = serde_json::from_value(body)?;
+            let params: CreateProjectParams = decode_params(body)?;
             serde_json::to_value(engine.create_project(params)?)?
         }
         ("GET", path) if path.starts_with("/v1/projects/") && path.ends_with("/documents") => {
@@ -160,7 +164,7 @@ fn handle_connection(
                 .trim_start_matches("/v1/projects/")
                 .trim_end_matches("/import")
                 .trim_matches('/');
-            let mut params: ImportDocumentParams = serde_json::from_value(body)?;
+            let mut params: ImportDocumentParams = decode_params(body)?;
             params.project_id = project_id.to_string();
             serde_json::to_value(engine.import_document(params)?)?
         }
@@ -169,7 +173,7 @@ fn handle_connection(
                 .trim_start_matches("/v1/documents/")
                 .trim_end_matches("/export")
                 .trim_matches('/');
-            let mut params: ExportDocumentParams = serde_json::from_value(body)?;
+            let mut params: ExportDocumentParams = decode_params(body)?;
             params.document_id = document_id.to_string();
             serde_json::to_value(engine.export_document(params)?)?
         }
@@ -352,22 +356,33 @@ fn query_u32(request: &HttpRequest, key: &str) -> Option<u32> {
     query_string(request, key)?.parse().ok()
 }
 
+/// Decode a typed request body. Structural JSON mistakes become `invalid_request` (400),
+/// never `EngineError::Json` / HTTP 500.
+fn decode_params<T: DeserializeOwned>(body: Value) -> Result<T> {
+    serde_json::from_value(body).map_err(|error| {
+        EngineError::InvalidRequest(format!("invalid request body: {error}"))
+    })
+}
+
+/// HTTP status for Engine failures, aligned with the protocol/RPC taxonomy.
 fn status_for_error(error: &EngineError) -> u16 {
-    match error {
-        EngineError::InvalidRequest(message)
-            if message.contains("bearer") || message.contains("token") =>
-        {
-            401
-        }
-        EngineError::InvalidRequest(_) => 400,
-        EngineError::Storage(translunar_storage::StorageError::NotFound { .. }) => 404,
-        EngineError::Storage(translunar_storage::StorageError::EntityConflict { .. })
-        | EngineError::Storage(translunar_storage::StorageError::Conflict { .. }) => 409,
-        EngineError::QaGateBlocked { .. } => 409,
+    match error_code(error) {
+        "unauthorized" => 401,
+        "not_found" => 404,
+        "conflict" | "qa_gate_blocked" => 409,
+        "invalid_request"
+        | "unsupported_document"
+        | "unsupported_corpus_input"
+        | "export_error"
+        | "invalid_state"
+        | "policy_denied" => 400,
+        "credential_unavailable" => 503,
+        // storage_error, plugin/AI faults, and true internal errors
         _ => 500,
     }
 }
 
+/// Stable error codes aligned with `engine_error_code` / RPC for automation clients.
 fn error_code(error: &EngineError) -> &'static str {
     match error {
         EngineError::InvalidRequest(message)
@@ -375,9 +390,31 @@ fn error_code(error: &EngineError) -> &'static str {
         {
             "unauthorized"
         }
-        EngineError::InvalidRequest(_) => "invalid_request",
-        EngineError::Storage(translunar_storage::StorageError::NotFound { .. }) => "not_found",
+        EngineError::InvalidRequest(_) | EngineError::Json(_) => "invalid_request",
+        EngineError::Storage(StorageError::NotFound { .. })
+        | EngineError::Import(FilterError::NotFound(_))
+        | EngineError::Export(FilterError::NotFound(_))
+        | EngineError::CorpusImport(FilterError::NotFound(_)) => "not_found",
+        EngineError::Storage(StorageError::EntityConflict { .. })
+        | EngineError::Storage(StorageError::Conflict { .. }) => "conflict",
         EngineError::QaGateBlocked { .. } => "qa_gate_blocked",
+        EngineError::Import(_) => "unsupported_document",
+        EngineError::Export(_)
+        | EngineError::TaskPackageExport(_)
+        | EngineError::CurationExport(_)
+        | EngineError::ReportExport(_) => "export_error",
+        EngineError::CorpusImport(_) | EngineError::CorpusInput(_) => "unsupported_corpus_input",
+        EngineError::Io(_) | EngineError::Storage(_) => "storage_error",
+        EngineError::InvalidState(_) => "invalid_state",
+        EngineError::PolicyDenied { .. } => "policy_denied",
+        EngineError::CredentialUnavailable(_) => "credential_unavailable",
+        EngineError::PluginPermissionDenied(_) | EngineError::PluginCapabilityDenied(_) => {
+            "plugin_permission_denied"
+        }
+        EngineError::PluginProcessFailed(_) => "plugin_process_failed",
+        EngineError::PluginSandboxFailed(_) | EngineError::PluginAiActionFailed { .. } => {
+            "plugin_sandbox_failed"
+        }
         _ => "internal_error",
     }
 }
@@ -389,17 +426,32 @@ pub fn run_pipeline(
     output: PathBuf,
     project_name: &str,
 ) -> Result<Value> {
-    #[derive(Debug, Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct _Unused;
-    let project = service.create_project(CreateProjectParams {
-        name: project_name.to_string(),
-        source_locale: "en-US".into(),
-        target_locale: "zh-CN".into(),
-        domain: "general".into(),
-    })?;
+    run_pipeline_with_project(service, source, output, project_name, None)
+}
+
+/// Same as [`run_pipeline`], optionally reusing an existing project id.
+pub fn run_pipeline_with_project(
+    service: &mut EngineService,
+    source: PathBuf,
+    output: PathBuf,
+    project_name: &str,
+    project_id: Option<&str>,
+) -> Result<Value> {
+    let project_id = if let Some(existing) = project_id {
+        let snapshot = service.get_project(existing)?;
+        snapshot.project.id
+    } else {
+        service
+            .create_project(CreateProjectParams {
+                name: project_name.to_string(),
+                source_locale: "en-US".into(),
+                target_locale: "zh-CN".into(),
+                domain: "general".into(),
+            })?
+            .id
+    };
     let imported = service.import_document(ImportDocumentParams {
-        project_id: project.id.clone(),
+        project_id: project_id.clone(),
         source_path: source.to_string_lossy().into_owned(),
         relative_path: None,
         filter_id: None,
@@ -412,20 +464,18 @@ pub fn run_pipeline(
         qa_override: None,
     }) {
         Ok(result) => result,
-        Err(EngineError::QaGateBlocked { .. }) => {
-            service.export_document(ExportDocumentParams {
-                document_id: imported.document.id.clone(),
-                output_path: output.to_string_lossy().into_owned(),
-                qa_override: Some(QaOverrideInput {
-                    actor: "cli".into(),
-                    reason: "CLI/API automation export with open QA findings".into(),
-                }),
-            })?
-        }
+        Err(EngineError::QaGateBlocked { .. }) => service.export_document(ExportDocumentParams {
+            document_id: imported.document.id.clone(),
+            output_path: output.to_string_lossy().into_owned(),
+            qa_override: Some(QaOverrideInput {
+                actor: "cli".into(),
+                reason: "CLI/API automation export with open QA findings".into(),
+            }),
+        })?,
         Err(error) => return Err(error),
     };
     Ok(json!({
-        "projectId": project.id,
+        "projectId": project_id,
         "documentId": imported.document.id,
         "filterId": imported.filter_id,
         "segmentCount": imported.document.segment_count,
@@ -441,7 +491,50 @@ mod tests {
     use std::io::Write;
     use std::net::TcpStream;
     use std::thread;
+    use std::time::Duration;
     use tempfile::tempdir;
+
+    fn exchange(addr: SocketAddr, request: &str) -> String {
+        let mut stream = TcpStream::connect(addr).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        stream.write_all(request.as_bytes()).unwrap();
+        let mut body = String::new();
+        stream.read_to_string(&mut body).unwrap();
+        body
+    }
+
+    fn spawn_server(
+        service: Arc<Mutex<EngineService>>,
+        tokens: Arc<dyn LocalApiTokenStore>,
+        connections: usize,
+    ) -> SocketAddr {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            for _ in 0..connections {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    break;
+                };
+                let _ = dispatch_connection(&mut stream, &service, tokens.as_ref());
+            }
+        });
+        // Brief yield so the accept thread is ready on slow CI.
+        thread::sleep(Duration::from_millis(20));
+        addr
+    }
+
+    fn json_body(response: &str) -> Value {
+        let body = response
+            .split("\r\n\r\n")
+            .nth(1)
+            .expect("response body missing");
+        serde_json::from_str(body).expect("json body")
+    }
 
     #[test]
     fn rejects_non_loopback_without_opt_in() {
@@ -464,44 +557,231 @@ mod tests {
         ));
         let tokens: Arc<dyn LocalApiTokenStore> = Arc::new(MemoryTokenStore::default());
         let token = ensure_token(tokens.as_ref()).unwrap();
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        let server_service = Arc::clone(&service);
-        let server_tokens = Arc::clone(&tokens);
-        thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let _ = dispatch_connection(&mut stream, &server_service, server_tokens.as_ref());
-        });
+        let addr = spawn_server(Arc::clone(&service), Arc::clone(&tokens), 8);
 
-        // unauthenticated health is separate; first protected call without token
-        let listener2 = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr2 = listener2.local_addr().unwrap();
-        let server_service2 = Arc::clone(&service);
-        let server_tokens2 = Arc::clone(&tokens);
-        thread::spawn(move || {
-            let (mut stream, _) = listener2.accept().unwrap();
-            let _ = dispatch_connection(&mut stream, &server_service2, server_tokens2.as_ref());
-        });
-        let mut unauthorized = TcpStream::connect(addr2).unwrap();
-        unauthorized
-            .write_all(b"GET /v1/projects HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
-            .unwrap();
-        let mut unauthorized_body = String::new();
-        unauthorized.read_to_string(&mut unauthorized_body).unwrap();
+        let health = exchange(
+            addr,
+            "GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+        );
+        assert!(health.contains("200"));
+        assert!(health.contains("translunar-local-api"));
+
+        let unauthorized = exchange(
+            addr,
+            "GET /v1/projects HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+        );
+        assert!(unauthorized.contains("401") || unauthorized.contains("unauthorized"));
+
+        let bad_token = exchange(
+            addr,
+            "GET /v1/projects HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer not-the-token\r\nConnection: close\r\n\r\n",
+        );
+        assert!(bad_token.contains("401") || bad_token.contains("invalid"));
+
+        let create_body = r#"{"name":"API HTTP project","sourceLocale":"en-US","targetLocale":"zh-CN","domain":"general"}"#;
+        let create = exchange(
+            addr,
+            &format!(
+                "POST /v1/projects HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{create_body}",
+                create_body.len()
+            ),
+        );
+        assert!(create.starts_with("HTTP/1.1 200") || create.contains("200 OK"));
+        let project = json_body(&create);
+        let project_id = project["id"].as_str().expect("project id");
+
+        let source_path = source.to_string_lossy().replace('\\', "\\\\");
+        let import_body = format!(
+            r#"{{"projectId":"{project_id}","sourcePath":"{source_path}"}}"#
+        );
+        let import = exchange(
+            addr,
+            &format!(
+                "POST /v1/projects/{project_id}/import HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{import_body}",
+                import_body.len()
+            ),
+        );
+        assert!(import.contains("200"));
+        let imported = json_body(&import);
+        let document_id = imported["document"]["id"]
+            .as_str()
+            .expect("document id");
         assert!(
-            unauthorized_body.contains("401")
-                || unauthorized_body.contains("unauthorized")
-                || unauthorized_body.contains("bearer")
+            imported["document"]["segmentCount"]
+                .as_u64()
+                .unwrap_or(0)
+                >= 1
         );
 
-        // authenticated project create through a fresh accept loop is heavy; use run_pipeline helper
-        let mut engine = service.lock().unwrap();
-        let output = directory.path().join("out.txt");
-        let summary = run_pipeline(&mut engine, source, output.clone(), "API test").unwrap();
+        let documents = exchange(
+            addr,
+            &format!(
+                "GET /v1/projects/{project_id}/documents HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {token}\r\nConnection: close\r\n\r\n"
+            ),
+        );
+        assert!(documents.contains("200"));
+        assert!(json_body(&documents)["total"].as_u64().unwrap_or(0) >= 1);
+
+        let qa = exchange(
+            addr,
+            &format!(
+                "POST /v1/documents/{document_id}/qa HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {token}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            ),
+        );
+        assert!(qa.contains("200"));
+        assert!(json_body(&qa).get("issues").is_some());
+
+        let output = directory.path().join("http-out.txt");
+        let output_path = output.to_string_lossy().replace('\\', "\\\\");
+        let export_body = format!(
+            r#"{{"documentId":"{document_id}","outputPath":"{output_path}","qaOverride":{{"actor":"test","reason":"local api unit export"}}}}"#
+        );
+        let export = exchange(
+            addr,
+            &format!(
+                "POST /v1/documents/{document_id}/export HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{export_body}",
+                export_body.len()
+            ),
+        );
+        assert!(export.contains("200"), "export response: {export}");
         assert!(output.is_file());
+
+        // CLI helper path remains covered for durable rows without HTTP.
+        let mut engine = service.lock().unwrap();
+        let cli_output = directory.path().join("cli-out.txt");
+        let summary = run_pipeline(
+            &mut engine,
+            source,
+            cli_output.clone(),
+            "API CLI helper",
+        )
+        .unwrap();
+        assert!(cli_output.is_file());
         assert!(summary["segmentCount"].as_u64().unwrap() >= 1);
         assert!(!summary["projectId"].as_str().unwrap().is_empty());
-        let _ = token;
-        let _ = addr;
+    }
+
+    #[test]
+    fn run_pipeline_reuses_existing_project() {
+        let directory = tempdir().unwrap();
+        let source = directory.path().join("sample.txt");
+        std::fs::write(&source, "Reuse project flow.\n").unwrap();
+        let mut service = EngineService::open(directory.path().join("data")).unwrap();
+        let project = service
+            .create_project(CreateProjectParams {
+                name: "Reuse me".into(),
+                source_locale: "en-US".into(),
+                target_locale: "zh-CN".into(),
+                domain: "general".into(),
+            })
+            .unwrap();
+        let output = directory.path().join("reuse-out.txt");
+        let summary = run_pipeline_with_project(
+            &mut service,
+            source,
+            output.clone(),
+            "ignored name",
+            Some(project.id.as_str()),
+        )
+        .unwrap();
+        assert_eq!(summary["projectId"], project.id);
+        assert!(output.is_file());
+    }
+
+    #[test]
+    fn http_error_taxonomy_client_failures_are_not_internal_error() {
+        let directory = tempdir().unwrap();
+        let service = Arc::new(Mutex::new(
+            EngineService::open(directory.path().join("data")).unwrap(),
+        ));
+        let tokens: Arc<dyn LocalApiTokenStore> = Arc::new(MemoryTokenStore::default());
+        let token = ensure_token(tokens.as_ref()).unwrap();
+        let addr = spawn_server(Arc::clone(&service), Arc::clone(&tokens), 4);
+
+        // 1) Typed body with missing/wrong fields → 400 / invalid_request (not Json/500).
+        let bad_create = r#"{"name":1}"#;
+        let malformed = exchange(
+            addr,
+            &format!(
+                "POST /v1/projects HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{bad_create}",
+                bad_create.len()
+            ),
+        );
+        assert!(
+            malformed.contains("400"),
+            "malformed DTO must be 400, got: {malformed}"
+        );
+        let malformed_body = json_body(&malformed);
+        assert_eq!(
+            malformed_body["error"]["code"], "invalid_request",
+            "malformed DTO code: {malformed_body}"
+        );
+
+        // Create a real project for import/export failure paths.
+        let create_body = r#"{"name":"Error taxonomy","sourceLocale":"en-US","targetLocale":"zh-CN","domain":"general"}"#;
+        let create = exchange(
+            addr,
+            &format!(
+                "POST /v1/projects HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{create_body}",
+                create_body.len()
+            ),
+        );
+        assert!(create.contains("200"), "create project: {create}");
+        let project_id = json_body(&create)["id"].as_str().expect("project id").to_string();
+
+        // 2) Unsupported / unmatchable document → protocol import code, not internal_error.
+        let junk = directory.path().join("no-filter.unknownext");
+        std::fs::write(&junk, b"\0\0\0not a document").unwrap();
+        let junk_path = junk.to_string_lossy().replace('\\', "\\\\");
+        let import_body = format!(r#"{{"projectId":"{project_id}","sourcePath":"{junk_path}"}}"#);
+        let import = exchange(
+            addr,
+            &format!(
+                "POST /v1/projects/{project_id}/import HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{import_body}",
+                import_body.len()
+            ),
+        );
+        let import_body_json = json_body(&import);
+        let import_code = import_body_json["error"]["code"]
+            .as_str()
+            .unwrap_or_default();
+        assert_ne!(
+            import_code, "internal_error",
+            "import failure must not collapse to internal_error: {import}"
+        );
+        assert!(
+            import_code == "unsupported_document"
+                || import_code == "invalid_request"
+                || import_code == "not_found",
+            "import failure should map to import/client taxonomy, got {import_code}: {import}"
+        );
+        assert!(
+            !import.contains("500") || import_code != "internal_error",
+            "import failure status should not look like a server fault: {import}"
+        );
+        assert!(
+            import.contains("400") || import.contains("404"),
+            "import client failure status expected 400/404: {import}"
+        );
+
+        // 3) Export of unknown document → not_found (not internal_error / 500).
+        let export_body = r#"{"documentId":"missing-doc","outputPath":"/tmp/out.txt"}"#;
+        let export = exchange(
+            addr,
+            &format!(
+                "POST /v1/documents/missing-doc/export HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{export_body}",
+                export_body.len()
+            ),
+        );
+        assert!(
+            export.contains("404"),
+            "missing document export must be 404: {export}"
+        );
+        let export_body_json = json_body(&export);
+        assert_eq!(
+            export_body_json["error"]["code"], "not_found",
+            "export missing document: {export_body_json}"
+        );
+        assert_ne!(export_body_json["error"]["code"], "internal_error");
     }
 }

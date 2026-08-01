@@ -3079,16 +3079,157 @@ method.call_bounded(context, params)?;
 
 ## Local API and CLI
 
-- `translunar` CLI and loopback HTTP API call `EngineService` directly; they must
-  not route through Electron or nested stdio engines for workflow commands.
-- Bind `127.0.0.1` by default. Non-loopback binds require an explicit
-  `--allow-remote` opt-in.
-- Authenticate protected HTTP routes with a bearer token stored in the OS
-  keyring service `translunar-cat.local-api` (test memory backend via
-  `TRANSLUNAR_API_TEST_MODE`).
-- Never persist the raw API token in SQLite or log it at info level.
-- Desktop `translunar-engine --protocol stdio` remains the GUI transport and
-  must stay unchanged by API/CLI work.
+### 1. Scope / Trigger
+
+Use this contract when changing the loopback HTTP adapter (`local_api`), token
+store (`local_auth`), the user-facing `translunar` CLI binary, or the focused
+`TRANSLUNAR_SMOKE_SCOPE=api` smoke. Adapters call `EngineService` directly; they
+must not route through Electron or spawn nested stdio engines for workflow
+commands. Desktop `translunar-engine --protocol stdio` remains the GUI transport
+and must stay additive/unchanged by API/CLI work.
+
+Out of scope for this surface: folder watch, clipboard hooks, webhooks,
+editor/browser plugins, third-party connectors, remote multi-tenant hosting.
+
+### 2. Signatures
+
+Process / CLI (`crates/engine/src/bin/translunar.rs`):
+
+```text
+translunar --data-dir <PATH> [--json] token ensure|status|rotate
+translunar --data-dir <PATH> [--json] serve [--host 127.0.0.1] [--port 7431] [--allow-remote]
+translunar --data-dir <PATH> [--json] project list|create ...
+translunar --data-dir <PATH> [--json] run --source PATH --output PATH [--name NAME] [--project-id ID]
+```
+
+HTTP MVP (`local_api`):
+
+| Method | Path | Auth |
+| --- | --- | --- |
+| GET | `/health` | no |
+| GET | `/v1/capabilities` | yes |
+| GET/POST | `/v1/projects` | yes |
+| GET | `/v1/projects/{id}` | yes |
+| GET | `/v1/projects/{id}/documents` | yes |
+| POST | `/v1/projects/{id}/import` | yes |
+| POST | `/v1/documents/{id}/export` | yes |
+| POST | `/v1/documents/{id}/qa` | yes |
+| GET | `/v1/filters` | yes |
+| GET | `/v1/tm/libraries` | yes |
+| GET | `/v1/termbases?projectId=` | yes |
+
+One-shot in-process helper (CLI `run` and tests): `run_pipeline` /
+`run_pipeline_with_project` → import → document QA → export.
+
+### 3. Contracts
+
+**Bind**
+
+- Default host `127.0.0.1`, port `7431`.
+- Non-loopback bind requires `--allow-remote` / `LocalApiConfig.allow_remote`.
+  Without opt-in, refuse before listen with `invalid_request` naming
+  `--allow-remote`.
+
+**Auth / token**
+
+- Keyring service: `translunar-cat.local-api`, account `default`.
+- Header: `Authorization: Bearer <token>` (case-insensitive header name).
+- Generated tokens: 32 OS-CSPRNG bytes, base64url **unpadded**. Accepted tokens
+  must base64url-decode to **≥ 32** bytes and contain no whitespace.
+- Never write the raw token (or keyring service name) into SQLite. Do not log the
+  secret at info level; `serve` human mode prints that a token is configured
+  without echoing it.
+- Test mode: only `TRANSLUNAR_API_TEST_MODE=1` selects the in-memory backend.
+  Unset / empty / `0` / `false` / `true` / `yes` leave the OS keyring path.
+- Optional `TRANSLUNAR_API_TEST_TOKEN`: validated then injected. Invalid values
+  fail loudly as `InvalidRequest` naming `TRANSLUNAR_API_TEST_TOKEN` (no silent
+  fall-through to `ensure_token` / random generation).
+
+**HTTP responses**
+
+- Success: `200` + JSON body (Engine-shaped camelCase payloads).
+- Errors: `{ "error": { "code": "<snake_case>", "message": "..." } }` with stable
+  codes aligned to Engine/RPC taxonomy (see matrix).
+- Auth failures (missing/invalid bearer or unconfigured token) map to HTTP `401`
+  and code `unauthorized` (special-cased from `InvalidRequest` when the message
+  mentions bearer/token).
+- `/health` remains unauthenticated and returns
+  `{ "ok": true, "service": "translunar-local-api", "version": "..." }`.
+
+**CLI / workspace**
+
+- `run` and `project *` open the same `--data-dir` SQLite workspace and asset hub
+  as the GUI. Rows must remain durable after process exit (second-process list /
+  separate `serve` can observe project/document IDs).
+- `run` exits non-zero on failure; supports human or `--json` summary including
+  `projectId` / `documentId` / `segmentCount`.
+
+### 4. Validation & Error Matrix
+
+| Condition | HTTP / result |
+| --- | --- |
+| Missing/invalid `Authorization: Bearer` on protected route | `401` / `unauthorized` |
+| Token not configured | `401` / `unauthorized` (message points at `translunar token ensure`) |
+| Non-loopback bind without `--allow-remote` | fail before listen / `invalid_request` |
+| Malformed JSON body or typed params | `400` / `invalid_request` |
+| Unknown route | `404` / `not_found` |
+| Missing entity | `404` / `not_found` |
+| Revision / entity conflict | `409` / `conflict` |
+| QA gate blocked | `409` / `qa_gate_blocked` |
+| Unsupported/malformed import | `400` / `unsupported_document` |
+| Export / existing destination failure | `400` / `export_error` |
+| Keyring unavailable (production path) | `503` / `credential_unavailable` |
+| Storage / IO / unmapped fault | `500` / `storage_error` or `internal_error` |
+| Invalid `TRANSLUNAR_API_TEST_TOKEN` under test mode | process error: `InvalidRequest` naming the env var |
+| Token material under 32 decoded bytes or non-base64url | `InvalidRequest` at set/validate |
+
+### 5. Good / Base / Bad Cases
+
+- Good: `token ensure` → `serve` on loopback → authenticated create → import
+  fixture → list documents → QA → export; second CLI `project list` and a new
+  `serve` process still see the same IDs.
+- Base: `GET /health` without auth returns `ok: true`; `translunar run --json`
+  completes import → QA → export into `--data-dir` without the desktop app.
+- Bad: bind `0.0.0.0` without `--allow-remote`; inject a plaintext
+  `TRANSLUNAR_API_TEST_TOKEN` and expect silent success; map client
+  `invalid_request` to HTTP 500/`internal_error`; persist the token in SQLite.
+
+### 6. Tests Required
+
+- Unit (`cargo test -p translunar-engine --lib local_`): CSPRNG 32-byte
+  base64url generation; test-mode only when value is `1`; invalid test-token
+  injection fails loudly; token absent from SQLite; non-loopback rejected;
+  auth matrix + import fixture path; HTTP error taxonomy for client failures;
+  `run_pipeline` project reuse.
+- Smoke: `TRANSLUNAR_SMOKE_SCOPE=api node scripts/engine-smoke.mjs` with a
+  **valid** fixed 32-byte base64url test token; assert CLI run summary, export
+  file, **and** second-process project/document ID durability via list + live
+  `serve`.
+- Regression gates for owned surfaces: build `translunar` + `translunar-engine`,
+  package clippy `-D warnings`, and a minimal stdio `engine.initialize` probe so
+  the desktop path stays viable.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+// Presence of TRANSLUNAR_API_TEST_MODE enables memory backend; invalid test
+// token is ignored and ensure_token invents a random secret → flaky smoke.
+if env::var("TRANSLUNAR_API_TEST_MODE").is_ok() { /* memory */ }
+let _ = store.set(&env_token); // swallow validation errors
+```
+
+#### Correct
+
+```rust
+// Exact opt-in only; invalid TRANSLUNAR_API_TEST_TOKEN fails loudly.
+if env::var("TRANSLUNAR_API_TEST_MODE").as_deref() == Ok("1") {
+    let store = memory_token_store_from_test_token(env_token.as_deref())?;
+}
+// Generated material: 32 CSPRNG bytes → base64url unpadded.
+// HTTP client failures: status_for_error/error_code → unauthorized/invalid_request/…
+```
 
 ## Offline AI quality intelligence
 
