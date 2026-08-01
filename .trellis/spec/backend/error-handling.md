@@ -61,6 +61,12 @@ programmatic handling. Never expose SQL text, API credentials, source document
 contents, or a full provider response in a protocol message. Preserve the
 causal error in local logs when diagnostic detail is needed.
 
+Project AI allowlist denials use wire code `policy_denied` and structured
+`data` with `reason`, `projectId`, and `profileId`. Desktop product UI maps
+that code through the bilingual catalog (`error.allowlistDenied`); it must not
+branch on the English `message` string. See the Grounded BYOK AI Boundary and
+Engine-Backed AI Control sections for call-site enforcement and presentation.
+
 ## Avoid
 
 - No `unwrap`, `expect`, or panic on runtime input or persistent data.

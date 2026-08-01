@@ -731,6 +731,18 @@ setAiCredential(profileId: string, secret: string): Promise<void>;
 - AI Control and Assistant must have no horizontal overflow at 1250x744,
   1680x942, or 1920x1080. At narrow widths, redundant toolbar text may hide
   while its control retains an accessible name and stable dimensions.
+- Project AI allowlist is edited through Product Settings as
+  `configuration.engineAllowlist` via `project.update`. Empty means all enabled
+  workspace profiles; non-empty lists exact profile IDs. The UI may disable
+  known-invalid selections for ergonomics, but Engine enforcement remains
+  authoritative—never invent a local bypass or alternate profile.
+- Product-facing AI error text on Live Assistant and AI Control must use
+  `formatEngineError(error, t)` from `workbench-utils.ts` (not bare
+  `formatError`). When `code === "policy_denied"`, map to catalog key
+  `error.allowlistDenied` and interpolate `profileId` from structured
+  `data.profileId` (camelCase wire shape). Unknown codes keep the audited
+  technical protocol message. Branch only on stable `code`/`data` fields—never
+  on English `message` text.
 
 ### 4. Validation & Error Matrix
 
@@ -742,15 +754,21 @@ setAiCredential(profileId: string, secret: string): Promise<void>;
 | Polling panel unmount/collapse | Stop renderer polling; do not cancel the durable Engine run |
 | First conversation is created during submit | Bind grounding to the returned conversation ID, not the previous null state |
 | Narrow toolbar | No child text overlaps an adjacent control; hidden text retains an accessible parent label |
+| Engine returns `policy_denied` with `data.profileId` | Show localized `error.allowlistDenied` with that profile ID; no run/batch UI success state |
+| `formatEngineError` called without `t` or with unknown code | Fall back to `formatError` (audited technical English); do not invent copy |
 
 ### 5. Good / Base / Bad Cases
 
 - Good: create a first conversation and immediately translate; the grounding
   inspector remains attached to that new conversation through completion.
+- Good: disallowed profile start surfaces the Chinese/English catalog sentence
+  with the profile ID; generic Engine failures still use technical `message`.
 - Base: select Local preview and receive explicitly synthetic metrics without a
   provider request or keyring dependency.
 - Bad: clear grounding in a passive effect keyed by the previous conversation,
   or replace the full editor page with the single row returned by AI apply.
+- Bad: `setError(formatError(reason))` on AI surfaces that already have
+  `useLocale`, or match denial by substring of the protocol message.
 
 ### 6. Tests Required
 
@@ -760,6 +778,9 @@ setAiCredential(profileId: string, secret: string): Promise<void>;
 - The AI Control and online Assistant are captured at all three supported
   viewports with horizontal-overflow and adjacent-toolbar-boundary assertions.
   Console/page errors fail the test.
+- Unit tests for `formatEngineError` prove `policy_denied` →
+  `error.allowlistDenied` with interpolated `profileId`, and that non-policy
+  errors still return the original technical message when `t` is supplied.
 
 ### 7. Wrong vs Correct
 
@@ -769,6 +790,8 @@ setAiCredential(profileId: string, secret: string): Promise<void>;
 const bundle = await previewGrounding(action, prompt); // captures null thread
 setConversationId((await createConversation()).id);
 setSegments(mutation.rows.map((row) => row.segment)); // drops the page
+setError(formatError(reason)); // loses catalog localization for policy_denied
+if (String(reason).includes("not allowed")) { /* brittle message match */ }
 ```
 
 #### Correct
@@ -777,6 +800,7 @@ setSegments(mutation.rows.map((row) => row.segment)); // drops the page
 const conversation = activeConversationId ?? (await createConversation()).id;
 const bundle = await previewGrounding(action, prompt, conversation);
 applyEditorMutation(mutation); // merges returned rows into the current page
+setError(formatEngineError(reason, t)); // policy_denied → error.allowlistDenied
 ```
 
 ## Plugin Connector Catalog And Profiles
@@ -1861,6 +1885,13 @@ frameWindow.postMessage({ version: 1, type: "translunar.plugin.initialize", nonc
 - Package with `apps/desktop/electron-builder.yml`; unsigned artifacts are valid
   for development.
 - Shell copy should prefer `i18n/messages.ts` catalogs (`en-US` / `zh-CN`).
+- Product-facing status, dialog, tutorial, update, backup/restore, allowlist,
+  and accessibility labels must use the typed catalog. Protocol/`formatError`
+  technical payloads may remain audited English; product-facing structured
+  codes such as `policy_denied` must map through `formatEngineError` + catalog
+  keys (see Engine-Backed AI Control And Assistant). Remaining hard-coded
+  English in `Workbench.tsx` is owned by the separate visual task and is not
+  an excuse to add new uncatalogued shell strings elsewhere.
 - Project Home may use its dedicated Settings affordance. Workbench and
   secondary workspace surfaces expose Settings through their application
   overflow menu; they must not render a fixed floating Settings control over a

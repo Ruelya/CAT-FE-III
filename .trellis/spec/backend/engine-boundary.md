@@ -1011,6 +1011,28 @@ pub struct GroundingCorpusMatch {
 - Usage is committed once per `(run_id, attempt)`. Disabled AI, disallowed
   request kinds/origins, missing credentials, and exhausted monthly budgets
   fail before provider I/O.
+- Project AI profile policy is `ProjectConfiguration.engine_allowlist`. Empty
+  is permissive (any enabled profile may be selected). Non-empty requires an
+  exact profile ID match. Enforcement is a single shared helper
+  (`crates/engine/src/allowlist.rs` → `enforce_project_engine_allowlist`)
+  called before interactive `ai.run.start`, `ai.batch.start`, pipeline
+  pretranslation (`core.ai.pretranslate`), provider-backed curation analysis,
+  and any other path that would create durable AI work or network I/O for a
+  project-scoped profile. Denial never silently substitutes another profile.
+- Wire denial is stable `policy_denied` mapped from `EngineError::PolicyDenied`
+  with structured `data` only (clients must not parse English `message`):
+
+```json
+{
+  "reason": "policy_denied",
+  "projectId": "<project id>",
+  "profileId": "<requested profile id>"
+}
+```
+
+  Denied starts create no durable run, batch, pipeline step success, or
+  curation run. Existing projects with a now-disallowed profile remain
+  readable; new AI work stays blocked until configuration is corrected.
 
 ### 4. Validation & Error Matrix
 
@@ -1018,6 +1040,8 @@ pub struct GroundingCorpusMatch {
 | --- | --- |
 | Missing/unavailable OS credential storage | `credential_unavailable`; no plaintext fallback |
 | Disabled policy or exhausted budget | `ai_disabled` / `budget_exceeded` before network I/O |
+| Profile absent from non-empty `engine_allowlist` | `policy_denied` with `projectId`/`profileId`; zero durable AI work |
+| Empty `engine_allowlist` | Permissive; allow any enabled profile for that project |
 | Auth, rate, timeout, protocol, or availability failure | Stable typed provider error with retryability and no body/secret |
 | Stale or signed interactive target | Conflict/read-only error; proposal remains unapplied |
 | AI output with invalid protected tags | Typed rejection; no target write |
@@ -1039,6 +1063,12 @@ pub struct GroundingCorpusMatch {
   worker can change before execution.
 - Bad: let the renderer fetch/re-rank corpus rows, treat target-only content as
   bilingual, or interpolate raw corpus text outside the delimited JSON section.
+- Bad: enforce allowlist only in the renderer, invent a different denial code
+  per call site, or create a run/batch and fail later when the profile is
+  disallowed.
+- Good: non-empty allowlist rejects interactive, batch, and pipeline
+  pretranslation with the same `policy_denied` data shape and zero durable
+  artifacts; empty allowlist permits every enabled profile.
 
 ### 6. Tests Required
 
@@ -1051,8 +1081,16 @@ pub struct GroundingCorpusMatch {
   deterministic top-N order, corpus-before-context placement, character bounds,
   and delimiter escaping. Engine tests import source- and target-monolingual
   corpora and assert file/path/side provenance in `ai.grounding.preview`.
+- Engine allowlist unit tests cover empty/permissive, exact allow, deny,
+  disabled/missing profile paths as applicable, and assert denied interactive
+  and batch starts leave `list_ai_runs` / `list_ai_batches` totals at zero.
+  Pipeline pretranslation denial surfaces `policy_denied` in the step error
+  without treating the step as succeeded. Shared helper tests live with
+  `allowlist.rs`; call-site tests may live next to AI/pipeline modules.
 - Stdio smoke and Electron E2E use loopback fixtures only. They must prove the
   secret is absent from SQLite, protocol payloads, renderer state, and errors.
+  Prefer a focused allowlist assertion that observes structured
+  `policy_denied` plus project/profile IDs when smoke prerequisites allow.
 
 ### 7. Wrong vs Correct
 
@@ -1063,6 +1101,12 @@ pub struct GroundingCorpusMatch {
 batch_context.target = neighboring_segment.target_text;
 // Renderer-visible generic RPC accepts a plaintext credential.
 catalog.register("ai.credential.set");
+// Duplicated ad-hoc checks that can drift from the shared helper.
+if !project.configuration.engine_allowlist.is_empty()
+    && !project.configuration.engine_allowlist.contains(&profile_id)
+{
+    return Err(EngineError::InvalidState("not allowed".into()));
+}
 ```
 
 #### Correct
@@ -1078,6 +1122,8 @@ let corpus = store.search_reference_corpora(&ReferenceCorpusSearchRequest {
     limit: u32::from(options.corpus_top_n),
     corpus_ids: Vec::new(),
 })?; // Engine projects this authoritative order into delimited grounding data.
+// Shared policy before durable AI work or provider I/O.
+crate::allowlist::enforce_project_engine_allowlist(&self.store, project_id, profile_id)?;
 ```
 
 ## Comprehensive QA, Review, And Delivery Gate

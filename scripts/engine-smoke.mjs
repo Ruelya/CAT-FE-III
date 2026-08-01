@@ -1471,6 +1471,69 @@ async function main() {
       completedBatch.status === "succeeded" && completedBatch.total === 0,
       "empty AI batch scope should converge to succeeded",
     );
+
+    // Project engine_allowlist enforcement over stdio: non-empty list rejects
+    // unlisted profiles with a stable policy_denied code and structured data.
+    // Re-read the segment after the earlier apply so revision is current.
+    const allowlistSegments = await processHandle.call("segment.list", {
+      documentId: aiDocument.document.id,
+      offset: 0,
+      limit: 20,
+    });
+    const allowlistProject = await processHandle.call("project.get", {
+      projectId: project.id,
+    });
+    const tightened = await processHandle.call("project.update", {
+      projectId: project.id,
+      name: allowlistProject.project.name,
+      sourceLocale: allowlistProject.project.sourceLocale,
+      targetLocale: allowlistProject.project.targetLocale,
+      domain: allowlistProject.project.domain,
+      configuration: {
+        ...allowlistProject.project.configuration,
+        engineAllowlist: ["not-the-smoke-profile"],
+      },
+      expectedRevision: allowlistProject.project.revision,
+      actor: "engine-smoke-allowlist",
+    });
+    let allowlistDenied = false;
+    try {
+      await processHandle.call("ai.run.start", {
+        projectId: project.id,
+        segmentId: allowlistSegments.items[0].id,
+        profileId: aiProfile.id,
+        expectedRevision: allowlistSegments.items[0].revision,
+        action: "translate",
+        prompt: "Should be denied by project allowlist",
+        options: groundingOptions,
+        maxAttempts: 1,
+      });
+    } catch (error) {
+      allowlistDenied =
+        error?.code === "policy_denied" &&
+        error?.data?.reason === "policy_denied" &&
+        error?.data?.profileId === aiProfile.id &&
+        error?.data?.projectId === project.id;
+      assert(
+        allowlistDenied,
+        `allowlist denial must use policy_denied with project/profile ids, got: ${JSON.stringify(error)}`,
+      );
+    }
+    assert(allowlistDenied, "disallowed AI profile must be rejected over stdio");
+    await processHandle.call("project.update", {
+      projectId: project.id,
+      name: tightened.name,
+      sourceLocale: tightened.sourceLocale,
+      targetLocale: tightened.targetLocale,
+      domain: tightened.domain,
+      configuration: {
+        ...tightened.configuration,
+        engineAllowlist: [],
+      },
+      expectedRevision: tightened.revision,
+      actor: "engine-smoke-allowlist-restore",
+    });
+
     const pipelineSteps = await processHandle.call("pipeline.step.list", {});
     assert(
       pipelineSteps.steps.some((step) => step.id === "core.ai.pretranslate"),
