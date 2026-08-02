@@ -1031,11 +1031,68 @@ pub struct PdfPageLayout {
     pub blocks: Vec<PdfBlockProjection>,
 }
 
+/// Pure-Rust PDF page-tree count (handles compressed object streams).
+pub fn count_page_tree(source: &Path) -> Result<u32, PdfError> {
+    validate_header(source)?;
+    let metadata = fs::metadata(source)?;
+    if metadata.len() == 0 || metadata.len() > MAX_PDF_BYTES {
+        return Err(PdfError::Invalid(format!(
+            "PDF size is outside supported bounds for page counting ({})",
+            metadata.len()
+        )));
+    }
+    let document = lopdf::Document::load(source)
+        .map_err(|error| PdfError::Invalid(format!("unable to parse PDF page tree: {error}")))?;
+    let count = u32::try_from(document.get_pages().len())
+        .map_err(|_| PdfError::Invalid("PDF page count is outside supported bounds".to_string()))?;
+    if count == 0 || count > MAX_PAGES {
+        return Err(PdfError::Invalid(
+            "PDF page count is outside supported bounds".to_string(),
+        ));
+    }
+    Ok(count)
+}
+
+/// Segment plain text with the same paragraph/sentence/custom-SRX contract as PDF import.
+pub fn segment_pdf_text(
+    text: &str,
+    locale: &str,
+    segmentation_mode: Option<&str>,
+    srx_path: Option<&str>,
+) -> Result<Vec<String>, PdfError> {
+    let mode = SegmentationMode::parse(segmentation_mode);
+    let srx = if let Some(path) = srx_path {
+        if fs::metadata(path)?.len() > 2 * 1024 * 1024 {
+            return Err(PdfError::Options("srxPath is too large".to_string()));
+        }
+        let xml = fs::read_to_string(path)?;
+        SrxRules::parse(&xml).map_err(|error| PdfError::Options(error.to_string()))?
+    } else {
+        SrxRules::builtin(locale)
+    };
+    let mut segments = Vec::new();
+    for range in srx.ranges(text, locale, mode) {
+        let piece = text.get(range).unwrap_or_default().trim();
+        if meaningful_text(piece) {
+            segments.push(piece.to_string());
+        }
+    }
+    Ok(segments)
+}
+
 impl PdfFilter {
     pub fn page_count(&self, source: &Path) -> Result<u32, PdfError> {
         validate_header(source)?;
         let options = PdfOptions::from_request(&ImportRequest::new(source.to_path_buf()))?;
         Ok(read_pdf_info(&options, source)?.pages)
+    }
+
+    /// Count pages from the PDF page tree without external tools.
+    ///
+    /// Walks the catalog `Pages` tree (including object streams). Prefer this
+    /// for preflight limits; do not scan raw bytes for `/Type /Page` markers.
+    pub fn page_tree_count(source: &Path) -> Result<u32, PdfError> {
+        count_page_tree(source)
     }
 
     pub fn page_layouts(&self, request: &ImportRequest) -> Result<Vec<PdfPageLayout>, PdfError> {

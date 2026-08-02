@@ -17,7 +17,7 @@ use serde_json::Value;
 use thiserror::Error;
 use translunar_domain::{DegradationFinding, DegradationSeverity, DocumentNote};
 use translunar_filter_core::{DocumentMetadata, ImportedDocument, ImportedUnit};
-use translunar_filter_pdf::PdfPath;
+use translunar_filter_pdf::{PdfPath, count_page_tree, segment_pdf_text};
 
 /// OS keyring service name for the MinerU API token.
 pub const MINERU_CREDENTIAL_SERVICE: &str = "translunar-cat.mineru";
@@ -815,28 +815,11 @@ impl MinerUService {
 
     /// Whether the MinerU path should handle this PDF import.
     ///
-    /// Closed routing:
-    /// - `ocrEngine=mineru` → always select MinerU (typed fail if unusable)
-    /// - `ocrEngine=tesseract|poppler|local` or `ocrMode=never` → local path
-    /// - `auto`/empty → local Poppler/Tesseract text-layer path (do **not**
-    ///   force MinerU for ordinary text PDFs; per-page OCR fallback is future work)
+    /// Prefer [`resolve_pdf_ocr_route`] at call sites so invalid enums fail closed
+    /// as `invalid_request` instead of silently falling through.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn should_handle(&self, options: &BTreeMap<String, String>) -> bool {
-        let ocr_mode = options
-            .get("ocrMode")
-            .map(|value| value.trim().to_ascii_lowercase())
-            .unwrap_or_default();
-        if ocr_mode == "never" {
-            return false;
-        }
-        let engine = options
-            .get("ocrEngine")
-            .map(|value| value.trim().to_ascii_lowercase())
-            .unwrap_or_default();
-        match engine.as_str() {
-            "mineru" => true,
-            "tesseract" | "poppler" | "local" | "" | "auto" => false,
-            _ => false,
-        }
+        matches!(resolve_pdf_ocr_route(options), Ok(PdfOcrRoute::MinerU))
     }
 
     /// Run MinerU OCR and produce an [`ImportedDocument`] with PDF structural paths.
@@ -899,18 +882,15 @@ impl MinerUService {
             .cloned()
             .or_else(|| options.get("lang").cloned())
             .unwrap_or_else(|| "ch".to_string());
-        let parse_method = match options
-            .get("ocrMode")
-            .map(|v| v.trim().to_ascii_lowercase())
-            .as_deref()
-        {
-            Some("always") => "ocr".to_string(),
-            Some("never") => {
+        // ocrMode is closed: only auto/always (or absent) may reach this path.
+        let parse_method = match parse_ocr_mode(options.get("ocrMode").map(String::as_str))? {
+            OcrModeOption::Always => "ocr".to_string(),
+            OcrModeOption::Never => {
                 return Err(MinerUError::Config(
                     "ocrMode=never is incompatible with MinerU OCR".into(),
                 ));
             }
-            _ => "auto".to_string(),
+            OcrModeOption::Auto => "auto".to_string(),
         };
 
         let file_name = source
@@ -939,8 +919,8 @@ impl MinerUService {
             return Err(MinerUError::Protocol);
         }
 
-        let units = blocks_to_units(&blocks, document_id)?;
         let locale = source_locale.unwrap_or("en").to_string();
+        let units = blocks_to_units(&blocks, document_id, &locale, options)?;
         Ok(ImportedDocument {
             metadata: DocumentMetadata {
                 format: "pdf".to_string(),
@@ -984,43 +964,82 @@ fn validate_pdf_header(source: &Path) -> Result<(), MinerUError> {
     Ok(())
 }
 
-/// Count PDF pages without external tools (preflight only).
-///
-/// Uses the standard heuristic of counting `/Type /Page` leaf dictionaries
-/// (excluding `/Type /Pages` trees). Adequate for limit checks before transport.
+/// Count PDF pages via the real page tree (preflight only; no external tools).
 fn count_pdf_pages(source: &Path) -> Result<u32, MinerUError> {
-    let bytes = std::fs::read(source)?;
-    count_pdf_pages_bytes(&bytes)
+    count_page_tree(source).map_err(|error| {
+        MinerUError::Config(format!(
+            "unable to determine PDF page count for MinerU preflight: {error}"
+        ))
+    })
 }
 
-fn count_pdf_pages_bytes(bytes: &[u8]) -> Result<u32, MinerUError> {
-    // Work on a lossy Latin-1 view so binary streams do not break scanning.
-    let text = String::from_utf8_lossy(bytes);
-    let mut count = 0_u32;
-    let mut search_from = 0;
-    while let Some(rel) = text[search_from..].find("/Type") {
-        let abs = search_from + rel;
-        let after_type = abs + "/Type".len();
-        let rest = text[after_type..].trim_start();
-        // Match `/Page` that is not the start of `/Pages`.
-        if let Some(stripped) = rest.strip_prefix("/Page") {
-            let next = stripped.chars().next();
-            let is_pages = next == Some('s') || next == Some('S');
-            if !is_pages {
-                count = count.saturating_add(1);
-            }
-        }
-        search_from = after_type;
-        if search_from >= text.len() {
-            break;
-        }
+/// Closed PDF OCR routing: invalid enums fail as configuration errors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PdfOcrRoute {
+    /// Explicit `ocrEngine=mineru` (and `ocrMode` is not `never`).
+    MinerU,
+    /// Local Poppler/Tesseract path (`auto`/empty/tesseract/poppler/local, or `never`).
+    Local,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OcrEngineOption {
+    Auto,
+    MinerU,
+    Tesseract,
+    Poppler,
+    Local,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OcrModeOption {
+    Auto,
+    Always,
+    Never,
+}
+
+fn parse_ocr_engine(value: Option<&str>) -> Result<OcrEngineOption, MinerUError> {
+    match value.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
+        None | Some("") | Some("auto") => Ok(OcrEngineOption::Auto),
+        Some("mineru") => Ok(OcrEngineOption::MinerU),
+        Some("tesseract") => Ok(OcrEngineOption::Tesseract),
+        Some("poppler") => Ok(OcrEngineOption::Poppler),
+        Some("local") => Ok(OcrEngineOption::Local),
+        Some(other) => Err(MinerUError::Config(format!(
+            "ocrEngine must be mineru, tesseract, poppler, local, or auto (got {other})"
+        ))),
     }
-    if count == 0 {
-        return Err(MinerUError::Config(
-            "unable to determine PDF page count for MinerU preflight".into(),
-        ));
+}
+
+fn parse_ocr_mode(value: Option<&str>) -> Result<OcrModeOption, MinerUError> {
+    match value.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
+        None | Some("") | Some("auto") => Ok(OcrModeOption::Auto),
+        Some("always") => Ok(OcrModeOption::Always),
+        Some("never") => Ok(OcrModeOption::Never),
+        Some(other) => Err(MinerUError::Config(format!(
+            "ocrMode must be auto, always, or never (got {other})"
+        ))),
     }
-    Ok(count)
+}
+
+/// Validate `ocrEngine` / `ocrMode` and choose MinerU vs local PDF path.
+///
+/// Unknown values return `MinerUError::Config` (maps to `invalid_request`).
+pub fn resolve_pdf_ocr_route(
+    options: &BTreeMap<String, String>,
+) -> Result<PdfOcrRoute, MinerUError> {
+    let mode = parse_ocr_mode(options.get("ocrMode").map(String::as_str))?;
+    let engine = parse_ocr_engine(options.get("ocrEngine").map(String::as_str))?;
+    if mode == OcrModeOption::Never {
+        return Ok(PdfOcrRoute::Local);
+    }
+    match engine {
+        OcrEngineOption::MinerU => Ok(PdfOcrRoute::MinerU),
+        OcrEngineOption::Auto
+        | OcrEngineOption::Tesseract
+        | OcrEngineOption::Poppler
+        | OcrEngineOption::Local => Ok(PdfOcrRoute::Local),
+    }
 }
 
 fn parse_page_range(value: Option<&String>) -> Result<(u32, Option<u32>), MinerUError> {
@@ -1056,10 +1075,14 @@ fn parse_page_range(value: Option<&String>) -> Result<(u32, Option<u32>), MinerU
 fn blocks_to_units(
     blocks: &[MinerULayoutBlock],
     document_id: Option<&str>,
+    locale: &str,
+    options: &BTreeMap<String, String>,
 ) -> Result<Vec<ImportedUnit>, MinerUError> {
+    let mode = options.get("segmentationMode").map(String::as_str);
+    let srx_path = options.get("srxPath").map(String::as_str);
     let mut units = Vec::with_capacity(blocks.len());
-    for (ordinal, block) in blocks.iter().enumerate() {
-        let ordinal = u32::try_from(ordinal).map_err(|_| MinerUError::Protocol)?;
+    let mut ordinal = 0_u32;
+    for block in blocks {
         let path = PdfPath {
             page: block.page,
             order: block.order,
@@ -1071,13 +1094,29 @@ fn blocks_to_units(
             source_kind: "ocr".to_string(),
             confidence: block.confidence,
         };
-        let mut unit = ImportedUnit::plain(ordinal, path.encode(), block.text.clone());
-        unit.notes.push(DocumentNote {
-            id: format!("{}:mineru-ocr:{ordinal}", document_id.unwrap_or("pdf")),
-            text: format!("MinerU OCR confidence {}", block.confidence),
-            author: Some("mineru".to_string()),
-        });
-        units.push(unit);
+        let structural_path = path.encode();
+        let segments = segment_pdf_text(&block.text, locale, mode, srx_path).map_err(|error| {
+            MinerUError::Config(format!("PDF segmentation options are invalid: {error}"))
+        })?;
+        // Fall back to the whole block when SRX yields nothing (e.g. whitespace-only).
+        let texts = if segments.is_empty() {
+            if block.text.trim().is_empty() {
+                continue;
+            }
+            vec![block.text.clone()]
+        } else {
+            segments
+        };
+        for text in texts {
+            let mut unit = ImportedUnit::plain(ordinal, structural_path.clone(), text);
+            unit.notes.push(DocumentNote {
+                id: format!("{}:mineru-ocr:{ordinal}", document_id.unwrap_or("pdf")),
+                text: format!("MinerU OCR confidence {}", block.confidence),
+                author: Some("mineru".to_string()),
+            });
+            units.push(unit);
+            ordinal = ordinal.checked_add(1).ok_or(MinerUError::Protocol)?;
+        }
     }
     Ok(units)
 }
@@ -1193,21 +1232,78 @@ mod tests {
         write_pdf_with_pages(dir, "sample.pdf", 1)
     }
 
-    /// Build a minimal PDF that the page-count preflight can measure.
+    /// Build a valid PDF whose page tree reports `pages` (parseable by lopdf).
     fn write_pdf_with_pages(dir: &Path, name: &str, pages: u32) -> PathBuf {
+        use lopdf::{Document, Object, dictionary};
+        let mut doc = Document::with_version("1.4");
+        let pages_id = doc.new_object_id();
+        let mut kids = Vec::with_capacity(pages as usize);
+        for _ in 0..pages {
+            let page_id = doc.add_object(dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+            });
+            kids.push(page_id.into());
+        }
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => kids,
+                "Count" => i64::from(pages),
+            }),
+        );
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        doc.trailer.set("Root", catalog_id);
         let path = dir.join(name);
-        let mut body = String::from("%PDF-1.4\n");
-        for index in 1..=pages {
-            body.push_str(&format!(
-                "{index} 0 obj<</Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]>>endobj\n"
-            ));
-        }
-        body.push_str("2 0 obj<</Type /Pages /Kids [");
-        for index in 1..=pages {
-            body.push_str(&format!("{index} 0 R "));
-        }
-        body.push_str(&format!("] /Count {pages}>>endobj\ntrailer<<>>\n%%EOF\n"));
-        std::fs::write(&path, body).unwrap();
+        doc.save(&path).expect("save test pdf");
+        path
+    }
+
+    /// PDF with one real page plus decoy `/Type /Page` markers that raw scans would over-count.
+    fn write_pdf_with_decoy_page_markers(dir: &Path) -> PathBuf {
+        use lopdf::{Document, Object, Stream, dictionary};
+        let mut doc = Document::with_version("1.4");
+        let pages_id = doc.new_object_id();
+        // Content stream embeds textual decoys that a raw-byte `/Type /Page` scan would see.
+        let decoy = Stream::new(
+            dictionary! {},
+            b"BT /F1 12 Tf 100 700 Td (decoy /Type /Page and /Type /Pages markers) Tj ET".to_vec(),
+        );
+        let content_id = doc.add_object(decoy);
+        // Stale unlinked page object (not in Kids) — raw scan would count it.
+        let _stale = doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        });
+        let page_id = doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+            "Contents" => content_id,
+        });
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![page_id.into()],
+                "Count" => 1_i64,
+            }),
+        );
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        doc.trailer.set("Root", catalog_id);
+        // Compress streams so page dictionaries may sit beside compressed content.
+        doc.compress();
+        let path = dir.join("decoy-pages.pdf");
+        doc.save(&path).expect("save decoy pdf");
         path
     }
 
@@ -1564,10 +1660,77 @@ mod tests {
     }
 
     #[test]
-    fn count_pdf_pages_reads_type_page_markers() {
+    fn invalid_ocr_engine_and_mode_are_rejected() {
+        let err = resolve_pdf_ocr_route(&BTreeMap::from([("ocrEngine".into(), "mineruu".into())]))
+            .expect_err("typo engine");
+        assert!(matches!(err, MinerUError::Config(ref message) if message.contains("ocrEngine")));
+        let err = resolve_pdf_ocr_route(&BTreeMap::from([
+            ("ocrEngine".into(), "mineru".into()),
+            ("ocrMode".into(), "sometimes".into()),
+        ]))
+        .expect_err("invalid mode");
+        assert!(matches!(err, MinerUError::Config(ref message) if message.contains("ocrMode")));
+        // Valid closed set still works.
+        assert_eq!(
+            resolve_pdf_ocr_route(&mineru_options()).unwrap(),
+            PdfOcrRoute::MinerU
+        );
+        assert_eq!(
+            resolve_pdf_ocr_route(&BTreeMap::from([("ocrEngine".into(), "local".into())])).unwrap(),
+            PdfOcrRoute::Local
+        );
+    }
+
+    #[test]
+    fn count_pdf_pages_uses_page_tree_not_raw_markers() {
         let dir = tempdir().unwrap();
         let pdf = write_pdf_with_pages(dir.path(), "three.pdf", 3);
         assert_eq!(count_pdf_pages(&pdf).unwrap(), 3);
+        let decoy = write_pdf_with_decoy_page_markers(dir.path());
+        assert_eq!(
+            count_pdf_pages(&decoy).unwrap(),
+            1,
+            "page tree must ignore decoy markers and unlinked page objects"
+        );
+    }
+
+    #[test]
+    fn blocks_to_units_respects_sentence_segmentation() {
+        let blocks = [MinerULayoutBlock {
+            page: 1,
+            order: 0,
+            kind: "paragraph".into(),
+            text: "Hello world. Second sentence.".into(),
+            bbox: (10.0, 20.0, 100.0, 30.0),
+            confidence: 900,
+        }];
+        let paragraph = blocks_to_units(
+            &blocks,
+            Some("doc"),
+            "en-US",
+            &BTreeMap::from([("segmentationMode".into(), "paragraph".into())]),
+        )
+        .expect("paragraph");
+        assert_eq!(paragraph.len(), 1);
+        assert_eq!(paragraph[0].source_text, "Hello world. Second sentence.");
+        let sentence = blocks_to_units(
+            &blocks,
+            Some("doc"),
+            "en-US",
+            &BTreeMap::from([("segmentationMode".into(), "sentence".into())]),
+        )
+        .expect("sentence");
+        assert!(
+            sentence.len() >= 2,
+            "sentence mode should split, got {:?}",
+            sentence
+                .iter()
+                .map(|u| u.source_text.as_str())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(sentence[0].structural_path, sentence[1].structural_path);
+        assert!(sentence[0].source_text.contains("Hello"));
+        assert!(sentence[1].source_text.contains("Second"));
     }
 
     #[test]

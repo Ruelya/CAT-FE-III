@@ -7,6 +7,8 @@ license.workspace = true
 
 [dependencies]
 csv.workspace = true
+# Page-tree reader for preflight counts (object streams / compressed objects).
+lopdf = { version = "0.34", default-features = false, features = ["nom_parser"] }
 quick-xml.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true

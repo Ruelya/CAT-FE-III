@@ -380,8 +380,15 @@ pub(crate) fn engine_error_code(error: &EngineError) -> &'static str {
         EngineError::PluginSandboxFailed(_) | EngineError::PluginAiActionFailed { .. } => {
             "plugin_sandbox_failed"
         }
+        // Filter not-found must not fall into the broad Import → unsupported_document arm.
+        EngineError::Import(FilterError::NotFound(_))
+        | EngineError::Export(FilterError::NotFound(_))
+        | EngineError::CorpusImport(FilterError::NotFound(_)) => "not_found",
         EngineError::Import(_) => "unsupported_document",
-        EngineError::CorpusImport(FilterError::NotFound(_)) => "not_found",
+        EngineError::Export(_)
+        | EngineError::CurationExport(_)
+        | EngineError::ReportExport(_)
+        | EngineError::TaskPackageExport(_) => "export_error",
         EngineError::CorpusImport(_) | EngineError::CorpusInput(_) => "unsupported_corpus_input",
         EngineError::Storage(StorageError::Alignment(AlignmentError::ResourceLimitExceeded {
             ..
@@ -395,13 +402,13 @@ pub(crate) fn engine_error_code(error: &EngineError) -> &'static str {
         | EngineError::Storage(StorageError::TaskPackage(TaskPackageError::ResourceLimit {
             ..
         })) => "resource_limit",
-        EngineError::TaskPackageExport(_) => "export_error",
         EngineError::TaskPackage(_) | EngineError::Storage(StorageError::TaskPackage(_)) => {
             "invalid_request"
         }
-        EngineError::InvalidRequest(_) => "invalid_request",
+        EngineError::InvalidRequest(_) | EngineError::Json(_) => "invalid_request",
         EngineError::InvalidState(_) => "invalid_state",
         EngineError::PolicyDenied { .. } => "policy_denied",
+        EngineError::QaGateBlocked { .. } => "qa_gate_blocked",
         EngineError::Io(_) | EngineError::Storage(_) => "storage_error",
         EngineError::MinerU(mineru_error) => mineru_error_code(mineru_error),
         EngineError::CredentialUnavailable(_) => "credential_unavailable",
@@ -4797,17 +4804,37 @@ impl EngineService {
             .tempfile_in(&self.store.paths().temporary)?;
         let source_sha256 = copy_and_hash(&source_path, temporary.as_file_mut())?;
         temporary.as_file().sync_all()?;
-        let imported = if descriptor.id == "builtin.pdf" && self.mineru.should_handle(options) {
-            // Prefer MinerU HTTP OCR when configured (HB3 path). Failures are
-            // typed and abort before managed-source publication.
-            self.mineru
-                .import_pdf(
-                    temporary.path(),
-                    Some(document_id.as_str()),
-                    Some(source_locale),
-                    options,
-                )
-                .map_err(EngineError::from)?
+        let imported = if descriptor.id == "builtin.pdf" {
+            // Closed OCR routing: invalid ocrEngine/ocrMode fail as invalid_request
+            // before either MinerU transport or the local PDF filter runs.
+            match mineru::resolve_pdf_ocr_route(options).map_err(|error| match error {
+                mineru::MinerUError::Config(message) => EngineError::InvalidRequest(message),
+                other => EngineError::MinerU(other),
+            })? {
+                mineru::PdfOcrRoute::MinerU => {
+                    // Explicit MinerU HTTP OCR (HB3). Failures are typed and abort
+                    // before managed-source publication.
+                    self.mineru
+                        .import_pdf(
+                            temporary.path(),
+                            Some(document_id.as_str()),
+                            Some(source_locale),
+                            options,
+                        )
+                        .map_err(EngineError::from)?
+                }
+                mineru::PdfOcrRoute::Local => {
+                    let stream = filter
+                        .import(ImportRequest {
+                            source: temporary.path().to_path_buf(),
+                            document_id: Some(document_id.clone()),
+                            source_locale: Some(source_locale.to_string()),
+                            options: options.clone(),
+                        })
+                        .map_err(EngineError::Import)?;
+                    collect_imported_document(stream).map_err(EngineError::Import)?
+                }
+            }
         } else {
             let stream = filter
                 .import(ImportRequest {
@@ -14443,19 +14470,33 @@ mod tests {
     }
 
     fn write_pdf_with_pages(dir: &std::path::Path, name: &str, pages: u32) -> PathBuf {
+        use lopdf::{Document, Object, dictionary};
+        let mut doc = Document::with_version("1.4");
+        let pages_id = doc.new_object_id();
+        let mut kids = Vec::with_capacity(pages as usize);
+        for _ in 0..pages {
+            let page_id = doc.add_object(dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+            });
+            kids.push(page_id.into());
+        }
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => kids,
+                "Count" => i64::from(pages),
+            }),
+        );
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        doc.trailer.set("Root", catalog_id);
         let path = dir.join(name);
-        let mut body = String::from("%PDF-1.4\n");
-        for index in 1..=pages {
-            body.push_str(&format!(
-                "{index} 0 obj<</Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]>>endobj\n"
-            ));
-        }
-        body.push_str("2 0 obj<</Type /Pages /Kids [");
-        for index in 1..=pages {
-            body.push_str(&format!("{index} 0 R "));
-        }
-        body.push_str(&format!("] /Count {pages}>>endobj\ntrailer<<>>\n%%EOF\n"));
-        std::fs::write(&path, body).expect("write pdf");
+        doc.save(&path).expect("write pdf");
         path
     }
 
@@ -14701,6 +14742,57 @@ mod tests {
             filter_id: Some("builtin.pdf".into()),
             options: BTreeMap::from([("ocrMode".into(), "never".into())]),
         });
+        assert_eq!(transport.call_count(), 0);
+    }
+
+    #[test]
+    fn mineru_invalid_routing_is_invalid_request_without_transport() {
+        let context = TestContext::new();
+        let pdf = write_minimal_pdf(context.root.path());
+        let mut service = EngineService::open(context.root.path()).expect("open engine");
+        let transport = std::sync::Arc::new(mineru::MockMinerUTransport::success());
+        service
+            .set_mineru_base_url_for_test(Some("http://127.0.0.1:18000".into()))
+            .expect("set base url");
+        service.set_mineru_credentials_for_test(std::sync::Arc::new(
+            mineru::MemoryMinerUCredentialStore::with_secret(Some("k".into())),
+        ));
+        service.replace_mineru_transport(transport.clone());
+        let project = TestContext::project(&mut service);
+
+        let error = service
+            .import_document(ImportDocumentParams {
+                project_id: project.id.clone(),
+                source_path: pdf.to_string_lossy().into_owned(),
+                relative_path: Some("contracts/typo-engine.pdf".into()),
+                filter_id: Some("builtin.pdf".into()),
+                options: BTreeMap::from([("ocrEngine".into(), "mineruu".into())]),
+            })
+            .expect_err("typo ocrEngine must fail closed");
+        assert!(
+            matches!(error, EngineError::InvalidRequest(ref message) if message.contains("ocrEngine")),
+            "expected invalid_request for bad engine, got {error:?}"
+        );
+        assert_eq!(engine_error_code(&error), "invalid_request");
+        assert_eq!(transport.call_count(), 0);
+
+        let error = service
+            .import_document(ImportDocumentParams {
+                project_id: project.id,
+                source_path: pdf.to_string_lossy().into_owned(),
+                relative_path: Some("contracts/bad-mode.pdf".into()),
+                filter_id: Some("builtin.pdf".into()),
+                options: BTreeMap::from([
+                    ("ocrEngine".into(), "mineru".into()),
+                    ("ocrMode".into(), "sometimes".into()),
+                ]),
+            })
+            .expect_err("invalid ocrMode must fail closed");
+        assert!(
+            matches!(error, EngineError::InvalidRequest(ref message) if message.contains("ocrMode")),
+            "expected invalid_request for bad mode, got {error:?}"
+        );
+        assert_eq!(engine_error_code(&error), "invalid_request");
         assert_eq!(transport.call_count(), 0);
     }
 

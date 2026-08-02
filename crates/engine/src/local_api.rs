@@ -535,6 +535,83 @@ mod tests {
         }
     }
 
+    #[test]
+    fn local_api_error_taxonomy_preserves_legacy_and_mineru_codes() {
+        use translunar_filter_core::FilterError;
+        let cases: &[(EngineError, &str, u16)] = &[
+            (
+                EngineError::Import(FilterError::NotFound("builtin.missing".into())),
+                "not_found",
+                404,
+            ),
+            (
+                EngineError::Export(FilterError::Processing("write failed".into())),
+                "export_error",
+                400,
+            ),
+            (
+                EngineError::CurationExport("curation export failed".into()),
+                "export_error",
+                400,
+            ),
+            (
+                EngineError::ReportExport("report export failed".into()),
+                "export_error",
+                400,
+            ),
+            (
+                EngineError::QaGateBlocked {
+                    document_id: "doc".into(),
+                    run_id: "run".into(),
+                    blocker_issue_ids: vec!["i1".into()],
+                    error_count: 1,
+                    warning_count: 0,
+                    info_count: 0,
+                    waived_count: 0,
+                },
+                "qa_gate_blocked",
+                409,
+            ),
+            (
+                EngineError::PolicyDenied {
+                    project_id: "p".into(),
+                    profile_id: "prof".into(),
+                },
+                "policy_denied",
+                400,
+            ),
+            (
+                EngineError::CredentialUnavailable("keyring down".into()),
+                "credential_unavailable",
+                503,
+            ),
+            (
+                EngineError::InvalidRequest("bad option".into()),
+                "invalid_request",
+                400,
+            ),
+            (
+                EngineError::MinerU(MinerUError::Timeout),
+                "provider_timeout",
+                503,
+            ),
+            (
+                EngineError::MinerU(MinerUError::EmptyResult),
+                "provider_protocol",
+                503,
+            ),
+        ];
+        for (error, code, status) in cases {
+            assert_eq!(error_code(error), *code, "code for {error}");
+            assert_eq!(status_for_error(error), *status, "status for {error}");
+            assert_ne!(
+                error_code(error),
+                "internal_error",
+                "must not collapse to internal_error: {error}"
+            );
+        }
+    }
+
     fn exchange(addr: SocketAddr, request: &str) -> String {
         let mut stream = TcpStream::connect(addr).unwrap();
         stream

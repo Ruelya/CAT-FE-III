@@ -1,8 +1,10 @@
 # MinerU OCR for PDF import
 
-Prefer MinerU over the local Tesseract path when a MinerU HTTP endpoint is
-configured. This covers Full PRD HB3 (scanned/mixed PDF OCR via HTTP API).
-HB10 (follow-on multimodal aid) remains scheduled after this path is complete.
+MinerU is selected **only** when import options set `ocrEngine=mineru` (and
+`ocrMode` is not `never`). Configuring a base URL alone does not switch ordinary
+text-layer PDFs onto MinerU. This covers Full PRD HB3 (scanned/mixed PDF OCR via
+HTTP API). HB10 (follow-on multimodal aid) remains scheduled after this path is
+complete.
 
 ## Configuration
 
@@ -33,16 +35,21 @@ keyring service/account above.
 
 Import options:
 
-- `ocrEngine=mineru|tesseract|auto` — **only** `ocrEngine=mineru` selects the
-  MinerU HTTP path. Default/`auto` keeps the local Poppler/Tesseract text-layer
-  path (so ordinary text PDFs are never forced onto MinerU). Explicit `mineru`
-  with a missing base URL or key fails with a typed configuration/auth error.
-- `ocrMode=auto|always|never` — `never` keeps the local path even if
-  `ocrEngine=mineru`; `always` forces MinerU `parse_method=ocr`.
+- `ocrEngine=mineru|tesseract|poppler|local|auto` — closed enum. **Only**
+  `ocrEngine=mineru` selects the MinerU HTTP path. Default/`auto` keeps the
+  local Poppler/Tesseract text-layer path. Unknown values return typed
+  `invalid_request` (no silent fallback). Explicit `mineru` with a missing base
+  URL or key fails with a typed configuration/auth error.
+- `ocrMode=auto|always|never` — closed enum; unknown values are
+  `invalid_request`. `never` keeps the local path even if `ocrEngine=mineru`;
+  `always` forces MinerU `parse_method=ocr`.
 - `ocrLanguages` / `lang` — forwarded as MinerU `lang_list` (default `ch`).
 - `pageRange` — `N` or `N-M` (1-based); mapped to MinerU `start_page_id` /
   `end_page_id` (0-based). The selected span is validated against the real PDF
-  page count and `TRANSLUNAR_MINERU_MAX_PAGES` **before** any HTTP call.
+  page-tree count (not a raw-byte heuristic) and `TRANSLUNAR_MINERU_MAX_PAGES`
+  **before** any credential read or HTTP call.
+- `segmentationMode` / `srxPath` — same paragraph/sentence/custom-SRX contract as
+  the local PDF filter; MinerU layout blocks are segmented before unit creation.
 
 ## Behaviour
 
