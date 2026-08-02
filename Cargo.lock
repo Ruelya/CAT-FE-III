@@ -2692,6 +2692,7 @@ dependencies = [
  "chrono",
  "clap",
  "csv",
+ "flate2",
  "getrandom 0.2.17",
  "keyring",
  "lopdf",
@@ -2726,7 +2727,6 @@ dependencies = [
  "translunar-plugin-runtime",
  "translunar-protocol",
  "translunar-qa-core",
- "translunar-segmentation-srx",
  "translunar-storage",
  "translunar-task-package-core",
  "uuid",
@@ -2801,6 +2801,7 @@ name = "translunar-filter-pdf"
 version = "0.1.0"
 dependencies = [
  "csv",
+ "flate2",
  "lopdf",
  "quick-xml",
  "tempfile",

@@ -49,5 +49,6 @@ uuid.workspace = true
 zip.workspace = true
 
 [dev-dependencies]
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 lopdf = { version = "0.34", default-features = false, features = ["nom_parser"] }
 rusqlite.workspace = true

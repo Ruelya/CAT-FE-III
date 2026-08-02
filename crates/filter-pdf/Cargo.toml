@@ -7,6 +7,8 @@ license.workspace = true
 
 [dependencies]
 csv.workspace = true
+# Bounded stream preflight for page-tree counting (decode caps).
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 # Page-tree reader for preflight counts (object streams / compressed objects).
 lopdf = { version = "0.34", default-features = false, features = ["nom_parser"] }
 quick-xml.workspace = true

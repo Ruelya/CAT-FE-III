@@ -17,7 +17,7 @@ use serde_json::Value;
 use thiserror::Error;
 use translunar_domain::{DegradationFinding, DegradationSeverity, DocumentNote};
 use translunar_filter_core::{DocumentMetadata, ImportedDocument, ImportedUnit};
-use translunar_filter_pdf::{PdfPath, count_page_tree, segment_pdf_text};
+use translunar_filter_pdf::{PdfPath, PdfTextSegmenter, count_page_tree};
 
 /// OS keyring service name for the MinerU API token.
 pub const MINERU_CREDENTIAL_SERVICE: &str = "translunar-cat.mineru";
@@ -964,12 +964,21 @@ fn validate_pdf_header(source: &Path) -> Result<(), MinerUError> {
     Ok(())
 }
 
-/// Count PDF pages via the real page tree (preflight only; no external tools).
+/// Count PDF pages via the bounded page tree (preflight only; no external tools).
 fn count_pdf_pages(source: &Path) -> Result<u32, MinerUError> {
-    count_page_tree(source).map_err(|error| {
-        MinerUError::Config(format!(
-            "unable to determine PDF page count for MinerU preflight: {error}"
-        ))
+    count_page_tree(source).map_err(|error| match error {
+        translunar_filter_pdf::PdfError::ResourceLimit {
+            resource,
+            limit,
+            actual,
+        } => MinerUError::ResourceLimit {
+            resource,
+            limit,
+            actual,
+        },
+        other => MinerUError::Config(format!(
+            "unable to determine PDF page count for MinerU preflight: {other}"
+        )),
     })
 }
 
@@ -1078,8 +1087,13 @@ fn blocks_to_units(
     locale: &str,
     options: &BTreeMap<String, String>,
 ) -> Result<Vec<ImportedUnit>, MinerUError> {
+    // Prepare segmentation once per import (not once per block) for determinism
+    // and to avoid re-reading/recompiling custom SRX thousands of times.
     let mode = options.get("segmentationMode").map(String::as_str);
     let srx_path = options.get("srxPath").map(String::as_str);
+    let segmenter = PdfTextSegmenter::prepare(locale, mode, srx_path).map_err(|error| {
+        MinerUError::Config(format!("PDF segmentation options are invalid: {error}"))
+    })?;
     let mut units = Vec::with_capacity(blocks.len());
     let mut ordinal = 0_u32;
     for block in blocks {
@@ -1095,9 +1109,7 @@ fn blocks_to_units(
             confidence: block.confidence,
         };
         let structural_path = path.encode();
-        let segments = segment_pdf_text(&block.text, locale, mode, srx_path).map_err(|error| {
-            MinerUError::Config(format!("PDF segmentation options are invalid: {error}"))
-        })?;
+        let segments = segmenter.segment(&block.text);
         // Fall back to the whole block when SRX yields nothing (e.g. whitespace-only).
         let texts = if segments.is_empty() {
             if block.text.trim().is_empty() {
@@ -1695,6 +1707,247 @@ mod tests {
     }
 
     #[test]
+    fn count_pdf_pages_reads_genuine_object_stream_pages() {
+        // Build a PDF whose page dictionaries live inside a Flate /ObjStm and are
+        // addressed via a cross-reference stream (not ordinary indirect objects).
+        use flate2::Compression;
+        use flate2::write::ZlibEncoder;
+        use std::io::Write;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("objstm-pages.pdf");
+        let pages = 3_u32;
+
+        let mut index = String::new();
+        let mut body = String::new();
+        for i in 0..pages {
+            let obj_num = 3 + i;
+            let offset = body.len();
+            index.push_str(&format!("{obj_num} {offset} "));
+            body.push_str("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >> ");
+        }
+        let first = index.len();
+        let mut raw = index.into_bytes();
+        raw.extend_from_slice(body.as_bytes());
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&raw).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let mut kids = String::new();
+        for i in 0..pages {
+            kids.push_str(&format!("{} 0 R ", 3 + i));
+        }
+        let kids = kids.trim();
+
+        let mut pdf = Vec::new();
+        pdf.extend_from_slice(b"%PDF-1.5\n");
+        let obj1_at = pdf.len();
+        pdf.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+        let obj2_at = pdf.len();
+        pdf.extend_from_slice(
+            format!("2 0 obj\n<< /Type /Pages /Kids [ {kids} ] /Count {pages} >>\nendobj\n")
+                .as_bytes(),
+        );
+        let obj100_at = pdf.len();
+        pdf.extend_from_slice(
+            format!(
+                "100 0 obj\n<< /Type /ObjStm /N {pages} /First {first} /Filter /FlateDecode /Length {} >>\nstream\n",
+                compressed.len()
+            )
+            .as_bytes(),
+        );
+        pdf.extend_from_slice(&compressed);
+        pdf.extend_from_slice(b"\nendstream\nendobj\n");
+
+        let last_page = 2 + pages;
+        let obj101_at = pdf.len();
+        let write_free = |buf: &mut Vec<u8>| buf.extend_from_slice(&[0, 0, 0, 0, 0]);
+        let write_normal = |buf: &mut Vec<u8>, offset: usize| {
+            buf.push(1);
+            buf.extend_from_slice(&(offset as u16).to_be_bytes());
+            buf.extend_from_slice(&0_u16.to_be_bytes());
+        };
+        let write_compressed = |buf: &mut Vec<u8>, index: u16| {
+            buf.push(2);
+            buf.extend_from_slice(&100_u16.to_be_bytes());
+            buf.extend_from_slice(&index.to_be_bytes());
+        };
+        let mut xref_data: Vec<u8> = Vec::new();
+        write_free(&mut xref_data);
+        write_normal(&mut xref_data, obj1_at);
+        write_normal(&mut xref_data, obj2_at);
+        for i in 0..pages {
+            write_compressed(&mut xref_data, i as u16);
+        }
+        for _ in (last_page + 1)..100 {
+            write_free(&mut xref_data);
+        }
+        write_normal(&mut xref_data, obj100_at);
+        write_normal(&mut xref_data, obj101_at);
+        let mut enc = ZlibEncoder::new(Vec::new(), Compression::default());
+        enc.write_all(&xref_data).unwrap();
+        let xref_compressed = enc.finish().unwrap();
+        pdf.extend_from_slice(
+            format!(
+                "101 0 obj\n<< /Type /XRef /Size 102 /W [1 2 2] /Root 1 0 R /Filter /FlateDecode /Length {} >>\nstream\n",
+                xref_compressed.len()
+            )
+            .as_bytes(),
+        );
+        pdf.extend_from_slice(&xref_compressed);
+        pdf.extend_from_slice(b"\nendstream\nendobj\n");
+        pdf.extend_from_slice(format!("startxref\n{obj101_at}\n%%EOF\n").as_bytes());
+        std::fs::write(&path, pdf).unwrap();
+
+        assert_eq!(
+            count_pdf_pages(&path).expect("objstm count"),
+            3,
+            "page dictionaries inside /ObjStm must be counted exactly"
+        );
+    }
+
+    #[test]
+    fn oversized_objstm_document_rejected_before_credential_and_network() {
+        use flate2::Compression;
+        use flate2::write::ZlibEncoder;
+        use std::io::Write;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct CountingStore {
+            gets: AtomicUsize,
+            inner: MemoryMinerUCredentialStore,
+        }
+        impl MinerUCredentialStore for CountingStore {
+            fn backend(&self) -> &'static str {
+                "test-memory"
+            }
+            fn status(&self) -> Result<bool, MinerUError> {
+                self.inner.status()
+            }
+            fn get(&self) -> Result<String, MinerUError> {
+                self.gets.fetch_add(1, Ordering::SeqCst);
+                self.inner.get()
+            }
+            fn set(&self, secret: &str) -> Result<(), MinerUError> {
+                self.inner.set(secret)
+            }
+            fn delete(&self) -> Result<(), MinerUError> {
+                self.inner.delete()
+            }
+        }
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("objstm-long.pdf");
+        let pages = 5_u32;
+        let mut index = String::new();
+        let mut body = String::new();
+        for i in 0..pages {
+            let obj_num = 3 + i;
+            let offset = body.len();
+            index.push_str(&format!("{obj_num} {offset} "));
+            body.push_str("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >> ");
+        }
+        let first = index.len();
+        let mut raw = index.into_bytes();
+        raw.extend_from_slice(body.as_bytes());
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&raw).unwrap();
+        let compressed = encoder.finish().unwrap();
+        let mut kids = String::new();
+        for i in 0..pages {
+            kids.push_str(&format!("{} 0 R ", 3 + i));
+        }
+        let kids = kids.trim();
+        let mut pdf = Vec::new();
+        pdf.extend_from_slice(b"%PDF-1.5\n");
+        let obj1_at = pdf.len();
+        pdf.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+        let obj2_at = pdf.len();
+        pdf.extend_from_slice(
+            format!("2 0 obj\n<< /Type /Pages /Kids [ {kids} ] /Count {pages} >>\nendobj\n")
+                .as_bytes(),
+        );
+        let obj100_at = pdf.len();
+        pdf.extend_from_slice(
+            format!(
+                "100 0 obj\n<< /Type /ObjStm /N {pages} /First {first} /Filter /FlateDecode /Length {} >>\nstream\n",
+                compressed.len()
+            )
+            .as_bytes(),
+        );
+        pdf.extend_from_slice(&compressed);
+        pdf.extend_from_slice(b"\nendstream\nendobj\n");
+        let last_page = 2 + pages;
+        let obj101_at = pdf.len();
+        let write_free = |buf: &mut Vec<u8>| buf.extend_from_slice(&[0, 0, 0, 0, 0]);
+        let write_normal = |buf: &mut Vec<u8>, offset: usize| {
+            buf.push(1);
+            buf.extend_from_slice(&(offset as u16).to_be_bytes());
+            buf.extend_from_slice(&0_u16.to_be_bytes());
+        };
+        let write_compressed = |buf: &mut Vec<u8>, index: u16| {
+            buf.push(2);
+            buf.extend_from_slice(&100_u16.to_be_bytes());
+            buf.extend_from_slice(&index.to_be_bytes());
+        };
+        let mut xref_data: Vec<u8> = Vec::new();
+        write_free(&mut xref_data);
+        write_normal(&mut xref_data, obj1_at);
+        write_normal(&mut xref_data, obj2_at);
+        for i in 0..pages {
+            write_compressed(&mut xref_data, i as u16);
+        }
+        for _ in (last_page + 1)..100 {
+            write_free(&mut xref_data);
+        }
+        write_normal(&mut xref_data, obj100_at);
+        write_normal(&mut xref_data, obj101_at);
+        let mut enc = ZlibEncoder::new(Vec::new(), Compression::default());
+        enc.write_all(&xref_data).unwrap();
+        let xref_compressed = enc.finish().unwrap();
+        pdf.extend_from_slice(
+            format!(
+                "101 0 obj\n<< /Type /XRef /Size 102 /W [1 2 2] /Root 1 0 R /Filter /FlateDecode /Length {} >>\nstream\n",
+                xref_compressed.len()
+            )
+            .as_bytes(),
+        );
+        pdf.extend_from_slice(&xref_compressed);
+        pdf.extend_from_slice(b"\nendstream\nendobj\n");
+        pdf.extend_from_slice(format!("startxref\n{obj101_at}\n%%EOF\n").as_bytes());
+        std::fs::write(&path, pdf).unwrap();
+
+        let transport = Arc::new(MockMinerUTransport::success());
+        let store = Arc::new(CountingStore {
+            gets: AtomicUsize::new(0),
+            inner: MemoryMinerUCredentialStore::with_secret(Some("k".into())),
+        });
+        let config = MinerUConfig {
+            base_url: Some("http://127.0.0.1:18000".into()),
+            max_pages: 2,
+            ..MinerUConfig::default()
+        };
+        let service = MinerUService::with_parts(config, store.clone(), transport.clone());
+        let err = service
+            .import_pdf(&path, None, None, &mineru_options())
+            .expect_err("over-limit objstm document");
+        match err {
+            MinerUError::ResourceLimit {
+                resource,
+                limit,
+                actual,
+            } => {
+                assert_eq!(resource, "pages");
+                assert_eq!(limit, 2);
+                assert_eq!(actual, 5);
+            }
+            other => panic!("expected page resource limit, got {other:?}"),
+        }
+        assert_eq!(transport.call_count(), 0);
+        assert_eq!(store.gets.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
     fn blocks_to_units_respects_sentence_segmentation() {
         let blocks = [MinerULayoutBlock {
             page: 1,
@@ -1731,6 +1984,91 @@ mod tests {
         assert_eq!(sentence[0].structural_path, sentence[1].structural_path);
         assert!(sentence[0].source_text.contains("Hello"));
         assert!(sentence[1].source_text.contains("Second"));
+    }
+
+    #[test]
+    fn custom_srx_is_prepared_once_per_import_across_blocks() {
+        translunar_filter_pdf::reset_srx_prepare_count();
+        let dir = tempdir().unwrap();
+        // Minimal SRX: break after period+space (same idea as sentence mode).
+        let srx_path = dir.path().join("custom.srx");
+        std::fs::write(
+            &srx_path,
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<srx xmlns="http://www.lisa.org/srx20" version="2.0">
+  <header segmentsubflows="yes" cascade="yes"/>
+  <body>
+    <languagerules>
+      <languagerule languagerulename="default">
+        <rule break="yes">
+          <beforebreak>\.\s+</beforebreak>
+          <afterbreak></afterbreak>
+        </rule>
+      </languagerule>
+    </languagerules>
+    <maprules>
+      <languagemap languagepattern=".*" languagerulename="default"/>
+    </maprules>
+  </body>
+</srx>"#,
+        )
+        .unwrap();
+
+        let blocks = [
+            MinerULayoutBlock {
+                page: 1,
+                order: 0,
+                kind: "paragraph".into(),
+                text: "Alpha one. Alpha two.".into(),
+                bbox: (10.0, 20.0, 100.0, 30.0),
+                confidence: 900,
+            },
+            MinerULayoutBlock {
+                page: 1,
+                order: 1,
+                kind: "paragraph".into(),
+                text: "Beta one. Beta two.".into(),
+                bbox: (10.0, 60.0, 100.0, 30.0),
+                confidence: 900,
+            },
+            MinerULayoutBlock {
+                page: 2,
+                order: 0,
+                kind: "paragraph".into(),
+                text: "Gamma one. Gamma two.".into(),
+                bbox: (10.0, 20.0, 100.0, 30.0),
+                confidence: 900,
+            },
+        ];
+        let options = BTreeMap::from([
+            ("segmentationMode".into(), "srx".into()),
+            ("srxPath".into(), srx_path.to_string_lossy().into_owned()),
+        ]);
+        let before = translunar_filter_pdf::srx_prepare_count();
+        let units = blocks_to_units(&blocks, Some("doc"), "en-US", &options).expect("srx units");
+        let after = translunar_filter_pdf::srx_prepare_count();
+        assert_eq!(
+            after - before,
+            1,
+            "custom SRX must be prepared once per import, not once per block"
+        );
+        assert_eq!(
+            units.len(),
+            6,
+            "exact custom-SRX units: {:?}",
+            units
+                .iter()
+                .map(|u| u.source_text.as_str())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(units[0].source_text, "Alpha one.");
+        assert_eq!(units[1].source_text, "Alpha two.");
+        assert_eq!(units[2].source_text, "Beta one.");
+        assert_eq!(units[3].source_text, "Beta two.");
+        assert_eq!(units[4].source_text, "Gamma one.");
+        assert_eq!(units[5].source_text, "Gamma two.");
+        assert_eq!(units[0].structural_path, units[1].structural_path);
+        assert_ne!(units[0].structural_path, units[2].structural_path);
     }
 
     #[test]
