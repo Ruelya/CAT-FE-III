@@ -37,7 +37,8 @@
     "07-19-collaboration-server",
     "07-19-platform-packaging-product-shell",
     "07-19-full-prd-release-qualification",
-    "07-20-project-lifecycle-acceptance"
+    "07-20-project-lifecycle-acceptance",
+    "08-02-mineru-ocr-pdf-pipeline"
   ],
   "parent": null,
   "relatedFiles": [],

@@ -6,6 +6,8 @@
   (release lane), with pnpm 10.18.3
 - Rust toolchain from `rust-toolchain.toml`
 - Optional PDF/OCR tools for full smoke: `pdfinfo`, `pdftoppm`, `tesseract`
+- Optional MinerU HTTP OCR: see [`docs/mineru-ocr.md`](mineru-ocr.md)
+  (`TRANSLUNAR_MINERU_BASE_URL` + keyring service `translunar-cat.mineru`)
 
 ```bash
 pnpm install
