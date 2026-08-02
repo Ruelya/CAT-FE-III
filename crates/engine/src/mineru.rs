@@ -6,12 +6,13 @@
 
 use std::collections::BTreeMap;
 use std::env;
+use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use keyring::Entry;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 use translunar_domain::{DegradationFinding, DegradationSeverity, DocumentNote};
@@ -88,9 +89,18 @@ pub trait MinerUCredentialStore: Send + Sync {
     fn delete(&self) -> Result<(), MinerUError>;
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct MemoryMinerUCredentialStore {
     value: Mutex<Option<String>>,
+}
+
+impl fmt::Debug for MemoryMinerUCredentialStore {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Never print the raw credential via derived Debug.
+        f.debug_struct("MemoryMinerUCredentialStore")
+            .field("value", &"[REDACTED]")
+            .finish()
+    }
 }
 
 impl MemoryMinerUCredentialStore {
@@ -330,15 +340,39 @@ fn validate_base_url(base: &str) -> Result<(), MinerUError> {
 }
 
 /// Inputs for a single MinerU parse call.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct MinerUParseRequest {
     pub source: PathBuf,
     pub file_name: String,
+    /// Bearer token; redacted in Debug (never log this field).
     pub api_key: String,
     pub parse_method: String,
     pub language: String,
     pub start_page: u32,
     pub end_page: Option<u32>,
+}
+
+impl fmt::Debug for MinerUParseRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MinerUParseRequest")
+            .field("source", &self.source)
+            .field("file_name", &self.file_name)
+            .field("api_key", &"[REDACTED]")
+            .field("parse_method", &self.parse_method)
+            .field("language", &self.language)
+            .field("start_page", &self.start_page)
+            .field("end_page", &self.end_page)
+            .finish()
+    }
+}
+
+/// Presence/backend only — never includes the secret material.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MinerUCredentialStatus {
+    pub available: bool,
+    pub present: bool,
+    pub backend: String,
 }
 
 /// Structured layout block after mapping from MinerU content_list.
@@ -354,8 +388,11 @@ pub struct MinerULayoutBlock {
 
 /// Trait so unit/smoke tests can inject fixture responses without live HTTP.
 pub trait MinerUTransport: Send + Sync {
-    fn parse(&self, request: &MinerUParseRequest, config: &MinerUConfig)
-    -> Result<Vec<MinerULayoutBlock>, MinerUError>;
+    fn parse(
+        &self,
+        request: &MinerUParseRequest,
+        config: &MinerUConfig,
+    ) -> Result<Vec<MinerULayoutBlock>, MinerUError>;
 }
 
 /// Production transport: `POST {base}/file_parse` (mineru-api compatible).
@@ -390,13 +427,13 @@ impl MinerUTransport for HttpMinerUTransport {
             .text("return_images", "false")
             .text("parse_method", request.parse_method.clone())
             .text("lang_list", request.language.clone())
-            .text("start_page_id", request.start_page.saturating_sub(1).to_string());
+            .text(
+                "start_page_id",
+                request.start_page.saturating_sub(1).to_string(),
+            );
         if let Some(end) = request.end_page {
             // mineru end_page_id is 0-based inclusive.
-            form = form.text(
-                "end_page_id",
-                end.saturating_sub(1).to_string(),
-            );
+            form = form.text("end_page_id", end.saturating_sub(1).to_string());
         }
         let file_bytes = std::fs::read(&request.source)?;
         let file_part = reqwest::blocking::multipart::Part::bytes(file_bytes)
@@ -555,10 +592,10 @@ fn map_items(items: Vec<ContentListItem>) -> Result<Vec<MinerULayoutBlock>, Mine
 
 fn extract_texts(item: &ContentListItem) -> Vec<String> {
     let mut texts = Vec::new();
-    if let Some(text) = item.text.as_ref() {
-        if !text.trim().is_empty() {
-            texts.push(text.clone());
-        }
+    if let Some(text) = item.text.as_ref()
+        && !text.trim().is_empty()
+    {
+        texts.push(text.clone());
     }
     if let Some(items) = item.list_items.as_ref() {
         for item in items {
@@ -568,7 +605,7 @@ fn extract_texts(item: &ContentListItem) -> Vec<String> {
         }
     }
     if let Some(captions) = item.table_caption.as_ref() {
-        texts.extend(captions.iter().cloned().filter(|t| !t.trim().is_empty()));
+        texts.extend(captions.iter().filter(|&t| !t.trim().is_empty()).cloned());
     }
     if let Some(body) = item.table_body.as_ref() {
         let stripped = strip_simple_html(body);
@@ -577,12 +614,12 @@ fn extract_texts(item: &ContentListItem) -> Vec<String> {
         }
     }
     if let Some(captions) = item.image_caption.as_ref() {
-        texts.extend(captions.iter().cloned().filter(|t| !t.trim().is_empty()));
+        texts.extend(captions.iter().filter(|&t| !t.trim().is_empty()).cloned());
     }
-    if let Some(body) = item.code_body.as_ref() {
-        if !body.trim().is_empty() {
-            texts.push(body.clone());
-        }
+    if let Some(body) = item.code_body.as_ref()
+        && !body.trim().is_empty()
+    {
+        texts.push(body.clone());
     }
     texts
 }
@@ -618,18 +655,70 @@ fn normalized_bbox_to_points(bbox: Option<[f64; 4]>) -> (f64, f64, f64, f64) {
     )
 }
 
+/// Strip HTML while preserving cell/row separators so adjacent cells do not
+/// collapse into a single token (e.g. `Item` + `Qty` must not become `ItemQty`).
 fn strip_simple_html(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut in_tag = false;
+    let mut tag = String::new();
     for ch in input.chars() {
         match ch {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => out.push(ch),
-            _ => {}
+            '<' => {
+                in_tag = true;
+                tag.clear();
+            }
+            '>' => {
+                in_tag = false;
+                let closing = tag.starts_with('/');
+                let name = tag
+                    .trim()
+                    .trim_start_matches('/')
+                    .split(|c: char| c.is_whitespace() || c == '/')
+                    .next()
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                if closing {
+                    match name.as_str() {
+                        "td" | "th" => out.push('\t'),
+                        "tr" => out.push('\n'),
+                        _ => {}
+                    }
+                } else if name == "br" {
+                    out.push('\n');
+                }
+            }
+            _ if in_tag => tag.push(ch),
+            _ => out.push(ch),
         }
     }
-    out.split_whitespace().collect::<Vec<_>>().join(" ")
+    // Collapse runs of spaces but keep tab/newline as structural separators.
+    let mut normalized = String::with_capacity(out.len());
+    let mut last_space = false;
+    for ch in out.chars() {
+        match ch {
+            '\t' | '\n' => {
+                // Trim trailing ordinary spaces before a separator.
+                while normalized.ends_with(' ') {
+                    normalized.pop();
+                }
+                if !normalized.ends_with(ch) {
+                    normalized.push(ch);
+                }
+                last_space = false;
+            }
+            c if c.is_whitespace() => {
+                if !last_space && !normalized.is_empty() && !normalized.ends_with(['\t', '\n']) {
+                    normalized.push(' ');
+                    last_space = true;
+                }
+            }
+            c => {
+                normalized.push(c);
+                last_space = false;
+            }
+        }
+    }
+    normalized.trim().to_string()
 }
 
 fn meaningful_text(text: &str) -> bool {
@@ -676,25 +765,33 @@ impl MinerUService {
         self.config.is_configured()
     }
 
-    /// Keyring / memory backend label (diagnostics only; never includes secrets).
-    #[allow(dead_code)] // reserved for CLI / settings surface
-    pub fn credential_backend(&self) -> &'static str {
-        self.credentials.backend()
+    /// Whether a non-empty credential is present. Never returns the secret.
+    pub fn credential_status(&self) -> Result<MinerUCredentialStatus, MinerUError> {
+        match self.credentials.status() {
+            Ok(present) => Ok(MinerUCredentialStatus {
+                available: true,
+                present,
+                backend: self.credentials.backend().to_string(),
+            }),
+            Err(MinerUError::CredentialUnavailable) => Ok(MinerUCredentialStatus {
+                available: false,
+                present: false,
+                backend: self.credentials.backend().to_string(),
+            }),
+            Err(error) => Err(error),
+        }
     }
 
-    #[allow(dead_code)] // reserved for CLI / settings surface
-    pub fn credential_status(&self) -> Result<bool, MinerUError> {
-        self.credentials.status()
+    /// Store a MinerU API key in the configured credential backend.
+    pub fn set_credential(&self, secret: &str) -> Result<MinerUCredentialStatus, MinerUError> {
+        self.credentials.set(secret)?;
+        self.credential_status()
     }
 
-    #[allow(dead_code)] // reserved for CLI / settings surface
-    pub fn set_credential(&self, secret: &str) -> Result<(), MinerUError> {
-        self.credentials.set(secret)
-    }
-
-    #[allow(dead_code)] // reserved for CLI / settings surface
-    pub fn delete_credential(&self) -> Result<(), MinerUError> {
-        self.credentials.delete()
+    /// Remove the MinerU API key from the configured credential backend.
+    pub fn delete_credential(&self) -> Result<MinerUCredentialStatus, MinerUError> {
+        self.credentials.delete()?;
+        self.credential_status()
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
@@ -718,10 +815,11 @@ impl MinerUService {
 
     /// Whether the MinerU path should handle this PDF import.
     ///
-    /// Enabled when a base URL is configured (env/settings) **and** the filter
-    /// option `ocrEngine` is not explicitly `tesseract`/`poppler`, and
-    /// `ocrMode` is not `never`. Explicit `ocrEngine=mineru` also enables it
-    /// even if base URL is only present on the service config.
+    /// Closed routing:
+    /// - `ocrEngine=mineru` → always select MinerU (typed fail if unusable)
+    /// - `ocrEngine=tesseract|poppler|local` or `ocrMode=never` → local path
+    /// - `auto`/empty → local Poppler/Tesseract text-layer path (do **not**
+    ///   force MinerU for ordinary text PDFs; per-page OCR fallback is future work)
     pub fn should_handle(&self, options: &BTreeMap<String, String>) -> bool {
         let ocr_mode = options
             .get("ocrMode")
@@ -735,9 +833,8 @@ impl MinerUService {
             .map(|value| value.trim().to_ascii_lowercase())
             .unwrap_or_default();
         match engine.as_str() {
-            "tesseract" | "poppler" | "local" => false,
-            "mineru" => self.is_configured(),
-            "" | "auto" => self.is_configured(),
+            "mineru" => true,
+            "tesseract" | "poppler" | "local" | "" | "auto" => false,
             _ => false,
         }
     }
@@ -768,18 +865,34 @@ impl MinerUService {
         // Cheap header check — full PDF validation stays with filter-pdf tools when needed.
         validate_pdf_header(source)?;
 
-        let api_key = self.credentials.get()?;
-        let (start_page, end_page) = parse_page_range(options.get("pageRange"))?;
-        if let Some(end) = end_page {
-            let span = end.saturating_sub(start_page).saturating_add(1);
-            if span > self.config.max_pages {
-                return Err(MinerUError::ResourceLimit {
-                    resource: "pages",
-                    limit: u64::from(self.config.max_pages),
-                    actual: u64::from(span),
-                });
-            }
+        // Resolve and enforce page limits **before** reading the credential or
+        // invoking transport (R1).
+        let (start_page, end_page_opt) = parse_page_range(options.get("pageRange"))?;
+        let page_count = count_pdf_pages(source)?;
+        if start_page > page_count {
+            return Err(MinerUError::Config(format!(
+                "pageRange start {start_page} is outside the PDF page count {page_count}"
+            )));
         }
+        let end_page = end_page_opt.unwrap_or(page_count);
+        if end_page > page_count {
+            return Err(MinerUError::Config(format!(
+                "pageRange end {end_page} is outside the PDF page count {page_count}"
+            )));
+        }
+        if end_page < start_page {
+            return Err(MinerUError::Config("pageRange end must be >= start".into()));
+        }
+        let selected_pages = end_page.saturating_sub(start_page).saturating_add(1);
+        if selected_pages > self.config.max_pages {
+            return Err(MinerUError::ResourceLimit {
+                resource: "pages",
+                limit: u64::from(self.config.max_pages),
+                actual: u64::from(selected_pages),
+            });
+        }
+
+        let api_key = self.credentials.get()?;
 
         let language = options
             .get("ocrLanguages")
@@ -813,7 +926,7 @@ impl MinerUService {
             parse_method,
             language,
             start_page,
-            end_page,
+            end_page: Some(end_page),
         };
 
         // Drop the secret from the request after the call returns by moving it.
@@ -861,15 +974,53 @@ fn validate_pdf_header(source: &Path) -> Result<(), MinerUError> {
     use std::io::Read;
     let mut file = std::fs::File::open(source)?;
     let mut header = [0_u8; 5];
-    file.read_exact(&mut header).map_err(|_| {
-        MinerUError::Config("source is not a readable PDF".into())
-    })?;
+    file.read_exact(&mut header)
+        .map_err(|_| MinerUError::Config("source is not a readable PDF".into()))?;
     if &header != b"%PDF-" {
         return Err(MinerUError::Config(
             "source does not start with a PDF header".into(),
         ));
     }
     Ok(())
+}
+
+/// Count PDF pages without external tools (preflight only).
+///
+/// Uses the standard heuristic of counting `/Type /Page` leaf dictionaries
+/// (excluding `/Type /Pages` trees). Adequate for limit checks before transport.
+fn count_pdf_pages(source: &Path) -> Result<u32, MinerUError> {
+    let bytes = std::fs::read(source)?;
+    count_pdf_pages_bytes(&bytes)
+}
+
+fn count_pdf_pages_bytes(bytes: &[u8]) -> Result<u32, MinerUError> {
+    // Work on a lossy Latin-1 view so binary streams do not break scanning.
+    let text = String::from_utf8_lossy(bytes);
+    let mut count = 0_u32;
+    let mut search_from = 0;
+    while let Some(rel) = text[search_from..].find("/Type") {
+        let abs = search_from + rel;
+        let after_type = abs + "/Type".len();
+        let rest = text[after_type..].trim_start();
+        // Match `/Page` that is not the start of `/Pages`.
+        if let Some(stripped) = rest.strip_prefix("/Page") {
+            let next = stripped.chars().next();
+            let is_pages = next == Some('s') || next == Some('S');
+            if !is_pages {
+                count = count.saturating_add(1);
+            }
+        }
+        search_from = after_type;
+        if search_from >= text.len() {
+            break;
+        }
+    }
+    if count == 0 {
+        return Err(MinerUError::Config(
+            "unable to determine PDF page count for MinerU preflight".into(),
+        ));
+    }
+    Ok(count)
 }
 
 fn parse_page_range(value: Option<&String>) -> Result<(u32, Option<u32>), MinerUError> {
@@ -894,12 +1045,10 @@ fn parse_page_range(value: Option<&String>) -> Result<(u32, Option<u32>), MinerU
     if parts.next().is_some() || end.is_some_and(|value| value == 0) {
         return Err(MinerUError::Config("pageRange must be N or N-M".into()));
     }
-    if let Some(end) = end {
-        if end < start {
-            return Err(MinerUError::Config(
-                "pageRange end must be >= start".into(),
-            ));
-        }
+    if let Some(end) = end
+        && end < start
+    {
+        return Err(MinerUError::Config("pageRange end must be >= start".into()));
     }
     Ok((start, end))
 }
@@ -924,10 +1073,7 @@ fn blocks_to_units(
         };
         let mut unit = ImportedUnit::plain(ordinal, path.encode(), block.text.clone());
         unit.notes.push(DocumentNote {
-            id: format!(
-                "{}:mineru-ocr:{ordinal}",
-                document_id.unwrap_or("pdf")
-            ),
+            id: format!("{}:mineru-ocr:{ordinal}", document_id.unwrap_or("pdf")),
             text: format!("MinerU OCR confidence {}", block.confidence),
             author: Some("mineru".to_string()),
         });
@@ -1021,8 +1167,7 @@ impl MinerUTransport for MockMinerUTransport {
         request: &MinerUParseRequest,
         _config: &MinerUConfig,
     ) -> Result<Vec<MinerULayoutBlock>, MinerUError> {
-        self.calls
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         // Secret must be present for the call but never appear in returned data.
         assert!(!request.api_key.is_empty());
         match self.fail {
@@ -1045,23 +1190,40 @@ mod tests {
     use tempfile::tempdir;
 
     fn write_minimal_pdf(dir: &Path) -> PathBuf {
-        let path = dir.join("sample.pdf");
-        // Minimal header-valid PDF bytes for header check (not a full renderable PDF).
-        std::fs::write(
-            &path,
-            b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
-        )
-        .unwrap();
+        write_pdf_with_pages(dir, "sample.pdf", 1)
+    }
+
+    /// Build a minimal PDF that the page-count preflight can measure.
+    fn write_pdf_with_pages(dir: &Path, name: &str, pages: u32) -> PathBuf {
+        let path = dir.join(name);
+        let mut body = String::from("%PDF-1.4\n");
+        for index in 1..=pages {
+            body.push_str(&format!(
+                "{index} 0 obj<</Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]>>endobj\n"
+            ));
+        }
+        body.push_str("2 0 obj<</Type /Pages /Kids [");
+        for index in 1..=pages {
+            body.push_str(&format!("{index} 0 R "));
+        }
+        body.push_str(&format!("] /Count {pages}>>endobj\ntrailer<<>>\n%%EOF\n"));
+        std::fs::write(&path, body).unwrap();
         path
     }
 
     fn service_with(transport: Arc<dyn MinerUTransport>) -> MinerUService {
-        let mut config = MinerUConfig::default();
-        config.base_url = Some("http://127.0.0.1:18000".into());
+        let config = MinerUConfig {
+            base_url: Some("http://127.0.0.1:18000".into()),
+            ..MinerUConfig::default()
+        };
         let credentials = Arc::new(MemoryMinerUCredentialStore::with_secret(Some(
             "test-mineru-api-key-value".into(),
         )));
         MinerUService::with_parts(config, credentials, transport)
+    }
+
+    fn mineru_options() -> BTreeMap<String, String> {
+        BTreeMap::from([("ocrEngine".into(), "mineru".into())])
     }
 
     #[test]
@@ -1078,6 +1240,13 @@ mod tests {
         assert_eq!(blocks[2].page, 2);
         assert_eq!(blocks[2].text, "Schedule A");
         assert!(blocks[3].text.contains("Item"));
+        assert!(blocks[3].text.contains("Qty"));
+        // Adjacent table cells must not collapse into a single token.
+        assert!(
+            !blocks[3].text.contains("ItemQty"),
+            "table cells need separators, got {:?}",
+            blocks[3].text
+        );
         // Geometry lands on letter page points from normalized bbox.
         assert!(blocks[0].bbox.0 > 0.0);
         assert!(blocks[0].bbox.2 > 0.0);
@@ -1090,12 +1259,7 @@ mod tests {
         let transport = Arc::new(MockMinerUTransport::success());
         let service = service_with(transport.clone());
         let imported = service
-            .import_pdf(
-                &pdf,
-                Some("doc-1"),
-                Some("en"),
-                &BTreeMap::from([("ocrEngine".into(), "mineru".into())]),
-            )
+            .import_pdf(&pdf, Some("doc-1"), Some("en"), &mineru_options())
             .expect("import via mock MinerU");
         assert_eq!(imported.metadata.format, "pdf");
         assert_eq!(
@@ -1131,17 +1295,37 @@ mod tests {
     fn missing_credential_is_typed() {
         let dir = tempdir().unwrap();
         let pdf = write_minimal_pdf(dir.path());
-        let mut config = MinerUConfig::default();
-        config.base_url = Some("http://127.0.0.1:18000".into());
+        let config = MinerUConfig {
+            base_url: Some("http://127.0.0.1:18000".into()),
+            ..MinerUConfig::default()
+        };
         let service = MinerUService::with_parts(
             config,
             Arc::new(MemoryMinerUCredentialStore::default()),
             Arc::new(MockMinerUTransport::success()),
         );
         let err = service
-            .import_pdf(&pdf, None, None, &BTreeMap::new())
+            .import_pdf(&pdf, None, None, &mineru_options())
             .expect_err("missing key");
         assert!(matches!(err, MinerUError::MissingCredential));
+    }
+
+    #[test]
+    fn explicit_mineru_without_base_url_is_typed_config_error() {
+        let dir = tempdir().unwrap();
+        let pdf = write_minimal_pdf(dir.path());
+        let transport = Arc::new(MockMinerUTransport::success());
+        let service = MinerUService::with_parts(
+            MinerUConfig::default(), // no base URL
+            Arc::new(MemoryMinerUCredentialStore::with_secret(Some("k".into()))),
+            transport.clone(),
+        );
+        assert!(service.should_handle(&mineru_options()));
+        let err = service
+            .import_pdf(&pdf, None, None, &mineru_options())
+            .expect_err("missing base URL");
+        assert!(matches!(err, MinerUError::Config(_)));
+        assert_eq!(transport.call_count(), 0);
     }
 
     #[test]
@@ -1152,7 +1336,7 @@ mod tests {
             MockMinerUFailure::Timeout,
         )));
         let err = service
-            .import_pdf(&pdf, None, None, &BTreeMap::new())
+            .import_pdf(&pdf, None, None, &mineru_options())
             .expect_err("timeout");
         assert!(matches!(err, MinerUError::Timeout));
     }
@@ -1165,7 +1349,7 @@ mod tests {
             MockMinerUFailure::Authentication,
         )));
         let err = service
-            .import_pdf(&pdf, None, None, &BTreeMap::new())
+            .import_pdf(&pdf, None, None, &mineru_options())
             .expect_err("auth");
         assert!(matches!(err, MinerUError::Authentication));
     }
@@ -1175,16 +1359,18 @@ mod tests {
         let dir = tempdir().unwrap();
         let pdf = write_minimal_pdf(dir.path());
         let transport = Arc::new(MockMinerUTransport::success());
-        let mut config = MinerUConfig::default();
-        config.base_url = Some("http://127.0.0.1:18000".into());
-        config.max_bytes = 8; // smaller than minimal pdf
+        let config = MinerUConfig {
+            base_url: Some("http://127.0.0.1:18000".into()),
+            max_bytes: 8, // smaller than minimal pdf
+            ..MinerUConfig::default()
+        };
         let service = MinerUService::with_parts(
             config,
             Arc::new(MemoryMinerUCredentialStore::with_secret(Some("k".into()))),
             transport.clone(),
         );
         let err = service
-            .import_pdf(&pdf, None, None, &BTreeMap::new())
+            .import_pdf(&pdf, None, None, &mineru_options())
             .expect_err("oversize");
         match err {
             MinerUError::ResourceLimit { resource, .. } => assert_eq!(resource, "file_bytes"),
@@ -1194,21 +1380,94 @@ mod tests {
     }
 
     #[test]
+    fn oversized_full_document_rejected_before_network() {
+        let dir = tempdir().unwrap();
+        let pdf = write_pdf_with_pages(dir.path(), "long.pdf", 5);
+        let transport = Arc::new(MockMinerUTransport::success());
+        let config = MinerUConfig {
+            base_url: Some("http://127.0.0.1:18000".into()),
+            max_pages: 2,
+            ..MinerUConfig::default()
+        };
+        let service = MinerUService::with_parts(
+            config,
+            Arc::new(MemoryMinerUCredentialStore::with_secret(Some("k".into()))),
+            transport.clone(),
+        );
+        let err = service
+            .import_pdf(&pdf, None, None, &mineru_options())
+            .expect_err("over-limit full document");
+        match err {
+            MinerUError::ResourceLimit {
+                resource,
+                limit,
+                actual,
+            } => {
+                assert_eq!(resource, "pages");
+                assert_eq!(limit, 2);
+                assert_eq!(actual, 5);
+            }
+            other => panic!("expected page resource limit, got {other:?}"),
+        }
+        assert_eq!(transport.call_count(), 0);
+    }
+
+    #[test]
+    fn oversized_page_range_start_only_rejected_before_network() {
+        let dir = tempdir().unwrap();
+        let pdf = write_pdf_with_pages(dir.path(), "long.pdf", 6);
+        let transport = Arc::new(MockMinerUTransport::success());
+        let config = MinerUConfig {
+            base_url: Some("http://127.0.0.1:18000".into()),
+            max_pages: 2,
+            ..MinerUConfig::default()
+        };
+        let service = MinerUService::with_parts(
+            config,
+            Arc::new(MemoryMinerUCredentialStore::with_secret(Some("k".into()))),
+            transport.clone(),
+        );
+        let options = BTreeMap::from([
+            ("ocrEngine".into(), "mineru".into()),
+            ("pageRange".into(), "2".into()), // pages 2..=6 → 5 pages
+        ]);
+        let err = service
+            .import_pdf(&pdf, None, None, &options)
+            .expect_err("over-limit pageRange=N");
+        match err {
+            MinerUError::ResourceLimit {
+                resource,
+                limit,
+                actual,
+            } => {
+                assert_eq!(resource, "pages");
+                assert_eq!(limit, 2);
+                assert_eq!(actual, 5);
+            }
+            other => panic!("expected page resource limit, got {other:?}"),
+        }
+        assert_eq!(transport.call_count(), 0);
+    }
+
+    #[test]
     fn secret_never_appears_in_imported_document_or_errors() {
         let dir = tempdir().unwrap();
         let pdf = write_minimal_pdf(dir.path());
         let secret = "super-secret-mineru-token-xyz";
-        let mut config = MinerUConfig::default();
-        config.base_url = Some("http://127.0.0.1:18000".into());
+        let config = MinerUConfig {
+            base_url: Some("http://127.0.0.1:18000".into()),
+            ..MinerUConfig::default()
+        };
+        let store = MemoryMinerUCredentialStore::with_secret(Some(secret.into()));
+        // Debug of secret-bearing types must redact.
+        assert!(!format!("{store:?}").contains(secret));
         let service = MinerUService::with_parts(
             config,
-            Arc::new(MemoryMinerUCredentialStore::with_secret(Some(
-                secret.into(),
-            ))),
+            Arc::new(store),
             Arc::new(MockMinerUTransport::success()),
         );
         let imported = service
-            .import_pdf(&pdf, Some("doc"), Some("en"), &BTreeMap::new())
+            .import_pdf(&pdf, Some("doc"), Some("en"), &mineru_options())
             .unwrap();
         for unit in &imported.units {
             assert!(!unit.source_text.contains(secret));
@@ -1236,9 +1495,19 @@ mod tests {
             )),
         );
         let err = fail_service
-            .import_pdf(&pdf, None, None, &BTreeMap::new())
+            .import_pdf(&pdf, None, None, &mineru_options())
             .unwrap_err();
         assert!(!err.to_string().contains(secret));
+        let request = MinerUParseRequest {
+            source: pdf.clone(),
+            file_name: "sample.pdf".into(),
+            api_key: secret.into(),
+            parse_method: "auto".into(),
+            language: "ch".into(),
+            start_page: 1,
+            end_page: Some(1),
+        };
+        assert!(!format!("{request:?}").contains(secret));
     }
 
     #[test]
@@ -1254,18 +1523,51 @@ mod tests {
     }
 
     #[test]
+    fn service_credential_status_set_delete_never_exposes_secret() {
+        let service = service_with(Arc::new(MockMinerUTransport::success()));
+        let secret = "provisioning-secret-token";
+        let status = service.set_credential(secret).expect("set");
+        assert!(status.present);
+        assert!(status.available);
+        assert_eq!(status.backend, "test-memory");
+        assert!(!format!("{status:?}").contains(secret));
+        let status = service.credential_status().expect("status");
+        assert!(status.present);
+        let status = service.delete_credential().expect("delete");
+        assert!(!status.present);
+        let status = service.credential_status().expect("status after delete");
+        assert!(!status.present);
+    }
+
+    #[test]
     fn should_handle_respects_engine_and_mode_options() {
         let service = service_with(Arc::new(MockMinerUTransport::success()));
-        assert!(service.should_handle(&BTreeMap::new()));
-        assert!(service.should_handle(&BTreeMap::from([(
-            "ocrEngine".into(),
-            "mineru".into()
-        )])));
-        assert!(!service.should_handle(&BTreeMap::from([(
-            "ocrEngine".into(),
-            "tesseract".into()
-        )])));
+        // auto/default never hijacks the local text-layer path
+        assert!(!service.should_handle(&BTreeMap::new()));
+        assert!(!service.should_handle(&BTreeMap::from([("ocrEngine".into(), "auto".into())])));
+        assert!(service.should_handle(&mineru_options()));
+        // Explicit mineru is selected even without a base URL so config fails typed.
+        let unconfigured = MinerUService::with_parts(
+            MinerUConfig::default(),
+            Arc::new(MemoryMinerUCredentialStore::default()),
+            Arc::new(MockMinerUTransport::success()),
+        );
+        assert!(unconfigured.should_handle(&mineru_options()));
+        assert!(
+            !service.should_handle(&BTreeMap::from([("ocrEngine".into(), "tesseract".into())]))
+        );
         assert!(!service.should_handle(&BTreeMap::from([("ocrMode".into(), "never".into())])));
+        assert!(!service.should_handle(&BTreeMap::from([
+            ("ocrEngine".into(), "mineru".into()),
+            ("ocrMode".into(), "never".into()),
+        ])));
+    }
+
+    #[test]
+    fn count_pdf_pages_reads_type_page_markers() {
+        let dir = tempdir().unwrap();
+        let pdf = write_pdf_with_pages(dir.path(), "three.pdf", 3);
+        assert_eq!(count_pdf_pages(&pdf).unwrap(), 3);
     }
 
     #[test]

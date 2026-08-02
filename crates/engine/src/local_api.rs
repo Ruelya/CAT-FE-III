@@ -8,13 +8,11 @@ use std::time::Duration;
 
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
-use translunar_filter_core::FilterError;
 use translunar_protocol::{
     CreateProjectParams, DocumentListParams, EmptyParams, ExportDocumentParams,
     ImportDocumentParams, ProjectListParams, QaOverrideInput, TermbaseListParams,
     TmLibraryListParams,
 };
-use translunar_storage::StorageError;
 
 use crate::local_auth::{LocalApiTokenStore, authorize};
 use crate::{EngineError, EngineService, Result};
@@ -366,7 +364,7 @@ fn decode_params<T: DeserializeOwned>(body: Value) -> Result<T> {
 /// HTTP status for Engine failures, aligned with the protocol/RPC taxonomy.
 fn status_for_error(error: &EngineError) -> u16 {
     match error_code(error) {
-        "unauthorized" => 401,
+        "unauthorized" | "provider_authentication" => 401,
         "not_found" => 404,
         "conflict" | "qa_gate_blocked" => 409,
         "invalid_request"
@@ -374,8 +372,13 @@ fn status_for_error(error: &EngineError) -> u16 {
         | "unsupported_corpus_input"
         | "export_error"
         | "invalid_state"
-        | "policy_denied" => 400,
-        "credential_unavailable" => 503,
+        | "policy_denied"
+        | "resource_limit_exceeded"
+        | "resource_limit" => 400,
+        "credential_unavailable"
+        | "provider_timeout"
+        | "provider_unavailable"
+        | "provider_protocol" => 503,
         // storage_error, plugin/AI faults, and true internal errors
         _ => 500,
     }
@@ -389,33 +392,9 @@ fn error_code(error: &EngineError) -> &'static str {
         {
             "unauthorized"
         }
-        EngineError::InvalidRequest(_) | EngineError::Json(_) => "invalid_request",
-        EngineError::Storage(StorageError::NotFound { .. })
-        | EngineError::Import(FilterError::NotFound(_))
-        | EngineError::Export(FilterError::NotFound(_))
-        | EngineError::CorpusImport(FilterError::NotFound(_)) => "not_found",
-        EngineError::Storage(StorageError::EntityConflict { .. })
-        | EngineError::Storage(StorageError::Conflict { .. })
-        | EngineError::Storage(StorageError::LockHeld { .. }) => "conflict",
-        EngineError::QaGateBlocked { .. } => "qa_gate_blocked",
-        EngineError::Import(_) => "unsupported_document",
-        EngineError::Export(_)
-        | EngineError::TaskPackageExport(_)
-        | EngineError::CurationExport(_)
-        | EngineError::ReportExport(_) => "export_error",
-        EngineError::CorpusImport(_) | EngineError::CorpusInput(_) => "unsupported_corpus_input",
-        EngineError::Io(_) | EngineError::Storage(_) => "storage_error",
-        EngineError::InvalidState(_) => "invalid_state",
-        EngineError::PolicyDenied { .. } => "policy_denied",
-        EngineError::CredentialUnavailable(_) => "credential_unavailable",
-        EngineError::PluginPermissionDenied(_) | EngineError::PluginCapabilityDenied(_) => {
-            "plugin_permission_denied"
-        }
-        EngineError::PluginProcessFailed(_) => "plugin_process_failed",
-        EngineError::PluginSandboxFailed(_) | EngineError::PluginAiActionFailed { .. } => {
-            "plugin_sandbox_failed"
-        }
-        _ => "internal_error",
+        EngineError::Json(_) => "invalid_request",
+        // Prefer the shared Engine classifier (includes exhaustive MinerU mapping).
+        other => crate::engine_error_code(other),
     }
 }
 
@@ -490,11 +469,71 @@ pub fn run_pipeline_with_project(
 mod tests {
     use super::*;
     use crate::local_auth::{MemoryTokenStore, ensure_token};
+    use crate::mineru::MinerUError;
     use std::io::Write;
     use std::net::TcpStream;
     use std::thread;
     use std::time::Duration;
     use tempfile::tempdir;
+
+    #[test]
+    fn mineru_errors_map_to_typed_local_api_codes() {
+        let cases: &[(EngineError, &str, u16)] = &[
+            (
+                EngineError::MinerU(MinerUError::MissingCredential),
+                "provider_authentication",
+                401,
+            ),
+            (
+                EngineError::MinerU(MinerUError::Authentication),
+                "provider_authentication",
+                401,
+            ),
+            (
+                EngineError::MinerU(MinerUError::CredentialUnavailable),
+                "credential_unavailable",
+                503,
+            ),
+            (
+                EngineError::MinerU(MinerUError::Timeout),
+                "provider_timeout",
+                503,
+            ),
+            (
+                EngineError::MinerU(MinerUError::Unavailable),
+                "provider_unavailable",
+                503,
+            ),
+            (
+                EngineError::MinerU(MinerUError::Protocol),
+                "provider_protocol",
+                503,
+            ),
+            (
+                EngineError::MinerU(MinerUError::ResourceLimit {
+                    resource: "pages",
+                    limit: 2,
+                    actual: 10,
+                }),
+                "resource_limit_exceeded",
+                400,
+            ),
+            (
+                EngineError::MinerU(MinerUError::Config("no base url".into())),
+                "invalid_request",
+                400,
+            ),
+        ];
+        for (error, code, status) in cases {
+            assert_eq!(error_code(error), *code, "code for {error}");
+            assert_eq!(status_for_error(error), *status, "status for {error}");
+            assert_ne!(
+                error_code(error),
+                "internal_error",
+                "MinerU must not collapse to internal_error: {error}"
+            );
+        }
+    }
 
     fn exchange(addr: SocketAddr, request: &str) -> String {
         let mut stream = TcpStream::connect(addr).unwrap();

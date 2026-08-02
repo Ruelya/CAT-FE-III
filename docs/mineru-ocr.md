@@ -17,29 +17,48 @@ HB10 (follow-on multimodal aid) remains scheduled after this path is complete.
 | Test mode env | `TRANSLUNAR_MINERU_TEST_MODE=1` |
 | Test API key env | `TRANSLUNAR_MINERU_TEST_API_KEY` (memory backend only) |
 
+### Credential provisioning (supported)
+
+Provision the API key through the Engine surface (never written to SQLite):
+
+| RPC method | Purpose |
+|------------|---------|
+| `mineru.credential.set` | Store key (`{ "secret": "…" }`) → `{ available, present, backend }` |
+| `mineru.credential.status` | Presence/backend only (never the secret) |
+| `mineru.credential.delete` | Remove key |
+
+In tests / CI, use the memory backend (`TRANSLUNAR_MINERU_TEST_MODE=1`) or
+`EngineService::{set,delete,mineru}_credential*`. Production uses the OS
+keyring service/account above.
+
 Import options:
 
-- `ocrEngine=mineru|tesseract|auto` — default `auto` uses MinerU when the base
-  URL is configured; `tesseract` forces the local Poppler/Tesseract path.
-- `ocrMode=auto|always|never` — `never` disables MinerU; `always` forces
-  MinerU `parse_method=ocr`.
+- `ocrEngine=mineru|tesseract|auto` — **only** `ocrEngine=mineru` selects the
+  MinerU HTTP path. Default/`auto` keeps the local Poppler/Tesseract text-layer
+  path (so ordinary text PDFs are never forced onto MinerU). Explicit `mineru`
+  with a missing base URL or key fails with a typed configuration/auth error.
+- `ocrMode=auto|always|never` — `never` keeps the local path even if
+  `ocrEngine=mineru`; `always` forces MinerU `parse_method=ocr`.
 - `ocrLanguages` / `lang` — forwarded as MinerU `lang_list` (default `ch`).
 - `pageRange` — `N` or `N-M` (1-based); mapped to MinerU `start_page_id` /
-  `end_page_id` (0-based).
+  `end_page_id` (0-based). The selected span is validated against the real PDF
+  page count and `TRANSLUNAR_MINERU_MAX_PAGES` **before** any HTTP call.
 
 ## Behaviour
 
 1. PDF `document.import` selects `builtin.pdf`.
-2. When MinerU is configured and not overridden by `ocrEngine=tesseract` /
-   `ocrMode=never`, Engine calls `POST {base}/file_parse` (mineru-api) with
-   `return_content_list=true` and Bearer auth from the keyring.
+2. When `ocrEngine=mineru` (and `ocrMode` is not `never`), Engine calls
+   `POST {base}/file_parse` (mineru-api) with `return_content_list=true` and
+   Bearer auth from the keyring. Page/byte limits are enforced preflight.
 3. `content_list` blocks map to segments with structural paths
-   `pdf:p=…;b=…;k=…;x=…;y=…;w=…;h=…;s=ocr;c=…`.
+   `pdf:p=…;b=…;k=…;x=…;y=…;w=…;h=…;s=ocr;c=…`. Table HTML keeps cell/row
+   separators so adjacent cells do not collapse.
 4. Failures are typed before any managed source/document is published:
    missing key, timeout, unavailable, auth, protocol/empty, resource limits.
+   The same codes surface on JSON-RPC, batch import diagnostics, and local API.
 
-Secrets never appear in SQLite, project files, degradation messages, or RPC
-error text.
+Secrets never appear in SQLite (main/WAL/SHM), project files, degradation
+messages, RPC error text, or generic `Debug` output for credential-bearing types.
 
 ## Acceptance evidence (focused tests)
 

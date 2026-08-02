@@ -351,7 +351,8 @@ fn collect_batch_files(
     Ok(())
 }
 
-fn engine_error_code(error: &EngineError) -> &'static str {
+/// Stable string codes shared by JSON-RPC diagnostics, batch import, and local API.
+pub(crate) fn engine_error_code(error: &EngineError) -> &'static str {
     match error {
         EngineError::Storage(StorageError::NotFound { .. }) => "not_found",
         EngineError::Storage(StorageError::Conflict { .. })
@@ -402,7 +403,24 @@ fn engine_error_code(error: &EngineError) -> &'static str {
         EngineError::InvalidState(_) => "invalid_state",
         EngineError::PolicyDenied { .. } => "policy_denied",
         EngineError::Io(_) | EngineError::Storage(_) => "storage_error",
+        EngineError::MinerU(mineru_error) => mineru_error_code(mineru_error),
+        EngineError::CredentialUnavailable(_) => "credential_unavailable",
         _ => "internal_error",
+    }
+}
+
+fn mineru_error_code(error: &mineru::MinerUError) -> &'static str {
+    match error {
+        mineru::MinerUError::MissingCredential | mineru::MinerUError::Authentication => {
+            "provider_authentication"
+        }
+        mineru::MinerUError::CredentialUnavailable => "credential_unavailable",
+        mineru::MinerUError::Timeout => "provider_timeout",
+        mineru::MinerUError::Unavailable => "provider_unavailable",
+        mineru::MinerUError::Protocol | mineru::MinerUError::EmptyResult => "provider_protocol",
+        mineru::MinerUError::ResourceLimit { .. } => "resource_limit_exceeded",
+        mineru::MinerUError::Config(_) => "invalid_request",
+        mineru::MinerUError::Io(_) => "internal_error",
     }
 }
 
@@ -3297,10 +3315,7 @@ impl EngineService {
 
     /// Override MinerU base URL for tests without mutating process env.
     #[cfg(test)]
-    pub(crate) fn set_mineru_base_url_for_test(
-        &mut self,
-        base_url: Option<String>,
-    ) -> Result<()> {
+    pub(crate) fn set_mineru_base_url_for_test(&mut self, base_url: Option<String>) -> Result<()> {
         self.mineru.set_base_url(base_url).map_err(Into::into)
     }
 
@@ -3311,6 +3326,25 @@ impl EngineService {
         credentials: std::sync::Arc<dyn mineru::MinerUCredentialStore>,
     ) {
         self.mineru.replace_credentials(credentials);
+    }
+
+    /// Provision a MinerU API key into the configured credential backend.
+    /// Returns presence/backend only — never the secret.
+    pub fn set_mineru_credential(
+        &mut self,
+        secret: &str,
+    ) -> Result<mineru::MinerUCredentialStatus> {
+        self.mineru.set_credential(secret).map_err(Into::into)
+    }
+
+    /// Remove the MinerU API key from the configured credential backend.
+    pub fn delete_mineru_credential(&mut self) -> Result<mineru::MinerUCredentialStatus> {
+        self.mineru.delete_credential().map_err(Into::into)
+    }
+
+    /// Report whether a MinerU API key is present (never returns the secret).
+    pub fn mineru_credential_status(&self) -> Result<mineru::MinerUCredentialStatus> {
+        self.mineru.credential_status().map_err(Into::into)
     }
 
     fn open_with_options(
@@ -7823,6 +7857,31 @@ impl RpcDispatcher {
                 self.service
                     .ai_credential_status(parse_params(request.params)?)?,
             ),
+            methods::MINERU_CREDENTIAL_SET => {
+                let params: protocol::SetMinerUCredentialParams = parse_params(request.params)?;
+                let status = self.service.set_mineru_credential(&params.secret)?;
+                serialize_result(protocol::MinerUCredentialStatus {
+                    available: status.available,
+                    present: status.present,
+                    backend: status.backend,
+                })
+            }
+            methods::MINERU_CREDENTIAL_DELETE => {
+                let status = self.service.delete_mineru_credential()?;
+                serialize_result(protocol::MinerUCredentialStatus {
+                    available: status.available,
+                    present: status.present,
+                    backend: status.backend,
+                })
+            }
+            methods::MINERU_CREDENTIAL_STATUS => {
+                let status = self.service.mineru_credential_status()?;
+                serialize_result(protocol::MinerUCredentialStatus {
+                    available: status.available,
+                    present: status.present,
+                    backend: status.backend,
+                })
+            }
             methods::AI_SETTINGS_GET => serialize_result(
                 self.service
                     .get_ai_settings(parse_params(request.params)?)?,
@@ -14380,13 +14439,66 @@ mod tests {
     }
 
     fn write_minimal_pdf(dir: &std::path::Path) -> PathBuf {
-        let path = dir.join("mineru-sample.pdf");
-        std::fs::write(
-            &path,
-            b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
-        )
-        .expect("write minimal pdf");
+        write_pdf_with_pages(dir, "mineru-sample.pdf", 1)
+    }
+
+    fn write_pdf_with_pages(dir: &std::path::Path, name: &str, pages: u32) -> PathBuf {
+        let path = dir.join(name);
+        let mut body = String::from("%PDF-1.4\n");
+        for index in 1..=pages {
+            body.push_str(&format!(
+                "{index} 0 obj<</Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]>>endobj\n"
+            ));
+        }
+        body.push_str("2 0 obj<</Type /Pages /Kids [");
+        for index in 1..=pages {
+            body.push_str(&format!("{index} 0 R "));
+        }
+        body.push_str(&format!("] /Count {pages}>>endobj\ntrailer<<>>\n%%EOF\n"));
+        std::fs::write(&path, body).expect("write pdf");
         path
+    }
+
+    fn mineru_import_options() -> BTreeMap<String, String> {
+        BTreeMap::from([("ocrEngine".into(), "mineru".into())])
+    }
+
+    fn secret_absent_from_workspace(root: &std::path::Path, secret: &str) {
+        let secret_bytes = secret.as_bytes();
+        for name in [
+            "translunar.sqlite3",
+            "translunar.sqlite3-wal",
+            "translunar.sqlite3-shm",
+        ] {
+            let path = root.join(name);
+            if !path.exists() {
+                continue;
+            }
+            let bytes = std::fs::read(&path).expect("read sqlite artifact");
+            assert!(
+                !bytes
+                    .windows(secret_bytes.len())
+                    .any(|window| window == secret_bytes),
+                "MinerU API key must never appear in {name}"
+            );
+        }
+        // Managed sources / temporary import staging under the data dir.
+        if let Ok(entries) = std::fs::read_dir(root) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file()
+                    && let Ok(bytes) = std::fs::read(&path)
+                {
+                    assert!(
+                        !bytes
+                            .windows(secret_bytes.len())
+                            .any(|window| window == secret_bytes),
+                        "secret leaked into {}",
+                        path.display()
+                    );
+                }
+            }
+        }
     }
 
     #[test]
@@ -14412,7 +14524,7 @@ mod tests {
                 source_path: pdf.to_string_lossy().into_owned(),
                 relative_path: Some("contracts/sample.pdf".into()),
                 filter_id: Some("builtin.pdf".into()),
-                options: BTreeMap::from([("ocrEngine".into(), "mineru".into())]),
+                options: mineru_import_options(),
             })
             .expect("mock MinerU PDF import");
         assert_eq!(imported.filter_id, "builtin.pdf");
@@ -14446,18 +14558,12 @@ mod tests {
         );
         assert_eq!(transport.call_count(), 1);
 
-        // Secret must not appear in SQLite after import.
+        // Secret must not appear in SQLite (main/WAL/SHM) or managed files.
         let secret = "test-mineru-key-for-import";
-        let db_bytes =
-            std::fs::read(context.root.path().join("translunar.sqlite3")).expect("read db");
+        secret_absent_from_workspace(context.root.path(), secret);
         assert!(
-            !db_bytes
-                .windows(secret.len())
-                .any(|window| window == secret.as_bytes()),
-            "MinerU API key must never appear in SQLite"
-        );
-        assert!(
-            !db_bytes
+            !std::fs::read(context.root.path().join("translunar.sqlite3"))
+                .expect("read db")
                 .windows(mineru::MINERU_CREDENTIAL_SERVICE.len())
                 .any(|window| window == mineru::MINERU_CREDENTIAL_SERVICE.as_bytes()),
             "keyring service name should not be persisted in SQLite"
@@ -14475,7 +14581,8 @@ mod tests {
         service.set_mineru_credentials_for_test(std::sync::Arc::new(
             mineru::MemoryMinerUCredentialStore::default(),
         ));
-        service.replace_mineru_transport(std::sync::Arc::new(mineru::MockMinerUTransport::success()));
+        service
+            .replace_mineru_transport(std::sync::Arc::new(mineru::MockMinerUTransport::success()));
 
         let project = TestContext::project(&mut service);
         let error = service
@@ -14484,13 +14591,17 @@ mod tests {
                 source_path: pdf.to_string_lossy().into_owned(),
                 relative_path: Some("contracts/missing-key.pdf".into()),
                 filter_id: Some("builtin.pdf".into()),
-                options: BTreeMap::from([("ocrEngine".into(), "mineru".into())]),
+                options: mineru_import_options(),
             })
             .expect_err("missing MinerU key must fail");
         assert!(
-            matches!(error, EngineError::MinerU(mineru::MinerUError::MissingCredential)),
+            matches!(
+                error,
+                EngineError::MinerU(mineru::MinerUError::MissingCredential)
+            ),
             "expected MissingCredential, got {error:?}"
         );
+        assert_eq!(engine_error_code(&error), "provider_authentication");
         let documents = service
             .list_documents(DocumentListParams {
                 project_id: project.id,
@@ -14498,7 +14609,10 @@ mod tests {
                 limit: 10,
             })
             .expect("list documents");
-        assert_eq!(documents.total, 0, "failed import must not create a document");
+        assert_eq!(
+            documents.total, 0,
+            "failed import must not create a document"
+        );
     }
 
     #[test]
@@ -14512,9 +14626,9 @@ mod tests {
         service.set_mineru_credentials_for_test(std::sync::Arc::new(
             mineru::MemoryMinerUCredentialStore::with_secret(Some("k".into())),
         ));
-        service.replace_mineru_transport(std::sync::Arc::new(mineru::MockMinerUTransport::failing(
-            mineru::MockMinerUFailure::Unavailable,
-        )));
+        service.replace_mineru_transport(std::sync::Arc::new(
+            mineru::MockMinerUTransport::failing(mineru::MockMinerUFailure::Unavailable),
+        ));
 
         let project = TestContext::project(&mut service);
         let error = service
@@ -14523,13 +14637,14 @@ mod tests {
                 source_path: pdf.to_string_lossy().into_owned(),
                 relative_path: Some("contracts/offline.pdf".into()),
                 filter_id: Some("builtin.pdf".into()),
-                options: Default::default(),
+                options: mineru_import_options(),
             })
             .expect_err("unavailable MinerU must fail");
         assert!(matches!(
             error,
             EngineError::MinerU(mineru::MinerUError::Unavailable)
         ));
+        assert_eq!(engine_error_code(&error), "provider_unavailable");
         // RPC mapping must stay secret-free and typed.
         let rpc = rpc_error(error);
         assert_eq!(rpc.code, ErrorCode::ProviderUnavailable);
@@ -14542,5 +14657,138 @@ mod tests {
             })
             .expect("list documents");
         assert_eq!(documents.total, 0);
+    }
+
+    #[test]
+    fn mineru_auto_and_tesseract_never_call_transport() {
+        let context = TestContext::new();
+        let pdf = write_minimal_pdf(context.root.path());
+        let mut service = EngineService::open(context.root.path()).expect("open engine");
+        let transport = std::sync::Arc::new(mineru::MockMinerUTransport::success());
+        service
+            .set_mineru_base_url_for_test(Some("http://127.0.0.1:18000".into()))
+            .expect("set base url");
+        service.set_mineru_credentials_for_test(std::sync::Arc::new(
+            mineru::MemoryMinerUCredentialStore::with_secret(Some("k".into())),
+        ));
+        service.replace_mineru_transport(transport.clone());
+        let project = TestContext::project(&mut service);
+
+        // Default/auto must not force MinerU (local filter may fail without tools —
+        // only the zero-call contract matters here).
+        let _ = service.import_document(ImportDocumentParams {
+            project_id: project.id.clone(),
+            source_path: pdf.to_string_lossy().into_owned(),
+            relative_path: Some("contracts/auto.pdf".into()),
+            filter_id: Some("builtin.pdf".into()),
+            options: BTreeMap::new(),
+        });
+        assert_eq!(transport.call_count(), 0);
+
+        let _ = service.import_document(ImportDocumentParams {
+            project_id: project.id.clone(),
+            source_path: pdf.to_string_lossy().into_owned(),
+            relative_path: Some("contracts/tesseract.pdf".into()),
+            filter_id: Some("builtin.pdf".into()),
+            options: BTreeMap::from([("ocrEngine".into(), "tesseract".into())]),
+        });
+        assert_eq!(transport.call_count(), 0);
+
+        let _ = service.import_document(ImportDocumentParams {
+            project_id: project.id.clone(),
+            source_path: pdf.to_string_lossy().into_owned(),
+            relative_path: Some("contracts/never.pdf".into()),
+            filter_id: Some("builtin.pdf".into()),
+            options: BTreeMap::from([("ocrMode".into(), "never".into())]),
+        });
+        assert_eq!(transport.call_count(), 0);
+    }
+
+    #[test]
+    fn mineru_explicit_missing_config_is_typed() {
+        let context = TestContext::new();
+        let pdf = write_minimal_pdf(context.root.path());
+        let mut service = EngineService::open(context.root.path()).expect("open engine");
+        // No base URL configured.
+        service.set_mineru_credentials_for_test(std::sync::Arc::new(
+            mineru::MemoryMinerUCredentialStore::with_secret(Some("k".into())),
+        ));
+        let transport = std::sync::Arc::new(mineru::MockMinerUTransport::success());
+        service.replace_mineru_transport(transport.clone());
+        let project = TestContext::project(&mut service);
+        let error = service
+            .import_document(ImportDocumentParams {
+                project_id: project.id,
+                source_path: pdf.to_string_lossy().into_owned(),
+                relative_path: Some("contracts/no-config.pdf".into()),
+                filter_id: Some("builtin.pdf".into()),
+                options: mineru_import_options(),
+            })
+            .expect_err("explicit mineru without base URL");
+        assert!(matches!(
+            error,
+            EngineError::MinerU(mineru::MinerUError::Config(_))
+        ));
+        assert_eq!(engine_error_code(&error), "invalid_request");
+        assert_eq!(transport.call_count(), 0);
+    }
+
+    #[test]
+    fn mineru_batch_surfaces_typed_error_codes() {
+        let context = TestContext::new();
+        let pdf = write_minimal_pdf(context.root.path());
+        let mut service = EngineService::open(context.root.path()).expect("open engine");
+        service
+            .set_mineru_base_url_for_test(Some("http://127.0.0.1:18000".into()))
+            .expect("set base url");
+        service.set_mineru_credentials_for_test(std::sync::Arc::new(
+            mineru::MemoryMinerUCredentialStore::default(),
+        ));
+        service
+            .replace_mineru_transport(std::sync::Arc::new(mineru::MockMinerUTransport::success()));
+        let project = TestContext::project(&mut service);
+        let result = service
+            .batch_import(ProjectBatchImportParams {
+                project_id: project.id,
+                items: vec![protocol::BatchImportItem {
+                    path: pdf.to_string_lossy().into_owned(),
+                    relative_path: Some("contracts/batch.pdf".into()),
+                }],
+                filter_id: Some("builtin.pdf".into()),
+                options: mineru_import_options(),
+                atomicity: BatchImportAtomicity::BestEffort,
+            })
+            .expect("batch import");
+        assert_eq!(result.failed, 1);
+        assert_eq!(
+            result.items[0].error_code.as_deref(),
+            Some("provider_authentication")
+        );
+    }
+
+    #[test]
+    fn mineru_credential_api_provisions_without_exposing_secret() {
+        let context = TestContext::new();
+        let mut service = EngineService::open(context.root.path()).expect("open engine");
+        service.set_mineru_credentials_for_test(std::sync::Arc::new(
+            mineru::MemoryMinerUCredentialStore::default(),
+        ));
+        let secret = "engine-provisioned-mineru-key";
+        let status = service
+            .set_mineru_credential(secret)
+            .expect("set mineru credential");
+        assert!(status.present);
+        assert!(status.available);
+        assert_eq!(status.backend, "test-memory");
+        assert!(!format!("{status:?}").contains(secret));
+        let status = service
+            .mineru_credential_status()
+            .expect("status after set");
+        assert!(status.present);
+        let status = service
+            .delete_mineru_credential()
+            .expect("delete mineru credential");
+        assert!(!status.present);
+        secret_absent_from_workspace(context.root.path(), secret);
     }
 }
