@@ -823,6 +823,129 @@ Wrong: the renderer runs OCR, changes sourceText, and increments revision.
 Correct: the renderer calls pdf.correctOcr with segmentId, sourceText, reason,
 and expectedRevision, then replaces display state with the returned Segment.
 
+## MinerU HTTP OCR Boundary (PDF import)
+
+### 1. Scope / Trigger
+
+Use this contract when changing the MinerU HTTP OCR import path, its
+credentials, routing options, page-limit preflight, or typed degradation.
+Applies to `crates/engine` (`mineru` module, import dispatch, local API /
+JSON-RPC error mapping), `crates/filter-pdf` (shared segmentation +
+`page_tree` preflight), and `crates/protocol` credential methods. Poppler /
+Tesseract remain the local residual when MinerU is not selected. Live MinerU
+is not required in CI; mock transport is the acceptance path.
+
+### 2. Signatures
+
+```text
+# Import (existing generic filter path)
+document.import  ImportDocumentParams  -> ImportDocumentResult
+# options include closed enums:
+#   ocrEngine = mineru | tesseract | poppler | local | auto
+#   ocrMode   = auto | always | never
+# plus pageRange, segmentationMode, srxPath, ocrLanguages / lang
+
+# Credential lifecycle (Engine / protocol-v1)
+mineru.credential.set     { secret: string }           -> { available, present, backend }
+mineru.credential.status  {}                           -> { available, present, backend }
+mineru.credential.delete  {}                           -> { available, present, backend }
+```
+
+Keyring: service `translunar-cat.mineru`, account `default`. Test memory backend
+when `TRANSLUNAR_MINERU_TEST_MODE=1` (optional seed via
+`TRANSLUNAR_MINERU_TEST_API_KEY`).
+
+Env (optional overrides): `TRANSLUNAR_MINERU_BASE_URL`,
+`TRANSLUNAR_MINERU_TIMEOUT_MS` (default 120000, max 600000),
+`TRANSLUNAR_MINERU_MAX_PAGES` (default 200),
+`TRANSLUNAR_MINERU_MAX_BYTES` (default 200 MiB).
+
+### 3. Contracts
+
+- **Explicit-only routing:** MinerU runs only when `ocrEngine=mineru` and
+  `ocrMode` is not `never`. Default / `auto` keeps the local PDF filter even if
+  a base URL is configured. Unknown `ocrEngine` or `ocrMode` → `invalid_request`
+  before either implementation runs (no silent fallthrough).
+- **Preflight before credential/HTTP:** selected page span is validated against
+  a **bounded page-tree count** (`filter-pdf::page_tree`), not a raw-byte
+  `/Type /Page` scan. Expand only ObjStm/XRef streams (Flate, hard decoded-byte
+  caps); reject LZW / multi-filter / indirect Filter|Length for those streams;
+  require matching `/Count` at every `/Pages` node; fail closed on cycles,
+  depth/object/time limits. Do not decode ordinary page/image content for
+  counting.
+- **Transport:** `POST {base}/file_parse` with Bearer key from keyring;
+  timeouts and source-byte limits enforced; mockable for tests.
+- **Mapping:** MinerU layout blocks use the **same** paragraph / sentence /
+  custom-SRX segmentation contract as the local PDF filter; prepare custom SRX
+  **once per import**, not per block. Table HTML preserves cell/row separators.
+- **Secrets:** never in SQLite, project files, RPC error text, or generic
+  `Debug` of credential-bearing types. Credential status returns
+  presence/backend only.
+- **Cross-surface codes:** MinerU typed failures map consistently on JSON-RPC,
+  batch import diagnostics, and local HTTP; must not regress the legacy
+  local-API taxonomy (`not_found`, `export_error`, `qa_gate_blocked`, etc.).
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| Unknown `ocrEngine` / `ocrMode` | `invalid_request`; zero MinerU transport; no local filter side effect |
+| Explicit `mineru` without base URL or key | typed config / missing-credential (auth class); no partial document |
+| Network / timeout / 401–403 / empty-or-bad payload | typed unavailable / timeout / authentication / protocol; no hang |
+| Selected pages or file size over configured limits; hostile ObjStm/XRef amplify | `resource_limit_exceeded` (or documented typed invalid PDF) **before** credential read and HTTP |
+| Malformed page tree (cycle, depth, nested `/Count` mismatch) | typed invalid / resource-limit; no partial count used for import |
+| Credential set/status/delete | success with `{ available, present, backend }` only — never the secret |
+
+### 5. Good / Base / Bad Cases
+
+- Good: `ocrEngine=mineru` + mock transport → OCR segments with stable structural
+  paths; custom SRX multi-block import prepares rules once.
+- Base: default / `auto` / `tesseract` / `ocrMode=never` → local path; zero
+  MinerU calls even if base URL is set.
+- Bad: typo `ocrEngine` silently selecting Poppler; page limit enforced only when
+  `pageRange` has an end; raw-byte page “count”; unredacted API key in Debug;
+  local-API mapping that turns MinerU or legacy errors into `internal_error`.
+
+### 6. Tests Required
+
+- Engine: mock import success; missing key / network / auth typed and clean
+  abort; invalid routing zero transport; page-limit over full doc and
+  `pageRange=N` before credential/HTTP; ObjStm page count; secret absent from
+  workspace/Debug; credential RPC presence-only; custom SRX once-per-import.
+- Filter-pdf `page_tree`: genuine ObjStm count; Flate ObjStm bomb; LZW reject;
+  padded dict; CR-only stream line ending; nested Count mismatch; oversized
+  xref Size; cycle/depth; image-heavy scanned PDF accepted without content
+  inflation.
+- Local API: MinerU code matrix + legacy `404/not_found`, `400/export_error`,
+  `409/qa_gate_blocked` unchanged.
+- Focused gates: `cargo test -p translunar-engine mineru`,
+  `cargo test -p translunar-filter-pdf page_tree` (or `--lib`),
+  `cargo clippy -p translunar-engine -p translunar-filter-pdf --all-targets -- -D warnings`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```text
+// Base URL configured → every PDF import goes to MinerU (hijacks text-layer).
+// Page limit only when pageRange has an explicit end.
+// count = count of raw "/Type /Page" bytes in the file.
+// Derive Debug on structs that hold the API key.
+```
+
+#### Correct
+
+```text
+// Only ocrEngine=mineru (and ocrMode != never) selects MinerU.
+// Validate closed enums first → invalid_request.
+// count_page_tree_bounded(path) with ObjStm/XRef-only Flate preflight,
+// then enforce max_pages before credential lookup / HTTP.
+// Redacted Debug; keyring or test-memory store; status never returns secret.
+```
+
+Product usage notes: `docs/mineru-ocr.md`. Task closeout:
+`.trellis/tasks/08-02-mineru-ocr-pdf-pipeline/`.
+
 ## Professional Editor And OpenCC Boundary
 
 ### 1. Scope / Trigger

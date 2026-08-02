@@ -1,5 +1,7 @@
 //! Bounded PDF extraction, OCR, layout projection, and DOCX reconstruction.
 
+mod page_tree;
+
 use std::collections::BTreeMap;
 use std::env;
 use std::fs::{self, File};
@@ -40,6 +42,12 @@ pub enum PdfError {
     Unsupported(String),
     #[error("invalid PDF: {0}")]
     Invalid(String),
+    #[error("PDF resource limit exceeded ({resource}: limit {limit}, actual {actual})")]
+    ResourceLimit {
+        resource: &'static str,
+        limit: u64,
+        actual: u64,
+    },
     #[error("PDF tool {tool} is unavailable")]
     ToolUnavailable { tool: String },
     #[error("PDF tool {tool} failed ({status})")]
@@ -1015,11 +1023,7 @@ fn parse_tsv(bytes: &[u8], page_width: f64, page_height: f64) -> Result<Vec<PdfB
 
 fn load_srx(request: &ImportRequest, locale: &str) -> Result<SrxRules, PdfError> {
     if let Some(path) = request.options.get("srxPath") {
-        if fs::metadata(path)?.len() > 2 * 1024 * 1024 {
-            return Err(PdfError::Options("srxPath is too large".to_string()));
-        }
-        let xml = fs::read_to_string(path)?;
-        SrxRules::parse(&xml).map_err(|error| PdfError::Options(error.to_string()))
+        load_srx_from_path(path)
     } else {
         Ok(SrxRules::builtin(locale))
     }
@@ -1031,11 +1035,106 @@ pub struct PdfPageLayout {
     pub blocks: Vec<PdfBlockProjection>,
 }
 
+/// Pure-Rust PDF page-tree count with explicit resource bounds (preflight only).
+///
+/// Walks the catalog page tree. Compressed object streams are accepted only after
+/// a bounded decode preflight; malformed/partial trees fail closed instead of
+/// silently under-counting.
+pub fn count_page_tree(source: &Path) -> Result<u32, PdfError> {
+    page_tree::count_page_tree_bounded(source)
+}
+
+/// Prepared PDF text segmenter — load/compile SRX once, reuse across blocks.
+#[derive(Debug, Clone)]
+pub struct PdfTextSegmenter {
+    mode: SegmentationMode,
+    locale: String,
+    rules: SrxRules,
+}
+
+std::thread_local! {
+    /// Per-thread prepare counter (test hook; avoids cross-test races).
+    static SRX_PREPARE_COUNT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+impl PdfTextSegmenter {
+    /// Prepare segmentation mode and SRX rules once per import.
+    pub fn prepare(
+        locale: &str,
+        segmentation_mode: Option<&str>,
+        srx_path: Option<&str>,
+    ) -> Result<Self, PdfError> {
+        SRX_PREPARE_COUNT.with(|count| count.set(count.get().saturating_add(1)));
+
+        let mode = SegmentationMode::parse(segmentation_mode);
+        let rules = if let Some(path) = srx_path {
+            load_srx_from_path(path)?
+        } else {
+            SrxRules::builtin(locale)
+        };
+        Ok(Self {
+            mode,
+            locale: locale.to_string(),
+            rules,
+        })
+    }
+
+    /// Segment plain text with the prepared rules.
+    pub fn segment(&self, text: &str) -> Vec<String> {
+        let mut segments = Vec::new();
+        for range in self.rules.ranges(text, &self.locale, self.mode) {
+            let piece = text.get(range).unwrap_or_default().trim();
+            if meaningful_text(piece) {
+                segments.push(piece.to_string());
+            }
+        }
+        segments
+    }
+}
+
+/// How many times [`PdfTextSegmenter::prepare`] ran on this thread (test hook).
+pub fn srx_prepare_count() -> u64 {
+    SRX_PREPARE_COUNT.with(std::cell::Cell::get)
+}
+
+/// Reset the prepare counter on this thread (tests should call this first).
+pub fn reset_srx_prepare_count() {
+    SRX_PREPARE_COUNT.with(|count| count.set(0));
+}
+
+fn load_srx_from_path(path: &str) -> Result<SrxRules, PdfError> {
+    if fs::metadata(path)?.len() > 2 * 1024 * 1024 {
+        return Err(PdfError::Options("srxPath is too large".to_string()));
+    }
+    let xml = fs::read_to_string(path)?;
+    SrxRules::parse(&xml).map_err(|error| PdfError::Options(error.to_string()))
+}
+
+/// Segment plain text with the same paragraph/sentence/custom-SRX contract as PDF import.
+///
+/// Prefer [`PdfTextSegmenter::prepare`] when segmenting many blocks in one import.
+pub fn segment_pdf_text(
+    text: &str,
+    locale: &str,
+    segmentation_mode: Option<&str>,
+    srx_path: Option<&str>,
+) -> Result<Vec<String>, PdfError> {
+    Ok(PdfTextSegmenter::prepare(locale, segmentation_mode, srx_path)?.segment(text))
+}
+
 impl PdfFilter {
     pub fn page_count(&self, source: &Path) -> Result<u32, PdfError> {
         validate_header(source)?;
         let options = PdfOptions::from_request(&ImportRequest::new(source.to_path_buf()))?;
         Ok(read_pdf_info(&options, source)?.pages)
+    }
+
+    /// Count pages from the PDF page tree without external tools.
+    ///
+    /// Walks the catalog `Pages` tree (including object streams). Prefer this
+    /// for preflight limits; do not scan raw bytes for `/Type /Page` markers.
+    pub fn page_tree_count(source: &Path) -> Result<u32, PdfError> {
+        count_page_tree(source)
     }
 
     pub fn page_layouts(&self, request: &ImportRequest) -> Result<Vec<PdfPageLayout>, PdfError> {
@@ -1325,6 +1424,13 @@ fn map_pdf_error(error: PdfError) -> FilterError {
         PdfError::Io(error) => FilterError::Io(error),
         PdfError::Unsupported(message) => FilterError::Unsupported(message),
         PdfError::Invalid(message) | PdfError::Options(message) => FilterError::Invalid(message),
+        PdfError::ResourceLimit {
+            resource,
+            limit,
+            actual,
+        } => FilterError::Invalid(format!(
+            "PDF resource limit exceeded ({resource}: limit {limit}, actual {actual})"
+        )),
         PdfError::ToolUnavailable { tool }
         | PdfError::ToolFailed { tool, status: _ }
         | PdfError::ToolTimeout { tool }

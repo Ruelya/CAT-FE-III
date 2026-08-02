@@ -256,6 +256,9 @@ pub mod methods {
     pub const AI_CREDENTIAL_SET: &str = "ai.credential.set";
     pub const AI_CREDENTIAL_DELETE: &str = "ai.credential.delete";
     pub const AI_CREDENTIAL_STATUS: &str = "ai.credential.status";
+    pub const MINERU_CREDENTIAL_SET: &str = "mineru.credential.set";
+    pub const MINERU_CREDENTIAL_DELETE: &str = "mineru.credential.delete";
+    pub const MINERU_CREDENTIAL_STATUS: &str = "mineru.credential.status";
     pub const AI_SETTINGS_GET: &str = "ai.settings.get";
     pub const AI_SETTINGS_UPDATE: &str = "ai.settings.update";
     pub const AI_GROUNDING_PREVIEW: &str = "ai.grounding.preview";
@@ -2287,6 +2290,31 @@ pub struct EmptyParams {}
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct EmptyResult {}
+
+/// MinerU credential provisioning — presence/backend only, never the secret.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MinerUCredentialStatus {
+    pub available: bool,
+    pub present: bool,
+    pub backend: String,
+}
+
+/// Set the MinerU API key in the OS keyring (or test memory backend).
+/// Intentionally omits JsonSchema so secrets stay out of exported schemas.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SetMinerUCredentialParams {
+    pub secret: String,
+}
+
+impl std::fmt::Debug for SetMinerUCredentialParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SetMinerUCredentialParams")
+            .field("secret", &"[REDACTED]")
+            .finish()
+    }
+}
 
 #[derive(Debug, JsonSchema)]
 #[allow(dead_code)]
