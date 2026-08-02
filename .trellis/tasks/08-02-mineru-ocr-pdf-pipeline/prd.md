@@ -19,6 +19,12 @@ Prefer MinerU OCR over HTTP API for PDF/scanned document import into CAT Engine 
 - [x] **AC-03** secrets never in SQLite/logs
 - [x] **AC-04** focused tests green
 
+Closeout evidence: `closeout-summary.md`, `review/findings-5.md` (F1–F8 fixed;
+F2 theoretical residual accepted). Focused gates: mineru 31+, page_tree 12+,
+clippy engine+filter-pdf `-D warnings`.
+
 ## Notes
 
 HB3 superseded by this task; HB10 after complete; Poppler optional residual.
+Routing is **explicit-only** (`ocrEngine=mineru`); auto/per-page MinerU fallback
+is out of scope for this task.
