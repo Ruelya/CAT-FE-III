@@ -76,6 +76,14 @@ dialog::backdrop {
   }
 }
 
+/* —— IME 组合态：关闭单元格一切动画 ————————————————
+   Source: 07-interaction.md §3.2 —— field-sizing 增高必须瞬时 */
+html[data-composing] .tgt-box,
+html[data-composing] .seg-row {
+  transition: none !important;
+  animation: none !important;
+}
+
 /* —— Reduced Motion 回退 ————————————————————————— */
 @media (prefers-reduced-motion: reduce) {
   *,

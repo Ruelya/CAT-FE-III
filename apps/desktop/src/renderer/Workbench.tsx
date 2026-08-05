@@ -38,7 +38,6 @@ import {
   AlertTriangle,
   BookOpen,
   Check,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Command,
@@ -57,7 +56,6 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Pencil,
-  RefreshCw,
   RotateCcw,
   RotateCw,
   Save,
@@ -91,7 +89,6 @@ import {
   type EditorCommandId,
   type EditorCommandInvocation,
 } from "./editor-commands";
-import type { AppSurface } from "./surface-types";
 import { useLocale } from "./i18n/LocaleProvider";
 import type { MessageKey } from "./i18n/messages";
 import {
@@ -155,11 +152,28 @@ interface InitialWorkspace {
 
 interface WorkbenchProps {
   initialWorkspace: InitialWorkspace;
-  onReturnHome(): void;
-  onNavigate(surface: AppSurface): Promise<void>;
-  onOpenSettings(): void;
   onOpenGlobalSearchHit(hit: GlobalSearchHit): Promise<void>;
   focusSegmentId: string | null;
+  /* onReturnHome / onNavigate / onOpenSettings 已移除：
+     返回项目列表、Surface 切换、设置全部由 Shell 的 Index Spine 承载。 */
+  /**
+   * 把编辑过程中的实时计数/保存态上报给 Shell 的 Instrument Strip。
+   * 没有它，仪表条只能显示打开文档时的快照值，编辑后立刻失真。
+   */
+  onStatusChange?(status: {
+    counts: SegmentCounts;
+    saveState: SaveState;
+    activeOrdinal: number | undefined;
+  }): void;
+  /**
+   * 注册"离开工作台前先落盘"的守卫。
+   *
+   * 旧的 `…` 导航与返回按钮在跳转前都会 `await persistAllSegments()`；
+   * 导航移到 Shell（Ctrl+1..6 / Index Spine）后，这个保证必须显式交给 Shell，
+   * 否则切 Surface 会丢未保存草稿。
+   * 契约见 `06-shell-navigation.md §5.1`：有未保存草稿 → 静默持久化，不拦截。
+   */
+  onRegisterLeaveGuard?(guard: (() => Promise<void>) | null): void;
 }
 
 interface AutocompleteCompletion {
@@ -188,11 +202,10 @@ interface WorkbenchPreferences {
 
 export function Workbench({
   initialWorkspace,
-  onReturnHome,
-  onNavigate,
-  onOpenSettings,
   onOpenGlobalSearchHit,
   focusSegmentId,
+  onStatusChange,
+  onRegisterLeaveGuard,
 }: WorkbenchProps) {
   const { t } = useLocale();
 
@@ -241,7 +254,6 @@ export function Workbench({
     "qa" | "export" | "confirm" | "navigate" | null
   >(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [segmentActionsOpen, setSegmentActionsOpen] = useState(false);
   const segmentActionsTriggerRef = useRef<HTMLButtonElement>(null);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
@@ -354,6 +366,12 @@ export function Workbench({
   const activeEditorRow = editorRows.find(
     (row) => row.segment.id === activeSegment?.id,
   );
+  // 上报实时状态给 Shell 的 Instrument Strip（ordinal 是 0-based，展示要 +1）
+  const activeOrdinal =
+    activeSegment === undefined ? undefined : activeSegment.ordinal + 1;
+  useEffect(() => {
+    onStatusChange?.({ counts, saveState, activeOrdinal });
+  }, [onStatusChange, counts, saveState, activeOrdinal]);
   const activeIssue = activeSegment
     ? openIssueBySegment.get(activeSegment.id)
     : undefined;
@@ -835,6 +853,16 @@ export function Workbench({
     for (const segmentId of segmentIds) await persistSegment(segmentId);
   };
 
+  // 保持最新的落盘实现，供 Shell 在跳转前调用（避免闭包捕获旧引用）
+  const persistAllRef = useRef(persistAllSegments);
+  persistAllRef.current = persistAllSegments;
+
+  useEffect(() => {
+    if (!onRegisterLeaveGuard) return;
+    onRegisterLeaveGuard(() => persistAllRef.current());
+    return () => onRegisterLeaveGuard(null);
+  }, [onRegisterLeaveGuard]);
+
   const loadEditorWindow = async (offset: number) => {
     const generation = workspaceGenerationRef.current;
     const requestId = editorWindowRequestRef.current + 1;
@@ -1190,20 +1218,6 @@ export function Workbench({
     }
   };
 
-  const navigateToSurface = async (surface: AppSurface) => {
-    setActionBusy("navigate");
-    setToast(null);
-    try {
-      await persistAllSegments();
-      setMenuOpen(false);
-      await onNavigate(surface);
-    } catch (error) {
-      setToast(formatError(error));
-    } finally {
-      setActionBusy(null);
-    }
-  };
-
   const closeGlobalSearch = () => {
     setGlobalSearchOpen(false);
     window.requestAnimationFrame(() => globalSearchCommandRef.current?.focus());
@@ -1219,19 +1233,6 @@ export function Workbench({
       const message = formatError(error);
       setToast(message);
       throw error;
-    } finally {
-      setActionBusy(null);
-    }
-  };
-
-  const returnHome = async () => {
-    setActionBusy("navigate");
-    setToast(null);
-    try {
-      await persistAllSegments();
-      onReturnHome();
-    } catch (error) {
-      setToast(formatError(error));
     } finally {
       setActionBusy(null);
     }
@@ -2174,82 +2175,8 @@ export function Workbench({
             <Download size={15} />
             {t("action.export")}
           </button>
-          <div className="surface-menu-wrap">
-            <button
-              className="icon-button dark"
-              type="button"
-              title={t("common.moreActions")}
-              aria-label={t("common.moreActions")}
-              aria-expanded={menuOpen}
-              onClick={() => setMenuOpen((open) => !open)}
-            >
-              <MoreHorizontal size={17} />
-            </button>
-            {menuOpen ? (
-              <nav
-                className="surface-menu"
-                aria-label={t("nav.applicationViews")}
-              >
-                <span>{t("common.views")}</span>
-                <button type="button" aria-current="page" disabled>
-                  {t("nav.workbench")}
-                </button>
-                <button
-                  type="button"
-                  disabled={actionBusy !== null}
-                  onClick={() => void navigateToSurface("qa-review")}
-                >
-                  {t("nav.qaReview")}
-                </button>
-                <button
-                  type="button"
-                  disabled={actionBusy !== null}
-                  onClick={() => void navigateToSurface("export-review")}
-                >
-                  {t("nav.exportReview")}
-                </button>
-                <button
-                  type="button"
-                  disabled={actionBusy !== null}
-                  onClick={() => void navigateToSurface("translation-memory")}
-                >
-                  {t("common.translationMemory")}
-                </button>
-                <button
-                  type="button"
-                  disabled={actionBusy !== null}
-                  onClick={() => void navigateToSurface("ai-control")}
-                >
-                  {t("nav.aiControl")}
-                </button>
-                <hr />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onOpenSettings();
-                  }}
-                >
-                  {t("action.settings")}
-                </button>
-                <button
-                  type="button"
-                  disabled={actionBusy !== null}
-                  onClick={() => void navigateToSurface("project-insights")}
-                >
-                  {t("nav.projectInsights")}
-                </button>
-                <hr />
-                <button
-                  type="button"
-                  disabled={actionBusy !== null}
-                  onClick={() => void returnHome()}
-                >
-                  {t("nav.projects")}
-                </button>
-              </nav>
-            ) : null}
-          </div>
+          {/* `…` 溢出导航已移除：六个 Surface 的切换、设置、返回项目列表
+              全部由 Shell 的 Index Spine 承载（Ctrl+1..6 / Ctrl+K）。 */}
         </div>
       </header>
       {globalSearchOpen ? (
@@ -2274,13 +2201,6 @@ export function Workbench({
           </section>
         </div>
       ) : null}
-      <div className="translunar-band" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-        <span />
-        <span />
-      </div>
 
       <main className="workbench-layout">
         <div className="editor-column">
@@ -3985,46 +3905,9 @@ export function Workbench({
         </aside>
       ) : null}
 
-      <footer className="status-bar">
-        <span>
-          Segment{" "}
-          <strong>{activeSegment ? activeSegment.ordinal + 1 : 0}</strong> of{" "}
-          {counts.total}
-        </span>
-        <div className="status-counts">
-          <StatusCount
-            className="confirmed"
-            value={counts.confirmed}
-            label="confirmed"
-          />
-          <StatusCount className="draft" value={counts.draft} label="draft" />
-          <StatusCount
-            className="untranslated"
-            value={counts.untranslated}
-            label="untranslated"
-          />
-          <StatusCount
-            className="issues"
-            value={counts.openIssues}
-            label="QA issues"
-          />
-        </div>
-        <span className={`save-indicator ${saveState}`}>
-          {saveState === "saving" ? (
-            <RefreshCw size={12} />
-          ) : saveState === "error" ? (
-            <AlertTriangle size={12} />
-          ) : (
-            <CheckCircle2 size={12} />
-          )}
-          {saveState === "saving"
-            ? "Saving"
-            : saveState === "error"
-              ? "Save failed"
-              : "Saved"}
-        </span>
-        <div className="status-dots" aria-hidden="true" />
-      </footer>
+      {/* 旧状态条已移除：段计数/状态计数/保存态由 Shell 的 Instrument Strip
+          承载（见 components/shell/InstrumentStrip.tsx），
+          实时值通过 onStatusChange 上报。 */}
 
       {toast ? (
         <button className="toast" type="button" onClick={() => setToast(null)}>
@@ -4082,23 +3965,6 @@ function StatusLamp({
     >
       <i />
       {label}
-    </span>
-  );
-}
-
-function StatusCount({
-  className,
-  value,
-  label,
-}: {
-  className: string;
-  value: number;
-  label: string;
-}) {
-  return (
-    <span>
-      <i className={className} />
-      {value} {label}
     </span>
   );
 }

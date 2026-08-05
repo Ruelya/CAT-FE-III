@@ -1,25 +1,33 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   Document,
   GlobalSearchHit,
   ProjectSnapshot,
   QaIssue,
   Segment,
+  SegmentCounts,
   SegmentEditorRow,
 } from "@translunar/contracts";
-import { Settings } from "lucide-react";
 
 import { BrandMark } from "./BrandMark";
+import { CommandPalette, type Command } from "./components/shell/CommandPalette";
+import { Shell } from "./components/shell/Shell";
 import {
   DraftRecoveryDialog,
   type RecoverableDraft,
 } from "./DraftRecoveryDialog";
+import { shouldIgnoreKey } from "./hooks/useComposition";
+import { useViewTransition } from "./hooks/useViewTransition";
 import { useLocale } from "./i18n/LocaleProvider";
 import { ProductSettingsPage } from "./ProductSettingsPage";
 import { ProjectHome } from "./ProjectHome";
 import { parseStoredSession, type StoredSession } from "./session-utils";
 import { SetupView } from "./SetupView";
-import type { AppSurface } from "./surface-types";
+import {
+  SURFACE_LABEL,
+  SURFACE_ORDER,
+  type AppSurface,
+} from "./surface-types";
 import { TutorialOverlay } from "./TutorialOverlay";
 import { Workbench } from "./Workbench";
 import { WorkspacePage } from "./WorkbenchPages";
@@ -27,6 +35,15 @@ import type { TutorialState } from "../shared/product-shell";
 import { defaultTutorialState } from "../shared/product-shell";
 
 const SESSION_KEY = "translunar.active-workspace.v1";
+const THEME_KEY = "translunar.theme.v1";
+
+type Theme = "light" | "dark";
+
+interface WorkbenchStatus {
+  counts: SegmentCounts;
+  saveState: "saved" | "saving" | "error";
+  activeOrdinal: number | undefined;
+}
 
 interface WorkspaceData {
   snapshot: ProjectSnapshot;
@@ -49,6 +66,35 @@ export function App() {
   const [tutorial, setTutorial] = useState<TutorialState | null>(null);
   const [engineBanner, setEngineBanner] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<RecoverableDraft[]>([]);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [spineHidden, setSpineHidden] = useState(false);
+  const [theme, setTheme] = useState<Theme>(readTheme);
+  const [workbenchStatus, setWorkbenchStatus] =
+    useState<WorkbenchStatus | null>(null);
+  const runTransition = useViewTransition();
+  // 工作台注册的"离开前落盘"守卫（见 Workbench 的 onRegisterLeaveGuard）
+  const leaveGuardRef = useRef<(() => Promise<void>) | null>(null);
+  const registerLeaveGuard = useCallback(
+    (guard: (() => Promise<void>) | null) => {
+      leaveGuardRef.current = guard;
+    },
+    [],
+  );
+  const flushBeforeLeave = useCallback(async () => {
+    const guard = leaveGuardRef.current;
+    if (!guard) return;
+    try {
+      await guard();
+    } catch {
+      // 落盘失败不阻断导航：草稿仍在 journal 里，可由恢复对话框接手
+    }
+  }, []);
+
+  // 主题落到 <html data-theme>，token 层据此反转层理
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem(THEME_KEY, theme);
+  }, [theme]);
 
   useEffect(() => {
     let cancelled = false;
@@ -166,11 +212,15 @@ export function App() {
   };
 
   const returnHome = () => {
-    localStorage.removeItem(SESSION_KEY);
-    setWorkspace(null);
-    setMode("home");
-    setSurface("workbench");
-    setFocusSegmentId(null);
+    // 返回项目列表同样要先落盘未保存草稿
+    void flushBeforeLeave().finally(() => {
+      localStorage.removeItem(SESSION_KEY);
+      setWorkspace(null);
+      setWorkbenchStatus(null);
+      setMode("home");
+      setSurface("workbench");
+      setFocusSegmentId(null);
+    });
   };
 
   const refreshWorkspace = async () => {
@@ -183,20 +233,7 @@ export function App() {
     setWorkspace(data);
   };
 
-  const navigateFromWorkbench = async (nextSurface: AppSurface) => {
-    if (!workspace) return;
-    if (nextSurface === "workbench") {
-      setSurface("workbench");
-      return;
-    }
-    const data = await loadWorkspace(
-      t,
-      workspace.snapshot.project.id,
-      workspace.document.id,
-    );
-    setWorkspace(data);
-    setSurface(nextSurface);
-  };
+  // navigateFromWorkbench 已被 goToSurface 取代（带 View Transition + 落盘守卫）
 
   const openSegment = (segmentId: string) => {
     setFocusSegmentId(segmentId);
@@ -223,6 +260,117 @@ export function App() {
     [],
   );
 
+  const goToSurface = useCallback(
+    (next: AppSurface) => {
+      if (!workspace) return;
+      if (next === surface) return;
+      runTransition("surface", async () => {
+        // 离开工作台前先把未保存草稿落盘（静默，不拦截）
+        await flushBeforeLeave();
+        if (next === "workbench") {
+          setSurface("workbench");
+          return;
+        }
+        const data = await loadWorkspace(
+          t,
+          workspace.snapshot.project.id,
+          workspace.document.id,
+        );
+        setWorkspace(data);
+        setSurface(next);
+      });
+    },
+    [flushBeforeLeave, runTransition, surface, t, workspace],
+  );
+
+  // 全局快捷键：Ctrl+1..6 Surface · Ctrl+K 命令面板 · Ctrl+\ 收起 Spine
+  // 第一行必须是组合态守卫（07-interaction.md §3.2）
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (shouldIgnoreKey(event)) return;
+      if (!event.ctrlKey || event.altKey) return;
+
+      if (event.key === "k" || event.key === "K") {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+        return;
+      }
+      if (event.key === "\\") {
+        event.preventDefault();
+        setSpineHidden((hidden) => !hidden);
+        return;
+      }
+      const digit = Number.parseInt(event.key, 10);
+      if (Number.isInteger(digit) && digit >= 1 && digit <= 6) {
+        const next = SURFACE_ORDER[digit - 1];
+        if (next) {
+          event.preventDefault();
+          goToSurface(next);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [goToSurface]);
+
+  const commands = useMemo<Command[]>(() => {
+    const list: Command[] = [];
+
+    SURFACE_ORDER.forEach((id, index) => {
+      list.push({
+        id: `surface:${id}`,
+        label: SURFACE_LABEL[id],
+        group: "跳转",
+        meta: `Ctrl+${index + 1}`,
+        run: () => goToSurface(id),
+      });
+    });
+
+    if (workspace) {
+      for (const doc of workspace.snapshot.documents) {
+        list.push({
+          id: `doc:${doc.id}`,
+          label: doc.name,
+          group: "文档",
+          run: () => {
+            void openWorkspace(workspace.snapshot.project.id, doc.id);
+          },
+        });
+      }
+    }
+
+    list.push(
+      {
+        id: "action:settings",
+        label: "设置",
+        group: "动作",
+        run: () => setSettingsOpen(true),
+      },
+      {
+        id: "action:theme",
+        label: theme === "dark" ? "切换到浅色主题" : "切换到深色主题",
+        group: "动作",
+        run: () => setTheme(theme === "dark" ? "light" : "dark"),
+      },
+      {
+        id: "action:spine",
+        label: spineHidden ? "显示导航脊柱" : "隐藏导航脊柱",
+        group: "动作",
+        meta: "Ctrl+\\",
+        run: () => setSpineHidden(!spineHidden),
+      },
+      {
+        id: "action:home",
+        label: "返回项目列表",
+        group: "动作",
+        run: returnHome,
+      },
+    );
+
+    return list;
+  }, [goToSurface, spineHidden, theme, workspace]);
+
   if (!ready || restoring) {
     return (
       <div className="boot-screen" role="status">
@@ -247,17 +395,6 @@ export function App() {
             {t("action.retry")}
           </button>
         </div>
-      ) : null}
-      {mode !== "workspace" ? (
-        <button
-          type="button"
-          className="shell-settings-fab"
-          aria-label={t("aria.settings")}
-          title={t("action.settings")}
-          onClick={() => setSettingsOpen(true)}
-        >
-          <Settings size={18} aria-hidden="true" />
-        </button>
       ) : null}
       {settingsOpen ? (
         <ProductSettingsPage
@@ -322,37 +459,31 @@ export function App() {
     </>
   );
 
-  if (mode === "home" || !workspace) {
-    if (mode === "setup") {
-      return (
-        <>
-          {shellChrome}
-          <SetupView
-            onCreated={openWorkspace}
-            onCancel={() => setMode("home")}
-          />
-        </>
+  const inWorkspace = mode === "workspace" && workspace !== null;
+
+  // 工作台报上来的实时计数优先；未打开工作台时退回快照计数
+  const shellCounts = inWorkspace
+    ? (workbenchStatus?.counts ?? workspace.snapshot.counts)
+    : undefined;
+
+  const surfaceContent = (() => {
+    if (!inWorkspace) {
+      return mode === "setup" ? (
+        <SetupView onCreated={openWorkspace} onCancel={() => setMode("home")} />
+      ) : (
+        <ProjectHome onCreate={() => setMode("setup")} onOpen={openWorkspace} />
       );
     }
-    return (
-      <>
-        {shellChrome}
-        <ProjectHome onCreate={() => setMode("setup")} onOpen={openWorkspace} />
-      </>
-    );
-  }
 
-  if (surface !== "workbench") {
-    return (
-      <>
-        {shellChrome}
+    if (surface !== "workbench") {
+      return (
         <WorkspacePage
           surface={surface}
           snapshot={workspace.snapshot}
           document={workspace.document}
           segments={workspace.segments}
           issues={workspace.issues}
-          onNavigate={setSurface}
+          onNavigate={goToSurface}
           onRefresh={refreshWorkspace}
           onOpenSegment={openSegment}
           onOpenDocument={(documentId) =>
@@ -362,18 +493,12 @@ export function App() {
           onReturnHome={returnHome}
           onOpenSettings={() => setSettingsOpen(true)}
         />
-      </>
-    );
-  }
+      );
+    }
 
-  return (
-    <>
-      {shellChrome}
+    return (
       <Workbench
         initialWorkspace={workspace}
-        onReturnHome={returnHome}
-        onNavigate={navigateFromWorkbench}
-        onOpenSettings={() => setSettingsOpen(true)}
         onOpenGlobalSearchHit={(hit: GlobalSearchHit) =>
           openWorkspace(
             hit.projectId,
@@ -382,10 +507,48 @@ export function App() {
             hit.segmentOrdinal ?? undefined,
           )
         }
+        key={workspace.document.id}
         focusSegmentId={focusSegmentId}
+        onStatusChange={setWorkbenchStatus}
+        onRegisterLeaveGuard={registerLeaveGuard}
+      />
+    );
+  })();
+
+  return (
+    <>
+      {shellChrome}
+      <Shell
+        surface={surface}
+        hasProject={inWorkspace}
+        projectName={workspace?.snapshot.project.name}
+        counts={shellCounts}
+        saveState={workbenchStatus?.saveState}
+        activeOrdinal={workbenchStatus?.activeOrdinal}
+        spineHidden={spineHidden}
+        onSurfaceChange={goToSurface}
+        onGoHome={returnHome}
+        onCommandPalette={() => setPaletteOpen(true)}
+        onSettingsOpen={() => setSettingsOpen(true)}
+        onThemeToggle={() => setTheme(theme === "dark" ? "light" : "dark")}
+      >
+        {surfaceContent}
+      </Shell>
+      <CommandPalette
+        open={paletteOpen}
+        commands={commands}
+        onClose={() => setPaletteOpen(false)}
       />
     </>
   );
+}
+
+function readTheme(): Theme {
+  const stored = localStorage.getItem(THEME_KEY);
+  if (stored === "dark" || stored === "light") return stored;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
 }
 
 async function loadWorkspace(

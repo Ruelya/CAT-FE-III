@@ -403,13 +403,6 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
           </button>
         </div>
       </header>
-      <div className="translunar-band" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-        <span />
-        <span />
-      </div>
       <main className="project-home-main" aria-busy={loading || busy}>
         <aside
           className="project-home-nav"

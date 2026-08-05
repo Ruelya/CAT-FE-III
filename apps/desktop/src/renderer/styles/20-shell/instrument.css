@@ -66,6 +66,15 @@
   font-weight: 600;
 }
 
+/* —— 未决问题（叠加维度，不进堆叠条）——————————— */
+.instrument__issues {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-shrink: 0;
+  color: var(--text-on-ink);
+}
+
 /* —— 状态指示 ——————————————————————————————— */
 .instrument__status {
   display: flex;

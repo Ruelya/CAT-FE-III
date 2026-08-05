@@ -190,7 +190,13 @@ Index Spine 是**全局 Surface 切换器**，48px = 1250px 的 3.8%，
 ```
 
 **核心变化：中段是一条占满剩余宽度的 100% 堆叠进度条**，用状态色按真实比例分段：
-`已确认(--ok) / 草稿(--text-2) / 未翻译(空,--rule) / 有问题(--err)`。
+`已确认(--ok) / 草稿(--text-2) / 未翻译(空,--rule)`。
+
+> **只放互斥三态。** `SegmentCounts` 的契约是
+> `untranslated + draft + confirmed = total`，而 `openIssues` 是**叠加维度**——
+> 一个已确认段同样可以有未决问题。把它作为第四段堆进去会让总和越过 100%，
+> 直接推翻下面"每段宽度 = 真实占比"这条自我声明。
+> 因此**问题数在条子右侧作为独立计数 + 方灯呈现**，不参与堆叠。
 
 它同时是：
 - 全屏最强的一条图形元素（跨越 800+px 的实色带）；
@@ -204,7 +210,7 @@ Index Spine 是**全局 Surface 切换器**，48px = 1250px 的 3.8%，
 | --- | --- |
 | Hover 某段 | 锚定 tooltip：`草稿 401 段 · 32.1%` |
 | 点击某段 | 把网格筛选切到该状态（等同筛选栏对应 chip） |
-| 键盘 | `Tab` 可达，`←→` 在四段间移动，`Enter` 应用筛选 |
+| 键盘 | `Tab` 可达，`←→` 在三段间移动，`Enter` 应用筛选 |
 
 ### 4.4 端部
 
@@ -219,9 +225,10 @@ Index Spine 是**全局 Surface 切换器**，48px = 1250px 的 3.8%，
 <footer className="instrument plate--ink" aria-label="文档状态">
   <span className="num">段 <b>{ordinal.toLocaleString()}</b> / {total.toLocaleString()}</span>
 
+  {/* 只堆互斥三态：confirmed / draft / untranslated */}
   <div className="instrument__bar" role="img"
-       aria-label={`已确认 ${c} 段，草稿 ${d} 段，未翻译 ${u} 段，${e} 段有问题，共 ${total} 段`}>
-    {SEGMENTS.map(s => (
+       aria-label={`已确认 ${c} 段，草稿 ${d} 段，未翻译 ${u} 段，共 ${total} 段`}>
+    {STACK_SEGMENTS.map(s => (
       <button key={s.key} type="button" style={{ flexGrow: s.count }}
               data-state={s.key} onClick={() => setFilter(s.key)}
               aria-label={`${s.label} ${s.count} 段，${pct(s.count)}。点击筛选`} />
@@ -229,6 +236,15 @@ Index Spine 是**全局 Surface 切换器**，48px = 1250px 的 3.8%，
   </div>
 
   <span className="num">{pct(c)}</span>
+  {/* 问题是叠加维度：独立计数，不进堆叠条 */}
+  {openIssues > 0 ? (
+    <button type="button" className="instrument__issues"
+            onClick={() => setFilter("issues")}
+            aria-label={`${openIssues} 个未决问题。点击筛选`}>
+      <span className="lamp" data-state="error" aria-hidden />
+      <span className="num">{openIssues.toLocaleString()}</span> 问题
+    </button>
+  ) : null}
   <SaveState value={save} />
   <span className="num">{words.toLocaleString()} 词</span>
   <span className="matrix-inert instrument__cap" aria-hidden />
@@ -239,10 +255,13 @@ Index Spine 是**全局 Surface 切换器**，48px = 1250px 的 3.8%，
 .instrument__bar { display: flex; block-size: 8px; gap: 1px; flex: 1; min-inline-size: 200px; }
 .instrument__bar > button { border: 0; padding: 0; transition: filter var(--d-micro) }
 .instrument__bar > button:hover { filter: brightness(1.18) }
+.instrument__bar > button { min-inline-size: 3px }   /* 极小计数仍可见 */
 [data-state="confirmed"]   { background: var(--ok) }
 [data-state="draft"]       { background: var(--text-2) }
 [data-state="untranslated"]{ background: rgb(243 239 231 / .18) }
-[data-state="error"]       { background: var(--err) }
+
+/* --err 只用于问题计数的方灯，不作为堆叠条的第四段 */
+.instrument__issues .lamp[data-state="error"] { background: var(--err) }
 ```
 
 ---

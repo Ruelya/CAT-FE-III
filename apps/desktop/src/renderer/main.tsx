@@ -2,10 +2,13 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { App } from "./App";
+import { installCompositionGuard } from "./hooks/useComposition";
 import { LocaleProvider } from "./i18n/LocaleProvider";
 import "./styles/index.css";
 import "./styles.css";
 import "./product-shell.css";
+
+installCompositionGuard();
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Renderer root is missing.");

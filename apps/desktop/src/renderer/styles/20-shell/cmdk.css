@@ -1,0 +1,140 @@
+/* ══════════════════════════════════════════════════════════════
+   Command Palette 命令面板
+   Source: docs/design-ii/06-shell-navigation.md §3
+   ══════════════════════════════════════════════════════════════ */
+
+@layer components {
+
+/* 不居中：贴视口左上 1/3，避免遮住用户正在读的活动行 */
+.cmdk {
+  position: fixed;
+  inset: 12vh auto auto calc(var(--band-w) + var(--spine-w) + 40px);
+  inline-size: 640px;
+  max-inline-size: calc(100vw - var(--band-w) - var(--spine-w) - 80px);
+  margin: 0;
+  padding: 0;
+  background: var(--ink);
+  color: var(--text-on-ink);
+  border: 1px solid var(--rule-strong);
+  border-radius: 0 var(--bevel) 0 0;
+  corner-shape: bevel;
+  box-shadow: var(--elev-pop);
+  overflow: hidden;
+}
+
+.cmdk::backdrop {
+  background: transparent;  /* 面板靠左上，不遮挡：无需压暗全屏 */
+}
+
+/* —— 输入行 ————————————————————————————————————— */
+.cmdk__input {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  block-size: 52px;
+  padding: 0 var(--s-6) 0 calc(var(--s-6) + 2px);
+  background: var(--ink-raised);
+  border-block-end: 1px solid var(--rule-strong);
+}
+
+/* Active Axis 驻留于输入行左缘 */
+.cmdk__input::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block: 0;
+  inline-size: 2px;
+  background: var(--signal);
+}
+
+.cmdk__field {
+  flex: 1;
+  min-inline-size: 0;
+  background: none;
+  border: 0;
+  color: var(--text-on-ink);
+  font: 400 var(--t-section) / 1 var(--font-ui);
+}
+
+/* 输入行左缘的 Active Axis 就是焦点指示，不再叠一圈默认焦点环 */
+.cmdk__field:focus,
+.cmdk__field:focus-visible {
+  outline: none;
+}
+
+.cmdk__field::placeholder { color: var(--text-on-ink-2); }
+
+/* —— 结果列表 ————————————————————————————————— */
+.cmdk__list {
+  list-style: none;
+  margin: 0;
+  padding: var(--s-2) 0;
+  max-block-size: 44vh;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.cmdk__list::-webkit-scrollbar { display: none; }
+
+.cmdk__group {
+  padding: var(--s-4) var(--s-6) var(--s-1);
+  color: var(--text-on-ink-2);
+}
+
+.cmdk__item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  inline-size: 100%;
+  min-block-size: 36px;
+  padding: 0 var(--s-6);
+  text-align: start;
+  color: var(--text-on-ink);
+  font-size: var(--t-body);
+}
+
+.cmdk__item[data-active] { background: var(--ink-raised); }
+
+.cmdk__item[data-active]::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block: 0;
+  inline-size: 2px;
+  background: var(--signal);
+}
+
+.cmdk__item[data-danger] { color: var(--err); }
+
+.cmdk__label { flex: 1; min-inline-size: 0; }
+
+/* 命中字符：signal-ink 加粗，不用背景高亮 */
+.cmdk__hit {
+  color: var(--signal);
+  font-weight: 600;
+}
+
+.cmdk__meta {
+  color: var(--text-on-ink-2);
+  font-size: var(--t-meta);
+}
+
+/* —— 空态 ——————————————————————————————————————— */
+.cmdk__empty {
+  padding: var(--s-7) var(--s-6);
+  color: var(--text-on-ink-2);
+  font-size: var(--t-body);
+}
+
+/* —— 脚注 ——————————————————————————————————————— */
+.cmdk__hint {
+  display: flex;
+  gap: var(--s-5);
+  padding: var(--s-3) var(--s-6);
+  border-block-start: 1px solid var(--rule-strong);
+  color: var(--text-on-ink-2);
+}
+
+}

@@ -1,6 +1,6 @@
 /* ══════════════════════════════════════════════════════════════
    Shell 应用外壳
-   Source: docs/design-ii/06-shell-navigation.md
+   Source: docs/design-ii/06-shell-navigation.md §1
    ══════════════════════════════════════════════════════════════ */
 
 @layer components {
@@ -11,29 +11,36 @@
   grid-template-rows: 1fr var(--instrument-h);
   grid-template-areas:
     "band spine surface"
-    "band instrument instrument";
-  width: 100vw;
-  height: 100vh;
+    "band spine instrument";
+  block-size: 100dvh;
+  inline-size: 100vw;
+  background: var(--paper);
   overflow: hidden;
 }
 
-.shell__band {
-  grid-area: band;
+/* Ctrl+\ 隐藏 Index Spine，宽度全部还给 Surface */
+.shell[data-spine="hidden"] {
+  grid-template-columns: var(--band-w) 0 1fr;
 }
 
-.shell__spine {
-  grid-area: spine;
+/* 无活动文档（如项目首页）：不渲染仪表条，高度还给 Surface */
+.shell:not(:has(.shell__instrument)) {
+  grid-template-rows: 1fr 0;
 }
+
+.shell__band { grid-area: band; }
+.shell__spine { grid-area: spine; }
 
 .shell__surface {
   grid-area: surface;
   position: relative;
+  min-inline-size: 0;
+  min-block-size: 0;
   overflow: hidden;
-  background: var(--paper);
+  view-transition-name: surface;
+  contain: layout paint;
 }
 
-.shell__instrument {
-  grid-area: instrument;
-}
+.shell__instrument { grid-area: instrument; }
 
 }

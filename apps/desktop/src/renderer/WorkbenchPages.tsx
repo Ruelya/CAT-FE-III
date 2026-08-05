@@ -6,13 +6,7 @@ import type {
   Segment,
   TmEntry,
 } from "@translunar/contracts";
-import {
-  ArrowLeft,
-  Database,
-  FileText,
-  MoreHorizontal,
-  Search,
-} from "lucide-react";
+import { ArrowLeft, Database, FileText, Search } from "lucide-react";
 
 import { BrandMark } from "./BrandMark";
 import { AiControlPage } from "./AiControlPage";
@@ -43,13 +37,6 @@ export function WorkspacePage(props: WorkspacePageProps) {
   return (
     <div className="surface-shell">
       <SurfaceHeader {...props} />
-      <div className="translunar-band" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-        <span />
-        <span />
-      </div>
       {surface === "qa-review" ? (
         <ComprehensiveQaReviewPage {...props} />
       ) : null}
@@ -79,11 +66,8 @@ function SurfaceHeader({
   snapshot,
   document,
   onNavigate,
-  onReturnHome,
-  onOpenSettings,
 }: WorkspacePageProps) {
   const { t } = useLocale();
-  const [menuOpen, setMenuOpen] = useState(false);
   const pageTitle =
     surface === "qa-review"
       ? t("nav.qaReview")
@@ -116,88 +100,6 @@ function SurfaceHeader({
       <div className="surface-document">
         <FileText size={14} />
         <span>{document.name}</span>
-      </div>
-      <div className="surface-actions">
-        <div className="surface-menu-wrap">
-          <button
-            type="button"
-            className="icon-button dark"
-            aria-label={t("common.moreActions")}
-            aria-expanded={menuOpen}
-            title={t("common.moreActions")}
-            onClick={() => setMenuOpen((open) => !open)}
-          >
-            <MoreHorizontal size={17} />
-          </button>
-          {menuOpen ? (
-            <nav
-              className="surface-menu"
-              aria-label={t("nav.applicationViews")}
-            >
-              <span>{t("common.views")}</span>
-              <button type="button" onClick={() => onNavigate("workbench")}>
-                {t("nav.workbench")}
-              </button>
-              <button
-                type="button"
-                disabled={surface === "qa-review"}
-                aria-current={surface === "qa-review" ? "page" : undefined}
-                onClick={() => onNavigate("qa-review")}
-              >
-                {t("nav.qaReview")}
-              </button>
-              <button
-                type="button"
-                disabled={surface === "export-review"}
-                aria-current={surface === "export-review" ? "page" : undefined}
-                onClick={() => onNavigate("export-review")}
-              >
-                {t("nav.exportReview")}
-              </button>
-              <button
-                type="button"
-                disabled={surface === "translation-memory"}
-                aria-current={
-                  surface === "translation-memory" ? "page" : undefined
-                }
-                onClick={() => onNavigate("translation-memory")}
-              >
-                {t("tm.title")}
-              </button>
-              <button
-                type="button"
-                disabled={surface === "ai-control"}
-                aria-current={surface === "ai-control" ? "page" : undefined}
-                onClick={() => onNavigate("ai-control")}
-              >
-                {t("nav.aiControl")}
-              </button>
-              <button
-                type="button"
-                disabled={surface === "project-insights"}
-                aria-current={
-                  surface === "project-insights" ? "page" : undefined
-                }
-                onClick={() => onNavigate("project-insights")}
-              >
-                {t("nav.projectInsights")}
-              </button>
-              <hr />
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onOpenSettings();
-                }}
-              >
-                {t("action.settings")}
-              </button>
-              <button type="button" onClick={onReturnHome}>
-                {t("nav.projects")}
-              </button>
-            </nav>
-          ) : null}
-        </div>
       </div>
     </header>
   );

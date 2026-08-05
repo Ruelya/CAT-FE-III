@@ -1,111 +1,128 @@
+import type { SegmentCounts } from "@translunar/contracts";
+
 /**
  * Instrument Strip 仪表条
  *
  * 30px 高 Ink 面横条，贴窗口底缘。承载全局状态：
  * 段计数 · 进度比例条 · 完成百分比 · 保存状态 · 词数
  *
- * 所有数字必须自洽：进度条各段宽度比例 = 实际状态计数比例
+ * 数字自洽契约（screens/workbench.md §10）：
+ *   untranslated + draft + confirmed = total
+ * `openIssues` 是叠加维度（一个已确认段也可以有未决问题），
+ * 因此**不进堆叠条**，只作为独立计数展示。
  *
  * Source: docs/design-ii/06-shell-navigation.md §4
  */
 
-export interface SegmentCounts {
-  total: number;
-  confirmed: number;
-  draft: number;
-  untranslated: number;
-  error: number;
-}
-
 export type SaveState = "saved" | "saving" | "error";
 
+/** 堆叠条只使用互斥的三态（openIssues 不在其中） */
+type StackState = "confirmed" | "draft" | "untranslated";
+
+const STATE_LABEL: Record<StackState, string> = {
+  confirmed: "已确认",
+  draft: "草稿",
+  untranslated: "未翻译",
+};
+
+const SAVE_LABEL: Record<SaveState, string> = {
+  saved: "已保存",
+  saving: "保存中",
+  error: "保存失败",
+};
+
 interface InstrumentStripProps {
-  activeSegmentIndex?: number | undefined;
   counts: SegmentCounts;
   saveState: SaveState;
-  wordCount: number;
+  /** 当前段序号（1-based，用于 `段 418 / 1,248`） */
+  activeOrdinal?: number | undefined;
+  wordCount?: number | undefined;
 }
 
 export function InstrumentStrip({
-  activeSegmentIndex,
   counts,
   saveState,
+  activeOrdinal,
   wordCount,
 }: InstrumentStripProps) {
-  const { total, confirmed, draft, untranslated, error } = counts;
+  const { total, confirmed, draft, untranslated, openIssues } = counts;
 
-  // 完成百分比：已确认段占比
+  // 完成百分比：已确认段占比。total=0 时为 0，不显示 NaN。
   const pct = total > 0 ? Math.round((confirmed / total) * 100) : 0;
 
-  const saveLabel: Record<SaveState, string> = {
-    saved: "已保存",
-    saving: "保存中",
-    error: "保存失败",
-  };
+  const segments: readonly { state: StackState; count: number }[] = [
+    { state: "confirmed", count: confirmed },
+    { state: "draft", count: draft },
+    { state: "untranslated", count: untranslated },
+  ];
+
+  const barLabel = segments
+    .map(({ state, count }) => `${STATE_LABEL[state]} ${count}`)
+    .join("，");
 
   return (
-    <div className="instrument shell__instrument" role="status" aria-live="polite">
+    <div className="instrument shell__instrument">
       {/* 段计数 */}
-      <div className="instrument__count">
+      <div className="instrument__count num">
         <span className="instrument__count-label">段</span>
-        {activeSegmentIndex !== undefined && (
+        {activeOrdinal !== undefined && (
           <>
-            <span>{activeSegmentIndex.toLocaleString()}</span>
+            <b>{activeOrdinal.toLocaleString()}</b>
             <span className="text-on-ink-2">/</span>
           </>
         )}
         <span>{total.toLocaleString()}</span>
       </div>
 
-      {/* 进度比例条 */}
-      <div
-        className="instrument__progress"
-        role="img"
-        aria-label={`进度：已确认 ${confirmed}，草稿 ${draft}，未翻译 ${untranslated}，问题 ${error}`}
-      >
-        <ProgressSegment state="confirmed" count={confirmed} total={total} />
-        <ProgressSegment state="draft" count={draft} total={total} />
-        <ProgressSegment state="untranslated" count={untranslated} total={total} />
-        <ProgressSegment state="error" count={error} total={total} />
+      {/* 堆叠比例条：宽度比例 = 计数比例 */}
+      <div className="instrument__progress" role="img" aria-label={barLabel}>
+        {segments.map(({ state, count }) =>
+          count > 0 ? (
+            <span
+              key={state}
+              className="instrument__segment"
+              data-state={state}
+              style={{ flexGrow: count }}
+              title={`${STATE_LABEL[state]} ${count.toLocaleString()}`}
+            />
+          ) : null,
+        )}
       </div>
 
       {/* 完成百分比 */}
-      <div className="instrument__pct">{pct}%</div>
+      <div className="instrument__pct" aria-label={`完成 ${pct}%`}>
+        {pct}%
+      </div>
+
+      {/* 未决问题（叠加维度，独立于堆叠条）*/}
+      {openIssues > 0 && (
+        <div className="instrument__issues">
+          <span
+            className="instrument__status-lamp"
+            data-state="error"
+            aria-hidden="true"
+          />
+          <span className="num">{openIssues.toLocaleString()}</span>
+          <span>问题</span>
+        </div>
+      )}
 
       {/* 保存状态 */}
-      <div className="instrument__status">
+      <div className="instrument__status" role="status" aria-live="polite">
         <span
           className="instrument__status-lamp"
           data-state={saveState}
           aria-hidden="true"
         />
-        <span>{saveLabel[saveState]}</span>
+        <span>{SAVE_LABEL[saveState]}</span>
       </div>
 
       {/* 词数 */}
-      <div className="instrument__words">
-        {wordCount.toLocaleString()} 词
-      </div>
+      {wordCount !== undefined && (
+        <div className="instrument__words num">
+          {wordCount.toLocaleString()} 词
+        </div>
+      )}
     </div>
-  );
-}
-
-function ProgressSegment({
-  state,
-  count,
-  total,
-}: {
-  state: "confirmed" | "draft" | "untranslated" | "error";
-  count: number;
-  total: number;
-}) {
-  if (count === 0) return null;
-
-  return (
-    <span
-      className="instrument__segment"
-      data-state={state}
-      style={{ flexGrow: count / Math.max(total, 1) }}
-    />
   );
 }

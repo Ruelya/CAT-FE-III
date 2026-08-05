@@ -355,13 +355,6 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
           ) : null}
         </div>
       </header>
-      <div className="translunar-band" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-        <span />
-        <span />
-      </div>
       <main className="setup-main setup-wizard-main">
         <nav className="wizard-steps" aria-label={t("setup.stepsAria")}>
           <WizardStepButton

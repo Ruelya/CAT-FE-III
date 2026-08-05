@@ -1,87 +1,127 @@
 /* ══════════════════════════════════════════════════════════════
-   Index Spine 导航脊柱
-   Source: docs/design-ii/06-shell-navigation.md §1
+   Index Spine 导航脊柱（48px 常驻左栏）
+   Source: docs/design-ii/06-shell-navigation.md §2
    ══════════════════════════════════════════════════════════════ */
 
 @layer components {
 
 .index-spine {
-  position: fixed;
-  inset-block: 0;
-  inset-inline-start: var(--band-w);
-  width: var(--spine-w);
+  display: flex;
+  flex-direction: column;
+  inline-size: var(--spine-w);
+  min-inline-size: 0;
   background: var(--ink);
   color: var(--text-on-ink);
   border-inline-end: 1px solid var(--rule-strong);
-  z-index: 800;
-  display: flex;
-  flex-direction: column;
+  overflow: hidden;
 }
 
-/* —— 应用标记（顶部 48×48）—————————————————————— */
-.index-spine__brand {
-  width: var(--spine-w);
-  height: var(--spine-w);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+/* —— 标识区（56px）—————————————————————————————— */
+.spine__mark {
+  flex: 0 0 56px;
+  display: grid;
+  place-items: center;
+  color: var(--text-on-ink);
   border-block-end: 1px solid var(--rule-strong);
-}
-
-/* —— Surface 导航项 ——————————————————————————— */
-.index-spine__nav {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-1);
-  padding: var(--s-4) 0;
-  overflow-y: auto;
-}
-
-.index-spine__item {
   position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 40px;
-  margin: 0 var(--s-2);
+  transition: background var(--d-state) var(--ease-move);
+}
+
+.spine__mark:hover { background: var(--ink-raised); }
+
+.spine__mark .band-echo {
+  position: absolute;
+  inset-block-end: 8px;
+  inset-inline-start: 50%;
+  translate: -50% 0;
+}
+
+/* —— 导航（6 × 44）——————————————————————————————— */
+.spine__nav {
+  flex: 0 0 auto;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.spine__item {
+  position: relative;
+  display: grid;
+  place-items: center;
+  inline-size: var(--spine-w);
+  block-size: 44px;
   color: var(--text-on-ink-2);
-  border-radius: var(--r-ctl);
   transition: background var(--d-state) var(--ease-move),
               color var(--d-state) var(--ease-move);
 }
 
-.index-spine__item:hover {
+.spine__item:hover:not([aria-disabled="true"]) {
   background: var(--ink-raised);
   color: var(--text-on-ink);
 }
 
-/* —— 当前 Surface（Active Axis 驻留）——————————— */
-.index-spine__item[data-active] {
-  color: var(--text-on-ink);
+/* 当前 Surface：Active Axis 驻留（2px × 32px） */
+.spine__item[data-current] {
   background: var(--ink-raised);
+  color: var(--text-on-ink);
 }
 
-.index-spine__item[data-active]::before {
+.spine__item[data-current]::before {
   content: "";
   position: absolute;
-  inset-inline-start: -6px;
-  width: 2px;
-  height: 32px;
+  inset-inline-start: 0;
+  inline-size: 2px;
+  block-size: 32px;
   background: var(--signal);
+}
+
+/* 无项目时：六灯禁用 */
+.spine__item[aria-disabled="true"] {
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
+/* 徽标：14×14 方块（不是圆），Mono 10px
+   —— 唯一允许 <11px 的位置：图形化计数且旁边有 aria-label 全文 */
+.spine__badge {
+  position: absolute;
+  inset-block-start: 5px;
+  inset-inline-end: 5px;
+  min-inline-size: 14px;
+  block-size: 14px;
+  display: grid;
+  place-items: center;
+  padding: 0 2px;
+  font: 600 10px / 1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  background: var(--warn);
+  color: var(--ink);
   border-radius: 1px;
 }
 
-/* —— 底部区（设置/帮助）—————————————————————— */
-.index-spine__footer {
-  padding: var(--s-4) 0;
-  border-block-start: 1px solid var(--rule-strong);
+.spine__badge[data-tone="error"] {
+  background: var(--err);
+  color: var(--text-on-ink);
 }
 
-/* —— Tooltip —————————————————————————————————— */
-.index-spine__item[title] {
-  cursor: pointer;
+/* —— 弹性区：Inert Matrix 竖向裁切块 ————————————— */
+.spine__filler {
+  flex: 1;
+  min-block-size: 24px;
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    var(--rule) 1px,
+    transparent 0
+  );
+  background-size: 6px 6px;
+  mask-image: linear-gradient(to bottom, transparent, black 40%, transparent);
+  pointer-events: none;
+}
+
+/* —— 工具区 ——————————————————————————————————— */
+.spine__tools {
+  flex: 0 0 auto;
+  border-block-start: 1px solid var(--rule-strong);
 }
 
 }

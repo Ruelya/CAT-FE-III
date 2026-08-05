@@ -27,6 +27,7 @@
 @import "./20-shell/band-spine.css";
 @import "./20-shell/index-spine.css";
 @import "./20-shell/instrument.css";
+@import "./20-shell/cmdk.css";
 
 /* —— Surfaces ————————————————————————————————— */
 @import "./30-surfaces/workbench.css";

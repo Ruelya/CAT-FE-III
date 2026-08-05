@@ -128,6 +128,28 @@ BEM 变体：`.block__element` + `data-*` 状态（不用 `--modifier` 类）。
 **验收**：六个 Surface 可用 `Ctrl+1..6` 到达；彩条为竖脊柱；仪表条堆叠比例条数值自洽；
 转场在 Reduced Motion 下退化正确。
 
+> **期 1 实施记录**（分支 `implement/ortho-frontend`）
+>
+> 已完成并在 Electron 实机验证：`Shell` / `BandSpine` / `IndexSpine` / `InstrumentStrip` /
+> `CommandPalette` / `useViewTransition` / `useComposition`，`App.tsx` 三条分支统一由 `Shell` 包裹。
+> 实测：Band 6px@x=0、Spine 48px、仪表条 30px、六灯随 `Ctrl+1..6` 迁移 Active Axis、
+> 命令面板 640px 贴左上（x=94）。
+>
+> 实施中发现并处理的偏差：
+>
+> | 偏差 | 处置 |
+> | --- | --- |
+> | 旧横向彩条存在于 4 处（`WorkbenchPages` / `ProjectHome` / `SetupView` / `Workbench`），与"全屏唯一 Band"冲突 | 4 处全删；`styles.css` 中 4 个 grid 模板里为它预留的 `9px` 行同步删除（否则内容行错位、网格不可见） |
+> | 旧状态条与 Instrument Strip 重复显示段计数/保存态 | 删除 `Workbench` 的 `status-bar`，`--status-height` 行从 `.workbench-app` grid 移除 |
+> | 旧 `…` 溢出导航在 `Workbench` 与 `WorkbenchPages` 各有一份 | 两份都删；`onReturnHome` / `onNavigate` / `onOpenSettings` 三个 prop 随之从 `WorkbenchProps` 移除 |
+> | **删除 `…` 导航会丢失"跳转前 `await persistAllSegments()`"的保证** | 新增 `onRegisterLeaveGuard`：`Workbench` 注册落盘守卫，`App` 在 `goToSurface` / `returnHome` 前 `await`。契约同 §5.1"静默持久化，不拦截" |
+> | 深色主题双轨：新 token 用 `:root[data-theme]`，旧 `styles.css` 用 `.workbench-app.theme-dark`（由工作台偏好驱动） | **仍开**。Shell 外壳随 `data-theme` 正确反转，旧 Surface 内容不响应。留到期 8「深色主题全量校对」统一，不做临时 CSS 桥（旧 CSS 无 `@layer`，桥接必然被特异性问题反噬） |
+>
+> 平台能力实测（Electron 41 / Chromium **146.0.7680.216**）：
+> `corner-shape` · `field-sizing` · `interpolate-size` · `anchor-name` · `position-area` ·
+> `text-box-trim` · View Transitions · `@starting-style` · `linear()` · scroll-driven animations
+> **全部为 true**，§1「不引入任何新依赖」的前提成立。
+
 ### 期 2 · 工作台骨架
 1. `Masthead` 重做（标识板 bevel + 文档切换器；移除全局搜索框）。
 2. `FilterRail` 降到 3 组，其余功能迁到命令面板/快捷键。
