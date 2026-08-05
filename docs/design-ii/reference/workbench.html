@@ -1,0 +1,724 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light" data-density="standard">
+<head>
+<meta charset="utf-8">
+<title>Translunar II · ORTHO — 主工作台参考实现</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+SC:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ══════════════════════════════════════════════════════════════
+   00 · TOKENS   —— 与 02-foundations.md §5 一致
+   ══════════════════════════════════════════════════════════════ */
+@layer tokens, base, components, surface;
+
+@layer tokens {
+:root{
+  color-scheme: light dark;
+
+  --deck:#FBF8F2; --paper:#EFEAE1; --frame:#E4DED3; --shade:#E0D9CC;
+  --ink:#1B1815; --ink-raised:#262220;
+
+  --text-1:#171412; --text-2:#655D55; --text-3:#8C8479;
+  --text-on-ink:#F3EFE7; --text-on-ink-2:#A79E93;
+
+  --signal:#E8571F; --signal-ink:#A5380C; --signal-wash:rgb(232 87 31 / .10);
+  --on-signal:var(--text-1);
+
+  --ok:#3D7A4E;    --ok-ink:#2C603C;
+  --warn:#9C7018;  --warn-ink:#6F4E0C;
+  --err:#B23A2B;   --err-ink:#9E3023;
+  --machine:#4A6E88; --machine-ink:#3C5A70;
+
+  --band-1:#D9562B; --band-2:#D29A2E; --band-3:#87904A;
+  --band-4:#4F8076; --band-5:#526F86;
+
+  --rule-field:rgb(27 24 21 / .56);
+  --rule-strong:rgb(27 24 21 / .34);
+  --rule:rgb(27 24 21 / .18);
+  --rule-soft:rgb(27 24 21 / .10);
+
+  --elev-pop:0 1px 0 rgb(27 24 21/.10),0 8px 24px -8px rgb(27 24 21/.22),0 2px 6px -2px rgb(27 24 21/.14);
+
+  --font-display:"Jost","Futura",system-ui,sans-serif;
+  --font-ui:"IBM Plex Sans","IBM Plex Sans SC",system-ui,sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+
+  --t-title:20px; --t-section:15px; --t-body:14px; --t-editor:15.5px;
+  --t-meta:12.5px; --t-micro:11px; --t-num:13px;
+
+  --density:1;
+  --row-min:calc(48px * var(--density));
+  --cell-pad:calc(10px * var(--density));
+  --ctl-h:calc(32px * var(--density));
+
+  --r-input:3px; --r-ctl:4px; --r-pop:6px; --r-tag:2px; --bevel:14px;
+
+  --spine-w:48px; --band-w:6px; --matrix-w:36px;
+  --masthead-h:64px; --filterbar-h:44px; --instrument-h:30px;
+  --stack-w:420px; --dock-h:216px;
+
+  --ease-in:linear(0,.22 3.5%,.42 7.2%,.6 11.2%,.75 15.7%,.87 20.9%,.95 26.9%,1 36%,1);
+  --ease-move:cubic-bezier(.2,.8,.2,1);
+  --d-micro:90ms; --d-state:140ms; --d-local:200ms; --d-page:280ms;
+}
+:root[data-theme="dark"]{
+  --deck:#262220; --paper:#131110; --frame:#1D1A17; --shade:#2E2924;
+  --ink:#0C0B0A; --ink-raised:#1D1A17;
+  --text-1:#F3EFE7; --text-2:#A79E93; --text-3:#7B746A;
+  --signal:#FF6A33; --signal-ink:#FF6A33; --signal-wash:rgb(255 106 51/.14); --on-signal:#131110;
+  --ok:#5FA377; --ok-ink:#5FA377; --warn:#D6A340; --warn-ink:#D6A340;
+  --err:#E27263; --err-ink:#E27263; --machine:#7FA6C2; --machine-ink:#7FA6C2;
+  --band-1:#C34D27; --band-2:#BD8B29; --band-3:#7A8243; --band-4:#47736A; --band-5:#4A6479;
+  --rule-field:rgb(243 239 231/.50); --rule-strong:rgb(243 239 231/.30);
+  --rule:rgb(243 239 231/.16); --rule-soft:rgb(243 239 231/.09);
+}
+:root[data-density="compact"]{--density:.85}
+:root[data-density="comfortable"]{--density:1.18}
+}
+
+/* ══════════════════════════════════════════════════════════════
+   01 · BASE
+   ══════════════════════════════════════════════════════════════ */
+@layer base {
+*,*::before,*::after{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; font-family:var(--font-ui); font-size:var(--t-body); line-height:1.5;
+  color:var(--text-1); background:var(--paper);
+  -webkit-font-smoothing:antialiased;
+}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+:focus-visible{outline:2px solid var(--signal);outline-offset:2px;border-radius:2px}
+
+.num,.pct,.count{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:var(--t-num)}
+.micro{font:500 var(--t-micro)/1.25 var(--font-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--text-2)}
+.dsp{font-family:var(--font-display);font-weight:600;letter-spacing:-.02em}
+}
+
+/* ══════════════════════════════════════════════════════════════
+   02 · COMPONENTS
+   ══════════════════════════════════════════════════════════════ */
+@layer components {
+
+/* —— 板块与接缝 —— */
+.plate{border:0;border-radius:0;box-shadow:none;background:var(--frame)}
+.plate--deck{background:var(--deck)}
+.plate--ink{background:var(--ink);color:var(--text-on-ink)}
+.brand-plate{background:var(--ink);color:var(--text-on-ink);border-radius:0 var(--bevel) 0 0;corner-shape:bevel}
+
+/* —— 惰性矩阵：必须低于任何边框 —— */
+.matrix-inert{
+  pointer-events:none;
+  background-image:radial-gradient(circle at 1px 1px,var(--rule-soft) 1px,transparent 0);
+  background-size:6px 6px;
+}
+.matrix-inert--ink{background-image:radial-gradient(circle at 1px 1px,rgb(243 239 231/.13) 1px,transparent 0)}
+
+/* —— 按钮 —— */
+.btn{display:inline-flex;align-items:center;gap:7px;height:var(--ctl-h);padding:0 13px;
+  border-radius:var(--r-ctl);font-weight:500;font-size:var(--t-body);white-space:nowrap;
+  transition:background var(--d-micro) var(--ease-move),translate var(--d-micro) var(--ease-move)}
+.btn:active{translate:0 1px}
+.btn--primary{background:var(--signal);color:var(--on-signal);border:1px solid var(--rule-field);font-weight:600}
+.btn--secondary{border:1px solid var(--rule-field)}
+.btn--ghost{color:var(--text-2)}
+.btn--on-ink{border:1px solid rgb(243 239 231/.40);color:var(--text-on-ink)}
+.btn--on-ink:hover{background:rgb(243 239 231/.08)}
+
+/* —— 筛选 chip —— */
+.chip{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 11px;
+  border-radius:var(--r-ctl);background:var(--frame);border:1px solid var(--rule);
+  position:relative;font-size:13px}
+.chip .count{color:var(--text-2);font-size:12px}
+.chip[data-current]{background:var(--shade);border-color:var(--rule-strong)}
+.chip[data-current]::after{content:"";position:absolute;inset-inline:0;bottom:-1px;height:2px;background:var(--signal)}
+
+/* —— 状态方灯：形状 + 色 + 文本三重编码 —— */
+.lamp{inline-size:8px;block-size:8px;flex:0 0 8px;display:inline-block;position:relative}
+.lamp[data-s="untranslated"]{box-shadow:inset 0 0 0 1.25px var(--rule-field)}
+.lamp[data-s="draft"]{background:linear-gradient(to top,var(--text-2) 50%,transparent 50%);box-shadow:inset 0 0 0 1.25px var(--rule-field)}
+.lamp[data-s="confirmed"]{background:var(--ok)}
+.lamp[data-s="error"]{background:var(--err)}
+.lamp[data-s="error"]::after{content:"";position:absolute;inset:3px 1px;border-top:1.5px solid var(--deck);transform:rotate(-45deg)}
+.lamp[data-s="warn"]{background:var(--warn)}
+.lamp[data-s="warn"]::after{content:"";position:absolute;inset:3px 1px;border-top:1.5px solid var(--deck)}
+
+/* —— 受保护标签 —— */
+.tag{display:inline-flex;align-items:center;height:17px;padding:0 5px;margin:0 2px;
+  border:1px solid var(--rule-field);border-radius:var(--r-tag);background:var(--frame);
+  font:500 11px var(--font-mono);color:var(--text-2);vertical-align:baseline;
+  transition:background var(--d-micro),border-color var(--d-micro)}
+.tag[data-close]{text-decoration:underline}
+.seg-row:hover .tag,.tag:hover{background:var(--signal-wash);border-color:var(--signal);color:var(--signal-ink)}
+}
+
+/* ══════════════════════════════════════════════════════════════
+   03 · SHELL
+   ══════════════════════════════════════════════════════════════ */
+@layer surface {
+
+.shell{
+  display:grid;
+  grid-template-columns:var(--band-w) var(--spine-w) 1fr;
+  grid-template-rows:1fr var(--instrument-h);
+  grid-template-areas:"band spine surface" "band spine instrument";
+  height:100dvh;overflow:hidden;
+}
+
+/* —— Band Spine：命题二 —— */
+.band-spine{
+  grid-area:band;
+  background:linear-gradient(to bottom,
+    var(--band-1) 0 20%,var(--band-2) 20% 40%,var(--band-3) 40% 60%,
+    var(--band-4) 60% 80%,var(--band-5) 80% 100%);
+}
+
+/* —— Index Spine —— */
+.index-spine{grid-area:spine;display:flex;flex-direction:column;align-items:center;
+  border-inline-end:1px solid var(--rule-strong)}
+.spine__mark{height:56px;width:100%;display:grid;place-items:center;
+  border-block-end:1px solid rgb(243 239 231/.14)}
+.mark{width:26px;height:26px;position:relative}
+.mark svg{display:block}
+.spine__nav{list-style:none;margin:0;padding:6px 0 0;width:100%}
+.spine__nav li{position:relative}
+.spine__nav button{width:100%;height:44px;display:grid;place-items:center;color:var(--text-on-ink-2);
+  transition:background var(--d-micro),color var(--d-micro)}
+.spine__nav button:hover{color:var(--text-on-ink);background:rgb(243 239 231/.06)}
+.spine__nav button[data-current]{color:var(--text-on-ink);background:var(--ink-raised)}
+.spine__nav button[data-current]::before{content:"";position:absolute;left:0;top:6px;bottom:6px;width:2px;background:var(--signal)}
+.spine__badge{position:absolute;top:8px;right:8px;min-width:14px;height:14px;padding:0 2px;
+  display:grid;place-items:center;background:var(--err);color:#fff;
+  font:600 10px var(--font-mono);border-radius:1px}
+.spine__filler{flex:1;width:100%;margin:10px 0;
+  -webkit-mask-image:linear-gradient(to bottom,transparent,#000 22%,#000 78%,transparent);
+          mask-image:linear-gradient(to bottom,transparent,#000 22%,#000 78%,transparent)}
+.spine__tools{width:100%;border-block-start:1px solid rgb(243 239 231/.14)}
+.spine__tools button{width:100%;height:44px;display:grid;place-items:center;color:var(--text-on-ink-2)}
+.spine__tools button:hover{color:var(--text-on-ink);background:rgb(243 239 231/.06)}
+
+/* —— 工作台骨架 —— */
+.wb{grid-area:surface;display:grid;
+  grid-template-columns:var(--matrix-w) minmax(560px,1fr) var(--stack-w);
+  grid-template-rows:var(--masthead-h) var(--filterbar-h) 1fr auto;
+  grid-template-areas:
+    "masthead masthead stack"
+    "filter   filter   stack"
+    "matrix   grid     stack"
+    "matrix   dock     stack";
+  min-height:0;overflow:hidden}
+
+/* —— Masthead —— */
+.masthead{grid-area:masthead;display:flex;align-items:stretch;background:var(--frame);
+  border-block-end:1px solid var(--rule-strong)}
+.identity{width:318px;padding:9px 16px 9px 18px;display:flex;flex-direction:column;justify-content:center;
+  overflow:clip}
+.identity__name{font-family:var(--font-display);font-weight:600;font-size:var(--t-title);line-height:1.05;
+  letter-spacing:-.02em;color:var(--text-on-ink);white-space:nowrap}
+.identity__meta{margin-top:6px;color:var(--text-on-ink-2)}
+.masthead__mid{flex:1;display:flex;align-items:center;padding:0 18px;gap:12px}
+.docswitch{display:inline-flex;align-items:center;gap:10px;height:34px;padding:0 12px;
+  background:var(--deck);border:1px solid var(--rule-field);border-radius:var(--r-ctl);max-width:460px}
+.docswitch__name{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.docswitch__pct{color:var(--text-2)}
+.masthead__actions{display:flex;align-items:center;gap:8px;padding:0 16px 0 0}
+
+/* —— Filter Rail —— */
+.filter{grid-area:filter;display:flex;align-items:center;gap:8px;padding:0 14px;
+  background:var(--frame);border-block-end:1px solid var(--rule-strong)}
+.filter__div{width:1px;align-self:stretch;margin:9px 6px;background:var(--rule)}
+.select{height:28px;padding:0 26px 0 9px;background:var(--deck);border:1px solid var(--rule-field);
+  border-radius:var(--r-input);font-size:13px;
+  background-image:linear-gradient(45deg,transparent 50%,var(--text-2) 50%),linear-gradient(135deg,var(--text-2) 50%,transparent 50%);
+  background-position:calc(100% - 13px) 12px,calc(100% - 9px) 12px;
+  background-size:4px 4px,4px 4px;background-repeat:no-repeat;appearance:none}
+.issuenav{display:inline-flex;align-items:center;gap:4px}
+.issuenav button{width:24px;height:24px;display:grid;place-items:center;border:1px solid var(--rule-field);
+  border-radius:var(--r-input);color:var(--text-2)}
+
+/* —— Document Matrix：命题三 —— */
+.doc-matrix{grid-area:matrix;position:relative;background:var(--frame);
+  border-inline-end:1px solid var(--rule-strong);padding:8px 6px;overflow:hidden}
+.doc-matrix__grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;align-content:start}
+.dot{inline-size:100%;aspect-ratio:1;border-radius:50%;background:transparent;
+  box-shadow:inset 0 0 0 1.25px var(--rule-field);
+  transition:box-shadow var(--d-state) var(--ease-move),scale var(--d-micro) var(--ease-move)}
+.dot[data-s="draft"]{background:linear-gradient(to top,var(--text-2) 50%,transparent 50%)}
+.dot[data-s="confirmed"]{background:var(--ok);box-shadow:none}
+.dot[data-s="error"]{background:var(--err);box-shadow:none}
+.dot[data-active]{background:var(--signal);box-shadow:0 0 0 2px var(--frame),0 0 0 3.5px var(--signal);scale:1.15;z-index:1}
+.dot:hover{scale:1.35}
+.doc-matrix__vp{position:absolute;inset-inline:2px;border:1px solid var(--text-1);
+  border-inline-width:2px;pointer-events:none}
+
+/* —— 段落网格 —— */
+.grid{grid-area:grid;min-height:0;overflow:hidden;background:var(--paper);display:flex;flex-direction:column}
+.grid__head{display:grid;grid-template-columns:56px 40px minmax(320px,1fr) minmax(320px,1fr) 44px;
+  align-items:center;height:32px;background:var(--frame);border-block-end:1px solid var(--rule-strong);
+  position:sticky;top:0;z-index:2}
+.grid__head > *{padding:0 12px}
+.grid__head > :first-child{text-align:right}
+.grid__body{flex:1;min-height:0;overflow-y:auto;scrollbar-width:none}
+.grid__body::-webkit-scrollbar{display:none}
+
+.seg-row{display:grid;grid-template-columns:56px 40px minmax(320px,1fr) minmax(320px,1fr) 44px;
+  min-height:var(--row-min);border-block-end:1px solid var(--rule);position:relative;
+  transition:background var(--d-state) var(--ease-move)}
+.seg-row:hover{background:var(--shade)}
+.seg-row[data-active]{background:var(--shade)}
+.seg-row[data-active]::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--signal)}
+
+.cell{padding:var(--cell-pad) 12px;min-width:0}
+.cell--id{text-align:right;color:var(--text-2);font-family:var(--font-mono);
+  font-variant-numeric:tabular-nums;font-size:var(--t-num);padding-top:calc(var(--cell-pad) + 2px)}
+.seg-row[data-active] .cell--id{color:var(--text-1);font-weight:600}
+.cell--lamp{display:flex;justify-content:center;padding-top:calc(var(--cell-pad) + 5px)}
+.cell--src{font-size:var(--t-editor);line-height:1.62;background:var(--deck);
+  border-inline:1px solid var(--rule-soft)}
+.cell--tgt{font-size:var(--t-editor);line-height:1.62}
+.cell--origin{text-align:right;font-family:var(--font-mono);font-size:12px;color:var(--text-2);
+  padding-top:calc(var(--cell-pad) + 3px)}
+
+.tgt-box{background:var(--deck);border:1px solid var(--rule-field);border-radius:var(--r-input);
+  padding:calc(var(--cell-pad) - 3px) 10px;min-height:calc(var(--row-min) - var(--cell-pad)*2)}
+.seg-row[data-focus] .tgt-box{border-color:var(--signal);border-width:2px;
+  padding:calc(var(--cell-pad) - 4px) 9px}
+.tgt-box[data-empty]{color:var(--text-2)}
+
+/* 内联 QA 条 */
+.qa-inline{grid-column:3 / -1;display:flex;align-items:center;gap:10px;
+  margin:0 12px var(--cell-pad);padding:6px 10px;background:var(--frame);
+  border-inline-start:3px solid var(--err);font-size:var(--t-meta)}
+.qa-inline__msg{flex:1;color:var(--err-ink)}
+.qa-inline button{font-size:var(--t-meta);color:var(--text-2);text-decoration:underline;
+  text-underline-offset:3px}
+
+/* —— STACK —— */
+.stack{grid-area:stack;display:flex;flex-direction:column;min-height:0;
+  border-inline-start:1px solid var(--rule-strong);background:var(--paper)}
+.stack__head{display:flex;align-items:stretch;height:52px;position:relative}
+.stack__title--ink{background:var(--ink);color:var(--text-on-ink)}
+.stack__title{width:150px;padding:0 18px;display:flex;align-items:center;
+  font-family:var(--font-display);font-weight:600;font-size:var(--t-title);letter-spacing:-.01em}
+.stack__field{flex:1;background:var(--frame)}
+.stack__collapse{width:32px;height:32px;align-self:center;margin-right:10px;display:grid;place-items:center;
+  border:1px solid var(--rule-field);border-radius:var(--r-ctl);background:var(--deck);color:var(--text-2)}
+
+.sec{border-block-start:1px solid var(--rule-strong);display:flex;flex-direction:column;min-height:0}
+.sec__head{display:flex;align-items:center;gap:10px;height:34px;padding:0 14px;background:var(--frame);
+  border-block-end:1px solid var(--rule)}
+.sec__head .count{color:var(--signal-ink);font-weight:600}
+.sec__head .grow{flex:1}
+.sec--matches{flex:1;overflow-y:auto}
+.sec--terms{max-height:30%}
+
+.match{padding:11px 14px;border-block-end:1px solid var(--rule-soft);position:relative;
+  transition:background var(--d-state)}
+.match[data-current]{background:var(--shade)}
+.match[data-current]::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--signal)}
+.match__top{display:flex;align-items:center;gap:9px;margin-bottom:8px}
+.pctbox{font-family:var(--font-mono);font-weight:600;font-size:var(--t-num);padding:1px 5px;border-radius:2px}
+.pctbox[data-tier="high"]{background:rgb(61 122 78 / .16);color:var(--ok-ink)}
+.pctbox[data-tier="mid"]{background:var(--frame);color:var(--text-1)}
+.match__lib{font-size:var(--t-meta);color:var(--text-2)}
+.match__date{margin-left:auto;font-family:var(--font-mono);font-size:12px;color:var(--text-2)}
+.match__label{font:500 var(--t-micro)/1.25 var(--font-mono);letter-spacing:.06em;text-transform:uppercase;
+  color:var(--text-2);margin:6px 0 3px}
+.match__text{background:var(--deck);border:1px solid var(--rule-soft);padding:7px 9px;
+  font-size:14px;line-height:1.55}
+del{color:var(--text-2);text-decoration:line-through}
+ins{text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1px}
+.match__foot{display:flex;align-items:center;margin-top:9px;font-size:var(--t-meta);color:var(--text-2)}
+.match__ins{margin-left:auto;display:inline-flex;align-items:center;gap:7px;color:var(--text-1);font-weight:500}
+kbd{font:500 11px var(--font-mono);border:1px solid var(--rule-field);border-radius:2px;
+  padding:1px 4px;color:var(--text-2)}
+
+.term{display:flex;align-items:center;gap:9px;padding:8px 14px;border-block-end:1px solid var(--rule-soft);
+  font-size:var(--t-body)}
+.term__arrow{color:var(--text-3)}
+.term__state{margin-left:auto;font:500 var(--t-micro)/1.25 var(--font-mono);letter-spacing:.06em;
+  text-transform:uppercase;color:var(--ok-ink)}
+.term__state[data-forbidden]{color:var(--err-ink)}
+
+.ai-drawer{border-block-start:1px solid var(--rule-strong);height:34px;display:flex;align-items:center;
+  gap:9px;padding:0 14px;background:var(--frame);color:var(--text-2);font-size:var(--t-meta)}
+.ai-drawer .grow{flex:1}
+
+/* —— 预览坞 —— */
+.dock{grid-area:dock;background:var(--paper);border-block-start:1px solid var(--rule-strong);
+  height:var(--dock-h);display:flex;flex-direction:column;min-height:0}
+.dock__handle{display:flex;align-items:center;gap:10px;height:32px;padding:0 12px 0 0;
+  background:var(--frame);border-block-end:1px solid var(--rule)}
+.band-echo{width:20px;height:3px;margin:0 10px 0 12px;flex:0 0 20px;
+  background:linear-gradient(to right,var(--band-1) 0 20%,var(--band-2) 20% 40%,var(--band-3) 40% 60%,
+    var(--band-4) 60% 80%,var(--band-5) 80% 100%)}
+.dock__title{font-size:var(--t-meta)}
+.dock__title b{font-weight:600}
+.dock__ctrls{margin-left:auto;display:flex;align-items:center;gap:9px;font-size:var(--t-meta);color:var(--text-2)}
+.dock__body{flex:1;min-height:0;display:grid;grid-template-columns:96px 1fr;overflow:hidden}
+.thumbs{border-inline-end:1px solid var(--rule);background:var(--frame);padding:9px;display:flex;
+  flex-direction:column;gap:7px;align-items:center;overflow:hidden}
+.thumb{width:58px;height:76px;background:var(--deck);border:1px solid var(--rule-field);position:relative}
+.thumb[data-current]{border-color:var(--signal);border-width:2px}
+.thumb__n{position:absolute;bottom:-1px;right:2px;font:500 10px var(--font-mono);color:var(--text-2)}
+.thumb__lines{position:absolute;inset:7px 6px;display:flex;flex-direction:column;gap:3px}
+.thumb__lines i{height:2px;background:var(--rule-strong);display:block}
+.page{overflow:hidden;padding:14px 26px;background:var(--deck);margin:9px 14px 0;
+  border:1px solid var(--rule-soft);font-size:13.5px;line-height:1.75;column-count:1}
+.page p{margin:0 0 8px;display:flex;gap:14px}
+.page .ln{font-family:var(--font-mono);font-size:11px;color:var(--text-3);flex:0 0 18px;text-align:right;padding-top:3px}
+.page p[data-active]{background:var(--signal-wash);box-shadow:inset 2px 0 0 var(--signal);
+  margin-inline:-8px;padding:2px 8px}
+
+/* —— 仪表条 —— */
+.instrument{grid-area:instrument;display:flex;align-items:center;gap:16px;padding:0 0 0 14px;
+  background:var(--ink);color:var(--text-on-ink);border-block-start:1px solid var(--rule-strong)}
+.instrument .num{color:var(--text-on-ink)}
+.instrument .num b{font-weight:600}
+.ibar{flex:1;display:flex;height:8px;gap:1px;min-width:200px}
+.ibar > i{display:block;min-inline-size:3px;transition:filter var(--d-micro)}
+.ibar > i:hover{filter:brightness(1.2)}
+.ibar [data-s="confirmed"]{background:var(--ok)}
+.ibar [data-s="draft"]{background:var(--text-on-ink-2)}
+.ibar [data-s="untranslated"]{background:rgb(243 239 231/.20)}
+.ibar [data-s="error"]{background:var(--err)}
+.save{display:inline-flex;align-items:center;gap:7px;font-size:var(--t-meta);color:var(--text-on-ink-2)}
+.save .lamp{background:var(--ok)}
+.instrument__cap{width:56px;align-self:stretch;
+  -webkit-mask-image:linear-gradient(to right,transparent,#000 70%);
+          mask-image:linear-gradient(to right,transparent,#000 70%)}
+}
+
+/* —— 图标：1.5px 线宽统一 —— */
+svg.i{width:16px;height:16px;stroke:currentColor;stroke-width:1.5;fill:none;
+  stroke-linecap:round;stroke-linejoin:round}
+svg.i-lg{width:20px;height:20px}
+svg.i-sm{width:14px;height:14px}
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- ═══ Band Spine：命题二 · 全屏唯一，跨 Surface 恒定 ═══ -->
+  <div class="band-spine" aria-hidden="true"></div>
+
+  <!-- ═══ Index Spine ═══ -->
+  <nav class="index-spine plate--ink" aria-label="应用视图">
+    <button class="spine__mark" aria-label="项目：Craft Contracts 2026，返回项目列表">
+      <span class="mark">
+        <svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+          <circle cx="13" cy="13" r="11" stroke="#F3EFE7" stroke-width="1.3"/>
+          <ellipse cx="13" cy="13" rx="11" ry="4.4" stroke="#F3EFE7" stroke-width="1" opacity=".55"
+                   transform="rotate(-28 13 13)"/>
+          <rect x="10.4" y="10.4" width="5.2" height="5.2" fill="#E8571F"/>
+        </svg>
+      </span>
+    </button>
+
+    <ul class="spine__nav">
+      <li><button data-current aria-current="page" aria-label="工作台">
+        <svg class="i i-lg" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16"/><path d="M3 9h18M11 9v11"/></svg>
+      </button></li>
+      <li><button aria-label="QA 复核">
+        <svg class="i i-lg" viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4-3 7.5-7 9-4-1.5-7-5-7-9V6z"/><path d="M9.5 11.5l2.5 2.5 3-4"/></svg>
+        <b class="spine__badge">2</b>
+      </button></li>
+      <li><button aria-label="导出复核">
+        <svg class="i i-lg" viewBox="0 0 24 24"><path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15"/><path d="M12 4v11m0 0l-4-4m4 4l4-4"/></svg>
+      </button></li>
+      <li><button aria-label="资产">
+        <svg class="i i-lg" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7.5" ry="3"/><path d="M4.5 6v12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6"/><path d="M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3"/></svg>
+      </button></li>
+      <li><button aria-label="AI 控制台">
+        <svg class="i i-lg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v6M12 15v6M3 12h6M15 12h6"/><circle cx="12" cy="12" r="8.5" opacity=".45"/></svg>
+      </button></li>
+      <li><button aria-label="项目洞察">
+        <svg class="i i-lg" viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6"/><rect x="14" y="4" width="6" height="6"/><rect x="4" y="14" width="6" height="6"/><rect x="14" y="14" width="6" height="6"/></svg>
+      </button></li>
+    </ul>
+
+    <div class="spine__filler matrix-inert matrix-inert--ink" aria-hidden="true"></div>
+
+    <div class="spine__tools">
+      <button aria-label="命令面板 Ctrl+K">
+        <svg class="i i-lg" viewBox="0 0 24 24"><path d="M9 5a2.5 2.5 0 1 0 0 5h6a2.5 2.5 0 1 1 0 5"/><path d="M15 5a2.5 2.5 0 1 1 0 5H9a2.5 2.5 0 1 0 0 5"/></svg>
+      </button>
+      <button aria-label="设置">
+        <svg class="i i-lg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M21 12h-2.5M5.5 12H3M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8M18.4 18.4l-1.8-1.8M7.4 7.4L5.6 5.6"/></svg>
+      </button>
+    </div>
+  </nav>
+
+  <!-- ═══ 工作台 ═══ -->
+  <main class="wb">
+
+    <!-- Masthead -->
+    <header class="masthead">
+      <div class="identity brand-plate">
+        <div class="identity__name">翻译<br>工作台</div>
+        <div class="identity__meta micro">EN-US → ZH-CN · 8 文件</div>
+      </div>
+      <div class="masthead__mid">
+        <button class="docswitch">
+          <svg class="i" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></svg>
+          <span class="docswitch__name">Master Services Agreement.docx</span>
+          <span class="docswitch__pct num">62%</span>
+          <svg class="i i-sm" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+      </div>
+      <div class="masthead__actions">
+        <button class="btn btn--secondary">
+          <svg class="i" viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4-3 7.5-7 9-4-1.5-7-5-7-9V6z"/></svg>运行 QA</button>
+        <button class="btn btn--primary">
+          <svg class="i" viewBox="0 0 24 24"><path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15"/><path d="M12 4v11m0 0l-4-4m4 4l4-4"/></svg>导出</button>
+        <button class="btn btn--ghost" aria-label="更多">
+          <svg class="i i-lg" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Filter Rail：只留 3 组 -->
+    <div class="filter">
+      <button class="chip" data-current>全部 <span class="count">1,248</span></button>
+      <button class="chip"><span class="lamp" data-s="untranslated"></span>未翻译 <span class="count">73</span></button>
+      <button class="chip"><span class="lamp" data-s="draft"></span>草稿 <span class="count">401</span></button>
+      <button class="chip"><span class="lamp" data-s="confirmed"></span>已确认 <span class="count">774</span></button>
+      <button class="chip"><span class="lamp" data-s="error"></span>问题 <span class="count">3</span></button>
+      <span class="filter__div"></span>
+      <select class="select" aria-label="匹配筛选">
+        <option>匹配 · 全部</option><option>101%</option><option>100%</option><option>95–99%</option>
+      </select>
+      <span class="filter__div"></span>
+      <span class="issuenav">
+        <button aria-label="上一个问题"><svg class="i i-sm" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+        <span class="num" style="color:var(--text-2)">问题 1 / 3</span>
+        <button aria-label="下一个问题"><svg class="i i-sm" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+      </span>
+    </div>
+
+    <!-- Document Matrix：命题三 -->
+    <div class="doc-matrix" role="slider" aria-label="文档段落矩阵" aria-valuemin="1" aria-valuemax="1248" aria-valuenow="418" tabindex="0">
+      <div class="doc-matrix__grid" id="mx"></div>
+      <div class="doc-matrix__vp" id="vp"></div>
+    </div>
+
+    <!-- 段落网格 -->
+    <section class="grid" aria-label="段落网格">
+      <div class="grid__head">
+        <span class="micro">ID</span>
+        <span class="micro" style="text-align:center;padding:0">状态</span>
+        <span class="micro">原文 · EN-US</span>
+        <span class="micro">译文 · ZH-CN</span>
+        <span class="micro" style="text-align:right;padding:0 10px 0 0;white-space:nowrap">来源</span>
+      </div>
+      <div class="grid__body" id="rows"></div>
+    </section>
+
+    <!-- 预览坞 -->
+    <section class="dock" aria-label="文档预览">
+      <div class="dock__handle">
+        <span class="band-echo" aria-hidden="true"></span>
+        <span class="dock__title">文档预览 · <b>Master Services Agreement.docx</b> · 第 <span class="num">7</span> / <span class="num">24</span> 页</span>
+        <span class="dock__ctrls">
+          <button aria-label="上一页"><svg class="i i-sm" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+          <button aria-label="下一页"><svg class="i i-sm" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+          <span class="num">100%</span>
+          <label style="display:inline-flex;align-items:center;gap:6px"><input type="checkbox" checked>跟随当前段</label>
+          <button aria-label="在独立窗口打开"><svg class="i i-sm" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></button>
+          <button aria-label="收起预览"><svg class="i i-sm" viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
+        </span>
+      </div>
+      <div class="dock__body">
+        <div class="thumbs">
+          <div class="thumb"><div class="thumb__lines"><i style="width:80%"></i><i></i><i></i><i style="width:60%"></i><i></i><i style="width:90%"></i></div><span class="thumb__n">6</span></div>
+          <div class="thumb" data-current><div class="thumb__lines"><i style="width:70%"></i><i></i><i style="width:88%"></i><i></i><i></i><i style="width:45%"></i></div><span class="thumb__n">7</span></div>
+        </div>
+        <div class="page">
+          <p><span class="ln">11</span><span>8.2 Each Party shall comply with all applicable data protection laws.</span></p>
+          <p data-active><span class="ln">12</span><span>8.3 The Supplier shall maintain commercially reasonable administrative, technical, and physical safeguards.</span></p>
+          <p><span class="ln">13</span><span>8.4 The confidentiality obligations in this Section 8 survive termination.</span></p>
+          <p><span class="ln">14</span><span>8.5 The Parties shall promptly notify each other of any unauthorized access.</span></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- STACK：常驻双区 + AI 抽屉 -->
+    <aside class="stack" aria-label="建议">
+      <div class="stack__head">
+        <div class="stack__title stack__title--ink">建议</div>
+        <div class="stack__field matrix-inert" aria-hidden="true"></div>
+        <button class="stack__collapse" aria-label="收起建议面板">
+          <svg class="i i-sm" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+
+      <div class="sec sec--matches">
+        <div class="sec__head">
+          <span class="micro">匹配</span><span class="count">3</span>
+          <span class="grow"></span>
+          <button class="micro">排序 ▾</button><button class="micro">设置 ▾</button>
+        </div>
+
+        <article class="match" data-current>
+          <div class="match__top">
+            <span class="pctbox" data-tier="high">96%</span>
+            <span class="match__lib">Legal EN–ZH</span>
+            <span class="match__date">2025-05-14</span>
+          </div>
+          <div class="match__label">原文</div>
+          <div class="match__text">The Supplier shall maintain <ins>commercially reasonable</ins> administrative, technical, and physical safeguards.</div>
+          <div class="match__label">译文</div>
+          <div class="match__text">供应商应采取商业上合理的管理、技术和物理安全措施。</div>
+          <div class="match__foot">
+            来自 Master Services Agreement v3
+            <span class="match__ins">插入 <kbd>Alt+1</kbd></span>
+          </div>
+        </article>
+
+        <article class="match">
+          <div class="match__top">
+            <span class="pctbox" data-tier="mid">82%</span>
+            <span class="match__lib">Legal EN–ZH</span>
+            <span class="match__date">2024-11-03</span>
+          </div>
+          <div class="match__label">原文</div>
+          <div class="match__text">The Supplier <del>will</del> maintain reasonable administrative, technical and physical <del>security</del> <ins>safeguard</ins> measures.</div>
+          <div class="match__label">译文</div>
+          <div class="match__text">供应商将采取合理的管理、技术和物理安全措施。</div>
+          <div class="match__foot">
+            来自 Data Processing Agreement
+            <span class="match__ins">插入 <kbd>Alt+2</kbd></span>
+          </div>
+        </article>
+
+        <article class="match">
+          <div class="match__top">
+            <span class="pctbox" data-tier="mid">74%</span>
+            <span class="match__lib">Manual TM · 只读</span>
+            <span class="match__date">2024-02-19</span>
+          </div>
+          <div class="match__label">原文</div>
+          <div class="match__text">The <del>Vendor</del> <ins>Supplier</ins> shall maintain administrative and technical safeguards <del>at all times</del>.</div>
+          <div class="match__label">译文</div>
+          <div class="match__text">供应商应始终采取管理和技术安全措施。</div>
+          <div class="match__foot">
+            来自 Vendor Handbook 2024
+            <span class="match__ins">插入 <kbd>Alt+3</kbd></span>
+          </div>
+        </article>
+      </div>
+
+      <div class="sec sec--terms">
+        <div class="sec__head">
+          <span class="micro">术语</span><span class="count">2</span>
+          <span class="grow"></span>
+          <button class="micro">添加 +</button>
+        </div>
+        <div class="term">Supplier <span class="term__arrow">→</span> <b>供应商</b><span class="term__state">首选</span></div>
+        <div class="term">safeguards <span class="term__arrow">→</span> <b>安全措施</b><span class="term__state">首选</span></div>
+      </div>
+
+      <div class="ai-drawer">
+        <svg class="i i-sm" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+        AI 助手
+        <span class="grow"></span>
+        <span class="micro">未配置引擎</span>
+      </div>
+    </aside>
+  </main>
+
+  <!-- ═══ 仪表条 ═══ -->
+  <footer class="instrument" aria-label="文档状态">
+    <span class="num">段 <b>418</b> / 1,248</span>
+    <div class="ibar" role="img" aria-label="已确认 774 段，草稿 401 段，未翻译 70 段，3 段有问题，共 1,248 段">
+      <i data-s="confirmed" style="flex-grow:774" title="已确认 774 段 · 62.0%"></i>
+      <i data-s="draft" style="flex-grow:401" title="草稿 401 段 · 32.1%"></i>
+      <i data-s="untranslated" style="flex-grow:70" title="未翻译 70 段 · 5.6%"></i>
+      <i data-s="error" style="flex-grow:3" title="有问题 3 段 · 0.2%"></i>
+    </div>
+    <span class="num">62%</span>
+    <span class="save"><span class="lamp"></span>已保存</span>
+    <span class="num" style="color:var(--text-on-ink-2)">8,412 词</span>
+    <span class="instrument__cap matrix-inert matrix-inert--ink" aria-hidden="true"></span>
+  </footer>
+</div>
+
+<script>
+/* ── Document Matrix：1,248 段聚合为 3 列 × N 行 ── */
+const TOTAL = 1248, ACTIVE = 418;
+const mx = document.getElementById('mx');
+const COLS = 3;
+// 可用高度决定行数；这里按容器高度计算
+const box = mx.parentElement.getBoundingClientRect();
+const dotW = (mx.getBoundingClientRect().width - 8) / 3;   // 3 列实际点径
+const pitch = dotW + 4;                                    // 点径 + gap
+const rows = Math.max(20, Math.floor((box.height - 18) / pitch));
+const cells = rows * COLS;
+const perCell = Math.ceil(TOTAL / cells);
+
+// 构造一个可信的状态分布：前段多已确认，中段草稿，尾段未翻译，3 处错误
+const errAt = new Set([Math.floor(cells*0.34), Math.floor(cells*0.52), Math.floor(cells*0.71)]);
+const activeCell = Math.floor((ACTIVE / TOTAL) * cells);
+let html = '';
+for (let i = 0; i < cells; i++) {
+  const from = i * perCell + 1, to = Math.min(TOTAL, (i + 1) * perCell);
+  let s = 'confirmed';
+  const r = i / cells;
+  if (errAt.has(i)) s = 'error';
+  else if (r > 0.94) s = 'untranslated';
+  else if (r > 0.62) s = 'draft';
+  else if (r > 0.30 && (i % 7 === 0)) s = 'draft';
+  const act = i === activeCell ? ' data-active' : '';
+  html += `<button class="dot" data-s="${s}"${act} title="段 ${from}–${to}" aria-label="段 ${from} 至 ${to}"></button>`;
+}
+mx.innerHTML = html;
+
+// 视口括号：屏上大约 8 段 / 1,248
+const vp = document.getElementById('vp');
+const vpTop = 9 + Math.floor(activeCell / COLS) * pitch - pitch;
+vp.style.top = vpTop + 'px';
+vp.style.height = (pitch * 4) + 'px';
+
+/* ── 段落网格 ── */
+const DATA = [
+  {id:413, s:'confirmed', src:'This Agreement is effective as of the Effective Date set forth on the first page.',
+   tgt:'本协议自首页所载的生效日起生效。', origin:'100'},
+  {id:414, s:'confirmed', src:'The Parties agree to perform their obligations in good faith and in accordance with applicable law.',
+   tgt:'双方同意本着诚实信用原则并依法履行各自的义务。', origin:'101'},
+  {id:415, s:'draft', src:'All notices and communications shall be in writing and delivered as set forth in <t>1</t>Section 12<t c>1</t>.',
+   tgt:'所有通知和通信采用书面形式，并按<t>1</t>第 12 条<t c>1</t>规定的方式送达。', origin:'88'},
+  {id:416, s:'untranslated', src:'The confidentiality obligations in Section 8 survive termination of this Agreement.',
+   tgt:'', origin:'—'},
+  {id:418, s:'draft', active:true, focus:true,
+   src:'The Supplier shall maintain <t>1</t>commercially reasonable<t c>1</t> administrative, technical, and physical safeguards.',
+   tgt:'供应商应采取<t>1</t>商业上合理的<t c>1</t>管理、技术和物理安全措施。', origin:'96'},
+  {id:419, s:'error', src:'The retention period is 30 days.', tgt:'保留期为 60 天。', origin:'MT',
+   qa:'数字不一致：原文含 “30”，译文含 “60”。'},
+  {id:420, s:'confirmed', src:'Neither Party may assign this Agreement without the prior written consent of the other Party.',
+   tgt:'未经另一方事先书面同意，任何一方不得转让本协议。', origin:'100'},
+  {id:421, s:'untranslated', src:'Governing law and dispute resolution are set forth in Section 14.', tgt:'', origin:'—'},
+  {id:422, s:'confirmed', src:'Each Party shall comply with all applicable data protection laws.',
+   tgt:'各方应遵守所有适用的数据保护法律。', origin:'100'},
+];
+const LAMP = {confirmed:'已确认', draft:'草稿', untranslated:'未翻译', error:'有 QA 错误'};
+const tagize = s => s.replace(/<t>(\d+)<\/t>/g,'<span class="tag">$1</span>')
+                     .replace(/<t c>(\d+)<\/t>/g,'<span class="tag" data-close>$1</span>');
+
+document.getElementById('rows').innerHTML = DATA.map(r => `
+  <div class="seg-row"${r.active?' data-active':''}${r.focus?' data-focus':''}>
+    <div class="cell cell--id">${r.id}</div>
+    <div class="cell cell--lamp"><span class="lamp" data-s="${r.s}" role="img" aria-label="${LAMP[r.s]}"></span></div>
+    <div class="cell cell--src">${tagize(r.src)}</div>
+    <div class="cell cell--tgt"><div class="tgt-box"${r.tgt?'':' data-empty'}>${r.tgt?tagize(r.tgt):'未翻译'}</div></div>
+    <div class="cell cell--origin">${r.origin}</div>
+    ${r.qa?`<div class="qa-inline">
+      <svg class="i i-sm" viewBox="0 0 24 24" style="color:var(--err)"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17v.5"/></svg>
+      <span class="qa-inline__msg">${r.qa}</span>
+      <button>定位</button><button>忽略（需理由）</button>
+    </div>`:''}
+  </div>`).join('');
+</script>
+</body>
+</html>
