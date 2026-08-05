@@ -1,0 +1,264 @@
+/* ══════════════════════════════════════════════════════════════
+   Workbench Stack Panel 建议面板（匹配 + 术语 + AI 抽屉）
+   Source: docs/design-ii/screens/workbench.md §4
+   ══════════════════════════════════════════════════════════════ */
+
+@layer surfaces {
+
+.stack {
+  grid-area: stack;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-inline-start: 1px solid var(--rule-strong);
+  background: var(--paper);
+}
+
+/* —— 面板头 ————————————————————————————————————— */
+.stack__head {
+  display: flex;
+  align-items: stretch;
+  block-size: 52px;
+  position: relative;
+}
+
+.stack__title {
+  inline-size: 150px;
+  padding: 0 18px;
+  display: flex;
+  align-items: center;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--t-title);
+  letter-spacing: -.01em;
+  background: var(--ink);
+  color: var(--text-on-ink);
+}
+
+.stack__field {
+  flex: 1;
+  background: var(--frame);
+}
+
+/* 折叠控件：整屏唯一一个，单向箭头 */
+.stack__collapse {
+  inline-size: 32px;
+  block-size: 32px;
+  align-self: center;
+  margin-inline-end: 10px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--rule-field);
+  border-radius: var(--r-ctl);
+  background: var(--deck);
+  color: var(--text-2);
+  transition: background var(--d-micro) var(--ease-move);
+}
+
+.stack__collapse:hover { background: var(--shade); }
+
+/* 收起后的 40px 轨道 */
+.stack-rail {
+  grid-area: stack;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-block-start: 10px;
+  border-inline-start: 1px solid var(--rule-strong);
+  background: var(--frame);
+}
+
+/* —— 分区 ————————————————————————————————————————— */
+.sec {
+  border-block-start: 1px solid var(--rule-strong);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sec__head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  block-size: 34px;
+  padding: 0 14px;
+  background: var(--frame);
+  border-block-end: 1px solid var(--rule);
+}
+
+.sec__head .count {
+  color: var(--signal-ink);
+  font-weight: 600;
+}
+
+.sec__head .grow { flex: 1; }
+
+.sec--matches {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.sec--matches::-webkit-scrollbar { display: none; }
+
+.sec--terms {
+  max-block-size: 30%;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.sec--terms::-webkit-scrollbar { display: none; }
+
+/* —— TM 匹配卡 ———————————————————————————————————— */
+.match {
+  padding: 11px 14px;
+  border-block-end: 1px solid var(--rule-soft);
+  position: relative;
+  transition: background var(--d-state) var(--ease-move);
+  inline-size: 100%;
+  text-align: start;
+  display: block;
+}
+
+.match:hover { background: var(--shade); }
+.match[data-current] { background: var(--shade); }
+
+.match[data-current]::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block: 0;
+  inline-size: 2px;
+  background: var(--signal);
+}
+
+.match__top {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-block-end: var(--s-4);
+}
+
+.pctbox {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: var(--t-num);
+  padding: 1px 5px;
+  border-radius: 2px;
+}
+
+.pctbox[data-tier="high"] {
+  background: rgb(61 122 78 / .16);
+  color: var(--ok-ink);
+}
+
+.pctbox[data-tier="mid"] {
+  background: var(--frame);
+  color: var(--text-1);
+}
+
+.match__lib {
+  font-size: var(--t-meta);
+  color: var(--text-2);
+}
+
+.match__date {
+  margin-inline-start: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.match__label {
+  font: 500 var(--t-micro) / var(--lh-micro) var(--font-mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  margin: var(--s-3) 0 3px;
+}
+
+.match__text {
+  background: var(--deck);
+  border: 1px solid var(--rule-soft);
+  padding: 7px 9px;
+  font-size: var(--t-body);
+  line-height: 1.55;
+}
+
+.match__text del {
+  color: var(--text-2);
+  text-decoration: line-through;
+}
+
+.match__text ins {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+
+.match__foot {
+  display: flex;
+  align-items: center;
+  margin-block-start: 9px;
+  font-size: var(--t-meta);
+  color: var(--text-2);
+}
+
+.match__ins {
+  margin-inline-start: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-1);
+  font-weight: 500;
+}
+
+kbd {
+  font: 500 11px var(--font-mono);
+  border: 1px solid var(--rule-field);
+  border-radius: 2px;
+  padding: 1px 4px;
+  color: var(--text-2);
+}
+
+/* —— 术语条 ————————————————————————————————————— */
+.term {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: var(--s-4) 14px;
+  border-block-end: 1px solid var(--rule-soft);
+  font-size: var(--t-body);
+}
+
+.term__arrow { color: var(--text-3); }
+
+.term__target { font-weight: 600; }
+
+.term__state {
+  margin-inline-start: auto;
+  font: 500 var(--t-micro) / var(--lh-micro) var(--font-mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ok-ink);
+}
+
+.term__state[data-forbidden] { color: var(--err-ink); }
+
+/* —— AI 抽屉 ————————————————————————————————————— */
+.ai-drawer {
+  border-block-start: 1px solid var(--rule-strong);
+  block-size: 34px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 14px;
+  background: var(--frame);
+  color: var(--text-2);
+  font-size: var(--t-meta);
+  inline-size: 100%;
+}
+
+.ai-drawer .grow { flex: 1; }
+
+}

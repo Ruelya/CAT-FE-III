@@ -1,0 +1,131 @@
+/* ══════════════════════════════════════════════════════════════
+   Button 按钮
+   Source: docs/design-ii/05-components.md C3
+   ══════════════════════════════════════════════════════════════ */
+
+@layer components {
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-3);
+  height: var(--ctl-h);
+  padding: 0 var(--s-6);
+  font: 500 var(--t-body) / 1 var(--font-ui);
+  border-radius: var(--r-ctl);
+  border: 1px solid var(--rule-field);
+  cursor: pointer;
+  transition: background var(--d-state) var(--ease-move),
+              border-color var(--d-state) var(--ease-move),
+              transform var(--d-micro) var(--ease-move);
+  user-select: none;
+}
+
+/* —— Primary 主按钮（每屏最多一个）————————————————— */
+.btn--primary {
+  background: var(--signal);
+  color: var(--on-signal);
+  border-color: var(--rule-field);
+}
+
+.btn--primary:hover {
+  background: color-mix(in oklch, var(--signal), black 8%);
+}
+
+.btn--primary:active {
+  transform: scale(.98);
+}
+
+/* —— Secondary 次按钮 ——————————————————————————— */
+.btn--secondary {
+  background: var(--frame);
+  color: var(--text-1);
+}
+
+.btn--secondary:hover {
+  background: var(--shade);
+}
+
+.btn--secondary:active {
+  transform: scale(.98);
+}
+
+/* —— Ghost 幽灵按钮 ———————————————————————————— */
+.btn--ghost {
+  background: transparent;
+  color: var(--text-1);
+  border-color: transparent;
+}
+
+.btn--ghost:hover {
+  background: var(--frame);
+  border-color: var(--rule-field);
+}
+
+/* —— Destructive 破坏性 ————————————————————————— */
+.btn--destructive {
+  background: var(--err);
+  color: var(--deck);
+  border-color: var(--rule-field);
+}
+
+.btn--destructive:hover {
+  background: color-mix(in oklch, var(--err), black 8%);
+}
+
+/* —— Icon Only 纯图标按钮 ———————————————————————— */
+.btn--icon {
+  width: var(--ctl-h);
+  padding: 0;
+}
+
+/* —— Small 小尺寸 ———————————————————————————————— */
+.btn--sm {
+  height: calc(var(--ctl-h) * 0.85);
+  padding: 0 var(--s-4);
+  font-size: calc(var(--t-body) * 0.9);
+}
+
+.btn--icon.btn--sm {
+  width: calc(var(--ctl-h) * 0.85);
+}
+
+/* —— 状态 —————————————————————————————————————— */
+.btn:disabled,
+.btn[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+/* —— 加载态 ——————————————————————————————————— */
+.btn[data-loading] {
+  position: relative;
+  color: transparent;
+  pointer-events: none;
+}
+
+.btn[data-loading]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 16px;
+  height: 16px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: btn-spin 600ms linear infinite;
+}
+
+@keyframes btn-spin {
+  to { transform: rotate(360deg); }
+}
+
+}

@@ -1,0 +1,96 @@
+/* ══════════════════════════════════════════════════════════════
+   Field 表单字段
+   Source: docs/design-ii/05-components.md C1
+   ══════════════════════════════════════════════════════════════ */
+
+@layer components {
+
+.field {
+  display: block;
+  width: 100%;
+  height: var(--ctl-h);
+  padding: 0 var(--s-5);
+  font: 400 var(--t-body) / 1 var(--font-ui);
+  color: var(--text-1);
+  background: var(--deck);
+  border: 1px solid var(--rule-field);
+  border-radius: var(--r-input);
+  transition: border-color var(--d-state) var(--ease-move);
+}
+
+.field::placeholder {
+  color: var(--text-2);
+}
+
+.field:hover {
+  border-color: color-mix(in oklch, var(--rule-field), black 15%);
+}
+
+.field:focus {
+  border-color: var(--signal);
+  border-width: 2px;
+  padding: 0 calc(var(--s-5) - 1px);
+  outline: none;
+}
+
+.field:disabled,
+.field[aria-disabled="true"] {
+  color: var(--text-3);
+  background: var(--frame);
+  cursor: not-allowed;
+}
+
+/* —— Textarea ——————————————————————————————————— */
+textarea.field {
+  height: auto;
+  min-height: calc(var(--ctl-h) * 2.5);
+  padding: var(--s-4) var(--s-5);
+  line-height: var(--lh-body);
+  resize: vertical;
+  field-sizing: content;  /* Chromium 123+ 自动增高 */
+}
+
+/* —— 错误态 ——————————————————————————————————— */
+.field[data-error] {
+  border-color: var(--err);
+}
+
+.field[data-error]:focus {
+  border-color: var(--err);
+}
+
+/* —— Field Group 字段组 ————————————————————————— */
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.field-label {
+  font: 500 var(--t-body) / 1.3 var(--font-ui);
+  color: var(--text-1);
+}
+
+.field-hint {
+  font-size: var(--t-meta);
+  line-height: var(--lh-meta);
+  color: var(--text-2);
+}
+
+.field-error {
+  font-size: var(--t-meta);
+  line-height: var(--lh-meta);
+  color: var(--err-ink);
+}
+
+/* —— Select 选择器 ——————————————————————————————— */
+select.field {
+  appearance: none;
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');
+  background-repeat: no-repeat;
+  background-position: right var(--s-5) center;
+  background-size: 16px;
+  padding-right: calc(var(--s-5) * 2 + 16px);
+}
+
+}

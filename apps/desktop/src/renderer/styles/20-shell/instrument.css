@@ -1,0 +1,96 @@
+/* ══════════════════════════════════════════════════════════════
+   Instrument Strip 仪表条
+   Source: docs/design-ii/06-shell-navigation.md §4
+   ══════════════════════════════════════════════════════════════ */
+
+@layer components {
+
+.instrument {
+  display: flex;
+  align-items: center;
+  gap: var(--s-6);
+  height: var(--instrument-h);
+  padding: 0 var(--s-6);
+  background: var(--ink);
+  color: var(--text-on-ink);
+  border-block-start: 1px solid var(--rule-strong);
+  font-size: var(--t-micro);
+  overflow: hidden;
+}
+
+/* —— 段计数 ——————————————————————————————————— */
+.instrument__count {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-num);
+}
+
+.instrument__count-label {
+  color: var(--text-on-ink-2);
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+/* —— 进度条（比例编码）—————————————————————— */
+.instrument__progress {
+  flex: 1;
+  display: flex;
+  height: 6px;
+  min-width: 120px;
+  background: var(--ink-raised);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.instrument__segment {
+  min-inline-size: 3px;  /* 保证极小计数仍可见 */
+  transition: flex-grow var(--d-local) var(--ease-move);
+}
+
+.instrument__segment[data-state="confirmed"] { background: var(--ok); }
+.instrument__segment[data-state="draft"] { background: var(--warn); }
+.instrument__segment[data-state="error"] { background: var(--err); }
+.instrument__segment[data-state="untranslated"] { background: var(--text-3); }
+
+/* —— 百分比 ——————————————————————————————————— */
+.instrument__pct {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-num);
+  font-weight: 600;
+}
+
+/* —— 状态指示 ——————————————————————————————— */
+.instrument__status {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-shrink: 0;
+  color: var(--text-on-ink-2);
+}
+
+.instrument__status-lamp {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.instrument__status-lamp[data-state="saved"] { background: var(--ok); }
+.instrument__status-lamp[data-state="saving"] { background: var(--warn); }
+.instrument__status-lamp[data-state="error"] { background: var(--err); }
+
+/* —— 词数 ——————————————————————————————————— */
+.instrument__words {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-on-ink-2);
+}
+
+}

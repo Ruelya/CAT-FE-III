@@ -1,0 +1,128 @@
+/* ══════════════════════════════════════════════════════════════
+   Reset + 字体 + 全局排印
+   ══════════════════════════════════════════════════════════════ */
+
+@layer base {
+
+/* —— Font Face ——————————————————————————————————— */
+/* TODO: 添加 Jost, IBM Plex Sans, IBM Plex Mono, IBM Plex Sans SC 的 @font-face 声明
+   使用 woff2 格式，CJK 按需子集，总体积控制在合理范围内 */
+
+/* —— Reset ——————————————————————————————————————— */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: calc(16px * var(--ui-scale));
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  color: var(--text-1);
+  background: var(--paper);
+  min-height: 100vh;
+  overflow: hidden;  /* 应用级滚动由各 Surface 控制 */
+}
+
+/* —— 排印基础 ——————————————————————————————————— */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -.02em;
+  line-height: var(--lh-title);
+}
+
+h1 { font-size: var(--t-hero); line-height: var(--lh-hero); letter-spacing: -.03em; }
+h2 { font-size: var(--t-display); line-height: var(--lh-display); }
+h3 { font-size: var(--t-title); }
+h4 { font-size: var(--t-section); font-family: var(--font-ui); font-weight: 600; }
+
+p { margin: 0; }
+a { color: var(--signal-ink); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: 0;
+  background: none;
+}
+
+input, textarea, select {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+/* —— 数字/代码 —————————————————————————————————— */
+.num, .seg-id, .pct, .count, kbd {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-num);
+  line-height: 1.2;
+}
+
+.micro {
+  font: 500 var(--t-micro) / var(--lh-micro) var(--font-mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+code, pre {
+  font-family: var(--font-mono);
+  font-size: var(--t-meta);
+}
+
+/* —— 焦点环（全局默认）——————————————————————————— */
+:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* —— 选择高亮 ——————————————————————————————————— */
+::selection {
+  background: var(--signal-wash);
+  color: var(--text-1);
+}
+
+/* —— 滚动条（全局隐藏，由 Document Matrix 替代）—— */
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* —— 无障碍 ——————————————————————————————————— */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+[aria-hidden="true"] {
+  pointer-events: none;
+}
+
+/* —— 禁用态 ——————————————————————————————————— */
+[disabled], [aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 1;  /* 不降透明度，改用 --text-3 */
+  color: var(--text-3);
+}
+
+}

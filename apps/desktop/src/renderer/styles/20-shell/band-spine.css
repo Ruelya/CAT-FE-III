@@ -1,0 +1,83 @@
+/* ══════════════════════════════════════════════════════════════
+   Band Spine 彩条脊柱
+   Source: docs/design-ii/03-signatures.md §1
+   ══════════════════════════════════════════════════════════════ */
+
+@layer components {
+
+.band-spine {
+  position: fixed;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: var(--band-w);
+  z-index: 900;
+  pointer-events: none;
+  view-transition-name: none;  /* 转场时不被捕获，保证绝对静止 */
+  background: linear-gradient(
+    to bottom,
+    var(--band-1) 0 20%,
+    var(--band-2) 20% 40%,
+    var(--band-3) 40% 60%,
+    var(--band-4) 60% 80%,
+    var(--band-5) 80% 100%
+  );
+}
+
+/* —— 转场扫掠：自上而下移动的亮度波峰 ——————————————— */
+.band-spine::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  height: 25%;
+  background: rgb(255 255 255 / .30);
+  mix-blend-mode: soft-light;
+  translate: 0 -30%;
+  opacity: 0;
+}
+
+html[data-transition="surface"] .band-spine::after {
+  animation: band-sweep 240ms var(--ease-move) both;
+}
+
+@keyframes band-sweep {
+  0% {
+    translate: 0 -30%;
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    translate: 0 400%;
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-transition="surface"] .band-spine::after {
+    animation: none;
+  }
+}
+
+/* —— Band Echo 压缩回显（20px × 3px 水平条）————————— */
+.band-echo {
+  display: flex;
+  width: 20px;
+  height: 3px;
+  pointer-events: none;
+}
+
+.band-echo__segment {
+  flex: 1;
+}
+
+.band-echo__segment:nth-child(1) { background: var(--band-1); }
+.band-echo__segment:nth-child(2) { background: var(--band-2); }
+.band-echo__segment:nth-child(3) { background: var(--band-3); }
+.band-echo__segment:nth-child(4) { background: var(--band-4); }
+.band-echo__segment:nth-child(5) { background: var(--band-5); }
+
+}

@@ -1,0 +1,87 @@
+/* ══════════════════════════════════════════════════════════════
+   Chip 筛选 chip
+   Source: docs/design-ii/05-components.md C4
+   ══════════════════════════════════════════════════════════════ */
+
+@layer components {
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  height: 28px;
+  padding: 0 var(--s-4);
+  font: 500 var(--t-body) / 1 var(--font-ui);
+  color: var(--text-1);
+  background: var(--frame);
+  border: 1px solid transparent;
+  border-radius: var(--r-ctl);
+  cursor: pointer;
+  transition: background var(--d-state) var(--ease-move),
+              border-color var(--d-state) var(--ease-move);
+  user-select: none;
+  position: relative;
+}
+
+.chip:hover {
+  background: var(--shade);
+}
+
+/* —— 选中态（Active Axis 驻留）————————————————————— */
+.chip[data-selected] {
+  background: var(--shade);
+  border-bottom: 2px solid var(--signal);
+  padding-bottom: calc(28px - 2px - 1px);  /* 补偿底部边框 */
+}
+
+/* —— 带计数 ——————————————————————————————————— */
+.chip__count {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+
+.chip[data-selected] .chip__count {
+  color: var(--text-1);
+}
+
+/* —— 带方灯 ——————————————————————————————————— */
+.chip__lamp {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+/* —— 可移除 chip —————————————————————————————— */
+.chip--removable {
+  padding-right: var(--s-2);
+}
+
+.chip__remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 2px;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background var(--d-micro) var(--ease-move),
+              color var(--d-micro) var(--ease-move);
+}
+
+.chip__remove:hover {
+  background: var(--paper);
+  color: var(--text-1);
+}
+
+/* —— 焦点环 ——————————————————————————————————— */
+.chip:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+}

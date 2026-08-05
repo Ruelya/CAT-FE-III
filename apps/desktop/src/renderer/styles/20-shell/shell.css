@@ -1,0 +1,39 @@
+/* ══════════════════════════════════════════════════════════════
+   Shell 应用外壳
+   Source: docs/design-ii/06-shell-navigation.md
+   ══════════════════════════════════════════════════════════════ */
+
+@layer components {
+
+.shell {
+  display: grid;
+  grid-template-columns: var(--band-w) var(--spine-w) 1fr;
+  grid-template-rows: 1fr var(--instrument-h);
+  grid-template-areas:
+    "band spine surface"
+    "band instrument instrument";
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.shell__band {
+  grid-area: band;
+}
+
+.shell__spine {
+  grid-area: spine;
+}
+
+.shell__surface {
+  grid-area: surface;
+  position: relative;
+  overflow: hidden;
+  background: var(--paper);
+}
+
+.shell__instrument {
+  grid-area: instrument;
+}
+
+}

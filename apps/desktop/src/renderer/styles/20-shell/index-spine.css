@@ -1,0 +1,87 @@
+/* ══════════════════════════════════════════════════════════════
+   Index Spine 导航脊柱
+   Source: docs/design-ii/06-shell-navigation.md §1
+   ══════════════════════════════════════════════════════════════ */
+
+@layer components {
+
+.index-spine {
+  position: fixed;
+  inset-block: 0;
+  inset-inline-start: var(--band-w);
+  width: var(--spine-w);
+  background: var(--ink);
+  color: var(--text-on-ink);
+  border-inline-end: 1px solid var(--rule-strong);
+  z-index: 800;
+  display: flex;
+  flex-direction: column;
+}
+
+/* —— 应用标记（顶部 48×48）—————————————————————— */
+.index-spine__brand {
+  width: var(--spine-w);
+  height: var(--spine-w);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-block-end: 1px solid var(--rule-strong);
+}
+
+/* —— Surface 导航项 ——————————————————————————— */
+.index-spine__nav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-4) 0;
+  overflow-y: auto;
+}
+
+.index-spine__item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  margin: 0 var(--s-2);
+  color: var(--text-on-ink-2);
+  border-radius: var(--r-ctl);
+  transition: background var(--d-state) var(--ease-move),
+              color var(--d-state) var(--ease-move);
+}
+
+.index-spine__item:hover {
+  background: var(--ink-raised);
+  color: var(--text-on-ink);
+}
+
+/* —— 当前 Surface（Active Axis 驻留）——————————— */
+.index-spine__item[data-active] {
+  color: var(--text-on-ink);
+  background: var(--ink-raised);
+}
+
+.index-spine__item[data-active]::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: -6px;
+  width: 2px;
+  height: 32px;
+  background: var(--signal);
+  border-radius: 1px;
+}
+
+/* —— 底部区（设置/帮助）—————————————————————— */
+.index-spine__footer {
+  padding: var(--s-4) 0;
+  border-block-start: 1px solid var(--rule-strong);
+}
+
+/* —— Tooltip —————————————————————————————————— */
+.index-spine__item[title] {
+  cursor: pointer;
+}
+
+}

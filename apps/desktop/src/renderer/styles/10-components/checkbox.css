@@ -1,0 +1,107 @@
+/* ══════════════════════════════════════════════════════════════
+   Checkbox & Radio
+   Source: docs/design-ii/05-components.md C2
+   ══════════════════════════════════════════════════════════════ */
+
+@layer components {
+
+/* —— 隐藏原生控件 ——————————————————————————————— */
+.checkbox,
+.radio {
+  appearance: none;
+  position: relative;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  background: var(--deck);
+  border: 1px solid var(--rule-field);
+  cursor: pointer;
+  transition: background var(--d-state) var(--ease-move),
+              border-color var(--d-state) var(--ease-move);
+}
+
+.checkbox {
+  border-radius: 3px;
+}
+
+.radio {
+  border-radius: 50%;
+}
+
+.checkbox:hover,
+.radio:hover {
+  border-color: color-mix(in oklch, var(--rule-field), black 15%);
+}
+
+/* —— 选中态 ——————————————————————————————————— */
+.checkbox:checked,
+.radio:checked {
+  background: var(--signal);
+  border-color: var(--rule-field);
+}
+
+.checkbox:checked::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="%23171412" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>');
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 14px;
+}
+
+.radio:checked::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  background: var(--on-signal);
+  border-radius: 50%;
+}
+
+/* —— 禁用态 ——————————————————————————————————— */
+.checkbox:disabled,
+.radio:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* —— 焦点环 ——————————————————————————————————— */
+.checkbox:focus-visible,
+.radio:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+/* —— Indeterminate 半选态（仅 checkbox）——————————— */
+.checkbox:indeterminate {
+  background: var(--signal);
+  border-color: var(--rule-field);
+}
+
+.checkbox:indeterminate::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="%23171412" stroke-width="3" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>');
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 14px;
+}
+
+/* —— Label 组合 ————————————————————————————————— */
+.checkbox-label,
+.radio-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox-label:has(.checkbox:disabled),
+.radio-label:has(.radio:disabled) {
+  cursor: not-allowed;
+  color: var(--text-3);
+}
+
+}

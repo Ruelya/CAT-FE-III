@@ -1,0 +1,155 @@
+/* ══════════════════════════════════════════════════════════════
+   Translunar II · ORTHO — Design Tokens
+   Source: docs/design-ii/02-foundations.md §5
+   ══════════════════════════════════════════════════════════════ */
+
+@layer tokens {
+:root {
+  color-scheme: light dark;
+
+  /* —— Strata 层理 —————————————————————————— */
+  --deck: #FBF8F2;        /* 最亮层：可编辑内容 */
+  --paper: #EFEAE1;       /* 大底 */
+  --frame: #E4DED3;       /* 结构面 */
+  --shade: #E0D9CC;       /* 交互态（压印） */
+  --ink: #1B1815;         /* 标识板/导航 */
+  --ink-raised: #262220;  /* Ink 面上的抬起块 */
+
+  /* —— Text 文字 —————————————————————————— */
+  --text-1: #171412;      /* 正文 */
+  --text-2: #655D55;      /* 次要文字/元数据 */
+  --text-3: #8C8479;      /* 仅禁用态 */
+  --text-on-ink: #F3EFE7; /* Ink 面上的文字 */
+  --text-on-ink-2: #A79E93;
+
+  /* —— Signal 信号橙（Active Axis 颜色） —— */
+  --signal: #E8571F;
+  --signal-ink: #A5380C;
+  --signal-wash: rgb(232 87 31 / .10);
+  --on-signal: var(--text-1);  /* 橙底永远墨字，永不白字 */
+
+  /* —— States 状态色（Lamp / Ink 双档） —— */
+  --ok: #3D7A4E;          --ok-ink: #2C603C;
+  --warn: #9C7018;        --warn-ink: #6F4E0C;
+  --err: #B23A2B;         --err-ink: #9E3023;
+  --machine: #4A6E88;     --machine-ink: #3C5A70;
+
+  /* —— Translunar Band 五色彩条（无语义） —— */
+  --band-1: #D9562B;  /* Burnt Orange */
+  --band-2: #D29A2E;  /* Solar Ochre */
+  --band-3: #87904A;  /* Lichen Green */
+  --band-4: #4F8076;  /* Instrument Teal */
+  --band-5: #526F86;  /* Dusk Blue */
+
+  /* —— Rules 接缝 —————————————————————————— */
+  --rule-field: rgb(27 24 21 / .56);   /* 表单控件边界（WCAG 1.4.11 达标） */
+  --rule-strong: rgb(27 24 21 / .34);  /* 结构缝 */
+  --rule: rgb(27 24 21 / .18);         /* 面板缝 */
+  --rule-soft: rgb(27 24 21 / .10);    /* 内部缝 */
+
+  /* —— Elevation 临时层 ———————————————————— */
+  --elev-pop: 0 1px 0 rgb(27 24 21 / .10),
+              0 8px 24px -8px rgb(27 24 21 / .22),
+              0 2px 6px -2px rgb(27 24 21 / .14);
+  --scrim: rgb(20 17 15 / .52);
+
+  /* —— Typography 字体 ————————————————————— */
+  --font-display: "Jost", "Futura", system-ui, sans-serif;
+  --font-ui: "IBM Plex Sans", "IBM Plex Sans SC", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+
+  --t-hero: 44px;    --lh-hero: 1.02;
+  --t-display: 30px; --lh-display: 1.08;
+  --t-title: 20px;   --lh-title: 1.20;
+  --t-section: 15px; --lh-section: 1.30;
+  --t-body: 14px;    --lh-body: 1.50;
+  --t-editor: 15.5px; --lh-editor: 1.62;
+  --t-meta: 12.5px;  --lh-meta: 1.35;
+  --t-micro: 11px;   --lh-micro: 1.25;  /* 硬下限，不得更小 */
+  --t-num: 13px;
+
+  /* —— Spacing 空间 ———————————————————————— */
+  --s-0: 0;   --s-1: 2px;  --s-2: 4px;  --s-3: 6px;
+  --s-4: 8px;  --s-5: 12px; --s-6: 16px; --s-7: 20px;
+  --s-8: 24px; --s-9: 32px; --s-10: 40px; --s-11: 56px; --s-12: 80px;
+
+  /* —— Density & Scale 密度与缩放（正交）—— */
+  --density: 1;
+  --ui-scale: 1;
+  --row-min: calc(48px * var(--density));
+  --cell-pad: calc(10px * var(--density));
+  --ctl-h: calc(32px * var(--density));
+
+  /* —— Geometry 几何 —————————————————————— */
+  --r-input: 3px;   /* 输入框 */
+  --r-ctl: 4px;     /* 按钮/chip */
+  --r-pop: 6px;     /* 临时层 */
+  --r-tag: 2px;     /* 标签胶囊 */
+  --bevel: 14px;    /* 45° 切角半径 */
+
+  --icon-sm: 14px;
+  --icon: 16px;
+  --icon-lg: 20px;
+
+  /* —— Layout 固定尺寸（板块骨架）————————— */
+  --spine-w: 48px;      /* Index Spine */
+  --band-w: 6px;        /* Band Spine */
+  --matrix-w: 36px;     /* Document Matrix */
+  --masthead-h: 64px;
+  --filterbar-h: 44px;
+  --instrument-h: 30px;
+  --stack-w: 420px;     /* 可拖 360–560 */
+  --dock-h: 216px;      /* 可拖 120–360；收起 32 */
+
+  /* —— Motion 动效 ————————————————————————— */
+  --ease-in: linear(0, .22 3.5%, .42 7.2%, .6 11.2%, .75 15.7%, .87 20.9%, .95 26.9%, 1 36%, 1);
+  --ease-move: cubic-bezier(.2, .8, .2, 1);
+  --ease-out: cubic-bezier(.4, 0, 1, 1);
+  --d-micro: 90ms;    /* hover / focus ring */
+  --d-state: 140ms;   /* chip select / lamp color */
+  --d-local: 200ms;   /* drawer slide / dropdown */
+  --d-page: 280ms;    /* view transitions */
+  --d-slow: 420ms;    /* sheet reveal */
+}
+
+/* —— Dark Theme 深色主题：层理反转 ——————————————— */
+:root[data-theme="dark"] {
+  --deck: #262220;       /* 可编辑内容仍是最亮层 */
+  --paper: #131110;      /* 大底比 Ink 更深 */
+  --frame: #1D1A17;
+  --shade: #2E2924;      /* 深色下压印=提亮 */
+  --ink: #0C0B0A;
+  --ink-raised: #1D1A17;
+
+  --text-1: #F3EFE7;
+  --text-2: #A79E93;
+  --text-3: #7B746A;
+
+  --signal: #FF6A33;
+  --signal-ink: #FF6A33;
+  --signal-wash: rgb(255 106 51 / .14);
+  --on-signal: #131110;
+
+  --ok: #5FA377;     --ok-ink: #5FA377;
+  --warn: #D6A340;   --warn-ink: #D6A340;
+  --err: #E27263;    --err-ink: #E27263;
+  --machine: #7FA6C2; --machine-ink: #7FA6C2;
+
+  --band-1: #C34D27; --band-2: #BD8B29; --band-3: #7A8243;
+  --band-4: #47736A; --band-5: #4A6479;
+
+  --rule-field: rgb(243 239 231 / .50);
+  --rule-strong: rgb(243 239 231 / .30);
+  --rule: rgb(243 239 231 / .16);
+  --rule-soft: rgb(243 239 231 / .09);
+
+  --scrim: rgb(0 0 0 / .62);
+  --elev-pop: 0 1px 0 rgb(0 0 0 / .5),
+              0 10px 28px -8px rgb(0 0 0 / .6),
+              0 2px 8px -2px rgb(0 0 0 / .45);
+}
+
+/* —— Density Variants 密度档 ——————————————————— */
+:root[data-density="compact"] { --density: .85; }
+:root[data-density="comfortable"] { --density: 1.18; }
+}

@@ -1,0 +1,139 @@
+/* ══════════════════════════════════════════════════════════════
+   Live Matrix 活性矩阵
+   Source: docs/design-ii/03-signatures.md §2
+   ══════════════════════════════════════════════════════════════ */
+
+@layer components {
+
+/* —— Document Matrix（3列打孔卡）——————————————————— */
+.doc-matrix {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  align-content: start;
+  gap: 4px;
+  padding: var(--s-4) var(--s-3);
+  background: var(--frame);
+  border-inline-end: 1px solid var(--rule-strong);
+  position: relative;
+  overscroll-behavior: contain;
+}
+
+.doc-matrix__dot {
+  inline-size: 100%;
+  aspect-ratio: 1;
+  border: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: inset 0 0 0 1.25px var(--rule-field);  /* 空心 = 未翻译 */
+  cursor: pointer;
+  transition: box-shadow var(--d-state) var(--ease-move),
+              scale var(--d-micro) var(--ease-move);
+}
+
+/* —— 状态编码 ——————————————————————————————————— */
+.doc-matrix__dot[data-state="draft"] {
+  background: linear-gradient(to top, var(--text-2) 50%, transparent 50%);
+}
+
+.doc-matrix__dot[data-state="confirmed"] {
+  background: var(--ok);
+  box-shadow: none;
+}
+
+.doc-matrix__dot[data-state="error"] {
+  background: var(--err);
+  box-shadow: none;
+}
+
+/* —— 当前段（Active Axis 驻留点）———————————————————— */
+.doc-matrix__dot[data-active] {
+  background: var(--signal);
+  box-shadow: 0 0 0 2px var(--paper), 0 0 0 3.5px var(--signal);
+  scale: 1.15;
+}
+
+/* —— Hover 态 —————————————————————————————————— */
+.doc-matrix__dot:hover {
+  scale: 1.35;
+}
+
+.doc-matrix__dot:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+/* —— 视口括号 ——————————————————————————————————— */
+.doc-matrix__viewport {
+  position: absolute;
+  inset-inline: 2px;
+  top: var(--vp-top, 0);
+  height: var(--vp-h, 0);
+  border: 1px solid var(--text-1);
+  border-inline-width: 2px;
+  pointer-events: none;
+  transition: top var(--d-micro) linear,
+              height var(--d-micro) linear;
+}
+
+/* —— 首次点燃动画 ——————————————————————————————— */
+@media (prefers-reduced-motion: no-preference) {
+  .doc-matrix[data-ignite] .doc-matrix__dot {
+    animation: dot-ignite 260ms var(--ease-in) both;
+    animation-delay: calc(var(--i, 0) * 0.9ms);
+  }
+}
+
+@keyframes dot-ignite {
+  from {
+    opacity: 0;
+    scale: 0.4;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+/* —— Live Matrix 通用（可复用于其他场景）——————————— */
+.live-matrix {
+  display: grid;
+  gap: 4px;
+  padding: var(--s-4);
+}
+
+.live-matrix__dot {
+  aspect-ratio: 1;
+  border: 0;
+  padding: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: scale var(--d-micro) var(--ease-move);
+}
+
+.live-matrix__dot:hover {
+  scale: 1.2;
+}
+
+/* —— 图例 ——————————————————————————————————————— */
+.matrix-legend {
+  display: flex;
+  gap: var(--s-6);
+  padding: var(--s-4);
+  font-size: var(--t-meta);
+  color: var(--text-2);
+}
+
+.matrix-legend__item {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.matrix-legend__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+}

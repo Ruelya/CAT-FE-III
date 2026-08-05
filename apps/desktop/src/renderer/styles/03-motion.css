@@ -1,0 +1,119 @@
+/* ══════════════════════════════════════════════════════════════
+   Motion: 缓动 + View Transitions + Reduced Motion
+   Source: docs/design-ii/04-motion.md
+   ══════════════════════════════════════════════════════════════ */
+
+@layer base {
+
+/* —— View Transition 根规则 ——————————————————————— */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--d-page);
+  animation-timing-function: var(--ease-move);
+}
+
+/* Surface 转场：Seam Wipe（从左向右揭示）*/
+html[data-transition="surface"] {
+  view-transition-name: surface-root;
+}
+
+@keyframes seam-wipe-out {
+  to { clip-path: inset(0 100% 0 0); }
+}
+
+@keyframes seam-wipe-in {
+  from { clip-path: inset(0 0 0 100%); }
+}
+
+::view-transition-old(surface-root) {
+  animation: seam-wipe-out var(--d-page) var(--ease-move);
+}
+
+::view-transition-new(surface-root) {
+  animation: seam-wipe-in var(--d-page) var(--ease-move);
+}
+
+/* —— @starting-style (进出场) ——————————————————— */
+[popover]:popover-open {
+  opacity: 1;
+  translate: 0 0;
+  transition: opacity var(--d-local) var(--ease-out),
+              translate var(--d-local) var(--ease-out),
+              display var(--d-local) allow-discrete;
+}
+
+@starting-style {
+  [popover]:popover-open {
+    opacity: 0;
+    translate: 0 -12px;
+  }
+}
+
+dialog[open] {
+  opacity: 1;
+  scale: 1;
+  transition: opacity var(--d-local) var(--ease-out),
+              scale var(--d-local) var(--ease-out),
+              display var(--d-local) allow-discrete,
+              overlay var(--d-local) allow-discrete;
+}
+
+@starting-style {
+  dialog[open] {
+    opacity: 0;
+    scale: .96;
+  }
+}
+
+dialog::backdrop {
+  background: var(--scrim);
+  transition: background var(--d-local) allow-discrete;
+}
+
+@starting-style {
+  dialog::backdrop {
+    background: transparent;
+  }
+}
+
+/* —— Reduced Motion 回退 ————————————————————————— */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Surface 转场降级为交叉淡入 */
+  ::view-transition-old(surface-root),
+  ::view-transition-new(surface-root) {
+    animation: none;
+    transition: opacity 100ms;
+  }
+
+  ::view-transition-old(surface-root) {
+    opacity: 0;
+  }
+
+  ::view-transition-new(surface-root) {
+    opacity: 1;
+  }
+}
+
+/* —— 通用过渡（组件内部使用）———————————————————— */
+.transition-micro {
+  transition: all var(--d-micro) var(--ease-move);
+}
+
+.transition-state {
+  transition: all var(--d-state) var(--ease-move);
+}
+
+.transition-local {
+  transition: all var(--d-local) var(--ease-move);
+}
+
+}

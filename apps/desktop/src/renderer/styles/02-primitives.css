@@ -1,0 +1,77 @@
+/* ══════════════════════════════════════════════════════════════
+   Primitives: Plate / Seam / Matrix
+   ══════════════════════════════════════════════════════════════ */
+
+@layer base {
+
+/* —— Plate 板块 ————————————————————————————————— */
+.plate {
+  background: var(--frame);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.plate--deck { background: var(--deck); }
+.plate--paper { background: var(--paper); }
+.plate--ink {
+  background: var(--ink);
+  color: var(--text-on-ink);
+}
+
+/* 45° 切角（每屏最多一处）*/
+.brand-plate {
+  background: var(--ink);
+  color: var(--text-on-ink);
+  border-radius: 0 var(--bevel) 0 0;
+  corner-shape: bevel;
+}
+
+@supports not (corner-shape: bevel) {
+  /* 极端兜底：退化为直角，不伪造 */
+  .brand-plate { border-radius: 0; }
+}
+
+/* —— Seam 接缝 ————————————————————————————————— */
+.seam-e { border-inline-end: 1px solid var(--rule-strong); }
+.seam-s { border-block-end: 1px solid var(--rule-strong); }
+.seam-w { border-inline-start: 1px solid var(--rule-strong); }
+.seam-n { border-block-start: 1px solid var(--rule-strong); }
+
+.seam-e\@panel { border-inline-end: 1px solid var(--rule); }
+.seam-s\@panel { border-block-end: 1px solid var(--rule); }
+
+.seam-e\@soft { border-inline-end: 1px solid var(--rule-soft); }
+.seam-s\@soft { border-block-end: 1px solid var(--rule-soft); }
+
+/* —— Inert Matrix 惰性矩阵 ———————————————————————— */
+.matrix-inert {
+  pointer-events: none;
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    var(--rule-soft) 1px,
+    transparent 0
+  );
+  background-size: 6px 6px;
+  mask-image: linear-gradient(to right, black 60%, transparent 100%);
+}
+
+/* —— 辅助类 ——————————————————————————————————— */
+.text-2 { color: var(--text-2); }
+.text-on-ink { color: var(--text-on-ink); }
+.text-on-ink-2 { color: var(--text-on-ink-2); }
+
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+}
