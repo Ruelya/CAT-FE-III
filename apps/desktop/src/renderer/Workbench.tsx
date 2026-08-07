@@ -41,6 +41,15 @@ import {
 } from "lucide-react";
 
 import { formatCorpusProvenance } from "./alignment-corpus-utils";
+import {
+  ConsistencyRepairDrawer,
+  type ConsistencyApplyResult,
+} from "./components/ai/ConsistencyRepairDrawer";
+import { ConsistencyRepairToast } from "./components/ai/ConsistencyRepairToast";
+import {
+  scanDivergentTargets,
+  type DivergentTargetHit,
+} from "./components/ai/consistency-presenters";
 import { ActiveAxis } from "./components/workbench/ActiveAxis";
 import {
   DocumentMatrix,
@@ -55,6 +64,7 @@ import {
 import { Masthead } from "./components/workbench/Masthead";
 import { PreviewDock } from "./components/workbench/PreviewDock/PreviewDock";
 import { SegmentGrid } from "./components/workbench/SegmentGrid";
+import { SelectionAiMenu } from "./components/workbench/SelectionAiMenu";
 import { StackPanel } from "./components/workbench/Stack/StackPanel";
 import {
   deriveLampState,
@@ -257,6 +267,22 @@ export function Workbench({
     "qa" | "export" | "confirm" | "navigate" | null
   >(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [aiSettingsEnabled, setAiSettingsEnabled] = useState(false);
+  const [consistencyToast, setConsistencyToast] = useState<{
+    term: string;
+    count: number;
+  } | null>(null);
+  const [consistencyDrawerOpen, setConsistencyDrawerOpen] = useState(false);
+  const [consistencyHits, setConsistencyHits] = useState<DivergentTargetHit[]>(
+    [],
+  );
+  const [consistencyCapped, setConsistencyCapped] = useState(false);
+  const [consistencyTerm, setConsistencyTerm] = useState("");
+  const [consistencyApplying, setConsistencyApplying] = useState(false);
+  const [consistencyResults, setConsistencyResults] = useState<
+    ConsistencyApplyResult[]
+  >([]);
+  const consistencyCancelRef = useRef(false);
 
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -648,6 +674,21 @@ export function Workbench({
         window.clearTimeout(timer);
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void window.translunar
+      .invoke("ai.settings.get", {})
+      .then((settings) => {
+        if (!cancelled) setAiSettingsEnabled(Boolean(settings.enabled));
+      })
+      .catch(() => {
+        if (!cancelled) setAiSettingsEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [snapshot.project.id]);
 
   useEffect(() => {
     if (!activeSegment) {
@@ -1595,7 +1636,10 @@ export function Workbench({
     grid.scrollTop += deltaY;
   };
 
-  const insertMatch = (targetText: string) => {
+  const insertMatch = (
+    targetText: string,
+    context?: { kind: "term"; sourceTerm: string },
+  ) => {
     if (!activeSegment) return;
     if (composingRef.current.has(activeSegment.id)) return;
     updateDraft(activeSegment.id, targetText);
@@ -1603,6 +1647,24 @@ export function Workbench({
     documentQuery<HTMLTextAreaElement>(
       `[data-editor-for="${activeSegment.id}"]`,
     )?.focus();
+    if (context?.kind === "term" && context.sourceTerm.trim()) {
+      const scan = scanDivergentTargets(
+        segmentsRef.current,
+        context.sourceTerm,
+        targetText,
+        { excludeSegmentId: activeSegment.id, cap: 200 },
+      );
+      if (scan.hits.length > 0) {
+        setConsistencyTerm(context.sourceTerm);
+        setConsistencyHits(scan.hits);
+        setConsistencyCapped(scan.capped);
+        setConsistencyResults([]);
+        setConsistencyToast({
+          term: context.sourceTerm,
+          count: scan.hits.length,
+        });
+      }
+    }
   };
 
   const focusSegment = (segmentId: string) => {
@@ -3113,6 +3175,77 @@ export function Workbench({
           onApplyMutation={applyEditorMutation}
         />
       </main>
+
+      <SelectionAiMenu
+        enabled={aiSettingsEnabled}
+        activeSegment={activeSegment}
+        sourceLocale={snapshot.project.sourceLocale}
+        targetLocale={snapshot.project.targetLocale}
+        onUseTarget={(text) => insertMatch(text)}
+      />
+
+      <ConsistencyRepairToast
+        open={consistencyToast !== null}
+        term={consistencyToast?.term ?? ""}
+        count={consistencyToast?.count ?? 0}
+        onDismiss={() => setConsistencyToast(null)}
+        onView={() => {
+          setConsistencyToast(null);
+          setConsistencyDrawerOpen(true);
+        }}
+      />
+
+      <ConsistencyRepairDrawer
+        open={consistencyDrawerOpen}
+        term={consistencyTerm}
+        hits={consistencyHits}
+        capped={consistencyCapped}
+        applying={consistencyApplying}
+        results={consistencyResults}
+        onClose={() => {
+          if (!consistencyApplying) setConsistencyDrawerOpen(false);
+        }}
+        onCancelApply={() => {
+          consistencyCancelRef.current = true;
+        }}
+        onApply={(selected) => {
+          consistencyCancelRef.current = false;
+          setConsistencyApplying(true);
+          setConsistencyResults([]);
+          void (async () => {
+            const results: ConsistencyApplyResult[] = [];
+            for (const hit of selected) {
+              if (consistencyCancelRef.current) break;
+              const live =
+                segmentsRef.current.find((s) => s.id === hit.segmentId) ?? null;
+              const expectedRevision = live?.revision ?? hit.revision;
+              try {
+                const saved = await window.translunar.invoke(
+                  "segment.updateTarget",
+                  {
+                    segmentId: hit.segmentId,
+                    targetText: hit.after,
+                    expectedRevision,
+                  },
+                );
+                applySegment(saved);
+                results.push({ segmentId: hit.segmentId, ok: true });
+              } catch (cause) {
+                results.push({
+                  segmentId: hit.segmentId,
+                  ok: false,
+                  error:
+                    cause instanceof Error
+                      ? cause.message
+                      : t("ai.consistency.applyFailed"),
+                });
+              }
+              setConsistencyResults([...results]);
+            }
+            setConsistencyApplying(false);
+          })();
+        }}
+      />
 
       {commandPaletteOpen ? (
         <div

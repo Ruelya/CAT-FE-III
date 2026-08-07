@@ -1,0 +1,17 @@
+{"file": "docs/design-ii/09-implementation.md", "reason": "Phase 7 delivery list: AI three tabs, selection menu, consistency assistant, plugin permission table + host bar"}
+{"file": "docs/design-ii/screens/ai.md", "reason": "Authoritative UX for AI console, selection AI, consistency repair, plugin rows and PluginPanelHost"}
+{"file": "docs/design-ii/05-components.md", "reason": "A4 Popover, A6 Drawer, A7 Toast, A8 Banner, E2 Tabs, G5 Provenance, G6 Grounding Inspector, G7 Permission Sheet"}
+{"file": "docs/design-ii/03-signatures.md", "reason": "Active Axis and matrix signature rules for batch/usage presentation"}
+{"file": "docs/design-ii/06-shell-navigation.md", "reason": "ai-control surface position and chrome constraints"}
+{"file": "docs/design-ii/07-interaction.md", "reason": "Selection interactions and IME bounds for 划词 AI"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Extract patterns, controlled props, icon a11y"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Where ai/workbench extracts and surface CSS live"}
+{"file": ".trellis/spec/frontend/electron-workbench.md", "reason": "DesktopApi, engine-owned data vs presentation state"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Presentation state vs engine-owned AI/plugin data"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Props/types for extracts without untyped payloads"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Expression-only quality bar and tests"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "useComposition and selection event hook patterns"}
+{"file": ".trellis/spec/guides/autoloop-orchestration.md", "reason": "Autoloop plan artifacts and worker boundaries"}
+{"file": ".trellis/tasks/08-08-ortho-frontend-phase-7-ai-plugins/prd.md", "reason": "Task requirements and acceptance criteria AC1–AC13"}
+{"file": ".trellis/tasks/08-08-ortho-frontend-phase-7-ai-plugins/design.md", "reason": "Technical design, layout contracts, data flow, trade-offs"}
+{"file": ".trellis/tasks/08-08-ortho-frontend-phase-7-ai-plugins/implement.md", "reason": "Ordered checklist and validation commands"}

@@ -291,6 +291,27 @@ QA 复核三栏 + 就地修复；导出复核 + 降级清单；资产 Surface �
 ### 期 7 · AI 与插件
 AI 控制台三 Tab；划词 AI 锚定菜单；一致性修复助手；插件权限表与宿主归属条。
 
+#### 期 7 实现记录（2026-08）
+
+| 交付 | 位置 | 说明 |
+| --- | --- | --- |
+| AI 控制台三 Tab | `AiControlPage.tsx` + `components/ai/ai-presenters.ts` | ORTHO 头栏（启用灯 + 全部关闭）+ §E2 三 Tab（引擎与配置档 / 批处理 / 用量）；配置档 master–detail；凭据仅状态不回显；用量堆叠条 + 预算门禁；接地为工作台 residual |
+| 划词 AI 菜单 | `components/workbench/SelectionAiMenu.tsx` + `PluginAiActions` | 选区锚定 §A4；`editorSelection`/`menu`；IME 组合态不打开；可选 `selectionText` 入 invoke context；内置润色无 RPC → residual 省略 |
+| 一致性修复 | `ConsistencyRepairToast/Drawer` + `consistency-presenters.ts` | 术语插入后客户端扫描已加载段；toast → 抽屉勾选；`segment.updateTarget` 顺序应用；无多段撤销 residual |
+| 插件 G7 + 宿主条 | `PluginsPanel.tsx` + `PluginPanelHost.tsx` + `plugin-permission-presenters.ts` | 贡献计数 + 权限表 + Tier3/OS 诚实声明；24px「插件：名称」归属条（iframe 外） |
+| 样式 | `styles/30-surfaces/ai.css` · `plugins.css` | 新 surface 层；`styles/index.css` 引入 |
+| i18n | `i18n/messages.ts` | 三 Tab 标签、全部关闭、权限状态、诚实文案、toast/抽屉、宿主条 en+zh |
+
+**验收**：AC1–AC13（三 Tab/启用与关闭/master–detail/接地 residual/RPC 不变/用量诚实/划词菜单/一致性/G7/宿主条/i18n）；`ai-presenters` · `consistency-presenters` · `plugin-permission-presenters` · SelectionAiMenu 单测；desktop typecheck。
+
+**未做 / 残留**：
+- AI 控制台无活动段 → 接地预览无法调用 `ai.grounding.preview`（诚实 residual，不标「已接地」）
+- 内置 G-01 润色菜单无 Engine 路径 → 仅插件 `editorSelection` 动作
+- 一致性扫描仅已加载段；上限 200 行 + residual
+- 无多段撤销 API → 抽屉内诚实 residual
+- 批处理 Live Matrix 可选未挂（item 列表已保留真实状态）
+- 插件「报告问题」无 RPC → 菜单项 residual disabled
+
 ### 期 8 · 系统与收尾
 设置 Surface；Coach Marks 教程；草稿恢复；三态统一；深色主题全量校对；
 高对比模式；三档密度 × 三档缩放的截图矩阵。

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { MoreHorizontal, X } from "lucide-react";
 
 import { useLocale } from "./i18n/LocaleProvider";
 import type { MessageKey } from "./i18n/messages";
@@ -131,6 +132,7 @@ export function PluginPanelHost({
   const lifecycleRef = useRef<PanelSessionLifecycle | null>(null);
   const [source, setSource] = useState<string | null>(null);
   const [status, setStatus] = useState<PanelStatus>("loading");
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     setSource(null);
@@ -261,17 +263,60 @@ export function PluginPanelHost({
 
   return (
     <section className="plugin-panel-host" aria-label={contributionName}>
-      <header className="plugin-panel-host__header">
-        <div>
-          <strong>{contributionName}</strong>
-          <span data-state={status}>{t(PANEL_STATUS_KEYS[status])}</span>
+      <header
+        className="plugin-panel-host__attribution plugin-panel-host__header"
+        data-host-attribution=""
+      >
+        <strong>
+          {t("plugins.panel.attribution", { name: pluginName })}
+        </strong>
+        <span title={contributionName}>{contributionName}</span>
+        <span className="plugin-panel-host__attribution-spacer" />
+        <span className="plugin-panel-host__status" data-state={status}>
+          {t(PANEL_STATUS_KEYS[status])}
+        </span>
+        <div className="plugin-panel-host__menu">
+          <button
+            type="button"
+            aria-label={t("plugins.panel.menuAria")}
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            <MoreHorizontal size={14} aria-hidden="true" />
+          </button>
+          {menuOpen ? (
+            <ul className="plugin-panel-host__menu-list" role="menu">
+              <li role="none">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onClose();
+                  }}
+                >
+                  {t("plugins.panel.disableClose")}
+                </button>
+              </li>
+              <li role="none">
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled
+                  title={t("plugins.panel.reportResidual")}
+                >
+                  {t("plugins.panel.reportResidual")}
+                </button>
+              </li>
+            </ul>
+          ) : null}
         </div>
         <button type="button" onClick={onClose} aria-label={t("common.close")}>
-          {t("common.close")}
+          <X size={14} aria-hidden="true" />
         </button>
       </header>
       {status === "error" || status === "revoked" ? (
-        <p role="alert">
+        <p className="plugin-panel-host__message" role="alert">
           {status === "revoked"
             ? t("plugins.panel.sessionEnded")
             : t("plugins.panel.connectionFailed")}
@@ -286,7 +331,9 @@ export function PluginPanelHost({
           onLoad={handleLoad}
         />
       ) : (
-        <p role="status">{t("plugins.panel.loading")}</p>
+        <p className="plugin-panel-host__message" role="status">
+          {t("plugins.panel.loading")}
+        </p>
       )}
     </section>
   );

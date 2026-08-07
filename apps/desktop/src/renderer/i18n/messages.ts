@@ -1928,7 +1928,59 @@ export type MessageKey =
   | "assets.terms.searchAria"
   | "assets.terms.searching"
   | "assets.terms.noMatches"
-  | "assets.terms.searchHint";
+  | "assets.terms.searchHint"
+  | "ai.assistLabel"
+  | "ai.statusEnabled"
+  | "ai.statusDisabled"
+  | "ai.closeAll"
+  | "ai.defaultBadge"
+  | "ai.credentialInKeyring"
+  | "ai.viewGroundingInject"
+  | "ai.groundingNeedsWorkbench"
+  | "ai.provenanceAria"
+  | "ai.budgetWarn"
+  | "ai.budgetBlocked"
+  | "ai.usageLocalNote"
+  | "ai.usageStackAria"
+  | "ai.selection.menuAria"
+  | "ai.consistency.toast"
+  | "ai.consistency.view"
+  | "ai.consistency.drawerTitle"
+  | "ai.consistency.drawerLead"
+  | "ai.consistency.selectAll"
+  | "ai.consistency.rowAria"
+  | "ai.consistency.apply"
+  | "ai.consistency.applyFailed"
+  | "ai.consistency.applyOk"
+  | "ai.consistency.capped"
+  | "ai.consistency.undoResidual"
+  | "plugins.tier.declarative"
+  | "plugins.tier.sandbox"
+  | "plugins.tier.process"
+  | "plugins.tier.unknown"
+  | "plugins.honesty.tier3"
+  | "plugins.honesty.osUnenforceable"
+  | "plugins.contribCountsAria"
+  | "plugins.contrib.filter"
+  | "plugins.contrib.qa"
+  | "plugins.contrib.panel"
+  | "plugins.contrib.ai"
+  | "plugins.contrib.pipeline"
+  | "plugins.contrib.connector"
+  | "plugins.permTableAria"
+  | "plugins.perm.capability"
+  | "plugins.perm.scope"
+  | "plugins.perm.state"
+  | "plugins.perm.action"
+  | "plugins.perm.review"
+  | "plugins.perm.decision.granted"
+  | "plugins.perm.decision.denied"
+  | "plugins.perm.decision.not-requested"
+  | "plugins.perm.decision.unknown"
+  | "plugins.panel.attribution"
+  | "plugins.panel.menuAria"
+  | "plugins.panel.disableClose"
+  | "plugins.panel.reportResidual";
 
 type MessageCatalog = Record<MessageKey, string>;
 
@@ -3382,7 +3434,7 @@ const enUs: MessageCatalog = {
   "ai.profileRemoved": "{name} removed.",
   "ai.profileUpdated": "{name} profile updated.",
   "ai.savePolicy": "Save policy",
-  "ai.providersTab": "Providers",
+  "ai.providersTab": "Engines & profiles",
   "ai.batchTab": "Batch",
   "ai.usageTab": "Usage",
   "ai.startBatch": "Start batch",
@@ -4011,6 +4063,64 @@ const enUs: MessageCatalog = {
   "assets.terms.searching": "Searching…",
   "assets.terms.noMatches": "No term matches",
   "assets.terms.searchHint": "Enter a query to search mounted termbases",
+  "ai.assistLabel": "AI assist",
+  "ai.statusEnabled": "On",
+  "ai.statusDisabled": "Off",
+  "ai.closeAll": "Turn all off",
+  "ai.defaultBadge": "default",
+  "ai.credentialInKeyring": "Stored in system credential manager",
+  "ai.viewGroundingInject": "View one real injection →",
+  "ai.groundingNeedsWorkbench":
+    "Open a segment in the workbench to preview a real grounding bundle",
+  "ai.provenanceAria": "Plugin connector provenance",
+  "ai.budgetWarn": "Monthly token budget is at or above 80%",
+  "ai.budgetBlocked": "Monthly token budget exceeded — new batch starts blocked",
+  "ai.usageLocalNote": "Local usage statistics only — not uploaded",
+  "ai.usageStackAria": "Usage share by provider",
+  "ai.selection.menuAria": "Selection AI actions",
+  "ai.consistency.toast":
+    '"{term}" uses different translations in {count} other segments · Review',
+  "ai.consistency.view": "Review",
+  "ai.consistency.drawerTitle": "Consistency repair",
+  "ai.consistency.drawerLead":
+    '"{term}" — {count} loaded segment(s) with a different target',
+  "ai.consistency.selectAll": "Select all",
+  "ai.consistency.rowAria": "Segment {ordinal}",
+  "ai.consistency.apply": "Apply ({count})",
+  "ai.consistency.applyFailed": "Update failed (revision conflict or error)",
+  "ai.consistency.applyOk": "Updated",
+  "ai.consistency.capped":
+    "Showing loaded segments only (list capped). Unloaded segments are not scanned.",
+  "ai.consistency.undoResidual":
+    "No multi-segment undo — revert segments individually or restore from draft",
+  "plugins.tier.declarative": "Tier 1 · declarative",
+  "plugins.tier.sandbox": "Tier 2 · sandbox",
+  "plugins.tier.process": "Tier 3 · out-of-process",
+  "plugins.tier.unknown": "Tier unknown",
+  "plugins.honesty.tier3":
+    "⚠ OS cannot fully enforce process isolation for this tier",
+  "plugins.honesty.osUnenforceable": "⚠ OS layer cannot enforce",
+  "plugins.contribCountsAria": "Contribution counts",
+  "plugins.contrib.filter": "Filter {count}",
+  "plugins.contrib.qa": "QA {count}",
+  "plugins.contrib.panel": "Panel {count}",
+  "plugins.contrib.ai": "AI {count}",
+  "plugins.contrib.pipeline": "Pipeline {count}",
+  "plugins.contrib.connector": "Connector {count}",
+  "plugins.permTableAria": "Permission requests",
+  "plugins.perm.capability": "Capability",
+  "plugins.perm.scope": "Scope",
+  "plugins.perm.state": "State",
+  "plugins.perm.action": "Action",
+  "plugins.perm.review": "Review",
+  "plugins.perm.decision.granted": "Granted",
+  "plugins.perm.decision.denied": "Denied",
+  "plugins.perm.decision.not-requested": "Not requested",
+  "plugins.perm.decision.unknown": "Unknown",
+  "plugins.panel.attribution": "Plugin: {name}",
+  "plugins.panel.menuAria": "Plugin panel menu",
+  "plugins.panel.disableClose": "Close panel",
+  "plugins.panel.reportResidual": "Report issue (unavailable)",
 };
 
 const zhCn: MessageCatalog = {
@@ -5386,8 +5496,8 @@ const zhCn: MessageCatalog = {
   "ai.profileRemoved": "已删除 {name}。",
   "ai.profileUpdated": "{name} 配置已更新。",
   "ai.savePolicy": "保存策略",
-  "ai.providersTab": "提供方",
-  "ai.batchTab": "批量",
+  "ai.providersTab": "引擎与配置档",
+  "ai.batchTab": "批处理",
   "ai.usageTab": "用量",
   "ai.startBatch": "开始批量",
   "ai.resume": "继续",
@@ -5996,6 +6106,62 @@ const zhCn: MessageCatalog = {
   "assets.terms.searching": "搜索中…",
   "assets.terms.noMatches": "无术语匹配",
   "assets.terms.searchHint": "输入查询以搜索已挂载术语库",
+  "ai.assistLabel": "AI 辅助",
+  "ai.statusEnabled": "已启用",
+  "ai.statusDisabled": "已关闭",
+  "ai.closeAll": "全部关闭",
+  "ai.defaultBadge": "默认",
+  "ai.credentialInKeyring": "已存入系统凭据管理器",
+  "ai.viewGroundingInject": "查看一次真实注入内容 →",
+  "ai.groundingNeedsWorkbench": "需在工作台打开段后预览真实接地包",
+  "ai.provenanceAria": "插件连接器出处",
+  "ai.budgetWarn": "本月 token 预算已达 80% 及以上",
+  "ai.budgetBlocked": "本月 token 预算已超限 — 已阻止新批处理启动",
+  "ai.usageLocalNote": "仅本地用量统计，不会上传",
+  "ai.usageStackAria": "按提供方的用量占比",
+  "ai.selection.menuAria": "划词 AI 动作",
+  "ai.consistency.toast":
+    "“{term}” 在另外 {count} 段中使用了不同译法 · 查看",
+  "ai.consistency.view": "查看",
+  "ai.consistency.drawerTitle": "一致性修复",
+  "ai.consistency.drawerLead":
+    "“{term}” — 已加载段中 {count} 条译法不同",
+  "ai.consistency.selectAll": "全选",
+  "ai.consistency.rowAria": "第 {ordinal} 段",
+  "ai.consistency.apply": "批量应用（{count}）",
+  "ai.consistency.applyFailed": "更新失败（修订冲突或错误）",
+  "ai.consistency.applyOk": "已更新",
+  "ai.consistency.capped":
+    "仅显示已加载段（列表已截断）。未加载段未扫描。",
+  "ai.consistency.undoResidual":
+    "无多段撤销 — 可逐段撤销或依赖既有草稿恢复",
+  "plugins.tier.declarative": "Tier 1 · 声明式",
+  "plugins.tier.sandbox": "Tier 2 · 沙箱",
+  "plugins.tier.process": "Tier 3 · 进程外",
+  "plugins.tier.unknown": "Tier 未知",
+  "plugins.honesty.tier3": "⚠ OS 层无法完整强制此层级的进程隔离",
+  "plugins.honesty.osUnenforceable": "⚠ OS 层无法强制",
+  "plugins.contribCountsAria": "贡献计数",
+  "plugins.contrib.filter": "格式过滤 {count}",
+  "plugins.contrib.qa": "质检 {count}",
+  "plugins.contrib.panel": "面板 {count}",
+  "plugins.contrib.ai": "AI 动作 {count}",
+  "plugins.contrib.pipeline": "流水线 {count}",
+  "plugins.contrib.connector": "连接器 {count}",
+  "plugins.permTableAria": "权限请求",
+  "plugins.perm.capability": "能力",
+  "plugins.perm.scope": "范围",
+  "plugins.perm.state": "状态",
+  "plugins.perm.action": "操作",
+  "plugins.perm.review": "审阅",
+  "plugins.perm.decision.granted": "已授权",
+  "plugins.perm.decision.denied": "已拒绝",
+  "plugins.perm.decision.not-requested": "未请求",
+  "plugins.perm.decision.unknown": "未知",
+  "plugins.panel.attribution": "插件：{name}",
+  "plugins.panel.menuAria": "插件面板菜单",
+  "plugins.panel.disableClose": "关闭面板",
+  "plugins.panel.reportResidual": "报告问题（不可用）",
 };
 
 const catalogs: Record<AppLocale, MessageCatalog> = {

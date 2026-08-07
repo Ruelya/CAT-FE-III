@@ -399,6 +399,11 @@ render deterministic previous/next controls when `total` exceeds the page.
   Expression-only: same Engine QA/export/TM/term/curation/alignment/interop
   methods; Spine id `translation-memory` kept; no invented gate fields,
   export formats, or full-document severity aggregation RPC.
+- After ORTHO Phase 7, AI control / selection AI / consistency repair
+  presentation / plugin G7 rows + host attribution follow
+  [ORTHO AI and Plugins Surfaces (Phase 7)](#ortho-ai-and-plugins-surfaces-phase-7).
+  Expression-only: same `ai.*` / `plugin.*` / `segment.updateTarget` graphs;
+  client-side consistency scan only; no built-in polish RPC when absent.
 
 ### 4. Validation & Error Matrix
 
@@ -761,6 +766,12 @@ setAiCredential(profileId: string, secret: string): Promise<void>;
   `data.profileId` (camelCase wire shape). Unknown codes keep the audited
   technical protocol message. Branch only on stable `code`/`data` fields—never
   on English `message` text.
+- After ORTHO Phase 7, AI Control chrome (three tabs, enable/close-all,
+  master–detail profiles, budget-gated batch, honest usage, grounding residual)
+  and workbench selection/consistency presentation follow
+  [ORTHO AI and Plugins Surfaces (Phase 7)](#ortho-ai-and-plugins-surfaces-phase-7).
+  Pure helpers live in `components/ai/ai-presenters.ts` and
+  `consistency-presenters.ts`.
 
 ### 4. Validation & Error Matrix
 
@@ -2178,10 +2189,16 @@ bridge.
 - React renders Engine inventory and exact owner/version/activation/state data;
   it never scans manifests, imports plugin code, infers grants, or treats a
   previously seen contribution ID as current authority.
-- Plugin editor-selection actions join the existing accessible segment overflow
-  menu rather than creating another row toolbar. A result remains a proposal.
-  Replacement is applied only after explicit user acceptance through the
-  existing revision-safe target update path.
+- Plugin `editorSelection` actions mount primarily via the §A4 selection-
+  anchored menu (`SelectionAiMenu` → `PluginAiActions` with
+  `placement="editorSelection"` and `variant="menu"`) when AI is enabled and
+  IME composition is idle. Do not invent a second permanent row toolbar.
+  Optional additive `selectionText` prop fills invoke `context.selectionText`
+  without changing the invoke envelope. A result remains a proposal;
+  replacement is applied only after explicit user acceptance through the
+  existing revision-safe target update path (`onUseTarget` / draft /
+  `segment.updateTarget`). Built-in polish (G-01) is residual when no Engine
+  selection-rewrite path exists — plugin actions alone satisfy the surface.
 - Panel placement is literal: editor-sidebar panels occupy a real side dock,
   assistant-sidebar panels join the Assistant region, and bottom panels join
   the bottom panel model. Built-in panels and actions retain their behavior and
@@ -3585,4 +3602,296 @@ setTmTotal(page.total);
 // Five tabs; default curation; dual-host panels at stable paths.
 const [tab, setTab] = useState<AssetsTabId>("curation");
 // TaskPackagePanel remains under Insights only.
+```
+
+## ORTHO AI and Plugins Surfaces (Phase 7)
+
+### 1. Scope / Trigger
+
+Use this contract when changing AI Control (`ai-control` Spine surface),
+selection-anchored AI menu, client consistency-repair presentation, Plugins
+panel §G7 permission rows, or PluginPanelHost attribution bar.
+
+Phase 7 is a **presentation extraction**. It must not change Engine,
+generated contracts, preload, main-process, `plugin-provenance-utils` /
+workbench pure-utils semantics (except additive pure presenters with tests),
+or invent consistency-scan / built-in polish / report-issue RPC methods.
+
+Source components:
+
+- Orchestrators (stable import paths):
+  - `AiControlPage.tsx` — settings/providers/batch/usage RPC graph
+  - `PluginsPanel.tsx` — install/permission/audit/version/pipeline (Insights)
+  - `PluginPanelHost.tsx` — iframe sandbox + host attribution
+  - `PluginAiActions.tsx` — list/invoke/cancel/accept (stable API)
+- `components/ai/*` — presenters + consistency toast/drawer
+  - `ai-presenters.ts`, `consistency-presenters.ts`,
+    `plugin-permission-presenters.ts` (+ unit tests)
+  - `ConsistencyRepairToast.tsx`, `ConsistencyRepairDrawer.tsx`
+- `components/workbench/SelectionAiMenu.tsx` (+ tests)
+- Workbench wiring: selection → menu; term apply → consistency scan
+- Styles: `styles/30-surfaces/ai.css`, `plugins.css` (via `styles/index.css`)
+- Catalog: `i18n/messages.ts` (AI tabs, close-all, permission states, honesty,
+  toast/drawer, host bar — en + zh)
+- Routing: `WorkbenchPages` → `surface === "ai-control"` → `AiControlPage`;
+  Insights continues to host `PluginsPanel` (no standalone plugins Spine)
+
+### 2. Signatures
+
+```ts
+// Tab ids stay English keys; i18n carries design labels
+type AiControlTabId = "providers" | "batch" | "usage";
+// Labels: 引擎与配置档 / 批处理 / 用量 (en equivalents)
+
+// Global enable + close-all (existing settings fields only)
+await window.translunar.invoke("ai.settings.update", {
+  enabled: false, // 全部关闭
+  // …other existing fields unchanged when partial update is used
+  expectedRevision,
+});
+
+// Credential: status only in UI; secret only via trusted bridge
+await window.translunar.setAiCredential(profileId, secret);
+await window.translunar.invoke("ai.credential.delete", { profileId });
+// Never echo secret plaintext after write
+
+// Grounding — mirror LiveAssistantPanel payload fields only
+await window.translunar.invoke("ai.grounding.preview", { /* same shape */ });
+// When no document/segment context: skip invoke; show honest residual
+// (e.g. GroundingInspector unavailableReason) — do not claim 接地
+
+// Batch (payload shape unchanged)
+await window.translunar.invoke("ai.batch.start", {
+  projectId, documentId, profileId, tmThreshold,
+  concurrency, requestsPerMinute, maxAttempts, replaceDrafts, options,
+});
+// cancel / resume / get / list / items — unchanged names
+
+// Usage — real aggregates only
+await window.translunar.invoke("ai.usage.query", {
+  projectId, sinceMs, untilMs, dimension: "provider",
+});
+
+// Selection AI
+await window.translunar.invoke("plugin.aiAction.list", {});
+// filter placement === "editorSelection" && state === "active"
+await window.translunar.invoke("plugin.aiAction.invoke", {
+  invocation: { /* existing PluginAiActions envelope */ },
+});
+// optional additive prop: selectionText → context.selectionText
+
+// Consistency apply — Workbench field set
+await window.translunar.invoke("segment.updateTarget", {
+  segmentId, targetText, expectedRevision,
+});
+
+// Pure presenters (unit-tested)
+budgetRatio(monthlyTokenBudget, usedTokens): number | null;
+budgetGateFromRatio(ratio): "ok" | "warn" | "block"; // ≥0.8 warn; ≥1 block
+usageStackFractions(usage): UsageStackSlice[];
+scanDivergentTargets(segments, sourceTerm, newTarget, { cap?, excludeSegmentId? });
+permissionRowsFromRequests(requests);
+countContributionKinds(contributions);
+isUnenforceableCapability(capabilityId, supported?);
+canOpenSelectionAiMenu({ enabled, composing, selectionText });
+```
+
+Layout shells:
+
+```css
+.ai-ortho {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-block-size: 0;
+  height: 100%;
+}
+.ai-providers {
+  display: grid;
+  grid-template-columns: minmax(200px, 280px) minmax(0, 1fr);
+}
+.selection-ai-menu { /* §A4: --deck, --rule-strong, --elev-pop only, --r-pop */ }
+.plugin-panel-host__attribution {
+  block-size: 24px;
+  background: var(--frame);
+  /* “插件：{name}” outside iframe; never covered by plugin content */
+}
+```
+
+Engine method sets remain the pre-Phase-7 catalog:
+
+- AI: `ai.provider.*`, `ai.settings.get|update`, `ai.credential.delete`,
+  `setAiCredential`, `ai.grounding.preview`, `ai.run.*`, `ai.batch.*`,
+  `ai.usage.query`
+- Plugin AI: `plugin.aiAction.list|invoke|cancel`
+- Plugins: `plugin.list`, install/enable/disable/uninstall/rollback,
+  `plugin.permission.*`, panel session + `plugin.uiPanel.bridge.call`
+- Segment: `segment.updateTarget` (Workbench shape)
+
+No new invoke names, preload fields, or npm deps.
+
+### 3. Contracts
+
+#### AI Control three tabs
+
+- Header outside tabs: title + global enable lamp
+  (`AI 辅助 · ●已启用|○已关闭`) + primary **全部关闭** →
+  `ai.settings.update` with `enabled: false`.
+- Exactly three §E2 tabs: providers / batch / usage (design labels via i18n).
+- No marketing hero / surface-kicker description as permanent chrome.
+- Providers: master–detail profile list (default badge, connector kind
+  builtin/plugin + schema version, availability) + detail (connector meta,
+  editable base URL/model, **credential presence only**, grounding option
+  checkboxes, test connection via `ai.provider.test`).
+- Plugin connector profiles: §G5 provenance from existing `source` fields.
+- Grounding button: open inspector with `ai.grounding.preview` when
+  document/segment context exists; otherwise honest residual (never label
+  as grounded without inspectable bundle).
+- Batch: preserve start/cancel/resume/items; progress from real totals;
+  omit fake ETA minutes when not computable; optional Live Matrix only from
+  real item statuses (may residual-omit).
+- Usage: aggregates from `ai.usage.query` only; stacked proportion bar when
+  ≥1 positive aggregate; local-stats microcopy (not uploaded); budget from
+  `monthlyTokenBudget` + summed usage when both known.
+- Budget gate: ratio ≥ 80% → §A8 warn; ≥ 100% → disable **new** batch start
+  client-side. Do not gate when budget is unset/non-positive.
+- When AI disabled: selection menu + batch start + assistant external calls
+  remain gated by existing settings flags.
+
+#### Selection AI menu
+
+- On non-collapsed text selection in workbench source/target editor when
+  `ai.settings.enabled` and not IME-composing: open §A4 anchored popover
+  near selection (not a floating toolbar strip).
+- IME: `compositionstart` / `isComposing()` closes and suppresses open.
+- Content: `PluginAiActions` `editorSelection` + `menu`; built-in polish
+  group omitted unless an existing Engine path exists (residual OK).
+- Accept never auto-writes; uses existing `onUseTarget` / insert / draft path.
+- Esc closes and restores focus to editor when possible.
+- Scroll / segment change: prefer close over complex reposition.
+
+#### Consistency repair (G-04 presentation)
+
+- **No** Engine impact-scan RPC. Scan **already-loaded** segments only
+  (`scanDivergentTargets`, default cap 200 + residual for unloaded).
+- Primary trigger: user applies a term translation → if n>0 divergent
+  targets, §A7 toast with count + 查看 → drawer.
+- Do not toast on every keystroke; avoid spam (single toast path).
+- Drawer: ordinal, before/after, checkboxes, select-all, preview, bulk apply.
+- Apply: sequential `segment.updateTarget` with per-row `expectedRevision`;
+  revision conflict → per-row failure; never claim full success on partial.
+- Undo: honest residual if no multi-segment undo API (no fake multi-undo).
+
+#### Plugins G7 + host attribution
+
+- Plugin rows: name · version · Tier (declarative/sandbox/process human
+  labels) · status · source; contribution kind counts from existing array.
+- Primary permission view: §G7 table (capability · scope · state
+  granted/not-requested/denied/unknown · existing grant/deny/revoke actions).
+  Opaque comma-joined permission string is secondary at most.
+- Honesty: Tier 3 / process or unenforceable capabilities
+  (`file.*`, `network.connect`, `external.*`, `process.spawn`, or
+  `supported === false`) show OS non-enforcement warning copy.
+- Do not change install inspect grant protocol, audit list, version rollback,
+  or pipeline history semantics — expression restyle only.
+- `PluginPanelHost`: fixed 24px host attribution bar outside iframe
+  (`插件：{pluginName}` + status + menu/close). Plugin content must not cover
+  or remove the bar. Crash: §F5 host message + reload/close; no circular spinner.
+- Insights dual-host: keep mounting `PluginsPanel`; no new plugins Spine route.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| AI global disabled | No selection menu open; batch start gated by existing flags |
+| IME composition active | Selection menu closed/suppressed |
+| No segment for grounding preview | Residual unavailable; no `ai.grounding.preview` claim of 接地 |
+| Budget unset or non-positive | No client budget gate (`ok`) |
+| Budget ratio ≥ 1 (known) | Block new batch start with reason |
+| Credential save/delete | Clear input only on success; never echo secret in UI/state |
+| Consistency scan empty | No toast spam |
+| Bulk apply partial revision conflicts | Per-row failure; no full-success claim |
+| Unenforceable / Tier 3 capability | Honesty marking in permission table |
+| Built-in polish RPC absent | Omit group or disabled residual; plugin actions only |
+| Engine/contracts/preload change for Phase 7 | Forbidden — expression-only |
+
+### 5. Good / Base / Bad Cases
+
+- Good: AI Control three tabs; enable + 全部关闭; master–detail profile;
+  credential status only; test connection; usage stack from real aggregates;
+  over-budget blocks batch start.
+- Good: select target text (AI on, not composing) → anchored menu with plugin
+  actions; accept via existing path; Esc returns focus.
+- Good: term apply finds divergent targets → toast → drawer selective apply
+  via `segment.updateTarget` with honest partial failures.
+- Good: Plugins G7 table + Tier3 honesty; panel host 24px 插件：name bar.
+- Base: grounding residual on AI Control without active segment; no built-in
+  polish menu; consistency limited to loaded segments.
+- Bad: invent consistency-scan or polish Engine methods.
+- Bad: auto-write AI proposal without accept.
+- Bad: fake token charts, model “推荐” ratings, or ETA minutes without data.
+- Bad: circular spinners, permanent box-shadow plates, marketing kickers.
+- Bad: move PluginsPanel off Insights or invent a plugins Spine surface.
+
+### 6. Tests Required
+
+- Unit: `components/ai/ai-presenters.test.ts` (budget ratio/gate, stack
+  fractions, connector labels, batch matrix mapping).
+- Unit: `components/ai/consistency-presenters.test.ts` (normalize, scan, cap).
+- Unit: `components/ai/plugin-permission-presenters.test.ts` (decision chips,
+  contribution counts, unenforceable / tier honesty).
+- Unit: `components/workbench/SelectionAiMenu.test.tsx` (open gate:
+  enabled / composing / empty selection).
+- Keep `PluginAiActions`, `PluginPanelHost`, `plugin-provenance-utils` green
+  when touched.
+- Typecheck: `apps/desktop` renderer green without contracts/engine/preload
+  package edits.
+- Manual residual: live provider test, real plugin iframe host bar, term-apply
+  toast in app, en/zh chrome.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+// Invent impact-scan RPC or fake multi-undo.
+await invoke("consistency.scan", { term });
+await invoke("consistency.undoAll", { batchId });
+
+// Auto-apply plugin AI output.
+setTarget(proposal.text);
+
+// Echo secret or claim grounding without preview.
+<span>{credentialSecret}</span>
+<span>已接地</span>
+
+// Fake budget chart when usage API empty.
+<div style={{ width: "72%" }} /> // invented fill
+```
+
+#### Correct
+
+```tsx
+// Client scan + sequential updateTarget with live revision.
+const { hits, capped } = scanDivergentTargets(segments, term, newTarget, {
+  cap: 200,
+  excludeSegmentId: activeId,
+});
+await invoke("segment.updateTarget", {
+  segmentId: hit.segmentId,
+  targetText: hit.after,
+  expectedRevision: currentRevision,
+});
+
+// Selection menu gated; proposal requires accept.
+if (canOpenSelectionAiMenu({ enabled, composing, selectionText })) {
+  // mount PluginAiActions editorSelection/menu + selectionText
+}
+// accept → onUseTarget(text) only
+
+// Budget gate from real numbers only.
+const ratio = budgetRatio(settings.monthlyTokenBudget, sumUsageTokens(usage));
+const gate = budgetGateFromRatio(ratio); // block only when ratio >= 1
+
+// Grounding residual when context missing.
+<GroundingInspector unavailableReason={t("ai.groundingNeedsWorkbench")} />
 ```

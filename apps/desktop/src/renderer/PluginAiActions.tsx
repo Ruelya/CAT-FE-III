@@ -23,6 +23,11 @@ interface PluginAiActionsProps {
   variant?: "panel" | "menu";
   /** Called after an action is chosen from a menu (e.g. close overflow). */
   onMenuAction?: () => void;
+  /**
+   * Optional real selection string for invoke context.selectionText.
+   * Additive only — same invoke envelope; falls back to segment target/source.
+   */
+  selectionText?: string;
 }
 
 export function PluginAiActions({
@@ -33,6 +38,7 @@ export function PluginAiActions({
   placement,
   variant = "panel",
   onMenuAction,
+  selectionText,
 }: PluginAiActionsProps) {
   const { t } = useLocale();
   const [actions, setActions] = useState<PluginAiActionView[]>([]);
@@ -98,7 +104,10 @@ export function PluginAiActions({
           contributionId: action.owner.contributionId,
           operation: "ai.action.invoke",
           context: {
-            selectionText: activeSegment.targetText || activeSegment.sourceText,
+            selectionText:
+              selectionText?.trim() ||
+              activeSegment.targetText ||
+              activeSegment.sourceText,
             segmentText: activeSegment.targetText,
             sourceText: activeSegment.sourceText,
             sourceLocale,

@@ -37,6 +37,12 @@ import { useLocale } from "./i18n/LocaleProvider";
 import type { MessageKey } from "./i18n/messages";
 import { PluginPanelHost } from "./PluginPanelHost";
 import {
+  countContributionKinds,
+  permissionRowsFromRequests,
+  showTier3Honesty,
+  tierLabelKey,
+} from "./components/ai/plugin-permission-presenters";
+import {
   findContributionPermission,
   formatDescriptorValue,
   listExecutableContributions,
@@ -481,7 +487,10 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
   };
 
   return (
-    <section className="plugins-panel" aria-labelledby="plugins-heading">
+    <section
+      className="plugins-panel plugins-ortho"
+      aria-labelledby="plugins-heading"
+    >
       <header className="plugins-panel__header">
         <div>
           <h2 id="plugins-heading">
@@ -602,6 +611,13 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
             const executableContributions = listExecutableContributions(
               plugin.contributions,
             );
+            const kindCounts = countContributionKinds(plugin.contributions);
+            const permRows = permissionRowsFromRequests(
+              contributionPermissions[plugin.id],
+            );
+            const permUnknown =
+              contributionPermissions[plugin.id] === null ||
+              contributionPermissions[plugin.id] === undefined;
             return (
               <li key={plugin.id} className="plugins-panel__item">
                 <div className="plugins-panel__identity">
@@ -609,7 +625,7 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
                   <div className="plugins-panel__meta">
                     <span>{plugin.id}</span>
                     <span>v{plugin.version}</span>
-                    <span>{plugin.tier}</span>
+                    <span className="plugin-tier">{t(tierLabelKey(plugin.tier))}</span>
                     <span data-status={plugin.status}>{plugin.status}</span>
                     <span className="plugins-panel__badge">
                       {t(
@@ -631,13 +647,130 @@ export function PluginsPanel({ projectId, onRefresh }: PluginsPanelProps) {
                       {t("plugins.crashCount", { count: plugin.crashCount })}
                     </span>
                   </div>
-                  <div className="plugins-panel__meta">
-                    {t("plugins.permissions", {
-                      list:
-                        plugin.grantedPermissions.join(", ") ||
-                        t("plugins.permissionsNone"),
-                    })}
-                  </div>
+                  {kindCounts.total > 0 ? (
+                    <div
+                      className="plugins-contrib-counts"
+                      aria-label={t("plugins.contribCountsAria")}
+                    >
+                      {kindCounts.filter > 0 ? (
+                        <span>
+                          {t("plugins.contrib.filter", {
+                            count: kindCounts.filter,
+                          })}
+                        </span>
+                      ) : null}
+                      {kindCounts.qaRule > 0 ? (
+                        <span>
+                          {t("plugins.contrib.qa", { count: kindCounts.qaRule })}
+                        </span>
+                      ) : null}
+                      {kindCounts.uiPanel > 0 ? (
+                        <span>
+                          {t("plugins.contrib.panel", {
+                            count: kindCounts.uiPanel,
+                          })}
+                        </span>
+                      ) : null}
+                      {kindCounts.aiAction > 0 ? (
+                        <span>
+                          {t("plugins.contrib.ai", {
+                            count: kindCounts.aiAction,
+                          })}
+                        </span>
+                      ) : null}
+                      {kindCounts.pipelineStep > 0 ? (
+                        <span>
+                          {t("plugins.contrib.pipeline", {
+                            count: kindCounts.pipelineStep,
+                          })}
+                        </span>
+                      ) : null}
+                      {kindCounts.engineConnector > 0 ? (
+                        <span>
+                          {t("plugins.contrib.connector", {
+                            count: kindCounts.engineConnector,
+                          })}
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {showTier3Honesty(plugin) ? (
+                    <p className="plugin-honesty" role="note">
+                      <span className="plugin-honesty__lamp" aria-hidden="true" />
+                      {t("plugins.honesty.tier3")}
+                    </p>
+                  ) : null}
+                  {permUnknown ? (
+                    <div className="plugins-panel__meta">
+                      {t("plugins.permissionUnknown")}
+                    </div>
+                  ) : permRows.length ? (
+                    <div
+                      className="plugin-perm-table"
+                      role="table"
+                      aria-label={t("plugins.permTableAria")}
+                    >
+                      <div className="plugin-perm-table__head" role="row">
+                        <span role="columnheader">
+                          {t("plugins.perm.capability")}
+                        </span>
+                        <span role="columnheader">
+                          {t("plugins.perm.scope")}
+                        </span>
+                        <span role="columnheader">
+                          {t("plugins.perm.state")}
+                        </span>
+                        <span role="columnheader">
+                          {t("plugins.perm.action")}
+                        </span>
+                      </div>
+                      {permRows.map((row) => (
+                        <div
+                          key={row.requestId}
+                          className="plugin-perm-table__row"
+                          role="row"
+                        >
+                          <span role="cell">
+                            <code>{row.capabilityId}</code>
+                            {row.unenforceable ||
+                            (showTier3Honesty(plugin) &&
+                              row.decision === "unknown") ? (
+                              <span className="plugin-honesty">
+                                <span
+                                  className="plugin-honesty__lamp"
+                                  aria-hidden="true"
+                                />
+                                {t("plugins.honesty.osUnenforceable")}
+                              </span>
+                            ) : null}
+                          </span>
+                          <span role="cell">{row.scopeKind}</span>
+                          <span role="cell">
+                            <span
+                              className="plugin-perm-chip"
+                              data-decision={row.decision}
+                            >
+                              {t(`plugins.perm.decision.${row.decision}`)}
+                            </span>
+                          </span>
+                          <div role="cell">
+                            <button
+                              type="button"
+                              onClick={() => void openReview(plugin.id)}
+                            >
+                              {t("plugins.perm.review")}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="plugins-panel__meta">
+                      {t("plugins.permissions", {
+                        list: t("plugins.permissionsNone"),
+                      })}
+                    </div>
+                  )}
                   {plugin.lastError ? (
                     <p className="plugins-panel__error">{plugin.lastError}</p>
                   ) : null}

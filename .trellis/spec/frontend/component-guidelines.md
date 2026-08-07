@@ -143,6 +143,28 @@ receive props/callbacks. Spine surface id stays `translation-memory` (label
 资产). TaskPackagePanel stays Insights-only (not a sixth assets tab).
 Do not invent aggregation RPCs, export formats, or review accept/reject.
 
+### ORTHO AI and plugins extracts (Phase 7)
+
+AI control, selection menu, consistency presentation, and plugin honesty
+pieces live under `components/ai/` plus workbench `SelectionAiMenu`. Keep
+`AiControlPage` / `PluginsPanel` / `PluginPanelHost` / `PluginAiActions` as
+stable orchestrator/root paths (Spine `ai-control` + Insights dual-host).
+
+| Component | Responsibility |
+| --- | --- |
+| `ai-presenters` | Tab ids, budget ratio/gate, usage stack fractions, connector labels |
+| `consistency-presenters` | Client divergent-target scan (loaded segments only; cap) |
+| `plugin-permission-presenters` | G7 permission rows, contribution counts, Tier3 honesty |
+| `ConsistencyRepairToast` | §A7 toast after term apply when scan finds hits |
+| `ConsistencyRepairDrawer` | Before/after list + selective bulk `segment.updateTarget` |
+| `SelectionAiMenu` | §A4 selection-anchored menu; IME-safe; mounts `PluginAiActions` |
+
+`AiControlPage` owns AI settings/providers/batch/usage invokes. Workbench owns
+selection menu enable gate + consistency scan trigger on term apply.
+`PluginsPanel` owns install/permission RPC graph (expression restyle only).
+Host attribution bar is host-owned outside the plugin iframe (24px).
+Do not invent consistency-scan, built-in polish, or report-issue RPCs.
+
 Executable contracts:
 
 - Phase 2 chrome:
@@ -156,6 +178,8 @@ Executable contracts:
   and [Project Lifecycle Desktop Surface](./electron-workbench.md#project-lifecycle-desktop-surface)
 - Phase 6 quality + assets:
   [ORTHO Quality and Assets Surfaces](./electron-workbench.md#ortho-quality-and-assets-surfaces-phase-6)
+- Phase 7 AI + plugins:
+  [ORTHO AI and Plugins Surfaces](./electron-workbench.md#ortho-ai-and-plugins-surfaces-phase-7)
 ## Avoid
 
 - No direct `window.translunar.invoke` calls scattered through presentational

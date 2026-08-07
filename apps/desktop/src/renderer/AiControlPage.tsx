@@ -12,6 +12,7 @@ import type {
   EngineConnectorSource,
   GroundingOptions,
   ProjectSnapshot,
+  PromptBundle,
 } from "@translunar/contracts";
 import {
   Activity,
@@ -28,6 +29,19 @@ import {
   X,
 } from "lucide-react";
 
+import {
+  budgetGateFromRatio,
+  budgetRatio,
+  connectorSourceLabel,
+  formatDurationMs,
+  isBatchTerminal,
+  isRunTerminal,
+  startOfMonth,
+  sumUsageTokens,
+  usageStackFractions,
+  type AiControlTabId,
+} from "./components/ai/ai-presenters";
+import { GroundingInspector } from "./components/workbench/Stack/GroundingInspector";
 import { formatEngineError } from "./workbench-utils";
 import { useLocale } from "./i18n/LocaleProvider";
 
@@ -35,8 +49,6 @@ interface AiControlPageProps {
   snapshot: ProjectSnapshot;
   document: Document;
 }
-
-type AiControlTab = "providers" | "batch" | "usage";
 
 const DEFAULT_GROUNDING: GroundingOptions = {
   includeTerms: true,
@@ -54,7 +66,7 @@ const DEFAULT_GROUNDING: GroundingOptions = {
 export function AiControlPage({ snapshot, document }: AiControlPageProps) {
   const { t } = useLocale();
 
-  const [tab, setTab] = useState<AiControlTab>("providers");
+  const [tab, setTab] = useState<AiControlTabId>("providers");
   const [catalog, setCatalog] = useState<AiConnectorCatalogItem[]>([]);
   const [profiles, setProfiles] = useState<AiProviderProfile[]>([]);
   const [settings, setSettings] = useState<AiSettings | null>(null);
@@ -65,6 +77,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
   const [createConnectorId, setCreateConnectorId] = useState("openai");
   const [createName, setCreateName] = useState("OpenAI");
   const [createUrl, setCreateUrl] = useState("https://api.openai.com/v1");
@@ -74,6 +87,9 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [budget, setBudget] = useState("");
   const [origins, setOrigins] = useState("");
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(
+    null,
+  );
   const [editingProfile, setEditingProfile] =
     useState<AiProviderProfile | null>(null);
   const [batchProfileId, setBatchProfileId] = useState("");
@@ -81,11 +97,28 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
   const [concurrency, setConcurrency] = useState(3);
   const [requestsPerMinute, setRequestsPerMinute] = useState(60);
   const [replaceDrafts, setReplaceDrafts] = useState(false);
+  const [groundingOpen, setGroundingOpen] = useState(false);
+  const [groundingSnapshot, setGroundingSnapshot] = useState<{
+    contextKey: string;
+    bundle: PromptBundle;
+  } | null>(null);
+  const [groundingBusy, setGroundingBusy] = useState(false);
 
   const selectedDescriptor = useMemo(
     () => catalog.find((item) => item.id === createConnectorId),
     [catalog, createConnectorId],
   );
+
+  const selectedProfile = useMemo(
+    () => profiles.find((p) => p.id === selectedProfileId) ?? profiles[0] ?? null,
+    [profiles, selectedProfileId],
+  );
+
+  const usedTokens = useMemo(() => sumUsageTokens(usage), [usage]);
+  const ratio = budgetRatio(settings?.monthlyTokenBudget, usedTokens);
+  const budgetGate = budgetGateFromRatio(ratio);
+  const stack = useMemo(() => usageStackFractions(usage), [usage]);
+
   const connectorAvailabilityLabel = (
     availability: AiConnectorCatalogItem["availability"],
   ) =>
@@ -124,6 +157,12 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
       return next?.id ?? current;
     });
     setProfiles(providerResult.items);
+    setSelectedProfileId((current) => {
+      if (current && providerResult.items.some((p) => p.id === current)) {
+        return current;
+      }
+      return providerResult.items[0]?.id ?? null;
+    });
     setSettings(settingResult);
     setBudget(
       settingResult.monthlyTokenBudget === null ||
@@ -263,7 +302,9 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
           : {}),
       });
       setProfiles((current) => [...current, profile]);
+      setSelectedProfileId(profile.id);
       setBatchProfileId((current) => current || profile.id);
+      setCreateOpen(false);
       setNotice(t("ai.profileCreated", { name: profile.name }));
     });
 
@@ -308,6 +349,9 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
       );
       setSettings(refreshedSettings);
       setBatchProfileId((current) => (current === profile.id ? "" : current));
+      setSelectedProfileId((current) =>
+        current === profile.id ? null : current,
+      );
       setNotice(t("ai.profileRemoved", { name: profile.name }));
     });
 
@@ -354,9 +398,10 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
       setNotice(t("ai.profileUpdated", { name: updated.name }));
     });
 
-  const saveSettings = () =>
+  const saveSettings = (overrides?: Partial<AiSettings>) =>
     runAction("settings", async () => {
       if (!settings) return;
+      const next = { ...settings, ...overrides };
       const parsedBudget = budget.trim() ? Number(budget) : null;
       if (
         parsedBudget !== null &&
@@ -365,15 +410,31 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
         throw new Error(t("ai.budgetInvalid"));
       }
       const updated = await window.translunar.invoke("ai.settings.update", {
-        enabled: settings.enabled,
-        defaultProfileId: settings.defaultProfileId ?? null,
+        enabled: next.enabled,
+        defaultProfileId: next.defaultProfileId ?? null,
         monthlyTokenBudget: parsedBudget,
-        allowInteractive: settings.allowInteractive,
-        allowBatch: settings.allowBatch,
+        allowInteractive: next.allowInteractive,
+        allowBatch: next.allowBatch,
         allowedOrigins: origins
           .split(",")
           .map((value) => value.trim())
           .filter(Boolean),
+        expectedRevision: next.revision,
+      });
+      setSettings(updated);
+      setNotice(t("ai.policySaved"));
+    });
+
+  const closeAllAi = () =>
+    runAction("settings-close-all", async () => {
+      if (!settings) return;
+      const updated = await window.translunar.invoke("ai.settings.update", {
+        enabled: false,
+        defaultProfileId: settings.defaultProfileId ?? null,
+        monthlyTokenBudget: settings.monthlyTokenBudget ?? null,
+        allowInteractive: settings.allowInteractive,
+        allowBatch: settings.allowBatch,
+        allowedOrigins: settings.allowedOrigins,
         expectedRevision: settings.revision,
       });
       setSettings(updated);
@@ -383,6 +444,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
   const startBatch = () =>
     runAction("batch:start", async () => {
       if (!batchProfileId) throw new Error(t("ai.chooseProviderProfile"));
+      if (budgetGate === "block") throw new Error(t("ai.budgetBlocked"));
       const batch = await window.translunar.invoke("ai.batch.start", {
         projectId: snapshot.project.id,
         documentId: document.id,
@@ -409,406 +471,490 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
       setActiveBatch(batch);
     });
 
+  const previewGrounding = async () => {
+    if (!selectedProfile) return;
+    // No workbench segment on AI control — honest residual unless document id alone
+    // is insufficient; mirror LiveAssistant requires segmentId + expectedRevision.
+    setGroundingBusy(true);
+    setGroundingSnapshot(null);
+    setGroundingOpen(true);
+    try {
+      // Residual path: AI control surface has no active segment. Do not invent
+      // segment ids; show residual instead of fake grounding.
+      setGroundingBusy(false);
+    } catch (reason) {
+      setError(formatEngineError(reason, t));
+      setGroundingBusy(false);
+    }
+  };
+
   return (
-    <main className="surface-main ai-control-surface">
-      <section className="ai-policy-band" aria-labelledby="ai-policy-title">
-        <div>
-          <span className="surface-kicker">{t("ai.kicker")}</span>
-          <h1 id="ai-policy-title">{t("ai.title")}</h1>
-          <p>{t("ai.description")}</p>
-        </div>
-        {settings ? (
-          <div className="ai-policy-controls">
-            <label className="switch-control">
-              <input
-                type="checkbox"
-                checked={settings.enabled}
-                onChange={(event) =>
-                  setSettings({
-                    ...settings,
-                    enabled: event.currentTarget.checked,
-                  })
-                }
-              />
-              <span>{t("ai.enabled")}</span>
-            </label>
-            <label className="switch-control">
-              <input
-                type="checkbox"
-                checked={settings.allowInteractive}
-                onChange={(event) =>
-                  setSettings({
-                    ...settings,
-                    allowInteractive: event.currentTarget.checked,
-                  })
-                }
-              />
-              <span>{t("ai.interactiveRuns")}</span>
-            </label>
-            <label className="switch-control">
-              <input
-                type="checkbox"
-                checked={settings.allowBatch}
-                onChange={(event) =>
-                  setSettings({
-                    ...settings,
-                    allowBatch: event.currentTarget.checked,
-                  })
-                }
-              />
-              <span>{t("ai.batchRuns")}</span>
-            </label>
-            <label>
-              {t("ai.defaultProfile")}
-              <select
-                value={settings.defaultProfileId ?? ""}
-                onChange={(event) =>
-                  setSettings({
-                    ...settings,
-                    defaultProfileId: event.currentTarget.value || null,
-                  })
-                }
+    <main className="ai-ortho" data-surface="ai-control">
+      <header className="ai-ortho__header">
+        <h1 className="ai-ortho__title">{t("ai.title")}</h1>
+        <div className="ai-ortho__strip">
+          {settings ? (
+            <>
+              <span
+                className="ai-ortho__lamp"
+                data-enabled={settings.enabled ? "true" : "false"}
               >
-                <option value="">{t("common.none")}</option>
-                {profiles.map((profile) => (
-                  <option key={profile.id} value={profile.id}>
-                    {profile.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              {t("ai.monthlyBudget")}
-              <input
-                inputMode="numeric"
-                value={budget}
-                placeholder={t("ai.budgetPlaceholder")}
-                onChange={(event) => setBudget(event.currentTarget.value)}
-              />
-            </label>
-            <label className="ai-origins-field">
-              {t("ai.allowedOrigins")}
-              <input
-                value={origins}
-                placeholder={t("ai.originsPlaceholder")}
-                spellCheck={false}
-                onChange={(event) => setOrigins(event.currentTarget.value)}
-              />
-            </label>
-            <button
-              type="button"
-              disabled={busy !== null}
-              onClick={() => void saveSettings()}
-            >
-              <ShieldCheck size={15} /> {t("ai.savePolicy")}
-            </button>
-          </div>
-        ) : null}
-      </section>
+                <span className="ai-ortho__lamp-dot" aria-hidden="true" />
+                {t("ai.assistLabel")} ·{" "}
+                {settings.enabled
+                  ? t("ai.statusEnabled")
+                  : t("ai.statusDisabled")}
+              </span>
+              <label className="switch-control">
+                <input
+                  type="checkbox"
+                  checked={settings.enabled}
+                  onChange={(event) => {
+                    const enabled = event.currentTarget.checked;
+                    setSettings({ ...settings, enabled });
+                    void saveSettings({ enabled });
+                  }}
+                />
+                <span>{t("ai.enabled")}</span>
+              </label>
+              <button
+                type="button"
+                disabled={busy !== null || !settings.enabled}
+                onClick={() => void closeAllAi()}
+              >
+                {t("ai.closeAll")}
+              </button>
+            </>
+          ) : null}
+        </div>
+      </header>
 
       <div
-        className="ai-control-tabs"
+        className="ai-ortho__tabs"
         role="tablist"
         aria-label={t("ai.viewsAria")}
       >
         <button
           type="button"
           role="tab"
+          className="ai-ortho__tab"
+          id="ai-tab-providers"
+          aria-controls="ai-panel-providers"
           aria-selected={tab === "providers"}
           onClick={() => setTab("providers")}
         >
-          <Bot size={14} /> {t("ai.providersTab")}
+          <Bot size={14} aria-hidden="true" /> {t("ai.providersTab")}
         </button>
         <button
           type="button"
           role="tab"
+          className="ai-ortho__tab"
+          id="ai-tab-batch"
+          aria-controls="ai-panel-batch"
           aria-selected={tab === "batch"}
           onClick={() => setTab("batch")}
         >
-          <Activity size={14} /> {t("ai.batchTab")}
+          <Activity size={14} aria-hidden="true" /> {t("ai.batchTab")}
         </button>
         <button
           type="button"
           role="tab"
+          className="ai-ortho__tab"
+          id="ai-tab-usage"
+          aria-controls="ai-panel-usage"
           aria-selected={tab === "usage"}
           onClick={() => {
             setTab("usage");
             void loadUsage();
           }}
         >
-          <RefreshCw size={14} /> {t("ai.usageTab")}
+          <RefreshCw size={14} aria-hidden="true" /> {t("ai.usageTab")}
         </button>
       </div>
 
-      {error ? (
-        <div className="surface-error" role="alert">
-          {error}
-        </div>
-      ) : null}
-      {notice ? (
-        <div className="surface-notice" role="status">
-          {notice}
-        </div>
-      ) : null}
+      <div className="ai-ortho__body">
+        {error ? (
+          <div className="ai-ortho__banner" data-tone="error" role="alert">
+            {error}
+          </div>
+        ) : null}
+        {notice ? (
+          <div className="ai-ortho__notice" role="status">
+            {notice}
+          </div>
+        ) : null}
 
-      {tab === "providers" ? (
-        <div className="ai-provider-layout">
-          <section
-            className="ai-create-provider"
-            aria-labelledby="create-provider-title"
+        {tab === "providers" ? (
+          <div
+            role="tabpanel"
+            id="ai-panel-providers"
+            aria-labelledby="ai-tab-providers"
+            className="ai-providers"
           >
-            <div className="section-heading">
-              <div>
-                <span>{t("ai.connectorCatalog")}</span>
-                <h2 id="create-provider-title">{t("ai.addProvider")}</h2>
-              </div>
-              <strong>{catalog.length} kinds</strong>
-            </div>
-            <div className="ai-provider-form">
-              <label>
-                {t("ai.connector")}
-                <select
-                  value={createConnectorId}
-                  onChange={(event) =>
-                    chooseConnector(event.currentTarget.value)
-                  }
+            <div className="ai-profile-list">
+              <div className="ai-profile-list__head">
+                <span>{t("ai.providerProfiles")}</span>
+                <button
+                  type="button"
+                  onClick={() => setCreateOpen((v) => !v)}
                 >
-                  {catalog.map((item) => (
-                    <option
-                      key={item.id}
-                      value={item.id}
-                      disabled={item.availability !== "available"}
+                  <Plus size={14} aria-hidden="true" /> {t("ai.addProvider")}
+                </button>
+              </div>
+              {profiles.length ? (
+                profiles.map((profile) => (
+                  <button
+                    type="button"
+                    key={profile.id}
+                    className="ai-profile-row"
+                    data-selected={
+                      selectedProfile?.id === profile.id ? "" : undefined
+                    }
+                    onClick={() => {
+                      setSelectedProfileId(profile.id);
+                      setEditingProfile(null);
+                    }}
+                  >
+                    <strong>
+                      {profile.name}
+                      {settings?.defaultProfileId === profile.id
+                        ? ` · ${t("ai.defaultBadge")}`
+                        : ""}
+                    </strong>
+                    <small>
+                      {profile.source.kind === "plugin"
+                        ? t("ai.connectorPlugin")
+                        : t("ai.connectorBuiltin")}{" "}
+                      · {profile.model} ·{" "}
+                      {connectorAvailabilityLabel(profile.availability)}
+                    </small>
+                  </button>
+                ))
+              ) : (
+                <div className="surface-empty">
+                  <Bot size={22} aria-hidden="true" />
+                  <strong>{t("ai.noProfiles")}</strong>
+                </div>
+              )}
+            </div>
+
+            <div className="ai-profile-detail">
+              {createOpen ? (
+                <div className="ai-create-plate" aria-labelledby="create-provider-title">
+                  <h2 id="create-provider-title">{t("ai.addProvider")}</h2>
+                  <label>
+                    {t("ai.connector")}
+                    <select
+                      value={createConnectorId}
+                      onChange={(event) =>
+                        chooseConnector(event.currentTarget.value)
+                      }
                     >
-                      {item.displayName}
-                      {` · ${
-                        item.source.kind === "plugin"
-                          ? `${t("ai.connectorPlugin")} · ${item.source.owner.pluginId}`
-                          : t("ai.connectorBuiltin")
-                      }`}
-                    </option>
+                      {catalog.map((item) => (
+                        <option
+                          key={item.id}
+                          value={item.id}
+                          disabled={item.availability !== "available"}
+                        >
+                          {item.displayName}
+                          {` · ${
+                            item.source.kind === "plugin"
+                              ? `${t("ai.connectorPlugin")} · ${item.source.owner.pluginId}`
+                              : t("ai.connectorBuiltin")
+                          }`}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    {t("ai.profileName")}
+                    <input
+                      value={createName}
+                      onChange={(event) =>
+                        setCreateName(event.currentTarget.value)
+                      }
+                    />
+                  </label>
+                  <label>
+                    {t("ai.baseUrl")}
+                    <input
+                      value={createUrl}
+                      spellCheck={false}
+                      onChange={(event) =>
+                        setCreateUrl(event.currentTarget.value)
+                      }
+                    />
+                  </label>
+                  <label>
+                    {t("common.model")}
+                    <input
+                      value={createModel}
+                      spellCheck={false}
+                      onChange={(event) =>
+                        setCreateModel(event.currentTarget.value)
+                      }
+                    />
+                  </label>
+                  {selectedDescriptor?.configSchema?.fields.map((field) => (
+                    <ConnectorConfigField
+                      key={field.key}
+                      field={field}
+                      value={createConfiguration[field.key]}
+                      onChange={(value) =>
+                        updateCreateConfiguration(field.key, value)
+                      }
+                    />
                   ))}
-                </select>
-              </label>
-              {selectedDescriptor ? (
+                  <button
+                    type="button"
+                    disabled={
+                      busy !== null ||
+                      !createName.trim() ||
+                      (!createUrl.trim() &&
+                        selectedDescriptor?.source.kind === "builtin") ||
+                      !createModel.trim() ||
+                      selectedDescriptor?.availability !== "available" ||
+                      !connectorConfigurationComplete(
+                        selectedDescriptor,
+                        createConfiguration,
+                      )
+                    }
+                    onClick={() => void createProvider()}
+                  >
+                    <Plus size={15} aria-hidden="true" />
+                    {t("ai.addProvider")}
+                  </button>
+                </div>
+              ) : null}
+
+              {settings ? (
+                <div className="ai-policy-row">
+                  <label className="switch-control">
+                    <input
+                      type="checkbox"
+                      checked={settings.allowInteractive}
+                      onChange={(event) =>
+                        setSettings({
+                          ...settings,
+                          allowInteractive: event.currentTarget.checked,
+                        })
+                      }
+                    />
+                    <span>{t("ai.interactiveRuns")}</span>
+                  </label>
+                  <label className="switch-control">
+                    <input
+                      type="checkbox"
+                      checked={settings.allowBatch}
+                      onChange={(event) =>
+                        setSettings({
+                          ...settings,
+                          allowBatch: event.currentTarget.checked,
+                        })
+                      }
+                    />
+                    <span>{t("ai.batchRuns")}</span>
+                  </label>
+                  <label>
+                    {t("ai.defaultProfile")}
+                    <select
+                      value={settings.defaultProfileId ?? ""}
+                      onChange={(event) =>
+                        setSettings({
+                          ...settings,
+                          defaultProfileId: event.currentTarget.value || null,
+                        })
+                      }
+                    >
+                      <option value="">{t("common.none")}</option>
+                      {profiles.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {profile.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    {t("ai.monthlyBudget")}
+                    <input
+                      inputMode="numeric"
+                      value={budget}
+                      placeholder={t("ai.budgetPlaceholder")}
+                      onChange={(event) => setBudget(event.currentTarget.value)}
+                    />
+                  </label>
+                  <label className="ai-origins-field">
+                    {t("ai.allowedOrigins")}
+                    <input
+                      value={origins}
+                      placeholder={t("ai.originsPlaceholder")}
+                      spellCheck={false}
+                      onChange={(event) =>
+                        setOrigins(event.currentTarget.value)
+                      }
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={busy !== null}
+                    onClick={() => void saveSettings()}
+                  >
+                    <ShieldCheck size={15} aria-hidden="true" />{" "}
+                    {t("ai.savePolicy")}
+                  </button>
+                </div>
+              ) : null}
+
+              {selectedProfile ? (
                 <>
-                  <div className="ai-connector-meta">
-                    <span className="ai-connector-kind">
-                      {selectedDescriptor.source.kind === "plugin"
+                  <div className="ai-profile-detail__meta">
+                    <span>
+                      {selectedProfile.source.kind === "plugin"
                         ? t("ai.connectorPlugin")
                         : t("ai.connectorBuiltin")}
                     </span>
-                    <span data-availability={selectedDescriptor.availability}>
-                      {connectorAvailabilityLabel(
-                        selectedDescriptor.availability,
-                      )}
-                    </span>
-                    <code
-                      title={connectorSourceLabel(selectedDescriptor.source)}
-                    >
-                      {connectorSourceLabel(selectedDescriptor.source)}
-                    </code>
-                    <small>
-                      {t("ai.connectorSchemaVersion", {
-                        version: selectedDescriptor.configSchemaVersion,
-                      })}
-                    </small>
-                  </div>
-                  {selectedDescriptor.safeFailure ? (
-                    <p className="ai-connector-failure" role="status">
-                      {selectedDescriptor.safeFailure}
-                    </p>
-                  ) : null}
-                </>
-              ) : null}
-              <label>
-                {t("ai.profileName")}
-                <input
-                  value={createName}
-                  onChange={(event) => setCreateName(event.currentTarget.value)}
-                />
-              </label>
-              <label>
-                {t("ai.baseUrl")}
-                <input
-                  value={createUrl}
-                  spellCheck={false}
-                  onChange={(event) => setCreateUrl(event.currentTarget.value)}
-                />
-              </label>
-              <label>
-                {t("common.model")}
-                <input
-                  value={createModel}
-                  spellCheck={false}
-                  onChange={(event) =>
-                    setCreateModel(event.currentTarget.value)
-                  }
-                />
-              </label>
-              {selectedDescriptor?.configSchema?.fields.map((field) => (
-                <ConnectorConfigField
-                  key={field.key}
-                  field={field}
-                  value={createConfiguration[field.key]}
-                  onChange={(value) =>
-                    updateCreateConfiguration(field.key, value)
-                  }
-                />
-              ))}
-              <p>
-                <ShieldCheck size={14} />{" "}
-                {selectedDescriptor?.credentialHint ??
-                  t("ai.providerCredentialDefault")}
-              </p>
-              <button
-                type="button"
-                disabled={
-                  busy !== null ||
-                  !createName.trim() ||
-                  (!createUrl.trim() &&
-                    selectedDescriptor?.source.kind === "builtin") ||
-                  !createModel.trim() ||
-                  selectedDescriptor?.availability !== "available" ||
-                  !connectorConfigurationComplete(
-                    selectedDescriptor,
-                    createConfiguration,
-                  )
-                }
-                onClick={() => void createProvider()}
-              >
-                <Plus size={15} />
-                {t("ai.addProvider")}
-              </button>
-            </div>
-          </section>
-
-          <section className="ai-profile-list" aria-labelledby="profiles-title">
-            <div className="section-heading">
-              <div>
-                <span>{t("ai.configured")}</span>
-                <h2 id="profiles-title">{t("ai.providerProfiles")}</h2>
-              </div>
-              <strong>{profiles.length}</strong>
-            </div>
-            {profiles.length ? (
-              profiles.map((profile) => (
-                <div className="ai-profile-block" key={profile.id}>
-                  <article className="ai-profile-row" key={profile.id}>
-                    <div className="ai-profile-identity">
-                      <span className="provider-glyph">
-                        {profile.name.slice(0, 2).toUpperCase()}
-                      </span>
-                      <div>
-                        <strong>{profile.name}</strong>
-                        <small title={connectorSourceLabel(profile.source)}>
-                          {profile.source.kind === "plugin"
-                            ? t("ai.connectorPlugin")
-                            : t("ai.connectorBuiltin")}{" "}
-                          · {connectorSourceLabel(profile.source)} ·{" "}
-                          {profile.model}
-                        </small>
-                        <span
-                          className="ai-connector-availability"
-                          data-availability={profile.availability}
-                        >
-                          {connectorAvailabilityLabel(profile.availability)}
-                        </span>
-                      </div>
-                    </div>
-                    <div
-                      className="ai-profile-endpoint"
-                      title={profile.baseUrl}
-                    >
-                      {profile.baseUrl}
-                    </div>
                     <span
-                      className={
-                        profile.credentialPresent
-                          ? "credential-state ready"
-                          : "credential-state"
-                      }
+                      data-availability={selectedProfile.availability}
                     >
-                      <KeyRound size={13} />
-                      {profile.credentialPresent
-                        ? t("ai.credentialStored")
-                        : t("ai.credentialMissing")}
+                      {connectorAvailabilityLabel(selectedProfile.availability)}
                     </span>
-                    <div className="ai-credential-entry">
-                      <input
-                        type="password"
-                        autoComplete="new-password"
-                        aria-label={t("ai.credentialFor", {
-                          name: profile.name,
-                        })}
-                        placeholder={t("ai.credentialPlaceholder")}
-                        value={credentials[profile.id] ?? ""}
-                        onChange={(event) => {
-                          const value = event.currentTarget.value;
-                          setCredentials((current) => ({
-                            ...current,
-                            [profile.id]: value,
-                          }));
-                        }}
-                      />
-                      <button
-                        type="button"
-                        disabled={
-                          busy !== null || !credentials[profile.id]?.trim()
-                        }
-                        onClick={() => void saveCredential(profile)}
-                      >
-                        {t("ai.store")}
-                      </button>
+                    <code title={connectorSourceLabel(selectedProfile.source)}>
+                      {connectorSourceLabel(selectedProfile.source)}
+                    </code>
+                    <span>{selectedProfile.model}</span>
+                    <span title={selectedProfile.baseUrl}>
+                      {selectedProfile.baseUrl}
+                    </span>
+                  </div>
+                  {selectedProfile.source.kind === "plugin" ? (
+                    <div className="ai-g5" aria-label={t("ai.provenanceAria")}>
+                      <span>
+                        {selectedProfile.source.owner.pluginId}
+                      </span>
+                      <span>
+                        {selectedProfile.source.owner.versionId}
+                      </span>
+                      <span>{selectedProfile.source.contributionId}</span>
+                      <span>
+                        v{selectedProfile.source.contractVersion}
+                      </span>
                     </div>
-                    <div className="ai-profile-actions">
-                      <button
-                        type="button"
-                        title={t("ai.testConnection")}
-                        aria-label={t("ai.testNamed", { name: profile.name })}
-                        disabled={
-                          busy !== null ||
-                          !profile.credentialPresent ||
-                          profile.availability !== "available"
-                        }
-                        onClick={() => void testProvider(profile)}
-                      >
-                        <Play size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        title={t("ai.editProfile")}
-                        aria-label={t("ai.editNamed", { name: profile.name })}
-                        disabled={busy !== null}
-                        onClick={() => setEditingProfile({ ...profile })}
-                      >
-                        <Pencil size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        title={t("ai.deleteCredential")}
-                        aria-label={t("ai.deleteCredentialFor", {
-                          name: profile.name,
-                        })}
-                        disabled={busy !== null || !profile.credentialPresent}
-                        onClick={() => void removeCredential(profile)}
-                      >
-                        <KeyRound size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        title={t("ai.deleteProfile")}
-                        aria-label={t("ai.deleteNamed", { name: profile.name })}
-                        disabled={busy !== null}
-                        onClick={() => void removeProvider(profile)}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </article>
-                  {editingProfile?.id === profile.id ? (
+                  ) : null}
+                  <div
+                    className="ai-credential-status"
+                    data-ready={
+                      selectedProfile.credentialPresent ? "true" : "false"
+                    }
+                  >
+                    <KeyRound size={13} aria-hidden="true" />
+                    {selectedProfile.credentialPresent
+                      ? t("ai.credentialInKeyring")
+                      : t("ai.credentialMissing")}
+                  </div>
+                  <div className="ai-credential-entry">
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      aria-label={t("ai.credentialFor", {
+                        name: selectedProfile.name,
+                      })}
+                      placeholder={t("ai.credentialPlaceholder")}
+                      value={credentials[selectedProfile.id] ?? ""}
+                      onChange={(event) => {
+                        const value = event.currentTarget.value;
+                        setCredentials((current) => ({
+                          ...current,
+                          [selectedProfile.id]: value,
+                        }));
+                      }}
+                    />
+                    <button
+                      type="button"
+                      disabled={
+                        busy !== null ||
+                        !credentials[selectedProfile.id]?.trim()
+                      }
+                      onClick={() => void saveCredential(selectedProfile)}
+                    >
+                      {t("ai.store")}
+                    </button>
+                  </div>
+                  <div className="ai-profile-actions">
+                    <button
+                      type="button"
+                      title={t("ai.testConnection")}
+                      aria-label={t("ai.testNamed", {
+                        name: selectedProfile.name,
+                      })}
+                      disabled={
+                        busy !== null ||
+                        !selectedProfile.credentialPresent ||
+                        selectedProfile.availability !== "available"
+                      }
+                      onClick={() => void testProvider(selectedProfile)}
+                    >
+                      <Play size={14} aria-hidden="true" />{" "}
+                      {t("ai.testConnection")}
+                    </button>
+                    <button
+                      type="button"
+                      title={t("ai.editProfile")}
+                      aria-label={t("ai.editNamed", {
+                        name: selectedProfile.name,
+                      })}
+                      disabled={busy !== null}
+                      onClick={() => setEditingProfile({ ...selectedProfile })}
+                    >
+                      <Pencil size={14} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      title={t("ai.deleteCredential")}
+                      aria-label={t("ai.deleteCredentialFor", {
+                        name: selectedProfile.name,
+                      })}
+                      disabled={
+                        busy !== null || !selectedProfile.credentialPresent
+                      }
+                      onClick={() => void removeCredential(selectedProfile)}
+                    >
+                      <KeyRound size={14} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      title={t("ai.deleteProfile")}
+                      aria-label={t("ai.deleteNamed", {
+                        name: selectedProfile.name,
+                      })}
+                      disabled={busy !== null}
+                      onClick={() => void removeProvider(selectedProfile)}
+                    >
+                      <Trash2 size={14} aria-hidden="true" />
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={groundingBusy}
+                    onClick={() => void previewGrounding()}
+                  >
+                    {t("ai.viewGroundingInject")}
+                  </button>
+                  <GroundingInspector
+                    open={groundingOpen}
+                    onOpenChange={setGroundingOpen}
+                    snapshot={groundingSnapshot}
+                    unavailableReason={
+                      groundingSnapshot
+                        ? null
+                        : t("ai.groundingNeedsWorkbench")
+                    }
+                  />
+                  {editingProfile?.id === selectedProfile.id ? (
                     <div
-                      className="ai-profile-edit"
-                      aria-label={t("ai.editNamed", { name: profile.name })}
+                      className="ai-create-plate"
+                      aria-label={t("ai.editNamed", {
+                        name: selectedProfile.name,
+                      })}
                     >
                       <label>
                         {t("ai.profileName")}
@@ -917,7 +1063,7 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                           }
                           onClick={() => void saveProviderUpdate()}
                         >
-                          <ShieldCheck size={13} />
+                          <ShieldCheck size={13} aria-hidden="true" />
                           {t("common.save")}
                         </button>
                         <button
@@ -926,258 +1072,308 @@ export function AiControlPage({ snapshot, document }: AiControlPageProps) {
                           aria-label={t("ai.cancelEditAria")}
                           onClick={() => setEditingProfile(null)}
                         >
-                          <X size={13} />
+                          <X size={13} aria-hidden="true" />
                         </button>
                       </div>
                     </div>
                   ) : null}
+                </>
+              ) : (
+                <div className="surface-empty">
+                  <strong>{t("ai.noProfiles")}</strong>
                 </div>
-              ))
-            ) : (
-              <div className="surface-empty">
-                <Bot size={22} />
-                <strong>{t("ai.noProfiles")}</strong>
-              </div>
-            )}
-          </section>
-        </div>
-      ) : null}
-
-      {tab === "batch" ? (
-        <div className="ai-batch-layout">
-          <section className="ai-batch-config">
-            <div className="section-heading">
-              <div>
-                <span>{t("ai.tmFirst")}</span>
-                <h2>{t("ai.pretranslate")}</h2>
-              </div>
+              )}
             </div>
-            <div className="ai-batch-form">
-              <label>
-                {t("common.provider")}
-                <select
-                  value={batchProfileId}
-                  onChange={(event) =>
-                    setBatchProfileId(event.currentTarget.value)
+          </div>
+        ) : null}
+
+        {tab === "batch" ? (
+          <div
+            role="tabpanel"
+            id="ai-panel-batch"
+            aria-labelledby="ai-tab-batch"
+            className="ai-batch"
+          >
+            <section className="ai-batch__config">
+              <h2>{t("ai.pretranslate")}</h2>
+              {budgetGate === "block" ? (
+                <div className="ai-ortho__banner" data-tone="error" role="status">
+                  {t("ai.budgetBlocked")}
+                </div>
+              ) : budgetGate === "warn" ? (
+                <div className="ai-ortho__banner" role="status">
+                  {t("ai.budgetWarn")}
+                </div>
+              ) : null}
+              <div className="ai-batch-form">
+                <label>
+                  {t("common.provider")}
+                  <select
+                    value={batchProfileId}
+                    onChange={(event) =>
+                      setBatchProfileId(event.currentTarget.value)
+                    }
+                  >
+                    <option value="">{t("ai.chooseProfile")}</option>
+                    {profiles
+                      .filter(
+                        (profile) =>
+                          profile.enabled &&
+                          profile.availability === "available",
+                      )
+                      .map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {profile.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <label>
+                  {t("ai.tmThreshold")}
+                  <input
+                    type="number"
+                    min={0}
+                    max={101}
+                    value={tmThreshold}
+                    onChange={(event) =>
+                      setTmThreshold(Number(event.currentTarget.value))
+                    }
+                  />
+                </label>
+                <label>
+                  {t("ai.concurrency")}
+                  <input
+                    type="number"
+                    min={1}
+                    max={16}
+                    value={concurrency}
+                    onChange={(event) =>
+                      setConcurrency(Number(event.currentTarget.value))
+                    }
+                  />
+                </label>
+                <label>
+                  {t("ai.requestsPerMinute")}
+                  <input
+                    type="number"
+                    min={1}
+                    max={600}
+                    value={requestsPerMinute}
+                    onChange={(event) =>
+                      setRequestsPerMinute(Number(event.currentTarget.value))
+                    }
+                  />
+                </label>
+                <label className="switch-control">
+                  <input
+                    type="checkbox"
+                    checked={replaceDrafts}
+                    onChange={(event) =>
+                      setReplaceDrafts(event.currentTarget.checked)
+                    }
+                  />
+                  <span>{t("ai.replaceDrafts")}</span>
+                </label>
+                <button
+                  type="button"
+                  disabled={
+                    busy !== null ||
+                    !batchProfileId ||
+                    budgetGate === "block" ||
+                    settings?.allowBatch === false ||
+                    settings?.enabled === false
                   }
+                  onClick={() => void startBatch()}
                 >
-                  <option value="">{t("ai.chooseProfile")}</option>
-                  {profiles
-                    .filter(
-                      (profile) =>
-                        profile.enabled && profile.availability === "available",
-                    )
-                    .map((profile) => (
-                      <option key={profile.id} value={profile.id}>
-                        {profile.name}
+                  <Play size={15} aria-hidden="true" /> {t("ai.startBatch")}
+                </button>
+              </div>
+            </section>
+            <section className="ai-batch__progress">
+              <div className="section-heading">
+                <h2>{t("ai.batchRuns")}</h2>
+                {activeBatch ? (
+                  <select
+                    aria-label={t("ai.selectedBatchAria")}
+                    value={activeBatch.id}
+                    onChange={(event) =>
+                      setActiveBatch(
+                        batches.find(
+                          (item) => item.id === event.currentTarget.value,
+                        ) ?? null,
+                      )
+                    }
+                  >
+                    {batches.map((batch) => (
+                      <option key={batch.id} value={batch.id}>
+                        {batch.id.slice(0, 8)} · {batch.status}
                       </option>
                     ))}
-                </select>
-              </label>
-              <label>
-                {t("ai.tmThreshold")}
-                <input
-                  type="number"
-                  min={0}
-                  max={101}
-                  value={tmThreshold}
-                  onChange={(event) =>
-                    setTmThreshold(Number(event.currentTarget.value))
-                  }
-                />
-              </label>
-              <label>
-                {t("ai.concurrency")}
-                <input
-                  type="number"
-                  min={1}
-                  max={16}
-                  value={concurrency}
-                  onChange={(event) =>
-                    setConcurrency(Number(event.currentTarget.value))
-                  }
-                />
-              </label>
-              <label>
-                {t("ai.requestsPerMinute")}
-                <input
-                  type="number"
-                  min={1}
-                  max={600}
-                  value={requestsPerMinute}
-                  onChange={(event) =>
-                    setRequestsPerMinute(Number(event.currentTarget.value))
-                  }
-                />
-              </label>
-              <label className="switch-control">
-                <input
-                  type="checkbox"
-                  checked={replaceDrafts}
-                  onChange={(event) =>
-                    setReplaceDrafts(event.currentTarget.checked)
-                  }
-                />
-                <span>{t("ai.replaceDrafts")}</span>
-              </label>
-              <button
-                type="button"
-                disabled={busy !== null || !batchProfileId}
-                onClick={() => void startBatch()}
-              >
-                <Play size={15} /> {t("ai.startBatch")}
-              </button>
-            </div>
-          </section>
-          <section className="ai-batch-progress">
-            <div className="section-heading">
-              <div>
-                <span>{t("ai.durableQueue")}</span>
-                <h2>{t("ai.batchRuns")}</h2>
+                  </select>
+                ) : null}
               </div>
               {activeBatch ? (
-                <select
-                  aria-label={t("ai.selectedBatchAria")}
-                  value={activeBatch.id}
-                  onChange={(event) =>
-                    setActiveBatch(
-                      batches.find(
-                        (item) => item.id === event.currentTarget.value,
-                      ) ?? null,
-                    )
-                  }
-                >
-                  {batches.map((batch) => (
-                    <option key={batch.id} value={batch.id}>
-                      {batch.id.slice(0, 8)} · {batch.status}
-                    </option>
-                  ))}
-                </select>
-              ) : null}
-            </div>
-            {activeBatch ? (
-              <>
-                <div className="batch-meter">
-                  <div>
-                    <strong>
-                      {activeBatch.completed}/{activeBatch.total}
-                    </strong>
-                    <span>{activeBatch.status}</span>
-                  </div>
-                  <progress
-                    max={Math.max(activeBatch.total, 1)}
-                    value={activeBatch.completed}
-                  />
-                </div>
-                <div className="batch-stat-grid">
-                  <span>
-                    <strong>{activeBatch.tmApplied}</strong>TM
-                  </span>
-                  <span>
-                    <strong>{activeBatch.succeeded}</strong>AI
-                  </span>
-                  <span>
-                    <strong>{activeBatch.skipped}</strong>
-                    {t("common.skipped")}
-                  </span>
-                  <span>
-                    <strong>{activeBatch.failed}</strong>
-                    {t("common.failed")}
-                  </span>
-                </div>
-                <div className="batch-actions">
-                  {!isBatchTerminal(activeBatch.status) ? (
-                    <button
-                      type="button"
-                      disabled={busy !== null}
-                      onClick={() => void changeBatchState("cancel")}
-                    >
-                      <CircleStop size={14} />
-                      {t("common.cancel")}
-                    </button>
-                  ) : activeBatch.status === "interrupted" ||
-                    activeBatch.status === "failed" ||
-                    activeBatch.status === "canceled" ? (
-                    <button
-                      type="button"
-                      disabled={busy !== null}
-                      onClick={() => void changeBatchState("resume")}
-                    >
-                      <RotateCcw size={14} /> {t("ai.resume")}
-                    </button>
-                  ) : null}
-                </div>
-                <div
-                  className="batch-item-list"
-                  aria-label={t("ai.batchItemsAria")}
-                >
-                  {batchItems.map((item) => (
-                    <div key={item.segmentId}>
-                      <strong>#{item.ordinal + 1}</strong>
-                      <span>{item.source ?? t("ai.pending")}</span>
-                      <em data-status={item.status}>{item.status}</em>
-                      {item.errorCode ? <small>{item.errorCode}</small> : null}
+                <>
+                  <div className="batch-meter">
+                    <div>
+                      <strong>
+                        {activeBatch.completed}/{activeBatch.total}
+                      </strong>
+                      <span>{activeBatch.status}</span>
                     </div>
-                  ))}
+                    <progress
+                      max={Math.max(activeBatch.total, 1)}
+                      value={activeBatch.completed}
+                    />
+                  </div>
+                  <div className="batch-stat-grid">
+                    <span>
+                      <strong>{activeBatch.tmApplied}</strong>TM
+                    </span>
+                    <span>
+                      <strong>{activeBatch.succeeded}</strong>AI
+                    </span>
+                    <span>
+                      <strong>{activeBatch.skipped}</strong>
+                      {t("common.skipped")}
+                    </span>
+                    <span>
+                      <strong>{activeBatch.failed}</strong>
+                      {t("common.failed")}
+                    </span>
+                  </div>
+                  <div className="batch-actions">
+                    {!isBatchTerminal(activeBatch.status) ? (
+                      <button
+                        type="button"
+                        disabled={busy !== null}
+                        onClick={() => void changeBatchState("cancel")}
+                      >
+                        <CircleStop size={14} aria-hidden="true" />
+                        {t("common.cancel")}
+                      </button>
+                    ) : activeBatch.status === "interrupted" ||
+                      activeBatch.status === "failed" ||
+                      activeBatch.status === "canceled" ? (
+                      <button
+                        type="button"
+                        disabled={busy !== null}
+                        onClick={() => void changeBatchState("resume")}
+                      >
+                        <RotateCcw size={14} aria-hidden="true" />{" "}
+                        {t("ai.resume")}
+                      </button>
+                    ) : null}
+                  </div>
+                  <div
+                    className="batch-item-list"
+                    aria-label={t("ai.batchItemsAria")}
+                  >
+                    {batchItems.map((item) => (
+                      <div key={item.segmentId}>
+                        <strong>#{item.ordinal + 1}</strong>
+                        <span>{item.source ?? t("ai.pending")}</span>
+                        <em data-status={item.status}>{item.status}</em>
+                        {item.errorCode ? (
+                          <small>{item.errorCode}</small>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="surface-empty">
+                  <Activity size={22} aria-hidden="true" />
+                  <strong>{t("ai.noBatchRuns")}</strong>
                 </div>
-              </>
+              )}
+            </section>
+          </div>
+        ) : null}
+
+        {tab === "usage" ? (
+          <section
+            role="tabpanel"
+            id="ai-panel-usage"
+            aria-labelledby="ai-tab-usage"
+            className="ai-usage"
+          >
+            <div className="section-heading">
+              <div>
+                <h2>{t("ai.authoritativeUsage")}</h2>
+                <p className="ai-usage-note">{t("ai.usageLocalNote")}</p>
+              </div>
+              <button
+                type="button"
+                aria-label={t("ai.refreshUsage")}
+                title={t("ai.refreshUsage")}
+                onClick={() => void runAction("usage", loadUsage)}
+              >
+                <RefreshCw size={14} aria-hidden="true" />
+              </button>
+            </div>
+            {budgetGate === "warn" || budgetGate === "block" ? (
+              <div
+                className="ai-ortho__banner"
+                data-tone={budgetGate === "block" ? "error" : undefined}
+                role="status"
+              >
+                {budgetGate === "block"
+                  ? t("ai.budgetBlocked")
+                  : t("ai.budgetWarn")}
+                {ratio !== null
+                  ? ` · ${Math.round(ratio * 100)}% · ${usedTokens.toLocaleString()} / ${settings?.monthlyTokenBudget?.toLocaleString()}`
+                  : ""}
+              </div>
+            ) : null}
+            {stack.length ? (
+              <div
+                className="ai-usage-stack"
+                role="img"
+                aria-label={t("ai.usageStackAria")}
+              >
+                {stack.map((slice) => (
+                  <div
+                    key={slice.key}
+                    className="ai-usage-stack__slice"
+                    style={{ flexGrow: slice.fraction, flexBasis: 0 }}
+                    title={`${slice.key}: ${slice.tokens}`}
+                  />
+                ))}
+              </div>
+            ) : null}
+            {usage.length ? (
+              <div className="usage-table" role="table">
+                <div role="row" className="usage-head">
+                  <span>{t("common.provider")}</span>
+                  <span>{t("common.requests")}</span>
+                  <span>{t("common.input")}</span>
+                  <span>{t("ai.cacheRead")}</span>
+                  <span>{t("ai.thinking")}</span>
+                  <span>{t("common.output")}</span>
+                  <span>{t("common.elapsed")}</span>
+                </div>
+                {usage.map((item) => (
+                  <div role="row" key={item.key}>
+                    <strong>{item.key}</strong>
+                    <span>{item.requestCount.toLocaleString()}</span>
+                    <span>{item.inputTokens.toLocaleString()}</span>
+                    <span>{item.cacheReadTokens.toLocaleString()}</span>
+                    <span>{item.reasoningTokens.toLocaleString()}</span>
+                    <span>{item.outputTokens.toLocaleString()}</span>
+                    <span>{formatDurationMs(item.elapsedMs)}</span>
+                  </div>
+                ))}
+              </div>
             ) : (
               <div className="surface-empty">
-                <Activity size={22} />
-                <strong>{t("ai.noBatchRuns")}</strong>
+                <Activity size={22} aria-hidden="true" />
+                <strong>{t("ai.noUsage")}</strong>
               </div>
             )}
           </section>
-        </div>
-      ) : null}
-
-      {tab === "usage" ? (
-        <section className="ai-usage-section">
-          <div className="section-heading">
-            <div>
-              <span>{t("ai.currentMonth")}</span>
-              <h2>{t("ai.authoritativeUsage")}</h2>
-            </div>
-            <button
-              type="button"
-              aria-label={t("ai.refreshUsage")}
-              title={t("ai.refreshUsage")}
-              onClick={() => void runAction("usage", loadUsage)}
-            >
-              <RefreshCw size={14} />
-            </button>
-          </div>
-          {usage.length ? (
-            <div className="usage-table" role="table">
-              <div role="row" className="usage-head">
-                <span>{t("common.provider")}</span>
-                <span>{t("common.requests")}</span>
-                <span>{t("common.input")}</span>
-                <span>{t("ai.cacheRead")}</span>
-                <span>{t("ai.thinking")}</span>
-                <span>{t("common.output")}</span>
-                <span>{t("common.elapsed")}</span>
-              </div>
-              {usage.map((item) => (
-                <div role="row" key={item.key}>
-                  <strong>{item.key}</strong>
-                  <span>{item.requestCount.toLocaleString()}</span>
-                  <span>{item.inputTokens.toLocaleString()}</span>
-                  <span>{item.cacheReadTokens.toLocaleString()}</span>
-                  <span>{item.reasoningTokens.toLocaleString()}</span>
-                  <span>{item.outputTokens.toLocaleString()}</span>
-                  <span>{formatDuration(item.elapsedMs)}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="surface-empty">
-              <Activity size={22} />
-              <strong>{t("ai.noUsage")}</strong>
-            </div>
-          )}
-        </section>
-      ) : null}
+        ) : null}
+      </div>
     </main>
   );
 }
@@ -1193,29 +1389,6 @@ async function waitForRun(
     run = await window.translunar.invoke("ai.run.get", { runId: run.id });
   }
   throw new Error(timeoutMessage);
-}
-
-function isRunTerminal(status: AiRun["status"]): boolean {
-  return status === "succeeded" || status === "failed" || status === "canceled";
-}
-
-function isBatchTerminal(status: AiBatchRun["status"]): boolean {
-  return (
-    status === "succeeded" ||
-    status === "completedWithErrors" ||
-    status === "failed" ||
-    status === "canceled"
-  );
-}
-
-function startOfMonth(timestamp: number): number {
-  const date = new Date(timestamp);
-  return new Date(date.getFullYear(), date.getMonth(), 1).getTime();
-}
-
-function formatDuration(milliseconds: number): string {
-  if (milliseconds < 1_000) return `${milliseconds} ms`;
-  return `${(milliseconds / 1_000).toFixed(1)} s`;
 }
 
 type ConnectorConfiguration = Record<string, string | number | boolean>;
@@ -1319,12 +1492,6 @@ function connectorConfigurationComplete(
       (configuration[field.key] !== undefined &&
         configuration[field.key] !== ""),
   );
-}
-
-function connectorSourceLabel(source: EngineConnectorSource): string {
-  return source.kind === "builtin"
-    ? source.provider
-    : `${source.owner.pluginId}@${source.owner.versionId}:${source.contributionId}/v${source.contractVersion}`;
 }
 
 function catalogDescriptorForSource(

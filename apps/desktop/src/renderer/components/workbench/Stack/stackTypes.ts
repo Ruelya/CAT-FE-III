@@ -23,7 +23,10 @@ export interface StackPanelProps {
   termLoading: boolean;
   termSettled: boolean;
   termError: string | null;
-  onInsert(target: string): void;
+  onInsert(
+    target: string,
+    context?: { kind: "term"; sourceTerm: string },
+  ): void;
   onApplyMutation(mutation: EditorMutationResult): void;
 }
 

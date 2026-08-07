@@ -1,0 +1,230 @@
+/* ══════════════════════════════════════════════════════════════
+   Plugins surfaces — G7 permission table + host attribution
+   Source: docs/design-ii/screens/ai.md · Phase 7
+   ══════════════════════════════════════════════════════════════ */
+
+@layer surfaces {
+
+.plugins-ortho .plugins-panel__item {
+  border: 1px solid var(--rule-strong);
+  background: var(--deck);
+  padding: 0;
+  margin-block-end: var(--s-4);
+  display: grid;
+  gap: 0;
+}
+
+.plugins-ortho .plugins-panel__identity {
+  padding: var(--s-5);
+  display: grid;
+  gap: var(--s-3);
+}
+
+.plugins-ortho .plugins-panel__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-4);
+  font-size: var(--t-micro);
+  color: var(--text-2);
+}
+
+.plugins-contrib-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-3);
+  font-size: var(--t-micro);
+  color: var(--text-2);
+}
+
+.plugins-contrib-counts span {
+  padding: 0 var(--s-2);
+  border: 1px solid var(--rule-soft);
+  background: var(--paper);
+}
+
+.plugin-perm-table {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(4rem, 0.7fr) minmax(4rem, 0.7fr) auto;
+  gap: 0;
+  border-block-start: 1px solid var(--rule);
+  font-size: var(--t-meta);
+}
+
+.plugin-perm-table__head,
+.plugin-perm-table__row {
+  display: contents;
+}
+
+.plugin-perm-table__head > span,
+.plugin-perm-table__row > span,
+.plugin-perm-table__row > div {
+  padding: var(--s-3) var(--s-4);
+  border-block-end: 1px solid var(--rule-soft);
+  border-inline-end: 1px solid var(--rule-soft);
+  min-inline-size: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.plugin-perm-table__head > span {
+  background: var(--frame);
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.plugin-perm-chip {
+  font-size: var(--t-micro);
+  padding: 0 var(--s-2);
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--text-2);
+}
+
+.plugin-perm-chip[data-decision="granted"] {
+  color: var(--ok-ink);
+  border-color: color-mix(in srgb, var(--ok) 40%, var(--rule));
+}
+
+.plugin-perm-chip[data-decision="denied"] {
+  color: var(--err-ink);
+  border-color: color-mix(in srgb, var(--err) 40%, var(--rule));
+}
+
+.plugin-perm-chip[data-decision="unknown"] {
+  color: var(--warn-ink);
+}
+
+.plugin-honesty {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--t-micro);
+  color: var(--warn-ink);
+}
+
+.plugin-honesty__lamp {
+  inline-size: 7px;
+  block-size: 7px;
+  border-radius: 50%;
+  background: var(--warn);
+  flex-shrink: 0;
+}
+
+.plugin-tier {
+  font-size: var(--t-micro);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Host attribution bar — forced 24px, outside iframe */
+.plugin-panel-host {
+  display: flex;
+  flex-direction: column;
+  min-block-size: 0;
+  height: 100%;
+  background: var(--paper);
+  border: 1px solid var(--rule-strong);
+}
+
+.plugin-panel-host__attribution {
+  block-size: 24px;
+  min-block-size: 24px;
+  max-block-size: 24px;
+  background: var(--frame);
+  border-block-end: 1px solid var(--rule-strong);
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding-inline: var(--s-3);
+  font-size: var(--t-micro);
+  color: var(--text-2);
+  flex-shrink: 0;
+  z-index: 1;
+}
+
+.plugin-panel-host__attribution strong {
+  color: var(--text-1);
+  font-weight: 600;
+  font-size: var(--t-micro);
+}
+
+.plugin-panel-host__attribution-spacer {
+  flex: 1;
+  min-inline-size: 0;
+}
+
+.plugin-panel-host__status {
+  font-size: var(--t-micro);
+  color: var(--text-2);
+}
+
+.plugin-panel-host__status[data-state="ready"] {
+  color: var(--ok-ink);
+}
+
+.plugin-panel-host__status[data-state="error"],
+.plugin-panel-host__status[data-state="revoked"] {
+  color: var(--err-ink);
+}
+
+.plugin-panel-host__menu {
+  position: relative;
+}
+
+.plugin-panel-host__menu-list {
+  position: absolute;
+  inset-block-start: 100%;
+  inset-inline-end: 0;
+  z-index: 5;
+  min-inline-size: 10rem;
+  margin: 0;
+  padding: var(--s-2);
+  list-style: none;
+  background: var(--deck);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-pop);
+  box-shadow: var(--elev-pop);
+}
+
+.plugin-panel-host__menu-list button {
+  width: 100%;
+  text-align: start;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--t-meta);
+  padding: var(--s-2) var(--s-3);
+  cursor: pointer;
+  color: var(--text-1);
+}
+
+.plugin-panel-host iframe {
+  min-block-size: 0;
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: var(--deck);
+}
+
+.plugin-panel-host__message {
+  padding: var(--s-5);
+  font-size: var(--t-meta);
+  color: var(--text-2);
+}
+
+.plugin-panel-host__message[role="alert"] {
+  color: var(--err-ink);
+}
+
+/* Legacy header class kept as alias for tests / old CSS */
+.plugin-panel-host__header {
+  display: contents;
+}
+
+} /* @layer surfaces */

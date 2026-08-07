@@ -9,7 +9,10 @@ export interface TermListProps {
   loading: boolean;
   settled: boolean;
   error: string | null;
-  onInsert(target: string): void;
+  onInsert(
+    target: string,
+    context?: { kind: "term"; sourceTerm: string },
+  ): void;
 }
 
 export function TermList({

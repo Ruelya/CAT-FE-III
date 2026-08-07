@@ -6,7 +6,10 @@ import type { TermStateKind } from "./stackTypes";
 
 export interface TermRowProps {
   match: TermMatch;
-  onInsert?(target: string): void;
+  onInsert?(
+    target: string,
+    context?: { kind: "term"; sourceTerm: string },
+  ): void;
 }
 
 function resolveTermState(
@@ -65,7 +68,12 @@ export function TermRow({ match, onInsert }: TermRowProps) {
         <button
           type="button"
           className="insert-button term__insert"
-          onClick={() => onInsert(translation.term)}
+          onClick={() =>
+            onInsert(translation.term, {
+              kind: "term",
+              sourceTerm: match.sourceTerm,
+            })
+          }
         >
           {t("workbench.insert")}
         </button>

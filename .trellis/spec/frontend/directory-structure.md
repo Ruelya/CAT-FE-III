@@ -72,20 +72,39 @@ components/assets/
 `-- *.test.ts(x)
 ```
 
+ORTHO Phase 7 AI- and plugin-class extracts:
+
+```text
+components/ai/
+|-- ai-presenters.ts            # tabs, budget gate, usage stack (+ tests)
+|-- consistency-presenters.ts   # client divergent-target scan (+ tests)
+|-- plugin-permission-presenters.ts  # G7 rows, tier honesty (+ tests)
+|-- ConsistencyRepairToast.tsx, ConsistencyRepairDrawer.tsx
+`-- *.test.ts(x)
+
+components/workbench/
+|-- SelectionAiMenu.tsx         # §A4 selection-anchored plugin AI menu
+`-- SelectionAiMenu.test.tsx
+```
+
 Keep stable page/panel import paths for shell and Insights dual-host:
 
 - `QaReviewPage.tsx`, `ExportReviewPage.tsx` (orchestrators)
 - Root `AssetCurationPanel.tsx`, `AlignmentCorpusPanel.tsx`, `InteropPanel.tsx`,
   `TaskPackagePanel.tsx` (do not move; Insights + Assets both mount as needed)
+- `AiControlPage.tsx`, `PluginsPanel.tsx`, `PluginPanelHost.tsx`,
+  `PluginAiActions.tsx` (do not move; Spine / Insights dual-host)
 
 `WorkbenchPages.WorkspacePage` routes `translation-memory` → `AssetsSurface`
-(no second Band/SurfaceHeader when shell already provides navigation).
+and `ai-control` → `AiControlPage` (no second Band/SurfaceHeader when shell
+already provides navigation). Insights continues to host `PluginsPanel`.
 
 Grid keyboard/selection lives in `hooks/useRovingGrid.ts`. Shared interaction
 math lives in `workbench-utils.ts` with colocated tests (including
 `restorePaletteOwnerFocus`). Project lifecycle pure helpers stay in
 `project-home-utils.ts`. QA presentation pure helpers stay in
-`components/quality/qa-presenters.ts`. Surface CSS under `styles/30-surfaces/`:
+`components/quality/qa-presenters.ts`. AI/plugin pure helpers stay in
+`components/ai/*-presenters.ts`. Surface CSS under `styles/30-surfaces/`:
 
 ```text
 styles/30-surfaces/
@@ -95,13 +114,15 @@ styles/30-surfaces/
 |-- setup.css
 |-- insights.css
 |-- quality.css                 # .qa-ortho / .export-ortho
-`-- assets.css                  # .assets-ortho / hubs
+|-- assets.css                  # .assets-ortho / hubs
+|-- ai.css                      # .ai-ortho / selection-ai / consistency
+`-- plugins.css                 # .plugins-ortho / host attribution
 ```
 
 Import new surface sheets from `styles/index.css`. Prefer shell-scoped rules
 under `.project-home-shell` / `.setup-wizard-shell` / `.qa-ortho` /
-`.export-ortho` / `.assets-ortho` / insights main rather than growing
-unscoped rules in mega `styles.css`.
+`.export-ortho` / `.assets-ortho` / `.ai-ortho` / `.plugins-ortho` / insights
+main rather than growing unscoped rules in mega `styles.css`.
 
 ## Placement Rules
 
