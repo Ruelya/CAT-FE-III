@@ -1,0 +1,15 @@
+{"file": "docs/design-ii/09-implementation.md", "reason": "Phase 5 delivery list: ProjectHome 35/65, SetupView 30/70+Stepper, ProjectInsights vertical tabs + extracts"}
+{"file": "docs/design-ii/screens/project.md", "reason": "Authoritative UX for home, wizard, insights overview/files/analysis/reimport/task/discussion/archive"}
+{"file": "docs/design-ii/05-components.md", "reason": "§E2 Tabs, §E3 vertical Tab List, §E5 Stepper geometry and a11y rules"}
+{"file": "docs/design-ii/04-motion.md", "reason": "View Transition / FLIP / wizard-next rules and reduced motion"}
+{"file": "docs/design-ii/06-shell-navigation.md", "reason": "project-open and wizard surface transition table"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Extract patterns, controlled props, icon a11y, ActiveAxis reuse"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Where project extracts live under renderer/components"}
+{"file": ".trellis/spec/frontend/electron-workbench.md", "reason": "Project Lifecycle Desktop Surface RPC and navigation contracts"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Presentation state vs engine-owned project data"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Props/types for extracts without untyped payloads"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Expression-only quality bar and tests"}
+{"file": ".trellis/spec/guides/autoloop-orchestration.md", "reason": "Autoloop plan artifacts and worker boundaries"}
+{"file": ".trellis/tasks/08-08-ortho-frontend-phase-5-project-surfaces/prd.md", "reason": "Task requirements and acceptance criteria AC1–AC14"}
+{"file": ".trellis/tasks/08-08-ortho-frontend-phase-5-project-surfaces/design.md", "reason": "Technical design, layout contracts, VT strategy, trade-offs"}
+{"file": ".trellis/tasks/08-08-ortho-frontend-phase-5-project-surfaces/implement.md", "reason": "Ordered checklist and validation commands"}

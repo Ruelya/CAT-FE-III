@@ -240,6 +240,27 @@ BEM 变体：`.block__element` + `data-*` 状态（不用 `--modifier` 类）。
 项目首页（35/65 + 卡片 FLIP 转场）、新建向导（30/70 + 分组表单 + 新 Stepper）、
 洞察（竖 Tab + 概览动作绑定 + 各子面板）。
 
+#### 期 5 实现记录（2026-08）
+
+| 交付 | 位置 | 说明 |
+| --- | --- | --- |
+| `ProjectHome` 35/65 | `ProjectHome.tsx` + `components/project/*` | 删除常驻四项侧栏；构图栏 + §E2 横向 Tabs（项目/搜索/模板/回收站，计数上标签）；刷新在左栏底部 |
+| `ProjectCard` / panes | `ProjectCard.tsx` · `ProjectsPane` · `TemplatesPane` · `RecyclePane` | 板块+缝网格；3px Band Echo；4px 进度；归档降饱和+角标；溢出菜单；清除需名称确认 |
+| `project-open` FLIP | card `data-opening` + Masthead `.identity` | 共享 `view-transition-name: project-identity`；`useViewTransition("surface")`；reduced-motion 直切 |
+| `SetupView` 30/70 | `SetupView.tsx` + `Stepper` · `CompositionRail` | §E5 两位 Mono 步进；删除右侧装饰信息栏与 SQLITE 芯片；步骤 2 复用/质量/自动化分组 + 后果 meta |
+| `ProjectInsightsPage` | 编排 + `components/project/insights/*` | §E3 竖向分组 Tab（~180px）；概览块决策动作 + 诚实 residual；子面板拆出 |
+| 样式 | `styles/30-surfaces/project-home.css` · `setup.css` · `insights.css` | 新 surface 层；`styles.css` 旧壳/横 Tab/卡片布局规则已中和 |
+| i18n | `i18n/messages.ts` | 首页摘要/归档角标/清除确认、向导分组与 meta、洞察分组与动作 en+zh |
+
+**验收**：AC1–AC14（布局/契约/步进/竖 Tab/概览动作/抽取/i18n）；`project-home-utils` 与 messages 单测绿；desktop typecheck 绿。
+
+**未做 / 残留**：
+- 跨项目 TM/术语/语料总量无 RPC → 左栏仅展示本页可得项目/模板/回收计数
+- 概览「打开质检 / AI 控制」无父级路由时为 residual 文案（可选 `onOpenQa` / `onOpenAiControl`）
+- 工作区路径更改字段未实现（原 API 无）
+- 永久清除名称确认已实现；模板「另存为」/重命名/导出归档若原先不在首页菜单则未发明
+- `styles.css` 中部分旧 project-card 子选择器仍存在但已用 `.legacy-*` 前缀隔离布局冲突
+
 ### 期 6 · 质量与资产
 QA 复核三栏 + 就地修复；导出复核 + 降级清单；资产 Surface 五 Tab（TM / 术语 / 养护 / 对齐 / 互操作）。
 

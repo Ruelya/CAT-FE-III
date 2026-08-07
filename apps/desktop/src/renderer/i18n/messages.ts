@@ -250,6 +250,16 @@ export type MessageKey =
   | "home.restoreItem"
   | "home.permanentlyPurge"
   | "home.purgeNamed"
+  | "home.archivedBadge"
+  | "home.projectActions"
+  | "home.lastRefresh"
+  | "home.summaryProjects"
+  | "home.summaryActive"
+  | "home.summaryTemplates"
+  | "home.summaryRecycle"
+  | "home.templatesEmpty"
+  | "home.templatesEmptyHelp"
+  | "home.purgeNameConfirm"
   | "draft.recoveryTitle"
   | "draft.recoveryBody"
   | "draft.staleWarning"
@@ -1297,6 +1307,19 @@ export type MessageKey =
   | "workbench.correctOcrBtn"
   | "discussion.tombstoneBody2"
   | "setup.cleanupFailed"
+  | "setup.groupReuse"
+  | "setup.groupQuality"
+  | "setup.groupAutomation"
+  | "setup.metaTemplateNone"
+  | "setup.metaTemplateSelected"
+  | "setup.metaTemplateDefault"
+  | "setup.metaQaRules"
+  | "setup.metaAiOffline"
+  | "setup.metaAiModel"
+  | "setup.metaPipelineNone"
+  | "setup.metaPipelineSelected"
+  | "setup.metaAnalysisStandard"
+  | "setup.metaAnalysisSelected"
   | "insights.archiveExportedDiag"
   | "discussion.tombstoneBody3"
   | "ai.profileCreated"
@@ -1466,6 +1489,17 @@ export type MessageKey =
   | "insights.durationSeconds"
   | "insights.durationMinutes"
   | "insights.durationHours"
+  | "insights.groupAssets"
+  | "insights.groupWorkflow"
+  | "insights.groupSystem"
+  | "insights.actionOpenWorkbench"
+  | "insights.actionViewHistory"
+  | "insights.actionOpenAssets"
+  | "insights.actionOpenQa"
+  | "insights.actionOpenAi"
+  | "insights.residualQa"
+  | "insights.residualAi"
+  | "insights.staleAnalysisBanner"
   | "qa.run"
   | "qa.waivedBy"
   | "qa.relatedSegmentCount"
@@ -2093,6 +2127,16 @@ const enUs: MessageCatalog = {
   "home.restoreItem": "Restore",
   "home.permanentlyPurge": "Permanently purge",
   "home.purgeNamed": "Purge {name}",
+  "home.archivedBadge": "Archived",
+  "home.projectActions": "Actions for {name}",
+  "home.lastRefresh": "Last refresh · {value}",
+  "home.summaryProjects": "Projects",
+  "home.summaryActive": "Active (this page)",
+  "home.summaryTemplates": "Templates",
+  "home.summaryRecycle": "Recycle",
+  "home.templatesEmpty": "No project templates",
+  "home.templatesEmptyHelp": "Save a reusable configuration to speed up new projects.",
+  "home.purgeNameConfirm": "Type {name} to confirm permanent purge",
   "draft.recoveryTitle": "Unsaved drafts found",
   "draft.recoveryBody":
     "Recoverable editor drafts were found after a crash. Review each item before applying.",
@@ -2484,6 +2528,20 @@ const enUs: MessageCatalog = {
     "Cleanup was skipped because the project is no longer active.",
   "setup.projectRetained":
     "The project was retained because it contains imported documents.",
+  "setup.groupReuse": "Reuse",
+  "setup.groupQuality": "Quality",
+  "setup.groupAutomation": "Automation",
+  "setup.metaTemplateNone": "Built-in defaults for the fields below.",
+  "setup.metaTemplateSelected":
+    "{name} · r{revision} seeds quality and automation once.",
+  "setup.metaTemplateDefault": "Template or project default.",
+  "setup.metaQaRules": "{count} enabled rules",
+  "setup.metaAiOffline": "Offline assistant — no remote engine configured.",
+  "setup.metaAiModel": "Model {model}",
+  "setup.metaPipelineNone": "No pipeline selected.",
+  "setup.metaPipelineSelected": "Pipeline {name}",
+  "setup.metaAnalysisStandard": "Standard analysis profile.",
+  "setup.metaAnalysisSelected": "Analysis profile {name}",
   "qa.kicker": "Quality system",
   "qa.title": "QA and review",
   "qa.controlsAria": "QA controls",
@@ -3407,6 +3465,18 @@ const enUs: MessageCatalog = {
   "insights.durationSeconds": "{value} sec",
   "insights.durationMinutes": "{value} min",
   "insights.durationHours": "{value} hr",
+  "insights.groupAssets": "Assets",
+  "insights.groupWorkflow": "Workflow",
+  "insights.groupSystem": "System",
+  "insights.actionOpenWorkbench": "Open workbench",
+  "insights.actionViewHistory": "View history",
+  "insights.actionOpenAssets": "Open asset curation",
+  "insights.actionOpenQa": "Open QA review",
+  "insights.actionOpenAi": "Open AI control",
+  "insights.residualQa": "QA surface opens from workbench Run QA when available.",
+  "insights.residualAi": "AI control opens from Index Spine when available.",
+  "insights.staleAnalysisBanner":
+    "Analysis snapshot is stale relative to current documents.",
   "qa.run": "Run QA",
   "qa.waivedBy": "Waived by {actor}",
   "qa.relatedSegmentCount":
@@ -4017,6 +4087,16 @@ const zhCn: MessageCatalog = {
   "home.restoreItem": "恢复",
   "home.permanentlyPurge": "永久清除",
   "home.purgeNamed": "清除 {name}",
+  "home.archivedBadge": "已归档",
+  "home.projectActions": "{name} 的操作",
+  "home.lastRefresh": "上次刷新 · {value}",
+  "home.summaryProjects": "项目",
+  "home.summaryActive": "当前页活动项",
+  "home.summaryTemplates": "模板",
+  "home.summaryRecycle": "回收站",
+  "home.templatesEmpty": "暂无项目模板",
+  "home.templatesEmptyHelp": "保存可复用配置，加快新建项目。",
+  "home.purgeNameConfirm": "输入 {name} 以确认永久清除",
   "draft.recoveryTitle": "发现未保存草稿",
   "draft.recoveryBody": "崩溃后找到可恢复的编辑器草稿。应用前请逐条确认。",
   "draft.staleWarning": "修订号不匹配 — 仅在审阅后恢复。",
@@ -4384,6 +4464,20 @@ const zhCn: MessageCatalog = {
   "setup.diagnosticImported": "已导入",
   "setup.cleanupSkipped": "项目已不再处于活动状态，因此跳过清理。",
   "setup.projectRetained": "项目包含已导入文档，因此予以保留。",
+  "setup.groupReuse": "复用",
+  "setup.groupQuality": "质量",
+  "setup.groupAutomation": "自动化",
+  "setup.metaTemplateNone": "下方字段使用内置默认。",
+  "setup.metaTemplateSelected":
+    "{name} · r{revision} 会一次性带入质量与自动化配置。",
+  "setup.metaTemplateDefault": "模板或项目默认。",
+  "setup.metaQaRules": "{count} 条启用规则",
+  "setup.metaAiOffline": "离线助手 — 未配置远程引擎。",
+  "setup.metaAiModel": "模型 {model}",
+  "setup.metaPipelineNone": "未选择管线。",
+  "setup.metaPipelineSelected": "管线 {name}",
+  "setup.metaAnalysisStandard": "标准分析配置档。",
+  "setup.metaAnalysisSelected": "分析配置档 {name}",
   "qa.kicker": "质量系统",
   "qa.title": "质检与审校",
   "qa.controlsAria": "质检控件",
@@ -5274,6 +5368,17 @@ const zhCn: MessageCatalog = {
   "insights.durationSeconds": "{value} 秒",
   "insights.durationMinutes": "{value} 分钟",
   "insights.durationHours": "{value} 小时",
+  "insights.groupAssets": "资产",
+  "insights.groupWorkflow": "流程",
+  "insights.groupSystem": "系统",
+  "insights.actionOpenWorkbench": "打开工作台",
+  "insights.actionViewHistory": "查看历史",
+  "insights.actionOpenAssets": "打开资产养护",
+  "insights.actionOpenQa": "打开质检审阅",
+  "insights.actionOpenAi": "打开 AI 控制",
+  "insights.residualQa": "质检面可从工作台「运行质检」进入（若已接入）。",
+  "insights.residualAi": "AI 控制可从 Index Spine 进入（若已接入）。",
+  "insights.staleAnalysisBanner": "分析快照相对当前文档已过期。",
   "qa.run": "运行质检",
   "qa.waivedBy": "由 {actor} 豁免",
   "qa.relatedSegmentCount":

@@ -1,0 +1,10 @@
+{"file": "docs/design-ii/09-implementation.md", "reason": "Verify Phase 5 scope only; no Phase 6–8 or engine work"}
+{"file": "docs/design-ii/screens/project.md", "reason": "Acceptance against home 35/65, wizard 30/70, insights vertical tabs and overview actions"}
+{"file": "docs/design-ii/05-components.md", "reason": "E2/E3/E5 component contracts for tabs and stepper"}
+{"file": ".trellis/spec/frontend/electron-workbench.md", "reason": "Preserve project open/create/archive/search/recycle API contracts"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "a11y, extract discipline, no decorative filler"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Quality bar for expression-only UI and tests"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Typed props for new project components"}
+{"file": ".trellis/tasks/08-08-ortho-frontend-phase-5-project-surfaces/prd.md", "reason": "AC checklist AC1–AC14"}
+{"file": ".trellis/tasks/08-08-ortho-frontend-phase-5-project-surfaces/design.md", "reason": "Contracts, VT residual rules, overview action fallbacks"}
+{"file": ".trellis/tasks/08-08-ortho-frontend-phase-5-project-surfaces/implement.md", "reason": "Validation commands and risk points for review/verify"}

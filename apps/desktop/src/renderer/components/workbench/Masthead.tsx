@@ -47,7 +47,7 @@ export function Masthead({
 
   return (
     <header className="masthead app-bar" role="banner">
-      <div className="identity brand-plate">
+      <div className="identity brand-plate" data-project-identity>
         <div className="identity__name">{projectName}</div>
         <div className="identity__meta micro">{metaLine}</div>
       </div>

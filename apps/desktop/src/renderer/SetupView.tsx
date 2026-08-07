@@ -22,15 +22,13 @@ import {
   FilePlus2,
   Files,
   FolderOpen,
-  Languages,
-  Layers3,
   LoaderCircle,
-  Settings2,
   Trash2,
   UploadCloud,
 } from "lucide-react";
 
-import { BrandMark } from "./BrandMark";
+import { CompositionRail } from "./components/project/CompositionRail";
+import { Stepper } from "./components/project/Stepper";
 import { fileName, formatError } from "./workbench-utils";
 import { useLocale } from "./i18n/LocaleProvider";
 
@@ -46,6 +44,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
   const { t } = useLocale();
 
   const [step, setStep] = useState<WizardStep>(1);
+  const [wizardDir, setWizardDir] = useState<"next" | "back" | null>(null);
   const [name, setName] = useState("Craft Contracts 2026");
   const [sourceLocale, setSourceLocale] = useState("en-US");
   const [targetLocale, setTargetLocale] = useState("zh-CN");
@@ -114,6 +113,23 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
     [selectedTemplateId, templates],
   );
 
+  const selectedQa = useMemo(
+    () => qaProfiles.find((profile) => profile.id === qaProfileId),
+    [qaProfileId, qaProfiles],
+  );
+  const selectedAi = useMemo(
+    () => aiProfiles.find((profile) => profile.id === aiProfileId),
+    [aiProfileId, aiProfiles],
+  );
+  const selectedPipeline = useMemo(
+    () => pipelines.find((pipeline) => pipeline.id === pipelineId),
+    [pipelineId, pipelines],
+  );
+  const selectedAnalysis = useMemo(
+    () => analysisProfiles.find((profile) => profile.id === analysisProfileId),
+    [analysisProfileId, analysisProfiles],
+  );
+
   const selectTemplate = (templateId: string) => {
     setSelectedTemplateId(templateId);
     setQaProfileId("");
@@ -159,6 +175,11 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
     }
   };
 
+  const goToStep = (next: WizardStep, dir: "next" | "back") => {
+    setWizardDir(dir);
+    setStep(next);
+  };
+
   const goNext = () => {
     setError(null);
     if (step === 1 && (!name.trim() || sourceLocale === targetLocale)) {
@@ -169,7 +190,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
       );
       return;
     }
-    setStep((step + 1) as WizardStep);
+    goToStep((step + 1) as WizardStep, "next");
   };
 
   const createProject = async (
@@ -331,57 +352,96 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
     }
   };
 
+  const steps = useMemo(
+    () => [
+      { id: "project", label: t("setup.stepProject") },
+      { id: "configuration", label: t("setup.stepConfiguration") },
+      { id: "files", label: t("setup.stepFiles") },
+    ],
+    [t],
+  );
+
+  const templateMeta = selectedTemplate
+    ? t("setup.metaTemplateSelected", {
+        name: selectedTemplate.name,
+        revision: selectedTemplate.revision,
+      })
+    : t("setup.metaTemplateNone");
+
+  const qaMeta = selectedQa
+    ? t("setup.metaQaRules", {
+        count: selectedQa.definition.enabledRuleIds.length,
+      })
+    : t("setup.metaTemplateDefault");
+
+  const aiMeta = selectedAi
+    ? t("setup.metaAiModel", { model: selectedAi.model })
+    : t("setup.metaAiOffline");
+
+  const pipelineMeta = selectedPipeline
+    ? t("setup.metaPipelineSelected", { name: selectedPipeline.name })
+    : t("setup.metaPipelineNone");
+
+  const analysisMeta = selectedAnalysis
+    ? t("setup.metaAnalysisSelected", { name: selectedAnalysis.name })
+    : t("setup.metaAnalysisStandard");
+
+  const reviewMeta =
+    reviewPolicy === "required"
+      ? t("setup.requireReview")
+      : reviewPolicy === "optional"
+        ? t("setup.allowDirectSignOff")
+        : t("setup.templateRequired");
+
   return (
-    <div className="setup-shell setup-wizard-shell">
-      <header className="setup-header">
-        <div className="identity-lockup">
-          <BrandMark />
-          <div>
-            <strong>{t("setup.brand")}</strong>
-            <span>{t("setup.tagline")}</span>
-          </div>
-        </div>
-        <div className="setup-header-actions">
-          <span className="setup-header-meta">{t("setup.localWorkspace")}</span>
-          {onCancel ? (
+    <div className="setup-wizard-shell">
+      <CompositionRail
+        title={t("setup.brand")}
+        subtitle={t("setup.tagline")}
+        footer={
+          onCancel ? (
             <button
-              className="button tertiary"
+              className="button tertiary setup-wizard-cancel"
               type="button"
               onClick={onCancel}
             >
-              <ArrowLeft size={14} />
+              <ArrowLeft size={14} aria-hidden="true" />
               {t("home.projects")}
             </button>
-          ) : null}
+          ) : null
+        }
+      >
+        <Stepper
+          steps={steps}
+          current={step - 1}
+          onSelect={(index) =>
+            goToStep((index + 1) as WizardStep, index + 1 < step ? "back" : "next")
+          }
+          ariaLabel={t("setup.stepsAria")}
+        />
+        <div className="setup-rail-summary">
+          <span>
+            <strong>
+              {sourceLocale} → {targetLocale}
+            </strong>
+          </span>
+          <span>
+            {t("setup.sourceSelections", { count: sourcePaths.length })}
+          </span>
         </div>
-      </header>
-      <main className="setup-main setup-wizard-main">
-        <nav className="wizard-steps" aria-label={t("setup.stepsAria")}>
-          <WizardStepButton
-            number={1}
-            label={t("setup.stepProject")}
-            step={step}
-            onSelect={setStep}
-          />
-          <WizardStepButton
-            number={2}
-            label={t("setup.stepConfiguration")}
-            step={step}
-            onSelect={setStep}
-          />
-          <WizardStepButton
-            number={3}
-            label={t("setup.stepFiles")}
-            step={step}
-            onSelect={setStep}
-          />
-        </nav>
-        <section className="setup-content wizard-content">
+      </CompositionRail>
+
+      <main className="setup-wizard-main">
+        <section
+          className="setup-wizard-panel wizard-content"
+          data-wizard-dir={wizardDir ?? undefined}
+          key={step}
+        >
           <form className="setup-form wizard-form" onSubmit={submit}>
             {step === 1 ? (
               <>
                 <WizardHeading
-                  eyebrow={t("setup.step1")}
+                  eyebrow={t("setup.stepCounter", { step })}
                   title={t("setup.nameWorkspace")}
                   description={t("setup.identityDescription")}
                 />
@@ -435,123 +495,147 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
             {step === 2 ? (
               <>
                 <WizardHeading
-                  eyebrow={t("setup.step2")}
+                  eyebrow={t("setup.stepCounter", { step })}
                   title={t("setup.chooseProfile")}
                   description={t("setup.configurationDescription")}
                 />
                 {loadingOptions ? (
                   <div className="wizard-loading" role="status">
-                    <LoaderCircle className="spin" size={18} />{" "}
+                    <LoaderCircle className="spin" size={18} aria-hidden="true" />{" "}
                     {t("setup.loadingProfiles")}
                   </div>
                 ) : null}
-                <label className="field field-wide">
-                  <span>{t("setup.projectTemplate")}</span>
-                  <select
-                    value={selectedTemplateId}
-                    onChange={(event) =>
-                      selectTemplate(event.currentTarget.value)
-                    }
-                  >
-                    <option value="">{t("setup.noTemplate")}</option>
-                    {templates.map((template) => (
-                      <option key={template.id} value={template.id}>
-                        {t("setup.revisionOption", {
-                          name: template.name,
-                          revision: template.revision,
-                        })}
+
+                <section className="wizard-group">
+                  <h3 className="wizard-group__title">{t("setup.groupReuse")}</h3>
+                  <label className="field field-wide">
+                    <span>{t("setup.projectTemplate")}</span>
+                    <select
+                      value={selectedTemplateId}
+                      onChange={(event) =>
+                        selectTemplate(event.currentTarget.value)
+                      }
+                    >
+                      <option value="">{t("setup.noTemplate")}</option>
+                      {templates.map((template) => (
+                        <option key={template.id} value={template.id}>
+                          {t("setup.revisionOption", {
+                            name: template.name,
+                            revision: template.revision,
+                          })}
+                        </option>
+                      ))}
+                    </select>
+                    <small className="wizard-field-meta">{templateMeta}</small>
+                  </label>
+                </section>
+
+                <section className="wizard-group">
+                  <h3 className="wizard-group__title">
+                    {t("setup.groupQuality")}
+                  </h3>
+                  <label className="field">
+                    <span>{t("setup.qaProfile")}</span>
+                    <select
+                      value={qaProfileId}
+                      onChange={(event) =>
+                        setQaProfileId(event.currentTarget.value)
+                      }
+                    >
+                      <option value="">{t("setup.templateDefault")}</option>
+                      {qaProfiles.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {profile.name}
+                        </option>
+                      ))}
+                    </select>
+                    <small className="wizard-field-meta">{qaMeta}</small>
+                  </label>
+                  <label className="field">
+                    <span>{t("setup.reviewPolicy")}</span>
+                    <select
+                      value={reviewPolicy}
+                      onChange={(event) =>
+                        setReviewPolicy(
+                          event.currentTarget.value as ReviewPolicy,
+                        )
+                      }
+                    >
+                      <option value="template">
+                        {t("setup.templateRequired")}
                       </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field">
-                  <span>{t("setup.qaProfile")}</span>
-                  <select
-                    value={qaProfileId}
-                    onChange={(event) =>
-                      setQaProfileId(event.currentTarget.value)
-                    }
-                  >
-                    <option value="">{t("setup.templateDefault")}</option>
-                    {qaProfiles.map((profile) => (
-                      <option key={profile.id} value={profile.id}>
-                        {profile.name}
+                      <option value="required">{t("setup.requireReview")}</option>
+                      <option value="optional">
+                        {t("setup.allowDirectSignOff")}
                       </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field">
-                  <span>{t("setup.pipeline")}</span>
-                  <select
-                    value={pipelineId}
-                    onChange={(event) =>
-                      setPipelineId(event.currentTarget.value)
-                    }
-                  >
-                    <option value="">{t("setup.templateNone")}</option>
-                    {pipelines.map((pipeline) => (
-                      <option key={pipeline.id} value={pipeline.id}>
-                        {pipeline.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field">
-                  <span>{t("setup.aiProfile")}</span>
-                  <select
-                    value={aiProfileId}
-                    onChange={(event) =>
-                      setAiProfileId(event.currentTarget.value)
-                    }
-                  >
-                    <option value="">{t("setup.templateOffline")}</option>
-                    {aiProfiles.map((profile) => (
-                      <option key={profile.id} value={profile.id}>
-                        {profile.name} · {profile.model}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field">
-                  <span>{t("setup.analysisProfile")}</span>
-                  <select
-                    value={analysisProfileId}
-                    onChange={(event) =>
-                      setAnalysisProfileId(event.currentTarget.value)
-                    }
-                  >
-                    <option value="">{t("setup.templateStandard")}</option>
-                    {analysisProfiles.map((profile) => (
-                      <option key={profile.id} value={profile.id}>
-                        {profile.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field">
-                  <span>{t("setup.reviewPolicy")}</span>
-                  <select
-                    value={reviewPolicy}
-                    onChange={(event) =>
-                      setReviewPolicy(event.currentTarget.value as ReviewPolicy)
-                    }
-                  >
-                    <option value="template">
-                      {t("setup.templateRequired")}
-                    </option>
-                    <option value="required">{t("setup.requireReview")}</option>
-                    <option value="optional">
-                      {t("setup.allowDirectSignOff")}
-                    </option>
-                  </select>
-                </label>
+                    </select>
+                    <small className="wizard-field-meta">{reviewMeta}</small>
+                  </label>
+                </section>
+
+                <section className="wizard-group">
+                  <h3 className="wizard-group__title">
+                    {t("setup.groupAutomation")}
+                  </h3>
+                  <label className="field">
+                    <span>{t("setup.aiProfile")}</span>
+                    <select
+                      value={aiProfileId}
+                      onChange={(event) =>
+                        setAiProfileId(event.currentTarget.value)
+                      }
+                    >
+                      <option value="">{t("setup.templateOffline")}</option>
+                      {aiProfiles.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {profile.name} · {profile.model}
+                        </option>
+                      ))}
+                    </select>
+                    <small className="wizard-field-meta">{aiMeta}</small>
+                  </label>
+                  <label className="field">
+                    <span>{t("setup.pipeline")}</span>
+                    <select
+                      value={pipelineId}
+                      onChange={(event) =>
+                        setPipelineId(event.currentTarget.value)
+                      }
+                    >
+                      <option value="">{t("setup.templateNone")}</option>
+                      {pipelines.map((pipeline) => (
+                        <option key={pipeline.id} value={pipeline.id}>
+                          {pipeline.name}
+                        </option>
+                      ))}
+                    </select>
+                    <small className="wizard-field-meta">{pipelineMeta}</small>
+                  </label>
+                  <label className="field">
+                    <span>{t("setup.analysisProfile")}</span>
+                    <select
+                      value={analysisProfileId}
+                      onChange={(event) =>
+                        setAnalysisProfileId(event.currentTarget.value)
+                      }
+                    >
+                      <option value="">{t("setup.templateStandard")}</option>
+                      {analysisProfiles.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {profile.name}
+                        </option>
+                      ))}
+                    </select>
+                    <small className="wizard-field-meta">{analysisMeta}</small>
+                  </label>
+                </section>
               </>
             ) : null}
 
             {step === 3 ? (
               <>
                 <WizardHeading
-                  eyebrow={t("setup.step3")}
+                  eyebrow={t("setup.stepCounter", { step })}
                   title={t("setup.addFiles")}
                   description={t("setup.filesDescription")}
                 />
@@ -562,14 +646,15 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                     type="button"
                     onClick={() => void chooseFiles()}
                   >
-                    <Files size={15} /> {t("setup.addFilesBtn")}
+                    <Files size={15} aria-hidden="true" /> {t("setup.addFilesBtn")}
                   </button>
                   <button
                     className="button secondary"
                     type="button"
                     onClick={() => void chooseFolder()}
                   >
-                    <FolderOpen size={15} /> {t("setup.addFolderBtn")}
+                    <FolderOpen size={15} aria-hidden="true" />{" "}
+                    {t("setup.addFolderBtn")}
                   </button>
                   <label className="wizard-atomicity">
                     <span>{t("setup.commitMode")}</span>
@@ -595,7 +680,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                   onDragOver={(event) => event.preventDefault()}
                   onDrop={handleDrop}
                 >
-                  <UploadCloud size={24} />
+                  <UploadCloud size={24} aria-hidden="true" />
                   <strong>{t("setup.dropFiles")}</strong>
                   <span>{t("setup.pathsSanitized")}</span>
                 </div>
@@ -605,7 +690,8 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                 >
                   {sourcePaths.length === 0 ? (
                     <div className="wizard-empty">
-                      <FilePlus2 size={18} /> {t("setup.noSourcesSelected")}
+                      <FilePlus2 size={18} aria-hidden="true" />{" "}
+                      {t("setup.noSourcesSelected")}
                     </div>
                   ) : (
                     sourcePaths.map((path) => (
@@ -661,17 +747,16 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                 {error}
               </p>
             ) : null}
-            <div className="setup-actions wizard-actions field-wide">
-              <span className="setup-note">{t("setup.sqlitePrivate")}</span>
+            <div className="wizard-actions field-wide">
               <div>
                 {step > 1 ? (
                   <button
                     className="button tertiary"
                     type="button"
                     disabled={busy}
-                    onClick={() => setStep((step - 1) as WizardStep)}
+                    onClick={() => goToStep((step - 1) as WizardStep, "back")}
                   >
-                    <ArrowLeft size={15} />
+                    <ArrowLeft size={15} aria-hidden="true" />
                     {t("action.back")}
                   </button>
                 ) : null}
@@ -681,7 +766,8 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                     type="button"
                     onClick={goNext}
                   >
-                    {t("setup.continue")} <ArrowRight size={16} />
+                    {t("setup.continue")}{" "}
+                    <ArrowRight size={16} aria-hidden="true" />
                   </button>
                 ) : successfulDocument ? (
                   <button
@@ -690,7 +776,8 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                     onClick={() => void openSuccessfulDocument()}
                     disabled={busy}
                   >
-                    {t("setup.openWorkspace")} <ArrowRight size={16} />
+                    {t("setup.openWorkspace")}{" "}
+                    <ArrowRight size={16} aria-hidden="true" />
                   </button>
                 ) : (
                   <button
@@ -700,13 +787,17 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                   >
                     {busy ? (
                       <>
-                        <LoaderCircle className="spin" size={15} />{" "}
+                        <LoaderCircle
+                          className="spin"
+                          size={15}
+                          aria-hidden="true"
+                        />{" "}
                         {t("setup.importing")}
                       </>
                     ) : (
                       <>
                         {t("action.createProject")}
-                        <ArrowRight size={16} />
+                        <ArrowRight size={16} aria-hidden="true" />
                       </>
                     )}
                   </button>
@@ -715,52 +806,8 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
             </div>
           </form>
         </section>
-        <aside className="setup-aside wizard-aside">
-          {step === 1 ? (
-            <Languages size={24} />
-          ) : step === 2 ? (
-            <Settings2 size={24} />
-          ) : (
-            <Layers3 size={24} />
-          )}
-          <span>{t("setup.stepCounter", { step })}</span>
-          <span>
-            {sourceLocale} → {targetLocale}
-          </span>
-          <span>
-            {t("setup.sourceSelections", { count: sourcePaths.length })}
-          </span>
-        </aside>
       </main>
     </div>
-  );
-}
-
-interface WizardStepButtonProps {
-  number: WizardStep;
-  label: string;
-  step: WizardStep;
-  onSelect(step: WizardStep): void;
-}
-
-function WizardStepButton({
-  number,
-  label,
-  step,
-  onSelect,
-}: WizardStepButtonProps) {
-  const complete = number < step;
-  return (
-    <button
-      type="button"
-      className={number === step ? "active" : ""}
-      aria-current={number === step ? "step" : undefined}
-      onClick={() => number <= step && onSelect(number)}
-      disabled={number > step}
-    >
-      <span>{complete ? <Check size={13} /> : `0${number}`}</span>
-      {label}
-    </button>
   );
 }
 
@@ -793,7 +840,7 @@ function DiagnosticList({
     <section className="wizard-diagnostics field-wide">
       <header>
         <strong>{title}</strong>
-        <span>{items.length}</span>
+        <span className="num">{items.length}</span>
       </header>
       {items.map((item, index) => (
         <div key={`${item.label}-${index}`} data-status={item.status}>
@@ -801,7 +848,7 @@ function DiagnosticList({
             {item.status === "succeeded" ||
             item.status === "resolved" ||
             item.status === "remapped" ? (
-              <Check size={13} />
+              <Check size={13} aria-hidden="true" />
             ) : (
               "·"
             )}

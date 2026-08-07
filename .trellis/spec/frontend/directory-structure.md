@@ -14,8 +14,10 @@ apps/desktop/
 ```
 
 `apps/desktop/src/renderer/main.tsx` is the renderer entry point. `App.tsx`
-owns surface/session orchestration; `SetupView.tsx`, `Workbench.tsx`,
-`WorkbenchPages.tsx`, and `AssistantPanel.tsx` own visible feature areas.
+owns surface/session orchestration; `ProjectHome.tsx`, `SetupView.tsx`,
+`ProjectInsightsPage.tsx`, `Workbench.tsx`, `WorkbenchPages.tsx`, and
+`AssistantPanel.tsx` own visible feature areas.
+
 `Workbench.tsx` orchestrates the editor and wires ORTHO Phase 2–4 extracts under
 `components/workbench/`:
 
@@ -34,10 +36,40 @@ components/workbench/
     `-- previewTypes.ts
 ```
 
+ORTHO Phase 5 project-class extracts live under `components/project/`. Keep
+App import paths for the three orchestrators stable:
+
+```text
+components/project/
+|-- CompositionRail.tsx         # shared 35%/30% brand rail
+|-- HomeTabList.tsx             # §E2 horizontal home tabs
+|-- InsightsTabList.tsx         # §E3 vertical grouped insights tabs
+|-- Stepper.tsx                 # §E5 setup steps
+|-- ProjectCard.tsx, ProjectsPane.tsx, TemplatesPane.tsx, RecyclePane.tsx
+|-- insights/
+|   |-- OverviewPanel.tsx, FilesPanel.tsx, AnalysisPanel.tsx
+|   |-- ReimportPanel.tsx, ArchivePanel.tsx, HistoryPanel.tsx
+|   `-- insightsShared.tsx
+`-- *.test.ts(x)
+```
+
 Grid keyboard/selection lives in `hooks/useRovingGrid.ts`. Shared interaction
 math lives in `workbench-utils.ts` with colocated tests (including
-`restorePaletteOwnerFocus`). Stack/dock surface CSS:
-`styles/30-surfaces/workbench-stack.css`.
+`restorePaletteOwnerFocus`). Project lifecycle pure helpers stay in
+`project-home-utils.ts`. Surface CSS under `styles/30-surfaces/`:
+
+```text
+styles/30-surfaces/
+|-- workbench.css
+|-- workbench-stack.css
+|-- project-home.css
+|-- setup.css
+`-- insights.css
+```
+
+Import new surface sheets from `styles/index.css`. Prefer shell-scoped rules
+under `.project-home-shell` / `.setup-wizard-shell` / insights main rather
+than growing unscoped rules in mega `styles.css`.
 
 ## Placement Rules
 

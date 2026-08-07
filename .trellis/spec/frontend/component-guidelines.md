@@ -90,6 +90,29 @@ residence, filter-scope ID expansion, batch/QA RPC adapters, match/term hooks,
 `assistantOpen`, and panel prefs. Pure helpers live in `segmentTypes.ts` and
 `Stack/wordDiff.ts`.
 
+### ORTHO Project surface extracts (Phase 5)
+
+Project Home, Setup wizard, and Insights presentation pieces live under
+`src/renderer/components/project/`. Keep `ProjectHome` / `SetupView` /
+`ProjectInsightsPage` as orchestrators (load, mutate, dialogs, parent
+navigation).
+
+| Component | Responsibility |
+| --- | --- |
+| `CompositionRail` | Shared brand plate + inert field + body/footer for 35%/30% rails |
+| `HomeTabList` | §E2 horizontal tabs (≤4): projects / search / templates / recycle |
+| `InsightsTabList` | §E3 vertical tablist + micro group labels; all prior tab ids |
+| `Stepper` | §E5 mono two-digit index + title; `aria-current="step"` |
+| `ProjectCard` | Plate/seam card, progress, overflow, `data-opening` VT |
+| `ProjectsPane` / `TemplatesPane` / `RecyclePane` | Tab body hosts |
+| `insights/*` | Overview (actions/residuals), files, analysis, reimport, archive, history |
+| `insightsShared` | Shared metric/unavailable formatters for insights panels |
+
+Orchestrators own Engine invokes and parent contracts (`onOpen`, `onCreate`,
+`onCreated`, insights navigation). Leaves receive props/callbacks only.
+Do not invent cross-project analytics or overview surfaces; optional
+`onOpenQa` / `onOpenAiControl` stay additive with residual copy when unwired.
+
 Executable contracts:
 
 - Phase 2 chrome:
@@ -98,7 +121,9 @@ Executable contracts:
   [ORTHO Segment Grid and Cells](./electron-workbench.md#ortho-segment-grid-and-cells-phase-3)
 - Phase 4 stack + dock:
   [ORTHO Stack Dual-Pane and Preview Dock](./electron-workbench.md#ortho-stack-dual-pane-and-preview-dock-phase-4)
-
+- Phase 5 project surfaces:
+  [ORTHO Project Surfaces](./electron-workbench.md#ortho-project-surfaces-phase-5)
+  and [Project Lifecycle Desktop Surface](./electron-workbench.md#project-lifecycle-desktop-surface)
 ## Avoid
 
 - No direct `window.translunar.invoke` calls scattered through presentational

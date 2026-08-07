@@ -1,15 +1,11 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import type {
   Project,
-  ProjectAnalyticsSummary,
   ProjectLifecycle,
-  ProjectSnapshot,
   ProjectTemplate,
   RecycleEntry,
 } from "@translunar/contracts";
 import {
-  Archive,
-  ArrowRight,
   Check,
   FileText,
   FolderArchive,
@@ -18,24 +14,32 @@ import {
   LoaderCircle,
   Plus,
   RefreshCw,
-  RotateCcw,
   Search,
   Trash2,
 } from "lucide-react";
 
-import { BrandMark } from "./BrandMark";
+import { CompositionRail } from "./components/project/CompositionRail";
+import { HomeTabList, type HomeTabId } from "./components/project/HomeTabList";
+import {
+  type ProjectOverview,
+} from "./components/project/ProjectCard";
+import {
+  PROJECT_PAGE_SIZE,
+  ProjectsPane,
+} from "./components/project/ProjectsPane";
+import { RecyclePane } from "./components/project/RecyclePane";
+import { TemplatesPane } from "./components/project/TemplatesPane";
 import {
   GlobalSearchPanel,
   type GlobalSearchProjectOption,
 } from "./GlobalSearchPanel";
+import { useViewTransition } from "./hooks/useViewTransition";
 import { useLocale } from "./i18n/LocaleProvider";
 import {
   cloneTemplateDefinition,
   readTemplateDefinition,
 } from "./project-home-utils";
 import { formatError } from "./workbench-utils";
-
-type HomeTab = "projects" | "search" | "templates" | "recycle";
 
 interface ProjectHomeProps {
   onCreate(): void;
@@ -45,11 +49,6 @@ interface ProjectHomeProps {
     segmentId?: string,
     segmentOrdinal?: number,
   ): Promise<void>;
-}
-
-interface ProjectOverview {
-  snapshot: ProjectSnapshot;
-  analytics: ProjectAnalyticsSummary | null;
 }
 
 interface TemplateDraft {
@@ -70,6 +69,8 @@ interface PendingAction {
   description: string;
   confirmLabel: string;
   danger?: boolean;
+  /** When set, user must type this name to enable confirm. */
+  confirmName?: string;
   run(): Promise<void>;
 }
 
@@ -83,11 +84,11 @@ const EMPTY_TEMPLATE: TemplateDraft = {
   analysisProfileId: "builtin.analysis.standard",
   reviewRequired: true,
 };
-const PROJECT_PAGE_SIZE = 50;
 
 export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
-  const { t } = useLocale();
-  const [tab, setTab] = useState<HomeTab>("projects");
+  const { t, formatDate } = useLocale();
+  const runTransition = useViewTransition();
+  const [tab, setTab] = useState<HomeTabId>("projects");
   const [lifecycle, setLifecycle] = useState<ProjectLifecycle>("active");
   const [projects, setProjects] = useState<ProjectOverview[]>([]);
   const [projectTotal, setProjectTotal] = useState(0);
@@ -99,6 +100,8 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [lastRefreshMs, setLastRefreshMs] = useState<number | null>(null);
+  const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(
     null,
   );
@@ -143,6 +146,7 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
       );
       setRecycle(recyclePage.items);
       setRecycleTotal(recyclePage.total);
+      setLastRefreshMs(Date.now());
       if (
         projectPage.items.length === 0 &&
         projectPage.total > 0 &&
@@ -215,11 +219,22 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
     setBusy(true);
     setError(null);
     setNotice(null);
+    setOpeningProjectId(projectId);
     try {
-      await onOpen(projectId, documentId, segmentId, segmentOrdinal);
+      await new Promise<void>((resolve, reject) => {
+        runTransition("surface", async () => {
+          try {
+            await onOpen(projectId, documentId, segmentId, segmentOrdinal);
+            resolve();
+          } catch (reason) {
+            reject(reason);
+          }
+        });
+      });
     } catch (reason) {
       setError(formatError(reason));
     } finally {
+      setOpeningProjectId(null);
       setBusy(false);
     }
   };
@@ -355,6 +370,7 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
       }),
       confirmLabel: t("home.purgeItemConfirm"),
       danger: true,
+      confirmName: entry.displayName,
       run: async () => {
         await window.translunar.invoke("recycle.purge", {
           entryId: entry.id,
@@ -374,77 +390,124 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
     });
   };
 
+  const homeTabs = useMemo(
+    () => [
+      {
+        id: "projects" as const,
+        label: t("home.projects"),
+        count: projectTotal,
+        icon: <FolderOpen size={15} aria-hidden="true" />,
+      },
+      {
+        id: "search" as const,
+        label: t("home.search"),
+        icon: <Search size={15} aria-hidden="true" />,
+      },
+      {
+        id: "templates" as const,
+        label: t("home.templates"),
+        count: templates.length,
+        icon: <FileText size={15} aria-hidden="true" />,
+      },
+      {
+        id: "recycle" as const,
+        label: t("home.recycle"),
+        count: recycleTotal,
+        icon: <Trash2 size={15} aria-hidden="true" />,
+      },
+    ],
+    [projectTotal, recycleTotal, t, templates.length],
+  );
+
+  const activeCount = projects.filter(
+    (item) => item.snapshot.project.lifecycle === "active",
+  ).length;
+
   return (
     <div className="project-home-shell">
-      <header className="project-home-header">
-        <div className="identity-lockup">
-          <BrandMark />
+      <CompositionRail
+        title={t("app.name")}
+        subtitle={t("home.projectWorkspace")}
+        footer={
+          <>
+            <button
+              type="button"
+              className="composition-rail__refresh"
+              onClick={() => void loadHome()}
+              disabled={loading || busy}
+              title={t("home.refresh")}
+              aria-label={t("home.refresh")}
+            >
+              <RefreshCw size={14} aria-hidden="true" />
+              {t("home.refresh")}
+            </button>
+            {lastRefreshMs ? (
+              <span className="composition-rail__last-refresh">
+                {t("home.lastRefresh", {
+                  value: formatDate(lastRefreshMs, {
+                    timeStyle: "short",
+                    dateStyle: "short",
+                  }),
+                })}
+              </span>
+            ) : null}
+          </>
+        }
+      >
+        <dl className="composition-rail__summary">
           <div>
-            <strong>{t("app.name")}</strong>
-            <span>{t("home.projectWorkspace")}</span>
+            <dt>{t("home.summaryProjects")}</dt>
+            <dd className="num">{projectTotal}</dd>
           </div>
-        </div>
-        <div className="project-home-actions">
-          <button
-            className="button secondary"
-            type="button"
-            onClick={() => void restoreArchive()}
-            disabled={busy}
-          >
-            <FolderArchive size={15} /> {t("home.restoreArchive")}
-          </button>
-          <button
-            id="tutorial-target-create"
-            className="button primary"
-            type="button"
-            onClick={onCreate}
-          >
-            <Plus size={15} /> {t("home.newProject")}
-          </button>
-        </div>
-      </header>
-      <main className="project-home-main" aria-busy={loading || busy}>
-        <aside
-          className="project-home-nav"
-          aria-label={t("home.workspaceViews")}
-        >
-          <HomeTabButton
-            active={tab === "projects"}
-            onClick={() => setTab("projects")}
-            icon={<FolderOpen size={16} />}
-            label={t("home.projects")}
-          />
-          <HomeTabButton
-            active={tab === "search"}
-            onClick={() => setTab("search")}
-            icon={<Search size={16} />}
-            label={t("home.search")}
-          />
-          <HomeTabButton
-            active={tab === "templates"}
-            onClick={() => setTab("templates")}
-            icon={<FileText size={16} />}
-            label={t("home.templates")}
-          />
-          <HomeTabButton
-            active={tab === "recycle"}
-            onClick={() => setTab("recycle")}
-            icon={<Trash2 size={16} />}
-            label={t("home.recycle")}
-            count={recycleTotal}
-          />
-          <button
-            className="project-home-refresh"
-            type="button"
-            onClick={() => void loadHome()}
-            disabled={loading || busy}
-            title={t("home.refresh")}
-            aria-label={t("home.refresh")}
-          >
-            <RefreshCw size={15} /> {t("home.refresh")}
-          </button>
-        </aside>
-        <section className="project-home-content">
+          <div>
+            <dt>{t("home.summaryActive")}</dt>
+            <dd className="num">
+              {lifecycle === "active" ? projectTotal : activeCount}
+            </dd>
+          </div>
+          <div>
+            <dt>{t("home.summaryTemplates")}</dt>
+            <dd className="num">{templates.length}</dd>
+          </div>
+          <div>
+            <dt>{t("home.summaryRecycle")}</dt>
+            <dd className="num">{recycleTotal}</dd>
+          </div>
+        </dl>
+      </CompositionRail>
+
+      <div className="project-home-content">
+        <header className="project-home-chrome">
+          <h1>{t("home.projects")}</h1>
+          <div className="project-home-chrome__actions">
+            <button
+              className="button secondary"
+              type="button"
+              onClick={() => void restoreArchive()}
+              disabled={busy}
+            >
+              <FolderArchive size={15} aria-hidden="true" />{" "}
+              {t("home.restoreArchive")}
+            </button>
+            <button
+              id="tutorial-target-create"
+              className="button primary"
+              type="button"
+              onClick={onCreate}
+            >
+              <Plus size={15} aria-hidden="true" /> {t("home.newProject")}
+            </button>
+          </div>
+        </header>
+
+        <HomeTabList
+          tabs={homeTabs}
+          active={tab}
+          onChange={setTab}
+          ariaLabel={t("home.workspaceViews")}
+        />
+
+        <section className="project-home-body" aria-busy={loading || busy}>
           {error ? (
             <p className="surface-error" role="alert">
               {error}
@@ -457,15 +520,16 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
           ) : null}
           {loading ? (
             <div className="project-home-loading" role="status">
-              <LoaderCircle className="spin" size={18} />{" "}
+              <LoaderCircle className="spin" size={18} aria-hidden="true" />{" "}
               {t("home.loadingWorkspaceData")}
             </div>
           ) : tab === "projects" ? (
-            <ProjectsView
+            <ProjectsPane
               projects={projects}
               total={projectTotal}
               offset={projectOffset}
               lifecycle={lifecycle}
+              openingProjectId={openingProjectId}
               onLifecycle={(next) => {
                 setLifecycle(next);
                 setProjectOffset(0);
@@ -475,26 +539,26 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
               onSetLifecycle={setProjectLifecycle}
               onRecycle={recycleProject}
               onCreate={onCreate}
-              t={t}
             />
           ) : tab === "search" ? (
             <GlobalSearchView projects={projects} onOpen={openWorkspace} />
           ) : tab === "templates" ? (
-            <TemplatesView
+            <TemplatesPane
               templates={templates}
               onCreate={() => setTemplateDraft({ ...EMPTY_TEMPLATE })}
               onEdit={(template) => setTemplateDraft(templateToDraft(template))}
               onDelete={deleteTemplate}
             />
           ) : (
-            <RecycleView
+            <RecyclePane
               items={recycle}
               onRestore={restoreRecycleEntry}
               onPurge={purgeRecycleEntry}
             />
           )}
         </section>
-      </main>
+      </div>
+
       {templateDraft ? (
         <TemplateDialog
           draft={templateDraft}
@@ -515,279 +579,6 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
   );
 }
 
-function HomeTabButton({
-  active,
-  onClick,
-  icon,
-  label,
-  count,
-}: {
-  active: boolean;
-  onClick(): void;
-  icon: React.ReactNode;
-  label: string;
-  count?: number;
-}) {
-  return (
-    <button
-      type="button"
-      className={active ? "active" : ""}
-      aria-current={active ? "page" : undefined}
-      onClick={onClick}
-    >
-      {icon}
-      <span>{label}</span>
-      {count ? <b>{count}</b> : null}
-    </button>
-  );
-}
-
-function ProjectsView({
-  projects,
-  total,
-  offset,
-  lifecycle,
-  onLifecycle,
-  onPage,
-  onOpen,
-  onSetLifecycle,
-  onRecycle,
-  onCreate,
-  t,
-}: {
-  projects: ProjectOverview[];
-  total: number;
-  offset: number;
-  lifecycle: ProjectLifecycle;
-  onLifecycle(value: ProjectLifecycle): void;
-  onPage(offset: number): void;
-  onOpen(overview: ProjectOverview, documentId?: string): Promise<void>;
-  onSetLifecycle(project: Project, lifecycle: ProjectLifecycle): void;
-  onRecycle(project: Project): void;
-  onCreate(): void;
-  t: ReturnType<typeof useLocale>["t"];
-}) {
-  return (
-    <>
-      <header className="project-view-heading">
-        <div>
-          <span>{t("home.localProjects")}</span>
-          <h1>
-            {lifecycle === "active"
-              ? t("home.continueTranslating")
-              : t("home.archivedProjects")}
-          </h1>
-          <p>{t("home.projectCount", { count: total })}</p>
-        </div>
-        <div
-          className="segmented-control"
-          aria-label={t("home.projectLifecycle")}
-        >
-          <button
-            type="button"
-            aria-pressed={lifecycle === "active"}
-            onClick={() => onLifecycle("active")}
-          >
-            {t("home.active")}
-          </button>
-          <button
-            type="button"
-            aria-pressed={lifecycle === "archived"}
-            onClick={() => onLifecycle("archived")}
-          >
-            {t("home.archived")}
-          </button>
-        </div>
-      </header>
-      {projects.length === 0 ? (
-        <div className="project-home-empty">
-          <FolderOpen size={26} />
-          <strong>
-            {lifecycle === "active"
-              ? t("home.noActiveProjects")
-              : t("home.noArchivedProjects")}
-          </strong>
-          <span>
-            {lifecycle === "active"
-              ? t("home.createToBegin")
-              : t("home.archivedHelp")}
-          </span>
-          {lifecycle === "active" ? (
-            <button className="button primary" type="button" onClick={onCreate}>
-              <Plus size={15} /> {t("home.newProject")}
-            </button>
-          ) : null}
-        </div>
-      ) : (
-        <>
-          <div className="project-grid">
-            {projects.map((overview) => (
-              <ProjectCard
-                key={overview.snapshot.project.id}
-                overview={overview}
-                onOpen={onOpen}
-                onSetLifecycle={onSetLifecycle}
-                onRecycle={onRecycle}
-              />
-            ))}
-          </div>
-          {total > PROJECT_PAGE_SIZE ? (
-            <div
-              className="project-pagination"
-              aria-label={t("home.projectPages")}
-            >
-              <button
-                type="button"
-                disabled={offset === 0}
-                onClick={() => onPage(Math.max(0, offset - PROJECT_PAGE_SIZE))}
-              >
-                {t("action.back")}
-              </button>
-              <span>
-                {offset + 1}-{Math.min(offset + projects.length, total)} of{" "}
-                {total}
-              </span>
-              <button
-                type="button"
-                disabled={offset + projects.length >= total}
-                onClick={() => onPage(offset + PROJECT_PAGE_SIZE)}
-              >
-                {t("action.next")}
-              </button>
-            </div>
-          ) : null}
-        </>
-      )}
-    </>
-  );
-}
-
-function ProjectCard({
-  overview,
-  onOpen,
-  onSetLifecycle,
-  onRecycle,
-}: {
-  overview: ProjectOverview;
-  onOpen(overview: ProjectOverview, documentId?: string): Promise<void>;
-  onSetLifecycle(project: Project, lifecycle: ProjectLifecycle): void;
-  onRecycle(project: Project): void;
-}) {
-  const { t, formatDate, formatNumber } = useLocale();
-  const { snapshot, analytics } = overview;
-  const completion = analytics?.progress.completionBasisPoints;
-  return (
-    <article className="project-card">
-      <header>
-        <div className="project-card-mark">
-          <FolderOpen size={18} />
-        </div>
-        <div>
-          <span>{snapshot.project.domain || t("home.general")}</span>
-          <h2>{snapshot.project.name}</h2>
-        </div>
-        <time>
-          {formatDate(snapshot.project.updatedAtMs, { dateStyle: "medium" })}
-        </time>
-      </header>
-      <div className="project-card-locales">
-        <span>{snapshot.project.sourceLocale}</span>
-        <ArrowRight size={13} />
-        <span>{snapshot.project.targetLocale}</span>
-      </div>
-      <div className="project-card-progress">
-        <div>
-          <span>{t("home.projectProgress")}</span>
-          <strong>
-            {completion === undefined
-              ? t("home.unavailable")
-              : formatBasisPoints(completion, formatNumber)}
-          </strong>
-        </div>
-        <progress
-          value={completion ?? 0}
-          max={10_000}
-          aria-label={t("home.completionAria", { name: snapshot.project.name })}
-        />
-      </div>
-      <div className="project-card-metrics">
-        <span>
-          {t("home.filesCount", { count: snapshot.documents.length })}
-        </span>
-        <span>
-          {t("home.segmentsCount", {
-            count: analytics?.progress.totalSegments ?? snapshot.counts.total,
-          })}
-        </span>
-        <span>
-          {t("home.blockersCount", {
-            count: analytics?.progress.qaBlockers ?? snapshot.counts.openIssues,
-          })}
-        </span>
-      </div>
-      <div className="project-card-files">
-        {snapshot.documents.slice(0, 3).map((document) => (
-          <button
-            key={document.id}
-            type="button"
-            onClick={() => void onOpen(overview, document.id)}
-          >
-            <FileText size={13} />
-            <span>{document.relativePath}</span>
-            <b>{document.segmentCount}</b>
-          </button>
-        ))}
-        {snapshot.documents.length > 3 ? (
-          <span>
-            {t("home.moreFiles", { count: snapshot.documents.length - 3 })}
-          </span>
-        ) : null}
-      </div>
-      <footer>
-        <button
-          className="button primary"
-          type="button"
-          disabled={!snapshot.documents.length}
-          onClick={() => void onOpen(overview)}
-        >
-          {t("home.openProject")} <ArrowRight size={14} />
-        </button>
-        <button
-          className="icon-button"
-          type="button"
-          onClick={() =>
-            onSetLifecycle(
-              snapshot.project,
-              snapshot.project.lifecycle === "active" ? "archived" : "active",
-            )
-          }
-          title={
-            snapshot.project.lifecycle === "active"
-              ? t("home.archiveProject")
-              : t("home.restoreProject")
-          }
-          aria-label={
-            snapshot.project.lifecycle === "active"
-              ? t("home.archiveNamed", { name: snapshot.project.name })
-              : t("home.restoreNamed", { name: snapshot.project.name })
-          }
-        >
-          <Archive size={15} />
-        </button>
-        <button
-          className="icon-button danger"
-          type="button"
-          onClick={() => onRecycle(snapshot.project)}
-          title={t("home.moveToRecycle")}
-          aria-label={t("home.recycleNamed", { name: snapshot.project.name })}
-        >
-          <Trash2 size={15} />
-        </button>
-      </footer>
-    </article>
-  );
-}
-
 function GlobalSearchView({
   projects,
   onOpen,
@@ -805,9 +596,7 @@ function GlobalSearchView({
     <>
       <header className="project-view-heading">
         <div>
-          <span>{t("home.workspaceIndex")}</span>
           <h1>{t("home.globalSearch")}</h1>
-          <p>{t("home.globalSearchHelp")}</p>
         </div>
       </header>
       <GlobalSearchPanel
@@ -825,191 +614,6 @@ function GlobalSearchView({
           )
         }
       />
-    </>
-  );
-}
-
-function TemplatesView({
-  templates,
-  onCreate,
-  onEdit,
-  onDelete,
-}: {
-  templates: ProjectTemplate[];
-  onCreate(): void;
-  onEdit(template: ProjectTemplate): void;
-  onDelete(template: ProjectTemplate): void;
-}) {
-  const { t, formatDate } = useLocale();
-  return (
-    <>
-      <header className="project-view-heading">
-        <div>
-          <span>{t("home.reusableConfiguration")}</span>
-          <h1>{t("home.projectTemplates")}</h1>
-          <p>{t("home.templatesDescription")}</p>
-        </div>
-        <button className="button primary" type="button" onClick={onCreate}>
-          <Plus size={15} /> {t("home.newTemplate")}
-        </button>
-      </header>
-      <div className="template-list">
-        {templates.map((template) => {
-          const definition = readTemplateDefinition(template.definition);
-          return (
-            <article key={template.id}>
-              <header>
-                <div>
-                  <span>
-                    {template.builtIn ? t("home.builtIn") : t("home.custom")} ·{" "}
-                    {t("home.revision", { revision: template.revision })}
-                  </span>
-                  <h2>{template.name}</h2>
-                </div>
-                <FileText size={18} />
-              </header>
-              <p>{template.description || t("home.noDescription")}</p>
-              <dl>
-                <div>
-                  <dt>{t("home.locales")}</dt>
-                  <dd>
-                    {definition.sourceLocale} → {definition.targetLocale}
-                  </dd>
-                </div>
-                <div>
-                  <dt>{t("common.domain")}</dt>
-                  <dd>{definition.domain || t("home.general")}</dd>
-                </div>
-                <div>
-                  <dt>{t("home.analysis")}</dt>
-                  <dd>{definition.analysisProfileId}</dd>
-                </div>
-                <div>
-                  <dt>{t("home.review")}</dt>
-                  <dd>
-                    {definition.reviewRequired
-                      ? t("home.required")
-                      : t("home.optional")}
-                  </dd>
-                </div>
-              </dl>
-              <footer>
-                <time>
-                  {t("home.updated", {
-                    value: formatDate(template.updatedAtMs, {
-                      dateStyle: "medium",
-                    }),
-                  })}
-                </time>
-                {!template.builtIn ? (
-                  <div>
-                    <button
-                      className="button secondary"
-                      type="button"
-                      onClick={() => onEdit(template)}
-                    >
-                      {t("common.edit")}
-                    </button>
-                    <button
-                      className="icon-button danger"
-                      type="button"
-                      aria-label={t("home.deleteTemplateNamed", {
-                        name: template.name,
-                      })}
-                      title={t("home.deleteTemplate")}
-                      onClick={() => onDelete(template)}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                ) : null}
-              </footer>
-            </article>
-          );
-        })}
-      </div>
-    </>
-  );
-}
-
-function RecycleView({
-  items,
-  onRestore,
-  onPurge,
-}: {
-  items: RecycleEntry[];
-  onRestore(entry: RecycleEntry): void;
-  onPurge(entry: RecycleEntry): void;
-}) {
-  const { t, formatDate } = useLocale();
-  return (
-    <>
-      <header className="project-view-heading">
-        <div>
-          <span>{t("home.recoverableDeletion")}</span>
-          <h1>{t("home.recycleBin")}</h1>
-          <p>{t("home.recycleDescription")}</p>
-        </div>
-      </header>
-      {items.length === 0 ? (
-        <div className="project-home-empty">
-          <Trash2 size={25} />
-          <strong>{t("home.recycleEmpty")}</strong>
-          <span>{t("home.recycleEmptyHelp")}</span>
-        </div>
-      ) : (
-        <div className="recycle-list">
-          {items.map((entry) => (
-            <article key={entry.id}>
-              <div className="recycle-kind">
-                {entry.entityType === "project" ? (
-                  <FolderOpen size={16} />
-                ) : (
-                  <FileText size={16} />
-                )}
-              </div>
-              <div>
-                <span>
-                  {t("home.deletedAt", {
-                    kind: entry.entityType,
-                    value: formatDate(entry.deletedAtMs, {
-                      dateStyle: "medium",
-                    }),
-                  })}
-                </span>
-                <h2>{entry.displayName}</h2>
-                <p>{entry.reason}</p>
-                <small>
-                  {t("home.retainedUntil", {
-                    value: formatDate(entry.retentionUntilMs, {
-                      dateStyle: "medium",
-                    }),
-                    actor: entry.actor,
-                  })}
-                </small>
-              </div>
-              <div>
-                <button
-                  className="button secondary"
-                  type="button"
-                  onClick={() => onRestore(entry)}
-                >
-                  <RotateCcw size={14} /> {t("home.restoreItem")}
-                </button>
-                <button
-                  className="icon-button danger"
-                  type="button"
-                  aria-label={t("home.purgeNamed", { name: entry.displayName })}
-                  title={t("home.permanentlyPurge")}
-                  onClick={() => onPurge(entry)}
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            </article>
-          ))}
-        </div>
-      )}
     </>
   );
 }
@@ -1051,7 +655,7 @@ function TemplateDialog({
                 : t("home.newProjectTemplate")}
             </h2>
           </div>
-          <FileText size={20} />
+          <FileText size={20} aria-hidden="true" />
         </header>
         <label>
           <span>{t("home.name")}</span>
@@ -1155,9 +759,9 @@ function TemplateDialog({
             }
           >
             {busy ? (
-              <LoaderCircle className="spin" size={14} />
+              <LoaderCircle className="spin" size={14} aria-hidden="true" />
             ) : (
-              <Check size={14} />
+              <Check size={14} aria-hidden="true" />
             )}{" "}
             {t("home.saveTemplate")}
           </button>
@@ -1179,6 +783,9 @@ function ConfirmDialog({
   onConfirm(): Promise<void>;
 }) {
   const { t } = useLocale();
+  const [nameInput, setNameInput] = useState("");
+  const nameOk =
+    !action.confirmName || nameInput.trim() === action.confirmName;
   return (
     <div className="surface-dialog-backdrop" role="presentation">
       <section
@@ -1192,15 +799,30 @@ function ConfirmDialog({
             <span className="surface-kicker">{t("common.confirm")}</span>
             <h2 id="confirm-dialog-title">{action.title}</h2>
           </div>
-          {action.danger ? <Trash2 size={20} /> : <History size={20} />}
+          {action.danger ? (
+            <Trash2 size={20} aria-hidden="true" />
+          ) : (
+            <History size={20} aria-hidden="true" />
+          )}
         </header>
         <p>{action.description}</p>
+        {action.confirmName ? (
+          <label>
+            <span>{t("home.purgeNameConfirm", { name: action.confirmName })}</span>
+            <input
+              value={nameInput}
+              autoComplete="off"
+              onChange={(event) => setNameInput(event.currentTarget.value)}
+            />
+          </label>
+        ) : null}
         <footer>
           <button
             className="button tertiary"
             type="button"
             onClick={onCancel}
             disabled={busy}
+            autoFocus={!action.danger}
           >
             {t("common.cancel")}
           </button>
@@ -1208,14 +830,14 @@ function ConfirmDialog({
             className={action.danger ? "button danger" : "button primary"}
             type="button"
             onClick={() => void onConfirm()}
-            disabled={busy}
+            disabled={busy || !nameOk}
           >
             {busy ? (
-              <LoaderCircle className="spin" size={14} />
+              <LoaderCircle className="spin" size={14} aria-hidden="true" />
             ) : action.danger ? (
-              <Trash2 size={14} />
+              <Trash2 size={14} aria-hidden="true" />
             ) : (
-              <Check size={14} />
+              <Check size={14} aria-hidden="true" />
             )}
             {action.confirmLabel}
           </button>
@@ -1234,11 +856,4 @@ function templateToDraft(template: ProjectTemplate): TemplateDraft {
     description: template.description,
     ...readTemplateDefinition(template.definition),
   };
-}
-
-function formatBasisPoints(
-  value: number,
-  formatNumber: (value: number, options?: Intl.NumberFormatOptions) => string,
-): string {
-  return `${formatNumber(value / 100, { maximumFractionDigits: 1 })}%`;
 }

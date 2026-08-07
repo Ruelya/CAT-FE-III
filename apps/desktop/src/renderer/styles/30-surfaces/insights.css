@@ -1,0 +1,518 @@
+/* ══════════════════════════════════════════════════════════════
+   Project Insights — §E3 vertical tabs + overview actions
+   Source: docs/design-ii/screens/project.md §3
+   ══════════════════════════════════════════════════════════════ */
+
+@layer surfaces {
+
+.project-insights-main {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-areas:
+    "heading heading"
+    "feedback feedback"
+    "tabs content";
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.project-insights-heading {
+  grid-area: heading;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border-block-end: 1px solid var(--rule-strong);
+  background: var(--frame);
+}
+
+.project-insights-heading h1 {
+  margin: 2px 0 0;
+  font-family: var(--font-display);
+  font-size: var(--t-title);
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.project-insights-heading p {
+  margin: 4px 0 0;
+  color: var(--text-2);
+  font-size: var(--t-micro);
+}
+
+.project-insights-feedback {
+  grid-area: feedback;
+  padding: 0 var(--s-5);
+}
+
+.project-insights-feedback:empty {
+  display: none;
+}
+
+.project-insights-feedback .surface-error,
+.project-insights-feedback .surface-success {
+  margin: var(--s-2) 0 0;
+}
+
+/* §E3 vertical tab list */
+.insights-tablist {
+  grid-area: tabs;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--s-3) 0;
+  border-inline-end: 1px solid var(--rule-strong);
+  background: var(--frame);
+}
+
+.insights-tablist__group {
+  display: grid;
+  gap: 1px;
+  margin-bottom: var(--s-2);
+}
+
+.insights-tab-group-label {
+  padding: var(--s-2) var(--s-3) 4px;
+  font-size: var(--t-micro);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  user-select: none;
+}
+
+.insights-tablist__tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 34px;
+  padding: 0 var(--s-3) 0 calc(var(--s-3) + 2px);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  text-align: start;
+  cursor: pointer;
+}
+
+.insights-tablist__tab:hover {
+  color: var(--text-1);
+  background: var(--shade);
+}
+
+.insights-tablist__tab[aria-selected="true"] {
+  color: var(--text-1);
+  background: var(--shade);
+}
+
+.insights-tablist__tab .active-axis {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+}
+
+.project-insights-content {
+  grid-area: content;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--s-4) var(--s-5) var(--s-6);
+  background: var(--surface, var(--bg));
+}
+
+.project-insights-loading {
+  display: flex;
+  min-height: 220px;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+}
+
+.insights-overview,
+.insights-files-layout,
+.insights-reimport-layout,
+.insights-archive-layout,
+.insights-analysis-layout,
+.insights-history {
+  display: grid;
+  gap: var(--s-4);
+}
+
+.insights-metric-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  border: 1px solid var(--rule);
+}
+
+.insights-metric {
+  display: grid;
+  gap: 4px;
+  padding: var(--s-3);
+  border-inline-end: 1px solid var(--rule);
+}
+
+.insights-metric:last-child {
+  border-inline-end: 0;
+}
+
+.insights-metric span {
+  font-size: var(--t-micro);
+  color: var(--text-2);
+}
+
+.insights-metric strong {
+  font-family: var(--font-mono);
+  font-size: var(--t-body);
+  color: var(--text-1);
+}
+
+.insights-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0;
+  border-block-start: 1px solid var(--rule);
+  border-inline-start: 1px solid var(--rule);
+}
+
+.insights-section {
+  display: grid;
+  gap: var(--s-3);
+  padding: var(--s-4);
+  border-block-end: 1px solid var(--rule);
+  border-inline-end: 1px solid var(--rule);
+  background: var(--surface, var(--bg));
+}
+
+.insights-section-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--s-3);
+}
+
+.insights-section-heading h2 {
+  margin: 2px 0 0;
+  font-family: var(--font-display);
+  font-size: var(--t-body);
+  font-weight: 600;
+}
+
+.insights-section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+.insights-section progress {
+  width: 100%;
+  height: 4px;
+  overflow: hidden;
+  border: 0;
+  background: var(--rule-soft);
+  accent-color: var(--ok);
+}
+
+.insights-definition-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--s-2);
+  margin: 0;
+}
+
+.insights-definition-grid > div {
+  display: grid;
+  gap: 2px;
+}
+
+.insights-definition-grid dt {
+  font-size: var(--t-micro);
+  color: var(--text-2);
+}
+
+.insights-definition-grid dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--t-body);
+  color: var(--text-1);
+}
+
+.insights-section-action {
+  justify-self: start;
+  margin-top: var(--s-1);
+}
+
+.insights-stale-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--err);
+  background: color-mix(in srgb, var(--err) 10%, var(--surface, var(--bg)));
+  color: var(--err-ink);
+  font-size: var(--t-micro);
+}
+
+.insights-unavailable {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-4);
+  color: var(--text-2);
+  font-size: var(--t-micro);
+  border: 1px solid var(--rule);
+}
+
+.insights-unavailable.compact {
+  padding: var(--s-2);
+  border: 0;
+}
+
+.insights-unavailable-note {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--t-micro);
+}
+
+.insights-residual {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--t-micro);
+}
+
+.insights-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--rule);
+}
+
+.insights-table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-micro);
+}
+
+.insights-table-wrap th,
+.insights-table-wrap td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--rule);
+  text-align: start;
+}
+
+.insights-table-wrap th {
+  color: var(--text-2);
+  font-weight: 600;
+  background: var(--shade);
+}
+
+.insights-dropzone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  min-height: 72px;
+  padding: var(--s-3);
+  border: 1px dashed var(--rule-strong);
+  color: var(--text-2);
+  font-size: var(--t-micro);
+  background: var(--shade);
+}
+
+.insights-file-list {
+  display: grid;
+  gap: 0;
+  border: 1px solid var(--rule);
+}
+
+.insights-file-list > article {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto auto;
+  gap: var(--s-3);
+  align-items: center;
+  padding: var(--s-3);
+  border-block-end: 1px solid var(--rule);
+}
+
+.insights-file-list > article[data-active] {
+  background: var(--shade);
+}
+
+.insights-file-list > article:last-child {
+  border-block-end: 0;
+}
+
+.insights-file-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  color: var(--text-2);
+  background: var(--shade);
+}
+
+.insights-file-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.insights-file-copy span,
+.insights-file-copy small {
+  color: var(--text-2);
+  font-size: var(--t-micro);
+}
+
+.insights-file-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.insights-file-progress {
+  display: grid;
+  justify-items: end;
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  color: var(--text-2);
+}
+
+.insights-file-actions {
+  display: flex;
+  gap: var(--s-2);
+}
+
+.insights-diagnostic-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: var(--s-2);
+  padding: 6px 0;
+  font-size: var(--t-micro);
+}
+
+.insights-file-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--s-2);
+  margin: 0;
+}
+
+.insights-reimport-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.reimport-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  border: 1px solid var(--rule);
+}
+
+.reimport-items {
+  display: grid;
+  gap: var(--s-2);
+  max-height: 320px;
+  overflow: auto;
+  font-size: var(--t-micro);
+}
+
+.insights-archive-action {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--s-3);
+  align-items: center;
+}
+
+.insights-archive-action.danger-zone {
+  border-color: color-mix(in srgb, var(--err) 40%, var(--rule));
+}
+
+.insights-history-list {
+  display: grid;
+  gap: 0;
+  border: 1px solid var(--rule);
+}
+
+.insights-history-list > article {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) auto auto;
+  gap: var(--s-3);
+  align-items: center;
+  padding: var(--s-3);
+  border-block-end: 1px solid var(--rule);
+  font-size: var(--t-micro);
+}
+
+.insights-history-list > article:last-child {
+  border-block-end: 0;
+}
+
+.history-sequence {
+  font-family: var(--font-mono);
+  color: var(--text-2);
+}
+
+.analysis-controls,
+.analysis-results {
+  display: grid;
+  gap: var(--s-3);
+}
+
+.analysis-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  border: 1px solid var(--rule);
+}
+
+.analysis-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--s-4);
+}
+
+.analysis-detail-grid h3 {
+  margin: 0 0 var(--s-2);
+  font-size: var(--t-micro);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-2);
+}
+
+.analysis-detail-grid dl {
+  display: grid;
+  gap: var(--s-2);
+  margin: 0;
+}
+
+.analysis-detail-grid dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-2);
+  font-size: var(--t-micro);
+}
+
+.analysis-detail-grid dd {
+  margin: 0;
+  font-family: var(--font-mono);
+}
+
+/* neutralize legacy horizontal strip if still present in styles.css */
+.project-insights-main > .project-insights-tabs {
+  display: none;
+}
+
+}

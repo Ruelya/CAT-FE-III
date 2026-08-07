@@ -32,3 +32,6 @@
 /* —— Surfaces ————————————————————————————————— */
 @import "./30-surfaces/workbench.css";
 @import "./30-surfaces/workbench-stack.css";
+@import "./30-surfaces/project-home.css";
+@import "./30-surfaces/setup.css";
+@import "./30-surfaces/insights.css";

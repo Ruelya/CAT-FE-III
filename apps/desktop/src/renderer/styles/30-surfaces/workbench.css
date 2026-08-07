@@ -42,7 +42,7 @@
   padding: 0;
 }
 
-/* 标识板：全屏唯一 45° 切角 */
+/* 标识板：全屏唯一 45° 切角；project-open FLIP receive end */
 .identity {
   inline-size: 318px;
   padding: 9px 16px 9px 18px;
@@ -50,6 +50,7 @@
   flex-direction: column;
   justify-content: center;
   overflow: clip;
+  view-transition-name: project-identity;
 }
 
 .identity__name {

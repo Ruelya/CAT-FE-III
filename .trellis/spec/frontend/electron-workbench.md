@@ -386,6 +386,13 @@ render deterministic previous/next controls when `total` exceeds the page.
   history/asset metrics as explicit states. It never turns missing history
   into zero and never introduces billing, rate, currency, quote, or invoice
   copy.
+- After ORTHO Phase 5, Project Home / Setup / Insights presentation follows
+  the layout and extract contracts in
+  [ORTHO Project Surfaces (Phase 5)](#ortho-project-surfaces-phase-5).
+  Expression-only: no new Engine methods, preload fields, or invented
+  cross-project analytics. Optional overview deep-links (`onOpenQa`,
+  `onOpenAiControl`) remain additive parent callbacks with residual copy
+  when unwired.
 
 ### 4. Validation & Error Matrix
 
@@ -3031,4 +3038,273 @@ tokens.map((t) =>
   snapshot={bundle ? { contextKey, bundle } : null}
   unavailableReason={reason}
 />
+```
+
+## ORTHO Project Surfaces (Phase 5)
+
+### 1. Scope / Trigger
+
+Use this contract when changing Project Home, the setup wizard, or Project
+Insights chrome/layout: composition rails, home §E2 tabs and project cards,
+setup §E5 Stepper and form groups, insights §E3 vertical tab list, overview
+decision actions, or extracted insights panels.
+
+Phase 5 is a **presentation extraction**. It must not change Engine,
+generated contracts, preload, main-process, `project-home-utils` clone/snippet
+semantics, or invent new project lifecycle RPC methods.
+
+Source components:
+
+- Orchestrators (App-stable import paths):
+  - `ProjectHome.tsx` — load/mutate home, dialogs, open VT
+  - `SetupView.tsx` — options load, create, batch import, diagnostics
+  - `ProjectInsightsPage.tsx` — load/mutate insights, busy/error/dialogs
+- `components/project/CompositionRail.tsx` — shared 35%/30% brand rail
+- `components/project/HomeTabList.tsx` — §E2 horizontal tabs
+- `components/project/InsightsTabList.tsx` — §E3 vertical grouped tabs
+- `components/project/Stepper.tsx` — §E5 vertical step list
+- `components/project/ProjectCard.tsx`, `ProjectsPane.tsx`,
+  `TemplatesPane.tsx`, `RecyclePane.tsx`
+- `components/project/insights/*` — Overview, Files, Analysis, Reimport,
+  Archive, History panels + `insightsShared.tsx`
+- Styles: `styles/30-surfaces/project-home.css`, `setup.css`, `insights.css`
+  (imported from `styles/index.css`)
+- Catalog: `i18n/messages.ts` (`home.*` / `setup.*` / `insights.*`, en + zh)
+- Pure helpers remain in `project-home-utils.ts` (+ tests)
+
+### 2. Signatures
+
+```ts
+// Parent navigation contracts (unchanged)
+interface ProjectHomeProps {
+  onCreate(): void;
+  onOpen(
+    projectId: string,
+    documentId?: string,
+    segmentId?: string,
+    segmentOrdinal?: number,
+  ): Promise<void>;
+}
+
+interface SetupViewProps {
+  onCreated(projectId: string, documentId: string): Promise<void>;
+  onCancel?(): void;
+}
+
+// Insights — existing required props + additive optional deep-links
+interface ProjectInsightsPageProps {
+  snapshot: ProjectSnapshot;
+  document: Document;
+  onRefresh(): Promise<void>;
+  onOpenDocument(documentId: string): Promise<void>;
+  onOpenProject(projectId: string, documentId?: string): Promise<void>;
+  onReturnHome(): void;
+  onOpenQa?(): void; // residual copy when parent does not wire
+  onOpenAiControl?(): void;
+}
+
+type HomeTabId = "projects" | "search" | "templates" | "recycle";
+
+type InsightsTabId =
+  | "overview"
+  | "files"
+  | "analysis"
+  | "assets"
+  | "alignment"
+  | "interop"
+  | "reimport"
+  | "task-packages"
+  | "discussions"
+  | "plugins"
+  | "archive"
+  | "history";
+
+// §E5 Stepper — zero-based current; optional navigate only ≤ current
+interface StepperProps {
+  steps: readonly { id: string; label: string }[];
+  current: number;
+  onSelect?(index: number): void;
+  ariaLabel: string;
+}
+```
+
+Layout shells (CSS grid contracts):
+
+```css
+.project-home-shell {
+  display: grid;
+  grid-template-columns: minmax(240px, 35%) minmax(0, 65%);
+}
+.setup-wizard-shell {
+  display: grid;
+  grid-template-columns: minmax(200px, 30%) minmax(0, 70%);
+}
+/* Insights: ~180px vertical tablist + content */
+.project-card[data-opening] {
+  view-transition-name: project-identity;
+}
+/* Masthead receive: .identity { view-transition-name: project-identity; } */
+```
+
+Engine methods remain the Project Lifecycle set (`project.*`, `recycle.*`,
+`search.global`, `document.*`, `analysis.*`, `history.list`, archive export/
+restore). No new invoke names or preload fields.
+
+### 3. Contracts
+
+#### Project Home 35/65
+
+- **No** permanent left four-item vertical nav column (`project-home-nav`).
+- Left `CompositionRail`: brand plate + inert CSS field + honest summary
+  from data already loaded (project/template/recycle counts, last refresh).
+  **Forbidden:** invent cross-project TM/term/corpus totals without RPC.
+- Right: chrome (title, restore archive, new project) + horizontal
+  `HomeTabList` §E2 (`projects` · `search` · `templates` · `recycle`) with
+  counts on labels when totals are known.
+- Projects pane: Active/Archived segmented control + plate/seam `ProjectCard`
+  grid (`repeat(auto-fill, minmax(280px, 1fr))`, gap 0, rule seams) + paging.
+- Search: existing `GlobalSearchPanel`; snippets only via
+  `parseSearchSnippet` (never `dangerouslySetInnerHTML`).
+- Templates: CRUD via existing template RPCs + `cloneTemplateDefinition`.
+- Recycle: restore / permanent purge (name-confirm for purge).
+- Empty state §D6: copy + primary create — not a huge dashed frame.
+- Refresh: rail footer or meta text/button + last-loaded time; **no FAB**.
+- Settings gear FAB must not return on Home (settings stay shell/Index Spine).
+
+#### Project cards and `project-open` VT
+
+- Plate + 3px Band Echo (only Echo on this surface), domain/locale, 4px
+  progress from analytics completion, mono counts, archived desaturation +
+  badge, overflow menu (open / lifecycle archive-restore / recycle; omit
+  inventing save-as-template or export if not already wired on home).
+- Open path: resolve document → set `openingProjectId` / card `data-opening`
+  → `useViewTransition` → `onOpen(...)` → clear opening in finally.
+- Shared name: card `[data-opening]` and Masthead `.identity` use
+  `view-transition-name: project-identity`. Prefer surface transition when
+  reduced motion or VT unsupported. Do not block open on perfect FLIP.
+- Cards default `view-transition-name: none` so only the opening card morphs.
+
+#### Setup wizard 30/70 + Stepper
+
+- Left rail: composition + live summary (locales, file count) + `Stepper`
+  (mono `01`/`02`/`03` + 12px gap + title; current left Active Axis; done
+  check; future muted). Left rail `view-transition-name: none`.
+- Right panel max-width ~720px; step content may use `data-wizard-dir` for
+  next/back motion — not full-page wipe.
+- Steps: (1) project identity — name + locales (source ≠ target), domain;
+  omit workspace path picker unless already implemented. (2) configuration
+  groups: reuse / quality / automation with consequence meta from real
+  selection data only. (3) files dropzone + pickers + atomicity choice.
+- Remove decorative SQLITE/LOCAL footer chips and wasteful side info columns.
+- Create: `project.create` | `createFromTemplate` + `batchImport` + empty
+  rollback unchanged. Dependency diagnostics stay until explicit open workspace.
+- Preserve tutorial anchors (e.g. `tutorial-target-import`, create target).
+
+#### Insights vertical tabs + overview + extracts
+
+- Replace horizontal overflow strip with `InsightsTabList` §E3 (~180px):
+  grouped presentation maps all twelve prior tab ids without dropping
+  capability (overview/files/analysis · assets group · workflow group ·
+  system group including archive + history).
+- Selected: left Active Axis + shade; keyboard Arrow/Home/End; `role="tablist"`
+  vertical orientation; roving `tabIndex`.
+- Overview: every major metric block ends with a decision action. Prefer
+  workbench `onOpenDocument` / files tab / history focus. Optional
+  `onOpenQa` / `onOpenAiControl` only when parent wires them — otherwise
+  residual localized copy, **never** a dead button that invents a surface.
+- Stale analysis: banner + existing `analysis.run` re-run path.
+- Orchestrator owns load/mutate/busy/error/dialogs; panels under
+  `components/project/insights/*` receive props/callbacks. Embedded
+  Asset/Alignment/Interop/Task/Discussion/Plugins panels remain mounts
+  (Phase 6 owns deep asset rewrites).
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Home without cross-project TM totals | Show honest project-derived / refresh facts only |
+| Open project with no active documents | Existing `home.noActiveDocuments` (or equivalent); no invented doc |
+| Canceled archive restore / source dialog | No RPC; surface unchanged |
+| Setup step 1 source === target | Block advance; `setup.languagesMustDiffer` |
+| Setup dependency diagnostics present | Stay on Setup; explicit Open workspace only |
+| Mixed batch import | Keep every diagnostic; successful IDs for explicit open |
+| Overview QA/AI with no parent callback | Residual copy; no dead button |
+| Analysis metric stale | Stale banner + re-run via existing analysis RPC |
+| History/asset metric unavailable | `Unavailable` state from payload; never fabricate zero |
+| Card open under reduced motion | Update without VT; still call `onOpen` and clear `data-opening` |
+| Engine/contracts/preload change for Phase 5 | Forbidden — expression-only |
+
+### 5. Good / Base / Bad Cases
+
+- Good: Home 35/65 → horizontal tabs with counts → open card with VT →
+  workspace; archive/recycle/restore archive still hit existing methods.
+- Good: Setup three steps with grouped configuration, create + import,
+  languages differ enforced, diagnostics then Open workspace.
+- Good: Insights vertical groups reach all twelve former tabs; overview
+  blocks expose actions or residual; subpanels extracted from the monolith.
+- Base: empty projects tab uses §D6 empty + create; cancel dialogs leave
+  lists unchanged.
+- Bad: restore permanent four-item left nav on Home or horizontal-only
+  insights strip that hides tabs off-screen without a vertical list.
+- Bad: invent TM/term totals, vanity charts without actions, or new IPC
+  for overview deep-links.
+- Bad: auto-dismiss Setup dependency diagnostics or parse search HTML via
+  `dangerouslySetInnerHTML`.
+- Bad: leave ProjectInsights as a 1.6k monolith restyled only when extracts
+  are low-risk.
+
+### 6. Tests Required
+
+- Unit: keep `project-home-utils.test.ts` (snippet parse, template clone).
+- Unit: `Stepper` index/status/`aria-current`; `InsightsTabList` /
+  `HomeTabList` keyboard roving when covered by colocated tests.
+- Typecheck + `apps/desktop` renderer Vitest green without contracts/package
+  Engine edits.
+- Manual / E2E residual: create project three steps; card open; archive
+  recycle; insights groups + overview actions; en/zh chrome; reduced-motion
+  open still clears opening state.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+// Permanent vertical four-item home nav + invented TM total.
+<nav className="project-home-nav">…</nav>
+<span>{fakeTmTotal}</span>
+
+// Dead QA button without parent route.
+<button onClick={() => {}}>Open QA</button>
+
+// Full-page wipe including stepper rail; auto-open workspace with diagnostics.
+startViewTransition(() => setMode("workspace"));
+useEffect(() => { void onCreated(id, doc); }, [created]);
+```
+
+#### Correct
+
+```tsx
+// 35/65 + honest counts + VT open.
+<div className="project-home-shell">
+  <CompositionRail title={…} footer={refreshMeta}>…</CompositionRail>
+  <HomeTabList tabs={tabsWithCounts} active={tab} onChange={setTab} />
+</div>
+setOpeningProjectId(projectId);
+await runTransition(async () => {
+  await onOpen(projectId, documentId);
+});
+setOpeningProjectId(null);
+
+// Overview: wire optional callbacks or residual — never dead control.
+{onOpenQa ? (
+  <button type="button" onClick={onOpenQa}>{t("insights.actionOpenQa")}</button>
+) : (
+  <p className="meta">{t("insights.residualQa")}</p>
+)}
+
+// Setup: keep diagnostics until explicit open.
+setDependencyDiagnostics(result.diagnostics);
+<button type="button" onClick={() => void onCreated(projectId, documentId)}>
+  {t("setup.openWorkspace")}
+</button>
 ```
