@@ -154,20 +154,23 @@
 .issuenav__btn:hover:not(:disabled) { background: var(--shade); }
 .issuenav__btn:disabled { color: var(--text-3); cursor: not-allowed; }
 
-/* —— 段落网格 ———————————————————————————————————— */
-.grid {
+/* —— 段落网格（Phase 3 plate + seam） ——————————— */
+.grid,
+.segment-grid.grid {
   grid-area: grid;
   min-height: 0;
   overflow: hidden;
   background: var(--paper);
   display: flex;
   flex-direction: column;
+  outline: none;
 }
 
 .grid__head,
 .seg-row {
   display: grid;
-  grid-template-columns: 56px 40px minmax(320px, 1fr) minmax(320px, 1fr) 44px;
+  grid-template-columns: 56px 40px minmax(200px, 1fr) minmax(200px, 1fr);
+  column-gap: 0;
 }
 
 .grid__head {
@@ -178,6 +181,7 @@
   position: sticky;
   inset-block-start: 0;
   z-index: 2;
+  flex: 0 0 auto;
 }
 
 .grid__head > * { padding: 0 var(--s-5); }
@@ -188,53 +192,71 @@
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: none;
-  content-visibility: auto;
 }
 
 .grid__body::-webkit-scrollbar { display: none; }
 
+.segment-grid.grid .grid__body {
+  /* Scroll lives on the grid root for Matrix ownership. */
+  overflow: visible;
+}
+
+.segment-grid.grid {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 /* —— 段落行 ————————————————————————————————————— */
 .seg-row {
-  min-block-size: var(--row-min);
+  min-block-size: var(--row-min, 48px);
   border-block-end: 1px solid var(--rule);
   position: relative;
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--row-min, 48px);
+  contain: layout style;
   transition: background var(--d-state) var(--ease-move);
 }
 
 .seg-row:hover { background: var(--shade); }
-.seg-row[data-active] { background: var(--shade); }
+.seg-row[data-active],
+.seg-row.is-active { background: var(--shade); }
 
-/* Active Axis：全屏唯一一条 */
-.seg-row[data-active]::before {
-  content: "";
-  position: absolute;
-  inset-inline-start: 0;
-  inset-block: 0;
-  inline-size: 2px;
-  background: var(--signal);
+/* Axis is owned by ActiveAxis component — no CSS twin. */
+.seg-row[data-active]::before,
+.seg-row.is-active::before {
+  content: none;
 }
 
-.seg-row[data-selected]:not([data-active]) {
+.seg-row[data-selected]:not([data-active]):not(.is-active) {
   background: var(--shade);
   box-shadow: inset 1px 0 0 var(--rule-strong);
 }
 
+.seg-row.is-flash {
+  animation: row-flash 500ms var(--ease-move);
+}
+
 /* —— 单元格 ————————————————————————————————————— */
 .cell {
-  padding: var(--cell-pad) var(--s-5);
+  padding: var(--cell-pad, 8px) var(--s-5);
   min-inline-size: 0;
 }
 
 .cell--id {
+  position: relative;
   text-align: right;
   color: var(--text-2);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: var(--t-num);
-  padding-block-start: calc(var(--cell-pad) + 2px);
+  padding-block-start: calc(var(--cell-pad, 8px) + 2px);
 }
 
-.seg-row[data-active] .cell--id {
+.seg-row[data-active] .cell--id,
+.seg-row.is-active .cell--id {
   color: var(--text-1);
   font-weight: 600;
 }
@@ -242,7 +264,7 @@
 .cell--lamp {
   display: flex;
   justify-content: center;
-  padding-block-start: calc(var(--cell-pad) + 5px);
+  padding-block-start: calc(var(--cell-pad, 8px) + 5px);
 }
 
 .cell--src {
@@ -253,7 +275,8 @@
 }
 
 .cell--tgt {
-  font-size: var(--t-editor);
+  position: relative;
+  font-size: max(14px, var(--t-editor));
   line-height: var(--lh-editor);
 }
 
@@ -262,7 +285,7 @@
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text-2);
-  padding-block-start: calc(var(--cell-pad) + 3px);
+  padding-block-start: calc(var(--cell-pad, 8px) + 3px);
 }
 
 /* 译文编辑框 */
@@ -270,46 +293,395 @@
   background: var(--deck);
   border: 1px solid var(--rule-field);
   border-radius: var(--r-input);
-  padding: calc(var(--cell-pad) - 3px) 10px;
-  min-block-size: calc(var(--row-min) - var(--cell-pad) * 2);
+  padding: calc(var(--cell-pad, 8px) - 3px) 10px;
+  min-block-size: calc(var(--row-min, 48px) - var(--cell-pad, 8px) * 2);
   field-sizing: content;
   inline-size: 100%;
   font: inherit;
+  font-size: max(14px, var(--t-editor));
   color: inherit;
   resize: none;
+  overflow: hidden;
+  scroll-margin-block: 96px;
 }
 
 .seg-row[data-focus] .tgt-box,
 .tgt-box:focus {
   border-color: var(--signal);
   border-width: 2px;
-  padding: calc(var(--cell-pad) - 4px) 9px;
+  padding: calc(var(--cell-pad, 8px) - 4px) 9px;
   outline: none;
 }
 
 .tgt-box[data-empty] { color: var(--text-2); }
 
 /* IME 组合态：禁用高度动画 */
-.tgt-box[data-composing] {
-  transition: none;
+.tgt-box[data-composing],
+html[data-composing] .tgt-box,
+html[data-composing] .seg-row {
+  transition: none !important;
+  animation: none !important;
+}
+
+/* —— 状态方灯（8 形） ———————————————————————————— */
+.status-lamp {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 16px;
+  block-size: 16px;
+}
+
+.status-lamp__shape {
+  display: block;
+  inline-size: 8px;
+  block-size: 8px;
+  box-sizing: border-box;
+  position: relative;
+}
+
+/* untranslated: hollow square */
+.status-lamp[data-state="untranslated"] .status-lamp__shape {
+  border: 1.25px solid var(--rule-field);
+  background: transparent;
+}
+
+/* draft: half-filled */
+.status-lamp[data-state="draft"] .status-lamp__shape {
+  border: 1.25px solid var(--text-2);
+  background: linear-gradient(
+    to top,
+    var(--text-2) 0 50%,
+    transparent 50% 100%
+  );
+}
+
+/* confirmed: solid */
+.status-lamp[data-state="confirmed"] .status-lamp__shape {
+  background: var(--ok);
+}
+
+/* reviewed: solid + clipped upper-right */
+.status-lamp[data-state="reviewed"] .status-lamp__shape {
+  background: var(--ok);
+  clip-path: polygon(0 0, 62% 0, 100% 38%, 100% 100%, 0 100%);
+}
+
+/* signed: solid + outer frame */
+.status-lamp[data-state="signed"] .status-lamp__shape {
+  background: var(--ok);
+  outline: 1.5px solid var(--ok);
+  outline-offset: 1.5px;
+}
+
+/* error: solid + cross */
+.status-lamp[data-state="error"] .status-lamp__shape {
+  background: var(--err);
+}
+.status-lamp[data-state="error"] .status-lamp__shape::before,
+.status-lamp[data-state="error"] .status-lamp__shape::after {
+  content: "";
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 6px;
+  height: 1.25px;
+  background: var(--paper);
+  transform-origin: center;
+}
+.status-lamp[data-state="error"] .status-lamp__shape::before {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+.status-lamp[data-state="error"] .status-lamp__shape::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+/* warning: solid + slash */
+.status-lamp[data-state="warning"] .status-lamp__shape {
+  background: var(--warn);
+}
+.status-lamp[data-state="warning"] .status-lamp__shape::before {
+  content: "";
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 7px;
+  height: 1.25px;
+  background: var(--paper);
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+/* locked: solid + center bar */
+.status-lamp[data-state="locked"] .status-lamp__shape {
+  background: var(--text-2);
+}
+.status-lamp[data-state="locked"] .status-lamp__shape::before {
+  content: "";
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 5px;
+  height: 1.5px;
+  background: var(--paper);
+  transform: translate(-50%, -50%);
+}
+
+/* —— 列间缝动作条 ——————————————————————————————— */
+.seg-row__seam-rail {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 0;
+  transform: translate(-50%, -50%);
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  inline-size: 24px;
+  padding: 4px 0;
+  background: var(--frame);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-ctl, 4px);
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.seg-row:hover .seg-row__seam-rail,
+.seg-row:focus-within .seg-row__seam-rail {
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.seam-rail__btn {
+  inline-size: 20px;
+  block-size: 20px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  border-radius: var(--r-input);
+  position: relative;
+  cursor: pointer;
+}
+
+.seam-rail__btn:hover:not(:disabled) {
+  background: var(--shade);
+  color: var(--text-1);
+}
+
+.seam-rail__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.seam-rail__count {
+  position: absolute;
+  inset-block-start: -2px;
+  inset-inline-end: -2px;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--signal);
+}
+
+.seam-rail__more { position: relative; }
+
+.seam-rail__menu {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 100%;
+  margin-inline-start: 4px;
+  min-inline-size: 12rem;
+  padding: var(--s-2);
+  background: var(--frame);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-ctl, 4px);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-shadow: none;
+}
+
+.seam-rail__menu button {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: 6px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--t-meta);
+  text-align: start;
+  cursor: pointer;
+  border-radius: var(--r-input);
+}
+
+.seam-rail__menu button:hover:not(:disabled) {
+  background: var(--shade);
+}
+
+.seam-rail__menu button:disabled {
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
+/* —— 标签胶囊 ——————————————————————————————————— */
+.tag-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 2px;
+  padding: 3px 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1;
+  background: var(--frame);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  color: var(--text-1);
+  cursor: pointer;
+  vertical-align: baseline;
+}
+
+.tag-capsule[data-selected],
+.tag-capsule.selected {
+  border-color: var(--signal);
+  background: var(--signal-wash, var(--shade));
+}
+
+.tag-capsule[data-paired-highlight] {
+  background: var(--signal-wash, var(--shade));
+  border-color: var(--signal);
+}
+
+.tag-capsule[data-issue="missing"] {
+  border-style: dashed;
+  border-color: var(--err);
+  color: var(--err-ink, var(--err));
+}
+
+.tag-capsule[data-issue="order"] {
+  border-color: var(--warn);
+}
+
+.tag-capsule__pos {
+  opacity: 0.7;
+  font-size: 9px;
+}
+
+.target-tag-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-block-end: 4px;
+}
+
+.tag-layer--source {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-block-start: 4px;
+}
+
+/* —— 批量条 ————————————————————————————————————— */
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  block-size: 36px;
+  padding: 0 var(--s-5);
+  background: var(--ink);
+  color: var(--text-on-ink, var(--paper));
+  flex: 0 0 auto;
+  z-index: 3;
+}
+
+.batch-bar__count {
+  font-size: var(--t-meta);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.batch-bar__hidden {
+  opacity: 0.75;
+  font-weight: 400;
+}
+
+.batch-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin-inline-start: auto;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+
+.batch-bar__btn {
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--paper) 35%, transparent);
+  border-radius: var(--r-input);
+  background: transparent;
+  color: inherit;
+  font: 500 var(--t-meta) / 1 var(--font-ui);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.batch-bar__btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--paper) 12%, transparent);
+}
+
+.batch-bar__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.batch-bar__btn--danger {
+  border-color: var(--err);
 }
 
 /* —— 内联 QA 条 —————————————————————————————————— */
+.qa-inline-strip {
+  margin-block-start: 8px;
+}
+
+.qa-inline-strip__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .qa-inline {
-  grid-column: 3 / -1;
   display: flex;
   align-items: center;
   gap: var(--s-4);
-  margin: 0 var(--s-5) var(--cell-pad);
   padding: var(--s-3) 10px;
   background: var(--frame);
   border-inline-start: 3px solid var(--err);
   font-size: var(--t-meta);
+  margin: 0;
+}
+
+.qa-inline[data-severity="warning"] {
+  border-inline-start-color: var(--warn);
+}
+
+.qa-inline[data-severity="info"] {
+  border-inline-start-color: var(--text-2);
 }
 
 .qa-inline__msg {
   flex: 1;
-  color: var(--err-ink);
+  color: var(--text-1);
+  min-inline-size: 0;
+}
+
+.qa-inline__actions {
+  display: inline-flex;
+  gap: var(--s-3);
+  flex: 0 0 auto;
 }
 
 .qa-inline__action {
@@ -317,9 +689,60 @@
   color: var(--text-2);
   text-decoration: underline;
   text-underline-offset: 3px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
 }
 
 .qa-inline__action:hover { color: var(--text-1); }
+
+.virtual-spacer {
+  pointer-events: none;
+}
+
+@media (forced-colors: active) {
+  .status-lamp__shape {
+    forced-color-adjust: none;
+    border-color: CanvasText !important;
+  }
+  .status-lamp[data-state="untranslated"] .status-lamp__shape {
+    background: transparent !important;
+    border: 1.25px solid CanvasText !important;
+  }
+  .status-lamp[data-state="confirmed"] .status-lamp__shape,
+  .status-lamp[data-state="reviewed"] .status-lamp__shape,
+  .status-lamp[data-state="signed"] .status-lamp__shape,
+  .status-lamp[data-state="error"] .status-lamp__shape,
+  .status-lamp[data-state="warning"] .status-lamp__shape,
+  .status-lamp[data-state="locked"] .status-lamp__shape {
+    background: CanvasText !important;
+  }
+  .status-lamp[data-state="error"] .status-lamp__shape::before,
+  .status-lamp[data-state="error"] .status-lamp__shape::after,
+  .status-lamp[data-state="warning"] .status-lamp__shape::before,
+  .status-lamp[data-state="locked"] .status-lamp__shape::before {
+    background: Canvas !important;
+  }
+  .seg-row[data-selected]:not([data-active]) {
+    outline: 1px solid CanvasText;
+  }
+  .tag-capsule[data-issue="missing"] {
+    border-style: dashed;
+    border-color: CanvasText;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seg-row,
+  .tgt-box {
+    transition: none !important;
+  }
+  .seg-row.is-flash {
+    animation: none;
+  }
+}
 
 /* —— Phase 2: Active Axis singleton ——————————————— */
 .active-axis {

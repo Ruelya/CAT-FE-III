@@ -17,8 +17,11 @@ apps/desktop/
 owns surface/session orchestration; `SetupView.tsx`, `Workbench.tsx`,
 `WorkbenchPages.tsx`, and `AssistantPanel.tsx` own visible feature areas.
 `Workbench.tsx` hosts the editor, Suggestions, and Preview shell and wires
-ORTHO Phase 2 extracts under `components/workbench/` (`Masthead`,
-`FilterRail`, `ActiveAxis`, `DocumentMatrix`). Shared interaction math lives
+ORTHO Phase 2–3 extracts under `components/workbench/` (`Masthead`,
+`FilterRail`, `ActiveAxis`, `DocumentMatrix`, `SegmentGrid`, `SegmentRow`,
+`SegmentStatusLamp`, `TagCapsule`, `SeamActionRail`, `BatchBar`,
+`InlineQaStrip`, plus pure `segmentTypes.ts`). Grid keyboard/selection
+coordination lives in `hooks/useRovingGrid.ts`. Shared interaction math lives
 in `workbench-utils.ts` with colocated tests (including
 `restorePaletteOwnerFocus`).
 

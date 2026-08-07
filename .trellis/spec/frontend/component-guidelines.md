@@ -58,9 +58,10 @@ Prefer small, unframed layout sections over nested decorative cards. Reuse
 of copying nearly identical controls. Keep transient toasts and busy states
 visible and keyboard reachable.
 
-### ORTHO Workbench extracts (Phase 2)
+### ORTHO Workbench extracts (Phase 2–3)
 
-Workbench chrome pieces live under `src/renderer/components/workbench/`:
+Workbench chrome and grid pieces live under
+`src/renderer/components/workbench/`:
 
 | Component | Responsibility |
 | --- | --- |
@@ -68,12 +69,25 @@ Workbench chrome pieces live under `src/renderer/components/workbench/`:
 | `FilterRail` | Exactly three groups: status chips · match selector · issue nav |
 | `ActiveAxis` | Single decorative `[data-axis="active"]` marker |
 | `DocumentMatrix` | Document-ordinal matrix beside the segment grid |
+| `SegmentGrid` | `role="grid"`, virtual spacers, batch bar, shared row measure, roving host |
+| `SegmentRow` | Plate/seam row: lamp, source/target, seam rail, selection, inline QA |
+| `SegmentStatusLamp` | Eight shape-coded presentational states + localized names |
+| `TagCapsule` | Atomic pair capsules; hover/focus pair highlight; Alt move intent |
+| `SeamActionRail` | 24px source/target seam: best match · comment · More (hover/focus-within) |
+| `BatchBar` | Multi-select 36px plate; intent-only batch actions |
+| `InlineQaStrip` | Existing QA/tag findings under plates; Locate / reason-required Ignore |
 
 Presentational leaves receive explicit props/callbacks; `Workbench.tsx` owns
-filter state, leave-guard registration, Matrix projection, and axis residence.
-Executable contracts (ordinal space, deferred match buckets, focus restore,
-leave-guard) live in
-[Electron Workbench — ORTHO Workbench Skeleton](./electron-workbench.md#ortho-workbench-skeleton-phase-2).
+filter state, drafts, leave-guard registration, Matrix projection, axis
+residence, filter-scope ID expansion, and batch/QA RPC adapters. Pure row
+mappers live in `segmentTypes.ts` (`deriveLampState`, tag/finding maps).
+
+Executable contracts:
+
+- Phase 2 chrome:
+  [ORTHO Workbench Skeleton](./electron-workbench.md#ortho-workbench-skeleton-phase-2)
+- Phase 3 grid:
+  [ORTHO Segment Grid and Cells](./electron-workbench.md#ortho-segment-grid-and-cells-phase-3)
 
 ## Avoid
 

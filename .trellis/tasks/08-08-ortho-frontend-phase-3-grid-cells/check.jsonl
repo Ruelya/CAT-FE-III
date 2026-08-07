@@ -1,0 +1,12 @@
+{"file":"docs/design-ii/09-implementation.md","reason":"Review source of truth for Phase 3-only scope, protected business boundaries, file-size target, and 10k acceptance aspiration."}
+{"file":"docs/design-ii/screens/workbench.md","reason":"Review checklist for exact row/cell geometry, status shapes, tag behavior, selection/batch bar, inline QA, target editor, and virtualization."}
+{"file":"docs/design-ii/07-interaction.md","reason":"Verify keyboard flow, focus return, selection, IME ten-outcome contract, and interaction latency without shortcut leakage."}
+{"file":"docs/design-ii/03-signatures.md","reason":"Verify exactly one ActiveAxis, anchor behavior under multi-select, and compliant plate/seam expression."}
+{"file":"docs/design-ii/08-accessibility.md","reason":"Verify role/grid semantics, tab-stop model, accessible names, forced colors, reduced motion, focus, and axe requirements."}
+{"file":"docs/design-ii/02-foundations.md","reason":"Check token-only styling, minimum editable typography, spacing, status palette, and density behavior."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Review Electron/Workbench regressions, renderer boundaries, and preservation of existing orchestration/runtime contracts."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Review component boundaries, memoization, callback ownership, semantic markup, and reuse quality."}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"Review useRovingGrid and measurement-hook correctness, cleanup, composition guards, and focus side effects."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Check that business/draft state remains in Workbench and ephemeral focus/selection does not create a competing source of truth."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Check exhaustive status/selection unions and typed intent callbacks without unsafe contract widening."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Drive targeted unit/E2E, axe, typecheck, IME, virtualization, and performance review evidence."}

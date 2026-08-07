@@ -2,11 +2,23 @@
 
 ## Current Pattern
 
-The app currently uses React built-ins directly. `App.tsx`, `Workbench.tsx`,
+The app mostly uses React built-ins directly. `App.tsx`, `Workbench.tsx`,
 `WorkbenchPages.tsx`, and `AssistantPanel.tsx` use `useState`, `useEffect`,
-`useMemo`, `useReducer`, and refs; there is no project-wide custom hook layer.
-Keep a feature-local effect or reducer inline when it is used once and its
-ownership is clear.
+`useMemo`, `useReducer`, and refs. Keep a feature-local effect or reducer
+inline when it is used once and its ownership is clear.
+
+Extracted Workbench hooks:
+
+| Hook | File | Owns |
+| --- | --- | --- |
+| `useComposition` | `hooks/useComposition.ts` | Global IME composition guard |
+| `useRovingGrid` | `hooks/useRovingGrid.ts` | Grid navigate/edit mode, selection UI coords, virtual seek handshake |
+
+`useRovingGrid` must not call Engine/RPC. It emits activation, selection, and
+seek intents; Workbench expands filter-scope IDs and performs mutations.
+Composition checks (injected predicate + global guard + `isComposing` /
+keyCode 229) run before any preventDefault or move. See
+[Phase 3 grid contract](./electron-workbench.md#ortho-segment-grid-and-cells-phase-3).
 
 ## Creating A Custom Hook
 
@@ -44,6 +56,11 @@ Focus refs are appropriate for panel transition handoff and issue navigation.
 Composition state is tracked per segment in a ref so Ctrl/Cmd+Enter cannot
 confirm while an IME candidate is active. Keep `event.nativeEvent.isComposing`
 and keyCode 229 checks at the keyboard boundary.
+
+For `role="grid"`, `aria-activedescendant` is allowed **only** when it names a
+**mounted** cell. Virtual-window navigation must seek and wait for mount before
+updating the attribute (contrast DocumentMatrix, which uses roving tabindex and
+must not put `aria-activedescendant` on `role="navigation"`).
 
 ## Avoid
 

@@ -180,6 +180,30 @@ BEM 变体：`.block__element` + `data-*` 状态（不用 `--modifier` 类）。
 
 **验收**：1 万段 P95 ≤ 33ms；IME 十项测试全过；键盘全流程可走；axe 无 serious。
 
+#### 期 3 实现记录（2026-08）
+
+| 交付 | 位置 | 说明 |
+| --- | --- | --- |
+| `SegmentGrid` | `components/workbench/SegmentGrid.tsx` | `role="grid"` + 虚拟 spacer + 共享 `ResizeObserver` 行高缓存 + BatchBar 挂载；滚动仍由网格根节点承担（Matrix 所有权不变） |
+| `SegmentRow` | `components/workbench/SegmentRow.tsx` | 板块+缝四列行：ID / 方灯 / 原文 / 译文；`data-active`/`data-selected`；无卡片圆角投影 |
+| `SegmentStatusLamp` | `components/workbench/SegmentStatusLamp.tsx` | 八态形状编码（空心/半填/实心/缺角/外框/叉/斜杠/横条）+ 本地化名；forced-colors 保形 |
+| `TagCapsule` | `components/workbench/TagCapsule.tsx` | 配对高亮、缺失/错序钩子、`Alt+←/→` 移动意图；不解析 XML |
+| `SeamActionRail` | `components/workbench/SeamActionRail.tsx` | 原文/译文列间缝 24px 动作条：最佳匹配 / 批注 / 更多；hover·focus-within 可见 |
+| `InlineQaStrip` | `components/workbench/InlineQaStrip.tsx` | 行内 QA/标签问题条；Locate / Ignore 走既有回调意图 |
+| `BatchBar` | `components/workbench/BatchBar.tsx` | 多选 36px 批量条；Confirm / Clear / Lock / Pretranslate(占位) / Comment / Cancel |
+| `useRovingGrid` | `hooks/useRovingGrid.ts` | 单 Tab 停 · 四向导航 · Enter 编辑 · Esc 导航/清多选 · Ctrl+Shift+A · 组合态优先 |
+| 编排 | `Workbench.tsx` | 行视图模型 join + 选择态 + 批量适配既有 `segment.confirm` / `updateTarget` / `workflow.set`；不改 engine/contracts/草稿/leave-guard |
+| 样式 | `styles/30-surfaces/workbench.css` | plate/seam、方灯、胶囊、批量条、内联 QA、`field-sizing`、`scroll-margin-block: 96px`、`html[data-composing]` |
+| i18n | `i18n/messages.ts` | 方灯名 / 选择计数 / 批量 / 内联 QA / 标签态 en+zh |
+
+**未做 / 残留（Phase 4+ 或后续）**：
+- 批量 Pretranslate 无文档级选中 ID 适配器（导向 AI Control 面；未新增 engine 路径）
+- 内联 Ignore：QA 发现已 `prompt` 理由并调用 `qa.issue.waive`；标签结构发现仍不可 waive；完整 Stack QA 表单仍在后续 QA Surface
+- 批量 Lock：无 collab 选中 ID 适配器时禁用并 deferred toast（禁止 bulk-sign）
+- `aria-activedescendant` 跨虚拟窗口 seek 握手的 E2E 与 IME 十项 Electron 全量、axe、1 万段 P95 同机基线 trace 待质量环
+- 原文侧 `TaggedText` 内联胶囊与 `TagCapsule` 配对高亮尚未完全双向同步（缺失标签已用胶囊表达）
+- 列宽拖拽 / 可选 match-source 列仍属后续
+
 ### 期 4 · Stack 与预览坞
 1. Stack 改常驻双区 + AI 抽屉；单一折叠控件。
 2. 匹配卡（词级 diff 改删除线/下划线）与术语条。

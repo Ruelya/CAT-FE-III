@@ -9,9 +9,13 @@ object; it is never merged with a guessed revision or count.
 
 `App.tsx` owns the restored workspace and active surface. `Workbench.tsx`
 owns drafts, active row, filters/search, save status, panel modes, preview
-height, and navigation busy state. `AssistantPanel.tsx` owns its local
-conversation reducer, model/reasoning selection, composer, and applied-message
-feedback. `WorkbenchPages.tsx` owns page-local query/loading state.
+height, navigation busy state, multi-select ID set + anchor, filter-scope ID
+cache (from paged `segment.editor.list`), and measured editor row stride.
+`SegmentGrid` / `useRovingGrid` own only ephemeral focus coordinates and edit
+mode; they never write drafts or expand selection by mounting all rows.
+`AssistantPanel.tsx` owns its local conversation reducer, model/reasoning
+selection, composer, and applied-message feedback. `WorkbenchPages.tsx` owns
+page-local query/loading state.
 
 ## State Mechanisms
 

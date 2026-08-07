@@ -1566,6 +1566,37 @@ export type MessageKey =
   | "workbench.selectProtectedTag"
   | "workbench.acceptAutocomplete"
   | "workbench.signedReadOnly"
+  | "workbench.bestMatch"
+  | "workbench.lamp.untranslated"
+  | "workbench.lamp.draft"
+  | "workbench.lamp.confirmed"
+  | "workbench.lamp.reviewed"
+  | "workbench.lamp.signed"
+  | "workbench.lamp.error"
+  | "workbench.lamp.warning"
+  | "workbench.lamp.locked"
+  | "workbench.selectedCount"
+  | "workbench.selectedHidden"
+  | "workbench.batch.confirm"
+  | "workbench.batch.clearTarget"
+  | "workbench.batch.lock"
+  | "workbench.batch.pretranslate"
+  | "workbench.batch.comment"
+  | "workbench.batch.cancel"
+  | "workbench.batch.confirmDestructive"
+  | "workbench.batch.pretranslateDeferred"
+  | "workbench.batch.lockDeferred"
+  | "workbench.grid.idColumn"
+  | "workbench.inlineQa"
+  | "workbench.qaLocate"
+  | "workbench.qaIgnore"
+  | "workbench.qaIgnoreHint"
+  | "workbench.qaIgnoreReason"
+  | "workbench.qaIgnoreReasonRequired"
+  | "workbench.qaIgnoreActor"
+  | "workbench.tagPaired"
+  | "workbench.tagMissing"
+  | "workbench.tagOrder"
   | "workbench.importNote"
   | "workbench.reopen"
   | "workbench.resolve"
@@ -3459,6 +3490,43 @@ const enUs: MessageCatalog = {
   "workbench.acceptAutocomplete": "Accept {provider} autocomplete",
   "workbench.signedReadOnly":
     "Signed segments are read-only. Return the segment to review or translation first.",
+  "workbench.bestMatch": "Insert best match",
+  "workbench.lamp.untranslated": "Untranslated",
+  "workbench.lamp.draft": "Draft",
+  "workbench.lamp.confirmed": "Confirmed",
+  "workbench.lamp.reviewed": "Reviewed",
+  "workbench.lamp.signed": "Signed",
+  "workbench.lamp.error": "QA error",
+  "workbench.lamp.warning": "QA warning",
+  "workbench.lamp.locked": "Locked",
+  "workbench.selectedCount":
+    "{count, plural, one {# segment selected} other {# segments selected}}",
+  "workbench.selectedHidden":
+    "({count, plural, one {# hidden by filter} other {# hidden by filter}})",
+  "workbench.batch.confirm": "Confirm",
+  "workbench.batch.clearTarget": "Clear target",
+  "workbench.batch.lock": "Lock",
+  "workbench.batch.pretranslate": "Pretranslate",
+  "workbench.batch.comment": "Add comment",
+  "workbench.batch.cancel": "Cancel selection",
+  "workbench.batch.confirmDestructive":
+    "Clear targets for the selected segments? This can be undone where history is available.",
+  "workbench.batch.pretranslateDeferred":
+    "Batch pretranslate uses the AI Control surface for document-scope runs.",
+  "workbench.batch.lockDeferred":
+    "Batch lock requires a per-segment collab lock adapter; it is not bulk sign-off.",
+  "workbench.grid.idColumn": "ID",
+  "workbench.inlineQa": "Inline QA",
+  "workbench.qaLocate": "Locate",
+  "workbench.qaIgnore": "Ignore",
+  "workbench.qaIgnoreHint":
+    "Open QA in the stack to ignore with a required reason.",
+  "workbench.qaIgnoreReason": "Reason for ignoring this finding",
+  "workbench.qaIgnoreReasonRequired": "A reason is required to ignore a finding.",
+  "workbench.qaIgnoreActor": "Workbench",
+  "workbench.tagPaired": "Paired tag",
+  "workbench.tagMissing": "Missing from target",
+  "workbench.tagOrder": "Tag order mismatch",
   "workbench.importNote": "import note",
   "workbench.reopen": "Reopen",
   "workbench.resolve": "Resolve",
@@ -5273,6 +5341,42 @@ const zhCn: MessageCatalog = {
   "workbench.acceptAutocomplete": "接受 {provider} 自动补全",
   "workbench.signedReadOnly":
     "已签核句段为只读。请先将句段退回审校或翻译状态。",
+  "workbench.bestMatch": "插入最佳匹配",
+  "workbench.lamp.untranslated": "未翻译",
+  "workbench.lamp.draft": "草稿",
+  "workbench.lamp.confirmed": "已确认",
+  "workbench.lamp.reviewed": "已审校",
+  "workbench.lamp.signed": "已签发",
+  "workbench.lamp.error": "有 QA 错误",
+  "workbench.lamp.warning": "有 QA 警告",
+  "workbench.lamp.locked": "已锁定",
+  "workbench.selectedCount":
+    "{count, plural, one {已选 # 段} other {已选 # 段}}",
+  "workbench.selectedHidden":
+    "（{count, plural, one {筛选隐藏 # 段} other {筛选隐藏 # 段}}）",
+  "workbench.batch.confirm": "确认",
+  "workbench.batch.clearTarget": "清空译文",
+  "workbench.batch.lock": "锁定",
+  "workbench.batch.pretranslate": "预翻译",
+  "workbench.batch.comment": "加批注",
+  "workbench.batch.cancel": "取消选择",
+  "workbench.batch.confirmDestructive":
+    "清空所选句段的译文？在可用历史时可以撤销。",
+  "workbench.batch.pretranslateDeferred":
+    "批量预翻译请在 AI 控制面按文档范围运行。",
+  "workbench.batch.lockDeferred":
+    "批量锁定需要按句段的协作锁适配器，不会批量签发。",
+  "workbench.grid.idColumn": "编号",
+  "workbench.inlineQa": "内联质检",
+  "workbench.qaLocate": "定位",
+  "workbench.qaIgnore": "忽略",
+  "workbench.qaIgnoreHint": "请在 Stack 的质检区打开并填写理由后忽略。",
+  "workbench.qaIgnoreReason": "忽略此发现的理由",
+  "workbench.qaIgnoreReasonRequired": "忽略发现必须填写理由。",
+  "workbench.qaIgnoreActor": "工作台",
+  "workbench.tagPaired": "配对标签",
+  "workbench.tagMissing": "译文缺失",
+  "workbench.tagOrder": "标签顺序不匹配",
   "workbench.importNote": "导入备注",
   "workbench.reopen": "重新打开",
   "workbench.resolve": "解决",

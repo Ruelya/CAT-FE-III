@@ -1,0 +1,15 @@
+{"file":"docs/design-ii/09-implementation.md","reason":"Canonical Phase 3 scope, approved file split, no-new-dependency rule, protected logic boundaries, and 10k performance target."}
+{"file":"docs/design-ii/screens/workbench.md","reason":"Approved segment-grid, row plate/seam, eight status lamps, protected tags, multi-selection, inline QA, target-cell, and virtualization specifications."}
+{"file":"docs/design-ii/07-interaction.md","reason":"Canonical roving-grid focus model, keyboard precedence, IME triple guard, selection semantics, resize behavior, and latency budgets."}
+{"file":"docs/design-ii/03-signatures.md","reason":"ActiveAxis singleton/anchor rules and Seam geometry/weight constraints required by row focus and selection."}
+{"file":"docs/design-ii/08-accessibility.md","reason":"Accessibility requirements for grid semantics, keyboard operation, forced colors, reduced motion, and axe acceptance."}
+{"file":"docs/design-ii/02-foundations.md","reason":"Token, typography, spacing, status-color, and density definitions consumed by Phase 3 CSS without literal values."}
+{"file":"docs/design-ii/05-components.md","reason":"Approved component expression for lamps, fields, tags, menus, and confirmation surfaces reused by grid cells and batch actions."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Project-specific Electron renderer and Workbench integration constraints for preserving orchestration and runtime behavior."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Component extraction, prop boundary, accessibility, and reuse conventions for SegmentGrid/Row and pure presentation components."}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"Hook ownership, event-listener, cleanup, focus, and stable callback rules for useRovingGrid and row measurement."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"State ownership guidance needed to keep drafts/business state in Workbench and selection/focus state local and ephemeral."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Type requirements for row view models, callback intent contracts, status unions, tag issues, and selection descriptors."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Placement and naming rules for new Workbench components, hooks, tests, and localized resources."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Required test, performance, accessibility, and regression gates for the implementation."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Guidance for surgical extraction and reuse of existing handlers/helpers instead of duplicating editor logic."}

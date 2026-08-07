@@ -2490,3 +2490,271 @@ for (const row of editorRows) {
 const axisResidence = activeId ? "row" : filter ? "chip" : "hidden";
 restorePaletteOwnerFocus(owner, editorRegionRef.current);
 ```
+
+## ORTHO Segment Grid and Cells (Phase 3)
+
+### 1. Scope / Trigger
+
+Use this contract when changing the Workbench segment grid presentation:
+row/cell geometry, status lamps, target editor sizing, protected-tag capsules,
+roving keyboard navigation, multi-selection/batch bar, inline QA strip, or
+variable-height measurement for the virtual window.
+
+Phase 3 is a **presentation extraction and keyboard surface**. It must not
+change Engine, generated contracts, preload, main-process, draft journal
+semantics, `useComposition`, leave-guard ownership, or editor-command
+dispatch tables.
+
+Source components / hook:
+
+- `components/workbench/SegmentGrid.tsx`
+- `components/workbench/SegmentRow.tsx`
+- `components/workbench/SegmentStatusLamp.tsx`
+- `components/workbench/TagCapsule.tsx`
+- `components/workbench/SeamActionRail.tsx`
+- `components/workbench/BatchBar.tsx`
+- `components/workbench/InlineQaStrip.tsx`
+- `components/workbench/segmentTypes.ts` (pure mappers + view contracts)
+- `hooks/useRovingGrid.ts`
+- Host wiring: `Workbench.tsx`
+- Styles: `styles/30-surfaces/workbench.css`
+- Catalog: `i18n/messages.ts`
+
+### 2. Signatures
+
+```ts
+// Presentational lamp only — does not mutate segment/workflow/QA storage.
+type SegmentLampState =
+  | "untranslated"
+  | "draft"
+  | "confirmed"
+  | "reviewed"
+  | "signed"
+  | "error"
+  | "warning"
+  | "locked";
+
+function deriveLampState(input: {
+  segmentState: SegmentState;
+  workflowState: EditorWorkflowState;
+  openIssue?: Pick<QaIssue, "severity" | "status"> | null;
+  locked?: boolean;
+}): SegmentLampState;
+// Precedence: open error → open warning/info → locked → signed → reviewed →
+// confirmed → draft → untranslated.
+
+type GridColumn = "id" | "status" | "source" | "target";
+function cellId(segmentId: string, column: GridColumn): string;
+function rowId(segmentId: string): string;
+
+type BatchActionId =
+  | "confirm"
+  | "clearTarget"
+  | "lock"
+  | "pretranslate"
+  | "comment"
+  | "cancel";
+
+interface UseRovingGridOptions {
+  rows: SegmentRowView[]; // mounted window only
+  total: number; // filter-space count
+  offset: number; // window start list index
+  activeId: string | null;
+  gridRef: RefObject<HTMLElement | null>;
+  selectedIds: ReadonlySet<string>;
+  anchorId: string | null;
+  onSelectionChange(next: {
+    selectedIds: Set<string>;
+    anchorId: string | null;
+  }): void;
+  onActivate(segmentId: string): void;
+  onSeekOrdinal?(listIndex: number): void | Promise<void>; // filter-space
+  allFilteredIds?: readonly string[]; // full filter scope when expanded
+  onSelectAllFilterScope?(): void | Promise<void>; // never window-only
+  onRangeSelect?(
+    fromListIndex: number,
+    toListIndex: number,
+    anchorId: string,
+  ): void | Promise<void>;
+  isRowEditable(segmentId: string): boolean;
+  isComposing?(): boolean; // Workbench session + per-segment
+}
+
+// Host adapters (Workbench) — existing RPCs only:
+// ensureFilterScopeIds → paged segment.editor.list (limit 200), cache by
+//   document|filter|search|total; does not mount grid rows
+// handleIgnoreFinding → window.prompt reason → qa.issue.waive (QA ids only)
+// batch confirm → confirmSegment(id) per selected id
+// batch clearTarget → confirm + updateDraft/scheduleSave (skip signed)
+// batch lock / pretranslate → deferred toast; no bulk-sign / no invented RPC
+```
+
+### 3. Contracts
+
+#### Workbench owns orchestration
+
+- `Workbench` joins loaded editor rows into memoized `SegmentRowView`s (lamp,
+  tags, findings, flags). Leaves receive views + stable callbacks only.
+- Drafts, pending saves, composition refs, leave-guard `persistAllSegments`,
+  editor commands, and ActiveAxis residence stay in Workbench.
+- Target editing remains a controlled textarea (no `contenteditable`, no
+  overlay editor). Capsules are atomic sibling controls ordered by existing
+  tag positions.
+
+#### Grid semantics and roving
+
+- Grid root: `role="grid"`, one normal Tab stop, four columns (id / status /
+  source / target). Rows/cells use deterministic `rowId` / `cellId`.
+- Navigation mode: arrows move row/column; Enter enters target edit; Escape
+  clears multi-select first (keeps anchor/Axis), then returns to navigation
+  without discarding draft.
+- Edit mode: focus on target textarea; Tab advances next editable target
+  (seek when needed); Ctrl+Tab exits the grid region; locked/signed skip
+  edit advance but remain navigable.
+- Virtual seek: when destination list index is outside the mounted window,
+  call `onSeekOrdinal` / Workbench window loader, stash `pendingSeekRef`, and
+  complete focus/`aria-activedescendant` only after the row mounts. Never set
+  `aria-activedescendant` to an unmounted cell id.
+- Matrix seek remains document-ordinal; grid seek uses **filter-space list
+  index**. Do not conflate the two spaces.
+
+#### Composition-first
+
+Every Phase 3 key path returns before `preventDefault` / selection / navigation
+/ tag move / batch / overlay when any of: injected `isComposing()`, global
+`useComposition` guard, `event.isComposing`, or keyCode 229. While composing:
+no confirm, no draft write schedule until `compositionend` + existing 400ms
+debounce, no autocomplete update, no row/editor transition animation
+(`html[data-composing]`).
+
+#### Status lamps
+
+- One 8px shape-coded lamp + localized accessible name per row.
+- Shapes: hollow / half / solid / clipped / framed / cross / slash / bar.
+- Forced-colors must keep shape/text distinction; do not use Lucide as the
+  primary 8px lamp. Mapping is presentation-only.
+
+#### Tags
+
+- Reuse existing tag metadata and mutation callbacks; no XML parse.
+- Pair highlight via shared `pairKey` (`pairId` or `id`); hover/focus either
+  member highlights both when both are capsule-rendered.
+- Missing → source capsule error; order mismatch → target capsule warning;
+  issues also feed `InlineQaStrip`.
+- Selected target capsule: `Alt+Left` / `Alt+Right` → existing move once;
+  suppressed under composition or signed/locked.
+
+#### Multi-selection and batch
+
+- Selection is a set of stable segment IDs + anchor ID. Never mount hidden
+  selected rows solely to style or count them.
+- Ctrl+Shift+A / cross-window Shift range must use full filter-scope IDs
+  (`allFilteredIds` or `onSelectAllFilterScope` / `onRangeSelect` →
+  `ensureFilterScopeIds`). **Forbidden:** silent window-only select-all.
+- Multi-select keeps ActiveAxis on the **anchor only**; other selected rows
+  use neutral selected treatment.
+- BatchBar (36px) shows only for multi-selection; emits intent; Workbench
+  adapts. Missing adapters disable or toast deferred (lock, pretranslate) —
+  do not bulk-map Lock to `workflow.signed`.
+
+#### Inline QA
+
+- Pure strip under source/target plates; severity icon + message + supported
+  Locate/Ignore. No QA evaluation in the strip.
+- QA findings: Ignore requires non-empty reason then `qa.issue.waive` +
+  refresh open issues. Tag findings: `canIgnore: false` (not waivable via
+  that RPC).
+- ≥8px clearance from target editor to first interactive QA control; do not
+  steal editor focus or assertively re-announce unchanged findings.
+
+#### Measurement and virtualization
+
+- Keep existing editor window + overscan; never mount all rows for large
+  documents.
+- One shared `ResizeObserver` + height cache by list index / segment identity;
+  spacers use measured heights with estimate fallback; batch updates in rAF.
+- Measured stride feeds Matrix viewport / scroll index via
+  `onRowStrideChange` / `editorRowStride` — not fixed height alone when
+  content-sized targets grow.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Arrow past mounted window | Seek window; complete focus after mount; no stuck no-op |
+| `aria-activedescendant` target unmounted | Omit attribute until cell exists |
+| Key while composing / keyCode 229 | No navigation, selection, confirm, tag move, or draft schedule |
+| Ctrl+Shift+A with large filter | Full filter-scope IDs via list paging; not `editorRows` length |
+| Batch Lock without collab adapter | Disabled + deferred toast; never loop `setWorkflowState("signed")` on `activeId` |
+| Batch Pretranslate without adapter | Deferred toast → AI Control; no invented RPC |
+| Batch Clear on signed row | Skip signed; confirm destructive for others |
+| Inline Ignore, empty reason | Toast required; no waive RPC |
+| Inline Ignore, `tag:*` finding id | No-op (not waivable) |
+| Multi-select rows | Exactly one ActiveAxis (anchor/active row) |
+| Measure unknown row | Use existing estimated row height |
+
+### 5. Good / Base / Bad Cases
+
+- Good: Tab in edit mode seeks past window end, focuses next editable
+  textarea, keeps single Axis.
+- Good: Ctrl+Shift+A selects 500 filtered IDs while ~100 rows are mounted;
+  BatchBar reports total and hidden counts.
+- Good: Ignore prompts reason, waives via Engine, refreshes issues, restores
+  usable focus.
+- Base: single-row selection hides BatchBar; Escape in navigate clears
+  multi-select and keeps anchor.
+- Bad: select-all = `visibleSegments.map(id)` only.
+- Bad: batch Lock = `for (id of selected) { setActiveId(id); setWorkflowState("signed") }`.
+- Bad: `contenteditable` or second draft timer for capsules/IME.
+- Bad: `aria-activedescendant` pointing at a virtualized-away cell id.
+
+### 6. Tests Required
+
+- Unit: `deriveLampState` eight states + precedence; TagCapsule pair /
+  missing / order / Alt move / composition suppress; `useRovingGrid` seek
+  complete, Tab-in-edit, select-all expansion hooks, Escape, composition
+  priority; SegmentGrid role/tabIndex/batch visibility/single Axis;
+  SegmentRow lamp/QA/draft callbacks.
+- Host: filter-scope expansion does not mount full document; batch
+  lock/pretranslate non-mutating; Ignore waive path for QA ids only.
+- E2E residual (when harness/Engine available): ten IME outcomes, axe with
+  batch + inline QA visible, 10k mounted-row bound + same-machine P95.
+- Typecheck and desktop Vitest green without Engine/contract package edits.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```ts
+// Window-only select-all sold as filter scope.
+allFilteredIds={visibleSegments.map((r) => r.segment.id)};
+
+// Lock races activeId and bulk-signs.
+for (const id of selectedIds) {
+  setActiveId(id);
+  await setWorkflowState("signed");
+}
+
+// Seek without post-mount complete → stuck focus / unmounted descendant.
+await onSeekOrdinal(listIndex);
+return; // never sets focusSegmentId after rows update
+```
+
+#### Correct
+
+```ts
+// Expand via existing segment.editor.list pages (limit 200), cache by scope key.
+const ids = await ensureFilterScopeIds();
+onSelectionChange({ selectedIds: new Set(ids), anchorId });
+
+// Missing batch adapter: disable + deferred toast (lock ≠ signed).
+if (action === "lock") {
+  setToast(t("workbench.batch.lockDeferred"));
+  return;
+}
+
+// pendingSeekRef + effect on offset/rows → completeMove only when mounted.
+if (pendingSeekRef.current && rowIndexById.has(destinationId)) {
+  completeMove(pendingSeekRef.current);
+}
+```

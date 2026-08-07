@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -37,27 +38,20 @@ import type {
 import {
   AlertTriangle,
   BookOpen,
-  Combine,
   Command,
   Database,
   FileText,
   GitCompareArrows,
-  Languages,
   Maximize2,
-  MessageSquare,
   Minimize2,
-  MoreHorizontal,
   PanelBottomClose,
   PanelBottomOpen,
   PanelRightClose,
   PanelRightOpen,
   Pencil,
   Save,
-  Search,
   Send,
-  Split,
   Sparkles,
-  Tags,
   X,
 } from "lucide-react";
 
@@ -75,6 +69,17 @@ import {
   type RailStatusFilter,
 } from "./components/workbench/FilterRail";
 import { Masthead } from "./components/workbench/Masthead";
+import { SegmentGrid } from "./components/workbench/SegmentGrid";
+import {
+  deriveLampState,
+  mapFindings,
+  mapSourceTags,
+  mapTargetTags,
+  type BatchActionId,
+  type SegmentGridLabels,
+  type SegmentRowView,
+} from "./components/workbench/segmentTypes";
+import { isComposing as isGlobalComposing } from "./hooks/useComposition";
 import { clearSegmentDrafts, writeSegmentDraft } from "./draft-persist";
 import { GlobalSearchPanel } from "./GlobalSearchPanel";
 import { PluginAiActions } from "./PluginAiActions";
@@ -270,8 +275,7 @@ export function Workbench({
     "qa" | "export" | "confirm" | "navigate" | null
   >(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [segmentActionsOpen, setSegmentActionsOpen] = useState(false);
-  const segmentActionsTriggerRef = useRef<HTMLButtonElement>(null);
+
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
@@ -328,6 +332,20 @@ export function Workbench({
   const [selectedTargetTagId, setSelectedTargetTagId] = useState<string | null>(
     null,
   );
+  const [selectedSegmentIds, setSelectedSegmentIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [selectionAnchorId, setSelectionAnchorId] = useState<string | null>(
+    null,
+  );
+  /** Full filter-scope IDs (list order) when expanded for select-all / range. */
+  const [filterScopeIds, setFilterScopeIds] = useState<string[] | null>(null);
+  const filterScopeIdsRef = useRef<{ key: string; ids: string[] } | null>(
+    null,
+  );
+  /** Measured average row height for Matrix / window scroll index. */
+  const [editorRowStride, setEditorRowStride] = useState(EDITOR_ROW_HEIGHT);
+  const editorRowStrideRef = useRef(EDITOR_ROW_HEIGHT);
   const [spellFindings, setSpellFindings] = useState<SpellFinding[]>([]);
   const [spellProvider, setSpellProvider] = useState("unavailable");
   const [flashSegmentId, setFlashSegmentId] = useState<string | null>(null);
@@ -348,6 +366,7 @@ export function Workbench({
   const editorGridRef = useRef<HTMLDivElement>(null);
   const editorRegionRef = useRef<HTMLElement>(null);
   const editorOffsetRef = useRef(0);
+  const editorTotalRef = useRef(editorTotal);
   const [toolbarCompact, setToolbarCompact] = useState(false);
   const editorWindowRequestRef = useRef(0);
   const tmRequestRef = useRef(0);
@@ -466,11 +485,9 @@ export function Workbench({
    * using loaded rows. Off-window regions keep a best-effort ordinal span.
    */
   const syncMatrixViewport = (grid: HTMLDivElement) => {
-    const listStart = Math.floor(grid.scrollTop / EDITOR_ROW_HEIGHT);
-    const visible = Math.max(
-      1,
-      Math.ceil(grid.clientHeight / EDITOR_ROW_HEIGHT),
-    );
+    const stride = Math.max(1, editorRowStrideRef.current);
+    const listStart = Math.floor(grid.scrollTop / stride);
+    const visible = Math.max(1, Math.ceil(grid.clientHeight / stride));
     const listEnd = listStart + visible;
     const rows = editorRowsRef.current;
     const offset = editorOffsetRef.current;
@@ -529,16 +546,26 @@ export function Workbench({
   }, [editorOffset]);
 
   useEffect(() => {
+    editorTotalRef.current = editorTotal;
+  }, [editorTotal]);
+
+  useEffect(() => {
+    editorRowStrideRef.current = editorRowStride;
+  }, [editorRowStride]);
+
+  // Invalidate filter-scope ID cache when projection changes.
+  useEffect(() => {
+    filterScopeIdsRef.current = null;
+    setFilterScopeIds(null);
+  }, [document.id, filter, search, editorTotal]);
+
+  useEffect(() => {
     documentTotalRef.current = counts.total;
   }, [counts.total]);
 
   useEffect(() => {
     draftsRef.current = drafts;
   }, [drafts]);
-
-  useEffect(() => {
-    setSegmentActionsOpen(false);
-  }, [activeId]);
 
   useEffect(() => {
     // `Workbench` stays mounted while the parent replaces its Engine-backed
@@ -590,7 +617,8 @@ export function Workbench({
     setActionBusy(null);
     setFlashSegmentId(null);
     setSelectedTargetTagId(null);
-    setSegmentActionsOpen(false);
+    setSelectedSegmentIds(new Set());
+    setSelectionAnchorId(null);
     setActiveId((current) =>
       nextSegments.some((segment) => segment.id === current)
         ? current
@@ -1091,9 +1119,8 @@ export function Workbench({
   const onEditorScroll = (event: UIEvent<HTMLDivElement>) => {
     syncMatrixViewport(event.currentTarget);
     if (editorTotal <= EDITOR_WINDOW_SIZE) return;
-    const firstVisible = Math.floor(
-      event.currentTarget.scrollTop / EDITOR_ROW_HEIGHT,
-    );
+    const stride = Math.max(1, editorRowStrideRef.current);
+    const firstVisible = Math.floor(event.currentTarget.scrollTop / stride);
     const requested = Math.max(
       0,
       Math.min(
@@ -1468,6 +1495,71 @@ export function Workbench({
       `[data-segment-row="${nextId}"]`,
     )?.scrollIntoView({
       block: "center",
+    });
+  };
+
+  /**
+   * Expand ordered segment IDs for the current filter/search scope via
+   * existing `segment.editor.list` paging. Does not mount rows in the grid.
+   */
+  const ensureFilterScopeIds = async (): Promise<string[]> => {
+    const total = editorTotalRef.current;
+    const key = `${document.id}|${filter}|${search}|${total}`;
+    if (filterScopeIdsRef.current?.key === key) {
+      return filterScopeIdsRef.current.ids;
+    }
+    const ids: string[] = [];
+    let offset = 0;
+    const limit = 200;
+    while (true) {
+      const result = await window.translunar.invoke("segment.editor.list", {
+        documentId: document.id,
+        query: search,
+        field: "both",
+        filter,
+        sort: "ordinal",
+        descending: false,
+        offset,
+        limit,
+        includeContext: false,
+      });
+      for (const row of result.items) {
+        ids.push(row.segment.id);
+      }
+      if (result.items.length === 0) break;
+      offset += result.items.length;
+      if (offset >= result.total) break;
+    }
+    filterScopeIdsRef.current = { key, ids };
+    setFilterScopeIds(ids);
+    return ids;
+  };
+
+  /**
+   * Grid virtual seek by **filter-space list index** (not document ordinal).
+   * Loads the editor window that contains the index; focus completion is
+   * owned by useRovingGrid’s pending-seek handshake.
+   */
+  const seekListIndex = async (listIndex: number) => {
+    const total = editorTotalRef.current;
+    if (listIndex < 0 || (total > 0 && listIndex >= total)) return;
+    const requested = Math.max(
+      0,
+      Math.min(
+        Math.max(0, total - EDITOR_WINDOW_SIZE),
+        listIndex - EDITOR_OVERSCAN,
+      ),
+    );
+    await loadEditorWindow(requested);
+    window.requestAnimationFrame(() => {
+      const rows = editorRowsRef.current;
+      const windowOffset = editorOffsetRef.current;
+      const local = listIndex - windowOffset;
+      const row = rows[local];
+      if (!row) return;
+      documentQuery<HTMLElement>(
+        `[data-segment-row="${row.segment.id}"]`,
+      )?.scrollIntoView({ block: "nearest" });
     });
   };
 
@@ -2373,6 +2465,415 @@ export function Workbench({
     setSearch("");
   };
 
+  const segmentRowViews = useMemo((): SegmentRowView[] => {
+    const editorRowById = new Map(
+      editorRows.map((row) => [row.segment.id, row] as const),
+    );
+    return visibleSegments.map((segment, index) => {
+      const editorRow = editorRowById.get(segment.id);
+      const issue = openIssueBySegment.get(segment.id);
+      const nextSegment = visibleSegments[index + 1];
+      const draft = drafts[segment.id] ?? segment.targetText;
+      const isSigned = editorRow?.workflowState === "signed";
+      const sourceTags = mapSourceTags(
+        editorRow?.sourceTags ?? [],
+        editorRow?.targetTags ?? [],
+        editorRow?.tagIssues ?? [],
+      );
+      const targetTags = mapTargetTags(
+        editorRow?.targetTags ?? [],
+        editorRow?.tagIssues ?? [],
+      );
+      const selected =
+        selectedSegmentIds.size > 0
+          ? selectedSegmentIds.has(segment.id)
+          : segment.id === activeId;
+      const isActive = segment.id === activeId;
+      const autocomplete =
+        isActive && !isGlobalComposing()
+          ? autocompleteForSegment(segment.id)
+          : null;
+      return {
+        segmentId: segment.id,
+        ordinal: segment.ordinal,
+        sourceText: segment.sourceText,
+        targetDraft: draft,
+        segmentState: segment.state,
+        workflowState: editorRow?.workflowState ?? "translation",
+        lampState: deriveLampState({
+          segmentState: segment.state,
+          workflowState: editorRow?.workflowState ?? "translation",
+          openIssue: issue ?? null,
+        }),
+        isActive,
+        isSelected: selected,
+        isAnchor: selectionAnchorId === segment.id || (isActive && selectedSegmentIds.size <= 1),
+        isFlash: segment.id === flashSegmentId,
+        isSigned: Boolean(isSigned),
+        isEditable: !isSigned,
+        mergeEligible: Boolean(
+          nextSegment && canMergeSplitSiblings(segment, nextSegment),
+        ),
+        openCommentCount:
+          editorRow?.comments.filter((comment) => !comment.resolved).length ??
+          0,
+        sourceTags,
+        targetTags,
+        selectedTargetTagId: isActive ? selectedTargetTagId : null,
+        findings: mapFindings(issue, editorRow?.tagIssues ?? [], Boolean(draft.trim())),
+        autocomplete,
+        spellFindings:
+          isActive
+            ? spellFindings.slice(0, 4).map((finding) => ({
+                key: `${finding.provider}-${finding.start}-${finding.word}`,
+                word: finding.word,
+                provider: finding.provider,
+              }))
+            : [],
+        ariaInvalid: Boolean(issue),
+      };
+    });
+  }, [
+    activeId,
+    drafts,
+    editorRows,
+    flashSegmentId,
+    openIssueBySegment,
+    selectedSegmentIds,
+    selectedTargetTagId,
+    selectionAnchorId,
+    spellFindings,
+    visibleSegments,
+  ]);
+
+  const gridLabels = useMemo((): SegmentGridLabels => {
+    return {
+      region: t("workbench.segmentsAria"),
+      idColumn: t("workbench.grid.idColumn"),
+      status: t("common.status"),
+      sourceColumn: t("workbench.sourceColumn", {
+        locale: snapshot.project.sourceLocale,
+      }),
+      targetColumn: t("workbench.targetColumn", {
+        locale: snapshot.project.targetLocale,
+      }),
+      untranslated: t("workbench.untranslated"),
+      segmentTools: t("workbench.segmentTools"),
+      bestMatch: t("workbench.bestMatch"),
+      comments: t("workbench.openCommentsShort"),
+      more: t("common.moreActions"),
+      targetTags: t("workbench.targetTags"),
+      selectProtectedTag: (tag, position) =>
+        t("workbench.selectProtectedTag", { tag, position }),
+      moveTagHint: t("workbench.moveTagHint"),
+      targetSegment: (ordinal) => t("workbench.targetSegment", { ordinal }),
+      acceptAutocomplete: (provider) =>
+        t("workbench.acceptAutocomplete", { provider }),
+      tab: t("workbench.tab"),
+      spellFindingsFrom: (provider) =>
+        t("workbench.spellFindingsFrom", { provider }),
+      addDictionary: t("workbench.addDictionary"),
+      noMatches: t("workbench.noGridMatches"),
+      clearFilters: t("workbench.clearGridFilters"),
+      lamp: {
+        untranslated: t("workbench.lamp.untranslated"),
+        draft: t("workbench.lamp.draft"),
+        confirmed: t("workbench.lamp.confirmed"),
+        reviewed: t("workbench.lamp.reviewed"),
+        signed: t("workbench.lamp.signed"),
+        error: t("workbench.lamp.error"),
+        warning: t("workbench.lamp.warning"),
+        locked: t("workbench.lamp.locked"),
+      },
+      selectedCount: (count) => t("workbench.selectedCount", { count }),
+      selectedHidden: (count) => t("workbench.selectedHidden", { count }),
+      batchConfirm: t("workbench.batch.confirm"),
+      batchClearTarget: t("workbench.batch.clearTarget"),
+      batchLock: t("workbench.batch.lock"),
+      batchPretranslate: t("workbench.batch.pretranslate"),
+      batchComment: t("workbench.batch.comment"),
+      batchCancel: t("workbench.batch.cancel"),
+      batchConfirmDestructive: t("workbench.batch.confirmDestructive"),
+      qaRegion: t("workbench.inlineQa"),
+      qaLocate: t("workbench.qaLocate"),
+      qaIgnore: t("workbench.qaIgnore"),
+      tagPaired: t("workbench.tagPaired"),
+      tagMissing: t("workbench.tagMissing"),
+      tagOrder: t("workbench.tagOrder"),
+      splitSegment: t("workbench.splitSegment"),
+      mergeNext: t("workbench.mergeNext"),
+      correctSource: t("workbench.correctSource"),
+      openChinese: t("workbench.openChinese"),
+      openReview: t("workbench.openReview"),
+      copyTags: t("workbench.copyTags"),
+      insertTag: t("workbench.insertTag"),
+      insertTagPair: t("workbench.insertTagPair"),
+    };
+  }, [snapshot.project.sourceLocale, snapshot.project.targetLocale, t]);
+
+  const batchActionDescriptors = useMemo(
+    () => [
+      {
+        id: "confirm" as const,
+        label: gridLabels.batchConfirm,
+        enabled: selectedSegmentIds.size >= 2,
+      },
+      {
+        id: "clearTarget" as const,
+        label: gridLabels.batchClearTarget,
+        enabled: selectedSegmentIds.size >= 2,
+        destructive: true,
+      },
+      {
+        id: "lock" as const,
+        label: gridLabels.batchLock,
+        // No per-selected-ID collab lock adapter in Workbench; do not bulk-sign.
+        enabled: false,
+      },
+      {
+        id: "pretranslate" as const,
+        label: gridLabels.batchPretranslate,
+        enabled: false,
+      },
+      {
+        id: "comment" as const,
+        label: gridLabels.batchComment,
+        enabled: selectedSegmentIds.size >= 2,
+      },
+      {
+        id: "cancel" as const,
+        label: gridLabels.batchCancel,
+        enabled: selectedSegmentIds.size >= 2,
+      },
+    ],
+    [gridLabels, selectedSegmentIds.size],
+  );
+
+  const hiddenSelectedCount = useMemo(() => {
+    if (selectedSegmentIds.size === 0) return 0;
+    const visible = new Set(visibleSegments.map((segment) => segment.id));
+    let hidden = 0;
+    for (const id of selectedSegmentIds) {
+      if (!visible.has(id)) hidden += 1;
+    }
+    return hidden;
+  }, [selectedSegmentIds, visibleSegments]);
+
+  const handleSelectionChange = useCallback(
+    (next: { selectedIds: Set<string>; anchorId: string | null }) => {
+      setSelectedSegmentIds(next.selectedIds);
+      setSelectionAnchorId(next.anchorId);
+      if (next.anchorId) setActiveId(next.anchorId);
+    },
+    [],
+  );
+
+  const handleBatchAction = useCallback(
+    (action: BatchActionId, selectedIds: string[]) => {
+      if (action === "cancel") {
+        const keep = selectionAnchorId ?? activeId;
+        setSelectedSegmentIds(keep ? new Set([keep]) : new Set());
+        setSelectionAnchorId(keep);
+        return;
+      }
+      if (action === "pretranslate") {
+        setToast(t("workbench.batch.pretranslateDeferred"));
+        return;
+      }
+      if (action === "lock") {
+        // Lock ≠ signed. Collab lock is not wired for batch selected IDs.
+        setToast(t("workbench.batch.lockDeferred"));
+        return;
+      }
+      if (action === "comment") {
+        const first = selectedIds[0];
+        if (first) {
+          setActiveId(first);
+          setCommentsOpen(true);
+        }
+        return;
+      }
+      if (action === "clearTarget") {
+        const ok = window.confirm(t("workbench.batch.confirmDestructive"));
+        if (!ok) return;
+        for (const id of selectedIds) {
+          const row = editorRowsRef.current.find((r) => r.segment.id === id);
+          if (row?.workflowState === "signed") continue;
+          updateDraft(id, "");
+          scheduleSave(id, 80);
+        }
+        return;
+      }
+      if (action === "confirm") {
+        void (async () => {
+          for (const id of selectedIds) {
+            await confirmSegment(id);
+          }
+        })();
+      }
+    },
+    [activeId, selectionAnchorId, t],
+  );
+
+  const handleSelectAllFilterScope = () => {
+    void (async () => {
+      try {
+        const ids = await ensureFilterScopeIds();
+        const anchor = selectionAnchorId ?? activeId ?? ids[0] ?? null;
+        setSelectedSegmentIds(new Set(ids));
+        setSelectionAnchorId(anchor);
+      } catch (error) {
+        setToast(formatError(error));
+      }
+    })();
+  };
+
+  const handleRangeSelect = (
+    fromListIndex: number,
+    toListIndex: number,
+    rangeAnchorId: string,
+  ) => {
+    void (async () => {
+      try {
+        const ids = await ensureFilterScopeIds();
+        const from = Math.min(fromListIndex, toListIndex);
+        const to = Math.max(fromListIndex, toListIndex);
+        const next = new Set<string>();
+        for (let i = from; i <= to; i += 1) {
+          const id = ids[i];
+          if (id) next.add(id);
+        }
+        setSelectedSegmentIds(next);
+        setSelectionAnchorId(rangeAnchorId);
+      } catch (error) {
+        setToast(formatError(error));
+      }
+    })();
+  };
+
+  const handleMoveTargetTag = (
+    segmentId: string,
+    tagId: string,
+    direction: -1 | 1,
+  ) => {
+    if (composingRef.current.has(segmentId) || isGlobalComposing()) return;
+    const editorRow = editorRowsRef.current.find(
+      (row) => row.segment.id === segmentId,
+    );
+    if (!editorRow || editorRow.workflowState === "signed") return;
+    const tags = canonicalTargetTags(
+      editorRow.sourceTags,
+      editorRow.targetTags,
+    );
+    const index = tags.findIndex((tag) => tag.id === tagId);
+    if (index < 0) return;
+    const selected = tags[index];
+    if (!selected) return;
+    const neighbor = tags[index + direction];
+    if (neighbor) {
+      const nextPos = neighbor.position;
+      const swapPos = selected.position;
+      tags[index] = { ...selected, position: nextPos };
+      tags[index + direction] = { ...neighbor, position: swapPos };
+    } else {
+      const target = draftsRef.current[segmentId] ?? "";
+      const max = Array.from(target).length;
+      const next = Math.max(0, Math.min(max, selected.position + direction));
+      tags[index] = { ...selected, position: next };
+    }
+    setActiveId(segmentId);
+    setSelectedTargetTagId(tagId);
+    void setTargetTags(tags);
+  };
+
+  const handleMoreAction = (
+    segmentId: string,
+    action:
+      | "copyTags"
+      | "insertTag"
+      | "insertTagPair"
+      | "split"
+      | "merge"
+      | "correctSource"
+      | "chinese"
+      | "review",
+  ) => {
+    setActiveId(segmentId);
+    switch (action) {
+      case "copyTags":
+        void copyProtectedTags();
+        break;
+      case "insertTag":
+        void insertProtectedTag(false);
+        break;
+      case "insertTagPair":
+        void insertProtectedTag(true);
+        break;
+      case "split":
+        void splitActiveSegment();
+        break;
+      case "merge":
+        void mergeActiveSegment();
+        break;
+      case "correctSource":
+        openSourceCorrection();
+        break;
+      case "chinese":
+        openChineseConversion();
+        break;
+      case "review":
+        void openReviewPanel();
+        break;
+    }
+  };
+
+  const handleLocateFinding = useCallback(
+    (segmentId: string, findingId: string) => {
+      setActiveId(segmentId);
+      if (findingId.startsWith("tag:")) {
+        const tagId = findingId.split(":")[2];
+        if (tagId && tagId !== "all") setSelectedTargetTagId(tagId);
+      } else {
+        setSuggestionTab("qa");
+        if (suggestionsMode === "collapsed") setSuggestionsMode("docked");
+      }
+      window.requestAnimationFrame(() => {
+        documentQuery<HTMLTextAreaElement>(
+          `[data-editor-for="${segmentId}"]`,
+        )?.focus();
+      });
+    },
+    [suggestionsMode],
+  );
+
+  const handleIgnoreFinding = useCallback(
+    (segmentId: string, findingId: string) => {
+      // Tag structural findings are not waivable via qa.issue.waive.
+      if (findingId.startsWith("tag:")) return;
+      setActiveId(segmentId);
+      const reason = window.prompt(t("workbench.qaIgnoreReason"));
+      if (reason == null) return;
+      const trimmed = reason.trim();
+      if (!trimmed) {
+        setToast(t("workbench.qaIgnoreReasonRequired"));
+        return;
+      }
+      void (async () => {
+        try {
+          await window.translunar.invoke("qa.issue.waive", {
+            issueId: findingId,
+            actor: t("workbench.qaIgnoreActor"),
+            reason: trimmed,
+          });
+          await refreshOpenIssues();
+        } catch (error) {
+          setToast(formatError(error));
+        }
+      })();
+    },
+    [t],
+  );
+
   const applicationClasses = [
     "workbench-app",
     `suggestions-${suggestionsMode}`,
@@ -2501,499 +3002,93 @@ export function Workbench({
                       labels={matrixLabels}
                     />
                   ) : null}
-                  <div
-                    className="segment-grid"
-                    role="region"
-                    aria-label={t("workbench.segmentsAria")}
-                    aria-busy={editorLoading}
-                    tabIndex={-1}
-                    ref={editorGridRef}
+                  <SegmentGrid
+                    rows={segmentRowViews}
+                    total={editorTotal}
+                    offset={editorOffset}
+                    rowHeight={EDITOR_ROW_HEIGHT}
+                    loading={editorLoading}
+                    empty={visibleSegments.length === 0}
+                    hasFilters={hasGridFilters}
+                    activeId={activeId || null}
+                    labels={gridLabels}
+                    gridRef={editorGridRef}
                     onScroll={onEditorScroll}
-                  >
-                  <table>
-                    <thead>
-                      <tr>
-                        <th className="id-column">ID</th>
-                        <th className="status-column">{t("common.status")}</th>
-                        <th>
-                          {t("workbench.sourceColumn", {
-                            locale: snapshot.project.sourceLocale,
-                          })}
-                        </th>
-                        <th>
-                          {t("workbench.targetColumn", {
-                            locale: snapshot.project.targetLocale,
-                          })}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {editorOffset > 0 ? (
-                        <tr className="virtual-spacer" aria-hidden="true">
-                          <td
-                            colSpan={4}
-                            style={{ height: editorOffset * EDITOR_ROW_HEIGHT }}
-                          />
-                        </tr>
-                      ) : null}
-                      {visibleSegments.map((segment) => {
-                        const issue = openIssueBySegment.get(segment.id);
-                        const active = segment.id === activeId;
-                        const segmentIndex = visibleSegments.findIndex(
-                          (candidate) => candidate.id === segment.id,
-                        );
-                        const nextSegment = visibleSegments[segmentIndex + 1];
-                        const mergeEligible = Boolean(
-                          nextSegment &&
-                          canMergeSplitSiblings(segment, nextSegment),
-                        );
-                        const editorRow = editorRows.find(
-                          (row) => row.segment.id === segment.id,
-                        );
-                        const openCommentCount =
-                          editorRow?.comments.filter(
-                            (comment) => !comment.resolved,
-                          ).length ?? 0;
-                        const autocomplete = active
-                          ? autocompleteForSegment(segment.id)
-                          : null;
-                        return (
-                          <tr
-                            key={segment.id}
-                            className={
-                              active
-                                ? segment.id === flashSegmentId
-                                  ? "segment-row active row-flash"
-                                  : "segment-row active"
-                                : segment.id === flashSegmentId
-                                  ? "segment-row row-flash"
-                                  : "segment-row"
-                            }
-                            data-segment-row={segment.id}
-                            data-active={active || undefined}
-                            aria-rowindex={segment.ordinal + 2}
-                            onClick={() => setActiveId(segment.id)}
-                          >
-                            <td className="id-cell">
-                              {active && axisResidence === "row" ? (
-                                <ActiveAxis variant="row" />
-                              ) : null}
-                              {segment.ordinal + 1}
-                            </td>
-                            <td className="status-cell">
-                              <StatusLamp
-                                segment={segment}
-                                hasIssue={Boolean(issue)}
-                                justConfirmed={segment.id === flashSegmentId}
-                              />
-                            </td>
-                            <td className="source-cell">
-                              <TaggedText
-                                text={segment.sourceText}
-                                tags={editorRow?.sourceTags ?? []}
-                                showNonprinting={preferences.showNonprinting}
-                              />
-                            </td>
-                            <td className="target-cell">
-                              {active ? (
-                                <div
-                                  className="segment-tools"
-                                  role="toolbar"
-                                  aria-label={t("workbench.segmentTools")}
-                                  onBlur={(event) => {
-                                    if (
-                                      !event.currentTarget.contains(
-                                        event.relatedTarget,
-                                      )
-                                    ) {
-                                      setSegmentActionsOpen(false);
-                                    }
-                                  }}
-                                  onKeyDown={(event) => {
-                                    if (
-                                      event.key !== "Escape" ||
-                                      !segmentActionsOpen
-                                    )
-                                      return;
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    setSegmentActionsOpen(false);
-                                    window.requestAnimationFrame(() =>
-                                      segmentActionsTriggerRef.current?.focus(),
-                                    );
-                                  }}
-                                >
-                                  <button
-                                    type="button"
-                                    className="segment-tool-button"
-                                    onClick={() => void copyProtectedTags()}
-                                    aria-label={t("workbench.copyTags")}
-                                    title={t("workbench.copyTags")}
-                                    disabled={
-                                      editorRow?.workflowState === "signed"
-                                    }
-                                  >
-                                    <Tags size={14} aria-hidden="true" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="segment-tool-button"
-                                    onClick={() =>
-                                      void insertProtectedTag(false)
-                                    }
-                                    aria-label={t("workbench.insertTag")}
-                                    title={t("workbench.insertTag")}
-                                    disabled={
-                                      editorRow?.workflowState === "signed"
-                                    }
-                                  >
-                                    <Tags size={14} aria-hidden="true" />
-                                    <span aria-hidden="true">+</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="segment-tool-button"
-                                    onClick={() =>
-                                      void insertProtectedTag(true)
-                                    }
-                                    aria-label={t("workbench.insertTagPair")}
-                                    title={t("workbench.insertTagPair")}
-                                    disabled={
-                                      editorRow?.workflowState === "signed"
-                                    }
-                                  >
-                                    <Tags size={14} aria-hidden="true" />
-                                    <span aria-hidden="true">±</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="segment-tool-button segment-comments-button"
-                                    onClick={openActiveComments}
-                                    aria-label={t(
-                                      "workbench.openCommentsShort",
-                                    )}
-                                    title={t("workbench.openCommentsShort")}
-                                  >
-                                    <MessageSquare
-                                      size={14}
-                                      aria-hidden="true"
-                                    />
-                                    {openCommentCount ? (
-                                      <span className="segment-tool-count">
-                                        {openCommentCount}
-                                      </span>
-                                    ) : null}
-                                  </button>
-                                  <div className="segment-overflow-wrap">
-                                    <button
-                                      ref={segmentActionsTriggerRef}
-                                      type="button"
-                                      className="segment-tool-button segment-more-trigger"
-                                      aria-haspopup="menu"
-                                      aria-expanded={segmentActionsOpen}
-                                      aria-label={t("common.moreActions")}
-                                      title={t("common.moreActions")}
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        setSegmentActionsOpen((open) => !open);
-                                      }}
-                                    >
-                                      <MoreHorizontal
-                                        size={16}
-                                        aria-hidden="true"
-                                      />
-                                    </button>
-                                    {segmentActionsOpen ? (
-                                      <div
-                                        className="segment-overflow-menu"
-                                        role="menu"
-                                        aria-label={t("common.moreActions")}
-                                      >
-                                        <PluginAiActions
-                                          activeSegment={segment}
-                                          sourceLocale={
-                                            snapshot.project.sourceLocale
-                                          }
-                                          targetLocale={
-                                            snapshot.project.targetLocale
-                                          }
-                                          onUseTarget={insertMatch}
-                                          placement="editorSelection"
-                                          variant="menu"
-                                          onMenuAction={() =>
-                                            setSegmentActionsOpen(false)
-                                          }
-                                        />
-                                        <button
-                                          type="button"
-                                          role="menuitem"
-                                          disabled={
-                                            editorRow?.workflowState ===
-                                            "signed"
-                                          }
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            setSegmentActionsOpen(false);
-                                            void splitActiveSegment();
-                                          }}
-                                        >
-                                          <Split size={14} aria-hidden="true" />
-                                          {t("workbench.splitSegment")}
-                                        </button>
-                                        <button
-                                          type="button"
-                                          role="menuitem"
-                                          disabled={
-                                            !mergeEligible ||
-                                            editorRow?.workflowState ===
-                                              "signed"
-                                          }
-                                          title={
-                                            mergeEligible
-                                              ? t("workbench.mergeNext")
-                                              : "Only sibling segments created by Split can be merged safely"
-                                          }
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            setSegmentActionsOpen(false);
-                                            void mergeActiveSegment();
-                                          }}
-                                        >
-                                          <Combine
-                                            size={14}
-                                            aria-hidden="true"
-                                          />
-                                          {t("workbench.mergeNext")}
-                                        </button>
-                                        <button
-                                          type="button"
-                                          role="menuitem"
-                                          disabled={
-                                            editorRow?.workflowState ===
-                                            "signed"
-                                          }
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            setSegmentActionsOpen(false);
-                                            openSourceCorrection();
-                                          }}
-                                        >
-                                          <Pencil
-                                            size={14}
-                                            aria-hidden="true"
-                                          />
-                                          {t("workbench.correctSource")}
-                                        </button>
-                                        <button
-                                          type="button"
-                                          role="menuitem"
-                                          disabled={
-                                            editorRow?.workflowState ===
-                                              "signed" ||
-                                            !(
-                                              drafts[segment.id] ??
-                                              segment.targetText
-                                            ).trim()
-                                          }
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            setSegmentActionsOpen(false);
-                                            openChineseConversion();
-                                          }}
-                                        >
-                                          <Languages
-                                            size={14}
-                                            aria-hidden="true"
-                                          />
-                                          {t("workbench.openChinese")}
-                                        </button>
-                                        <button
-                                          type="button"
-                                          role="menuitem"
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            setSegmentActionsOpen(false);
-                                            void openReviewPanel();
-                                          }}
-                                        >
-                                          <GitCompareArrows
-                                            size={14}
-                                            aria-hidden="true"
-                                          />
-                                          {t("workbench.openReview")}
-                                        </button>
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                </div>
-                              ) : null}
-                              {editorRow?.targetTags.length ? (
-                                <div
-                                  className="target-tag-strip"
-                                  aria-label={t("workbench.targetTags")}
-                                >
-                                  {editorRow.targetTags.map((tag) => (
-                                    <button
-                                      type="button"
-                                      className={
-                                        selectedTargetTagId === tag.id
-                                          ? "tag-capsule selected"
-                                          : "tag-capsule"
-                                      }
-                                      key={tag.id}
-                                      onClick={() =>
-                                        setSelectedTargetTagId(tag.id)
-                                      }
-                                      disabled={
-                                        editorRow.workflowState === "signed"
-                                      }
-                                      aria-label={t(
-                                        "workbench.selectProtectedTag",
-                                        {
-                                          tag: tag.displayText || tag.kind,
-                                          position: tag.position,
-                                        },
-                                      )}
-                                      title={t("workbench.moveTagHint")}
-                                    >
-                                      {tag.displayText || tag.kind}
-                                      <small>{tag.position}</small>
-                                    </button>
-                                  ))}
-                                </div>
-                              ) : null}
-                              <textarea
-                                data-editor-for={segment.id}
-                                value={drafts[segment.id] ?? segment.targetText}
-                                placeholder={t("workbench.untranslated")}
-                                aria-label={t("workbench.targetSegment", {
-                                  ordinal: segment.ordinal + 1,
-                                })}
-                                aria-invalid={Boolean(issue)}
-                                disabled={editorRow?.workflowState === "signed"}
-                                onFocus={() => setActiveId(segment.id)}
-                                onClick={(event) => event.stopPropagation()}
-                                onChange={(event) => {
-                                  updateDraft(
-                                    segment.id,
-                                    event.currentTarget.value,
-                                  );
-                                  if (!composingRef.current.has(segment.id))
-                                    scheduleSave(segment.id);
-                                }}
-                                onCompositionStart={() =>
-                                  onCompositionStart(segment.id)
-                                }
-                                onCompositionEnd={(event) =>
-                                  onCompositionEnd(event, segment.id)
-                                }
-                                onKeyDown={(event) =>
-                                  onTargetKeyDown(event, segment.id)
-                                }
-                              />
-                              {autocomplete ? (
-                                <button
-                                  type="button"
-                                  className="autocomplete-tail"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    updateDraft(
-                                      segment.id,
-                                      autocomplete.targetText,
-                                    );
-                                    scheduleSave(segment.id, 80);
-                                  }}
-                                  aria-label={t(
-                                    "workbench.acceptAutocomplete",
-                                    {
-                                      provider: autocomplete.provider,
-                                    },
-                                  )}
-                                >
-                                  <small>{autocomplete.provider}</small>
-                                  <span>{autocomplete.tail}</span>
-                                  <kbd>{t("workbench.tab")}</kbd>
-                                </button>
-                              ) : null}
-                              {issue ? (
-                                <span className="inline-issue">
-                                  <AlertTriangle size={12} />
-                                  {issue.message}
-                                </span>
-                              ) : null}
-                              {(drafts[segment.id] ?? segment.targetText).trim()
-                                ? editorRow?.tagIssues.map((tagIssue) => (
-                                    <span
-                                      className="inline-issue tag-issue"
-                                      key={`${tagIssue.code}-${tagIssue.tagId ?? "all"}`}
-                                    >
-                                      <Tags size={12} />
-                                      {tagIssue.message}
-                                    </span>
-                                  ))
-                                : null}
-                              {active && spellFindings.length ? (
-                                <div
-                                  className="spell-findings"
-                                  aria-label={t("workbench.spellFindingsFrom", {
-                                    provider: spellProvider,
-                                  })}
-                                >
-                                  {spellFindings.slice(0, 4).map((finding) => (
-                                    <button
-                                      key={`${finding.provider}-${finding.start}-${finding.word}`}
-                                      type="button"
-                                      onClick={() =>
-                                        void addDictionaryFinding(finding)
-                                      }
-                                      title={t("workbench.addDictionary")}
-                                    >
-                                      <AlertTriangle size={10} />
-                                      {finding.word}
-                                      <small>{finding.provider}</small>
-                                    </button>
-                                  ))}
-                                </div>
-                              ) : null}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                      {editorTotal > editorOffset + visibleSegments.length ? (
-                        <tr className="virtual-spacer" aria-hidden="true">
-                          <td
-                            colSpan={4}
-                            style={{
-                              height:
-                                (editorTotal -
-                                  editorOffset -
-                                  visibleSegments.length) *
-                                EDITOR_ROW_HEIGHT,
-                            }}
-                          />
-                        </tr>
-                      ) : null}
-                    </tbody>
-                  </table>
-                  {visibleSegments.length === 0 && !editorLoading ? (
-                    <WorkbenchVisualState
-                      kind="empty"
-                      variant="grid"
-                      label={t("workbench.noGridMatches")}
-                      action={
-                        hasGridFilters ? (
-                          <button
-                            type="button"
-                            className="button ghost"
-                            onClick={clearGridFilters}
-                          >
-                            {t("workbench.clearGridFilters")}
-                          </button>
-                        ) : undefined
+                    onSeekOrdinal={(listIndex) => void seekListIndex(listIndex)}
+                    onActivate={(segmentId) => setActiveId(segmentId)}
+                    onTargetFocus={(segmentId) => setActiveId(segmentId)}
+                    onDraftChange={(segmentId, value) => {
+                      updateDraft(segmentId, value);
+                      if (!composingRef.current.has(segmentId)) {
+                        scheduleSave(segmentId);
                       }
-                    />
-                  ) : null}
-                  </div>
+                    }}
+                    onCompositionStart={onCompositionStart}
+                    onCompositionEnd={onCompositionEnd}
+                    onTargetKeyDown={onTargetKeyDown}
+                    onSelectTargetTag={(segmentId, tagId) => {
+                      setActiveId(segmentId);
+                      setSelectedTargetTagId(tagId);
+                    }}
+                    onMoveTargetTag={handleMoveTargetTag}
+                    onBestMatch={(segmentId) => {
+                      setActiveId(segmentId);
+                      const match = matches[0];
+                      if (match) insertMatch(match.targetText);
+                    }}
+                    onOpenComments={(segmentId) => {
+                      setActiveId(segmentId);
+                      openActiveComments();
+                    }}
+                    onMoreAction={handleMoreAction}
+                    onAcceptAutocomplete={(segmentId, targetText) => {
+                      updateDraft(segmentId, targetText);
+                      scheduleSave(segmentId, 80);
+                    }}
+                    onAddDictionary={(findingKey) => {
+                      const finding = spellFindings.find(
+                        (item) =>
+                          `${item.provider}-${item.start}-${item.word}` ===
+                          findingKey,
+                      );
+                      if (finding) void addDictionaryFinding(finding);
+                    }}
+                    onLocateFinding={handleLocateFinding}
+                    onIgnoreFinding={handleIgnoreFinding}
+                    onClearFilters={clearGridFilters}
+                    onBatchAction={handleBatchAction}
+                    batchActions={batchActionDescriptors}
+                    isComposing={() =>
+                      isGlobalComposing() || composingRef.current.size > 0
+                    }
+                    renderAxis={(segmentId) =>
+                      segmentId === activeId && axisResidence === "row" ? (
+                        <ActiveAxis variant="row" />
+                      ) : null
+                    }
+                    renderSource={(row) => {
+                      const editorRow = editorRows.find(
+                        (item) => item.segment.id === row.segmentId,
+                      );
+                      return (
+                        <TaggedText
+                          text={row.sourceText}
+                          tags={editorRow?.sourceTags ?? []}
+                          showNonprinting={preferences.showNonprinting}
+                        />
+                      );
+                    }}
+                    selectedIds={selectedSegmentIds}
+                    anchorId={selectionAnchorId}
+                    onSelectionChange={handleSelectionChange}
+                    hiddenSelectedCount={hiddenSelectedCount}
+                    {...(filterScopeIds
+                      ? { allFilteredIds: filterScopeIds }
+                      : {})}
+                    onSelectAllFilterScope={handleSelectAllFilterScope}
+                    onRangeSelect={handleRangeSelect}
+                    onRowStrideChange={setEditorRowStride}
+                  />
                 </div>
                 <DocumentPreview
                   document={document}
@@ -4008,10 +4103,14 @@ function TaggedText({
   text,
   tags,
   showNonprinting,
+  highlightedPairKey,
+  onPairHover,
 }: {
   text: string;
   tags: InlineTag[];
   showNonprinting: boolean;
+  highlightedPairKey?: string | null;
+  onPairHover?: (pairKey: string | null) => void;
 }) {
   const characters = Array.from(text);
   const tagsByPosition = new Map<number, InlineTag[]>();
@@ -4023,12 +4122,23 @@ function TaggedText({
   const content: ReactNode[] = [];
   for (let position = 0; position <= characters.length; position += 1) {
     for (const tag of tagsByPosition.get(position) ?? []) {
+      const pairKey = tag.pairId?.trim() ? tag.pairId : tag.id;
       content.push(
         <span
           className="tag-capsule source-tag"
           key={`${tag.id}-${position}`}
           tabIndex={0}
-          title={tag.payload}
+          title={tag.displayText || tag.kind}
+          data-pair-key={pairKey}
+          data-paired-highlight={
+            highlightedPairKey && highlightedPairKey === pairKey
+              ? ""
+              : undefined
+          }
+          onMouseEnter={() => onPairHover?.(pairKey)}
+          onMouseLeave={() => onPairHover?.(null)}
+          onFocus={() => onPairHover?.(pairKey)}
+          onBlur={() => onPairHover?.(null)}
         >
           {tag.displayText || tag.kind}
         </span>,

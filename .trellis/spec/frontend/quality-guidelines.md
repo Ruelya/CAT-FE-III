@@ -51,12 +51,19 @@ font rendering, panel seams, focus order, and horizontal transcript overflow.
 - Check no renderer console/page errors in Playwright.
 - Composite widgets must use an allowed role/attribute pair. Prefer native
   roving `tabIndex` over `aria-activedescendant` on roles that do not support
-  it (e.g. do not put `aria-activedescendant` on `role="navigation"`). Unit
-  tests should assert real `document.activeElement` movement or an axe check,
-  not only that an attribute string changes.
+  it (e.g. do not put `aria-activedescendant` on `role="navigation"`). On
+  `role="grid"`, `aria-activedescendant` is valid but must never name an
+  unmounted virtualized cell—unit tests cover seek-complete after window
+  update. Unit tests should assert real `document.activeElement` movement or
+  an axe check, not only that an attribute string changes.
 - After removing a visible control (e.g. Workbench rail Confirm), update every
   E2E path that selected it. Segment confirm is the active-textarea
   `Control+Enter` contract.
+- Phase 3 grid coverage: lamp matrix, roving seek/Tab-in-edit/select-all
+  expansion, single ActiveAxis under multi-select, composition-first guards,
+  and batch adapter enablement. Live Electron IME matrix, axe with batch/QA
+  visible, and 10k P95 remain required product quality when the Engine/harness
+  is available—do not treat window-only select-all or bulk-sign Lock as green.
 
 ## Review Checklist
 
