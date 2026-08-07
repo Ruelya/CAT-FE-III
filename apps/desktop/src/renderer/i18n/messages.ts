@@ -89,6 +89,55 @@ export type MessageKey =
   | "settings.localeName.enUS"
   | "settings.localeName.zhCN"
   | "settings.profileDisabled"
+  | "settings.navAria"
+  | "settings.group.app"
+  | "settings.group.data"
+  | "settings.group.engines"
+  | "settings.group.other"
+  | "settings.section.appearance"
+  | "settings.section.locale"
+  | "settings.section.shortcuts"
+  | "settings.section.dataDir"
+  | "settings.section.backup"
+  | "settings.section.updates"
+  | "settings.section.engines"
+  | "settings.section.tutorial"
+  | "settings.section.about"
+  | "settings.appearance.theme"
+  | "settings.appearance.themeHelp"
+  | "settings.appearance.themeLight"
+  | "settings.appearance.themeDark"
+  | "settings.appearance.themeSystem"
+  | "settings.appearance.density"
+  | "settings.appearance.densityHelp"
+  | "settings.appearance.densityCompact"
+  | "settings.appearance.densityStandard"
+  | "settings.appearance.densityComfortable"
+  | "settings.appearance.uiScale"
+  | "settings.appearance.uiScaleHelp"
+  | "settings.appearance.preview"
+  | "settings.appearance.previewHelp"
+  | "settings.appearance.previewSource"
+  | "settings.appearance.previewTarget"
+  | "settings.shortcuts.residual"
+  | "settings.shortcuts.cmdk"
+  | "settings.shortcuts.settings"
+  | "settings.shortcuts.spine"
+  | "settings.shortcuts.surfaces"
+  | "settings.engines.noProject"
+  | "settings.about.body"
+  | "action.discardAllDrafts"
+  | "action.copySelectedDrafts"
+  | "action.restoreSelectedDrafts"
+  | "draft.discardAllConfirm"
+  | "draft.selectRow"
+  | "draft.staleBadge"
+  | "draft.unverifiedBadge"
+  | "draft.unverifiedWarning"
+  | "draft.diffAria"
+  | "tutorial.progressShort"
+  | "surface.busy"
+  | "surface.errorSafety"
   | "backup.title"
   | "backup.destination"
   | "backup.progress"
@@ -2090,6 +2139,65 @@ const enUs: MessageCatalog = {
   "settings.profileDisabled": "(disabled)",
   "settings.localeName.enUS": "English (United States)",
   "settings.localeName.zhCN": "简体中文",
+  "settings.navAria": "Settings sections",
+  "settings.group.app": "Application",
+  "settings.group.data": "Data",
+  "settings.group.engines": "Engines",
+  "settings.group.other": "Other",
+  "settings.section.appearance": "Appearance",
+  "settings.section.locale": "Language & region",
+  "settings.section.shortcuts": "Keyboard shortcuts",
+  "settings.section.dataDir": "Data directory",
+  "settings.section.backup": "Backup & restore",
+  "settings.section.updates": "Updates",
+  "settings.section.engines": "Engine allowlist",
+  "settings.section.tutorial": "Tutorial & samples",
+  "settings.section.about": "About & licenses",
+  "settings.appearance.theme": "Theme",
+  "settings.appearance.themeHelp":
+    "Applies immediately to shell and workbench via a single color source.",
+  "settings.appearance.themeLight": "Light",
+  "settings.appearance.themeDark": "Dark",
+  "settings.appearance.themeSystem": "System",
+  "settings.appearance.density": "Density",
+  "settings.appearance.densityHelp":
+    "Changes row height and control padding without changing font size.",
+  "settings.appearance.densityCompact": "Compact",
+  "settings.appearance.densityStandard": "Standard",
+  "settings.appearance.densityComfortable": "Comfortable",
+  "settings.appearance.uiScale": "UI scale",
+  "settings.appearance.uiScaleHelp":
+    "Scales the whole interface (80–160%). Editor zoom stays independent.",
+  "settings.appearance.preview": "Live preview",
+  "settings.appearance.previewHelp":
+    "Sample segment row reflecting density and scale tokens.",
+  "settings.appearance.previewSource": "Source sample",
+  "settings.appearance.previewTarget": "Target sample",
+  "settings.shortcuts.residual":
+    "Editable keymaps are not available yet. Product defaults:",
+  "settings.shortcuts.cmdk": "Command palette",
+  "settings.shortcuts.settings": "Open settings",
+  "settings.shortcuts.spine": "Toggle navigation spine",
+  "settings.shortcuts.surfaces": "Jump to surface 1–6",
+  "settings.engines.noProject":
+    "Open a project to manage its engine allowlist.",
+  "settings.about.body":
+    "Translunar CAT is a local-first translation workbench. Licenses ship with the application package.",
+  "action.discardAllDrafts": "Discard all…",
+  "action.copySelectedDrafts": "Copy selected drafts",
+  "action.restoreSelectedDrafts":
+    "{count, plural, one {Restore # selected} other {Restore # selected}}",
+  "draft.discardAllConfirm":
+    "Discard all {count} local drafts? This cannot be undone.",
+  "draft.selectRow": "Select draft {id}",
+  "draft.staleBadge": "Stale",
+  "draft.unverifiedBadge": "Unverified",
+  "draft.unverifiedWarning":
+    "Cannot verify against engine revision — restore disabled by default.",
+  "draft.diffAria": "Draft versus current text",
+  "tutorial.progressShort": "{current} / {total}",
+  "surface.busy": "Working…",
+  "surface.errorSafety": "Saved data on disk was not modified by this failure.",
   "backup.title": "Workspace backup",
   "backup.destination": "Choose a destination folder",
   "backup.progress": "Creating backup…",
@@ -4214,6 +4322,60 @@ const zhCn: MessageCatalog = {
   "settings.localeName.enUS": "English（英语）",
   "settings.localeName.zhCN": "简体中文",
   "settings.profileDisabled": "（已禁用）",
+  "settings.navAria": "设置分区",
+  "settings.group.app": "应用",
+  "settings.group.data": "数据",
+  "settings.group.engines": "引擎",
+  "settings.group.other": "其他",
+  "settings.section.appearance": "外观",
+  "settings.section.locale": "语言与区域",
+  "settings.section.shortcuts": "快捷键",
+  "settings.section.dataDir": "数据目录",
+  "settings.section.backup": "备份与恢复",
+  "settings.section.updates": "更新",
+  "settings.section.engines": "引擎白名单",
+  "settings.section.tutorial": "教程与示例",
+  "settings.section.about": "关于与许可",
+  "settings.appearance.theme": "主题",
+  "settings.appearance.themeHelp":
+    "立即作用于外壳与工作台，单一颜色源驱动。",
+  "settings.appearance.themeLight": "浅色",
+  "settings.appearance.themeDark": "深色",
+  "settings.appearance.themeSystem": "跟随系统",
+  "settings.appearance.density": "密度",
+  "settings.appearance.densityHelp":
+    "调整行高与控件内边距，不改变字号。",
+  "settings.appearance.densityCompact": "紧凑",
+  "settings.appearance.densityStandard": "标准",
+  "settings.appearance.densityComfortable": "宽松",
+  "settings.appearance.uiScale": "界面缩放",
+  "settings.appearance.uiScaleHelp":
+    "缩放整个界面（80–160%）。编辑器缩放独立保留。",
+  "settings.appearance.preview": "实时预览",
+  "settings.appearance.previewHelp": "反映密度与缩放 token 的示例句段行。",
+  "settings.appearance.previewSource": "源文示例",
+  "settings.appearance.previewTarget": "译文示例",
+  "settings.shortcuts.residual": "可编辑键位尚未提供。产品默认：",
+  "settings.shortcuts.cmdk": "命令面板",
+  "settings.shortcuts.settings": "打开设置",
+  "settings.shortcuts.spine": "切换导航脊柱",
+  "settings.shortcuts.surfaces": "跳转到 Surface 1–6",
+  "settings.engines.noProject": "打开项目后可管理该项目的引擎白名单。",
+  "settings.about.body":
+    "Translunar CAT 是本地优先的翻译工作台。许可文件随应用包分发。",
+  "action.discardAllDrafts": "全部丢弃…",
+  "action.copySelectedDrafts": "复制选中草稿",
+  "action.restoreSelectedDrafts": "恢复选中的 {count} 段",
+  "draft.discardAllConfirm": "丢弃全部 {count} 条本地草稿？此操作不可撤销。",
+  "draft.selectRow": "选择草稿 {id}",
+  "draft.staleBadge": "已过时",
+  "draft.unverifiedBadge": "无法校验",
+  "draft.unverifiedWarning":
+    "无法对照引擎修订校验 — 默认不勾选恢复。",
+  "draft.diffAria": "草稿与当前文本对照",
+  "tutorial.progressShort": "{current}／{total}",
+  "surface.busy": "处理中…",
+  "surface.errorSafety": "此次失败未修改磁盘上的已保存数据。",
   "backup.title": "工作区备份",
   "backup.destination": "选择目标文件夹",
   "backup.progress": "正在创建备份…",

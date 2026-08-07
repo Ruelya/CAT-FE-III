@@ -8,8 +8,7 @@ import type {
   TaskPackagePreviewResult,
   TaskPackagePreviewRow,
   Termbase,
-  TmLibrary,
-} from "@translunar/contracts";
+  TmLibrary} from "@translunar/contracts";
 import {
   AlertTriangle,
   Archive,
@@ -20,13 +19,11 @@ import {
   Download,
   FileText,
   FolderOpen,
-  LoaderCircle,
   RefreshCw,
   ShieldAlert,
   Trash2,
   Upload,
-  X,
-} from "lucide-react";
+  X} from "lucide-react";
 
 import { fileName, formatError } from "./workbench-utils";
 import "./TaskPackagePanel.css";
@@ -64,8 +61,7 @@ export function TaskPackagePanel({
   document,
   documents,
   onRefresh,
-  onOpenProject,
-}: TaskPackagePanelProps) {
+  onOpenProject}: TaskPackagePanelProps) {
   const { t } = useLocale();
 
   const projectId = snapshot.project.id;
@@ -119,13 +115,11 @@ export function TaskPackagePanel({
         window.translunar.invoke("tm.library.list", {
           projectId,
           offset: 0,
-          limit: 500,
-        }),
+          limit: 500}),
         window.translunar.invoke("termbase.list", {
           projectId,
           offset: 0,
-          limit: 500,
-        }),
+          limit: 500}),
       ]);
       const tmById = new Map(tmPage.items.map((item) => [item.id, item]));
       const termbaseById = new Map(
@@ -211,8 +205,7 @@ export function TaskPackagePanel({
     await run("assignment-export", async () => {
       const documentsSelection = [...selectedDocumentIds].map((id) => ({
         documentId: id,
-        segmentIds: parseDelimitedIds(segmentIds[id] ?? ""),
-      }));
+        segmentIds: parseDelimitedIds(segmentIds[id] ?? "")}));
       const assetSlices = buildAssetSelections(assetDrafts);
       const result = await window.translunar.invoke("taskPackage.export", {
         kind: "assignment",
@@ -223,13 +216,11 @@ export function TaskPackagePanel({
         instructions: instructions.trim(),
         destinationPath,
         actor: actor.trim(),
-        reason: reason.trim(),
-      });
+        reason: reason.trim()});
       setNotice(
         t("task.assignmentExported", {
           id: result.packageId.slice(0, 12),
-          name: fileName(result.packagePath),
-        }),
+          name: fileName(result.packagePath)}),
       );
     });
   };
@@ -244,13 +235,11 @@ export function TaskPackagePanel({
         instructions: returnInstructions.trim(),
         destinationPath,
         actor: actor.trim(),
-        reason: reason.trim(),
-      });
+        reason: reason.trim()});
       setNotice(
         t("task.returnExported", {
           id: result.packageId.slice(0, 12),
-          name: fileName(result.packagePath),
-        }),
+          name: fileName(result.packagePath)}),
       );
     });
   };
@@ -263,8 +252,7 @@ export function TaskPackagePanel({
         offset: 0,
         limit: PAGE_SIZE,
         actor: actor.trim(),
-        reason: reason.trim(),
-      });
+        reason: reason.trim()});
       setPreview(result);
       setSelectedRows(
         new Set(
@@ -278,8 +266,7 @@ export function TaskPackagePanel({
             result.kind === "assignment"
               ? t("task.kindAssignment")
               : t("task.kindReturn"),
-          count: result.total,
-        }),
+          count: result.total}),
       );
     });
   };
@@ -292,8 +279,7 @@ export function TaskPackagePanel({
         offset,
         limit: preview.limit,
         actor: actor.trim(),
-        reason: reason.trim(),
-      });
+        reason: reason.trim()});
       setPreview(result);
       setSelectedRows((current) => {
         const next = new Set(current);
@@ -313,8 +299,7 @@ export function TaskPackagePanel({
         projectName: importProjectName.trim() || null,
         domain: importDomain.trim() || null,
         actor: actor.trim(),
-        reason: reason.trim(),
-      });
+        reason: reason.trim()});
       setImportResult(result);
       setPreview((current) =>
         current ? { ...current, status: "applied" } : current,
@@ -332,8 +317,7 @@ export function TaskPackagePanel({
         expectedProjectRevision: preview.expectedProjectRevision,
         selectedRowIds: [...selectedRows],
         actor: actor.trim(),
-        reason: reason.trim(),
-      });
+        reason: reason.trim()});
       setPreview((current) =>
         current ? { ...current, status: result.status } : current,
       );
@@ -341,8 +325,7 @@ export function TaskPackagePanel({
       setNotice(
         t("task.applied", {
           count: result.appliedCount,
-          revision: result.projectRevision,
-        }),
+          revision: result.projectRevision}),
       );
     });
   };
@@ -354,8 +337,7 @@ export function TaskPackagePanel({
         packageId: preview.packageId,
         previewId: preview.previewId,
         actor: actor.trim(),
-        reason: reason.trim(),
-      });
+        reason: reason.trim()});
       setPreview(null);
       setPackagePath("");
       setSelectedRows(new Set());
@@ -533,7 +515,7 @@ export function TaskPackagePanel({
 
       {busy ? (
         <div className="task-package-loading" role="status">
-          <LoaderCircle className="spin" size={17} />{" "}
+          {" "}
           {t("common.workingOn", { task: busy.replaceAll("-", " ") })}
         </div>
       ) : null}
@@ -568,8 +550,7 @@ function AssignmentExportPanel({
   onInstructions,
   onAssetDrafts,
   onChooseDestination,
-  onExport,
-}: {
+  onExport}: {
   documents: Document[];
   selectedDocumentIds: Set<string>;
   segmentIds: Record<string, string>;
@@ -713,8 +694,7 @@ function ReturnExportPanel({
   auditReady,
   onInstructions,
   onChooseDestination,
-  onExport,
-}: {
+  onExport}: {
   projectName: string;
   packageReference: ProjectSnapshot["project"]["configuration"]["taskPackage"];
   instructions: string;
@@ -818,8 +798,7 @@ function PackageReviewPanel({
   onNext,
   terminalPreview,
   importResult,
-  onOpenImportedProject,
-}: {
+  onOpenImportedProject}: {
   packagePath: string;
   preview: TaskPackagePreviewResult | null;
   selectedRows: Set<string>;
@@ -946,8 +925,7 @@ function PackageReviewPanel({
                 >
                   <CheckCircle2 size={13} />{" "}
                   {t("task.applyCount", {
-                    count: selectedRows.size,
-                  })}
+                    count: selectedRows.size})}
                 </button>
               ) : null}
               <button
@@ -1054,12 +1032,10 @@ function PackageReviewPanel({
             <span>
               {importResult.project.name} ·{" "}
               {t("task.importDocumentCount", {
-                count: importResult.documents.length,
-              })}{" "}
+                count: importResult.documents.length})}{" "}
               ·{" "}
               {t("task.importBoundRowCount", {
-                count: importResult.bindingCount,
-              })}
+                count: importResult.bindingCount})}
             </span>
           </div>
           <button
@@ -1079,8 +1055,7 @@ function TaskPackageRowView({
   row,
   selected,
   disabled,
-  onToggle,
-}: {
+  onToggle}: {
   row: TaskPackagePreviewRow;
   selected: boolean;
   disabled: boolean;
@@ -1109,8 +1084,7 @@ function TaskPackageRowView({
           disabled={disabled || !selectable}
           aria-label={t("task.selectRow", {
             disposition: row.disposition,
-            ordinal: row.ordinal + 1,
-          })}
+            ordinal: row.ordinal + 1})}
         />
       </div>
       <div className="task-package-row-main">
@@ -1145,8 +1119,7 @@ function AssetSliceEditor({
   options,
   drafts,
   busy,
-  onChange,
-}: {
+  onChange}: {
   options: AssetOption[];
   drafts: AssetDraft[];
   busy: boolean;
@@ -1200,8 +1173,7 @@ function AssetSliceEditor({
                   next[index] = {
                     ...draft,
                     kind,
-                    libraryId: nextOption?.id ?? "",
-                  };
+                    libraryId: nextOption?.id ?? ""};
                   onChange(next);
                 }}
                 disabled={busy}
@@ -1216,8 +1188,7 @@ function AssetSliceEditor({
                   const next = [...drafts];
                   next[index] = {
                     ...draft,
-                    libraryId: event.currentTarget.value,
-                  };
+                    libraryId: event.currentTarget.value};
                   onChange(next);
                 }}
                 disabled={busy || matching.length === 0}
@@ -1269,8 +1240,7 @@ function ApplyDialog({
   count,
   busy,
   onCancel,
-  onConfirm,
-}: {
+  onConfirm}: {
   count: number;
   busy: boolean;
   onCancel(): void;
@@ -1310,9 +1280,7 @@ function ApplyDialog({
             onClick={onConfirm}
             disabled={busy}
           >
-            {busy ? (
-              <LoaderCircle className="spin" size={14} />
-            ) : (
+            {busy ? null : (
               <Check size={14} />
             )}
             {t("task.applyMerge")}
@@ -1326,8 +1294,7 @@ function ApplyDialog({
 function TaskPackageHeading({
   eyebrow,
   title,
-  icon,
-}: {
+  icon}: {
   eyebrow: string;
   title: string;
   icon: React.ReactNode;
@@ -1387,8 +1354,7 @@ function buildAssetSelections(
     .map((draft) => ({
       kind: draft.kind,
       libraryId: draft.libraryId,
-      rowIds: parseDelimitedIds(draft.rowIds),
-    }))
+      rowIds: parseDelimitedIds(draft.rowIds)}))
     .filter((draft) => draft.libraryId && draft.rowIds.length > 0);
 }
 
@@ -1398,8 +1364,7 @@ function assetOptionFromTm(library: TmLibrary): AssetOption {
     kind: "tm",
     name: library.name,
     sourceLocale: library.sourceLocale,
-    targetLocale: library.targetLocale,
-  };
+    targetLocale: library.targetLocale};
 }
 
 function assetOptionFromTermbase(
@@ -1411,8 +1376,7 @@ function assetOptionFromTermbase(
     kind: "termbase",
     name: termbase.name,
     sourceLocale: termbase.sourceLocale,
-    targetLocale,
-  };
+    targetLocale};
 }
 
 function safeFileName(value: string): string {

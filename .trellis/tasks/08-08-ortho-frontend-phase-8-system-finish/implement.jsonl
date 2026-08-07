@@ -1,0 +1,15 @@
+{"file": "docs/design-ii/09-implementation.md", "reason": "Phase 8 delivery list; Phase 1 dual-track open item; stable util contracts; spinner ban"}
+{"file": "docs/design-ii/screens/system.md", "reason": "Authoritative UX for settings Surface, coach marks, draft recovery, three-state, keyboard guarantees"}
+{"file": "docs/design-ii/02-foundations.md", "reason": "Theme tokens, density, ui-scale, dark :root[data-theme] source of truth"}
+{"file": "docs/design-ii/05-components.md", "reason": "A4 Popover, A5 Dialog, D5 Skeleton, D6 Empty, D8 Word Diff, E3 Tab List, F2 Confirm, F5 Error"}
+{"file": "docs/design-ii/08-accessibility.md", "reason": "Density×zoom rules, forced-colors map, reduced motion, hit target mins"}
+{"file": "docs/design-ii/06-shell-navigation.md", "reason": "Shell surface slot, Index Spine tools gear entry, command palette settings"}
+{"file": "docs/design-ii/03-signatures.md", "reason": "Active Axis on settings nav selection and coach-mark target ring discipline"}
+{"file": "docs/design-ii/04-motion.md", "reason": "Reduced motion and non-blocking tutorial motion constraints"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Component shape, controlled interaction, icon a11y for system UI extract"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Where to place components/system and styles/30-surfaces"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Local presentation state vs engine ownership for settings and drafts"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Expression-only bar, tests, no contract churn"}
+{"file": ".trellis/spec/frontend/electron-workbench.md", "reason": "DesktopApi/shell settings invoke preservation"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Typed props for settings sections and theme preference unions"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse WorkbenchVisualState, wordDiff, useFocusTrap, shell-error rather than fork"}

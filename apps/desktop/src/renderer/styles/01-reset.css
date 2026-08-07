@@ -125,4 +125,70 @@ code, pre {
   color: var(--text-3);
 }
 
+/* —— Forced colors / Windows High Contrast ————————
+   Source: docs/design-ii/08-accessibility.md §6 */
+@media (forced-colors: active) {
+  :root {
+    --deck: Canvas;
+    --paper: Canvas;
+    --frame: Canvas;
+    --shade: Canvas;
+    --ink: CanvasText;
+    --ink-raised: Canvas;
+    --text-1: CanvasText;
+    --text-2: CanvasText;
+    --text-3: GrayText;
+    --text-on-ink: Canvas;
+    --text-on-ink-2: GrayText;
+    --signal: Highlight;
+    --signal-ink: Highlight;
+    --signal-wash: Highlight;
+    --on-signal: HighlightText;
+    --ok: LinkText;
+    --ok-ink: LinkText;
+    --warn: CanvasText;
+    --warn-ink: CanvasText;
+    --err: CanvasText;
+    --err-ink: CanvasText;
+    --machine: LinkText;
+    --machine-ink: LinkText;
+    --rule-field: CanvasText;
+    --rule-strong: CanvasText;
+    --rule: CanvasText;
+    --rule-soft: GrayText;
+    --scrim: Canvas;
+    --elev-pop: none;
+    --bg: Canvas;
+    --surface: Canvas;
+    --surface-raised: Canvas;
+    --surface-sunken: Canvas;
+    --muted: GrayText;
+    --line: CanvasText;
+    --line-strong: CanvasText;
+    --accent: Highlight;
+    --accent-hover: Highlight;
+    --chrome-bg: Canvas;
+    --chrome-fg: CanvasText;
+    --error: CanvasText;
+    --warning: CanvasText;
+    --confirmed: LinkText;
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  /* Shape-encoded status lamps must survive forced-colors */
+  .seg-lamp,
+  .segment-status-lamp,
+  [data-lamp],
+  .matrix-dot,
+  .live-matrix__cell {
+    forced-color-adjust: none;
+  }
+}
+
 }

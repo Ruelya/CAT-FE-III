@@ -152,4 +152,41 @@
 /* —— Density Variants 密度档 ——————————————————— */
 :root[data-density="compact"] { --density: .85; }
 :root[data-density="comfortable"] { --density: 1.18; }
+
+/* —— Legacy aliases (single source: ORTHO tokens) ———
+   Remaining styles.css rules consume --bg/--surface/--ink etc.
+   Map once here so dual-track .theme-dark class is unnecessary. */
+:root {
+  --bg: var(--paper);
+  --surface: var(--deck);
+  --surface-raised: var(--deck);
+  --surface-sunken: var(--frame);
+  --muted: var(--text-2);
+  --line: var(--rule);
+  --line-strong: var(--rule-strong);
+  --accent: var(--signal);
+  --accent-hover: var(--signal-ink);
+  --neutral: var(--text-3);
+  --focus-ring: 0 0 0 2px color-mix(in srgb, var(--signal) 55%, transparent);
+  --chrome-bg: var(--ink);
+  --chrome-fg: var(--text-on-ink);
+  --paper-shade: var(--frame);
+  --confirmed: var(--ok);
+  --warning: var(--warn);
+  --error: var(--err);
+  --font-body: var(--font-ui);
+  --radius-input: var(--r-input);
+  --radius-button: var(--r-ctl);
+  --radius-panel: var(--r-pop);
+  --space-1: var(--s-2);
+  --space-2: var(--s-4);
+  --space-3: var(--s-5);
+  --space-4: var(--s-6);
+  --space-5: var(--s-8);
+  --space-6: var(--s-9);
+}
+
+/* Note: --ink remains ORTHO brand-plate (always the dark plate stratum).
+   Legacy styles.css body text uses --text-1 (see styles.css color remaps).
+   Do not alias --ink → --text-1 or plate backgrounds invert incorrectly. */
 }

@@ -1,0 +1,10 @@
+{"file": "docs/design-ii/09-implementation.md", "reason": "Phase 8 acceptance anchors and dual-track closure criteria"}
+{"file": "docs/design-ii/screens/system.md", "reason": "Verify settings Surface, coach marks, draft recovery, three-state against screen spec"}
+{"file": "docs/design-ii/02-foundations.md", "reason": "Token single-source dark/light and density/scale wiring review"}
+{"file": "docs/design-ii/05-components.md", "reason": "Popover, dialog, skeleton, empty, error, E3 tab list compliance"}
+{"file": "docs/design-ii/08-accessibility.md", "reason": "forced-colors, density×zoom, focus and scale acceptance"}
+{"file": ".trellis/spec/frontend/electron-workbench.md", "reason": "RPC and DesktopApi preservation checks for shell settings and drafts"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Expression-only and test quality bar for verify/review"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Component boundaries and a11y for extracted system panels"}
+{"file": ".trellis/tasks/08-08-ortho-frontend-phase-8-system-finish/prd.md", "reason": "AC1–AC12 product acceptance for review missions"}
+{"file": ".trellis/tasks/08-08-ortho-frontend-phase-8-system-finish/design.md", "reason": "Architecture and dual-track rollback constraints for review"}

@@ -3,8 +3,7 @@ import {
   useEffect,
   useMemo,
   useState,
-  type ReactNode,
-} from "react";
+  type ReactNode} from "react";
 import type {
   BilingualTableFormat,
   Document,
@@ -13,8 +12,7 @@ import type {
   ReviewPreviewRow,
   TablePreviewResult,
   TablePreviewRow,
-  TmLibrary,
-} from "@translunar/contracts";
+  TmLibrary} from "@translunar/contracts";
 import {
   AlertTriangle,
   Check,
@@ -25,10 +23,8 @@ import {
   FileCheck2,
   FolderOpen,
   Languages,
-  LoaderCircle,
   Table2,
-  Upload,
-} from "lucide-react";
+  Upload} from "lucide-react";
 
 import { fileName, formatError } from "./workbench-utils";
 import { useLocale } from "./i18n/LocaleProvider";
@@ -44,8 +40,7 @@ interface InteropPanelProps {
 export function InteropPanel({
   snapshot,
   document,
-  onRefresh,
-}: InteropPanelProps) {
+  onRefresh}: InteropPanelProps) {
   const { t } = useLocale();
 
   const [mode, setMode] = useState<InteropMode>("review");
@@ -78,8 +73,7 @@ export function InteropPanel({
       const page = await window.translunar.invoke("tm.library.list", {
         projectId: snapshot.project.id,
         offset: 0,
-        limit: 50,
-      });
+        limit: 50});
       const writable = page.items.filter(
         (library) =>
           library.writable &&
@@ -159,8 +153,7 @@ export function InteropPanel({
         projectId: snapshot.project.id,
         documentId: document.id,
         expectedDocumentRevision: document.revision,
-        outputPath,
-      });
+        outputPath});
       setNotice(t("interop.reviewExported", { count: result.rowCount }));
     });
   };
@@ -174,8 +167,7 @@ export function InteropPanel({
         inputPath,
         expectedDocumentRevision: document.revision,
         offset: 0,
-        limit: 50,
-      });
+        limit: 50});
       setReviewPreview(result);
       setTablePreview(null);
       setSelectedRows(
@@ -201,8 +193,7 @@ export function InteropPanel({
         inputPath,
         format: tableFormat,
         offset: 0,
-        limit: 50,
-      });
+        limit: 50});
       setTablePreview(result);
       setReviewPreview(null);
       setSelectedRows(
@@ -225,8 +216,7 @@ export function InteropPanel({
         previewId: reviewPreview.previewId,
         expectedDocumentRevision: reviewPreview.expectedDocumentRevision,
         offset,
-        limit: reviewPreview.limit,
-      });
+        limit: reviewPreview.limit});
       setReviewPreview(result);
     });
   };
@@ -243,8 +233,7 @@ export function InteropPanel({
         previewId: tablePreview.previewId,
         format: tableFormat,
         offset,
-        limit: tablePreview.limit,
-      });
+        limit: tablePreview.limit});
       setTablePreview(result);
     });
   };
@@ -266,8 +255,7 @@ export function InteropPanel({
         expectedDocumentRevision: reviewPreview.expectedDocumentRevision,
         selectedRowIds: [...selectedRows],
         actor: actor.trim(),
-        reason: reason.trim(),
-      });
+        reason: reason.trim()});
       setReviewPreview((current) =>
         current ? { ...current, status: result.status } : current,
       );
@@ -285,8 +273,7 @@ export function InteropPanel({
         expectedLibraryRevision: tablePreview.expectedLibraryRevision,
         selectedRowIds: [...selectedRows],
         actor: actor.trim(),
-        reason: reason.trim(),
-      });
+        reason: reason.trim()});
       setTablePreview((current) =>
         current ? { ...current, status: result.status } : current,
       );
@@ -476,7 +463,7 @@ export function InteropPanel({
 
       {busy ? (
         <div className="interop-loading" role="status">
-          <LoaderCircle className="spin" size={17} />{" "}
+          {" "}
           {t("common.workingOn", { task: busy.replaceAll("-", " ") })}
         </div>
       ) : null}
@@ -532,8 +519,7 @@ function ReviewPreviewPanel({
   onToggle,
   onApply,
   onPrevious,
-  onNext,
-}: {
+  onNext}: {
   preview: ReviewPreviewResult;
   selectedRows: Set<string>;
   busy: boolean;
@@ -602,8 +588,7 @@ function TablePreviewPanel({
   onToggle,
   onApply,
   onPrevious,
-  onNext,
-}: {
+  onNext}: {
   preview: TablePreviewResult;
   selectedRows: Set<string>;
   busy: boolean;
@@ -670,8 +655,7 @@ function PreviewHeading({
   selectedCount,
   busy,
   isApplied,
-  onApply,
-}: {
+  onApply}: {
   icon: ReactNode;
   eyebrow: string;
   title: string;
@@ -715,8 +699,7 @@ function ReviewRow({
   row,
   selected,
   disabled,
-  onToggle,
-}: {
+  onToggle}: {
   row: ReviewPreviewRow;
   selected: boolean;
   disabled: boolean;
@@ -748,16 +731,14 @@ function ReviewRow({
         <strong>{row.sourceText || t("interop.emptySource")}</strong>
         <small>
           {t("interop.currentTarget", {
-            value: row.currentTarget || t("interop.noTarget"),
-          })}
+            value: row.currentTarget || t("interop.noTarget")})}
         </small>
       </div>
       <div className="interop-cell">
         <strong>{row.targetText || t("interop.unchangedTarget")}</strong>
         <small>
           {t("interop.comment", {
-            value: row.comments || t("interop.noComment"),
-          })}
+            value: row.comments || t("interop.noComment")})}
         </small>
       </div>
       <DiagnosticCell diagnostics={row.diagnostics} />
@@ -769,8 +750,7 @@ function TableRow({
   row,
   selected,
   disabled,
-  onToggle,
-}: {
+  onToggle}: {
   row: TablePreviewRow;
   selected: boolean;
   disabled: boolean;
@@ -841,8 +821,7 @@ function Pagination({
   canPrevious,
   canNext,
   onPrevious,
-  onNext,
-}: {
+  onNext}: {
   offset: number;
   limit: number;
   total: number;

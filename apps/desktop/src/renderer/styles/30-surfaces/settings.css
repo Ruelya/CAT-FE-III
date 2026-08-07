@@ -1,0 +1,610 @@
+/* ══════════════════════════════════════════════════════════════
+   Settings Surface · Coach Marks · Draft Recovery · Surface States
+   Phase 8 — expression-only system chrome
+   ══════════════════════════════════════════════════════════════ */
+
+@layer surfaces {
+
+/* —— Settings as Surface (not modal) ——————————————— */
+.settings-surface {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  min-block-size: 0;
+  height: 100%;
+  background: var(--paper);
+  color: var(--text-1);
+}
+
+.settings-surface__nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  padding: var(--s-6) 0;
+  background: var(--frame);
+  border-inline-end: 1px solid var(--rule-strong);
+  overflow: auto;
+  min-block-size: 0;
+}
+
+.settings-surface__nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+
+.settings-surface__nav-label {
+  font: 500 var(--t-micro) / var(--lh-micro) var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  padding: var(--s-2) var(--s-5);
+}
+
+.settings-surface__nav-item {
+  position: relative;
+  display: block;
+  width: 100%;
+  text-align: start;
+  padding: var(--s-3) var(--s-5);
+  font: 500 var(--t-body) / var(--lh-body) var(--font-ui);
+  color: var(--text-1);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.settings-surface__nav-item:hover {
+  background: var(--shade);
+}
+
+.settings-surface__nav-item[data-current] {
+  background: var(--deck);
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.settings-surface__nav-item[data-current]::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 3px;
+  background: var(--signal);
+}
+
+.settings-surface__main {
+  display: flex;
+  flex-direction: column;
+  min-block-size: 0;
+  min-inline-size: 0;
+  overflow: auto;
+  padding: var(--s-8);
+  background: var(--paper);
+}
+
+.settings-surface__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-5);
+  margin-block-end: var(--s-6);
+}
+
+.settings-surface__header h1 {
+  font: 600 var(--t-title) / var(--lh-title) var(--font-display);
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.settings-surface__panel {
+  display: grid;
+  gap: var(--s-6);
+  max-inline-size: 40rem;
+}
+
+.settings-surface__card {
+  display: grid;
+  gap: var(--s-4);
+  padding: var(--s-6);
+  background: var(--deck);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pop);
+}
+
+.settings-surface__card h2 {
+  margin: 0;
+  font: 600 var(--t-section) / var(--lh-section) var(--font-ui);
+}
+
+.settings-surface__help {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--t-meta);
+  line-height: var(--lh-meta);
+}
+
+.settings-surface__field {
+  display: grid;
+  gap: var(--s-2);
+}
+
+.settings-surface__field > label,
+.settings-surface__field-label {
+  font-weight: 500;
+  font-size: var(--t-body);
+}
+
+.settings-surface__segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  padding: var(--s-1);
+  background: var(--frame);
+  border-radius: var(--r-ctl);
+  border: 1px solid var(--rule);
+}
+
+.settings-surface__segmented button {
+  min-height: max(var(--ctl-h), 28px);
+  padding: var(--s-2) var(--s-4);
+  border-radius: var(--r-ctl);
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font: 500 var(--t-meta) / var(--lh-meta) var(--font-ui);
+  cursor: pointer;
+}
+
+.settings-surface__segmented button[data-current] {
+  background: var(--deck);
+  color: var(--text-1);
+  box-shadow: 0 0 0 1px var(--rule-strong);
+}
+
+.settings-surface__scale {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-4);
+}
+
+.settings-surface__scale input[type="range"] {
+  flex: 1 1 12rem;
+  min-inline-size: 8rem;
+}
+
+.settings-surface__scale output {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  min-inline-size: 3.5rem;
+}
+
+.settings-preview-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  min-height: var(--row-min);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-input);
+  background: var(--deck);
+  overflow: hidden;
+}
+
+.settings-preview-row__cell {
+  padding: var(--cell-pad);
+  font-size: var(--t-editor);
+  line-height: var(--lh-editor);
+  color: var(--text-1);
+  border-inline-end: 1px solid var(--rule);
+}
+
+.settings-preview-row__cell:last-child {
+  border-inline-end: 0;
+  background: color-mix(in srgb, var(--signal-wash) 40%, var(--deck));
+}
+
+.settings-surface__meta {
+  display: grid;
+  gap: var(--s-3);
+  margin: 0;
+}
+
+.settings-surface__meta div {
+  display: grid;
+  gap: var(--s-1);
+}
+
+.settings-surface__meta dt {
+  font-size: var(--t-meta);
+  color: var(--text-2);
+}
+
+.settings-surface__meta dd {
+  margin: 0;
+  word-break: break-all;
+}
+
+.settings-surface__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  align-items: center;
+}
+
+.settings-surface__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s-3);
+}
+
+.settings-surface__list li {
+  display: grid;
+  gap: var(--s-2);
+  padding: var(--s-4);
+  border-radius: var(--r-ctl);
+  background: var(--frame);
+  border: 1px solid var(--rule-soft);
+}
+
+.settings-surface__checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s-2);
+}
+
+.settings-surface__checklist label {
+  display: flex;
+  gap: var(--s-3);
+  align-items: center;
+  min-height: max(var(--ctl-h), 28px);
+}
+
+.settings-surface__hint {
+  color: var(--text-2);
+  font-size: var(--t-meta);
+}
+
+.settings-surface__error {
+  color: var(--err);
+  margin: 0 0 var(--s-4);
+}
+
+.settings-surface__success {
+  color: var(--ok);
+  margin: 0 0 var(--s-4);
+}
+
+/* —— Draft recovery dialog (§A5 lg) ——————————————— */
+.draft-recovery-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: var(--s-6);
+  background: var(--scrim);
+}
+
+.draft-recovery-dialog {
+  width: min(760px, 100%);
+  max-height: min(88vh, 960px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  padding: var(--s-7);
+  background: var(--deck);
+  color: var(--text-1);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-pop);
+  box-shadow: var(--elev-pop);
+}
+
+.draft-recovery-dialog__header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--s-4);
+  align-items: flex-start;
+}
+
+.draft-recovery-dialog__brand {
+  display: flex;
+  gap: var(--s-4);
+  align-items: flex-start;
+}
+
+.draft-recovery-dialog__brand h1 {
+  margin: 0 0 var(--s-2);
+  font: 600 var(--t-title) / var(--lh-title) var(--font-display);
+}
+
+.draft-recovery-dialog__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s-4);
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.draft-recovery-dialog__row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--s-4);
+  padding: var(--s-4);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-ctl);
+  background: var(--paper);
+}
+
+.draft-recovery-dialog__row[data-stale] {
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--rule));
+}
+
+.draft-recovery-dialog__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  align-items: center;
+  margin-block-end: var(--s-2);
+  font-size: var(--t-meta);
+  color: var(--text-2);
+}
+
+.draft-recovery-dialog__badge {
+  font: 500 var(--t-micro) / var(--lh-micro) var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--warn-ink);
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  padding: var(--s-1) var(--s-3);
+  border-radius: var(--r-tag);
+}
+
+.draft-recovery-dialog__preview {
+  white-space: pre-wrap;
+  margin: 0;
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-input);
+  background: var(--frame);
+  max-height: 6rem;
+  overflow: auto;
+  font: inherit;
+  font-size: var(--t-meta);
+}
+
+.draft-recovery-dialog__diff {
+  margin-block-start: var(--s-2);
+  font-size: var(--t-meta);
+}
+
+.draft-recovery-dialog__diff del {
+  text-decoration: line-through;
+  opacity: 0.75;
+}
+
+.draft-recovery-dialog__diff ins {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.draft-recovery-dialog__footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  justify-content: flex-end;
+  align-items: center;
+  padding-block-start: var(--s-4);
+  border-block-start: 1px solid var(--rule);
+}
+
+.draft-recovery-dialog__footer .button.danger,
+.draft-recovery-dialog__footer button.danger {
+  color: var(--err);
+}
+
+.draft-recovery-dialog__confirm {
+  display: grid;
+  gap: var(--s-4);
+  padding: var(--s-5);
+  background: color-mix(in srgb, var(--err) 8%, var(--deck));
+  border: 1px solid color-mix(in srgb, var(--err) 30%, var(--rule));
+  border-radius: var(--r-ctl);
+}
+
+.draft-recovery-dialog__error {
+  color: var(--err);
+  font-size: var(--t-meta);
+  margin: var(--s-2) 0 0;
+}
+
+/* —— Coach marks (no full-screen blocking scrim) ——— */
+.coach-mark-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 48;
+  pointer-events: none;
+}
+
+.coach-mark {
+  position: fixed;
+  z-index: 49;
+  pointer-events: auto;
+  max-inline-size: 20rem;
+  padding: var(--s-5);
+  background: var(--deck);
+  color: var(--text-1);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-pop);
+  box-shadow: var(--elev-pop);
+  display: grid;
+  gap: var(--s-4);
+}
+
+.coach-mark__progress {
+  display: grid;
+  gap: var(--s-2);
+}
+
+.coach-mark__step {
+  font: 500 var(--t-micro) / var(--lh-micro) var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.coach-mark__bar {
+  height: 4px;
+  background: var(--frame);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.coach-mark__bar > span {
+  display: block;
+  height: 100%;
+  background: var(--signal);
+  transition: width var(--d-state) var(--ease-move);
+}
+
+.coach-mark h2 {
+  margin: 0;
+  font: 600 var(--t-section) / var(--lh-section) var(--font-ui);
+}
+
+.coach-mark p {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--t-meta);
+  line-height: var(--lh-meta);
+}
+
+.coach-mark__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  justify-content: flex-end;
+}
+
+.tutorial-target-active {
+  outline: 2px solid var(--signal) !important;
+  outline-offset: 2px;
+  position: relative;
+  z-index: 47;
+}
+
+/* —— Shared surface three-states ———————————————— */
+.surface-state {
+  display: grid;
+  gap: var(--s-4);
+  padding: var(--s-6);
+  min-height: 6rem;
+  color: var(--text-1);
+}
+
+.surface-state--loading {
+  align-content: start;
+}
+
+.surface-state__skeleton-lines {
+  display: grid;
+  gap: var(--s-3);
+}
+
+.surface-state__skeleton-lines i {
+  display: block;
+  height: 12px;
+  border-radius: 2px;
+  background: linear-gradient(
+    90deg,
+    var(--frame) 0%,
+    var(--shade) 50%,
+    var(--frame) 100%
+  );
+  background-size: 200% 100%;
+  animation: surface-shimmer 1.2s linear infinite;
+}
+
+.surface-state__skeleton-lines i:nth-child(1) { width: 72%; }
+.surface-state__skeleton-lines i:nth-child(2) { width: 100%; }
+.surface-state__skeleton-lines i:nth-child(3) { width: 48%; }
+
+.surface-state__label {
+  font-size: var(--t-meta);
+  color: var(--text-2);
+}
+
+.surface-state__title {
+  margin: 0;
+  font: 600 var(--t-section) / var(--lh-section) var(--font-ui);
+}
+
+.surface-state__body {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--t-meta);
+}
+
+.surface-state__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+}
+
+.surface-state--error {
+  border-inline-start: 3px solid var(--err);
+  background: color-mix(in srgb, var(--err) 6%, var(--deck));
+}
+
+.surface-state__what {
+  margin: 0;
+  font-weight: 600;
+}
+
+.surface-state__safety {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--t-meta);
+}
+
+.surface-state__tech {
+  font-size: var(--t-meta);
+  color: var(--text-2);
+}
+
+.surface-state__tech pre {
+  margin: var(--s-2) 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.surface-busy-label {
+  font-size: var(--t-meta);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes surface-shimmer {
+  from { background-position: 180% 0; }
+  to { background-position: -20% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .surface-state__skeleton-lines i {
+    animation: none;
+  }
+  .coach-mark__bar > span {
+    transition: none;
+  }
+}
+
+}

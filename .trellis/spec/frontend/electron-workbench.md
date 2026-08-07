@@ -3895,3 +3895,199 @@ const gate = budgetGateFromRatio(ratio); // block only when ratio >= 1
 // Grounding residual when context missing.
 <GroundingInspector unavailableReason={t("ai.groundingNeedsWorkbench")} />
 ```
+
+## ORTHO System and Finish (Phase 8)
+
+### 1. Scope / Trigger
+
+Use this contract when changing product settings chrome, theme/density/UI
+scale, coach-mark tutorial presentation, draft recovery dialog, shared
+loading/empty/error surfaces, global forced-colors, or dual-theme token wiring
+in `apps/desktop` renderer.
+
+Expression-only: **no** contracts, engine, or preload changes. Shell settings /
+draft journal / tutorial persistence APIs stay behavior-stable; additive
+renderer-local helpers and localStorage keys are allowed.
+
+ORTHO frontend phases **0–8** are complete on branch `implement/ortho-frontend`
+for expression work tracked in `docs/design-ii/09-implementation.md`.
+
+### 2. Signatures
+
+```typescript
+// theme-controller.ts
+type ThemePreference = "light" | "dark" | "system";
+type ResolvedTheme = "light" | "dark";
+
+function bootstrapTheme(): { preference: ThemePreference; resolved: ResolvedTheme };
+function setThemePreference(preference: ThemePreference): ResolvedTheme;
+function resolveTheme(preference: ThemePreference): ResolvedTheme;
+function toggleLightDark(current: ThemePreference): ThemePreference;
+function subscribeSystemTheme(onChange: (resolved: ResolvedTheme) => void): () => void;
+// Storage key: translunar.theme.v1
+
+// appearance-controller.ts
+type DensityPreference = "compact" | "standard" | "comfortable";
+
+function bootstrapAppearance(): { density: DensityPreference; uiScale: number };
+function setDensityPreference(density: DensityPreference): void;
+function setUiScale(scale: number): number; // clamped 0.8–1.6
+function cycleDensity(current: DensityPreference, direction?: 1 | -1): DensityPreference;
+// Keys: translunar.density.v1, translunar.ui-scale.v1
+// DOM: dataset.density (omit for standard), style --ui-scale
+// Orthogonal to Workbench --editor-zoom
+
+// settings-presenters.ts
+type SettingsSectionId =
+  | "appearance" | "locale" | "shortcuts" | "data" | "backup"
+  | "updates" | "engines" | "tutorial" | "about";
+function normalizeSettingsSection(value: unknown): SettingsSectionId;
+
+// draft-recovery-presenters.ts
+function defaultDraftSelection(drafts: readonly DraftSelectRow[]): Record<string, boolean>;
+function canRestoreDraft(draft: DraftSelectRow): boolean; // !stale && !unverified
+function joinDraftClipboardTexts(drafts: readonly DraftSelectRow[]): string;
+
+// App inspectDrafts mapping (must stay correct for dialog polish)
+// missing current segment → { unverified: true, stale: false }
+// present current → { stale: revision mismatch, currentTargetText, currentRevision }
+```
+
+Stable Engine/DesktopApi methods used by settings/drafts (unchanged names):
+
+- Shell: `getShellSettings` / `updateShellSettings`, data-directory migrate,
+  backup/restore preview/confirm, update check/install, tutorial fields
+- Drafts: journal load + `clearDraftJournal`; restore via `segment.updateTarget`
+- Project allowlist: existing `project.update` path only when a project is open
+
+### 3. Contracts
+
+| Concern | Contract |
+| --- | --- |
+| Theme single source | Only `document.documentElement.dataset.theme` ∈ {`light`,`dark`} after resolve. Preference may be `system`. **Forbidden:** competing palette rules on `.workbench-app.theme-dark` / `.theme-system`. Legacy `--bg/--surface/--ink/...` alias once under `:root` / dark under `:root[data-theme="dark"]` to ORTHO tokens (`--paper/--deck/--text-1/...`). |
+| Three UIs, one API | Settings Appearance, App command/spine theme toggle, Workbench prefs theme select → `setThemePreference` / parent `onThemePreferenceChange`. |
+| Settings mount | Surface Slot content when `settingsOpen`; `role="region"` plate, **not** `aria-modal` full-app dialog; no settings FAB. Not a 7th Index Spine lamp (gear tool entry). |
+| Deep link | `openSettings(sectionId)` → `settingsSection`; command palette may open `appearance`. |
+| Immediate prefs | Theme / density / ui-scale / locale apply without a Save bar. Destructive ops keep existing confirm. |
+| Leave-guard | Opening settings from workspace calls the same `flushBeforeLeave` path as surface change. |
+| Coach marks | Anchored popover + `--signal` ring; no full-screen blocking scrim; no document focus trap; Esc skips; `tutorial-state` reducer + persistence keys unchanged. |
+| Draft dialog | Blocking §A5; multi-select; stale/unverified default **off**; multi-copy clipboard; discard-all confirm; sequential restore; no batch RPC. |
+| Three-state busy | Skeleton or status text; **no** `LoaderCircle` + `.spin` as primary busy UI. Prefer `SurfaceStates` / `WorkbenchVisualState`. |
+| Forced-colors | Global `@media (forced-colors: active)` in `01-reset.css`; lamps keep `forced-color-adjust: none`. |
+| Density × scale evidence | Task `evidence/screenshot-matrix.md` (checklist OK if PNG capture blocked). |
+| Expression boundary | No new IPC, contracts, engine methods, or npm deps for Phase 8 system work. |
+
+Keyboard (document; composition-guard first):
+
+- `Ctrl+Alt+,` → open settings
+- `Ctrl+Alt+[` / `]` → density cycle
+- Workbench `Ctrl+,` remains editor prefs if already bound
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Preference `system` + OS scheme change | `subscribeSystemTheme` re-applies resolved `data-theme` |
+| Invalid theme/density storage value | Fall back to `system` / `standard` |
+| UI scale out of range / NaN | Clamp to [0.8, 1.6]; default 1 |
+| Settings open without project | Engines allowlist residual; other shell RPCs still work |
+| Draft segment missing from list | `unverified: true`, not `stale`; restore blocked |
+| Draft revision mismatch | `stale: true`; default unchecked; show current vs draft when `currentTargetText` present |
+| Restore fails mid multi-select | Per-row failure; do not claim full success |
+| Engine/contracts/preload change for Phase 8 system | Forbidden — expression-only |
+| E2E theme assertion uses `.theme-dark` class | Invalid — assert `html[data-theme]` |
+
+### 5. Good / Base / Bad Cases
+
+- Good: Settings Surface vertical §E3 groups; Appearance changes invert shell
+  **and** workbench with only `data-theme` set; Esc closes settings.
+- Good: Coach mark anchors real `tutorial-target-*` controls; user can still
+  click the app; skip/complete persists via existing tutorial fields.
+- Good: Draft multi-select restore non-stale rows; multi-copy joins texts;
+  discard-all confirms once.
+- Good: Density compact + UI scale 1.25 updates tokens without touching
+  `--editor-zoom`.
+- Base: Screenshot matrix cells deferred with pass criteria documented.
+- Base: Tutorial step enum remains 7-wide with presentation mapping.
+- Bad: Reintroduce `.workbench-app.theme-dark { --bg: ... }` palette blocks.
+- Bad: Settings as `aria-modal` full-screen scrim or settings FAB.
+- Bad: Second independent theme state only on Workbench preferences class.
+- Bad: Circular spinners for surface busy states.
+- Bad: Mark missing segment as stale (false-positive) without `unverified`.
+
+### 6. Tests Required
+
+- Unit: `components/system/theme-controller.test.ts` (resolve system,
+  apply/persist, toggle).
+- Unit: `components/system/appearance-controller.test.ts` (clamp scale,
+  density attr omit for standard, cycle).
+- Unit: `components/system/draft-recovery-presenters.test.ts` (defaults,
+  clipboard join, `canRestoreDraft`).
+- Keep `tutorial-state` and `WorkbenchVisualState` unit tests green.
+- Typecheck: `apps/desktop` green without contracts/engine/preload package
+  edits.
+- E2E (when run): theme cycle asserts
+  `await expect(page.locator("html")).toHaveAttribute("data-theme", ...)`.
+- Manual residual: forced-colors emulation; density×zoom visual at 160%;
+  en/zh settings + draft + coach chrome.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+// Dual-track palette (forbidden after Phase 8).
+.workbench-app.theme-dark {
+  --bg: #1a1a1a;
+  --ink: #f5f5f5;
+}
+
+// E2E re-encodes class theme.
+await expect(page.locator(".workbench-app")).toHaveClass(/theme-dark/);
+
+// Missing segment treated as stale; no current text for wordDiff.
+const stale = current === undefined || current.revision !== record.expectedRevision;
+return { ...record, stale };
+
+// Full-app modal settings.
+<div className="settings-overlay" role="dialog" aria-modal="true" />
+```
+
+#### Correct
+
+```tsx
+// Single driver.
+setThemePreference("system"); // → dataset.theme light|dark from matchMedia
+// Legacy aliases under :root only; colors from 00-tokens.css
+
+// E2E.
+await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+
+// inspectDrafts mapping.
+if (current === undefined) {
+  return { ...record, stale: false, unverified: true };
+}
+return {
+  ...record,
+  stale: current.revision !== record.expectedRevision,
+  currentRevision: current.revision,
+  currentTargetText: current.targetText,
+};
+
+// Settings in Surface Slot (region, not modal).
+if (settingsOpen) {
+  return (
+    <ProductSettingsPage
+      section={settingsSection}
+      onSectionChange={setSettingsSection}
+      themePreference={themePreference}
+      onThemePreferenceChange={applyThemePreference}
+      density={density}
+      onDensityChange={applyDensity}
+      uiScale={uiScale}
+      onUiScaleChange={applyUiScale}
+      /* …existing shell RPC props… */
+    />
+  );
+}
+```

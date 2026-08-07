@@ -28,7 +28,6 @@ import {
   Clock3,
   Edit3,
   FolderGit2,
-  LoaderCircle,
   MessageSquareText,
   Plus,
   RefreshCw,
@@ -644,9 +643,7 @@ function DiscussionPanel({
           onClick={() => void createThread()}
           disabled={!createReady || !!busy}
         >
-          {busy === "create-thread" ? (
-            <LoaderCircle className="spin" size={14} />
-          ) : (
+          {busy === "create-thread" ? null : (
             <Plus size={14} />
           )}
           {t("discussion.createDiscussion")}
@@ -688,7 +685,6 @@ function DiscussionPanel({
 
         {threadsLoading ? (
           <div className="discussion-loading" role="status">
-            <LoaderCircle className="spin" size={17} />
             {t("discussion.loadingThreads")}
           </div>
         ) : threadPage && threadPage.items.length > 0 ? (
@@ -777,9 +773,7 @@ function DiscussionPanel({
                   }
                   disabled={!!busy || !actor.trim() || !reason.trim()}
                 >
-                  {busy === "resolve-thread" ? (
-                    <LoaderCircle className="spin" size={14} />
-                  ) : selectedThread.status === "open" ? (
+                  {busy === "resolve-thread" ? null : selectedThread.status === "open" ? (
                     <CheckCircle2 size={14} />
                   ) : (
                     <RotateCcw size={14} />
@@ -815,7 +809,6 @@ function DiscussionPanel({
 
             {messagesLoading ? (
               <div className="discussion-loading" role="status">
-                <LoaderCircle className="spin" size={17} />
                 {t("discussion.loadingMessages")}
               </div>
             ) : messagePage && messagePage.items.length > 0 ? (
@@ -876,9 +869,7 @@ function DiscussionPanel({
                             onClick={() => void saveMessage(message)}
                             disabled={!editBody.trim() || !!busy}
                           >
-                            {busy === `edit-${message.id}` ? (
-                              <LoaderCircle className="spin" size={13} />
-                            ) : (
+                            {busy === `edit-${message.id}` ? null : (
                               <Save size={13} />
                             )}
                             {t("common.save")}
@@ -992,9 +983,7 @@ function DiscussionPanel({
                   !!busy
                 }
               >
-                {busy === "create-message" ? (
-                  <LoaderCircle className="spin" size={14} />
-                ) : (
+                {busy === "create-message" ? null : (
                   <Send size={14} />
                 )}
                 {t("discussion.reply")}
@@ -1047,9 +1036,7 @@ function DiscussionPanel({
                 onClick={() => void confirmDeleteMessage()}
                 disabled={!!busy}
               >
-                {busy === `delete-${deleteMessage.id}` ? (
-                  <LoaderCircle className="spin" size={14} />
-                ) : (
+                {busy === `delete-${deleteMessage.id}` ? null : (
                   <Trash2 size={14} />
                 )}
                 {t("discussion.deleteAction")}
@@ -1303,9 +1290,7 @@ function SnapshotPanel({
           onClick={() => void createSnapshot()}
           disabled={!name.trim() || !actor.trim() || !reason.trim() || !!busy}
         >
-          {busy === "create-snapshot" ? (
-            <LoaderCircle className="spin" size={14} />
-          ) : (
+          {busy === "create-snapshot" ? null : (
             <Plus size={14} />
           )}
           {t("snapshot.create")}
@@ -1338,7 +1323,6 @@ function SnapshotPanel({
 
         {loading ? (
           <div className="discussion-loading" role="status">
-            <LoaderCircle className="spin" size={17} />
             {t("snapshot.loading")}
           </div>
         ) : snapshotPage && snapshotPage.items.length > 0 ? (
@@ -1415,9 +1399,7 @@ function SnapshotPanel({
                   onClick={() => void previewRestore()}
                   disabled={!!busy}
                 >
-                  {busy === "preview-restore" ? (
-                    <LoaderCircle className="spin" size={14} />
-                  ) : (
+                  {busy === "preview-restore" ? null : (
                     <RefreshCw size={14} />
                   )}
                   {preview
@@ -1580,9 +1562,7 @@ function SnapshotPanel({
                 onClick={() => void restoreSnapshot()}
                 disabled={!!busy}
               >
-                {busy === "restore-snapshot" ? (
-                  <LoaderCircle className="spin" size={14} />
-                ) : (
+                {busy === "restore-snapshot" ? null : (
                   <ArchiveRestore size={14} />
                 )}
                 {t("snapshot.restoreAction")}

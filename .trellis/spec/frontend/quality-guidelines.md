@@ -68,6 +68,13 @@ font rendering, panel seams, focus order, and horizontal transcript overflow.
   Matches+Terms with no tablist and single collapse; GroundingInspector only
   with real `PromptBundle`; PreviewDock under grid column with honest pop-out
   residual. Do not reintroduce QA-in-stack tabs or color-block TM diffs.
+- Phase 8 system coverage: unit tests for `theme-controller`,
+  `appearance-controller`, and `draft-recovery-presenters`; theme E2E must
+  assert `html[data-theme="light"|"dark"]` (never `.workbench-app.theme-dark`
+  class). Ban new `LoaderCircle` + `className="spin"` pairs in renderer TSX.
+  Density × UI scale matrix checklist under task `evidence/` (live PNGs may be
+  deferred). Forced-colors rules must remain in `01-reset.css` with lamp
+  `forced-color-adjust: none` preserved.
 
 ## Review Checklist
 

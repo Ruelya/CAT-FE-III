@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useReducer,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 
 import { useLocale } from "./i18n/LocaleProvider";
 import {
@@ -8,7 +15,6 @@ import {
   type TutorialReducerState,
 } from "./tutorial-state";
 import type { TutorialState } from "../shared/product-shell";
-import { useFocusTrap } from "./useFocusTrap";
 
 interface TutorialOverlayProps {
   initial: TutorialState;
@@ -16,6 +22,18 @@ interface TutorialOverlayProps {
   onOpenExample: () => void;
 }
 
+interface AnchorBox {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Coach-mark presentation for first-run tutorial.
+ * Non-blocking: no document focus trap, no full-screen scrim.
+ * Reducer + persistence contracts unchanged.
+ */
 export function TutorialOverlay({
   initial,
   onChange,
@@ -27,17 +45,13 @@ export function TutorialOverlay({
     skipped: initial.skipped,
     completed: initial.completed,
   });
-  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const markRef = useRef<HTMLDivElement | null>(null);
+  const [anchor, setAnchor] = useState<AnchorBox | null>(null);
   const hidden = state.completed || state.skipped;
 
   const skipTutorial = useCallback(() => {
     dispatch({ type: "skip" });
   }, []);
-
-  useFocusTrap(dialogRef, {
-    active: !hidden,
-    onEscape: skipTutorial,
-  });
 
   useEffect(() => {
     onChange(state);
@@ -45,11 +59,39 @@ export function TutorialOverlay({
 
   useEffect(() => {
     if (hidden) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        skipTutorial();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [hidden, skipTutorial]);
+
+  useEffect(() => {
+    if (hidden) return;
     const targetId = tutorialTargetId(state.step);
-    if (!targetId) return;
+    if (!targetId) {
+      setAnchor(null);
+      return;
+    }
     let target: HTMLElement | null = null;
     let previousDescription: string | null = null;
     const advance = () => dispatch({ type: "next" });
+    const measure = () => {
+      if (!target) {
+        setAnchor(null);
+        return;
+      }
+      const rect = target.getBoundingClientRect();
+      setAnchor({
+        top: rect.top,
+        left: rect.left,
+        width: rect.width,
+        height: rect.height,
+      });
+    };
     const detach = () => {
       if (!target) return;
       target.classList.remove("tutorial-target-active");
@@ -63,23 +105,34 @@ export function TutorialOverlay({
     };
     const attach = () => {
       const nextTarget = document.getElementById(targetId);
-      if (!nextTarget || nextTarget === target) return;
-      detach();
-      target = nextTarget;
-      previousDescription = target.getAttribute("aria-describedby");
-      target.classList.add("tutorial-target-active");
-      target.setAttribute("aria-describedby", "tutorial-dialog-body");
-      target.addEventListener("click", advance, { once: true });
-      target.scrollIntoView({
-        block: "center",
-        behavior: prefersReducedMotion() ? "auto" : "smooth",
-      });
+      if (!nextTarget) {
+        detach();
+        setAnchor(null);
+        return;
+      }
+      if (nextTarget !== target) {
+        detach();
+        target = nextTarget;
+        previousDescription = target.getAttribute("aria-describedby");
+        target.classList.add("tutorial-target-active");
+        target.setAttribute("aria-describedby", "tutorial-dialog-body");
+        target.addEventListener("click", advance, { once: true });
+        target.scrollIntoView({
+          block: "center",
+          behavior: prefersReducedMotion() ? "auto" : "smooth",
+        });
+      }
+      measure();
     };
     attach();
     const observer = new MutationObserver(attach);
     observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
     return () => {
       observer.disconnect();
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
       detach();
     };
   }, [hidden, state.step]);
@@ -90,25 +143,39 @@ export function TutorialOverlay({
   const titleKey = titleFor(state.step);
   const bodyKey = bodyFor(state.step);
   const targetId = tutorialTargetId(state.step);
+  const progress = ((index + 1) / TUTORIAL_FLOW.length) * 100;
+  const style = positionCoachMark(anchor, markRef.current);
 
   return (
-    <div className="tutorial-overlay" role="presentation">
+    <div className="coach-mark-layer" role="presentation">
       <div
-        ref={dialogRef}
-        className="tutorial-dialog"
+        ref={markRef}
+        className="coach-mark"
+        style={style}
         role="dialog"
         aria-modal="false"
         aria-label={t("aria.tutorialOverlay")}
       >
-        <p className="surface-kicker">
-          {t("tutorial.progress", {
-            current: index + 1,
-            total: TUTORIAL_FLOW.length,
-          })}
-        </p>
+        <div className="coach-mark__progress">
+          <span className="coach-mark__step">
+            {t("tutorial.progressShort", {
+              current: index + 1,
+              total: TUTORIAL_FLOW.length,
+            })}
+          </span>
+          <div
+            className="coach-mark__bar"
+            role="progressbar"
+            aria-valuenow={index + 1}
+            aria-valuemin={1}
+            aria-valuemax={TUTORIAL_FLOW.length}
+          >
+            <span style={{ width: `${progress}%` }} />
+          </div>
+        </div>
         <h2>{t(titleKey)}</h2>
         <p id="tutorial-dialog-body">{t(bodyKey)}</p>
-        <div className="tutorial-actions">
+        <div className="coach-mark__actions">
           <button
             type="button"
             className="button ghost"
@@ -116,15 +183,6 @@ export function TutorialOverlay({
           >
             {t("action.skip")}
           </button>
-          {index > 0 ? (
-            <button
-              type="button"
-              className="button ghost"
-              onClick={() => dispatch({ type: "back" })}
-            >
-              {t("action.back")}
-            </button>
-          ) : null}
           {targetId ? (
             <button
               type="button"
@@ -174,6 +232,46 @@ export function TutorialOverlay({
       </div>
     </div>
   );
+}
+
+function positionCoachMark(
+  anchor: AnchorBox | null,
+  mark: HTMLElement | null,
+): CSSProperties {
+  const margin = 12;
+  const markWidth = mark?.offsetWidth || 320;
+  const markHeight = mark?.offsetHeight || 200;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  if (!anchor) {
+    // Welcome / complete steps: bottom-end dock without covering center work
+    return {
+      bottom: 24,
+      right: 24,
+      top: "auto",
+      left: "auto",
+    };
+  }
+
+  let top = anchor.top + anchor.height + margin;
+  let left = anchor.left;
+
+  if (top + markHeight > vh - margin) {
+    top = Math.max(margin, anchor.top - markHeight - margin);
+  }
+  if (left + markWidth > vw - margin) {
+    left = Math.max(margin, vw - markWidth - margin);
+  }
+  if (left < margin) left = margin;
+  if (top < margin) top = margin;
+
+  return {
+    top,
+    left,
+    bottom: "auto",
+    right: "auto",
+  };
 }
 
 function titleFor(

@@ -165,6 +165,31 @@ selection menu enable gate + consistency scan trigger on term apply.
 Host attribution bar is host-owned outside the plugin iframe (24px).
 Do not invent consistency-scan, built-in polish, or report-issue RPCs.
 
+### ORTHO System extracts (Phase 8)
+
+System-class presentation and renderer-local appearance helpers live under
+`components/system/`. Keep `ProductSettingsPage` / `TutorialOverlay` /
+`DraftRecoveryDialog` as stable roots; App mounts settings in the Shell
+**Surface Slot** (not a modal, not a 7th Index Spine lamp).
+
+| Module | Responsibility |
+| --- | --- |
+| `theme-controller` | Preference `light\|dark\|system` → resolve → `documentElement.dataset.theme`; persist `translunar.theme.v1` |
+| `appearance-controller` | Density (`data-density`) + `--ui-scale` (0.8–1.6); orthogonal to Workbench `--editor-zoom` |
+| `settings-presenters` | §E3 section/group ids, default section, normalize deep-link id |
+| `draft-recovery-presenters` | Default selection (stale/unverified off), clipboard join, `canRestoreDraft` |
+| `SurfaceStates` | Shared loading skeleton / empty / §F5 error — **no** `LoaderCircle` + `.spin` |
+| Settings CSS | `styles/30-surfaces/settings.css` (`.settings-surface` plate layout) |
+
+Appearance writes (Settings Appearance, App palette/theme toggle, Workbench
+prefs theme select) **must** call the same controllers. Do not reintroduce
+`.workbench-app.theme-dark` / `.theme-system` palette rules. Theme E2E asserts
+`html[data-theme]`, never a workbench theme class.
+
+Coach marks (`TutorialOverlay`) are anchored popovers with signal ring; no
+full-screen scrim and no document-level focus trap. Draft recovery remains a
+blocking §A5 dialog; multi-restore loops existing `onRestore` / `segment.updateTarget`.
+
 Executable contracts:
 
 - Phase 2 chrome:
@@ -180,6 +205,8 @@ Executable contracts:
   [ORTHO Quality and Assets Surfaces](./electron-workbench.md#ortho-quality-and-assets-surfaces-phase-6)
 - Phase 7 AI + plugins:
   [ORTHO AI and Plugins Surfaces](./electron-workbench.md#ortho-ai-and-plugins-surfaces-phase-7)
+- Phase 8 system + finish:
+  [ORTHO System and Finish](./electron-workbench.md#ortho-system-and-finish-phase-8)
 ## Avoid
 
 - No direct `window.translunar.invoke` calls scattered through presentational

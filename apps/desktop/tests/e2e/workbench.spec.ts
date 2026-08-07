@@ -299,9 +299,7 @@ async function setWorkbenchTheme(
   });
   await expect(preferences).toBeVisible();
   await preferences.locator(".preference-controls select").selectOption(theme);
-  await expect(page.locator(".workbench-app")).toHaveClass(
-    new RegExp(`theme-${theme}`, "u"),
-  );
+  await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
   await preferences
     .getByRole("button", { name: "Close editor preferences" })
     .click();
@@ -3854,7 +3852,7 @@ test("uses the authoritative professional editor commands", async () => {
     ).toBeVisible();
     await page.getByLabel("Filter commands").fill("cycle theme");
     await page.getByRole("option", { name: /Cycle theme/u }).click();
-    await expect(page.locator(".workbench-app")).toHaveClass(/theme-dark/u);
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 
     await firstTarget.focus();
     await firstTarget.dispatchEvent("keydown", {

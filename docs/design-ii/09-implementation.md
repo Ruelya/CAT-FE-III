@@ -316,7 +316,34 @@ AI 控制台三 Tab；划词 AI 锚定菜单；一致性修复助手；插件权
 设置 Surface；Coach Marks 教程；草稿恢复；三态统一；深色主题全量校对；
 高对比模式；三档密度 × 三档缩放的截图矩阵。
 
+#### 期 8 实现记录（2026-08）— **ORTHO 前端分期收尾**
+
+| 交付 | 位置 | 说明 |
+| --- | --- | --- |
+| 主题单源 | `components/system/theme-controller.ts` | `light\|dark\|system` → resolve → `documentElement.dataset.theme`；localStorage `translunar.theme.v1`；关闭 `.workbench-app.theme-dark` 双轨 |
+| 密度 × 缩放 | `appearance-controller.ts` | `data-density` + `--ui-scale`（0.8–1.6）；与编辑器 `--editor-zoom` 正交；Ctrl+Alt+[ / ] 循环密度 |
+| 设置 Surface | `ProductSettingsPage.tsx` + `settings-presenters.ts` + `30-surfaces/settings.css` | 非 modal；§E3 纵向 Tab（应用/数据/引擎/其他）；外观即时生效；深链 `settingsSection`；Surface Slot 挂载 |
+| Coach Marks | `TutorialOverlay.tsx` | 锚定 popover + signal ring；无全屏遮罩/文档焦点陷阱；Esc 跳过；reducer 契约不变 |
+| 草稿恢复 | `DraftRecoveryDialog.tsx` + `draft-recovery-presenters.ts` | 多选（过时默认关）；批量丢弃确认；剪贴板多段拼接；顺序恢复；§D8 wordDiff 可选 |
+| 三态 | `SurfaceStates.tsx` | Loading/Empty/Error 原语；renderer 内 `LoaderCircle`+`.spin` 清零 |
+| Forced-colors | `styles/01-reset.css` | 全局 system color map；elev 关闭；灯保留 `forced-color-adjust: none` |
+| Legacy 别名 | `00-tokens.css` + `styles.css` `:root` | `--bg/--surface/...` → ORTHO tokens；深色仅靠 `data-theme` |
+| 证据矩阵 | `evidence/screenshot-matrix.md` · `docs/design-ii/reference/density-zoom-screenshot-matrix.md` | 3×3 清单 + 通过准则；PNG 捕获 deferred |
+| i18n | `i18n/messages.ts` | 设置分组、外观、草稿批量、coach 进度 en+zh |
+
+**验收**：AC1–AC12（设置 Surface / RPC 保留 / 外观 / 深链 / coach / 草稿 / 三态 / 单源深色 / forced-colors / 矩阵 / i18n / typecheck+单测）。
+
+**未做 / 残留**：
+- 密度×缩放 PNG 实拍未做（无引擎截图农场）→ 清单与准则已落盘
+- 教程 step 枚举仍为 7 步；未强行改为设计稿 5 步（presentation 映射）
+- 快捷键编辑器无 store → residual 预设列表
+- Global search 并入命令面板不在本期范围
+- 部分面板 busy 仅文案、骨架未全量替换为 SurfaceLoading 组件（已无圆形 spinner）
+
+**双轨关闭说明（给后续 agent）**：颜色唯一驱动为 `:root[data-theme]` + `00-tokens.css`。禁止再为 `.workbench-app.theme-dark` 写调色板。Workbench 偏好主题控件写同一 `theme-controller`。
+
 ---
+
 
 ## 5. 迁移风险与对策
 

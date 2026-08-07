@@ -29,6 +29,13 @@ page-local query/loading state.
 - Persist only disposable UI preferences/session identity in `localStorage`.
   `SESSION_KEY` and `WORKBENCH_PREFERENCES_KEY` are validated on read; invalid
   values fall back to documented defaults and missing sessions return to setup.
+- Renderer-local appearance (no shell IPC): `translunar.theme.v1`
+  (`light|dark|system`), `translunar.density.v1`
+  (`compact|standard|comfortable`), `translunar.ui-scale.v1` (0.8–1.6). Own
+  writes through `theme-controller` / `appearance-controller` so Settings,
+  App command palette, and Workbench prefs share one DOM apply path
+  (`data-theme`, optional `data-density`, `--ui-scale`). Do not store theme
+  colors as a second class list on `.workbench-app`.
 
 ## Server/Engine Flow
 

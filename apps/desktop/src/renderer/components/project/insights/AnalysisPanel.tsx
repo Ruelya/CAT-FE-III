@@ -1,16 +1,14 @@
 import type {
   AnalysisProfile,
-  AnalysisRunResult,
-} from "@translunar/contracts";
-import { BarChart3, Check, FileClock, LoaderCircle, ShieldAlert } from "lucide-react";
+  AnalysisRunResult} from "@translunar/contracts";
+import { BarChart3, Check, FileClock, ShieldAlert } from "lucide-react";
 
 import { useLocale } from "../../../i18n/LocaleProvider";
 import {
   Definition,
   Metric,
   SectionHeading,
-  UnavailableState,
-} from "./insightsShared";
+  UnavailableState} from "./insightsShared";
 
 export interface AnalysisPanelProps {
   profiles: AnalysisProfile[];
@@ -27,8 +25,7 @@ export function AnalysisPanel({
   result,
   busy,
   onProfile,
-  onRun,
-}: AnalysisPanelProps) {
+  onRun}: AnalysisPanelProps) {
   const { t, formatNumber } = useLocale();
   return (
     <div className="insights-analysis-layout">
@@ -57,9 +54,7 @@ export function AnalysisPanel({
           onClick={onRun}
           disabled={busy || profiles.length === 0}
         >
-          {busy ? (
-            <LoaderCircle className="spin" size={14} aria-hidden="true" />
-          ) : (
+          {busy ? null : (
             <BarChart3 size={14} aria-hidden="true" />
           )}
           {t("insights.runAnalysis")}
@@ -71,8 +66,7 @@ export function AnalysisPanel({
           <SectionHeading
             eyebrow={t("insights.profileRevision", {
               profile: result.profileId,
-              revision: result.profileRevision,
-            })}
+              revision: result.profileRevision})}
             title={
               result.stale
                 ? t("insights.staleAnalysis")
@@ -135,8 +129,7 @@ export function AnalysisPanel({
             <Metric
               label={t("insights.weightedEffort")}
               value={t("insights.milliUnits", {
-                value: formatNumber(result.summary.weightedEffortMilliUnits),
-              })}
+                value: formatNumber(result.summary.weightedEffortMilliUnits)})}
             />
           </div>
           <div className="analysis-detail-grid">

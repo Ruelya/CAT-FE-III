@@ -180,6 +180,9 @@ interface WorkbenchProps {
    * 契约见 `06-shell-navigation.md §5.1`：有未保存草稿 → 静默持久化，不拦截。
    */
   onRegisterLeaveGuard?(guard: (() => Promise<void>) | null): void;
+  /** App-level theme preference (same controller as Settings Appearance). */
+  themePreference?: "light" | "dark" | "system";
+  onThemePreferenceChange?(preference: "light" | "dark" | "system"): void;
 }
 
 interface AutocompleteCompletion {
@@ -212,6 +215,8 @@ export function Workbench({
   focusSegmentId,
   onStatusChange,
   onRegisterLeaveGuard,
+  themePreference = "system",
+  onThemePreferenceChange,
 }: WorkbenchProps) {
   const { t } = useLocale();
 
@@ -2419,11 +2424,12 @@ export function Workbench({
     togglePreview: () => setPreviewMode((mode) => togglePanelCollapsed(mode)),
     toggleTheme: () => {
       const theme =
-        preferences.theme === "system"
+        themePreference === "system"
           ? "dark"
-          : preferences.theme === "dark"
+          : themePreference === "dark"
             ? "light"
             : "system";
+      onThemePreferenceChange?.(theme);
       void persistEditorPreferences({ ...preferences, theme });
     },
     zoomIn: () =>
@@ -2913,11 +2919,12 @@ export function Workbench({
     [t],
   );
 
+  // Theme colors come from documentElement data-theme only (Phase 8 dual-track close).
+  // Keep theme-* class off for palette; nonprinting flag remains local.
   const applicationClasses = [
     "workbench-app",
     `suggestions-${suggestionsMode}`,
     `preview-${previewMode}`,
-    `theme-${preferences.theme}`,
     preferences.showNonprinting ? "show-nonprinting" : "",
   ].join(" ");
   const applicationStyle = {
@@ -3346,13 +3353,18 @@ export function Workbench({
               <label>
                 Theme
                 <select
-                  value={preferences.theme}
-                  onChange={(event) =>
+                  value={themePreference}
+                  onChange={(event) => {
+                    const theme = event.currentTarget.value as
+                      | "light"
+                      | "dark"
+                      | "system";
+                    onThemePreferenceChange?.(theme);
                     void persistEditorPreferences({
                       ...preferences,
-                      theme: event.currentTarget.value,
-                    })
-                  }
+                      theme,
+                    });
+                  }}
                 >
                   <option value="system">{t("workbench.themeSystem")}</option>
                   <option value="light">{t("workbench.themeLight")}</option>

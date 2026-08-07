@@ -1,30 +1,10 @@
-/* Product shell: settings, tutorial, drafts, engine recovery */
+/* Product shell: engine banner + residual modal helpers.
+   Settings is Surface content (settings.css). Tutorial is coach marks.
+   FAB removed (Phase 1+8). */
 
+/* Neutralize residual FAB rules if any markup reappears */
 .shell-settings-fab {
-  position: fixed;
-  bottom: 16px;
-  right: 16px;
-  z-index: 40;
-  display: inline-grid;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  place-items: center;
-  border: 1px solid color-mix(in srgb, var(--ink, #2a2118) 18%, transparent);
-  border-radius: var(--radius-button, 6px);
-  background: color-mix(in srgb, var(--paper, #f7efe2) 92%, white);
-  color: var(--ink, #2a2118);
-  font: inherit;
-  cursor: pointer;
-  box-shadow: 0 8px 24px rgb(42 33 24 / 12%);
-}
-
-.shell-settings-fab:focus-visible,
-.settings-dialog button:focus-visible,
-.tutorial-dialog button:focus-visible,
-.draft-recovery-dialog button:focus-visible {
-  outline: 2px solid #0b6e4f;
-  outline-offset: 2px;
+  display: none !important;
 }
 
 .engine-status-banner {
@@ -36,60 +16,35 @@
   align-items: center;
   justify-content: space-between;
   padding: 0.65rem 1rem;
-  background: #fff4d6;
-  color: #5a3d00;
-  border-bottom: 1px solid #e6c770;
+  background: color-mix(in srgb, var(--warn) 18%, var(--deck));
+  color: var(--text-1);
+  border-bottom: 1px solid var(--rule-strong);
 }
 
-.settings-overlay,
-.tutorial-overlay {
+/* Legacy overlay class kept only for any residual call sites */
+.settings-overlay {
   position: fixed;
   inset: 0;
   z-index: 50;
   display: grid;
   place-items: center;
   padding: 1rem;
-  background: rgb(24 18 12 / 45%);
+  background: var(--scrim);
 }
 
-.settings-dialog,
-.tutorial-dialog,
-.draft-recovery-dialog {
+.settings-dialog {
   width: min(920px, 100%);
   max-height: min(88vh, 960px);
   overflow: auto;
-  border-radius: 18px;
-  background: var(--paper, #f7efe2);
-  color: var(--ink, #2a2118);
-  box-shadow: 0 24px 64px rgb(20 14 8 / 28%);
+  border-radius: var(--r-pop);
+  background: var(--deck);
+  color: var(--text-1);
+  box-shadow: var(--elev-pop);
   padding: 1.25rem 1.35rem 1.5rem;
-}
-
-.tutorial-dialog {
-  width: min(560px, 100%);
-  pointer-events: auto;
-}
-
-.tutorial-overlay {
-  place-items: end;
-  pointer-events: none;
-  background: linear-gradient(
-    135deg,
-    transparent 0 60%,
-    rgb(24 18 12 / 16%) 100%
-  );
-}
-
-.tutorial-target-active {
-  position: relative;
-  z-index: 49;
-  outline: 3px solid #f4a261 !important;
-  outline-offset: 4px;
-  box-shadow: 0 0 0 8px rgb(244 162 97 / 22%);
+  border: 1px solid var(--rule-strong);
 }
 
 .settings-header,
-.tutorial-actions,
 .settings-actions {
   display: flex;
   flex-wrap: wrap;
@@ -108,10 +63,10 @@
 }
 
 .settings-card {
-  border: 1px solid color-mix(in srgb, var(--ink, #2a2118) 12%, transparent);
-  border-radius: 14px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pop);
   padding: 1rem;
-  background: color-mix(in srgb, white 55%, var(--paper, #f7efe2));
+  background: var(--paper);
 }
 
 .settings-card h2,
@@ -155,8 +110,8 @@
   display: grid;
   gap: 0.35rem;
   padding: 0.55rem 0.65rem;
-  border-radius: 10px;
-  background: rgb(255 255 255 / 45%);
+  border-radius: var(--r-ctl);
+  background: var(--frame);
 }
 
 .settings-checklist label {
@@ -174,16 +129,19 @@
   white-space: pre-wrap;
   margin: 0.35rem 0 0;
   padding: 0.55rem 0.65rem;
-  border-radius: 8px;
-  background: rgb(0 0 0 / 4%);
+  border-radius: var(--r-input);
+  background: var(--frame);
   max-height: 8rem;
   overflow: auto;
   font: inherit;
 }
 
-.tutorial-actions {
-  justify-content: flex-end;
-  margin-top: 1rem;
+.surface-error {
+  color: var(--err);
+}
+
+.surface-success {
+  color: var(--ok);
 }
 
 .sr-only {
@@ -196,13 +154,4 @@
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tutorial-overlay,
-  .settings-overlay,
-  .shell-settings-fab {
-    transition: none !important;
-    animation: none !important;
-  }
 }

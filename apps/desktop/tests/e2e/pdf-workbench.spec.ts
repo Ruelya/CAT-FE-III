@@ -58,9 +58,7 @@ async function setWorkbenchTheme(page: Page, theme: "light" | "dark") {
   });
   await expect(preferences).toBeVisible();
   await preferences.locator(".preference-controls select").selectOption(theme);
-  await expect(page.locator(".workbench-app")).toHaveClass(
-    new RegExp(`theme-${theme}`, "u"),
-  );
+  await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
   await preferences
     .getByRole("button", { name: "Close editor preferences" })
     .click();

@@ -3,8 +3,7 @@ import {
   useMemo,
   useState,
   type DragEvent,
-  type FormEvent,
-} from "react";
+  type FormEvent} from "react";
 import type {
   AiProviderProfile,
   AnalysisProfile,
@@ -13,8 +12,7 @@ import type {
   Project,
   ProjectTemplate,
   QaProfile,
-  TemplateDependencyDiagnostic,
-} from "@translunar/contracts";
+  TemplateDependencyDiagnostic} from "@translunar/contracts";
 import {
   ArrowLeft,
   ArrowRight,
@@ -22,10 +20,8 @@ import {
   FilePlus2,
   Files,
   FolderOpen,
-  LoaderCircle,
   Trash2,
-  UploadCloud,
-} from "lucide-react";
+  UploadCloud} from "lucide-react";
 
 import { CompositionRail } from "./components/project/CompositionRail";
 import { Stepper } from "./components/project/Stepper";
@@ -79,12 +75,10 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
     void Promise.all([
       window.translunar.invoke("project.template.list", {
         offset: 0,
-        limit: 100,
-      }),
+        limit: 100}),
       window.translunar.invoke("qa.profile.list", {
         offset: 0,
-        limit: 100,
-      }),
+        limit: 100}),
       window.translunar.invoke("pipeline.list", { offset: 0, limit: 100 }),
       window.translunar.invoke("ai.provider.list", { offset: 0, limit: 100 }),
       window.translunar.invoke("analysis.profile.list", {}),
@@ -211,8 +205,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
           sourceLocale,
           targetLocale,
           domain: domain.trim(),
-          dependencyRemaps: {},
-        },
+          dependencyRemaps: {}},
       );
       project = result.project;
       dependencies = result.diagnostics;
@@ -222,8 +215,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
         name: name.trim(),
         sourceLocale,
         targetLocale,
-        domain: domain.trim(),
-      });
+        domain: domain.trim()});
       onProjectCreated(project);
     }
     const configuration = {
@@ -240,8 +232,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
       reviewRequired:
         reviewPolicy === "template"
           ? (project.configuration.reviewRequired ?? true)
-          : reviewPolicy === "required",
-    };
+          : reviewPolicy === "required"};
     const configurationChanged =
       JSON.stringify(configuration) !== JSON.stringify(project.configuration);
     if (configurationChanged) {
@@ -253,8 +244,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
         domain: project.domain,
         configuration,
         expectedRevision: project.revision,
-        actor: "desktop-wizard",
-      });
+        actor: "desktop-wizard"});
       onProjectCreated(project);
     }
     return { project, dependencies };
@@ -263,8 +253,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
   const rollbackEmptyProject = async (project: Project): Promise<string> => {
     try {
       const current = await window.translunar.invoke("project.get", {
-        projectId: project.id,
-      });
+        projectId: project.id});
       if (current.project.lifecycle !== "active") {
         return t("setup.cleanupSkipped");
       }
@@ -276,13 +265,11 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
         entityId: project.id,
         expectedRevision: current.project.revision,
         actor: "desktop-wizard",
-        reason: "Project setup imported no supported files",
-      });
+        reason: "Project setup imported no supported files"});
       await window.translunar.invoke("recycle.purge", {
         entryId: entry.id,
         actor: "desktop-wizard",
-        reason: "Rollback empty project setup",
-      });
+        reason: "Rollback empty project setup"});
       return t("setup.emptyRemoved");
     } catch (reason) {
       return t("setup.cleanupFailed", { detail: formatError(reason) });
@@ -309,8 +296,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
         projectId: created.project.id,
         items: sourcePaths.map((path) => ({ path })),
         options: {},
-        atomicity,
-      });
+        atomicity});
       setDiagnostics(imported.items);
       const firstDocument = imported.items.find(
         (item) => item.status === "succeeded" && item.document,
@@ -364,14 +350,12 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
   const templateMeta = selectedTemplate
     ? t("setup.metaTemplateSelected", {
         name: selectedTemplate.name,
-        revision: selectedTemplate.revision,
-      })
+        revision: selectedTemplate.revision})
     : t("setup.metaTemplateNone");
 
   const qaMeta = selectedQa
     ? t("setup.metaQaRules", {
-        count: selectedQa.definition.enabledRuleIds.length,
-      })
+        count: selectedQa.definition.enabledRuleIds.length})
     : t("setup.metaTemplateDefault");
 
   const aiMeta = selectedAi
@@ -501,7 +485,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                 />
                 {loadingOptions ? (
                   <div className="wizard-loading" role="status">
-                    <LoaderCircle className="spin" size={18} aria-hidden="true" />{" "}
+                    {" "}
                     {t("setup.loadingProfiles")}
                   </div>
                 ) : null}
@@ -521,8 +505,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                         <option key={template.id} value={template.id}>
                           {t("setup.revisionOption", {
                             name: template.name,
-                            revision: template.revision,
-                          })}
+                            revision: template.revision})}
                         </option>
                       ))}
                     </select>
@@ -701,8 +684,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                         <button
                           type="button"
                           aria-label={t("setup.removeSourceNamed", {
-                            name: fileName(path),
-                          })}
+                            name: fileName(path)})}
                           title={t("setup.removeSource")}
                           onClick={() =>
                             setSourcePaths((items) =>
@@ -722,8 +704,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                     items={dependencyDiagnostics.map((item) => ({
                       status: item.status,
                       label: `${item.kind}: ${item.requestedId}`,
-                      detail: item.message,
-                    }))}
+                      detail: item.message}))}
                   />
                 ) : null}
                 {diagnostics.length > 0 ? (
@@ -735,8 +716,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                       detail:
                         item.message ??
                         item.errorCode ??
-                        t("setup.diagnosticImported"),
-                    }))}
+                        t("setup.diagnosticImported")}))}
                   />
                 ) : null}
               </>
@@ -787,11 +767,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
                   >
                     {busy ? (
                       <>
-                        <LoaderCircle
-                          className="spin"
-                          size={15}
-                          aria-hidden="true"
-                        />{" "}
+                        {" "}
                         {t("setup.importing")}
                       </>
                     ) : (
@@ -814,8 +790,7 @@ export function SetupView({ onCreated, onCancel }: SetupViewProps) {
 function WizardHeading({
   eyebrow,
   title,
-  description,
-}: {
+  description}: {
   eyebrow: string;
   title: string;
   description: string;
@@ -831,8 +806,7 @@ function WizardHeading({
 
 function DiagnosticList({
   title,
-  items,
-}: {
+  items}: {
   title: string;
   items: Array<{ status: string; label: string; detail: string }>;
 }) {

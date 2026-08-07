@@ -7,8 +7,7 @@ import type {
   DocumentReimportPreviewResult,
   Operation,
   ProjectAnalyticsSummary,
-  ProjectSnapshot,
-} from "@translunar/contracts";
+  ProjectSnapshot} from "@translunar/contracts";
 import {
   Archive,
   BarChart3,
@@ -19,19 +18,16 @@ import {
   GitCompareArrows,
   History,
   Languages,
-  LoaderCircle,
   MessageSquareText,
   Puzzle,
   RefreshCw,
   RotateCcw,
-  Trash2,
-} from "lucide-react";
+  Trash2} from "lucide-react";
 
 import {
   InsightsTabList,
   type InsightsTabGroup,
-  type InsightsTabId,
-} from "./components/project/InsightsTabList";
+  type InsightsTabId} from "./components/project/InsightsTabList";
 import { AnalysisPanel } from "./components/project/insights/AnalysisPanel";
 import { ArchivePanel } from "./components/project/insights/ArchivePanel";
 import { FilesPanel } from "./components/project/insights/FilesPanel";
@@ -75,8 +71,7 @@ export function ProjectInsightsPage({
   onOpenProject,
   onReturnHome,
   onOpenQa,
-  onOpenAiControl,
-}: ProjectInsightsPageProps) {
+  onOpenAiControl}: ProjectInsightsPageProps) {
   const { t } = useLocale();
 
   const projectId = snapshot.project.id;
@@ -116,18 +111,15 @@ export function ProjectInsightsPage({
           window.translunar.invoke("document.list", {
             projectId,
             offset: 0,
-            limit: 500,
-          }),
+            limit: 500}),
           window.translunar.invoke("project.analytics.get", {
             projectId,
-            trendBucketCount: 12,
-          }),
+            trendBucketCount: 12}),
           window.translunar.invoke("history.list", {
             projectId,
             descending: true,
             offset: 0,
-            limit: 100,
-          }),
+            limit: 100}),
           window.translunar.invoke("analysis.profile.list", {}),
         ]);
       setDocuments(documentPage.items);
@@ -188,14 +180,12 @@ export function ProjectInsightsPage({
         projectId,
         items,
         options: {},
-        atomicity: "bestEffort",
-      });
+        atomicity: "bestEffort"});
       setBatchDiagnostics(result.items);
       setNotice(
         t("insights.batchFinished", {
           succeeded: result.succeeded,
-          failed: result.failed,
-        }),
+          failed: result.failed}),
       );
       await refreshAfterMutation();
     });
@@ -235,8 +225,7 @@ export function ProjectInsightsPage({
     setPendingAction({
       title: t("insights.recycleDocument"),
       description: t("insights.recycleDocumentDescription", {
-        name: item.relativePath,
-      }),
+        name: item.relativePath}),
       confirmLabel: t("insights.recycleDocument"),
       danger: true,
       run: async () => {
@@ -245,13 +234,11 @@ export function ProjectInsightsPage({
           entityId: item.id,
           expectedRevision: item.revision,
           actor: "desktop-user",
-          reason: "Removed from project files",
-        });
+          reason: "Removed from project files"});
         const remaining = await window.translunar.invoke("document.list", {
           projectId,
           offset: 0,
-          limit: 500,
-        });
+          limit: 500});
         if (item.id === document.id) {
           const next = remaining.items[0];
           if (next) {
@@ -264,16 +251,14 @@ export function ProjectInsightsPage({
         }
         await refreshAfterMutation();
         setNotice(t("insights.movedToRecycle", { name: item.name }));
-      },
-    });
+      }});
   };
 
   const requestRecycleProject = () => {
     setPendingAction({
       title: t("insights.recycleProject"),
       description: t("insights.recycleProjectDescription", {
-        name: snapshot.project.name,
-      }),
+        name: snapshot.project.name}),
       confirmLabel: t("insights.recycleProject"),
       danger: true,
       run: async () => {
@@ -282,11 +267,9 @@ export function ProjectInsightsPage({
           entityId: projectId,
           expectedRevision: snapshot.project.revision,
           actor: "desktop-user",
-          reason: "Removed from project insights",
-        });
+          reason: "Removed from project insights"});
         onReturnHome();
-      },
-    });
+      }});
   };
 
   const confirmPending = async () => {
@@ -320,8 +303,7 @@ export function ProjectInsightsPage({
           sourcePath: replacementPath,
           options: {},
           expectedRevision: document.revision,
-          actor: "desktop-user",
-        },
+          actor: "desktop-user"},
       );
       setReimportPreview(preview);
       setNotice(t("insights.reimportPreviewReady"));
@@ -333,21 +315,18 @@ export function ProjectInsightsPage({
     setPendingAction({
       title: t("insights.applyReimport"),
       description: t("insights.applyReimportDescription", {
-        name: document.name,
-      }),
+        name: document.name}),
       confirmLabel: t("insights.applyPreview"),
       run: async () => {
         await window.translunar.invoke("document.reimport.apply", {
           previewId: reimportPreview.previewId,
           expectedDocumentRevision: reimportPreview.expectedDocumentRevision,
-          actor: "desktop-user",
-        });
+          actor: "desktop-user"});
         setReimportPreview(null);
         setReplacementPath("");
         await refreshAfterMutation();
         setNotice(t("insights.reimported", { name: document.name }));
-      },
-    });
+      }});
   };
 
   const exportArchive = async () => {
@@ -363,17 +342,14 @@ export function ProjectInsightsPage({
           {
             projectId,
             destinationPath,
-            actor: "desktop-user",
-          },
+            actor: "desktop-user"},
         );
         setNotice(
           result.diagnostics.length
             ? t("insights.archiveExportedDiag", {
-                detail: result.diagnostics.join(" "),
-              })
+                detail: result.diagnostics.join(" ")})
             : t("insights.archiveExported", {
-                name: fileName(result.archivePath),
-              }),
+                name: fileName(result.archivePath)}),
         );
         await loadData();
       });
@@ -396,11 +372,9 @@ export function ProjectInsightsPage({
         projectId,
         documentId: null,
         profileId: profile.id,
-        profileRevision: profile.revision,
-      });
+        profileRevision: profile.revision});
       const result = await window.translunar.invoke("analysis.run.get", {
-        runId: created.id,
-      });
+        runId: created.id});
       setAnalysis(result);
       setNotice(
         result.stale ? t("insights.analysisStale") : t("insights.analysisDone"),
@@ -416,80 +390,64 @@ export function ProjectInsightsPage({
           {
             id: "overview",
             label: t("insights.tabOverview"),
-            icon: <BarChart3 size={14} aria-hidden="true" />,
-          },
+            icon: <BarChart3 size={14} aria-hidden="true" />},
           {
             id: "files",
             label: t("insights.tabFiles"),
-            icon: <FileText size={14} aria-hidden="true" />,
-          },
+            icon: <FileText size={14} aria-hidden="true" />},
           {
             id: "analysis",
             label: t("insights.tabAnalysis"),
-            icon: <FileClock size={14} aria-hidden="true" />,
-          },
-        ],
-      },
+            icon: <FileClock size={14} aria-hidden="true" />},
+        ]},
       {
         label: t("insights.groupAssets"),
         items: [
           {
             id: "assets",
             label: t("insights.tabAssets"),
-            icon: <Database size={14} aria-hidden="true" />,
-          },
+            icon: <Database size={14} aria-hidden="true" />},
           {
             id: "alignment",
             label: t("insights.alignmentTab"),
-            icon: <GitCompareArrows size={14} aria-hidden="true" />,
-          },
+            icon: <GitCompareArrows size={14} aria-hidden="true" />},
           {
             id: "interop",
             label: t("insights.tabInterop"),
-            icon: <Languages size={14} aria-hidden="true" />,
-          },
-        ],
-      },
+            icon: <Languages size={14} aria-hidden="true" />},
+        ]},
       {
         label: t("insights.groupWorkflow"),
         items: [
           {
             id: "reimport",
             label: t("insights.tabReimport"),
-            icon: <RotateCcw size={14} aria-hidden="true" />,
-          },
+            icon: <RotateCcw size={14} aria-hidden="true" />},
           {
             id: "task-packages",
             label: t("insights.taskTab"),
-            icon: <Archive size={14} aria-hidden="true" />,
-          },
+            icon: <Archive size={14} aria-hidden="true" />},
           {
             id: "discussions",
             label: t("insights.discussionsTab"),
-            icon: <MessageSquareText size={14} aria-hidden="true" />,
-          },
-        ],
-      },
+            icon: <MessageSquareText size={14} aria-hidden="true" />},
+        ]},
       {
         label: t("insights.groupSystem"),
         items: [
           {
             id: "plugins",
             label: t("insights.tabPlugins"),
-            icon: <Puzzle size={14} aria-hidden="true" />,
-          },
+            icon: <Puzzle size={14} aria-hidden="true" />},
           {
             id: "archive",
             label: t("insights.tabArchive"),
-            icon: <Archive size={14} aria-hidden="true" />,
-          },
+            icon: <Archive size={14} aria-hidden="true" />},
           {
             id: "history",
             label: t("insights.history"),
-            icon: <History size={14} aria-hidden="true" />,
-          },
-        ],
-      },
+            icon: <History size={14} aria-hidden="true" />},
+        ]},
     ],
     [t],
   );
@@ -544,7 +502,7 @@ export function ProjectInsightsPage({
       >
         {loading ? (
           <div className="project-insights-loading" role="status">
-            <LoaderCircle className="spin" size={18} aria-hidden="true" />{" "}
+            {" "}
             {t("insights.loading")}
           </div>
         ) : tab === "overview" ? (
@@ -656,8 +614,7 @@ function ActionDialog({
   action,
   busy,
   onCancel,
-  onConfirm,
-}: {
+  onConfirm}: {
   action: PendingAction;
   busy: boolean;
   onCancel(): void;
@@ -702,9 +659,7 @@ function ActionDialog({
             onClick={onConfirm}
             disabled={busy}
           >
-            {busy ? (
-              <LoaderCircle className="spin" size={14} aria-hidden="true" />
-            ) : action.danger ? (
+            {busy ? null : action.danger ? (
               <Trash2 size={14} aria-hidden="true" />
             ) : (
               <Check size={14} aria-hidden="true" />

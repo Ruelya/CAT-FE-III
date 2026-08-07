@@ -4,8 +4,7 @@ import {
   useMemo,
   useState,
   type FormEvent,
-  type ReactNode,
-} from "react";
+  type ReactNode} from "react";
 import type {
   AiProviderProfile,
   AssetCatalogItem,
@@ -17,8 +16,7 @@ import type {
   CurationPolicy,
   CurationRunSnapshot,
   ProjectSnapshot,
-  TmLibrary,
-} from "@translunar/contracts";
+  TmLibrary} from "@translunar/contracts";
 import {
   AlertTriangle,
   ArchiveRestore,
@@ -29,15 +27,13 @@ import {
   Download,
   FileOutput,
   Filter,
-  LoaderCircle,
   Play,
   RefreshCw,
   RotateCcw,
   Search,
   ShieldCheck,
   Sparkles,
-  X,
-} from "lucide-react";
+  X} from "lucide-react";
 
 import { formatError } from "./workbench-utils";
 import {
@@ -56,8 +52,7 @@ import {
   pageRangeLabel,
   previousPageOffset,
   recommendationLabel,
-  severityLabel,
-} from "./asset-curation-utils";
+  severityLabel} from "./asset-curation-utils";
 import "./AssetCurationPanel.css";
 import { useLocale } from "./i18n/LocaleProvider";
 
@@ -101,13 +96,11 @@ const EMPTY_FILTERS: CatalogFilterDraft = {
   originProjectId: "",
   originDocumentId: "",
   createdAfter: "",
-  createdBefore: "",
-};
+  createdBefore: ""};
 
 export function AssetCurationPanel({
   snapshot,
-  onRefresh,
-}: AssetCurationPanelProps) {
+  onRefresh}: AssetCurationPanelProps) {
   const { t } = useLocale();
 
   const projectId = snapshot.project.id;
@@ -188,8 +181,7 @@ export function AssetCurationPanel({
       originProjectId: catalogFilters.originProjectId.trim() || null,
       originDocumentId: catalogFilters.originDocumentId.trim() || null,
       createdAfterMs: dateInputToMs(catalogFilters.createdAfter),
-      createdBeforeMs: dateInputToMs(catalogFilters.createdBefore, true),
-    }),
+      createdBeforeMs: dateInputToMs(catalogFilters.createdBefore, true)}),
     [catalogFilters, projectId],
   );
 
@@ -200,8 +192,7 @@ export function AssetCurationPanel({
         const result = await window.translunar.invoke("asset.catalog.list", {
           ...catalogParams,
           offset,
-          limit: CURATION_CATALOG_PAGE_LIMIT,
-        });
+          limit: CURATION_CATALOG_PAGE_LIMIT});
         setCatalogPage(result);
         return result;
       } catch (reasonValue) {
@@ -219,8 +210,7 @@ export function AssetCurationPanel({
     const page = await window.translunar.invoke("tm.library.list", {
       projectId,
       offset: 0,
-      limit: 500,
-    });
+      limit: 500});
     setLibraries(page.items);
     setLibraryId((current) =>
       page.items.some((library) => library.id === current)
@@ -235,8 +225,7 @@ export function AssetCurationPanel({
   const loadProviders = useCallback(async () => {
     const page = await window.translunar.invoke("ai.provider.list", {
       offset: 0,
-      limit: 100,
-    });
+      limit: 100});
     setProviders(page.items);
     setProviderProfileId((current) =>
       page.items.some((provider) => provider.id === current && provider.enabled)
@@ -252,8 +241,7 @@ export function AssetCurationPanel({
       const result = await window.translunar.invoke("curation.finding.list", {
         runId,
         offset,
-        limit: CURATION_FINDING_PAGE_LIMIT,
-      });
+        limit: CURATION_FINDING_PAGE_LIMIT});
       setFindings(result);
       setFindingOffset(result.offset);
       return result;
@@ -268,8 +256,7 @@ export function AssetCurationPanel({
       const result = await window.translunar.invoke("curation.run.get", {
         runId,
         offset,
-        limit: CURATION_RUN_PAGE_LIMIT,
-      });
+        limit: CURATION_RUN_PAGE_LIMIT});
       setRun(result);
       setRunOffset(result.offset);
       setPolicy(result.run.policy);
@@ -368,8 +355,7 @@ export function AssetCurationPanel({
         reason: reason.trim(),
         ...(providerProfileId ? { providerProfileId } : {}),
         offset: 0,
-        limit: CURATION_RUN_PAGE_LIMIT,
-      });
+        limit: CURATION_RUN_PAGE_LIMIT});
       setRun(result);
       setRunOffset(0);
       setFindings(null);
@@ -383,8 +369,7 @@ export function AssetCurationPanel({
             result.run.mode === "provider"
               ? t("curation.modeProvider")
               : t("curation.modeOffline"),
-          count: result.total,
-        }),
+          count: result.total}),
       );
     });
   };
@@ -409,8 +394,7 @@ export function AssetCurationPanel({
         expectedLibraryRevision: selectedLibrary.revision,
         selectedFindingIds: [...selectedFindingIds],
         actor: actor.trim(),
-        reason: reason.trim(),
-      });
+        reason: reason.trim()});
       setDialog(null);
       setSelectedFindingIds(new Set());
       await refreshRunAndCatalog(result.runId);
@@ -426,8 +410,7 @@ export function AssetCurationPanel({
         expectedRunRevision: run.run.revision,
         expectedLibraryRevision: selectedLibrary.revision,
         actor: actor.trim(),
-        reason: reason.trim(),
-      });
+        reason: reason.trim()});
       setDialog(null);
       setSelectedFindingIds(new Set());
       await refreshRunAndCatalog(result.runId);
@@ -456,14 +439,12 @@ export function AssetCurationPanel({
           parsedMinimum !== null && Number.isFinite(parsedMinimum)
             ? parsedMinimum
             : null,
-        outputPath: destination,
-      });
+        outputPath: destination});
       setExportPath(result.outputPath);
       setNotice(
         t("curation.exported", {
           count: result.rowCount,
-          format: result.format.toUpperCase(),
-        }),
+          format: result.format.toUpperCase()}),
       );
     });
   };
@@ -754,8 +735,7 @@ export function AssetCurationPanel({
             <span className="asset-curation-revision">
               {selectedLibrary
                 ? t("curation.libraryRevision", {
-                    revision: selectedLibrary.revision,
-                  })
+                    revision: selectedLibrary.revision})
                 : t("curation.noLibrarySelected")}
             </span>
           }
@@ -889,8 +869,7 @@ export function AssetCurationPanel({
               onChange={(event) =>
                 setPolicy((current) => ({
                   ...current,
-                  createdAfterMs: dateInputToMs(event.currentTarget.value),
-                }))
+                  createdAfterMs: dateInputToMs(event.currentTarget.value)}))
               }
               disabled={isBusy}
             />
@@ -905,8 +884,7 @@ export function AssetCurationPanel({
                   createdBeforeMs: dateInputToMs(
                     event.currentTarget.value,
                     true,
-                  ),
-                }))
+                  )}))
               }
               disabled={isBusy}
             />
@@ -919,9 +897,7 @@ export function AssetCurationPanel({
             onClick={() => void runCuration()}
             disabled={!canAnalyze || isBusy}
           >
-            {busy === "curation-run" ? (
-              <LoaderCircle className="spin" size={14} />
-            ) : (
+            {busy === "curation-run" ? null : (
               <Play size={14} />
             )}
             {t("curation.analyzeAction")}
@@ -968,8 +944,7 @@ export function AssetCurationPanel({
               </span>
               <span>
                 {t("curation.baseLibraryRevision", {
-                  revision: run.run.baseLibraryRevision,
-                })}
+                  revision: run.run.baseLibraryRevision})}
               </span>
               <span>
                 {t("curation.runRevisionLabel", { revision: run.run.revision })}
@@ -1147,9 +1122,7 @@ export function AssetCurationPanel({
                 onClick={() => void exportCuration()}
                 disabled={runStatus !== "applied" || isBusy}
               >
-                {busy === "curation-export" ? (
-                  <LoaderCircle className="spin" size={14} />
-                ) : (
+                {busy === "curation-export" ? null : (
                   <Download size={14} />
                 )}
                 {t("curation.cleanDataset")}
@@ -1193,8 +1166,7 @@ function PanelHeading({
   icon,
   eyebrow,
   title,
-  actions,
-}: {
+  actions}: {
   icon: ReactNode;
   eyebrow: string;
   title: string;
@@ -1229,8 +1201,7 @@ function NumberField({
   min,
   max,
   onChange,
-  disabled,
-}: {
+  disabled}: {
   label: string;
   value: number;
   min: number;
@@ -1258,7 +1229,7 @@ function NumberField({
 function LoadingState({ label }: { label: string }) {
   return (
     <p className="asset-curation-loading" role="status">
-      <LoaderCircle className="spin" size={16} /> {label}
+       {label}
     </p>
   );
 }
@@ -1321,13 +1292,11 @@ function CatalogTable({ items }: { items: AssetCatalogItem[] }) {
                 <small>
                   {item.originProjectId
                     ? t("curation.projectOrigin", {
-                        id: shortId(item.originProjectId),
-                      })
+                        id: shortId(item.originProjectId)})
                     : t("curation.globalOrigin")}
                   {item.originDocumentId
                     ? t("curation.documentOrigin", {
-                        id: shortId(item.originDocumentId),
-                      })
+                        id: shortId(item.originDocumentId)})
                     : ""}
                   {item.structuralPath ? ` / ${item.structuralPath}` : ""}
                 </small>
@@ -1346,8 +1315,7 @@ function FindingsTable({
   runStatus,
   catalogItemsById,
   runUnitsById,
-  onToggle,
-}: {
+  onToggle}: {
   findings: CurationFinding[];
   selectedIds: ReadonlySet<string>;
   runStatus: CurationRunSnapshot["run"]["status"] | null;
@@ -1387,8 +1355,7 @@ function FindingsTable({
                     disabled={!selectable}
                     aria-label={t("curation.selectFinding", {
                       kind: findingKindLabel(finding.kind, t),
-                      id: shortId(finding.id),
-                    })}
+                      id: shortId(finding.id)})}
                     onChange={(event) =>
                       onToggle(finding, event.currentTarget.checked)
                     }
@@ -1442,8 +1409,7 @@ function FindingsTable({
                     {t("curation.unitOrigin", { id: shortId(finding.unitId) })}
                     {catalogItem?.originDocumentId
                       ? t("curation.documentOrigin", {
-                          id: shortId(catalogItem.originDocumentId),
-                        })
+                          id: shortId(catalogItem.originDocumentId)})
                       : ""}
                     {catalogItem?.structuralPath
                       ? ` / ${catalogItem.structuralPath}`
@@ -1592,8 +1558,7 @@ function TermsAndDrift({ run }: { run: CurationRunSnapshot }) {
                 <span>{group.targetVariants.join(" / ")}</span>
                 <small>
                   {t("curation.relatedUnitCount", {
-                    count: group.unitIds.length,
-                  })}
+                    count: group.unitIds.length})}
                 </small>
               </li>
             ))}
@@ -1619,8 +1584,7 @@ function Pagination({
   limit,
   total,
   onPrevious,
-  onNext,
-}: {
+  onNext}: {
   ariaLabel: string;
   offset: number;
   limit: number;
@@ -1673,8 +1637,7 @@ function MutationDialog({
   onActor,
   onReason,
   onCancel,
-  onConfirm,
-}: {
+  onConfirm}: {
   kind: MutationDialog;
   selectedCount: number;
   actor: string;
@@ -1752,9 +1715,7 @@ function MutationDialog({
             onClick={onConfirm}
             disabled={busy || !actor.trim() || !reason.trim()}
           >
-            {busy ? (
-              <LoaderCircle className="spin" size={14} />
-            ) : applying ? (
+            {busy ? null : applying ? (
               <ArchiveRestore size={14} />
             ) : (
               <RotateCcw size={14} />

@@ -10,6 +10,27 @@ import type {
 } from "@translunar/contracts";
 
 import { BrandMark } from "./BrandMark";
+import {
+  bootstrapAppearance,
+  cycleDensity,
+  readDensityPreference,
+  readUiScale,
+  setDensityPreference,
+  setUiScale,
+  type DensityPreference,
+} from "./components/system/appearance-controller";
+import {
+  DEFAULT_SETTINGS_SECTION,
+  normalizeSettingsSection,
+  type SettingsSectionId,
+} from "./components/system/settings-presenters";
+import {
+  bootstrapTheme,
+  setThemePreference,
+  subscribeSystemTheme,
+  toggleLightDark,
+  type ThemePreference,
+} from "./components/system/theme-controller";
 import { CommandPalette, type Command } from "./components/shell/CommandPalette";
 import { Shell } from "./components/shell/Shell";
 import {
@@ -35,9 +56,6 @@ import type { TutorialState } from "../shared/product-shell";
 import { defaultTutorialState } from "../shared/product-shell";
 
 const SESSION_KEY = "translunar.active-workspace.v1";
-const THEME_KEY = "translunar.theme.v1";
-
-type Theme = "light" | "dark";
 
 interface WorkbenchStatus {
   counts: SegmentCounts;
@@ -63,12 +81,25 @@ export function App() {
   const [surface, setSurface] = useState<AppSurface>("workbench");
   const [focusSegmentId, setFocusSegmentId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsSectionId>(
+    DEFAULT_SETTINGS_SECTION,
+  );
   const [tutorial, setTutorial] = useState<TutorialState | null>(null);
   const [engineBanner, setEngineBanner] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<RecoverableDraft[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [spineHidden, setSpineHidden] = useState(false);
-  const [theme, setTheme] = useState<Theme>(readTheme);
+  const [themePreference, setThemePreferenceState] = useState<ThemePreference>(
+    () => {
+      const { preference } = bootstrapTheme();
+      return preference;
+    },
+  );
+  const [density, setDensityState] = useState<DensityPreference>(() => {
+    bootstrapAppearance();
+    return readDensityPreference();
+  });
+  const [uiScale, setUiScaleState] = useState<number>(() => readUiScale());
   const [workbenchStatus, setWorkbenchStatus] =
     useState<WorkbenchStatus | null>(null);
   const runTransition = useViewTransition();
@@ -90,11 +121,39 @@ export function App() {
     }
   }, []);
 
-  // 主题落到 <html data-theme>，token 层据此反转层理
+  const applyThemePreference = useCallback((preference: ThemePreference) => {
+    setThemePreference(preference);
+    setThemePreferenceState(preference);
+  }, []);
+
+  const applyDensity = useCallback((next: DensityPreference) => {
+    setDensityPreference(next);
+    setDensityState(next);
+  }, []);
+
+  const applyUiScale = useCallback((next: number) => {
+    const value = setUiScale(next);
+    setUiScaleState(value);
+  }, []);
+
+  const openSettings = useCallback(
+    async (section?: SettingsSectionId | string) => {
+      if (mode === "workspace") {
+        await flushBeforeLeave();
+      }
+      setSettingsSection(normalizeSettingsSection(section));
+      setSettingsOpen(true);
+    },
+    [flushBeforeLeave, mode],
+  );
+
+  // Follow OS when preference is system
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    localStorage.setItem(THEME_KEY, theme);
-  }, [theme]);
+    if (themePreference !== "system") return;
+    return subscribeSystemTheme(() => {
+      setThemePreference("system");
+    });
+  }, [themePreference]);
 
   useEffect(() => {
     let cancelled = false;
@@ -284,10 +343,31 @@ export function App() {
   );
 
   // 全局快捷键：Ctrl+1..6 Surface · Ctrl+K 命令面板 · Ctrl+\ 收起 Spine
+  // Ctrl+Alt+, 设置 · Ctrl+Alt+[ / ] 密度循环
   // 第一行必须是组合态守卫（07-interaction.md §3.2）
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (shouldIgnoreKey(event)) return;
+
+      // Ctrl+Alt+, open settings; Ctrl+Alt+[ / ] density
+      if (event.ctrlKey && event.altKey && !event.metaKey) {
+        if (event.key === "," || event.code === "Comma") {
+          event.preventDefault();
+          void openSettings();
+          return;
+        }
+        if (event.key === "[" || event.code === "BracketLeft") {
+          event.preventDefault();
+          applyDensity(cycleDensity(density, -1));
+          return;
+        }
+        if (event.key === "]" || event.code === "BracketRight") {
+          event.preventDefault();
+          applyDensity(cycleDensity(density, 1));
+          return;
+        }
+      }
+
       if (!event.ctrlKey || event.altKey) return;
 
       if (event.key === "k" || event.key === "K") {
@@ -312,7 +392,7 @@ export function App() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [goToSurface]);
+  }, [applyDensity, density, goToSurface, openSettings]);
 
   const commands = useMemo<Command[]>(() => {
     const list: Command[] = [];
@@ -345,13 +425,29 @@ export function App() {
         id: "action:settings",
         label: "设置",
         group: "动作",
-        run: () => setSettingsOpen(true),
+        meta: "Ctrl+Alt+,",
+        run: () => {
+          void openSettings();
+        },
+      },
+      {
+        id: "action:settings-appearance",
+        label: "设置 · 外观",
+        group: "动作",
+        run: () => {
+          void openSettings("appearance");
+        },
       },
       {
         id: "action:theme",
-        label: theme === "dark" ? "切换到浅色主题" : "切换到深色主题",
+        label:
+          themePreference === "dark"
+            ? "切换到浅色主题"
+            : themePreference === "light"
+              ? "切换到深色主题"
+              : "切换主题（跟随系统）",
         group: "动作",
-        run: () => setTheme(theme === "dark" ? "light" : "dark"),
+        run: () => applyThemePreference(toggleLightDark(themePreference)),
       },
       {
         id: "action:spine",
@@ -369,7 +465,14 @@ export function App() {
     );
 
     return list;
-  }, [goToSurface, spineHidden, theme, workspace]);
+  }, [
+    applyThemePreference,
+    goToSurface,
+    openSettings,
+    spineHidden,
+    themePreference,
+    workspace,
+  ]);
 
   if (!ready || restoring) {
     return (
@@ -396,27 +499,6 @@ export function App() {
           </button>
         </div>
       ) : null}
-      {settingsOpen ? (
-        <ProductSettingsPage
-          project={workspace?.snapshot.project ?? null}
-          onClose={() => setSettingsOpen(false)}
-          onOpenExample={() => {
-            void openExample().catch(() => undefined);
-            setSettingsOpen(false);
-          }}
-          onRestartTutorial={() => {
-            void persistTutorial({
-              step: "welcome",
-              skipped: false,
-              completed: false,
-            });
-            setSettingsOpen(false);
-          }}
-          onWorkspaceReloaded={() => {
-            void refreshWorkspace().catch(() => undefined);
-          }}
-        />
-      ) : null}
       {showTutorial && tutorial ? (
         <TutorialOverlay
           initial={tutorial}
@@ -435,14 +517,23 @@ export function App() {
           onCopy={async (draft) => {
             await navigator.clipboard.writeText(draft.targetText);
           }}
+          onCopyMany={async (text) => {
+            await navigator.clipboard.writeText(text);
+          }}
           onDiscard={async (draft) => {
             await window.translunar.clearDraftJournal([draft.segmentId]);
             setDrafts((current) =>
               current.filter((item) => item.segmentId !== draft.segmentId),
             );
           }}
+          onDiscardAll={async (all) => {
+            await window.translunar.clearDraftJournal(
+              all.map((d) => d.segmentId),
+            );
+            setDrafts([]);
+          }}
           onRestore={async (draft) => {
-            if (draft.stale) return;
+            if (draft.stale || draft.unverified) return;
             await window.translunar.invoke("segment.updateTarget", {
               segmentId: draft.segmentId,
               targetText: draft.targetText,
@@ -467,6 +558,38 @@ export function App() {
     : undefined;
 
   const surfaceContent = (() => {
+    if (settingsOpen) {
+      return (
+        <ProductSettingsPage
+          project={workspace?.snapshot.project ?? null}
+          section={settingsSection}
+          onSectionChange={setSettingsSection}
+          onClose={() => setSettingsOpen(false)}
+          onOpenExample={() => {
+            void openExample().catch(() => undefined);
+            setSettingsOpen(false);
+          }}
+          onRestartTutorial={() => {
+            void persistTutorial({
+              step: "welcome",
+              skipped: false,
+              completed: false,
+            });
+            setSettingsOpen(false);
+          }}
+          onWorkspaceReloaded={() => {
+            void refreshWorkspace().catch(() => undefined);
+          }}
+          themePreference={themePreference}
+          onThemePreferenceChange={applyThemePreference}
+          density={density}
+          onDensityChange={applyDensity}
+          uiScale={uiScale}
+          onUiScaleChange={applyUiScale}
+        />
+      );
+    }
+
     if (!inWorkspace) {
       return mode === "setup" ? (
         <SetupView onCreated={openWorkspace} onCancel={() => setMode("home")} />
@@ -491,7 +614,9 @@ export function App() {
           }
           onOpenProject={openWorkspace}
           onReturnHome={returnHome}
-          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenSettings={() => {
+            void openSettings();
+          }}
         />
       );
     }
@@ -514,6 +639,8 @@ export function App() {
         focusSegmentId={focusSegmentId}
         onStatusChange={setWorkbenchStatus}
         onRegisterLeaveGuard={registerLeaveGuard}
+        themePreference={themePreference}
+        onThemePreferenceChange={applyThemePreference}
       />
     );
   })();
@@ -532,8 +659,12 @@ export function App() {
         onSurfaceChange={goToSurface}
         onGoHome={returnHome}
         onCommandPalette={() => setPaletteOpen(true)}
-        onSettingsOpen={() => setSettingsOpen(true)}
-        onThemeToggle={() => setTheme(theme === "dark" ? "light" : "dark")}
+        onSettingsOpen={() => {
+          void openSettings();
+        }}
+        onThemeToggle={() =>
+          applyThemePreference(toggleLightDark(themePreference))
+        }
       >
         {surfaceContent}
       </Shell>
@@ -544,14 +675,6 @@ export function App() {
       />
     </>
   );
-}
-
-function readTheme(): Theme {
-  const stored = localStorage.getItem(THEME_KEY);
-  if (stored === "dark" || stored === "light") return stored;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
 }
 
 async function loadWorkspace(
@@ -654,14 +777,20 @@ async function inspectDrafts(
   }
   return relevant.map((record) => {
     const current = byId.get(record.segmentId);
-    const stale =
-      current === undefined || current.revision !== record.expectedRevision;
+    // Missing current (no workspace / list miss) → unverified, not stale.
+    if (current === undefined) {
+      return {
+        ...record,
+        stale: false,
+        unverified: true,
+      };
+    }
+    const stale = current.revision !== record.expectedRevision;
     return {
       ...record,
       stale,
-      ...(current?.revision === undefined
-        ? {}
-        : { currentRevision: current.revision }),
+      currentRevision: current.revision,
+      currentTargetText: current.targetText,
     };
   });
 }

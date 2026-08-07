@@ -87,6 +87,18 @@ components/workbench/
 `-- SelectionAiMenu.test.tsx
 ```
 
+ORTHO Phase 8 system-class helpers (expression-only; no new IPC):
+
+```text
+components/system/
+|-- theme-controller.ts         # light|dark|system → data-theme (+ tests)
+|-- appearance-controller.ts    # density + --ui-scale (+ tests)
+|-- settings-presenters.ts      # §E3 section/group ids
+|-- draft-recovery-presenters.ts
+|-- SurfaceStates.tsx           # loading / empty / error primitives
+`-- settings/                   # optional panel extract folder (may be empty)
+```
+
 Keep stable page/panel import paths for shell and Insights dual-host:
 
 - `QaReviewPage.tsx`, `ExportReviewPage.tsx` (orchestrators)
@@ -94,17 +106,22 @@ Keep stable page/panel import paths for shell and Insights dual-host:
   `TaskPackagePanel.tsx` (do not move; Insights + Assets both mount as needed)
 - `AiControlPage.tsx`, `PluginsPanel.tsx`, `PluginPanelHost.tsx`,
   `PluginAiActions.tsx` (do not move; Spine / Insights dual-host)
+- `ProductSettingsPage.tsx`, `TutorialOverlay.tsx`, `DraftRecoveryDialog.tsx`
+  (do not move; App owns settings open/section + draft inspect mapping)
 
 `WorkbenchPages.WorkspacePage` routes `translation-memory` → `AssetsSurface`
 and `ai-control` → `AiControlPage` (no second Band/SurfaceHeader when shell
 already provides navigation). Insights continues to host `PluginsPanel`.
+`App.tsx` mounts settings **inside** the Shell surface slot when
+`settingsOpen` (not a full-app modal).
 
 Grid keyboard/selection lives in `hooks/useRovingGrid.ts`. Shared interaction
 math lives in `workbench-utils.ts` with colocated tests (including
 `restorePaletteOwnerFocus`). Project lifecycle pure helpers stay in
 `project-home-utils.ts`. QA presentation pure helpers stay in
 `components/quality/qa-presenters.ts`. AI/plugin pure helpers stay in
-`components/ai/*-presenters.ts`. Surface CSS under `styles/30-surfaces/`:
+`components/ai/*-presenters.ts`. Theme/density/scale pure helpers stay in
+`components/system/*-controller.ts`. Surface CSS under `styles/30-surfaces/`:
 
 ```text
 styles/30-surfaces/
@@ -116,13 +133,17 @@ styles/30-surfaces/
 |-- quality.css                 # .qa-ortho / .export-ortho
 |-- assets.css                  # .assets-ortho / hubs
 |-- ai.css                      # .ai-ortho / selection-ai / consistency
-`-- plugins.css                 # .plugins-ortho / host attribution
+|-- plugins.css                 # .plugins-ortho / host attribution
+`-- settings.css                # .settings-surface §E3 plate
 ```
 
 Import new surface sheets from `styles/index.css`. Prefer shell-scoped rules
 under `.project-home-shell` / `.setup-wizard-shell` / `.qa-ortho` /
-`.export-ortho` / `.assets-ortho` / `.ai-ortho` / `.plugins-ortho` / insights
-main rather than growing unscoped rules in mega `styles.css`.
+`.export-ortho` / `.assets-ortho` / `.ai-ortho` / `.plugins-ortho` /
+`.settings-surface` / insights main rather than growing unscoped rules in mega
+`styles.css`. Global forced-colors live in `styles/01-reset.css`; legacy color
+aliases under `:root` / `:root[data-theme="dark"]` in `00-tokens.css` — never
+reopen a second palette on `.workbench-app.theme-dark`.
 
 ## Placement Rules
 

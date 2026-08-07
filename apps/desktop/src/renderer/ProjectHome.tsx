@@ -3,42 +3,35 @@ import type {
   Project,
   ProjectLifecycle,
   ProjectTemplate,
-  RecycleEntry,
-} from "@translunar/contracts";
+  RecycleEntry} from "@translunar/contracts";
 import {
   Check,
   FileText,
   FolderArchive,
   FolderOpen,
   History,
-  LoaderCircle,
   Plus,
   RefreshCw,
   Search,
-  Trash2,
-} from "lucide-react";
+  Trash2} from "lucide-react";
 
 import { CompositionRail } from "./components/project/CompositionRail";
 import { HomeTabList, type HomeTabId } from "./components/project/HomeTabList";
 import {
-  type ProjectOverview,
-} from "./components/project/ProjectCard";
+  type ProjectOverview} from "./components/project/ProjectCard";
 import {
   PROJECT_PAGE_SIZE,
-  ProjectsPane,
-} from "./components/project/ProjectsPane";
+  ProjectsPane} from "./components/project/ProjectsPane";
 import { RecyclePane } from "./components/project/RecyclePane";
 import { TemplatesPane } from "./components/project/TemplatesPane";
 import {
   GlobalSearchPanel,
-  type GlobalSearchProjectOption,
-} from "./GlobalSearchPanel";
+  type GlobalSearchProjectOption} from "./GlobalSearchPanel";
 import { useViewTransition } from "./hooks/useViewTransition";
 import { useLocale } from "./i18n/LocaleProvider";
 import {
   cloneTemplateDefinition,
-  readTemplateDefinition,
-} from "./project-home-utils";
+  readTemplateDefinition} from "./project-home-utils";
 import { formatError } from "./workbench-utils";
 
 interface ProjectHomeProps {
@@ -82,8 +75,7 @@ const EMPTY_TEMPLATE: TemplateDraft = {
   targetLocale: "zh-CN",
   domain: "",
   analysisProfileId: "builtin.analysis.standard",
-  reviewRequired: true,
-};
+  reviewRequired: true};
 
 export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
   const { t, formatDate } = useLocale();
@@ -117,12 +109,10 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
         window.translunar.invoke("project.list", {
           lifecycle,
           offset: projectOffset,
-          limit: PROJECT_PAGE_SIZE,
-        }),
+          limit: PROJECT_PAGE_SIZE}),
         window.translunar.invoke("project.template.list", {
           offset: 0,
-          limit: 100,
-        }),
+          limit: 100}),
         window.translunar.invoke("recycle.list", { offset: 0, limit: 100 }),
       ]);
       const overviews = await Promise.all(
@@ -141,8 +131,7 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
       setTemplates(
         templatePage.items.map((template) => ({
           ...template,
-          definition: cloneTemplateDefinition(template.definition),
-        })),
+          definition: cloneTemplateDefinition(template.definition)})),
       );
       setRecycle(recyclePage.items);
       setRecycleTotal(recyclePage.total);
@@ -193,8 +182,7 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
           {
             archivePath,
             dependencyRemaps: {},
-            actor: "desktop-user",
-          },
+            actor: "desktop-user"},
         );
         setLifecycle("active");
         setProjectOffset(0);
@@ -272,10 +260,8 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
           projectId: project.id,
           lifecycle: next,
           expectedRevision: project.revision,
-          actor: "desktop-user",
-        });
-      },
-    });
+          actor: "desktop-user"});
+      }});
   };
 
   const recycleProject = (project: Project) => {
@@ -290,10 +276,8 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
           entityId: project.id,
           expectedRevision: project.revision,
           actor: "desktop-user",
-          reason: "Removed from project home",
-        });
-      },
-    });
+          reason: "Removed from project home"});
+      }});
   };
 
   const saveTemplate = async (draft: TemplateDraft) => {
@@ -303,8 +287,7 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
       targetLocale: draft.targetLocale,
       domain: draft.domain,
       analysisProfileId: draft.analysisProfileId,
-      reviewRequired: draft.reviewRequired,
-    };
+      reviewRequired: draft.reviewRequired};
     await runMutation(async () => {
       if (draft.id && draft.revision !== undefined) {
         await window.translunar.invoke("project.template.update", {
@@ -312,15 +295,13 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
           expectedRevision: draft.revision,
           name: draft.name.trim(),
           description: draft.description.trim(),
-          definition,
-        });
+          definition});
         setNotice(t("home.templateRevisionCreated"));
       } else {
         await window.translunar.invoke("project.template.create", {
           name: draft.name.trim(),
           description: draft.description.trim(),
-          definition,
-        });
+          definition});
         setNotice(t("home.templateCreated"));
       }
       setTemplateDraft(null);
@@ -332,42 +313,35 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
       title: t("home.deleteTemplateTitle"),
       description: t("home.deleteTemplateDescription", {
         name: template.name,
-        revision: template.revision,
-      }),
+        revision: template.revision}),
       confirmLabel: t("home.deleteTemplateConfirm"),
       danger: true,
       run: async () => {
         await window.translunar.invoke("project.template.delete", {
           templateId: template.id,
-          expectedRevision: template.revision,
-        });
-      },
-    });
+          expectedRevision: template.revision});
+      }});
   };
 
   const restoreRecycleEntry = (entry: RecycleEntry) => {
     setPendingAction({
       title: t("home.restoreItemTitle"),
       description: t("home.restoreItemDescription", {
-        name: entry.displayName,
-      }),
+        name: entry.displayName}),
       confirmLabel: t("home.restoreItem"),
       run: async () => {
         await window.translunar.invoke("recycle.restore", {
           entryId: entry.id,
           actor: "desktop-user",
-          reason: "Restored from project home",
-        });
-      },
-    });
+          reason: "Restored from project home"});
+      }});
   };
 
   const purgeRecycleEntry = (entry: RecycleEntry) => {
     setPendingAction({
       title: t("home.purgeItemTitle"),
       description: t("home.purgeItemDescription", {
-        name: entry.displayName,
-      }),
+        name: entry.displayName}),
       confirmLabel: t("home.purgeItemConfirm"),
       danger: true,
       confirmName: entry.displayName,
@@ -375,10 +349,8 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
         await window.translunar.invoke("recycle.purge", {
           entryId: entry.id,
           actor: "desktop-user",
-          reason: "Explicit permanent purge from project home",
-        });
-      },
-    });
+          reason: "Explicit permanent purge from project home"});
+      }});
   };
 
   const confirmPending = async () => {
@@ -396,25 +368,21 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
         id: "projects" as const,
         label: t("home.projects"),
         count: projectTotal,
-        icon: <FolderOpen size={15} aria-hidden="true" />,
-      },
+        icon: <FolderOpen size={15} aria-hidden="true" />},
       {
         id: "search" as const,
         label: t("home.search"),
-        icon: <Search size={15} aria-hidden="true" />,
-      },
+        icon: <Search size={15} aria-hidden="true" />},
       {
         id: "templates" as const,
         label: t("home.templates"),
         count: templates.length,
-        icon: <FileText size={15} aria-hidden="true" />,
-      },
+        icon: <FileText size={15} aria-hidden="true" />},
       {
         id: "recycle" as const,
         label: t("home.recycle"),
         count: recycleTotal,
-        icon: <Trash2 size={15} aria-hidden="true" />,
-      },
+        icon: <Trash2 size={15} aria-hidden="true" />},
     ],
     [projectTotal, recycleTotal, t, templates.length],
   );
@@ -446,9 +414,7 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
                 {t("home.lastRefresh", {
                   value: formatDate(lastRefreshMs, {
                     timeStyle: "short",
-                    dateStyle: "short",
-                  }),
-                })}
+                    dateStyle: "short"})})}
               </span>
             ) : null}
           </>
@@ -520,7 +486,7 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
           ) : null}
           {loading ? (
             <div className="project-home-loading" role="status">
-              <LoaderCircle className="spin" size={18} aria-hidden="true" />{" "}
+              {" "}
               {t("home.loadingWorkspaceData")}
             </div>
           ) : tab === "projects" ? (
@@ -581,8 +547,7 @@ export function ProjectHome({ onCreate, onOpen }: ProjectHomeProps) {
 
 function GlobalSearchView({
   projects,
-  onOpen,
-}: {
+  onOpen}: {
   projects: ProjectOverview[];
   onOpen(
     projectId: string,
@@ -603,8 +568,7 @@ function GlobalSearchView({
         variant="home"
         projects={projects.map<GlobalSearchProjectOption>(({ snapshot }) => ({
           id: snapshot.project.id,
-          name: snapshot.project.name,
-        }))}
+          name: snapshot.project.name}))}
         onOpen={(hit) =>
           onOpen(
             hit.projectId,
@@ -622,8 +586,7 @@ function TemplateDialog({
   draft: initial,
   busy,
   onCancel,
-  onSave,
-}: {
+  onSave}: {
   draft: TemplateDraft;
   busy: boolean;
   onCancel(): void;
@@ -713,8 +676,7 @@ function TemplateDialog({
               onChange={(event) =>
                 setDraft({
                   ...draft,
-                  analysisProfileId: event.currentTarget.value,
-                })
+                  analysisProfileId: event.currentTarget.value})
               }
             />
           </label>
@@ -726,8 +688,7 @@ function TemplateDialog({
             onChange={(event) =>
               setDraft({
                 ...draft,
-                reviewRequired: event.currentTarget.checked,
-              })
+                reviewRequired: event.currentTarget.checked})
             }
           />
           <span>
@@ -758,9 +719,7 @@ function TemplateDialog({
               draft.sourceLocale === draft.targetLocale
             }
           >
-            {busy ? (
-              <LoaderCircle className="spin" size={14} aria-hidden="true" />
-            ) : (
+            {busy ? null : (
               <Check size={14} aria-hidden="true" />
             )}{" "}
             {t("home.saveTemplate")}
@@ -775,8 +734,7 @@ function ConfirmDialog({
   action,
   busy,
   onCancel,
-  onConfirm,
-}: {
+  onConfirm}: {
   action: PendingAction;
   busy: boolean;
   onCancel(): void;
@@ -832,9 +790,7 @@ function ConfirmDialog({
             onClick={() => void onConfirm()}
             disabled={busy || !nameOk}
           >
-            {busy ? (
-              <LoaderCircle className="spin" size={14} aria-hidden="true" />
-            ) : action.danger ? (
+            {busy ? null : action.danger ? (
               <Trash2 size={14} aria-hidden="true" />
             ) : (
               <Check size={14} aria-hidden="true" />
@@ -854,6 +810,5 @@ function templateToDraft(template: ProjectTemplate): TemplateDraft {
     definition: cloneTemplateDefinition(template.definition),
     name: template.name,
     description: template.description,
-    ...readTemplateDefinition(template.definition),
-  };
+    ...readTemplateDefinition(template.definition)};
 }

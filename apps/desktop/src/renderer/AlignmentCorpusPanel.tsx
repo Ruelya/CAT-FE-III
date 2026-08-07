@@ -5,8 +5,7 @@ import {
   useRef,
   useState,
   type DragEvent,
-  type FormEvent,
-} from "react";
+  type FormEvent} from "react";
 import type {
   AiProviderProfile,
   AiRun,
@@ -21,8 +20,7 @@ import type {
   ReferenceCorpusKind,
   ReferenceCorpusPage,
   ReferenceCorpusStatus,
-  TmLibrary,
-} from "@translunar/contracts";
+  TmLibrary} from "@translunar/contracts";
 import {
   AlertTriangle,
   BookOpen,
@@ -37,7 +35,6 @@ import {
   FolderOpen,
   GitCompareArrows,
   Link2,
-  LoaderCircle,
   RefreshCw,
   Search,
   Sparkles,
@@ -45,8 +42,7 @@ import {
   Trash2,
   Unlink2,
   UploadCloud,
-  X,
-} from "lucide-react";
+  X} from "lucide-react";
 
 import {
   areLinksContiguous,
@@ -55,8 +51,7 @@ import {
   mergedAlignmentReplacement,
   orderedSelectedLinks,
   splitAlignmentReplacement,
-  unlinkedAlignmentReplacement,
-} from "./alignment-corpus-utils";
+  unlinkedAlignmentReplacement} from "./alignment-corpus-utils";
 import { fileName, formatError } from "./workbench-utils";
 import "./AlignmentCorpusPanel.css";
 import { useLocale } from "./i18n/LocaleProvider";
@@ -75,8 +70,7 @@ interface AlignmentCorpusPanelProps {
 export function AlignmentCorpusPanel({
   snapshot,
   documents,
-  onRefresh,
-}: AlignmentCorpusPanelProps) {
+  onRefresh}: AlignmentCorpusPanelProps) {
   const { t } = useLocale();
 
   const [mode, setMode] = useState<AlignmentCorpusMode>("alignment");
@@ -122,8 +116,7 @@ export function AlignmentCorpusPanel({
 function AlignmentWorkflow({
   snapshot,
   documents,
-  onRefresh,
-}: AlignmentCorpusPanelProps) {
+  onRefresh}: AlignmentCorpusPanelProps) {
   const { t } = useLocale();
   const projectId = snapshot.project.id;
   const sourceLocale = snapshot.project.sourceLocale;
@@ -174,16 +167,14 @@ function AlignmentWorkflow({
       let result = await window.translunar.invoke("alignment.session.get", {
         sessionId,
         offset,
-        limit: 24,
-      });
+        limit: 24});
       if (result.total > 0 && result.links.length === 0 && offset > 0) {
         const lastOffset =
           Math.floor((result.total - 1) / result.limit) * result.limit;
         result = await window.translunar.invoke("alignment.session.get", {
           sessionId,
           offset: lastOffset,
-          limit: result.limit,
-        });
+          limit: result.limit});
       }
       return result;
     },
@@ -210,12 +201,10 @@ function AlignmentWorkflow({
       window.translunar.invoke("tm.library.list", {
         projectId,
         offset: 0,
-        limit: 500,
-      }),
+        limit: 500}),
       window.translunar.invoke("ai.provider.list", {
         offset: 0,
-        limit: 100,
-      }),
+        limit: 100}),
     ]);
     const matchingLibraries = libraryPage.items.filter(
       (library) =>
@@ -232,8 +221,7 @@ function AlignmentWorkflow({
   const applySupport = useCallback(
     ({
       matchingLibraries,
-      availableProfiles,
-    }: Awaited<ReturnType<typeof fetchSupport>>) => {
+      availableProfiles}: Awaited<ReturnType<typeof fetchSupport>>) => {
       setLibraries(matchingLibraries);
       setLibraryId((current) =>
         matchingLibraries.some((library) => library.id === current)
@@ -259,8 +247,7 @@ function AlignmentWorkflow({
       const page = await window.translunar.invoke("alignment.session.list", {
         projectId,
         offset,
-        limit: 20,
-      });
+        limit: 20});
       setSessions(page);
       setSessionOffset(page.offset);
       const selected =
@@ -291,8 +278,7 @@ function AlignmentWorkflow({
           window.translunar.invoke("alignment.session.list", {
             projectId,
             offset: 0,
-            limit: 20,
-          }),
+            limit: 20}),
           fetchSupport(),
         ]);
         const first = page.items[0];
@@ -345,8 +331,7 @@ function AlignmentWorkflow({
         const page = await window.translunar.invoke("alignment.session.list", {
           projectId,
           offset: sessionOffset,
-          limit: sessions?.limit ?? 20,
-        });
+          limit: sessions?.limit ?? 20});
         setSessions(page);
         setSessionOffset(page.offset);
       })(),
@@ -386,22 +371,19 @@ function AlignmentWorkflow({
           expectedSourceDocumentRevision: sourceDocument.revision,
           expectedTargetDocumentRevision: targetDocument.revision,
           actor: actor.trim(),
-          reason: reason.trim(),
-        },
+          reason: reason.trim()},
       );
       setSessionOffset(0);
       const page = await window.translunar.invoke("alignment.session.list", {
         projectId,
         offset: 0,
-        limit: 20,
-      });
+        limit: 20});
       setSessions(page);
       await loadSession(created.session.id, 0);
       setNotice(
         t("alignment.createdCandidates", {
           links: created.linkCount,
-          units: created.workUnits,
-        }),
+          units: created.workUnits}),
       );
     });
   };
@@ -476,13 +458,10 @@ function AlignmentWorkflow({
             kind: "replaceLinks",
             links: selectedLinks.map((link) => ({
               linkId: link.id,
-              expectedRevision: link.revision,
-            })),
-            replacement,
-          },
+              expectedRevision: link.revision})),
+            replacement},
           actor: actor.trim(),
-          reason: reason.trim(),
-        },
+          reason: reason.trim()},
       );
       await refreshCurrent(result.session.id, detail.offset);
       const commandLabel =
@@ -496,8 +475,7 @@ function AlignmentWorkflow({
       setNotice(
         t("alignment.correctionSaved", {
           command: commandLabel,
-          revision: result.session.revision,
-        }),
+          revision: result.session.revision}),
       );
     });
   };
@@ -517,18 +495,15 @@ function AlignmentWorkflow({
             kind: "setStatus",
             linkId: link.id,
             expectedLinkRevision: link.revision,
-            status,
-          },
+            status},
           actor: actor.trim(),
-          reason: reason.trim(),
-        },
+          reason: reason.trim()},
       );
       await refreshCurrent(result.session.id, detail.offset);
       setNotice(
         t("alignment.candidateMarked", {
           ordinal: link.ordinal + 1,
-          status,
-        }),
+          status}),
       );
     });
   };
@@ -549,13 +524,11 @@ function AlignmentWorkflow({
           expectedSessionRevision: detail.session.revision,
           links: selectedProposed.map((link) => ({
             linkId: link.id,
-            expectedRevision: link.revision,
-          })),
+            expectedRevision: link.revision})),
           profileId,
           maxAttempts: 3,
           actor: actor.trim(),
-          reason: reason.trim(),
-        },
+          reason: reason.trim()},
       );
       setRefinementRun(started);
       refinementPollRef.current?.abort();
@@ -605,8 +578,7 @@ function AlignmentWorkflow({
       setRefinementRun(
         await window.translunar.invoke("ai.run.cancel", {
           runId: current.id,
-          expectedRevision: current.revision,
-        }),
+          expectedRevision: current.revision}),
       );
     } catch (reasonValue) {
       setError(formatError(reasonValue));
@@ -631,16 +603,13 @@ function AlignmentWorkflow({
         expectedLibraryRevision: selectedLibrary.revision,
         links: selectedConfirmed.map((link) => ({
           linkId: link.id,
-          expectedRevision: link.revision,
-        })),
+          expectedRevision: link.revision})),
         actor: actor.trim(),
-        reason: reason.trim(),
-      });
+        reason: reason.trim()});
       setNotice(
         t("alignment.appliedTm", {
           inserted: result.insertedCount,
-          duplicates: result.duplicateCount,
-        }),
+          duplicates: result.duplicateCount}),
       );
       await Promise.all([
         refreshCurrent(result.sessionId, detail.offset),
@@ -666,18 +635,15 @@ function AlignmentWorkflow({
         expectedSessionRevision: detail.session.revision,
         links: selectedConfirmed.map((link) => ({
           linkId: link.id,
-          expectedRevision: link.revision,
-        })),
+          expectedRevision: link.revision})),
         name: alignmentCorpusName.trim(),
         actor: actor.trim(),
-        reason: reason.trim(),
-      });
+        reason: reason.trim()});
       setAlignmentCorpusName("");
       setNotice(
         t("alignment.corpusCreated", {
           name: result.corpus.name,
-          count: result.affectedEntryCount,
-        }),
+          count: result.affectedEntryCount}),
       );
       await onRefresh();
     });
@@ -900,8 +866,7 @@ function AlignmentWorkflow({
               <div>
                 <strong>
                   {t("alignment.sessionStatus", {
-                    status: detail.session.status,
-                  })}
+                    status: detail.session.status})}
                 </strong>
                 <span>
                   {detail.session.terminalResult
@@ -909,8 +874,7 @@ function AlignmentWorkflow({
                         inserted: detail.session.terminalResult.insertedCount,
                         duplicates:
                           detail.session.terminalResult.duplicateCount,
-                        revision: detail.session.terminalResult.libraryRevision,
-                      })
+                        revision: detail.session.terminalResult.libraryRevision})
                     : t("alignment.terminalLocked")}
                 </span>
               </div>
@@ -1064,8 +1028,7 @@ function AlignmentWorkflow({
               >
                 <Database size={14} />{" "}
                 {t("alignment.applyTmCount", {
-                  count: selectedConfirmed.length,
-                })}
+                  count: selectedConfirmed.length})}
               </button>
             </div>
 
@@ -1152,8 +1115,7 @@ function AlignmentWorkflow({
 }
 
 function AlignmentSessionHeading({
-  detail,
-}: {
+  detail}: {
   detail: AlignmentSessionGetResult;
 }) {
   const { t } = useLocale();
@@ -1163,8 +1125,7 @@ function AlignmentSessionHeading({
         <span className="surface-kicker">
           {t("alignment.sessionMeta", {
             id: detail.session.id.slice(0, 8),
-            revision: detail.session.revision,
-          })}
+            revision: detail.session.revision})}
         </span>
         <h2>{t("alignment.candidateCount", { count: detail.total })}</h2>
       </div>
@@ -1187,8 +1148,7 @@ function AlignmentLinkRow({
   actionsDisabled,
   sessionOpen,
   onToggle,
-  onStatus,
-}: {
+  onStatus}: {
   link: AlignmentLink;
   selected: boolean;
   busy: boolean;
@@ -1211,8 +1171,7 @@ function AlignmentLinkRow({
           onChange={(event) => onToggle(link.id, event.currentTarget.checked)}
           disabled={busy}
           aria-label={t("alignment.selectCandidate", {
-            ordinal: link.ordinal + 1,
-          })}
+            ordinal: link.ordinal + 1})}
         />
       </label>
       <div className="alignment-link-meta">
@@ -1222,16 +1181,14 @@ function AlignmentLinkRow({
         <small>
           {formatNumber(link.confidenceBasisPoints / 100, {
             maximumFractionDigits: 1,
-            minimumFractionDigits: 1,
-          })}
+            minimumFractionDigits: 1})}
           %
         </small>
       </div>
       <div className="alignment-link-copy">
         <span>
           {t("alignment.sourceSegments", {
-            count: link.sourceSegmentIds.length,
-          })}
+            count: link.sourceSegmentIds.length})}
         </span>
         <p className="cjk">
           {link.sourceText || t("alignment.sourceUnaligned")}
@@ -1243,8 +1200,7 @@ function AlignmentLinkRow({
       <div className="alignment-link-copy">
         <span>
           {t("alignment.targetSegments", {
-            count: link.targetSegmentIds.length,
-          })}
+            count: link.targetSegmentIds.length})}
         </span>
         <p className="cjk">
           {link.targetText || t("alignment.targetUnaligned")}
@@ -1304,8 +1260,7 @@ function AlignmentLinkRow({
 
 function CorpusWorkflow({
   snapshot,
-  onRefresh,
-}: {
+  onRefresh}: {
   snapshot: ProjectSnapshot;
   onRefresh(): Promise<void>;
 }) {
@@ -1350,16 +1305,14 @@ function CorpusWorkflow({
       projectId,
       status: filter === "all" ? null : filter,
       offset,
-      limit: 20,
-    });
+      limit: 20});
     if (page.total > 0 && page.items.length === 0 && offset > 0) {
       const lastOffset = Math.floor((page.total - 1) / page.limit) * page.limit;
       page = await window.translunar.invoke("corpus.list", {
         projectId,
         status: filter === "all" ? null : filter,
         offset: lastOffset,
-        limit: page.limit,
-      });
+        limit: page.limit});
     }
     setCorpora(page);
     return page;
@@ -1370,8 +1323,7 @@ function CorpusWorkflow({
       projectId,
       status: "active",
       offset: 0,
-      limit: 500,
-    });
+      limit: 500});
     setSearchCorpora(page.items);
     setSearchCorpusId((current) =>
       current && !page.items.some((item) => item.id === current) ? "" : current,
@@ -1400,14 +1352,12 @@ function CorpusWorkflow({
             projectId,
             status: "active",
             offset: 0,
-            limit: 20,
-          }),
+            limit: 20}),
           window.translunar.invoke("corpus.list", {
             projectId,
             status: "active",
             offset: 0,
-            limit: 500,
-          }),
+            limit: 500}),
         ]);
         if (active) {
           setCorpora(page);
@@ -1475,8 +1425,7 @@ function CorpusWorkflow({
         targetLocale: targetLocale.trim(),
         options: {},
         actor: actor.trim(),
-        reason: reason.trim(),
-      });
+        reason: reason.trim()});
       setInputPath("");
       setName("");
       setStatusFilter("active");
@@ -1484,8 +1433,7 @@ function CorpusWorkflow({
         t("alignment.corpusImported", {
           name: result.corpus.name,
           entries: result.affectedEntryCount,
-          diagnostics: result.corpus.diagnosticCount,
-        }),
+          diagnostics: result.corpus.diagnosticCount}),
       );
       await Promise.all([
         fetchCorpora(0, "active"),
@@ -1511,8 +1459,7 @@ function CorpusWorkflow({
         side: searchSide,
         ...(corpusId ? { corpusIds: [corpusId] } : {}),
         offset,
-        limit: 30,
-      }),
+        limit: 30}),
     );
   };
 
@@ -1523,13 +1470,11 @@ function CorpusWorkflow({
         corpusId: corpus.id,
         expectedRevision: corpus.revision,
         actor: actor.trim(),
-        reason: reason.trim(),
-      });
+        reason: reason.trim()});
       setNotice(
         t("alignment.corpusReindexed", {
           name: result.corpus.name,
-          revision: result.corpus.revision,
-        }),
+          revision: result.corpus.revision}),
       );
       await Promise.all([
         fetchCorpora(corpora?.offset ?? 0),
@@ -1547,8 +1492,7 @@ function CorpusWorkflow({
         corpusId: corpus.id,
         expectedRevision: corpus.revision,
         actor: actor.trim(),
-        reason: reason.trim(),
-      });
+        reason: reason.trim()});
       const nextSearchCorpusId =
         searchCorpusId === corpus.id ? "" : searchCorpusId;
       setSearchCorpusId(nextSearchCorpusId);
@@ -1930,8 +1874,7 @@ function CorpusWorkflow({
                   <small>
                     {t("corpus.entry", {
                       ordinal: hit.entry.ordinal + 1,
-                      id: hit.entry.id.slice(0, 8),
-                    })}
+                      id: hit.entry.id.slice(0, 8)})}
                   </small>
                 </header>
                 <div className="corpus-hit-copy">
@@ -2070,8 +2013,7 @@ function PanelFeedback({
   error,
   notice,
   loadingLabel,
-  onReload,
-}: {
+  onReload}: {
   loading: boolean;
   busy: string | null;
   error: string | null;
@@ -2103,7 +2045,7 @@ function PanelFeedback({
       ) : null}
       {loading || busy ? (
         <p className="alignment-corpus-loading" role="status">
-          <LoaderCircle className="spin" size={16} />
+          
           {loading ? loadingLabel : t("common.workingOn", { task: busy ?? "" })}
         </p>
       ) : null}
@@ -2118,8 +2060,7 @@ function PanelPagination({
   total,
   disabled,
   onPrevious,
-  onNext,
-}: {
+  onNext}: {
   label: string;
   offset: number;
   limit: number;
@@ -2165,13 +2106,11 @@ function corpusSourceLabel(corpus: ReferenceCorpus, t: Translate): string {
   if (corpus.sourceDocumentId || corpus.targetDocumentId) {
     return t("corpus.documents", {
       source: corpus.sourceDocumentId?.slice(0, 8) ?? "-",
-      target: corpus.targetDocumentId?.slice(0, 8) ?? "-",
-    });
+      target: corpus.targetDocumentId?.slice(0, 8) ?? "-"});
   }
   if (corpus.alignmentSessionId) {
     return t("corpus.alignment", {
-      id: corpus.alignmentSessionId.slice(0, 8),
-    });
+      id: corpus.alignmentSessionId.slice(0, 8)});
   }
   return corpus.sourceKind;
 }
@@ -2205,8 +2144,7 @@ async function waitForAiRun(
       );
     }
     current = await window.translunar.invoke("ai.run.get", {
-      runId: current.id,
-    });
+      runId: current.id});
     if (signal.aborted) {
       throw new DOMException(
         t("alignment.refinementPollingCanceled"),
