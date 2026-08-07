@@ -37,13 +37,9 @@ import type {
 import {
   AlertTriangle,
   BookOpen,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  Command,
   Combine,
+  Command,
   Database,
-  Download,
   FileText,
   GitCompareArrows,
   Languages,
@@ -56,12 +52,9 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Pencil,
-  RotateCcw,
-  RotateCw,
   Save,
   Search,
   Send,
-  ShieldCheck,
   Split,
   Sparkles,
   Tags,
@@ -70,7 +63,18 @@ import {
 
 import { AssistantPanel } from "./AssistantPanel";
 import { formatCorpusProvenance } from "./alignment-corpus-utils";
-import { BrandMark } from "./BrandMark";
+import { ActiveAxis } from "./components/workbench/ActiveAxis";
+import {
+  DocumentMatrix,
+  type MatrixSegmentState,
+  type SegmentState as MatrixSegmentStateValue,
+} from "./components/workbench/DocumentMatrix";
+import {
+  FilterRail,
+  type MatchBucket,
+  type RailStatusFilter,
+} from "./components/workbench/FilterRail";
+import { Masthead } from "./components/workbench/Masthead";
 import { clearSegmentDrafts, writeSegmentDraft } from "./draft-persist";
 import { GlobalSearchPanel } from "./GlobalSearchPanel";
 import { PluginAiActions } from "./PluginAiActions";
@@ -101,6 +105,7 @@ import {
   PREVIEW_MAX_HEIGHT,
   PREVIEW_MIN_HEIGHT,
   replaceSegment,
+  restorePaletteOwnerFocus,
   togglePanelCollapsed,
   togglePanelMaximized,
   type PanelMode,
@@ -153,6 +158,11 @@ interface InitialWorkspace {
 interface WorkbenchProps {
   initialWorkspace: InitialWorkspace;
   onOpenGlobalSearchHit(hit: GlobalSearchHit): Promise<void>;
+  /**
+   * Open another workspace document after the caller has persisted drafts.
+   * Wired from App through the existing loadWorkspace path.
+   */
+  onOpenDocument?(documentId: string): Promise<void>;
   focusSegmentId: string | null;
   /* onReturnHome / onNavigate / onOpenSettings 已移除：
      返回项目列表、Surface 切换、设置全部由 Shell 的 Index Spine 承载。 */
@@ -203,6 +213,7 @@ interface WorkbenchPreferences {
 export function Workbench({
   initialWorkspace,
   onOpenGlobalSearchHit,
+  onOpenDocument,
   focusSegmentId,
   onStatusChange,
   onRegisterLeaveGuard,
@@ -234,8 +245,13 @@ export function Workbench({
   const [termSettled, setTermSettled] = useState(false);
   const [termError, setTermError] = useState<string | null>(null);
   const [filter, setFilter] = useState<SegmentFilter>("all");
+  /** Phase 2 match selector: presentation-only; only `all` is live. */
+  const [matchBucket, setMatchBucket] = useState<MatchBucket>("all");
   const [search, setSearch] = useState("");
   const [activeId, setActiveId] = useState(segments[0]?.id ?? "");
+  const [viewportRange, setViewportRange] = useState<readonly [number, number]>(
+    [0, 12],
+  );
   const [suggestionTab, setSuggestionTab] = useState<SuggestionTab>("matches");
   const [suggestionsMode, setSuggestionsMode] = useState<PanelMode>(
     initialPreferences.suggestionsMode,
@@ -257,9 +273,13 @@ export function Workbench({
   const [segmentActionsOpen, setSegmentActionsOpen] = useState(false);
   const segmentActionsTriggerRef = useRef<HTMLButtonElement>(null);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
-  const globalSearchCommandRef = useRef<HTMLButtonElement>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
+  /** Element that had focus when the palette opened (restore target). */
+  const commandPaletteOwnerRef = useRef<HTMLElement | null>(null);
+  /** Matrix seek waiting for filter/search clear → list reload. */
+  const pendingMatrixOrdinalRef = useRef<number | null>(null);
+  const documentTotalRef = useRef(snapshot.counts.total);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
   const [shortcutDrafts, setShortcutDrafts] = useState<Record<string, string>>(
     {},
@@ -327,6 +347,7 @@ export function Workbench({
   const pendingSavesRef = useRef(0);
   const editorGridRef = useRef<HTMLDivElement>(null);
   const editorRegionRef = useRef<HTMLElement>(null);
+  const editorOffsetRef = useRef(0);
   const [toolbarCompact, setToolbarCompact] = useState(false);
   const editorWindowRequestRef = useRef(0);
   const tmRequestRef = useRef(0);
@@ -383,6 +404,118 @@ export function Workbench({
     [openIssueBySegment, segments],
   );
 
+  /**
+   * Document Matrix projection in **authoritative ordinal space**.
+   * Length = document segment total (`counts.total`); loaded rows project to
+   * `segment.ordinal`. Unknown/unloaded slots stay null — never invent status.
+   */
+  const matrixSegmentStates = useMemo((): MatrixSegmentState[] => {
+    const total = Math.max(0, counts.total);
+    if (total === 0) return [];
+    const states: MatrixSegmentState[] = Array.from(
+      { length: total },
+      () => null,
+    );
+    editorRows.forEach((row) => {
+      const slot = row.segment.ordinal;
+      if (slot < 0 || slot >= total) return;
+      const hasIssue = openIssueBySegment.has(row.segment.id);
+      states[slot] = hasIssue
+        ? "error"
+        : (row.segment.state as MatrixSegmentStateValue);
+    });
+    return states;
+  }, [counts.total, editorRows, openIssueBySegment]);
+
+  const matrixActiveIndex = useMemo(() => {
+    if (!activeSegment) return -1;
+    return activeSegment.ordinal;
+  }, [activeSegment]);
+
+  const matrixLabels = useMemo(
+    () => ({
+      landmark: t("workbench.matrixLandmark"),
+      title: t("workbench.matrixTitle"),
+      legendUntranslated: t("workbench.matrixLegendUntranslated"),
+      legendDraft: t("workbench.matrixLegendDraft"),
+      legendConfirmed: t("workbench.matrixLegendConfirmed"),
+      legendError: t("workbench.matrixLegendError"),
+      legendNeutral: t("workbench.matrixLegendNeutral"),
+      stateUntranslated: t("workbench.matrixStateUntranslated"),
+      stateDraft: t("workbench.matrixStateDraft"),
+      stateConfirmed: t("workbench.matrixStateConfirmed"),
+      stateError: t("workbench.matrixStateError"),
+      stateNeutral: t("workbench.matrixStateNeutral"),
+      formatRange: (from: number, to: number) =>
+        from === to
+          ? t("workbench.matrixRangeSingle", { n: from })
+          : t("workbench.matrixRangeMulti", { from, to }),
+    }),
+    [t],
+  );
+
+  /** Active Axis: row wins when a segment is active; otherwise the chip. */
+  const axisResidence: "row" | "chip" | "hidden" = activeId
+    ? "row"
+    : filter
+      ? "chip"
+      : "hidden";
+
+  /**
+   * Map the grid scroll owner’s list-space viewport into document ordinals
+   * using loaded rows. Off-window regions keep a best-effort ordinal span.
+   */
+  const syncMatrixViewport = (grid: HTMLDivElement) => {
+    const listStart = Math.floor(grid.scrollTop / EDITOR_ROW_HEIGHT);
+    const visible = Math.max(
+      1,
+      Math.ceil(grid.clientHeight / EDITOR_ROW_HEIGHT),
+    );
+    const listEnd = listStart + visible;
+    const rows = editorRowsRef.current;
+    const offset = editorOffsetRef.current;
+
+    let start: number;
+    let end: number;
+    if (rows.length === 0) {
+      start = listStart;
+      end = listEnd;
+    } else {
+      const localStart = listStart - offset;
+      const localEnd = listEnd - offset;
+      const clampLocal = (index: number) =>
+        Math.max(0, Math.min(rows.length - 1, index));
+      if (localEnd <= 0) {
+        const firstOrd = rows[0]!.segment.ordinal;
+        end = firstOrd;
+        start = Math.max(0, firstOrd - visible);
+      } else if (localStart >= rows.length) {
+        const lastOrd = rows[rows.length - 1]!.segment.ordinal;
+        start = lastOrd;
+        end = lastOrd + visible;
+      } else {
+        start = rows[clampLocal(localStart)]!.segment.ordinal;
+        end = rows[clampLocal(localEnd - 1)]!.segment.ordinal + 1;
+      }
+    }
+
+    setViewportRange((current) =>
+      current[0] === start && current[1] === end ? current : [start, end],
+    );
+  };
+
+  useEffect(() => {
+    const grid = editorGridRef.current;
+    if (!grid) return;
+    syncMatrixViewport(grid);
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (editorGridRef.current) syncMatrixViewport(editorGridRef.current);
+    });
+    observer.observe(grid);
+    return () => observer.disconnect();
+  }, [editorOffset, editorTotal, editorRows.length, filter, search]);
+
   useEffect(() => {
     segmentsRef.current = segments;
   }, [segments]);
@@ -390,6 +523,14 @@ export function Workbench({
   useEffect(() => {
     editorRowsRef.current = editorRows;
   }, [editorRows]);
+
+  useEffect(() => {
+    editorOffsetRef.current = editorOffset;
+  }, [editorOffset]);
+
+  useEffect(() => {
+    documentTotalRef.current = counts.total;
+  }, [counts.total]);
 
   useEffect(() => {
     draftsRef.current = drafts;
@@ -890,6 +1031,7 @@ export function Workbench({
       }
       editorRowsRef.current = result.items;
       setEditorRows(result.items);
+      editorOffsetRef.current = result.offset;
       setEditorOffset(result.offset);
       setEditorTotal(result.total);
       const nextSegments = result.items.map((row) => row.segment);
@@ -947,6 +1089,7 @@ export function Workbench({
   };
 
   const onEditorScroll = (event: UIEvent<HTMLDivElement>) => {
+    syncMatrixViewport(event.currentTarget);
     if (editorTotal <= EDITOR_WINDOW_SIZE) return;
     const firstVisible = Math.floor(
       event.currentTarget.scrollTop / EDITOR_ROW_HEIGHT,
@@ -969,6 +1112,22 @@ export function Workbench({
       return;
     }
     const timer = window.setTimeout(() => {
+      const pendingOrdinal = pendingMatrixOrdinalRef.current;
+      pendingMatrixOrdinalRef.current = null;
+      if (pendingOrdinal != null) {
+        const documentTotal = documentTotalRef.current;
+        const requested = Math.max(
+          0,
+          Math.min(
+            Math.max(0, documentTotal - EDITOR_WINDOW_SIZE),
+            pendingOrdinal - EDITOR_OVERSCAN,
+          ),
+        );
+        void loadEditorWindow(requested).then((loaded) => {
+          activateMatrixSegment(loaded, pendingOrdinal);
+        });
+        return;
+      }
       if (editorGridRef.current) editorGridRef.current.scrollTop = 0;
       void loadEditorWindow(0);
     }, 180);
@@ -1220,7 +1379,51 @@ export function Workbench({
 
   const closeGlobalSearch = () => {
     setGlobalSearchOpen(false);
-    window.requestAnimationFrame(() => globalSearchCommandRef.current?.focus());
+    // Return focus to a stable Workbench owner (masthead search control removed).
+    window.requestAnimationFrame(() => editorRegionRef.current?.focus());
+  };
+
+  const openCommandPalette = () => {
+    const active = document.activeElement;
+    commandPaletteOwnerRef.current =
+      active instanceof HTMLElement ? active : null;
+    setCommandQuery("");
+    setCommandPaletteOpen(true);
+  };
+
+  /** Central dismiss + focus restore for every palette close path. */
+  const closeCommandPalette = () => {
+    setCommandPaletteOpen(false);
+    const owner = commandPaletteOwnerRef.current;
+    commandPaletteOwnerRef.current = null;
+    window.requestAnimationFrame(() => {
+      restorePaletteOwnerFocus(owner, editorRegionRef.current);
+    });
+  };
+
+  /**
+   * Activate a loaded segment by document ordinal without focusing the
+   * translation textarea (preserves IME / active edit focus).
+   */
+  const activateMatrixSegment = (
+    loaded: readonly Segment[] | null | undefined,
+    ordinal: number,
+  ) => {
+    if (!loaded || loaded.length === 0) return;
+    const exact = loaded.find((segment) => segment.ordinal === ordinal);
+    const target =
+      exact ??
+      loaded.reduce((best, segment) =>
+        Math.abs(segment.ordinal - ordinal) < Math.abs(best.ordinal - ordinal)
+          ? segment
+          : best,
+      );
+    setActiveId(target.id);
+    window.requestAnimationFrame(() => {
+      documentQuery<HTMLElement>(
+        `[data-segment-row="${target.id}"]`,
+      )?.scrollIntoView({ block: "center" });
+    });
   };
 
   const selectGlobalSearchHit = async (hit: GlobalSearchHit) => {
@@ -1233,6 +1436,20 @@ export function Workbench({
       const message = formatError(error);
       setToast(message);
       throw error;
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
+  const selectDocument = async (documentId: string) => {
+    if (!onOpenDocument || documentId === document.id) return;
+    setActionBusy("navigate");
+    setToast(null);
+    try {
+      await persistAllSegments();
+      await onOpenDocument(documentId);
+    } catch (error) {
+      setToast(formatError(error));
     } finally {
       setActionBusy(null);
     }
@@ -1252,6 +1469,60 @@ export function Workbench({
     )?.scrollIntoView({
       block: "center",
     });
+  };
+
+  /**
+   * Matrix seek by **document ordinal** → active-id + scrollIntoView.
+   * Does not focus the translation textarea (avoids stealing IME/edit focus).
+   * Filter/search remap list offsets, so incompatible projections are cleared
+   * before loading the window that contains the ordinal.
+   */
+  const navigateMatrix = async (ordinal: number) => {
+    const documentTotal = Math.max(0, documentTotalRef.current);
+    if (ordinal < 0 || (documentTotal > 0 && ordinal >= documentTotal)) return;
+
+    const inWindow = editorRowsRef.current.find(
+      (row) => row.segment.ordinal === ordinal,
+    );
+    if (inWindow) {
+      setActiveId(inWindow.segment.id);
+      window.requestAnimationFrame(() => {
+        documentQuery<HTMLElement>(
+          `[data-segment-row="${inWindow.segment.id}"]`,
+        )?.scrollIntoView({ block: "center" });
+      });
+      return;
+    }
+
+    const filtered = filter !== "all" || search.trim().length > 0;
+    if (filtered) {
+      // Clear projection; filter effect loads around the pending ordinal.
+      pendingMatrixOrdinalRef.current = ordinal;
+      setFilter("all");
+      setSearch("");
+      return;
+    }
+
+    const requested = Math.max(
+      0,
+      Math.min(
+        Math.max(0, documentTotal - EDITOR_WINDOW_SIZE),
+        ordinal - EDITOR_OVERSCAN,
+      ),
+    );
+    const loaded = await loadEditorWindow(requested);
+    activateMatrixSegment(loaded, ordinal);
+  };
+
+  /**
+   * Wheel against the real grid scroll owner only.
+   * Bracket drag maps document ratio → ordinal → `navigateMatrix` inside
+   * DocumentMatrix (filter-safe); it does not use filtered-list scroll height.
+   */
+  const scrollMatrixGridBy = (deltaY: number) => {
+    const grid = editorGridRef.current;
+    if (!grid) return;
+    grid.scrollTop += deltaY;
   };
 
   const insertMatch = (targetText: string) => {
@@ -2009,7 +2280,7 @@ export function Workbench({
     },
     undo: () => void undoEditor(),
     redo: () => void redoEditor(),
-    openPalette: () => setCommandPaletteOpen(true),
+    openPalette: () => openCommandPalette(),
     openPreferences: openEditorPreferences,
     toggleSuggestions: () =>
       setSuggestionsMode((mode) => togglePanelCollapsed(mode)),
@@ -2051,11 +2322,11 @@ export function Workbench({
       if (activeEditorRow?.workflowState === "signed") {
         setToast(t("workbench.signedReadOnly"));
       }
-      setCommandPaletteOpen(false);
+      closeCommandPalette();
       return;
     }
     dispatchEditorCommand(id, editorCommandHandlers);
-    if (id !== "editor.palette") setCommandPaletteOpen(false);
+    if (id !== "editor.palette") closeCommandPalette();
   };
 
   useEffect(() =>
@@ -2122,63 +2393,19 @@ export function Workbench({
       style={applicationStyle}
       onKeyDownCapture={onWorkbenchKeyDown}
     >
-      <header className="app-bar">
-        <div className="project-identity">
-          <BrandMark />
-          <div>
-            <strong>{snapshot.project.name}</strong>
-            <span>
-              {snapshot.project.domain || t("workbench.translationProject")}
-            </span>
-          </div>
-        </div>
-        <div
-          className="document-switcher"
-          aria-label={t("workbench.activeDocument")}
-        >
-          <FileText size={15} />
-          <span>{document.name}</span>
-          <small>{t("workbench.segmentsCount", { count: counts.total })}</small>
-        </div>
-        <button
-          ref={globalSearchCommandRef}
-          type="button"
-          className="global-search-command"
-          aria-expanded={globalSearchOpen}
-          aria-haspopup="dialog"
-          aria-keyshortcuts="Control+Shift+K"
-          aria-label={t("home.globalSearch")}
-          onClick={() => setGlobalSearchOpen(true)}
-        >
-          <Search size={15} />
-          <span>{t("home.globalSearch")}</span>
-          <kbd>{GLOBAL_SEARCH_SHORTCUT}</kbd>
-        </button>
-        <div className="app-actions">
-          <button
-            id="tutorial-target-qa"
-            className="top-command"
-            type="button"
-            onClick={runQa}
-            disabled={actionBusy !== null}
-          >
-            <ShieldCheck size={15} />
-            {t("workbench.runQa")}
-          </button>
-          <button
-            id="tutorial-target-export"
-            className="top-command export-command"
-            type="button"
-            onClick={exportDocument}
-            disabled={actionBusy !== null}
-          >
-            <Download size={15} />
-            {t("action.export")}
-          </button>
-          {/* `…` 溢出导航已移除：六个 Surface 的切换、设置、返回项目列表
-              全部由 Shell 的 Index Spine 承载（Ctrl+1..6 / Ctrl+K）。 */}
-        </div>
-      </header>
+      <Masthead
+        projectName={snapshot.project.name}
+        sourceLocale={snapshot.project.sourceLocale}
+        targetLocale={snapshot.project.targetLocale}
+        documents={snapshot.documents}
+        activeDocument={document}
+        confirmedCount={counts.confirmed}
+        totalCount={counts.total}
+        actionBusy={actionBusy !== null}
+        onRunQa={() => void runQa()}
+        onExport={() => void exportDocument()}
+        onSelectDocument={(documentId) => void selectDocument(documentId)}
+      />
       {globalSearchOpen ? (
         <div
           className="global-search-layer"
@@ -2222,244 +2449,67 @@ export function Workbench({
               tabIndex={-1}
               data-toolbar-compact={toolbarCompact ? "true" : "false"}
             >
-              <div
-                className={
-                  toolbarCompact
-                    ? "editor-toolbar is-compact"
-                    : "editor-toolbar"
-                }
-                data-compact={toolbarCompact ? "true" : "false"}
-              >
-                {toolbarCompact ? (
-                  <label className="filter-compact" data-toolbar-item="filters">
-                    <span className="visually-hidden">
-                      {t("workbench.segmentFilters")}
-                    </span>
-                    <select
-                      value={filter}
-                      onChange={(event) =>
-                        setFilter(event.currentTarget.value as SegmentFilter)
-                      }
-                      aria-label={t("workbench.segmentFilters")}
-                    >
-                      <option value="all">
-                        {t("workbench.filterAll")} ({counts.total})
-                      </option>
-                      <option value="untranslated">
-                        {t("workbench.filterUntranslated")} (
-                        {counts.untranslated})
-                      </option>
-                      <option value="draft">
-                        {t("workbench.filterDraft")} ({counts.draft})
-                      </option>
-                      <option value="confirmed">
-                        {t("workbench.filterConfirmed")} ({counts.confirmed})
-                      </option>
-                      <option value="issues">
-                        {t("workbench.filterIssues")} ({counts.openIssues})
-                      </option>
-                      <option value="tagged">{t("workbench.tagged")}</option>
-                      <option value="commented">
-                        {t("workbench.commented")}
-                      </option>
-                    </select>
-                  </label>
-                ) : (
-                  <div
-                    className="filter-group"
-                    role="group"
-                    aria-label={t("workbench.segmentFilters")}
-                    data-toolbar-item="filters"
-                  >
-                    <FilterButton
-                      label={t("workbench.filterAll")}
-                      count={counts.total}
-                      value="all"
-                      active={filter}
-                      onChange={setFilter}
-                    />
-                    <FilterButton
-                      label={t("workbench.filterUntranslated")}
-                      count={counts.untranslated}
-                      value="untranslated"
-                      active={filter}
-                      onChange={setFilter}
-                    />
-                    <FilterButton
-                      label={t("workbench.filterDraft")}
-                      count={counts.draft}
-                      value="draft"
-                      active={filter}
-                      onChange={setFilter}
-                    />
-                    <FilterButton
-                      label={t("workbench.filterConfirmed")}
-                      count={counts.confirmed}
-                      value="confirmed"
-                      active={filter}
-                      onChange={setFilter}
-                    />
-                    <FilterButton
-                      label={t("workbench.filterIssues")}
-                      count={counts.openIssues}
-                      value="issues"
-                      active={filter}
-                      onChange={setFilter}
-                    />
-                    <select
-                      value={
-                        filter === "tagged" || filter === "commented"
-                          ? filter
-                          : ""
-                      }
-                      onChange={(event) =>
-                        setFilter(event.currentTarget.value as SegmentFilter)
-                      }
-                      aria-label={t("workbench.additionalFilters")}
-                    >
-                      <option value="" disabled>
-                        {t("workbench.more")}
-                      </option>
-                      <option value="tagged">{t("workbench.tagged")}</option>
-                      <option value="commented">
-                        {t("workbench.commented")}
-                      </option>
-                    </select>
-                  </div>
-                )}
-                <label className="document-search" data-toolbar-item="search">
-                  <Search size={14} aria-hidden="true" />
-                  <input
-                    value={search}
-                    onChange={(event) => setSearch(event.currentTarget.value)}
-                    placeholder={t("workbench.searchPlaceholder")}
-                    aria-label={t("workbench.searchAria")}
-                  />
-                </label>
-                <div
-                  className="match-scope"
-                  role="group"
-                  aria-label={t("workbench.exactTmMatching")}
-                  data-toolbar-item="tm"
-                >
-                  <Database size={13} aria-hidden="true" />
-                  <span>{t("workbench.exactTm")}</span>
-                </div>
-                <div
-                  className="editor-command-strip"
-                  role="toolbar"
-                  aria-label={t("workbench.editorCommands")}
-                  data-toolbar-item="commands"
-                >
-                  <button
-                    type="button"
-                    className="icon-button"
-                    onClick={() => setCommandPaletteOpen(true)}
-                    title={t("workbench.commandPalette")}
-                    aria-label={t("workbench.openCommandPalette")}
-                  >
-                    <Command size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className="icon-button"
-                    onClick={() => setFindOpen(true)}
-                    title={t("workbench.findReplace")}
-                    aria-label={t("workbench.openFindReplace")}
-                  >
-                    <Search size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className="icon-button"
-                    onClick={() => void undoEditor()}
-                    title={t("common.undo")}
-                    aria-label={t("workbench.undoAria")}
-                  >
-                    <RotateCcw size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className="icon-button"
-                    onClick={() => void redoEditor()}
-                    title={t("common.redo")}
-                    aria-label={t("workbench.redoAria")}
-                  >
-                    <RotateCw size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className="icon-button"
-                    onClick={openActiveComments}
-                    title={t("common.comments")}
-                    aria-label={t("workbench.openComments")}
-                  >
-                    <MessageSquare size={14} />
-                  </button>
-                </div>
-                <div
-                  className="issue-nav"
-                  aria-label={t("workbench.issueNav")}
-                  data-toolbar-item="issues"
-                >
-                  <span className="issue-nav__label">{t("common.issue")}</span>
-                  <button
-                    type="button"
-                    className="icon-button"
-                    onClick={() => navigateIssue(-1)}
-                    disabled={!openIssueIds.length}
-                    title={t("workbench.prevIssue")}
-                    aria-label={t("workbench.prevIssue")}
-                  >
-                    <ChevronLeft size={14} />
-                  </button>
-                  <span className="issue-position">
-                    {t("common.positionOf", {
-                      position: issuePosition,
-                      total: openIssueIds.length,
-                    })}
-                  </span>
-                  <button
-                    type="button"
-                    className="icon-button"
-                    onClick={() => navigateIssue(1)}
-                    disabled={!openIssueIds.length}
-                    title={t("workbench.nextIssue")}
-                    aria-label={t("workbench.nextIssue")}
-                  >
-                    <ChevronRight size={14} />
-                  </button>
-                </div>
-                {activeSegment ? (
-                  <button
-                    className="confirm-button"
-                    type="button"
-                    data-toolbar-item="confirm"
-                    onClick={() => confirmSegment(activeSegment.id)}
-                    disabled={
-                      actionBusy !== null ||
-                      activeEditorRow?.workflowState === "signed"
+              <FilterRail
+                counts={counts}
+                filter={filter}
+                onFilterChange={(value: RailStatusFilter) => setFilter(value)}
+                matchBucket={matchBucket}
+                onMatchBucketChange={setMatchBucket}
+                issuePosition={issuePosition}
+                issueTotal={openIssueIds.length}
+                onNavigateIssue={navigateIssue}
+                showChipAxis={axisResidence === "chip"}
+                compact={toolbarCompact}
+                secondaryFilters={
+                  <select
+                    value={
+                      filter === "tagged" || filter === "commented"
+                        ? filter
+                        : ""
                     }
-                    aria-label={t("workbench.confirm")}
-                    title={t("workbench.confirm")}
+                    onChange={(event) =>
+                      setFilter(event.currentTarget.value as SegmentFilter)
+                    }
+                    aria-label={t("workbench.additionalFilters")}
                   >
-                    <Check size={14} aria-hidden="true" />
-                    <span className="confirm-button__label">
-                      {t("workbench.confirm")}
-                    </span>
-                  </button>
-                ) : null}
-              </div>
+                    <option value="" disabled>
+                      {t("workbench.more")}
+                    </option>
+                    <option value="tagged">{t("workbench.tagged")}</option>
+                    <option value="commented">
+                      {t("workbench.commented")}
+                    </option>
+                  </select>
+                }
+              />
 
               <div className="editor-body">
                 <div
-                  className="segment-grid"
-                  role="region"
-                  aria-label={t("workbench.segmentsAria")}
-                  aria-busy={editorLoading}
-                  ref={editorGridRef}
-                  onScroll={onEditorScroll}
+                  className={
+                    matrixSegmentStates.length > 0
+                      ? "editor-grid-row editor-body--with-matrix"
+                      : "editor-grid-row"
+                  }
                 >
+                  {matrixSegmentStates.length > 0 ? (
+                    <DocumentMatrix
+                      segmentStates={matrixSegmentStates}
+                      activeIndex={matrixActiveIndex}
+                      viewportRange={viewportRange}
+                      onNavigate={(ordinal) => void navigateMatrix(ordinal)}
+                      onScrollBy={scrollMatrixGridBy}
+                      labels={matrixLabels}
+                    />
+                  ) : null}
+                  <div
+                    className="segment-grid"
+                    role="region"
+                    aria-label={t("workbench.segmentsAria")}
+                    aria-busy={editorLoading}
+                    tabIndex={-1}
+                    ref={editorGridRef}
+                    onScroll={onEditorScroll}
+                  >
                   <table>
                     <thead>
                       <tr>
@@ -2520,10 +2570,16 @@ export function Workbench({
                                   : "segment-row"
                             }
                             data-segment-row={segment.id}
+                            data-active={active || undefined}
                             aria-rowindex={segment.ordinal + 2}
                             onClick={() => setActiveId(segment.id)}
                           >
-                            <td className="id-cell">{segment.ordinal + 1}</td>
+                            <td className="id-cell">
+                              {active && axisResidence === "row" ? (
+                                <ActiveAxis variant="row" />
+                              ) : null}
+                              {segment.ordinal + 1}
+                            </td>
                             <td className="status-cell">
                               <StatusLamp
                                 segment={segment}
@@ -2937,6 +2993,7 @@ export function Workbench({
                       }
                     />
                   ) : null}
+                  </div>
                 </div>
                 <DocumentPreview
                   document={document}
@@ -2991,7 +3048,7 @@ export function Workbench({
         <div
           className="editor-overlay"
           role="presentation"
-          onMouseDown={() => setCommandPaletteOpen(false)}
+          onMouseDown={closeCommandPalette}
         >
           <section
             className="command-palette"
@@ -2999,6 +3056,12 @@ export function Workbench({
             aria-modal="true"
             aria-label={t("workbench.commandPalette")}
             onMouseDown={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key !== "Escape") return;
+              event.preventDefault();
+              event.stopPropagation();
+              closeCommandPalette();
+            }}
           >
             <header>
               <Command size={16} />
@@ -3012,7 +3075,7 @@ export function Workbench({
               <button
                 type="button"
                 className="icon-button"
-                onClick={() => setCommandPaletteOpen(false)}
+                onClick={closeCommandPalette}
                 aria-label={t("workbench.closeCommandPalette")}
               >
                 <X size={14} />
@@ -3915,34 +3978,6 @@ export function Workbench({
         </button>
       ) : null}
     </div>
-  );
-}
-
-interface FilterButtonProps {
-  label: string;
-  count: number;
-  value: SegmentFilter;
-  active: SegmentFilter;
-  onChange(value: SegmentFilter): void;
-}
-
-function FilterButton({
-  label,
-  count,
-  value,
-  active,
-  onChange,
-}: FilterButtonProps) {
-  return (
-    <button
-      type="button"
-      className="filter-button"
-      aria-pressed={active === value}
-      onClick={() => onChange(value)}
-    >
-      {label}
-      <span>{count}</span>
-    </button>
   );
 }
 

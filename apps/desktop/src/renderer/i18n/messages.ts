@@ -1047,6 +1047,8 @@ export type MessageKey =
   | "workbench.searchPlaceholder"
   | "workbench.searchAria"
   | "workbench.segmentFilters"
+  | "workbench.matchFilter"
+  | "workbench.matchFilterDeferred"
   | "workbench.additionalFilters"
   | "workbench.tagged"
   | "workbench.commented"
@@ -1064,6 +1066,20 @@ export type MessageKey =
   | "workbench.prevIssue"
   | "workbench.nextIssue"
   | "workbench.segmentsAria"
+  | "workbench.matrixLandmark"
+  | "workbench.matrixTitle"
+  | "workbench.matrixLegendUntranslated"
+  | "workbench.matrixLegendDraft"
+  | "workbench.matrixLegendConfirmed"
+  | "workbench.matrixLegendError"
+  | "workbench.matrixLegendNeutral"
+  | "workbench.matrixStateUntranslated"
+  | "workbench.matrixStateDraft"
+  | "workbench.matrixStateConfirmed"
+  | "workbench.matrixStateError"
+  | "workbench.matrixStateNeutral"
+  | "workbench.matrixRangeSingle"
+  | "workbench.matrixRangeMulti"
   | "workbench.segmentTools"
   | "workbench.copyTags"
   | "workbench.insertTag"
@@ -2888,6 +2904,8 @@ const enUs: MessageCatalog = {
   "workbench.searchPlaceholder": "Search in document",
   "workbench.searchAria": "Search in document",
   "workbench.segmentFilters": "Segment filters",
+  "workbench.matchFilter": "Match",
+  "workbench.matchFilterDeferred": "Deferred",
   "workbench.additionalFilters": "Additional segment filters",
   "workbench.tagged": "Tagged",
   "workbench.commented": "Commented",
@@ -2905,6 +2923,20 @@ const enUs: MessageCatalog = {
   "workbench.prevIssue": "Previous issue",
   "workbench.nextIssue": "Next issue",
   "workbench.segmentsAria": "Translation segments",
+  "workbench.matrixLandmark": "Document segment matrix",
+  "workbench.matrixTitle": "Live Matrix",
+  "workbench.matrixLegendUntranslated": "Untranslated",
+  "workbench.matrixLegendDraft": "Draft",
+  "workbench.matrixLegendConfirmed": "Confirmed",
+  "workbench.matrixLegendError": "Issue",
+  "workbench.matrixLegendNeutral": "Unknown / loading",
+  "workbench.matrixStateUntranslated": "Untranslated",
+  "workbench.matrixStateDraft": "Draft",
+  "workbench.matrixStateConfirmed": "Confirmed",
+  "workbench.matrixStateError": "Issue",
+  "workbench.matrixStateNeutral": "Unknown",
+  "workbench.matrixRangeSingle": "Seg {n}",
+  "workbench.matrixRangeMulti": "Seg {from}–{to}",
   "workbench.segmentTools": "Active segment tools",
   "workbench.copyTags": "Copy protected tags",
   "workbench.insertTag": "Insert protected tag",
@@ -4709,6 +4741,8 @@ const zhCn: MessageCatalog = {
   "workbench.searchPlaceholder": "在文档中搜索",
   "workbench.searchAria": "在文档中搜索",
   "workbench.segmentFilters": "句段筛选",
+  "workbench.matchFilter": "匹配",
+  "workbench.matchFilterDeferred": "暂缓",
   "workbench.additionalFilters": "附加句段筛选",
   "workbench.tagged": "带标签",
   "workbench.commented": "带批注",
@@ -4726,6 +4760,20 @@ const zhCn: MessageCatalog = {
   "workbench.prevIssue": "上一问题",
   "workbench.nextIssue": "下一问题",
   "workbench.segmentsAria": "翻译句段",
+  "workbench.matrixLandmark": "文档段落矩阵",
+  "workbench.matrixTitle": "活性矩阵",
+  "workbench.matrixLegendUntranslated": "未翻译",
+  "workbench.matrixLegendDraft": "草稿",
+  "workbench.matrixLegendConfirmed": "已确认",
+  "workbench.matrixLegendError": "有问题",
+  "workbench.matrixLegendNeutral": "未知 / 加载中",
+  "workbench.matrixStateUntranslated": "未翻译",
+  "workbench.matrixStateDraft": "草稿",
+  "workbench.matrixStateConfirmed": "已确认",
+  "workbench.matrixStateError": "有问题",
+  "workbench.matrixStateNeutral": "未知",
+  "workbench.matrixRangeSingle": "段 {n}",
+  "workbench.matrixRangeMulti": "段 {from}–{to}",
   "workbench.segmentTools": "活动句段工具",
   "workbench.copyTags": "复制受保护标签",
   "workbench.insertTag": "插入受保护标签",

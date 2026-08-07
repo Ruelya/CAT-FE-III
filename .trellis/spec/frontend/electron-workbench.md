@@ -352,8 +352,10 @@ render deterministic previous/next controls when `total` exceeds the page.
   `onOpen(projectId, documentId?, segmentId?, segmentOrdinal?)`; a rejected
   flush leaves the Workbench, draft, and search layer mounted. The global
   search shortcut is `Ctrl+Shift+K` so the established `Ctrl+K` command-palette
-  contract remains intact; the app-bar button exposes the same command with an
-  accessible name and `aria-keyshortcuts`.
+  contract remains intact. After ORTHO Phase 2 the Workbench masthead has **no
+  permanent global-search control**; the shortcut and panel remain the only
+  Workbench entry. Closing search must restore focus to a stable remaining
+  Workbench owner (typically the editor region).
 - Template editing starts from a recursive clone of the complete safe
   definition. The clone preserves unrendered safe fields such as `pipelineId`,
   QA/TM/termbase references, editor defaults, and future extensions while
@@ -2246,4 +2248,245 @@ const result = await window.translunar.invoke("plugin.uiPanel.bridge.call", {
   params: { projectId, segmentId },
 });
 await acceptPluginProposalThroughExistingMutation(result);
+```
+
+## ORTHO Workbench Skeleton (Phase 2)
+
+### 1. Scope / Trigger
+
+Use this contract when changing Workbench chrome presentation: `Masthead`,
+`FilterRail`, `DocumentMatrix` mounting, `ActiveAxis`, grid scrollbar
+visibility, command-palette / global-search focus return, or document switch
+leave-guard wiring inside `apps/desktop/src/renderer`.
+
+Phase 2 is a **presentation extraction**. It must not change Engine, generated
+contracts, preload, main-process, or persistence logic.
+
+Source components:
+
+- `components/workbench/Masthead.tsx`
+- `components/workbench/FilterRail.tsx`
+- `components/workbench/ActiveAxis.tsx`
+- `components/workbench/DocumentMatrix.tsx`
+- Host wiring: `Workbench.tsx`
+- Focus helper: `restorePaletteOwnerFocus` in `workbench-utils.ts`
+
+### 2. Signatures
+
+```ts
+// ActiveAxis — decorative singleton marker (parent owns residence).
+type ActiveAxisVariant = "row" | "chip";
+interface ActiveAxisProps {
+  variant: ActiveAxisVariant;
+}
+// Renders one [data-axis="active"] node; aria-hidden; no focus ownership.
+
+// FilterRail — exactly three logical groups.
+type RailStatusFilter =
+  | "all"
+  | "untranslated"
+  | "draft"
+  | "confirmed"
+  | "issues";
+type MatchBucket =
+  | "all"
+  | "101"
+  | "100"
+  | "95-99"
+  | "85-94"
+  | "75-84"
+  | "50-74"
+  | "none"
+  | "mt";
+interface FilterRailProps {
+  counts: FilterRailCounts; // total, untranslated, draft, confirmed, openIssues
+  filter: RailStatusFilter | string;
+  onFilterChange(value: RailStatusFilter): void;
+  matchBucket: MatchBucket; // presentation-only except "all"
+  onMatchBucketChange(value: MatchBucket): void;
+  issuePosition: number;
+  issueTotal: number;
+  onNavigateIssue(direction: -1 | 1): void;
+  showChipAxis?: boolean; // mount ActiveAxis under selected chip
+  secondaryFilters?: ReactNode; // tagged/commented compact path only
+}
+
+// DocumentMatrix — document-ordinal space only.
+interface DocumentMatrixProps {
+  segmentStates: readonly MatrixSegmentState[]; // length = counts.total
+  activeIndex: number; // document ordinal; negative = none
+  viewportRange: readonly [number, number]; // [start, end) document ordinals
+  onNavigate(segmentOrdinal: number): void;
+  onScrollBy?(deltaY: number): void; // forward wheel to .segment-grid
+  labels: DocumentMatrixLabels; // i18n from host catalog
+}
+
+// Palette focus restore (renderer-local pure helper).
+function restorePaletteOwnerFocus(
+  owner: HTMLElement | null | undefined,
+  fallback: HTMLElement | null | undefined,
+): void;
+```
+
+### 3. Contracts
+
+#### ActiveAxis singleton
+
+- Workbench computes one `axisResidence`: `"row" | "chip" | "hidden"`.
+- Precedence: active segment row wins when `activeId` is set; otherwise the
+  current status chip; otherwise hidden.
+- At most one `[data-axis="active"]` under the Workbench surface in normal
+  focused states. Do not render one axis per chip or per row.
+- Axis is decorative (`aria-hidden`); targets keep their own focus ring and
+  keyboard semantics. Prefer `--signal` and honor `prefers-reduced-motion`.
+- Do not duplicate or replace the shell-owned Phase 1 Index Spine marker.
+  Remove competing Workbench-only axis pseudo-elements (e.g. old
+  `.id-cell::before`) when mounting `ActiveAxis`.
+
+#### FilterRail three groups
+
+1. Status chips: All / Untranslated / Draft / Confirmed / Issues with
+   authoritative counts and `aria-pressed` (or equivalent) current state.
+2. Match selector: full design vocabulary; **only `all` is live** in Phase 2.
+   Non-live options are deferred/disabled presentation; they must not write
+   Engine/RPC fields, fabricate scores, or filter rows.
+3. Issue navigation: previous/next via existing `navigateIssue`, truthful
+   `n/N`, disabled when `issueTotal === 0`.
+
+Absent from the main rail: in-document search, Exact TM decorative strip,
+command/undo/redo/comment icon strip, and the rail Confirm button. Those
+behaviors stay on keyboard / command-palette / Stack / row paths
+(`Ctrl+F`/`Ctrl+H`, `Ctrl+Enter`, etc.). E2E must confirm segments via the
+active textarea `Control+Enter` contract, not a removed rail Confirm button.
+
+#### DocumentMatrix document ordinals
+
+- `segmentStates` is indexed by **authoritative document ordinal**
+  (`segment.ordinal`), length = `counts.total`. Unknown/unloaded slots are
+  `null` (neutral hollow). Never invent state for unloaded positions.
+- Aggregate priority among fully-known members:
+  `error > untranslated > draft > confirmed`. Any null/undefined member in a
+  cell keeps the aggregate **neutral**.
+- `activeIndex` and `viewportRange` are document ordinals, not filtered-list
+  or virtual-window list indices.
+- Bracket drag / ratio seeking maps through `documentOrdinalFromRatio` then
+  `onNavigate(ordinal)` so filtered views still seek the correct document
+  segment. Do not map drag Y through filtered scroll height alone.
+- `.segment-grid` is the **sole scroll owner**. Matrix wheel and seek forward
+  to that container. Hide the grid scrollbar visually while retaining
+  wheel/touchpad/keyboard/programmatic/accessibility scrolling.
+- Matrix keyboard: native **roving tabindex** — exactly one dot
+  `tabIndex={0}`; arrows/Home/End move real DOM focus and `data-focus`; Enter
+  navigates that cell's document ordinal; Escape returns focus to the grid.
+  Do **not** put `aria-activedescendant` on `role="navigation"` (axe
+  `aria-allowed-attr`).
+
+#### Masthead and leave-guard
+
+- Identity plate uses real workspace projection (project name, source → target
+  locales, document/file count). No decorative fallback project names.
+- Sole 45° bevel is the identity `brand-plate`.
+- Document switcher calls the existing save-before-navigation path
+  (`persistAllSegments` then open), never a direct load that drops drafts.
+- Surface leave continues through `onRegisterLeaveGuard` → App
+  `goToSurface` / `returnHome` await flush before unmount.
+- Run QA / Export keep existing handlers, busy, and error semantics.
+
+#### Focus return
+
+- Command palette close always runs a single dismiss path that calls
+  `restorePaletteOwnerFocus(invocationOwner, editorRegionFallback)`.
+- Prefer a still-connected invocation owner; otherwise focus a stable
+  Workbench fallback (editor region). Do not leave focus on a detached node.
+
+#### Layout host (Phase 2 intentional)
+
+- Phase 2 keeps the legacy flex host (`workbench-layout` /
+  `editor-column` / `editor-grid-row`). Full `.wb` CSS grid + `data-stack`
+  migration is deferred to the Stack/preview phase. Do not claim `.wb`
+  mounting is complete until that phase lands.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Segment active and chip focused | Exactly one axis; row residence wins |
+| No active segment; status filter selected | Chip axis under selected chip |
+| Matrix cell has any null member | Neutral hollow; no definitive color |
+| Matrix navigate while filter hides target | Clear incompatible projection as existing seek requires; then `setActiveId` + grid scroll; do not mutate segment body |
+| Match selector non-`all` chosen | No Engine request field; option deferred/disabled |
+| Zero open issues | Issue prev/next disabled; show `0/0` or equivalent truthfully |
+| Document switch with pending draft | Await `persistAllSegments`; on failure keep current document and show typed error |
+| Palette dismiss with disconnected owner | Focus editor-region fallback |
+| Navigation landmark + `aria-activedescendant` | Forbidden; use roving tabindex on dots |
+
+### 5. Good / Base / Bad Cases
+
+- Good: Matrix bracket drag under an Issues filter still seeks the correct
+  document ordinal and scrolls the real grid without stealing textarea focus.
+- Good: dismiss command palette opened from a chip; focus returns to that chip
+  if still connected.
+- Base: empty document (`counts.total === 0`) mounts no Matrix; rail still
+  shows truthful zero counts.
+- Bad: `segmentStates` built from `editorRows` indices only (filtered/list
+  space), leaving gaps or wrong colors for off-window ordinals.
+- Bad: one `ActiveAxis` per chip plus a row pseudo-element (DOM count > 1).
+- Bad: re-adding a rail Confirm button and writing E2E against it while
+  product confirm is `Control+Enter` on the active textarea.
+- Bad: `role="navigation"` with `aria-activedescendant` on `.doc-matrix`.
+
+### 6. Tests Required
+
+- Unit: `ActiveAxis` singleton marker; `FilterRail` three groups + deferred
+  match options; `DocumentMatrix` roving focus (no illegal ARIA attr, one
+  tab stop, real `document.activeElement` movement, exact ordinal Enter);
+  `documentOrdinalFromRatio` / `aggregateCells` / neutral mixed buckets;
+  `restorePaletteOwnerFocus` connected vs disconnected owner.
+- Host projection: Matrix states length equals `counts.total`; loaded rows
+  write `segment.ordinal` slots only.
+- E2E (when Engine binary available): Matrix present beside grid; hidden
+  scrollbar with scroll still working; document switch flush; ActiveAxis
+  count ≤ 1; no permanent masthead search control; segment confirm via
+  `Control+Enter`; supported widths 1250×744 / 1680×942 / 1920×1080 with no
+  page-level horizontal overflow; axe free of critical Matrix ARIA errors.
+- Typecheck and desktop Vitest remain green without Engine/contract edits.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+// Filtered-list indices as Matrix state; invents colors for unknown slots.
+const segmentStates = visibleRows.map((row) => row.segment.state);
+
+// Illegal composite on navigation landmark.
+<nav className="doc-matrix" aria-activedescendant={activeDotId}>
+  {dots.map((dot) => (
+    <button tabIndex={-1} />
+  ))}
+</nav>
+
+// Second axis + rail Confirm regression.
+<button data-axis="active" /> // per chip
+<button>Confirm</button> // removed from Phase 2 rail
+```
+
+#### Correct
+
+```tsx
+const segmentStates = Array.from({ length: counts.total }, () => null);
+for (const row of editorRows) {
+  states[row.segment.ordinal] = hasIssue ? "error" : row.segment.state;
+}
+
+// Roving tabindex: one tabIndex={0}; arrows move real focus; Enter → ordinal.
+<button
+  id={matrixDotId(cell.startIndex)}
+  tabIndex={i === rovingIndex ? 0 : -1}
+  data-focus={i === rovingIndex ? true : undefined}
+/>
+
+// One axis from parent residence; confirm via textarea Control+Enter.
+const axisResidence = activeId ? "row" : filter ? "chip" : "hidden";
+restorePaletteOwnerFocus(owner, editorRegionRef.current);
 ```

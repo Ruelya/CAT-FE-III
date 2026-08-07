@@ -1,0 +1,5 @@
+{"file":"docs/design-ii/09-implementation.md","reason":"Review must verify the Phase 2 implementation record and ensure the claimed scope excludes later phases and contract changes."}
+{"file":"docs/design-ii/screens/workbench.md","reason":"Review against the Workbench screen requirements: Masthead identity, three rail groups, Matrix placement, grid scroll ownership, and supported-width layout."}
+{"file":"docs/design-ii/06-shell-navigation.md","reason":"Review shortcut, Surface/document navigation, leave-guard, and focus-return preservation after removing the permanent masthead search control."}
+{"file":"docs/design-ii/03-signatures.md","reason":"Review the use of existing signatures and projections for Run QA, Export, document switching, issue navigation, active segment, and Matrix wiring; detect contract creep."}
+{"file":".trellis/spec/guides/autoloop-orchestration.md","reason":"Review manifest and quality-loop expectations for this task artifact set."}

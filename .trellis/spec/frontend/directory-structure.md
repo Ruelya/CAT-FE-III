@@ -16,8 +16,11 @@ apps/desktop/
 `apps/desktop/src/renderer/main.tsx` is the renderer entry point. `App.tsx`
 owns surface/session orchestration; `SetupView.tsx`, `Workbench.tsx`,
 `WorkbenchPages.tsx`, and `AssistantPanel.tsx` own visible feature areas.
-`Workbench.tsx` contains the current editor, Suggestions, and Preview shell;
-shared interaction math lives in `workbench-utils.ts` with colocated tests.
+`Workbench.tsx` hosts the editor, Suggestions, and Preview shell and wires
+ORTHO Phase 2 extracts under `components/workbench/` (`Masthead`,
+`FilterRail`, `ActiveAxis`, `DocumentMatrix`). Shared interaction math lives
+in `workbench-utils.ts` with colocated tests (including
+`restorePaletteOwnerFocus`).
 
 ## Placement Rules
 

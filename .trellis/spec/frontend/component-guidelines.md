@@ -58,6 +58,23 @@ Prefer small, unframed layout sections over nested decorative cards. Reuse
 of copying nearly identical controls. Keep transient toasts and busy states
 visible and keyboard reachable.
 
+### ORTHO Workbench extracts (Phase 2)
+
+Workbench chrome pieces live under `src/renderer/components/workbench/`:
+
+| Component | Responsibility |
+| --- | --- |
+| `Masthead` | Identity plate, document switcher, Run QA / Export only |
+| `FilterRail` | Exactly three groups: status chips · match selector · issue nav |
+| `ActiveAxis` | Single decorative `[data-axis="active"]` marker |
+| `DocumentMatrix` | Document-ordinal matrix beside the segment grid |
+
+Presentational leaves receive explicit props/callbacks; `Workbench.tsx` owns
+filter state, leave-guard registration, Matrix projection, and axis residence.
+Executable contracts (ordinal space, deferred match buckets, focus restore,
+leave-guard) live in
+[Electron Workbench — ORTHO Workbench Skeleton](./electron-workbench.md#ortho-workbench-skeleton-phase-2).
+
 ## Avoid
 
 - No direct `window.translunar.invoke` calls scattered through presentational

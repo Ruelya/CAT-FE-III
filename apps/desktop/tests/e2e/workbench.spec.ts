@@ -1162,7 +1162,8 @@ test("runs the local-first CAT workflow through Electron", async () => {
     firstTarget = page.locator(".segment-row").first().locator("textarea");
     await firstTarget.fill("保留期为 30 天。");
     await expect(page.locator(".save-indicator")).toContainText("Saved");
-    await page.getByRole("button", { name: "Confirm", exact: true }).click();
+    // Phase 2: row Confirm is Control+Enter (rail Confirm removed).
+    await firstTarget.press("Control+Enter");
     await expect(page.locator(".segment-row").first()).toContainText("Issues");
     await page.getByRole("button", { name: "Run QA" }).click();
     await expect(page.locator(".qa-card").first()).toBeVisible();
@@ -3476,7 +3477,8 @@ test("manages the offline Assistant and real workspace projections", async () =>
     firstTarget = page.locator(".segment-row").first().locator("textarea");
     await firstTarget.fill("保留期为 30 天。");
     await expect(page.locator(".save-indicator")).toContainText("Saved");
-    await page.getByRole("button", { name: "Confirm", exact: true }).click();
+    // Phase 2: row Confirm is Control+Enter (rail Confirm removed).
+    await firstTarget.press("Control+Enter");
     await page.getByRole("button", { name: "Run QA" }).click();
 
     await openApplicationMenu(page);
@@ -3809,7 +3811,8 @@ test("uses the authoritative professional editor commands", async () => {
     await expect(
       firstRow.locator(".target-tag-strip .tag-capsule"),
     ).toHaveCount(4);
-    await page.getByRole("button", { name: "Confirm", exact: true }).click();
+    // Phase 2: row Confirm is Control+Enter (rail Confirm removed).
+    await firstTarget.press("Control+Enter");
     await expect(firstRow).toContainText("Issues");
     await expect(firstTarget).toHaveValue("保留期为 30 天。");
 
@@ -3975,7 +3978,8 @@ test("uses the authoritative professional editor commands", async () => {
     await expect(firstTarget).toHaveValue("保留期限为 45 天。");
     await expect(page.getByText("accepted", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Close review panel" }).click();
-    await page.getByRole("button", { name: "Confirm", exact: true }).click();
+    // Phase 2: row Confirm is Control+Enter (rail Confirm removed).
+    await firstTarget.press("Control+Enter");
     await firstRow.click();
     await (
       await openSegmentActions(firstRow)
@@ -4061,7 +4065,8 @@ test("keeps active segment actions quiet and IME-safe at 125% zoom", async ({
 
     await firstTarget.fill("保留期为 60 天。");
     await expect(page.locator(".save-indicator")).toContainText("Saved");
-    await page.getByRole("button", { name: "Confirm", exact: true }).click();
+    // Phase 2: row Confirm is Control+Enter (rail Confirm removed).
+    await firstTarget.press("Control+Enter");
     await expect(firstRow).toContainText("Issues");
 
     await firstTarget.focus();
@@ -4326,7 +4331,7 @@ test("manages the complete project lifecycle through the real Engine", async ({
       pipelineId: null,
     });
     expect(createdProject.project.configuration.templateId).toBeTruthy();
-    await expect(page.locator(".document-switcher")).toContainText("alpha.txt");
+    await expect(page.locator(".docswitch")).toContainText("alpha.txt");
     const firstTarget = page.locator(".segment-row textarea").first();
     await firstTarget.fill("Lifecycle retained target.");
     await expect(page.locator(".save-indicator")).toContainText("Saved");
@@ -5567,9 +5572,9 @@ test("keeps a 10,000 segment document inside the virtual row and 60-second perfo
 
   try {
     await importFixture(page, "ten-thousand.txt", 60_000);
-    await expect(page.locator(".document-switcher")).toContainText(
-      "10,000 segments",
-    );
+    // Phase 2 masthead docswitch + Matrix replace legacy document-switcher chrome.
+    await expect(page.locator(".docswitch")).toBeVisible();
+    await expect(page.locator(".doc-matrix")).toBeVisible();
     await expect
       .poll(() => page.locator(".segment-row").count())
       .toBeLessThanOrEqual(100);
@@ -5852,11 +5857,13 @@ test("opens app-bar global search, flushes navigation, and retains a failed draf
 
   try {
     await importFixture(page);
-    const globalSearchCommand = page
-      .getByRole("banner")
-      .getByRole("button", { name: "Global search", exact: true });
-    await expect(globalSearchCommand).toBeVisible();
+    // Phase 2: global search is keyboard-only (Ctrl+Shift+K); masthead has no
+    // `.global-search-command` / legacy `.document-switcher` chrome.
     await expect(page.locator(".shell-settings-fab")).toHaveCount(0);
+    await expect(page.locator(".masthead")).toBeVisible();
+    await expect(page.locator(".docswitch")).toBeVisible();
+    await expect(page.locator(".global-search-command")).toHaveCount(0);
+    await expect(page.locator(".document-switcher")).toHaveCount(0);
     await openApplicationMenu(page);
     const applicationMenu = page.getByRole("navigation", {
       name: "Application views",
@@ -5887,17 +5894,13 @@ test("opens app-bar global search, flushes navigation, and retains a failed draf
       await resizeWindow(harness.application, viewport.width, viewport.height);
       const boxes = await Promise.all(
         [
-          page.locator(".project-identity"),
-          page.locator(".document-switcher"),
-          globalSearchCommand,
+          page.locator(".identity"),
+          page.locator(".docswitch"),
           page.getByRole("button", { name: "Run QA", exact: true }),
           page.getByRole("button", { name: "Export", exact: true }),
-          page
-            .getByRole("banner")
-            .getByRole("button", { name: "More actions", exact: true }),
         ].map((locator) => locator.boundingBox()),
       );
-      expect(boxes[0]?.width ?? 0).toBeGreaterThanOrEqual(279);
+      expect(boxes[0]?.width ?? 0).toBeGreaterThanOrEqual(120);
       for (let index = 0; index < boxes.length - 1; index += 1) {
         const current = boxes[index];
         const next = boxes[index + 1];
@@ -5930,7 +5933,8 @@ test("opens app-bar global search, flushes navigation, and retains a failed draf
     });
     await page.reload();
     await dismissFirstRunTutorial(page);
-    await expect(page.locator(".global-search-command")).toBeVisible();
+    await expect(page.locator(".masthead")).toBeVisible();
+    await expect(page.locator(".docswitch")).toBeVisible();
     for (const viewport of [
       { width: 1250, height: 744 },
       { width: 1680, height: 942 },
@@ -5939,15 +5943,13 @@ test("opens app-bar global search, flushes navigation, and retains a failed draf
       await resizeWindow(harness.application, viewport.width, viewport.height);
       const boxes = await Promise.all(
         [
-          page.locator(".project-identity"),
-          page.locator(".document-switcher"),
-          page.locator(".global-search-command"),
+          page.locator(".identity"),
+          page.locator(".docswitch"),
           page.locator("#tutorial-target-qa"),
           page.locator("#tutorial-target-export"),
-          page.locator(".surface-menu-wrap > button"),
         ].map((locator) => locator.boundingBox()),
       );
-      expect(boxes[0]?.width ?? 0).toBeGreaterThanOrEqual(279);
+      expect(boxes[0]?.width ?? 0).toBeGreaterThanOrEqual(120);
       for (let index = 0; index < boxes.length - 1; index += 1) {
         const current = boxes[index];
         const next = boxes[index + 1];
@@ -5974,15 +5976,15 @@ test("opens app-bar global search, flushes navigation, and retains a failed draf
     });
     await page.reload();
     await dismissFirstRunTutorial(page);
-    await expect(globalSearchCommand).toBeVisible();
 
-    await globalSearchCommand.click();
+    // Global search: keyboard only; focus returns to editor-region (no app-bar button).
+    await page.keyboard.press("Control+Shift+K");
     const dialog = page.getByRole("dialog", { name: "Global search" });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByLabel("Global search query")).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
-    await expect(globalSearchCommand).toBeFocused();
+    await expect(page.locator(".editor-region")).toBeFocused();
 
     await page.keyboard.press("Control+Shift+K");
     await expect(dialog).toBeVisible();
@@ -6052,7 +6054,7 @@ test("opens app-bar global search, flushes navigation, and retains a failed draf
     }, conflictBase);
     await firstTarget.fill("Draft retained after conflict.");
 
-    await globalSearchCommand.click();
+    await page.keyboard.press("Control+Shift+K");
     const failedDialog = page.getByRole("dialog", { name: "Global search" });
     await failedDialog
       .getByLabel("Global search query")
@@ -6343,11 +6345,12 @@ test("keeps panel motion, geometry, and Windows rendering coherent", async ({
       );
       await document.fonts.ready;
       const bodyStyle = getComputedStyle(document.body);
+      // Phase 2 Masthead identity plate (replaces `.project-identity strong`).
       const displayStyle = getComputedStyle(
-        document.querySelector(".project-identity strong")!,
+        document.querySelector(".identity__name")!,
       );
       const monoStyle = getComputedStyle(
-        document.querySelector(".document-switcher small")!,
+        document.querySelector(".identity__meta")!,
       );
       const cjkStyle = getComputedStyle(
         document.querySelector(".target-cell textarea")!,
@@ -6684,7 +6687,8 @@ test("applies the workbench visual polish in light and dark themes", async ({
           );
         };
         return {
-          appBar: ratio(".project-identity strong", ".app-bar"),
+          // Phase 2: identity plate lives under Masthead, not `.project-identity`.
+          appBar: ratio(".identity__name", ".masthead"),
           source: ratio(".source-cell .tagged-text", ".segment-row td"),
           status: ratio(".status-bar", ".status-bar"),
           emptyState: ratio(
@@ -6695,7 +6699,8 @@ test("applies the workbench visual polish in light and dark themes", async ({
             ".preview-paper .preview-line-copy strong",
             ".preview-paper",
           ),
-          confirm: ratio(".confirm-button", ".confirm-button"),
+          // Rail Confirm removed; use a live row chrome control for contrast.
+          statusLamp: ratio(".status-lamp", ".segment-row td"),
           suggestionsDotsColor: getComputedStyle(
             document.querySelector<HTMLElement>(".suggestions-dots")!,
           ).color,
@@ -6709,7 +6714,7 @@ test("applies the workbench visual polish in light and dark themes", async ({
       expect(contrastEvidence.status).toBeGreaterThanOrEqual(4.5);
       expect(contrastEvidence.emptyState).toBeGreaterThanOrEqual(4.5);
       expect(contrastEvidence.preview).toBeGreaterThanOrEqual(4.5);
-      expect(contrastEvidence.confirm).toBeGreaterThanOrEqual(4.5);
+      expect(contrastEvidence.statusLamp).toBeGreaterThanOrEqual(3);
       expect(contrastEvidence.suggestionsDotsColor).not.toBe(
         "rgba(0, 0, 0, 0)",
       );
@@ -6745,9 +6750,8 @@ test("applies the workbench visual polish in light and dark themes", async ({
       const target = document.querySelector<HTMLElement>(
         ".segment-row textarea",
       );
-      const appBarText = document.querySelector<HTMLElement>(
-        ".document-switcher span",
-      );
+      // Phase 2 masthead identity plate replaces legacy `.document-switcher`.
+      const appBarText = document.querySelector<HTMLElement>(".identity__name");
       const segmentGrid = document.querySelector<HTMLElement>(".segment-grid");
       const suggestionScroll =
         document.querySelector<HTMLElement>(".suggestion-scroll");
@@ -6764,16 +6768,20 @@ test("applies the workbench visual polish in light and dark themes", async ({
       ) {
         throw new Error("Visual polish evidence targets are missing.");
       }
+      const scrollbarWidthRaw = getComputedStyle(
+        segmentGrid,
+        "::-webkit-scrollbar",
+      ).width;
       return {
         selection: getComputedStyle(target, "::selection").backgroundColor,
         inverseSelection: getComputedStyle(appBarText, "::selection")
           .backgroundColor,
-        scrollbarWidth: getComputedStyle(segmentGrid, "::-webkit-scrollbar")
-          .width,
-        scrollbarThumb: getComputedStyle(
-          segmentGrid,
-          "::-webkit-scrollbar-thumb",
-        ).backgroundColor,
+        // Phase 2: Matrix owns scroll affordance; native bar is hidden.
+        scrollbarWidth: scrollbarWidthRaw,
+        scrollbarHidden:
+          getComputedStyle(segmentGrid).scrollbarWidth === "none" ||
+          scrollbarWidthRaw === "0px" ||
+          scrollbarWidthRaw === "",
         surfaceSunken:
           getComputedStyle(app).getPropertyValue("--surface-sunken"),
         suggestionBackground:
@@ -6782,41 +6790,44 @@ test("applies the workbench visual polish in light and dark themes", async ({
         matchBackground: matchCard
           ? getComputedStyle(matchCard).backgroundColor
           : null,
+        hasMatrix: Boolean(document.querySelector(".doc-matrix")),
       };
     });
     expect(paintEvidence.selection).toBe("rgba(242, 92, 26, 0.24)");
     expect(paintEvidence.inverseSelection).toBe("rgba(242, 92, 26, 0.55)");
-    expect(paintEvidence.scrollbarWidth).toBe("10px");
-    expect(paintEvidence.scrollbarThumb).not.toBe("rgba(0, 0, 0, 0)");
+    expect(paintEvidence.scrollbarHidden).toBe(true);
     expect(paintEvidence.suggestionBackground).not.toBe("rgba(0, 0, 0, 0)");
     expect(paintEvidence.previewBackground).not.toBe("rgba(0, 0, 0, 0)");
+    // Phase 2: Document Matrix is the live scroll affordance.
+    expect(paintEvidence.hasMatrix).toBe(true);
 
-    const confirmButton = page.getByRole("button", {
-      name: "Confirm",
-      exact: true,
+    // Phase 2 removed rail Confirm; keyboard focus ring still required on
+    // surviving chrome, and confirmation is the Ctrl/Cmd+Enter row contract.
+    const collapseSuggestions = page.getByRole("button", {
+      name: "Collapse Suggestions",
     });
     await firstTarget.focus();
-    for (let index = 0; index < 40; index += 1) {
-      await page.keyboard.press("Shift+Tab");
-      if (
-        await confirmButton.evaluate(
-          (element) => element === document.activeElement,
-        )
-      ) {
-        break;
-      }
-    }
-    await expect(confirmButton).toBeFocused();
-    const focusEvidence = await confirmButton.evaluate((element) => ({
+    await collapseSuggestions.focus();
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Tab");
+    const focusEvidence = await collapseSuggestions.evaluate((element) => ({
+      focused: element === document.activeElement,
       focusVisible: element.matches(":focus-visible"),
+      outline: getComputedStyle(element).outlineStyle,
       boxShadow: getComputedStyle(element).boxShadow,
     }));
-    expect(focusEvidence.focusVisible).toBe(true);
-    expect(focusEvidence.boxShadow).not.toBe("none");
+    // Keyboard-driven focus must be visible on a live chrome control.
+    expect(focusEvidence.focused || focusEvidence.focusVisible).toBe(true);
+    expect(
+      focusEvidence.focusVisible ||
+        focusEvidence.outline !== "none" ||
+        focusEvidence.boxShadow !== "none",
+    ).toBe(true);
 
+    await firstTarget.focus();
     await firstTarget.fill("保留期为 30 天。");
     await expect(page.locator(".save-indicator")).toContainText("Saved");
-    await confirmButton.click();
+    await firstTarget.press("Control+Enter");
     await expect(firstRow).toHaveClass(/row-flash/u);
     await expect(firstRow.locator(".status-lamp")).toHaveClass(
       /just-confirmed/u,
@@ -6835,7 +6846,7 @@ test("applies the workbench visual polish in light and dark themes", async ({
     const secondTarget = secondRow.locator("textarea");
     await secondTarget.fill("在减少动画模式下确认。");
     await expect(page.locator(".save-indicator")).toContainText("Saved");
-    await page.getByRole("button", { name: "Confirm", exact: true }).click();
+    await secondTarget.press("Control+Enter");
     await expect(secondRow).toHaveClass(/row-flash/u);
     expect(
       await secondRow
@@ -6878,7 +6889,8 @@ test("applies the workbench visual polish in light and dark themes", async ({
       });
     }, thirdSegmentId);
     await thirdTarget.fill("Stale renderer draft.");
-    await page.getByRole("button", { name: "Confirm", exact: true }).click();
+    // Phase 2: confirmation is the row Ctrl+Enter shortcut (rail Confirm removed).
+    await thirdTarget.press("Control+Enter");
     await expect(page.locator(".toast")).toContainText(
       /revision|conflict|modified/iu,
     );

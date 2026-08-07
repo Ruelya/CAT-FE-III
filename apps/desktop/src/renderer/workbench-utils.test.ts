@@ -9,6 +9,7 @@ import {
   formatError,
   isConfirmShortcut,
   nextVisibleSegmentId,
+  restorePaletteOwnerFocus,
   togglePanelCollapsed,
   togglePanelMaximized,
 } from "./workbench-utils";
@@ -27,6 +28,21 @@ describe("workbench interaction guards", () => {
     );
     expect(isConfirmShortcut({ ...shortcut, keyCode: 229 }, false)).toBe(false);
     expect(isConfirmShortcut(shortcut, true)).toBe(false);
+  });
+
+  it("restores command-palette focus to the connected owner or fallback", () => {
+    const owner = document.createElement("button");
+    const fallback = document.createElement("button");
+    document.body.append(owner, fallback);
+    restorePaletteOwnerFocus(owner, fallback);
+    expect(document.activeElement).toBe(owner);
+
+    owner.remove();
+    restorePaletteOwnerFocus(owner, fallback);
+    expect(document.activeElement).toBe(fallback);
+
+    fallback.remove();
+    restorePaletteOwnerFocus(null, null);
   });
 
   it("advances within the visible ordering", () => {

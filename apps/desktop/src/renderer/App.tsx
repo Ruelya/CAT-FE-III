@@ -507,6 +507,9 @@ export function App() {
             hit.segmentOrdinal ?? undefined,
           )
         }
+        onOpenDocument={(documentId) =>
+          openWorkspace(workspace.snapshot.project.id, documentId)
+        }
         key={workspace.document.id}
         focusSegmentId={focusSegmentId}
         onStatusChange={setWorkbenchStatus}

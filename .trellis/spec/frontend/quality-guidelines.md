@@ -49,6 +49,14 @@ font rendering, panel seams, focus order, and horizontal transcript overflow.
   `aria-valuenow` transition and the final numeric geometry. Panel motion can
   otherwise make a sent key and a handled key indistinguishable in a long suite.
 - Check no renderer console/page errors in Playwright.
+- Composite widgets must use an allowed role/attribute pair. Prefer native
+  roving `tabIndex` over `aria-activedescendant` on roles that do not support
+  it (e.g. do not put `aria-activedescendant` on `role="navigation"`). Unit
+  tests should assert real `document.activeElement` movement or an axe check,
+  not only that an attribute string changes.
+- After removing a visible control (e.g. Workbench rail Confirm), update every
+  E2E path that selected it. Segment confirm is the active-textarea
+  `Control+Enter` contract.
 
 ## Review Checklist
 

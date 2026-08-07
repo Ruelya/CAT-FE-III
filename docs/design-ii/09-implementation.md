@@ -158,6 +158,19 @@ BEM 变体：`.block__element` + `data-*` 状态（不用 `--modifier` 类）。
 
 **验收**：Matrix 与滚动/筛选/跳转完全一致；全屏仅一条 Axis；筛选栏无裁切。
 
+#### 期 2 实现记录（2026-04）
+
+| 交付 | 位置 | 说明 |
+| --- | --- | --- |
+| `Masthead` | `components/workbench/Masthead.tsx` | 真实项目名 / 语向 / 文件数；`brand-plate` 为唯一 45° bevel；文档切换走 `persistAllSegments` → `onOpenDocument`；常驻全局搜索控件移除，`Ctrl+Shift+K` 仍开 `GlobalSearchPanel`，关闭后焦点回 `editor-region` |
+| `FilterRail` | `components/workbench/FilterRail.tsx` | 三组：状态 chip（All/Untranslated/Draft/Confirmed/Issues）· 匹配选择器 · 问题导航。移除文内搜索 / Exact TM 装饰条 / 命令条 / Confirm |
+| 匹配选择器 | 同上 | 词汇表完整呈现；**仅 `All` 为 live**；其余 option `disabled` +「暂缓/Deferred」，**不**写入 Engine/RPC，不合成分数或桶计数 |
+| `DocumentMatrix` | 既有组件 + `Workbench` 挂载 | 置于段落网格左侧；`segmentStates` 按**文档 ordinal** 投影到 `counts.total`（未知位 `null` 中性空心；混合未知桶不染色）；`viewportRange` 由网格 `scrollTop` 映射到 ordinal；`onNavigate` → 按 ordinal seek + `scrollIntoView`（不抢译文焦点）；滚轮/视口括号/键盘转发给 `.segment-grid` 唯一滚动所有者；原生滚动条隐藏；标题+图例走 i18n |
+| `ActiveAxis` | `components/workbench/ActiveAxis.tsx` | Workbench 内至多一个 `[data-axis="active"]`；活动行优先于 chip；关闭旧 `.id-cell::before` 轴伪元素；不触碰 Index Spine 壳层标记 |
+| 布局宿主 | `Workbench` 根 `workbench-app` | **期 2 有意保留 legacy flex 骨架**（`workbench-layout` / `editor-column` / `editor-grid-row`），不挂载设计稿 `.wb` CSS grid 与 `data-stack` 区划。Masthead / FilterRail / Matrix 邻接在 flex 上交付；`.wb` 规则暂为死 CSS，待期 4 Stack/预览联动时再迁。支持宽度仍以设计稿 1250 / 1680 / 1920 为验收参照，但响应式折叠列属后续 |
+
+**未做（明确 out of scope）**：期 3 单元格几何、期 4 Stack（含挂载 `.wb` + `data-stack`）、深色双轨桥、全量 match 桶投影、contract/engine/preload 变更。
+
 ### 期 3 · 网格与单元格
 1. 行几何重做（板块+缝、状态方灯 8 形、行内动作条移到列间缝）。
 2. 译文单元格（`field-sizing` + IME 契约 + 焦点即 Axis）。

@@ -31,6 +31,21 @@ export function isConfirmShortcut(
   );
 }
 
+/**
+ * Restore focus after command-palette dismissal.
+ * Prefer the still-connected invocation owner; otherwise a stable Workbench fallback.
+ */
+export function restorePaletteOwnerFocus(
+  owner: HTMLElement | null | undefined,
+  fallback: HTMLElement | null | undefined,
+): void {
+  if (owner && owner.isConnected) {
+    owner.focus();
+    return;
+  }
+  fallback?.focus();
+}
+
 export function replaceSegment(
   segments: readonly Segment[],
   replacement: Segment,

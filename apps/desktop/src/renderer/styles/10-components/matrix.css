@@ -5,6 +5,33 @@
 
 @layer components {
 
+/* —— Document Matrix shell（标题 + 点阵 + 图例）—————— */
+.doc-matrix-shell {
+  display: flex;
+  flex-direction: column;
+  min-block-size: 0;
+  background: var(--frame);
+  border-inline-end: 1px solid var(--rule-strong);
+}
+
+.doc-matrix-shell__header {
+  flex: 0 0 auto;
+  padding: var(--s-2) 0 0;
+  display: flex;
+  justify-content: center;
+}
+
+.doc-matrix-shell__title {
+  font-size: 9px;
+  line-height: 1.1;
+  color: var(--text-2);
+  letter-spacing: 0.04em;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  max-block-size: 4.5em;
+  overflow: hidden;
+}
+
 /* —— Document Matrix（3列打孔卡）——————————————————— */
 .doc-matrix {
   display: grid;
@@ -12,10 +39,16 @@
   align-content: start;
   gap: 4px;
   padding: var(--s-4) var(--s-3);
-  background: var(--frame);
-  border-inline-end: 1px solid var(--rule-strong);
+  flex: 1 1 auto;
+  min-block-size: 0;
   position: relative;
   overscroll-behavior: contain;
+  outline: none;
+}
+
+.doc-matrix:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: -2px;
 }
 
 .doc-matrix__dot {
@@ -63,7 +96,14 @@
   outline-offset: 2px;
 }
 
-/* —— 视口括号 ——————————————————————————————————— */
+/* Roving keyboard cursor (focused tab stop carries real DOM focus). */
+.doc-matrix__dot[data-focus] {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+  scale: 1.2;
+}
+
+/* —— 视口括号（主体穿透点击；仅边缘手柄可拖）—— */
 .doc-matrix__viewport {
   position: absolute;
   inset-inline: 2px;
@@ -71,9 +111,36 @@
   height: var(--vp-h, 0);
   border: 1px solid var(--text-1);
   border-inline-width: 2px;
-  pointer-events: none;
+  pointer-events: none; /* body never masks dots */
+  z-index: 1;
   transition: top var(--d-micro) linear,
               height var(--d-micro) linear;
+}
+
+.doc-matrix__viewport-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+}
+
+.doc-matrix__viewport-handle--start {
+  inset-inline-start: -2px;
+}
+
+.doc-matrix__viewport-handle--end {
+  inset-inline-end: -2px;
+}
+
+.doc-matrix__viewport-handle:active {
+  cursor: grabbing;
+}
+
+.doc-matrix__viewport:has(.doc-matrix__viewport-handle:active) {
+  transition: none;
 }
 
 /* —— 首次点燃动画 ——————————————————————————————— */
@@ -115,25 +182,51 @@
   scale: 1.2;
 }
 
-/* —— 图例 ——————————————————————————————————————— */
+/* —— 图例（窄条：色点 + 可访问标签/tooltip）———————— */
 .matrix-legend {
   display: flex;
-  gap: var(--s-6);
-  padding: var(--s-4);
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) 0 var(--s-3);
+  margin: 0;
+  list-style: none;
   font-size: var(--t-meta);
   color: var(--text-2);
+  flex: 0 0 auto;
 }
 
 .matrix-legend__item {
   display: flex;
   align-items: center;
-  gap: var(--s-2);
+  justify-content: center;
 }
 
 .matrix-legend__dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  box-shadow: inset 0 0 0 1.25px var(--rule-field);
+  background: transparent;
+  flex: 0 0 auto;
+}
+
+.matrix-legend__dot[data-state="draft"] {
+  background: linear-gradient(to top, var(--text-2) 50%, transparent 50%);
+}
+
+.matrix-legend__dot[data-state="confirmed"] {
+  background: var(--ok);
+  box-shadow: none;
+}
+
+.matrix-legend__dot[data-state="error"] {
+  background: var(--err);
+  box-shadow: none;
+}
+
+.matrix-legend__dot[data-state="neutral"] {
+  opacity: 0.45;
 }
 
 }

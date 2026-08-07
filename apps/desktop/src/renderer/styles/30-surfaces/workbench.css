@@ -35,8 +35,11 @@
   grid-area: masthead;
   display: flex;
   align-items: stretch;
+  min-block-size: var(--masthead-h, var(--appbar-height, 64px));
   background: var(--frame);
   border-block-end: 1px solid var(--rule-strong);
+  gap: 0;
+  padding: 0;
 }
 
 /* 标识板：全屏唯一 45° 切角 */
@@ -317,5 +320,156 @@
 }
 
 .qa-inline__action:hover { color: var(--text-1); }
+
+/* —— Phase 2: Active Axis singleton ——————————————— */
+.active-axis {
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block: 0;
+  inline-size: 2px;
+  background: var(--signal);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.active-axis--chip {
+  inset-inline: 0;
+  inset-block: auto;
+  inset-block-end: 0;
+  inline-size: auto;
+  block-size: 2px;
+}
+
+/* Chip selection uses ActiveAxis under-edge when mounted; drop border twin. */
+.filter .chip[data-selected] {
+  border-bottom-color: transparent;
+  padding-bottom: 0;
+}
+
+/* —— Phase 2: Masthead document switcher —————————— */
+.docswitch--select {
+  position: relative;
+  cursor: pointer;
+}
+
+.docswitch__select {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  font: inherit;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+.docswitch__select:disabled {
+  cursor: not-allowed;
+}
+
+.docswitch--select:focus-within {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+/* —— Phase 2: Matrix + grid scroll ownership ——————— */
+.editor-grid-row {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.editor-body--with-matrix .doc-matrix-shell {
+  flex: 0 0 var(--matrix-w);
+  width: var(--matrix-w);
+  min-height: 0;
+  align-self: stretch;
+}
+
+.editor-grid-row .segment-grid {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Hide native grid scrollbar; Matrix is the visual scroll affordance. */
+.workbench-app .segment-grid {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.workbench-app .segment-grid::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Neutralize legacy row axis pseudo-element (ActiveAxis owns the marker). */
+.workbench-app .segment-row.active .id-cell::before {
+  content: none;
+  opacity: 0;
+  transform: none;
+}
+
+.workbench-app .segment-row .id-cell {
+  position: relative;
+}
+
+.workbench-app .segment-row .id-cell .active-axis {
+  /* Row axis lives in the ID cell; visually reads as the row's left edge. */
+  top: 0;
+  bottom: 0;
+}
+
+.filter-match {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+}
+
+.filter-match__select {
+  height: 32px;
+  min-inline-size: 7.5rem;
+  max-inline-size: 11rem;
+  padding-inline: var(--s-4);
+  font: 500 var(--t-meta) / 1 var(--font-ui);
+  color: var(--text-1);
+  background: var(--deck);
+  border: 1px solid var(--rule-field);
+  border-radius: var(--r-input);
+}
+
+.filter .chip {
+  position: relative;
+}
+
+/* Compact rail: keep match + issues reachable without wrapping chrome. */
+.filter.is-compact,
+.editor-toolbar.is-compact.filter {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+/* Identity plate: allow multi-line project name with clip. */
+.masthead .identity__name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: clip;
+  white-space: normal;
+  word-break: break-word;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .active-axis {
+    transition: none;
+  }
+  .doc-matrix__viewport {
+    transition: none;
+  }
+}
 
 }
