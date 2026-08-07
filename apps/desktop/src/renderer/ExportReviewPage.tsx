@@ -1,15 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import type { QaGateResult, QaIssueView } from "@translunar/contracts";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Download,
-  ExternalLink,
-  FileCheck2,
-  RefreshCw,
-  ShieldAlert,
-} from "lucide-react";
+import type {
+  DegradationFinding,
+  QaGateResult,
+  QaIssueView,
+} from "@translunar/contracts";
 
+import { ExportDegradationList } from "./components/quality/ExportDegradationList";
+import { ExportDeliveryActions } from "./components/quality/ExportDeliveryActions";
+import { ExportGateBanner } from "./components/quality/ExportGateBanner";
+import { ExportGateChecklist } from "./components/quality/ExportGateChecklist";
 import type { WorkspacePageProps } from "./WorkbenchPages";
 import { fileName, formatError } from "./workbench-utils";
 import { useLocale } from "./i18n/LocaleProvider";
@@ -18,6 +17,7 @@ export function ExportReviewPage({
   snapshot,
   document,
   onOpenSegment,
+  onNavigate,
 }: WorkspacePageProps) {
   const { t } = useLocale();
 
@@ -31,6 +31,9 @@ export function ExportReviewPage({
   const [overrideEnabled, setOverrideEnabled] = useState(false);
   const [actor, setActor] = useState("");
   const [reason, setReason] = useState("");
+  const [postDegradation, setPostDegradation] = useState<
+    DegradationFinding[] | null
+  >(null);
 
   const checkGate = useCallback(async () => {
     setError(null);
@@ -91,6 +94,7 @@ export function ExportReviewPage({
           ? { qaOverride: { actor: actor.trim(), reason: reason.trim() } }
           : {}),
       });
+      setPostDegradation(result.degradation ?? []);
       setSuccess(
         t("export.success", {
           count: result.translatedSegments,
@@ -109,34 +113,20 @@ export function ExportReviewPage({
     gate && (gate.clear || (overrideEnabled && actor.trim() && reason.trim())),
   );
 
+  const preDegradation = document.degradation ?? [];
+
   return (
     <main
-      className="surface-main export-review-workspace"
+      className="surface-main export-ortho"
       aria-busy={loading || busy}
     >
-      <section className="export-review-hero">
-        <div>
-          <span className="surface-kicker">{t("export.kicker")}</span>
-          <h1>{t("export.title")}</h1>
-          <strong className="export-review-state-copy">
-            {loading
-              ? t("export.checkingTranslation")
-              : gate?.clear
-                ? t("export.readyForDelivery")
-                : t("export.publicationBlocked")}
-          </strong>
-          <p>{t("export.heroBody", { name: document.name })}</p>
-        </div>
-        <button
-          type="button"
-          className="button secondary"
-          disabled={busy}
-          onClick={() => void checkGate()}
-        >
-          <RefreshCw size={14} className={loading ? "spin" : undefined} />
-          {t("export.checkAgain")}
-        </button>
-      </section>
+      <header className="export-ortho__header">
+        <h1>{t("export.title")}</h1>
+        <p>
+          {document.name} · {document.segmentCount}
+        </p>
+      </header>
+
       {error ? (
         <p className="surface-error qa-banner" role="alert">
           {error}
@@ -147,155 +137,95 @@ export function ExportReviewPage({
           {success}
         </p>
       ) : null}
-      <section
-        className={`export-gate-panel ${gate?.clear ? "is-clear" : "is-blocked"}`}
-      >
-        <div className="export-gate-state">
-          {gate?.clear ? <CheckCircle2 size={28} /> : <ShieldAlert size={28} />}
-          <div>
-            <span>
-              {gate?.clear
-                ? t("export.gateClear")
-                : t("export.blockingErrors", {
-                    count: gate?.errorCount ?? 0,
-                  })}
-            </span>
-            <strong>
-              {gate
-                ? t("export.countsLine", {
-                    warnings: gate.warningCount,
-                    info: gate.infoCount,
-                    waived: gate.waivedCount,
-                  })
-                : t("export.awaiting")}
-            </strong>
-          </div>
-        </div>
-        <dl>
-          <div>
-            <dt>{t("export.segmentsChecked")}</dt>
-            <dd>{gate?.run.checkedSegments ?? "—"}</dd>
-          </div>
-          <div>
-            <dt>{t("common.profile")}</dt>
-            <dd>{gate?.run.profileName ?? "—"}</dd>
-          </div>
-          <div>
-            <dt>{t("export.run")}</dt>
-            <dd>{gate?.run.id.slice(0, 8) ?? "—"}</dd>
-          </div>
-          <div>
-            <dt>{t("export.originalFormat")}</dt>
-            <dd>{document.format.toUpperCase()}</dd>
-          </div>
-        </dl>
-      </section>
-      <section className="export-review-grid">
-        <div className="export-blockers">
-          <header>
-            <div>
-              <span className="surface-kicker">
-                {t("export.blockingFindings")}
-              </span>
-              <h2>
-                {gate?.clear
-                  ? t("export.noOpenErrors")
-                  : t("export.resolveBefore")}
-              </h2>
-            </div>
-            <span>{blockers.length}</span>
-          </header>
-          {loading ? (
-            <div className="qa-skeleton">
-              <span />
-              <span />
-              <span />
-            </div>
-          ) : blockers.length ? (
-            blockers.map((issue) => (
-              <button
-                type="button"
-                key={issue.id}
-                onClick={() => onOpenSegment(issue.segmentId)}
-              >
-                <AlertTriangle size={16} />
-                <span>
-                  <strong>{issue.message}</strong>
-                  <small>
-                    {issue.documentName} ·{" "}
-                    {t("export.segmentLabel", {
-                      ordinal: issue.segmentOrdinal + 1,
-                    })}{" "}
-                    · {issue.ruleId}
-                  </small>
-                </span>
-                <ExternalLink size={14} />
-              </button>
-            ))
-          ) : (
-            <div className="surface-empty">
-              <FileCheck2 size={24} />
-              <strong>{t("export.nothingBlocks")}</strong>
-              <span>{t("export.warningsRemain")}</span>
-            </div>
-          )}
-        </div>
-        <aside className="export-delivery-card">
-          <span className="surface-kicker">{t("export.publication")}</span>
-          <h2>{document.name}</h2>
-          <p>{t("export.publicationBody")}</p>
-          {!gate?.clear && gate ? (
-            <div className="override-control">
-              <label className="override-toggle">
-                <input
-                  aria-label={t("export.overrideAria")}
-                  type="checkbox"
-                  checked={overrideEnabled}
-                  onChange={(event) =>
-                    setOverrideEnabled(event.currentTarget.checked)
-                  }
-                />
-                <span>
-                  <strong>{t("export.overrideTitle")}</strong>
-                  <small>{t("export.overrideHelp")}</small>
-                </span>
-              </label>
-              {overrideEnabled ? (
-                <div className="override-fields">
-                  <label>
-                    {t("common.actor")}
-                    <input
-                      value={actor}
-                      onChange={(event) => setActor(event.currentTarget.value)}
-                      placeholder={t("export.actorPlaceholder")}
-                    />
-                  </label>
-                  <label>
-                    {t("common.reason")}
-                    <textarea
-                      value={reason}
-                      onChange={(event) => setReason(event.currentTarget.value)}
-                      placeholder={t("export.reasonPlaceholder")}
-                    />
-                  </label>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-          <button
-            type="button"
-            className="button primary export-submit"
-            disabled={!canExport || busy}
-            onClick={() => void exportDocument()}
-          >
-            <Download size={15} />
-            {busy ? "Publishing…" : "Export document"}
-          </button>
-          {!gate?.clear && gate && !overrideEnabled ? (
-            <p className="export-help">{t("export.helpBlocked")}</p>
-          ) : null}
-        </aside>
-      </section>
+      {busy ? (
+        <p className="export-ortho__busy" role="status">
+          {t("export.publishing")}
+        </p>
+      ) : null}
+
+      <ExportGateBanner
+        gate={gate}
+        loading={loading}
+        busy={busy}
+        labels={{
+          blocked: t("export.gateBlocked"),
+          clear: t("export.gateClearCan"),
+          blockedBody: t("export.gateBlockedBody"),
+          clearBody: t("export.gateClearBody"),
+          viewIssues: t("export.viewIssues"),
+          recheck: t("export.checkAgain"),
+          checking: t("export.checkingTranslation"),
+        }}
+        onViewIssues={() => onNavigate("qa-review")}
+        onRecheck={() => {
+          setLoading(true);
+          void checkGate();
+        }}
+      />
+
+      <ExportGateChecklist
+        gate={gate}
+        labels={{
+          title: t("export.gateStatus"),
+          blockingErrors: t("export.blockingErrorsLabel"),
+          warnings: t("export.warningsLabel"),
+          checkedSegments: t("export.segmentsChecked"),
+          mustFix: t("export.mustFix"),
+          optional: t("export.optionalFix"),
+          profile: t("common.profile"),
+        }}
+      />
+
+      <ExportDegradationList
+        preExport={preDegradation}
+        postExport={postDegradation}
+        labels={{
+          title: t("export.degradationTitle"),
+          preTitle: t("export.degradationPre"),
+          postTitle: t("export.degradationPost"),
+          empty: t("export.degradationEmpty"),
+          path: t("export.degradationPath"),
+        }}
+      />
+
+      <ExportDeliveryActions
+        documentName={document.name}
+        format={document.format}
+        gate={gate}
+        blockers={blockers}
+        overrideEnabled={overrideEnabled}
+        actor={actor}
+        reason={reason}
+        canExport={canExport}
+        busy={busy}
+        labels={{
+          contentTitle: t("export.contentTitle"),
+          originalFormat: t("export.originalFormat"),
+          formatsResidual: t("export.formatsResidual"),
+          publication: t("export.publication"),
+          overrideAria: t("export.overrideAria"),
+          overrideTitle: t("export.overrideTitle"),
+          overrideHelp: t("export.overrideHelp"),
+          actor: t("common.actor"),
+          reason: t("common.reason"),
+          actorPlaceholder: t("export.actorPlaceholder"),
+          reasonPlaceholder: t("export.reasonPlaceholder"),
+          exportDocument: t("export.exportDocument"),
+          publishing: t("export.publishing"),
+          helpBlocked: t("export.helpBlocked"),
+          noOpenErrors: t("export.noOpenErrors"),
+          resolveBefore: t("export.resolveBefore"),
+          nothingBlocks: t("export.nothingBlocks"),
+          warningsRemain: t("export.warningsRemain"),
+          segmentLabel: t("export.segmentLabel"),
+          blockingFindings: t("export.blockingFindings"),
+        }}
+        onOverrideEnabled={setOverrideEnabled}
+        onActor={setActor}
+        onReason={setReason}
+        onExport={() => void exportDocument()}
+        onOpenSegment={onOpenSegment}
+      />
     </main>
   );
 }

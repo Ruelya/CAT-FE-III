@@ -1,0 +1,11 @@
+{"file": "docs/design-ii/09-implementation.md", "reason": "Phase 6 acceptance anchors against design-ii 期6 checklist"}
+{"file": "docs/design-ii/screens/quality.md", "reason": "Verify QA three-column, in-place fix, export gate and degradation against screen spec"}
+{"file": "docs/design-ii/screens/assets.md", "reason": "Verify assets five tabs and hub behaviors against screen spec"}
+{"file": "docs/design-ii/05-components.md", "reason": "Banner, drawer, matrix, empty, tabs compliance for review"}
+{"file": ".trellis/spec/frontend/electron-workbench.md", "reason": "RPC and DesktopApi preservation checks"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Expression-only and test quality bar for verify/review"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Extract and a11y component review criteria"}
+{"file": ".trellis/spec/guides/autoloop-orchestration.md", "reason": "Review/verify mission boundaries for autoloop"}
+{"file": ".trellis/tasks/08-08-ortho-frontend-phase-6-quality-assets/prd.md", "reason": "AC1–AC14 checklist source"}
+{"file": ".trellis/tasks/08-08-ortho-frontend-phase-6-quality-assets/design.md", "reason": "Layout and API preservation design under review"}
+{"file": ".trellis/tasks/08-08-ortho-frontend-phase-6-quality-assets/implement.md", "reason": "Validation commands and residual documentation expectations"}

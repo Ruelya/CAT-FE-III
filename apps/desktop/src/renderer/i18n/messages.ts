@@ -1837,7 +1837,98 @@ export type MessageKey =
   | "curation.evidenceSource"
   | "curation.evidenceTarget"
   | "curation.evidenceRelatedUnit"
-  | "curation.noAdditionalEvidence";
+  | "curation.noAdditionalEvidence"
+  /* Phase 6 — QA / export / assets chrome */
+  | "qa.lastRunMeta"
+  | "qa.runHistory"
+  | "qa.runHistoryTitle"
+  | "qa.runHistoryEmpty"
+  | "qa.matrixTitle"
+  | "qa.matrixCaption"
+  | "qa.matrixAria"
+  | "qa.matrixNone"
+  | "qa.matrixWarn"
+  | "qa.matrixError"
+  | "qa.matrixWaived"
+  | "qa.distribution"
+  | "qa.category"
+  | "qa.pluginFrom"
+  | "qa.sourceText"
+  | "qa.targetText"
+  | "qa.noSourceLoaded"
+  | "qa.noTargetLoaded"
+  | "qa.ruleMeta"
+  | "qa.locateSegment"
+  | "qa.fixInPlace"
+  | "qa.saveFix"
+  | "qa.fixSaved"
+  | "qa.fixHint"
+  | "qa.openRelated"
+  | "qa.severity.error"
+  | "qa.severity.warning"
+  | "qa.severity.info"
+  | "qa.category.completeness"
+  | "qa.category.numbers"
+  | "qa.category.tags"
+  | "qa.category.punctuation"
+  | "qa.category.whitespace"
+  | "qa.category.repetition"
+  | "qa.category.length"
+  | "qa.category.terminology"
+  | "qa.category.consistency"
+  | "qa.category.custom"
+  | "export.gateBlocked"
+  | "export.gateClearCan"
+  | "export.gateBlockedBody"
+  | "export.gateClearBody"
+  | "export.viewIssues"
+  | "export.gateStatus"
+  | "export.blockingErrorsLabel"
+  | "export.warningsLabel"
+  | "export.mustFix"
+  | "export.optionalFix"
+  | "export.degradationTitle"
+  | "export.degradationPre"
+  | "export.degradationPost"
+  | "export.degradationEmpty"
+  | "export.degradationPath"
+  | "export.contentTitle"
+  | "export.formatsResidual"
+  | "assets.title"
+  | "assets.scopeNote"
+  | "assets.tabsAria"
+  | "assets.tab.tm"
+  | "assets.tab.terms"
+  | "assets.tab.curation"
+  | "assets.tab.alignment"
+  | "assets.tab.interop"
+  | "assets.tm.libraries"
+  | "assets.tm.detail"
+  | "assets.tm.empty"
+  | "assets.tm.create"
+  | "assets.tm.createPlaceholder"
+  | "assets.tm.created"
+  | "assets.tm.mounted"
+  | "assets.tm.mount"
+  | "assets.tm.unmount"
+  | "assets.tm.selectLibrary"
+  | "assets.tm.healthResidual"
+  | "assets.tm.searchPlaceholder"
+  | "assets.tm.searchAria"
+  | "assets.tm.searching"
+  | "assets.tm.noMatches"
+  | "assets.tm.searchHint"
+  | "assets.terms.list"
+  | "assets.terms.detail"
+  | "assets.terms.empty"
+  | "assets.terms.create"
+  | "assets.terms.createPlaceholder"
+  | "assets.terms.select"
+  | "assets.terms.searchPlaceholder"
+  | "assets.terms.searchAria"
+  | "assets.terms.searching"
+  | "assets.terms.noMatches"
+  | "assets.terms.searchHint";
 
 type MessageCatalog = Record<MessageKey, string>;
 
@@ -3827,6 +3918,99 @@ const enUs: MessageCatalog = {
   "curation.evidenceTarget": "Target: {value}",
   "curation.evidenceRelatedUnit": "Related unit: {value}",
   "curation.noAdditionalEvidence": "No additional evidence",
+  "qa.lastRunMeta": "Last run {time} · {count} segments",
+  "qa.runHistory": "Run history",
+  "qa.runHistoryTitle": "QA runs",
+  "qa.runHistoryEmpty": "No runs recorded",
+  "qa.matrixTitle": "Distribution",
+  "qa.matrixCaption": "Projection of loaded issues",
+  "qa.matrixAria": "Segment severity matrix",
+  "qa.matrixNone": "None",
+  "qa.matrixWarn": "Warning",
+  "qa.matrixError": "Error",
+  "qa.matrixWaived": "Waived",
+  "qa.distribution": "Distribution",
+  "qa.category": "Category",
+  "qa.pluginFrom": "From plugin {name} v{version}",
+  "qa.sourceText": "Source",
+  "qa.targetText": "Target",
+  "qa.noSourceLoaded": "Source text not loaded for this segment",
+  "qa.noTargetLoaded": "Target text not loaded for this segment",
+  "qa.ruleMeta": "Rule",
+  "qa.locateSegment": "Locate segment",
+  "qa.fixInPlace": "Fix in place",
+  "qa.saveFix": "Save & next",
+  "qa.fixSaved": "Target updated",
+  "qa.fixHint": "Ctrl+Enter saves and advances to the next open issue",
+  "qa.openRelated": "Open {id}",
+  "qa.severity.error": "Error",
+  "qa.severity.warning": "Warning",
+  "qa.severity.info": "Info",
+  "qa.category.completeness": "Completeness",
+  "qa.category.numbers": "Numbers",
+  "qa.category.tags": "Tags",
+  "qa.category.punctuation": "Punctuation",
+  "qa.category.whitespace": "Whitespace",
+  "qa.category.repetition": "Repetition",
+  "qa.category.length": "Length",
+  "qa.category.terminology": "Terminology",
+  "qa.category.consistency": "Consistency",
+  "qa.category.custom": "Custom",
+  "export.gateBlocked": "Export blocked",
+  "export.gateClearCan": "Ready to export",
+  "export.gateBlockedBody":
+    "{count} open QA error(s) block export. Fix them or record an override.",
+  "export.gateClearBody": "Gate is clear for the original document format.",
+  "export.viewIssues": "View issues →",
+  "export.gateStatus": "Gate status",
+  "export.blockingErrorsLabel": "Blocking errors",
+  "export.warningsLabel": "Warnings",
+  "export.mustFix": "Must resolve",
+  "export.optionalFix": "Does not block",
+  "export.degradationTitle": "Degradation list",
+  "export.degradationPre": "Pre-export (import findings)",
+  "export.degradationPost": "Post-export",
+  "export.degradationEmpty": "No recorded degradation findings",
+  "export.degradationPath": "Path",
+  "export.contentTitle": "Export content",
+  "export.formatsResidual":
+    "Original format only on this page. Bilingual DOCX / XLIFF / TMX live under Interop.",
+  "assets.title": "Assets",
+  "assets.scopeNote": "Counts are project-scoped library and termbase totals.",
+  "assets.tabsAria": "Asset areas",
+  "assets.tab.tm": "Translation memory",
+  "assets.tab.terms": "Termbases",
+  "assets.tab.curation": "Curation",
+  "assets.tab.alignment": "Alignment & corpora",
+  "assets.tab.interop": "Interop",
+  "assets.tm.libraries": "Libraries",
+  "assets.tm.detail": "Library detail",
+  "assets.tm.empty": "No TM libraries for this project",
+  "assets.tm.create": "Create",
+  "assets.tm.createPlaceholder": "New library name",
+  "assets.tm.created": "Library created and mounted",
+  "assets.tm.mounted": "Mounted",
+  "assets.tm.mount": "Mount",
+  "assets.tm.unmount": "Unmount",
+  "assets.tm.selectLibrary": "Select a library",
+  "assets.tm.healthResidual":
+    "Health buckets unavailable without aggregation data",
+  "assets.tm.searchPlaceholder": "Search mounted memories…",
+  "assets.tm.searchAria": "Search translation memory",
+  "assets.tm.searching": "Searching…",
+  "assets.tm.noMatches": "No matches",
+  "assets.tm.searchHint": "Enter a query to search mounted TMs",
+  "assets.terms.list": "Termbases",
+  "assets.terms.detail": "Termbase detail",
+  "assets.terms.empty": "No termbases for this project",
+  "assets.terms.create": "Create",
+  "assets.terms.createPlaceholder": "New termbase name",
+  "assets.terms.select": "Select a termbase",
+  "assets.terms.searchPlaceholder": "Search terms…",
+  "assets.terms.searchAria": "Search terminology",
+  "assets.terms.searching": "Searching…",
+  "assets.terms.noMatches": "No term matches",
+  "assets.terms.searchHint": "Enter a query to search mounted termbases",
 };
 
 const zhCn: MessageCatalog = {
@@ -5720,6 +5904,98 @@ const zhCn: MessageCatalog = {
   "curation.evidenceTarget": "译文：{value}",
   "curation.evidenceRelatedUnit": "相关单元：{value}",
   "curation.noAdditionalEvidence": "没有其他证据",
+  "qa.lastRunMeta": "最近运行 {time} · {count} 段",
+  "qa.runHistory": "运行历史",
+  "qa.runHistoryTitle": "质检运行",
+  "qa.runHistoryEmpty": "尚无运行记录",
+  "qa.matrixTitle": "分布",
+  "qa.matrixCaption": "已加载问题投影",
+  "qa.matrixAria": "段落严重度矩阵",
+  "qa.matrixNone": "无问题",
+  "qa.matrixWarn": "警告",
+  "qa.matrixError": "错误",
+  "qa.matrixWaived": "已忽略",
+  "qa.distribution": "分布",
+  "qa.category": "类别",
+  "qa.pluginFrom": "来自插件 {name} v{version}",
+  "qa.sourceText": "原文",
+  "qa.targetText": "译文",
+  "qa.noSourceLoaded": "未加载该段原文",
+  "qa.noTargetLoaded": "未加载该段译文",
+  "qa.ruleMeta": "规则",
+  "qa.locateSegment": "定位到段",
+  "qa.fixInPlace": "就地修复",
+  "qa.saveFix": "保存并下一条",
+  "qa.fixSaved": "译文已更新",
+  "qa.fixHint": "Ctrl+Enter 保存并前进到下一条未处理问题",
+  "qa.openRelated": "打开 {id}",
+  "qa.severity.error": "错误",
+  "qa.severity.warning": "警告",
+  "qa.severity.info": "提示",
+  "qa.category.completeness": "完整性",
+  "qa.category.numbers": "数字",
+  "qa.category.tags": "标签",
+  "qa.category.punctuation": "标点",
+  "qa.category.whitespace": "空白",
+  "qa.category.repetition": "重复",
+  "qa.category.length": "长度",
+  "qa.category.terminology": "术语",
+  "qa.category.consistency": "一致性",
+  "qa.category.custom": "自定义",
+  "export.gateBlocked": "导出被阻断",
+  "export.gateClearCan": "可以导出",
+  "export.gateBlockedBody":
+    "{count} 个未处理的 QA 错误会阻止导出。修复后重新检查，或记录理由后覆盖门禁。",
+  "export.gateClearBody": "门禁已通过，可按原始格式导出。",
+  "export.viewIssues": "查看问题 →",
+  "export.gateStatus": "门禁状态",
+  "export.blockingErrorsLabel": "阻断性错误",
+  "export.warningsLabel": "警告",
+  "export.mustFix": "必须处理",
+  "export.optionalFix": "不阻断",
+  "export.degradationTitle": "降级清单",
+  "export.degradationPre": "导出前（导入发现）",
+  "export.degradationPost": "导出后",
+  "export.degradationEmpty": "无记录的降级项",
+  "export.degradationPath": "路径",
+  "export.contentTitle": "导出内容",
+  "export.formatsResidual":
+    "本页仅原始格式。双语 DOCX / XLIFF / TMX 见「互操作」。",
+  "assets.title": "资产",
+  "assets.scopeNote": "计数为本项目库与术语库总量。",
+  "assets.tabsAria": "资产分区",
+  "assets.tab.tm": "翻译记忆",
+  "assets.tab.terms": "术语库",
+  "assets.tab.curation": "养护",
+  "assets.tab.alignment": "对齐与语料",
+  "assets.tab.interop": "互操作",
+  "assets.tm.libraries": "记忆库",
+  "assets.tm.detail": "库详情",
+  "assets.tm.empty": "本项目尚无翻译记忆库",
+  "assets.tm.create": "创建",
+  "assets.tm.createPlaceholder": "新库名称",
+  "assets.tm.created": "已创建并挂载记忆库",
+  "assets.tm.mounted": "已挂载",
+  "assets.tm.mount": "挂载",
+  "assets.tm.unmount": "卸载",
+  "assets.tm.selectLibrary": "选择记忆库",
+  "assets.tm.healthResidual": "无分桶数据时健康矩阵不可用",
+  "assets.tm.searchPlaceholder": "搜索已挂载记忆…",
+  "assets.tm.searchAria": "搜索翻译记忆",
+  "assets.tm.searching": "搜索中…",
+  "assets.tm.noMatches": "无匹配",
+  "assets.tm.searchHint": "输入查询以搜索已挂载 TM",
+  "assets.terms.list": "术语库",
+  "assets.terms.detail": "术语库详情",
+  "assets.terms.empty": "本项目尚无术语库",
+  "assets.terms.create": "创建",
+  "assets.terms.createPlaceholder": "新术语库名称",
+  "assets.terms.select": "选择术语库",
+  "assets.terms.searchPlaceholder": "搜索术语…",
+  "assets.terms.searchAria": "搜索术语",
+  "assets.terms.searching": "搜索中…",
+  "assets.terms.noMatches": "无术语匹配",
+  "assets.terms.searchHint": "输入查询以搜索已挂载术语库",
 };
 
 const catalogs: Record<AppLocale, MessageCatalog> = {

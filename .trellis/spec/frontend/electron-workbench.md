@@ -393,6 +393,12 @@ render deterministic previous/next controls when `total` exceeds the page.
   cross-project analytics. Optional overview deep-links (`onOpenQa`,
   `onOpenAiControl`) remain additive parent callbacks with residual copy
   when unwired.
+- After ORTHO Phase 6, QA review / export review / Assets presentation
+  follows
+  [ORTHO Quality and Assets Surfaces (Phase 6)](#ortho-quality-and-assets-surfaces-phase-6).
+  Expression-only: same Engine QA/export/TM/term/curation/alignment/interop
+  methods; Spine id `translation-memory` kept; no invented gate fields,
+  export formats, or full-document severity aggregation RPC.
 
 ### 4. Validation & Error Matrix
 
@@ -3307,4 +3313,276 @@ setDependencyDiagnostics(result.diagnostics);
 <button type="button" onClick={() => void onCreated(projectId, documentId)}>
   {t("setup.openWorkspace")}
 </button>
+```
+
+## ORTHO Quality and Assets Surfaces (Phase 6)
+
+### 1. Scope / Trigger
+
+Use this contract when changing QA review, export review, or the Assets
+surface (Spine label **资产**, surface id still `translation-memory`):
+three-column QA layout, in-place target fix, export gate banner + degradation
+lists, five-tab assets shell, TM/terms hubs, or ORTHO host styling for shared
+curation/alignment/interop panels.
+
+Phase 6 is a **presentation extraction**. It must not change Engine,
+generated contracts, preload, main-process, provenance/curation/alignment
+utils semantics (except additive pure presentation helpers with tests), or
+invent new QA/export/TM/term RPC methods.
+
+Source components:
+
+- Orchestrators (stable import paths):
+  - `QaReviewPage.tsx` — profiles/runs/issues/queue, run, waive, fix, report
+  - `ExportReviewPage.tsx` — gate check, blockers, override export
+  - `components/assets/AssetsSurface.tsx` — five tabs + overview strip
+- `components/quality/*` — LiveMatrix, distribution/list/evidence, profile
+  drawer, run history, export gate/degradation/actions, `qa-presenters.ts`
+- `components/assets/*` — tab list, overview strip, TmHubPanel, TermbaseHubPanel
+- Heavy panels stay at renderer root for Insights dual-host:
+  `AssetCurationPanel.tsx`, `AlignmentCorpusPanel.tsx`, `InteropPanel.tsx`
+  (`TaskPackagePanel.tsx` remains Insights process tab only)
+- Styles: `styles/30-surfaces/quality.css`, `assets.css` (via `styles/index.css`)
+- Catalog: `i18n/messages.ts` (`qa.*` / `export.*` / `assets.*`, en + zh)
+- Routing: `WorkbenchPages.WorkspacePage` maps `translation-memory` → Assets
+
+### 2. Signatures
+
+```ts
+// Workspace pages share WorkspacePageProps (snapshot, document, segments,
+// issues, onNavigate, onRefresh, onOpenSegment, …). Do not require new App
+// surface ids.
+
+// In-place fix — mirror Workbench field set exactly
+await window.translunar.invoke("segment.updateTarget", {
+  segmentId: segment.id,
+  targetText,
+  expectedRevision: segment.revision,
+});
+// then: onRefresh() + reload issues; never silent success
+
+// Export gate + delivery (payload shapes unchanged)
+await window.translunar.invoke("qa.gate.check", { projectId, documentId });
+await window.translunar.invoke("document.export", {
+  documentId,
+  outputPath,
+  // only when gate.clear === false and override complete:
+  qaOverride?: { actor: string; reason: string },
+});
+
+// Assets overview — real list totals only (limit:1 is fine for total)
+await window.translunar.invoke("tm.library.list", { projectId, offset: 0, limit: 1 });
+await window.translunar.invoke("termbase.list", { projectId, offset: 0, limit: 1 });
+
+type AssetsTabId = "tm" | "terms" | "curation" | "alignment" | "interop";
+// Default tab: "curation" when practical
+
+// Pure presenters (unit-tested)
+buildSeverityMatrix(segmentCount, issues, { maxCells?: number }): MatrixCellState[];
+groupIssuesBySeverity(issues): IssueSeverityGroup[];
+sliceWithSpans(text, spans): HighlightSlice[];
+nextOpenIssueId(issues, currentId): string | null;
+```
+
+Layout shells (CSS grid contracts):
+
+```css
+.qa-ortho {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-block-size: 0;
+  height: 100%;
+}
+.qa-ortho__body {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr) minmax(320px, 420px);
+  min-block-size: 0;
+}
+.export-ortho { /* gate stack; max-width ~960px */ }
+.export-banner[data-state="blocked"] { border-inline-start: 3px solid var(--err); }
+.export-banner[data-state="clear"] { border-inline-start: 3px solid var(--ok); }
+.assets-ortho {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-block-size: 0;
+  height: 100%;
+}
+.tm-hub {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+}
+```
+
+Engine method sets remain the pre-Phase-6 catalog:
+
+- QA: `qa.profile.*`, `qa.run` / `qa.run.list`, `qa.issue.*`, `qa.report.export`,
+  `qa.gate.check`, `review.stats`, `review.queue`
+- Segment: `segment.updateTarget` (Workbench shape)
+- Export: `document.export` (+ existing path picker)
+- TM/terms: `tm.library.*`, `tm.search` / `tm.lookupExact`, `termbase.*`, `term.search`
+- Curation / alignment / interop: existing panel invoke graphs only
+
+No new invoke names or preload fields.
+
+### 3. Contracts
+
+#### QA three-column (分布 / 清单 / 证据)
+
+- Primary grid is **left distribution · center issue list · right evidence** —
+  not filter-rail + bottom review-band as the main composition.
+- Left (~180px): Live Matrix (segment ordinal → max severity from **loaded**
+  issues; label partial projection when paginated), severity chips with
+  counts, human-readable category/scope filters, open profile editor.
+- Center (1fr): issue **rows** (3px severity edge; `severity · display name`;
+  message line; waived desaturation; plugin provenance strip; `ruleId` mono
+  meta only). Group by severity. Reviewer queue folds into a secondary
+  group; open-segment only unless accept/reject RPCs already exist elsewhere
+  (**do not invent** review decision methods).
+- Right (~320–420px): segment source/target from `segments` prop (honest empty
+  if missing); span wash via `evidence.sourceSpans` / `targetSpans`; actions
+  定位到段 · 就地修复 · 忽略 (waive requires actor+reason).
+- Header: title + last run meta + Run QA; history from real `qa.run.list`.
+- Empty: no completed run → §D6 + run action.
+- Profile editor: ~420px drawer; `qa.profile.clone` for built-ins,
+  `qa.profile.update` for custom; mandatory-review via existing
+  `project.update` configuration path.
+- Live Matrix is **not** DocumentMatrix; cap cells (e.g. 2000); never invent
+  full-document aggregation without an Engine method.
+
+#### In-place fix
+
+- Constrained target editor on evidence column; persist with
+  `segment.updateTarget` using revision from matching `segments` entry.
+- Ctrl+Enter: save and advance to next open issue when possible.
+- After success: reload issues + parent `onRefresh`; do not require Workbench
+  navigation. Failure: inline error.
+- Plain text target is complete for this phase; TagCapsule parity is residual.
+
+#### Export gate + degradation
+
+- Delivery gate (not marketing hero): §A8 banner blocked (`--err`) vs clear
+  (`--ok` + can-export).
+- Gate rows use **real** `QaGateResult` / run fields only (blocking errors,
+  warnings, checked segments, policy counts when present — no invented
+  “all confirmed” if API omits the field).
+- Actions: 查看问题 → `onNavigate("qa-review")`; 重新检查 → `qa.gate.check`.
+- Primary export: original format via `document.export` + path picker.
+  Extra formats residual (disabled + honest note) unless already invokable.
+- **降级清单 required:**
+  - Pre-export: `document.degradation` (code, message, structuralPath);
+    empty → honest “no recorded degradation findings”.
+  - Post-export: `ExportDocumentResult.degradation` on success.
+- Override: actor+reason + `qaOverride` only when gate blocked; danger styling.
+- Busy: deterministic text; **no** circular spinner.
+
+#### Assets five tabs
+
+- Surface id **`translation-memory`** unchanged (shell/keymap); content is
+  Assets shell with header 资产 + overview strip of **real list totals only**
+  (no fake grand totals).
+- Exactly five §E2 tabs: TM · terms · curation · alignment · interop.
+  Default tab: **curation** when practical.
+- TM hub: library list + detail/search via `tm.library.*` + `tm.search` /
+  `tm.lookupExact`; health matrix only from real buckets or inert residual.
+- Terms hub: `termbase.list` / mount / create / `term.search` (import/export
+  optional if already patterned elsewhere — not a forced AC).
+- Curation / alignment / interop: mount existing panels (same props Insights
+  uses); ORTHO token surfaces when styling is touched.
+- TaskPackagePanel stays Insights-only (not a sixth assets tab).
+- Dual-host Insights embeds remain valid; Assets is Spine destination.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| No completed QA run | §D6 empty + Run QA; no fake issue rows |
+| Issue list paginated (PAGE_SIZE) | Matrix caption/honest partial projection; no new aggregation RPC |
+| Segment missing for selected issue | Honest empty source/target; do not invent text |
+| In-place save fails | Inline error; do not claim success or advance |
+| Waive without actor+reason | Block waive; require both fields |
+| Gate blocked, override incomplete | Export disabled |
+| Gate clear | Export enabled without override |
+| Pre-export degradation empty | Honest empty copy (not zeros as “findings”) |
+| Extra export formats unavailable | Residual disabled note; original format only |
+| TM/term overview totals | From `*.list` `total` only; never fabricate |
+| TM health buckets missing | Inert residual / honesty copy; no fake matrix clicks |
+| Review queue non-empty | Secondary list group; open segment only if no decision RPCs |
+| Engine/contracts/preload change for Phase 6 | Forbidden — expression-only |
+
+### 5. Good / Base / Bad Cases
+
+- Good: QA three columns; run QA; select issue; span evidence; in-place fix
+  saves via `segment.updateTarget` and reloads; waive with actor+reason.
+- Good: Export blocked banner → view issues; clear banner → export original
+  format; pre/post degradation lists visible.
+- Good: Assets five tabs default curation; TM/terms hubs use library RPCs;
+  Insights still mounts curation/alignment/interop/task packages.
+- Base: empty run §D6; empty degradation honest; overview counts null until
+  list returns.
+- Bad: restore filter-rail + bottom review-band as primary QA composition.
+- Bad: invent severity aggregation, export formats, review accept/reject, or
+  cross-project asset totals without Engine support.
+- Bad: ruleId-only titles without human severity/display name + message.
+- Bad: move/delete panel root files so Insights imports break.
+- Bad: circular spinners, permanent box-shadow chrome, fake telemetry.
+
+### 6. Tests Required
+
+- Unit: `components/quality/qa-presenters.test.ts` (matrix projection, groups,
+  span slice, next open issue).
+- Unit: keep `plugin-provenance-utils`, `asset-curation-utils`,
+  `alignment-corpus-utils` green when touched.
+- Typecheck: `apps/desktop` renderer green without contracts/engine/preload
+  package edits.
+- Manual residual: run QA end-to-end; in-place fix + Ctrl+Enter advance;
+  export path + override; five assets tabs; en/zh chrome; Insights dual-host.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+// Invent full-document severity without aggregation RPC.
+const cells = await inventSeverityForAllSegments(document.segmentCount);
+
+// Rule id as sole title; no message/display name.
+<title>{issue.ruleId}</title>
+
+// Export without gate discipline / invented format RPC.
+await invoke("document.exportXliff", { … });
+
+// Fake overview total.
+<span>{128_436}</span>
+
+// Sixth assets tab for task packages (belongs on Insights).
+tabs.push({ id: "task-packages", … });
+```
+
+#### Correct
+
+```tsx
+// Partial matrix from loaded issues + honest caption.
+const cells = buildSeverityMatrix(document.segmentCount, issues, {
+  maxCells: 2_000,
+});
+
+// Human row + mono rule meta.
+<span>{severity} · {displayName}</span>
+<span className="mono meta">{issue.ruleId}</span>
+
+// Gate + original-format export; override only when blocked.
+await invoke("qa.gate.check", { projectId, documentId });
+await invoke("document.export", {
+  documentId,
+  outputPath,
+  ...(!gate.clear ? { qaOverride: { actor, reason } } : {}),
+});
+
+// Real list totals only.
+const page = await invoke("tm.library.list", { projectId, offset: 0, limit: 1 });
+setTmTotal(page.total);
+
+// Five tabs; default curation; dual-host panels at stable paths.
+const [tab, setTab] = useState<AssetsTabId>("curation");
+// TaskPackagePanel remains under Insights only.
 ```

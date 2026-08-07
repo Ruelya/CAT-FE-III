@@ -6517,9 +6517,12 @@ button.tag-capsule {
   background: color-mix(in srgb, var(--warning) 10%, var(--surface));
 }
 
-/* Comprehensive QA, review, and delivery gate */
-.qa-workspace,
-.export-review-workspace {
+/* Legacy QA/export shells — neutralized when .qa-ortho / .export-ortho mount.
+   Kept for any residual class references during migration. */
+.legacy-qa-workspace,
+.legacy-export-review-workspace,
+.qa-workspace:not(.qa-ortho),
+.export-review-workspace:not(.export-ortho) {
   display: block;
   min-width: 0;
   padding: 22px clamp(18px, 2.2vw, 38px) 34px;

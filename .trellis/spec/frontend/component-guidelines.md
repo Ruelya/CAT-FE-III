@@ -113,6 +113,36 @@ Orchestrators own Engine invokes and parent contracts (`onOpen`, `onCreate`,
 Do not invent cross-project analytics or overview surfaces; optional
 `onOpenQa` / `onOpenAiControl` stay additive with residual copy when unwired.
 
+### ORTHO Quality and assets extracts (Phase 6)
+
+QA review, export gate, and Assets surface presentation pieces live under
+`src/renderer/components/quality/` and `components/assets/`. Keep
+`QaReviewPage` / `ExportReviewPage` as orchestrators (load, run, waive, fix,
+export). Keep heavy panel roots at renderer root for Insights dual-host.
+
+| Component | Responsibility |
+| --- | --- |
+| `LiveMatrix` | Thin cell grid (title, legend, click); not DocumentMatrix |
+| `qa-presenters` | Severity groups, span slices, matrix projection, rule labels |
+| `QaDistributionColumn` | Live Matrix + severity chips + scope/profile filters |
+| `QaIssueList` | Grouped issue rows + keyboard; queue as secondary group |
+| `QaEvidencePanel` | Source/target + spans; locate / in-place fix / waive actions |
+| `QaProfileDrawer` | 420px profile clone/update + mandatory-review toggle |
+| `QaRunHistoryPopover` | Run history from `qa.run.list` only |
+| `ExportGateBanner` | Blocked/clear §A8 banner |
+| `ExportGateChecklist` | Gate rows from real `QaGateResult` fields |
+| `ExportDegradationList` | Pre `document.degradation` + post export result |
+| `ExportDeliveryActions` | Export + override actor/reason; no invented formats |
+| `AssetsSurface` | Overview strip + five §E2 tabs; default `curation` |
+| `AssetsTabList` / `AssetsOverviewStrip` | Tabs + honest list totals only |
+| `TmHubPanel` / `TermbaseHubPanel` | Library/termbase list/search/mount via existing RPCs |
+
+Orchestrators own Engine invokes (`qa.*`, `segment.updateTarget`,
+`document.export`, `tm.*`, `termbase.*` / `term.search`). Presentational leaves
+receive props/callbacks. Spine surface id stays `translation-memory` (label
+资产). TaskPackagePanel stays Insights-only (not a sixth assets tab).
+Do not invent aggregation RPCs, export formats, or review accept/reject.
+
 Executable contracts:
 
 - Phase 2 chrome:
@@ -124,6 +154,8 @@ Executable contracts:
 - Phase 5 project surfaces:
   [ORTHO Project Surfaces](./electron-workbench.md#ortho-project-surfaces-phase-5)
   and [Project Lifecycle Desktop Surface](./electron-workbench.md#project-lifecycle-desktop-surface)
+- Phase 6 quality + assets:
+  [ORTHO Quality and Assets Surfaces](./electron-workbench.md#ortho-quality-and-assets-surfaces-phase-6)
 ## Avoid
 
 - No direct `window.translunar.invoke` calls scattered through presentational

@@ -1,37 +1,31 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   QaCategory,
-  QaField,
   QaIssueDisposition,
   QaIssueView,
   QaProfile,
-  QaProfileDefinition,
-  QaRegexRule,
   QaReportFormat,
   QaRun,
-  QaRunPluginRuleSnapshot,
-  QaSeverity,
   ReviewQueueItem,
   ReviewStatistics,
+  Segment,
 } from "@translunar/contracts";
-import {
-  ArrowLeft,
-  ArrowRight,
-  CheckCircle2,
-  Download,
-  ExternalLink,
-  Filter,
-  PencilLine,
-  Plus,
-  RefreshCw,
-  ShieldAlert,
-  Trash2,
-  Undo2,
-} from "lucide-react";
+import { CheckCircle2, Download, RefreshCw } from "lucide-react";
 
+import { QaDistributionColumn } from "./components/quality/QaDistributionColumn";
+import { QaEvidencePanel } from "./components/quality/QaEvidencePanel";
+import { QaIssueList } from "./components/quality/QaIssueList";
+import { QaProfileDrawer } from "./components/quality/QaProfileDrawer";
+import { QaRunHistoryPopover } from "./components/quality/QaRunHistoryPopover";
+import {
+  buildSeverityMatrix,
+  countSeverities,
+  nextOpenIssueId,
+} from "./components/quality/qa-presenters";
 import type { WorkspacePageProps } from "./WorkbenchPages";
 import { fileName, formatError } from "./workbench-utils";
 import { useLocale } from "./i18n/LocaleProvider";
+import type { MessageKey } from "./i18n/messages";
 import { findQaRuleSnapshot } from "./plugin-provenance-utils";
 
 const PAGE_SIZE = 30;
@@ -47,20 +41,18 @@ const CATEGORIES: QaCategory[] = [
   "consistency",
   "custom",
 ];
-const SEVERITIES: QaSeverity[] = ["error", "warning", "info"];
-const DISPOSITIONS: QaIssueDisposition[] = ["open", "waived", "resolved"];
 
 interface Filters {
-  severity: "all" | QaSeverity;
+  severity: "all" | "error" | "warning" | "info";
   category: "all" | QaCategory;
   disposition: "all" | QaIssueDisposition;
 }
 
 export function QaReviewPage(props: WorkspacePageProps) {
   const { t, formatDate } = useLocale();
-
-  const { snapshot, document, onOpenSegment, onRefresh } = props;
+  const { snapshot, document, segments, onOpenSegment, onRefresh } = props;
   const projectId = snapshot.project.id;
+
   const [profiles, setProfiles] = useState<QaProfile[]>([]);
   const [profileId, setProfileId] = useState("");
   const [scope, setScope] = useState<"document" | "project">("document");
@@ -87,6 +79,7 @@ export function QaReviewPage(props: WorkspacePageProps) {
   const [reviewRequired, setReviewRequired] = useState(
     snapshot.project.configuration.reviewRequired ?? true,
   );
+  const [advanceAfterFix, setAdvanceAfterFix] = useState(false);
 
   const loadOverview = useCallback(async () => {
     const [profilePage, runPage, reviewStats, reviewQueue] = await Promise.all([
@@ -174,6 +167,24 @@ export function QaReviewPage(props: WorkspacePageProps) {
     () => findQaRuleSnapshot(runs, selected),
     [runs, selected],
   );
+
+  const matrixCells = useMemo(
+    () =>
+      buildSeverityMatrix(
+        document.segmentCount || segments.length,
+        issues,
+        { maxCells: 2_000 },
+      ),
+    [document.segmentCount, issues, segments.length],
+  );
+  const severityCounts = useMemo(() => countSeverities(issues), [issues]);
+
+  useEffect(() => {
+    if (!advanceAfterFix) return;
+    setAdvanceAfterFix(false);
+    const next = nextOpenIssueId(issues, selectedId);
+    if (next) setSelectedId(next);
+  }, [advanceAfterFix, issues, selectedId]);
 
   async function runQa() {
     setBusy(true);
@@ -286,79 +297,92 @@ export function QaReviewPage(props: WorkspacePageProps) {
     }
   }
 
+  async function saveTarget(segment: Segment, targetText: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await window.translunar.invoke("segment.updateTarget", {
+        segmentId: segment.id,
+        targetText,
+        expectedRevision: segment.revision,
+      });
+      await onRefresh();
+      await loadIssues();
+      setAdvanceAfterFix(true);
+      setNotice(t("qa.fixSaved"));
+    } catch (reasonValue) {
+      const message = formatError(reasonValue);
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function onSelectOrdinal(ordinal: number) {
+    const match = issues.find((item) => item.segmentOrdinal === ordinal);
+    if (match) setSelectedId(match.id);
+  }
+
+  const noRun = !loading && !run;
+
   return (
-    <main className="surface-main qa-workspace" aria-busy={loading || busy}>
-      <section className="qa-commandbar" aria-label={t("qa.controlsAria")}>
+    <main className="surface-main qa-ortho" aria-busy={loading || busy}>
+      <header className="qa-ortho__header">
         <div>
-          <span className="surface-kicker">{t("qa.kicker")}</span>
           <h1>{t("qa.title")}</h1>
-          <p>{document.name}</p>
+          <p className="qa-ortho__meta">
+            {run
+              ? t("qa.lastRunMeta", {
+                  time: formatDate(run.createdAtMs),
+                  count: run.checkedSegments,
+                })
+              : t("qa.noCompletedRun")}
+          </p>
         </div>
-        <label>
-          <span>{t("common.profile")}</span>
-          <select
-            value={profileId}
-            onChange={(event) => setProfileId(event.currentTarget.value)}
-          >
-            {profiles.map((profile) => (
-              <option key={profile.id} value={profile.id}>
-                {profile.name}
-                {profile.builtIn ? ` · ${t("qa.builtIn")}` : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-        <fieldset>
-          <legend>{t("common.scope")}</legend>
-          <button
-            type="button"
-            className={scope === "document" ? "active" : undefined}
-            onClick={() => setScope("document")}
-          >
-            {t("qa.documentScope")}
-          </button>
-          <button
-            type="button"
-            className={scope === "project" ? "active" : undefined}
-            onClick={() => setScope("project")}
-          >
-            {t("qa.projectScope")}
-          </button>
-        </fieldset>
-        <button
-          type="button"
-          className="button primary"
-          disabled={busy || !profileId}
-          onClick={() => void runQa()}
-        >
-          <RefreshCw size={15} className={busy ? "spin" : undefined} />
-          {t("qa.run")}
-        </button>
-        <button
-          type="button"
-          className="button secondary"
-          disabled={!profiles.find((item) => item.id === profileId)}
-          onClick={() =>
-            setEditorProfile(
-              profiles.find((item) => item.id === profileId) ?? null,
-            )
-          }
-        >
-          <PencilLine size={14} />
-          {t("qa.editProfile")}
-        </button>
-        <label className="qa-review-policy">
-          <input
-            type="checkbox"
-            checked={reviewRequired}
-            disabled={busy}
-            onChange={(event) =>
-              void updateReviewRequirement(event.currentTarget.checked)
-            }
+        <div className="qa-ortho__header-actions">
+          <QaRunHistoryPopover
+            runs={runs}
+            formatDate={formatDate}
+            labels={{
+              trigger: t("qa.runHistory"),
+              title: t("qa.runHistoryTitle"),
+              empty: t("qa.runHistoryEmpty"),
+              errors: t("qa.errors"),
+              warnings: t("qa.warnings"),
+              info: t("qa.info"),
+              checked: t("qa.checked"),
+            }}
           />
-          <span>{t("qa.mandatoryReview")}</span>
-        </label>
-      </section>
+          <button
+            type="button"
+            className="button secondary"
+            disabled={!run || busy}
+            onClick={() => void exportReport("html")}
+          >
+            <Download size={14} aria-hidden="true" />
+            HTML
+          </button>
+          <button
+            type="button"
+            className="button secondary"
+            disabled={!run || busy}
+            onClick={() => void exportReport("xlsx")}
+          >
+            <Download size={14} aria-hidden="true" />
+            XLSX
+          </button>
+          <button
+            type="button"
+            className="button primary"
+            disabled={busy || !profileId}
+            onClick={() => void runQa()}
+          >
+            <RefreshCw size={15} aria-hidden="true" />
+            {t("qa.run")}
+          </button>
+        </div>
+      </header>
 
       {error ? (
         <p className="surface-error qa-banner" role="alert">
@@ -371,352 +395,166 @@ export function QaReviewPage(props: WorkspacePageProps) {
         </p>
       ) : null}
 
-      <section className="qa-summary-strip" aria-label={t("qa.latestRunAria")}>
-        <Summary label={t("qa.errors")} value={run?.errors ?? 0} tone="error" />
-        <Summary
-          label={t("qa.warnings")}
-          value={run?.warnings ?? 0}
-          tone="warning"
-        />
-        <Summary label={t("qa.info")} value={run?.info ?? 0} tone="info" />
-        <Summary label={t("qa.waived")} value={run?.waived ?? 0} />
-        <div className="qa-run-meta">
-          <span>
-            {run
-              ? `${run.profileName} · ${t("common.revision", {
-                  revision: run.profileRevision,
-                })}`
-              : t("qa.noCompletedRun")}
-          </span>
-          <strong>
-            {run
-              ? t("qa.checked", { count: run.checkedSegments })
-              : t("qa.runToCreate")}
-          </strong>
-        </div>
-        <div className="qa-report-actions">
+      {noRun ? (
+        <div className="surface-empty qa-ortho__empty">
+          <CheckCircle2 size={28} aria-hidden="true" />
+          <strong>{t("qa.noCompletedRun")}</strong>
+          <span>{t("qa.runToCreate")}</span>
           <button
             type="button"
-            disabled={!run || busy}
-            onClick={() => void exportReport("html")}
+            className="button primary"
+            disabled={busy || !profileId}
+            onClick={() => void runQa()}
           >
-            <Download size={14} />
-            HTML
-          </button>
-          <button
-            type="button"
-            disabled={!run || busy}
-            onClick={() => void exportReport("xlsx")}
-          >
-            <Download size={14} />
-            XLSX
+            {t("qa.run")}
           </button>
         </div>
-      </section>
-
-      <section
-        className="qa-plugin-history"
-        aria-label={t("qa.pluginHistoryAria")}
-      >
-        <header>
-          <div>
-            <span className="surface-kicker">
-              {t("qa.pluginHistoryKicker")}
-            </span>
-            <h2>{t("qa.pluginHistoryTitle")}</h2>
-          </div>
-          <span>{t("qa.runHistoryCount", { count: runs.length })}</span>
-        </header>
-        {runs.some((candidate) => candidate.pluginRules?.length) ? (
-          <div className="qa-plugin-runs">
-            {runs
-              .filter((candidate) => candidate.pluginRules?.length)
-              .slice(0, 5)
-              .map((candidate) => (
-                <article key={candidate.id}>
-                  <header>
-                    <div>
-                      <strong>{candidate.profileName}</strong>
-                      <code title={candidate.id}>{candidate.id}</code>
-                    </div>
-                    <span data-status={candidate.status}>
-                      {candidate.status}
-                    </span>
-                    <time
-                      dateTime={new Date(candidate.createdAtMs).toISOString()}
-                    >
-                      {formatDate(candidate.createdAtMs)}
-                    </time>
-                  </header>
-                  <div className="qa-plugin-rule-list">
-                    {(candidate.pluginRules ?? []).map((pluginRule) => (
-                      <QaPluginRuleProvenance
-                        key={`${pluginRule.provenance.contributionId}:${pluginRule.contributionIndex}`}
-                        snapshot={pluginRule}
-                      />
-                    ))}
-                  </div>
-                </article>
-              ))}
-          </div>
-        ) : (
-          <p>{t("qa.pluginHistoryEmpty")}</p>
-        )}
-      </section>
-
-      <section className="qa-layout">
-        <aside className="qa-filter-rail" aria-label={t("qa.filtersAria")}>
-          <header>
-            <Filter size={15} />
-            <strong>{t("qa.findings")}</strong>
-            <span>{issueTotal}</span>
-          </header>
-          <FilterSelect
-            label="Severity"
-            value={filters.severity}
-            values={SEVERITIES}
-            onChange={(value) =>
-              setFilters((current) => ({
-                ...current,
-                severity: value as Filters["severity"],
-              }))
+      ) : (
+        <div className="qa-ortho__body">
+          <QaDistributionColumn
+            cells={matrixCells}
+            counts={severityCounts}
+            severityFilter={filters.severity}
+            dispositionFilter={filters.disposition}
+            categoryFilter={filters.category}
+            scope={scope}
+            categories={CATEGORIES}
+            profiles={profiles}
+            profileId={profileId}
+            selectedOrdinal={selected?.segmentOrdinal ?? null}
+            matrixTitle={t("qa.matrixTitle")}
+            matrixCaption={t("qa.matrixCaption")}
+            matrixAria={t("qa.matrixAria")}
+            legend={{
+              none: t("qa.matrixNone"),
+              warn: t("qa.matrixWarn"),
+              error: t("qa.matrixError"),
+              waived: t("qa.matrixWaived"),
+            }}
+            labels={{
+              distribution: t("qa.distribution"),
+              errors: t("qa.errors"),
+              warnings: t("qa.warnings"),
+              info: t("qa.info"),
+              waived: t("qa.waived"),
+              scope: t("common.scope"),
+              documentScope: t("qa.documentScope"),
+              projectScope: t("qa.projectScope"),
+              category: t("qa.category"),
+              all: t("common.all"),
+              profile: t("common.profile"),
+              editProfile: t("qa.editProfile"),
+              builtIn: t("qa.builtIn"),
+            }}
+            onSeverityFilter={(severity) =>
+              setFilters((current) => ({ ...current, severity }))
+            }
+            onDispositionFilter={(disposition) =>
+              setFilters((current) => ({ ...current, disposition }))
+            }
+            onCategoryFilter={(category) =>
+              setFilters((current) => ({ ...current, category }))
+            }
+            onScope={setScope}
+            onProfileId={setProfileId}
+            onSelectOrdinal={onSelectOrdinal}
+            onEditProfile={() =>
+              setEditorProfile(
+                profiles.find((item) => item.id === profileId) ?? null,
+              )
             }
           />
-          <FilterSelect
-            label="Category"
-            value={filters.category}
-            values={CATEGORIES}
-            onChange={(value) =>
-              setFilters((current) => ({
-                ...current,
-                category: value as Filters["category"],
-              }))
+
+          <QaIssueList
+            issues={issues}
+            selectedId={selectedId}
+            issueTotal={issueTotal}
+            offset={offset}
+            pageSize={PAGE_SIZE}
+            loading={loading}
+            queue={queue}
+            pluginRuleFor={(issue) => findQaRuleSnapshot(runs, issue)}
+            categoryLabel={(category) =>
+              t(`qa.category.${category}` as MessageKey)
+            }
+            severityLabel={(severity) =>
+              t(`qa.severity.${severity}` as MessageKey)
+            }
+            labels={{
+              findingsAria: t("qa.findingsAria"),
+              noMatch: t("qa.noMatch"),
+              changeFilters: t("qa.changeFilters"),
+              prevPage: t("qa.prevIssuePage"),
+              nextPage: t("qa.nextIssuePage"),
+              pageRange: t("common.pageRange"),
+              waived: t("qa.waived"),
+              pluginFrom: t("qa.pluginFrom"),
+              pendingProposals: t("qa.pendingProposals"),
+              queueClear: t("qa.queueClear"),
+              loading: t("qa.loadingFindings"),
+            }}
+            onSelect={setSelectedId}
+            onOpenSegment={onOpenSegment}
+            onOffset={setOffset}
+            formatPageRange={(start, end, total) =>
+              t("common.pageRange", { start, end, total })
+            }
+            pendingProposalCountLabel={(count) =>
+              t("qa.pendingProposalCount", { count })
             }
           />
-          <FilterSelect
-            label="Disposition"
-            value={filters.disposition}
-            values={DISPOSITIONS}
-            onChange={(value) =>
-              setFilters((current) => ({
-                ...current,
-                disposition: value as Filters["disposition"],
-              }))
+
+          <QaEvidencePanel
+            issue={selected}
+            segments={segments}
+            pluginRule={selectedPluginRule}
+            busy={busy}
+            severityLabel={(severity) =>
+              t(`qa.severity.${severity}` as MessageKey)
             }
+            categoryLabel={(category) =>
+              t(`qa.category.${category}` as MessageKey)
+            }
+            labels={{
+              detailAria: t("qa.detailAria"),
+              selectFinding: t("qa.selectFinding"),
+              evidenceHere: t("qa.evidenceHere"),
+              source: t("qa.sourceText"),
+              target: t("qa.targetText"),
+              noSource: t("qa.noSourceLoaded"),
+              noTarget: t("qa.noTargetLoaded"),
+              rule: t("qa.ruleMeta"),
+              severity: t("common.severity"),
+              locate: t("qa.locateSegment"),
+              fixInPlace: t("qa.fixInPlace"),
+              saveFix: t("qa.saveFix"),
+              cancelFix: t("common.cancel"),
+              waive: t("qa.waiveFindingBtn"),
+              revokeWaiver: t("qa.revokeWaiver"),
+              openRelated: t("qa.openRelated"),
+              noEvidenceText: t("qa.noEvidence"),
+              pluginOwner: t("qa.pluginOwner"),
+              contribution: t("plugins.contribution"),
+              fixHint: t("qa.fixHint"),
+            }}
+            formatWaivedBy={(actor) => t("qa.waivedBy", { actor })}
+            formatRelated={(count) => t("qa.relatedSegmentCount", { count })}
+            onOpenSegment={onOpenSegment}
+            onStartWaive={() => setWaiveOpen(true)}
+            onRevoke={() => void revokeIssue()}
+            onSaveTarget={saveTarget}
           />
-          <button
-            type="button"
-            className="qa-clear-filters"
-            onClick={() =>
-              setFilters({
-                severity: "all",
-                category: "all",
-                disposition: "open",
-              })
-            }
-          >
-            {t("qa.resetFilters")}
-          </button>
-        </aside>
-
-        <div className="qa-issue-column">
-          {loading ? (
-            <QaSkeleton />
-          ) : issues.length ? (
-            <div
-              className="qa-issue-list"
-              role="listbox"
-              aria-label={t("qa.findingsAria")}
-            >
-              {issues.map((issue) => (
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={issue.id === selectedId}
-                  className={`qa-issue-row severity-${issue.severity}`}
-                  key={issue.id}
-                  onClick={() => setSelectedId(issue.id)}
-                >
-                  <span className="qa-severity-dot" />
-                  <span className="qa-row-location">
-                    {issue.documentName} · {issue.segmentOrdinal + 1}
-                  </span>
-                  <strong>{issue.message}</strong>
-                  <span>
-                    {issue.category} · {issue.ruleId}
-                  </span>
-                  <em>{issue.disposition}</em>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="surface-empty">
-              <CheckCircle2 size={24} />
-              <strong>{t("qa.noMatch")}</strong>
-              <span>{t("qa.changeFilters")}</span>
-            </div>
-          )}
-          <footer className="qa-pagination">
-            <span>
-              {issueTotal
-                ? t("common.pageRange", {
-                    start: offset + 1,
-                    end: Math.min(offset + PAGE_SIZE, issueTotal),
-                    total: issueTotal,
-                  })
-                : t("qa.noMatch")}
-            </span>
-            <button
-              type="button"
-              aria-label={t("qa.prevIssuePage")}
-              disabled={offset === 0}
-              onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
-            >
-              <ArrowLeft size={14} />
-            </button>
-            <button
-              type="button"
-              aria-label={t("qa.nextIssuePage")}
-              disabled={offset + PAGE_SIZE >= issueTotal}
-              onClick={() => setOffset(offset + PAGE_SIZE)}
-            >
-              <ArrowRight size={14} />
-            </button>
-          </footer>
         </div>
+      )}
 
-        <aside className="qa-detail" aria-label={t("qa.detailAria")}>
-          {selected ? (
-            <>
-              <header>
-                <span
-                  className={`qa-detail-severity severity-${selected.severity}`}
-                >
-                  <ShieldAlert size={15} />
-                  {selected.severity}
-                </span>
-                <code title={selected.ruleId}>{selected.ruleId}</code>
-              </header>
-              <h2>{selected.message}</h2>
-              <p>
-                {selected.documentName} ·{" "}
-                {t("qa.segmentOrdinal", {
-                  ordinal: selected.segmentOrdinal + 1,
-                })}
-              </p>
-              {selectedPluginRule ? (
-                <QaPluginFindingProvenance snapshot={selectedPluginRule} />
-              ) : null}
-              <Evidence issue={selected} />
-              <button
-                type="button"
-                className="button primary"
-                onClick={() => onOpenSegment(selected.segmentId)}
-              >
-                <ExternalLink size={14} />
-                {t("qa.openSegment")}
-              </button>
-              {selected.disposition === "waived" && selected.waiver ? (
-                <div className="qa-waiver">
-                  <span>
-                    {t("qa.waivedBy", { actor: selected.waiver.actor })}
-                  </span>
-                  <p>{selected.waiver.reason}</p>
-                  <button
-                    type="button"
-                    className="button secondary"
-                    disabled={busy}
-                    onClick={() => void revokeIssue()}
-                  >
-                    <Undo2 size={14} />
-                    {t("qa.revokeWaiver")}
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  className="button secondary"
-                  disabled={busy || selected.disposition !== "open"}
-                  onClick={() => setWaiveOpen(true)}
-                >
-                  {t("qa.waiveFindingBtn")}
-                </button>
-              )}
-            </>
-          ) : (
-            <div className="surface-empty">
-              <ShieldAlert size={22} />
-              <strong>{t("qa.selectFinding")}</strong>
-              <span>{t("qa.evidenceHere")}</span>
-            </div>
-          )}
-        </aside>
-      </section>
-
-      <section className="review-band" aria-label={t("qa.reviewBandAria")}>
-        <div className="review-stats">
-          <span className="surface-kicker">{t("qa.reviewState")}</span>
-          <h2>
-            {stats
-              ? t("qa.reviewStats", {
-                  signed: stats.signedSegments,
-                  review: stats.reviewSegments,
-                })
-              : t("qa.loadingReview")}
-          </h2>
-          <dl>
-            <div>
-              <dt>{t("qa.translation")}</dt>
-              <dd>{stats?.translationSegments ?? 0}</dd>
-            </div>
-            <div>
-              <dt>{t("qa.pendingProposals")}</dt>
-              <dd>{stats?.pendingRevisions ?? 0}</dd>
-            </div>
-            <div>
-              <dt>{t("qa.accepted")}</dt>
-              <dd>{stats?.acceptedRevisions ?? 0}</dd>
-            </div>
-            <div>
-              <dt>{t("qa.rejected")}</dt>
-              <dd>{stats?.rejectedRevisions ?? 0}</dd>
-            </div>
-            <div>
-              <dt>{t("qa.reviewedChars")}</dt>
-              <dd>{stats?.reviewedCharacters ?? 0}</dd>
-            </div>
-          </dl>
-        </div>
-        <div className="review-queue">
-          <header>
-            <div>
-              <span className="surface-kicker">{t("qa.reviewerQueue")}</span>
-              <h2>
-                {queue.length
-                  ? t("qa.pendingProposalCount", { count: queue.length })
-                  : t("qa.queueClear")}
-              </h2>
-            </div>
-          </header>
-          {queue.length ? (
-            queue.map((item) => (
-              <button
-                type="button"
-                key={item.revision.id}
-                onClick={() => onOpenSegment(item.revision.segmentId)}
-              >
-                <span>
-                  {item.documentName} · {item.segmentOrdinal + 1}
-                </span>
-                <strong>{item.revision.author}</strong>
-                <ArrowRight size={14} />
-              </button>
-            ))
-          ) : (
-            <p>{t("qa.noPendingProposals")}</p>
-          )}
-        </div>
-      </section>
+      {stats ? (
+        <p className="qa-ortho__review-meta micro">
+          {t("qa.reviewStats", {
+            signed: stats.signedSegments,
+            review: stats.reviewSegments,
+          })}
+        </p>
+      ) : null}
 
       {waiveOpen && selected ? (
         <div className="surface-dialog-backdrop" role="presentation">
@@ -764,10 +602,37 @@ export function QaReviewPage(props: WorkspacePageProps) {
           </section>
         </div>
       ) : null}
+
       {editorProfile ? (
-        <ProfileEditor
+        <QaProfileDrawer
           profile={editorProfile}
           projectId={projectId}
+          reviewRequired={reviewRequired}
+          busy={busy}
+          labels={{
+            title: t("qa.profileRules"),
+            cloneProfile: t("qa.cloneProfile"),
+            customProfile: t("qa.customProfile"),
+            name: t("qa.name"),
+            maxTargetChars: t("qa.maxTargetChars"),
+            builtinImmutable: t("qa.builtinImmutable"),
+            customRegex: t("qa.customRegex"),
+            addRule: t("qa.addRule"),
+            label: t("qa.label"),
+            field: t("qa.field"),
+            severity: t("common.severity"),
+            pattern: t("qa.pattern"),
+            message: t("qa.message"),
+            replacementHint: t("qa.replacementHint"),
+            removeRule: t("qa.removeRule"),
+            cancel: t("common.cancel"),
+            save: t("qa.saveProfile"),
+            clone: t("qa.cloneProfile"),
+            close: t("qa.closeEditor"),
+            mandatoryReview: t("qa.mandatoryReview"),
+            customRule: t("qa.customRule"),
+            customPattern: t("qa.customPattern"),
+          }}
           onClose={() => setEditorProfile(null)}
           onSaved={async (saved) => {
             setProfileId(saved.id);
@@ -775,437 +640,9 @@ export function QaReviewPage(props: WorkspacePageProps) {
             await onRefresh();
             await reload();
           }}
+          onReviewRequired={(required) => void updateReviewRequirement(required)}
         />
       ) : null}
     </main>
   );
-}
-
-function Summary({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone?: string;
-}) {
-  return (
-    <div className={tone ? `qa-summary-${tone}` : undefined}>
-      <span>{label}</span>
-      <strong>{value.toLocaleString("en-US")}</strong>
-    </div>
-  );
-}
-
-function QaPluginRuleProvenance({
-  snapshot,
-}: {
-  snapshot: QaRunPluginRuleSnapshot;
-}) {
-  const { t } = useLocale();
-  const provenance = snapshot.provenance;
-  return (
-    <div data-status={snapshot.status}>
-      <strong>{provenance.contributionId}</strong>
-      <span>{provenance.pluginId}</span>
-      <span>
-        {provenance.contributionVersion} · {provenance.tier} · {snapshot.status}
-      </span>
-      <span>
-        {t("plugins.activationRevision", {
-          revision: provenance.activationRevision,
-        })}
-        {" · "}
-        {t("plugins.descriptorVersionShort", {
-          version: provenance.descriptorVersion,
-        })}
-        {" · "}
-        {t("plugins.operationVersionShort", {
-          version: provenance.operationProtocolVersion,
-        })}
-      </span>
-      <span>
-        {t("qa.executionCounts", {
-          executions: snapshot.executionCount,
-          findings: snapshot.findingCount,
-        })}
-      </span>
-      {snapshot.failure ? (
-        <p className="surface-error">
-          {snapshot.failure.code}: {snapshot.failure.message}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-function QaPluginFindingProvenance({
-  snapshot,
-}: {
-  snapshot: QaRunPluginRuleSnapshot;
-}) {
-  const { t } = useLocale();
-  const provenance = snapshot.provenance;
-  return (
-    <dl className="qa-finding-provenance">
-      <div>
-        <dt>{t("qa.pluginOwner")}</dt>
-        <dd>{provenance.pluginId}</dd>
-      </div>
-      <div>
-        <dt>{t("plugins.contribution")}</dt>
-        <dd>{provenance.contributionId}</dd>
-      </div>
-      <div>
-        <dt>{t("plugins.contributionVersion")}</dt>
-        <dd>
-          {provenance.contributionVersion} · {provenance.tier}
-        </dd>
-      </div>
-      <div>
-        <dt>{t("plugins.activationRevisionLabel")}</dt>
-        <dd>{provenance.activationRevision}</dd>
-      </div>
-    </dl>
-  );
-}
-
-function FilterSelect({
-  label,
-  value,
-  values,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  values: readonly string[];
-  onChange(value: string): void;
-}) {
-  const { t } = useLocale();
-  return (
-    <label>
-      <span>{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.currentTarget.value)}
-      >
-        <option value="all">{t("common.all")}</option>
-        {values.map((item) => (
-          <option key={item} value={item}>
-            {item}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-function QaSkeleton() {
-  const { t } = useLocale();
-  return (
-    <div className="qa-skeleton" aria-label={t("qa.loadingFindings")}>
-      <span />
-      <span />
-      <span />
-      <span />
-    </div>
-  );
-}
-function Evidence({ issue }: { issue: QaIssueView }) {
-  const { t } = useLocale();
-  const values = [
-    ...(issue.evidence.sourceValues ?? []),
-    ...(issue.evidence.targetValues ?? []),
-    ...(issue.evidence.sourceNumbers ?? []),
-    ...(issue.evidence.targetNumbers ?? []),
-  ];
-  return (
-    <div className="qa-evidence-detail">
-      <span>{t("common.evidence")}</span>
-      {values.length ? (
-        values
-          .slice(0, 8)
-          .map((value, index) => <code key={`${value}-${index}`}>{value}</code>)
-      ) : (
-        <p>{t("qa.noEvidence")}</p>
-      )}
-      {issue.evidence.relatedSegmentIds?.length ? (
-        <p>
-          {t("qa.relatedSegmentCount", {
-            count: issue.evidence.relatedSegmentIds.length,
-          })}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-function ProfileEditor({
-  profile,
-  projectId,
-  onClose,
-  onSaved,
-}: {
-  profile: QaProfile;
-  projectId: string;
-  onClose(): void;
-  onSaved(saved: QaProfile): Promise<void>;
-}) {
-  const { t } = useLocale();
-  const [draft, setDraft] = useState<QaProfileDefinition>(() =>
-    structuredClone(profile.definition),
-  );
-  const [name, setName] = useState(
-    profile.builtIn ? `${profile.name} custom` : profile.name,
-  );
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const rules = draft.regexRules ?? [];
-  const updateRule = (index: number, patchValue: Partial<QaRegexRule>) =>
-    setDraft((current) => ({
-      ...current,
-      regexRules: (current.regexRules ?? []).map((rule, ruleIndex) =>
-        ruleIndex === index ? { ...rule, ...patchValue } : rule,
-      ),
-    }));
-  async function save() {
-    setBusy(true);
-    setError(null);
-    try {
-      const saved = profile.builtIn
-        ? await window.translunar.invoke("qa.profile.clone", {
-            profileId: profile.id,
-            ownerProjectId: projectId,
-            name: name.trim(),
-          })
-        : await window.translunar.invoke("qa.profile.update", {
-            profileId: profile.id,
-            expectedRevision: profile.revision,
-            name: name.trim(),
-            definition: { ...draft, name: name.trim() },
-          });
-      await onSaved(saved);
-    } catch (reasonValue) {
-      setError(formatError(reasonValue));
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <div className="surface-dialog-backdrop">
-      <section
-        className="surface-dialog profile-editor"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="profile-title"
-      >
-        <header>
-          <div>
-            <span className="surface-kicker">
-              {profile.builtIn ? t("qa.cloneProfile") : t("qa.customProfile")}
-            </span>
-            <h2 id="profile-title">{t("qa.profileRules")}</h2>
-          </div>
-          <button
-            type="button"
-            className="icon-button"
-            aria-label={t("qa.closeEditor")}
-            onClick={onClose}
-          >
-            ×
-          </button>
-        </header>
-        {error ? (
-          <p className="surface-error" role="alert">
-            {error}
-          </p>
-        ) : null}
-        <label>
-          {t("qa.name")}
-          <input
-            value={name}
-            onChange={(event) => setName(event.currentTarget.value)}
-          />
-        </label>
-        <label>
-          {t("qa.maxTargetChars")}
-          <input
-            type="number"
-            min="1"
-            value={draft.settings.maxTargetChars ?? ""}
-            onChange={(event) =>
-              setDraft((current) => ({
-                ...current,
-                settings: {
-                  ...current.settings,
-                  maxTargetChars: event.currentTarget.value
-                    ? Number(event.currentTarget.value)
-                    : null,
-                },
-              }))
-            }
-          />
-        </label>
-        {profile.builtIn ? (
-          <p className="profile-note">{t("qa.builtinImmutable")}</p>
-        ) : (
-          <>
-            <div className="profile-rules-heading">
-              <strong>{t("qa.customRegex")}</strong>
-              <button
-                type="button"
-                onClick={() =>
-                  setDraft((current) => ({
-                    ...current,
-                    regexRules: [
-                      ...(current.regexRules ?? []),
-                      newRegexRule(
-                        current.regexRules?.length ?? 0,
-                        t("qa.customRule"),
-                        t("qa.customPattern"),
-                      ),
-                    ],
-                  }))
-                }
-              >
-                <Plus size={13} />
-                {t("qa.addRule")}
-              </button>
-            </div>
-            <div className="profile-rules">
-              {rules.map((rule, index) => (
-                <article key={`${rule.id}-${index}`}>
-                  <label>
-                    ID
-                    <input
-                      value={rule.id}
-                      onChange={(event) =>
-                        updateRule(index, { id: event.currentTarget.value })
-                      }
-                    />
-                  </label>
-                  <label>
-                    {t("qa.label")}
-                    <input
-                      value={rule.label}
-                      onChange={(event) =>
-                        updateRule(index, { label: event.currentTarget.value })
-                      }
-                    />
-                  </label>
-                  <label>
-                    {t("qa.field")}
-                    <select
-                      value={rule.field}
-                      onChange={(event) =>
-                        updateRule(index, {
-                          field: event.currentTarget.value as QaField,
-                        })
-                      }
-                    >
-                      <option value="source">source</option>
-                      <option value="target">target</option>
-                      <option value="both">both</option>
-                    </select>
-                  </label>
-                  <label>
-                    {t("common.severity")}
-                    <select
-                      value={rule.severity}
-                      onChange={(event) =>
-                        updateRule(index, {
-                          severity: event.currentTarget.value as QaSeverity,
-                        })
-                      }
-                    >
-                      {SEVERITIES.map((severity) => (
-                        <option key={severity}>{severity}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="wide">
-                    {t("qa.pattern")}
-                    <input
-                      value={rule.pattern}
-                      onChange={(event) =>
-                        updateRule(index, {
-                          pattern: event.currentTarget.value,
-                        })
-                      }
-                    />
-                  </label>
-                  <label className="wide">
-                    {t("qa.message")}
-                    <input
-                      value={rule.message}
-                      onChange={(event) =>
-                        updateRule(index, {
-                          message: event.currentTarget.value,
-                        })
-                      }
-                    />
-                  </label>
-                  <label className="wide">
-                    {t("qa.replacementHint")}
-                    <input
-                      value={rule.replacementHint ?? ""}
-                      onChange={(event) =>
-                        updateRule(index, {
-                          replacementHint: event.currentTarget.value || null,
-                        })
-                      }
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="profile-remove-rule"
-                    aria-label={t("qa.removeRule", { label: rule.label })}
-                    onClick={() =>
-                      setDraft((current) => ({
-                        ...current,
-                        regexRules: (current.regexRules ?? []).filter(
-                          (_, ruleIndex) => ruleIndex !== index,
-                        ),
-                      }))
-                    }
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </article>
-              ))}
-            </div>
-          </>
-        )}
-        <footer>
-          <button type="button" className="button secondary" onClick={onClose}>
-            {t("common.cancel")}
-          </button>
-          <button
-            type="button"
-            className="button primary"
-            disabled={!name.trim() || busy}
-            onClick={() => void save()}
-          >
-            {profile.builtIn ? t("qa.cloneProfile") : t("qa.saveProfile")}
-          </button>
-        </footer>
-      </section>
-    </div>
-  );
-}
-
-function newRegexRule(
-  index: number,
-  label: string,
-  message: string,
-): QaRegexRule {
-  return {
-    id: `custom.rule.${index + 1}`,
-    label,
-    field: "target",
-    pattern: "",
-    severity: "warning",
-    message,
-    replacementHint: null,
-  };
 }

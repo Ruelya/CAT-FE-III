@@ -264,6 +264,30 @@ BEM 变体：`.block__element` + `data-*` 状态（不用 `--modifier` 类）。
 ### 期 6 · 质量与资产
 QA 复核三栏 + 就地修复；导出复核 + 降级清单；资产 Surface 五 Tab（TM / 术语 / 养护 / 对齐 / 互操作）。
 
+#### 期 6 实现记录（2026-08）
+
+| 交付 | 位置 | 说明 |
+| --- | --- | --- |
+| QA 三栏 | `QaReviewPage.tsx` + `components/quality/*` | 分布 / 清单 / 证据；Live Matrix 投影已加载问题；严重度 chip；队列并入清单次级分组 |
+| 就地修复 | `QaEvidencePanel` | `segment.updateTarget`（与 Workbench 同形）；Ctrl+Enter 保存并下一条；span 高亮 |
+| 配置档抽屉 | `QaProfileDrawer` | 420px 抽屉；clone/update + 强制审校 `project.update` |
+| 导出门禁 | `ExportReviewPage` + `ExportGate*` | §A8 横幅；四项门禁行；覆盖导出；**查看问题 →** `qa-review` |
+| 降级清单 | `ExportDegradationList` | 导出前 `document.degradation`；导出后 `ExportDocumentResult.degradation` |
+| 资产五 Tab | `components/assets/AssetsSurface` | 默认 **养护**；TM / 术语 hub；挂载既有养护/对齐/互操作面板 |
+| 样式 | `styles/30-surfaces/quality.css` · `assets.css` | 新 surface 层；`styles/index.css` 引入 |
+| i18n | `i18n/messages.ts` | 三栏/门禁/降级/资产 Tab/就地修复 en+zh |
+
+**验收**：AC1–AC14（三栏/证据/就地修复/门禁/降级/五 Tab/RPC 不变/诚实计数/i18n）；`qa-presenters` 单测；desktop typecheck。
+
+**未做 / 残留**：
+- Live Matrix 仅投影当前页已加载 issues（PAGE_SIZE）；无全量聚合 RPC
+- 就地修复为纯文本译文编辑器；TagCapsule 与 Workbench 完全对等未做
+- 导出页额外格式（双语 DOCX / XLIFF / TMX）不在本页接线，残差文案指向互操作
+- TM 健康分桶无后端 → 诚实 residual；无假遥测数字
+- TaskPackagePanel 仍仅 Insights「流程」Tab，不进资产五 Tab
+- 审校者队列仅「打开段」；无新 accept/reject RPC
+- Insights 仍 dual-host 养护/对齐/互操作面板
+
 ### 期 7 · AI 与插件
 AI 控制台三 Tab；划词 AI 锚定菜单；一致性修复助手；插件权限表与宿主归属条。
 

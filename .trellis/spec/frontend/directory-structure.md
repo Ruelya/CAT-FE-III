@@ -53,10 +53,39 @@ components/project/
 `-- *.test.ts(x)
 ```
 
+ORTHO Phase 6 quality- and asset-class extracts:
+
+```text
+components/quality/
+|-- LiveMatrix.tsx              # thin severity/health matrix (not DocumentMatrix)
+|-- qa-presenters.ts            # group, span slice, matrix projection (+ tests)
+|-- QaDistributionColumn.tsx, QaIssueList.tsx, QaEvidencePanel.tsx
+|-- QaProfileDrawer.tsx, QaRunHistoryPopover.tsx
+|-- ExportGateBanner.tsx, ExportGateChecklist.tsx
+|-- ExportDegradationList.tsx, ExportDeliveryActions.tsx
+`-- *.test.ts(x)
+
+components/assets/
+|-- AssetsSurface.tsx           # five-tab shell; Spine id stays translation-memory
+|-- AssetsTabList.tsx, AssetsOverviewStrip.tsx
+|-- TmHubPanel.tsx, TermbaseHubPanel.tsx
+`-- *.test.ts(x)
+```
+
+Keep stable page/panel import paths for shell and Insights dual-host:
+
+- `QaReviewPage.tsx`, `ExportReviewPage.tsx` (orchestrators)
+- Root `AssetCurationPanel.tsx`, `AlignmentCorpusPanel.tsx`, `InteropPanel.tsx`,
+  `TaskPackagePanel.tsx` (do not move; Insights + Assets both mount as needed)
+
+`WorkbenchPages.WorkspacePage` routes `translation-memory` → `AssetsSurface`
+(no second Band/SurfaceHeader when shell already provides navigation).
+
 Grid keyboard/selection lives in `hooks/useRovingGrid.ts`. Shared interaction
 math lives in `workbench-utils.ts` with colocated tests (including
 `restorePaletteOwnerFocus`). Project lifecycle pure helpers stay in
-`project-home-utils.ts`. Surface CSS under `styles/30-surfaces/`:
+`project-home-utils.ts`. QA presentation pure helpers stay in
+`components/quality/qa-presenters.ts`. Surface CSS under `styles/30-surfaces/`:
 
 ```text
 styles/30-surfaces/
@@ -64,12 +93,15 @@ styles/30-surfaces/
 |-- workbench-stack.css
 |-- project-home.css
 |-- setup.css
-`-- insights.css
+|-- insights.css
+|-- quality.css                 # .qa-ortho / .export-ortho
+`-- assets.css                  # .assets-ortho / hubs
 ```
 
 Import new surface sheets from `styles/index.css`. Prefer shell-scoped rules
-under `.project-home-shell` / `.setup-wizard-shell` / insights main rather
-than growing unscoped rules in mega `styles.css`.
+under `.project-home-shell` / `.setup-wizard-shell` / `.qa-ortho` /
+`.export-ortho` / `.assets-ortho` / insights main rather than growing
+unscoped rules in mega `styles.css`.
 
 ## Placement Rules
 

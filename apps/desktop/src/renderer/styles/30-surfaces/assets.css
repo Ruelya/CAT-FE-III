@@ -1,0 +1,293 @@
+/* ══════════════════════════════════════════════════════════════
+   Assets surface — five tabs (TM · terms · curation · alignment · interop)
+   Source: docs/design-ii/screens/assets.md · Phase 6
+   ══════════════════════════════════════════════════════════════ */
+
+@layer surfaces {
+
+.assets-ortho {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-block-size: 0;
+  height: 100%;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.assets-overview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--s-4);
+  padding: var(--s-4) var(--s-5) var(--s-3);
+  border-block-end: 1px solid var(--rule-soft);
+}
+
+.assets-overview h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-heading, 22px);
+  font-weight: 600;
+}
+
+.assets-overview__counts {
+  display: flex;
+  gap: var(--s-5);
+  margin: 0;
+}
+
+.assets-overview__counts dt {
+  font-size: var(--t-micro);
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.assets-overview__counts dd {
+  margin: 2px 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--t-body);
+}
+
+.assets-overview__note {
+  margin: 0;
+  margin-inline-start: auto;
+  color: var(--text-2);
+  max-inline-size: 28rem;
+}
+
+/* §E2 tabs — mirror home-tablist geometry */
+.assets-tablist {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 0 var(--s-5);
+  border-block-end: 1px solid var(--rule);
+  flex: 0 0 auto;
+  height: 40px;
+}
+
+.assets-tablist__tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  height: 100%;
+  padding: 0 var(--s-4);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--t-section, var(--t-body));
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.assets-tablist__tab:hover {
+  color: var(--text-1);
+  background: var(--shade);
+}
+
+.assets-tablist__tab[aria-selected="true"] {
+  color: var(--text-1);
+}
+
+.assets-tablist__count {
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.assets-tablist__tab .active-axis--chip {
+  position: absolute;
+}
+
+.assets-ortho__panel {
+  min-block-size: 0;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.assets-panel-host {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  overflow: auto;
+  padding: var(--s-3);
+}
+
+/* TM / Terms hubs */
+.tm-hub,
+.term-hub {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  min-block-size: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.tm-hub__list,
+.term-hub__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  border-inline-end: 1px solid var(--rule-strong);
+  background: var(--frame);
+  overflow: auto;
+  min-width: 0;
+}
+
+.tm-hub__list header,
+.term-hub__list header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: var(--t-micro);
+  color: var(--text-2);
+}
+
+.tm-hub__list ul,
+.term-hub__list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.tm-hub__list button,
+.term-hub__list button {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--s-2);
+  width: 100%;
+  text-align: start;
+  border: 0;
+  background: transparent;
+  padding: 8px;
+  cursor: pointer;
+  color: inherit;
+}
+
+.tm-hub__list button[data-selected="true"],
+.term-hub__list button[data-selected="true"] {
+  background: var(--shade);
+}
+
+.tm-hub__list small,
+.term-hub__list small {
+  display: block;
+  color: var(--text-2);
+  font-size: var(--t-micro);
+}
+
+.tm-hub__create,
+.term-hub__create {
+  display: grid;
+  gap: 6px;
+  margin-block-start: auto;
+  padding-block-start: var(--s-2);
+  border-block-start: 1px solid var(--rule);
+}
+
+.tm-hub__detail,
+.term-hub__detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4);
+  overflow: auto;
+  min-width: 0;
+}
+
+.tm-hub__detail header,
+.term-hub__detail header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: var(--s-3);
+}
+
+.tm-hub__detail h2,
+.term-hub__detail h2 {
+  margin: 0;
+  font-size: var(--t-section);
+}
+
+.tm-hub__search,
+.term-hub__search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--rule);
+  padding: 6px 10px;
+  background: var(--deck);
+}
+
+.tm-hub__search input,
+.term-hub__search input {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  outline: none;
+  font: inherit;
+}
+
+.tm-hub__results,
+.term-hub__results {
+  display: grid;
+  gap: var(--s-2);
+}
+
+.tm-hub__match,
+.term-hub__match {
+  border: 1px solid var(--rule-soft);
+  padding: var(--s-3);
+  background: var(--bg);
+}
+
+.tm-hub__match header,
+.term-hub__match header {
+  display: flex;
+  gap: var(--s-3);
+  font-size: var(--t-micro);
+  color: var(--text-2);
+  margin-bottom: 4px;
+}
+
+.tm-hub__target {
+  color: var(--text-1);
+  margin: 4px 0 0;
+}
+
+.tm-hub__health {
+  margin: 0;
+  color: var(--text-2);
+}
+
+.term-chip {
+  font-size: 10px;
+  padding: 1px 6px;
+  border: 1px solid var(--rule);
+}
+
+.term-chip[data-state="preferred"] {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.term-chip[data-state="forbidden"] {
+  border-color: var(--err);
+  color: var(--err-ink, var(--err));
+}
+
+/* Host panel token soft-overrides under assets */
+.assets-panel-host {
+  /* Prefer semantic tokens over any panel-local literal greens when present */
+  --curation-green: var(--ok);
+  --curation-amber: var(--warn);
+  --curation-red: var(--err);
+}
+
+}

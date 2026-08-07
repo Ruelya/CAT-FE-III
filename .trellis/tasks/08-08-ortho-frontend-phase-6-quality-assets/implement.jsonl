@@ -1,0 +1,16 @@
+{"file": "docs/design-ii/09-implementation.md", "reason": "Phase 6 delivery list: QA three-column + in-place fix, export gate + degradation, assets five tabs"}
+{"file": "docs/design-ii/screens/quality.md", "reason": "Authoritative UX for QA distribution/list/evidence, export gate, reviewer queue bounds"}
+{"file": "docs/design-ii/screens/assets.md", "reason": "Authoritative UX for assets Surface five tabs TM/terms/curation/alignment/interop"}
+{"file": "docs/design-ii/05-components.md", "reason": "A6 Drawer, A8 Banner, D4 Live Matrix, D6 Empty, D8 Diff, E2 Tabs, D10 code path"}
+{"file": "docs/design-ii/03-signatures.md", "reason": "Live Matrix signature rules for distribution and health matrices"}
+{"file": "docs/design-ii/06-shell-navigation.md", "reason": "Six surfaces order; assets index position; surface chrome constraints"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Extract patterns, controlled props, icon a11y, ActiveAxis reuse"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Where quality/assets extracts live under renderer/components and surface CSS"}
+{"file": ".trellis/spec/frontend/electron-workbench.md", "reason": "DesktopApi, persist-before-leave, engine-owned data vs presentation state"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Presentation state vs engine-owned QA/export/asset data"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Props/types for extracts without untyped payloads"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Expression-only quality bar and tests"}
+{"file": ".trellis/spec/guides/autoloop-orchestration.md", "reason": "Autoloop plan artifacts and worker boundaries"}
+{"file": ".trellis/tasks/08-08-ortho-frontend-phase-6-quality-assets/prd.md", "reason": "Task requirements and acceptance criteria AC1–AC14"}
+{"file": ".trellis/tasks/08-08-ortho-frontend-phase-6-quality-assets/design.md", "reason": "Technical design, layout contracts, data flow, trade-offs"}
+{"file": ".trellis/tasks/08-08-ortho-frontend-phase-6-quality-assets/implement.md", "reason": "Ordered checklist and validation commands"}
