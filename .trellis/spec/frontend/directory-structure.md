@@ -16,14 +16,28 @@ apps/desktop/
 `apps/desktop/src/renderer/main.tsx` is the renderer entry point. `App.tsx`
 owns surface/session orchestration; `SetupView.tsx`, `Workbench.tsx`,
 `WorkbenchPages.tsx`, and `AssistantPanel.tsx` own visible feature areas.
-`Workbench.tsx` hosts the editor, Suggestions, and Preview shell and wires
-ORTHO Phase 2–3 extracts under `components/workbench/` (`Masthead`,
-`FilterRail`, `ActiveAxis`, `DocumentMatrix`, `SegmentGrid`, `SegmentRow`,
-`SegmentStatusLamp`, `TagCapsule`, `SeamActionRail`, `BatchBar`,
-`InlineQaStrip`, plus pure `segmentTypes.ts`). Grid keyboard/selection
-coordination lives in `hooks/useRovingGrid.ts`. Shared interaction math lives
-in `workbench-utils.ts` with colocated tests (including
-`restorePaletteOwnerFocus`).
+`Workbench.tsx` orchestrates the editor and wires ORTHO Phase 2–4 extracts under
+`components/workbench/`:
+
+```text
+components/workbench/
+|-- Masthead.tsx, FilterRail.tsx, ActiveAxis.tsx, DocumentMatrix.tsx
+|-- SegmentGrid.tsx, SegmentRow.tsx, SegmentStatusLamp.tsx, TagCapsule.tsx
+|-- SeamActionRail.tsx, BatchBar.tsx, InlineQaStrip.tsx, segmentTypes.ts
+|-- Stack/
+|   |-- StackPanel.tsx          # dual-pane stack (replaces SuggestionsPanel)
+|   |-- MatchList.tsx, MatchCard.tsx, TermList.tsx, TermRow.tsx
+|   |-- AssistantDrawer.tsx, GroundingInspector.tsx
+|   |-- wordDiff.ts, stackTypes.ts, *.test.ts(x)
+`-- PreviewDock/
+    |-- PreviewDock.tsx         # extract of DocumentPreview
+    `-- previewTypes.ts
+```
+
+Grid keyboard/selection lives in `hooks/useRovingGrid.ts`. Shared interaction
+math lives in `workbench-utils.ts` with colocated tests (including
+`restorePaletteOwnerFocus`). Stack/dock surface CSS:
+`styles/30-surfaces/workbench-stack.css`.
 
 ## Placement Rules
 

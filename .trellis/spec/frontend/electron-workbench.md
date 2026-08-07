@@ -73,12 +73,15 @@ The main-process E2E delay seam uses three process-only environment keys:
   the Electron executable under a hard timeout. `onlyBuiltDependencies:
   [electron]` belongs in `pnpm-workspace.yaml`.
 - Engine responses replace persisted display state. React owns only ephemeral
-  UI state such as search/filter, active segment, tab, save indicator, toast,
-  and docked/collapsed/maximized panel modes.
+  UI state such as search/filter, active segment, toast, save indicator, stack
+  assistant-open, and panel presentation modes.
 - IME composition is tracked per segment. Ctrl/Cmd+Enter must do nothing during
   composition; focus advances only after save and confirmation succeed.
-- Suggestions and Preview each have exactly three presentation modes:
-  `docked`, `collapsed`, and `maximized`, with symmetric transitions.
+- After ORTHO Phase 4, the Stack (former Suggestions) primary chrome is
+  **expanded (`docked`) ↔ collapsed rail** with a single collapse control.
+  Stored `suggestionsMode: maximized` clamps to `docked` on read. Preview may
+  still use `docked` / `collapsed` / `maximized`. See
+  [ORTHO Stack Dual-Pane and Preview Dock (Phase 4)](#ortho-stack-dual-pane-and-preview-dock-phase-4).
 - Leaving the workbench for QA, export, TM, or setup must call the shared
   persist-all path before unmount. The parent then reloads project, segment,
   and QA projections through RPC; a review page never receives a stale copy of
@@ -500,9 +503,9 @@ and generic document.export method contracts.
 - Main owns the file dialog and accepts DOCX/XLSX/PPTX/PDF/TXT/Markdown/
   HTML/XHTML/XLIFF/SDLXLIFF/MQXLIFF/MQXLZ extensions. Setup creates the project,
   then imports through document.import; legacy DOCX RPCs remain compatible.
-- DocumentPreview loads page summaries first and lazily requests one PNG when
-  visible. segmentIds map the active segment to its page; React does not parse
-  the PDF structural path.
+- `PreviewDock` (Phase 4 extract of DocumentPreview) loads page summaries first
+  and lazily requests one PNG when visible. segmentIds map the active segment
+  to its page; React does not parse the PDF structural path.
 - Original page bytes are rendered as an in-memory data URL. Renderer code
   never receives or opens the managed source path.
 - OCR correction is available only for active OCR, non-confirmed blocks. The
@@ -515,9 +518,9 @@ and generic document.export method contracts.
 - Preview rail/canvas entries call the owning Workbench navigation callback;
   they do not mutate `activeId` locally. A collapsed `.preview-content` stays
   mounted for the transition and is `inert`/`aria-hidden` until expanded.
-- Preview and Suggestions retain docked/collapsed/maximized state and focus/
-  animation rules. PDF export suggests name-translated.docx and calls generic
-  document.export.
+- Preview retains docked/collapsed/maximized state and focus/animation rules;
+  Stack uses expanded/collapsed (see Phase 4). PDF export suggests
+  name-translated.docx and calls generic document.export.
 
 ### 4. Validation & Error Matrix
 
@@ -2399,12 +2402,14 @@ active textarea `Control+Enter` contract, not a removed rail Confirm button.
 - Prefer a still-connected invocation owner; otherwise focus a stable
   Workbench fallback (editor region). Do not leave focus on a detached node.
 
-#### Layout host (Phase 2 intentional)
+#### Layout host (Phase 2–4 intentional)
 
-- Phase 2 keeps the legacy flex host (`workbench-layout` /
-  `editor-column` / `editor-grid-row`). Full `.wb` CSS grid + `data-stack`
-  migration is deferred to the Stack/preview phase. Do not claim `.wb`
-  mounting is complete until that phase lands.
+- Workbench keeps the legacy flex host (`workbench-layout` /
+  `editor-column` / `editor-grid-row`). Full `.wb` CSS grid +
+  `data-stack=collapsed|overlay` is **still deferred after Phase 4** so Matrix
+  / SegmentGrid scroll ownership stays intact. Dual-pane Stack and PreviewDock
+  ship on this flex host. Do not claim `.wb` mounting is complete until a later
+  layout task remounts it.
 
 ### 4. Validation & Error Matrix
 
@@ -2757,4 +2762,273 @@ if (action === "lock") {
 if (pendingSeekRef.current && rowIndexById.has(destinationId)) {
   completeMove(pendingSeekRef.current);
 }
+```
+
+## ORTHO Stack Dual-Pane and Preview Dock (Phase 4)
+
+### 1. Scope / Trigger
+
+Use this contract when changing the Workbench Stack (matches + terms + AI
+drawer), match word-diff presentation, grounding inspector honesty, or the
+preview dock under the grid column.
+
+Phase 4 is a **presentation extraction**. It must not change Engine, generated
+contracts, preload, main-process, TM/term scoring, or AI grounding semantics.
+
+Source components:
+
+- `components/workbench/Stack/StackPanel.tsx` — replaces tabbed `SuggestionsPanel`
+- `components/workbench/Stack/MatchList.tsx` / `MatchCard.tsx`
+- `components/workbench/Stack/TermList.tsx` / `TermRow.tsx`
+- `components/workbench/Stack/AssistantDrawer.tsx`
+- `components/workbench/Stack/GroundingInspector.tsx`
+- `components/workbench/Stack/wordDiff.ts` (+ `wordDiff.test.ts`)
+- `components/workbench/Stack/stackTypes.ts`
+- `components/workbench/PreviewDock/PreviewDock.tsx` (+ `previewTypes.ts`)
+- Host wiring: `Workbench.tsx` (`assistantOpen`, match/term hooks, prefs)
+- Live reuse: `LiveAssistantPanel.tsx` mounts shared `GroundingInspector`
+- Styles: `styles/30-surfaces/workbench-stack.css`
+- Catalog: `i18n/messages.ts` (en + zh)
+
+### 2. Signatures
+
+```ts
+import type {
+  EditorMutationResult,
+  PromptBundle,
+  Segment,
+  TermMatch,
+  TmEntry,
+} from "@translunar/contracts";
+import type { PanelMode } from "../../workbench-utils"; // docked | collapsed | maximized
+
+interface StackPanelProps {
+  projectId: string;
+  sourceLocale: string;
+  targetLocale: string;
+  mode: PanelMode; // expanded when not "collapsed"; maximized clamped by host
+  onModeChange(mode: PanelMode): void;
+  assistantOpen: boolean; // replaces retired suggestionTab === "assistant"
+  onAssistantOpenChange(open: boolean): void;
+  activeSegment: Segment | undefined;
+  matches: TmEntry[];
+  matchesLoading: boolean;
+  matchesError: string | null;
+  termMatches: TermMatch[];
+  termLoading: boolean;
+  termSettled: boolean;
+  termError: string | null;
+  onInsert(target: string): void;
+  onApplyMutation(mutation: EditorMutationResult): void;
+}
+
+// Pure client word-level diff — no Engine, no color-block styling.
+type DiffKind = "equal" | "delete" | "insert";
+interface DiffToken {
+  kind: DiffKind;
+  text: string;
+}
+function tokenize(text: string): string[];
+function wordDiff(activeSource: string, matchSource: string): DiffToken[];
+// equal strings → single equal token (or []); delete = only in match source;
+// insert = only in active source; LCS on whitespace / non-whitespace runs.
+
+interface GroundingInspectorProps {
+  open: boolean;
+  onOpenChange(open: boolean): void;
+  snapshot: { contextKey: string; bundle: PromptBundle } | null;
+  unavailableReason?: string | null;
+}
+// Real bundle → details/sections from bundle.sections. No bundle + reason →
+// honest unavailable status. No bundle + no reason → render nothing.
+// Never label UI "grounded" without inspectable section content.
+
+interface PreviewDockProps {
+  document: Document;
+  activeSegment: Segment | undefined;
+  segments: Segment[];
+  total: number;
+  mode: PanelMode;
+  onModeChange(mode: PanelMode): void;
+  height: number;
+  onHeightChange(height: number): void;
+  followActive: boolean;
+  onFollowActiveChange(follow: boolean): void;
+  onNavigateSegment(segmentId: string, ordinal: number): void;
+  onSourceCorrected(segment: Segment): void;
+}
+// Host still owns PDF page list/get via existing effects inside PreviewDock.
+```
+
+### 3. Contracts
+
+#### Stack dual-pane (no tabs)
+
+- **Matches** and **Terms** sections are always co-mounted and co-visible when
+  the stack is expanded. No Matches | Terms | Assistant | QA tab strip.
+- QA is **not** re-hosted in Stack (Phase 3 inline QA + future QA Surface).
+- Workbench retires `suggestionTab`; use `assistantOpen: boolean` only.
+- Data remains Workbench-owned: `matches*`, `termMatches*`, insert, apply
+  mutation. Stack leaves are presentational.
+
+#### Single collapse control
+
+- One primary collapse control when expanded → collapsed rail; one expand on
+  the rail. **No** bidirectional arrow pair and **no** floating capsule as a
+  second primary chrome.
+- `Ctrl+9` / `editor.toggleSuggestions` continues to call
+  `togglePanelCollapsed` on `suggestionsMode`.
+- Collapsed body stays mounted, `inert` + `aria-hidden`; focus moves to the
+  rail expand control; expand returns focus to the collapse control.
+- Preference: if stored mode is `maximized`, clamp to `docked` on read for
+  Stack. Do not restore maximize as a peer primary stack control.
+
+#### Match cards and word-diff
+
+- Cards use rule separators (not bordered card chrome). Header: score tier,
+  library/source label, date; body: source (diffed) + target on deck; footer
+  provenance + Insert (+ Alt+1..9 hint for ranks 1–9 when wired).
+- Diff styling: `<del>` line-through + muted; `<ins>` 1px underline. **No**
+  green/blue highlight blocks.
+- Exact project TM UI may show **100%** tier when the Engine only returns exact
+  hits (no invented fuzzy score). Do not add a client fuzzy ranker.
+
+#### Term rows
+
+- Compact `source → preferred target` + state chip (`preferred` | `forbidden` |
+  `pending` via i18n). Forbidden uses error ink / clear mark and
+  `data-forbidden`.
+- Insert only for non-forbidden translations when the host supplies `onInsert`.
+- No new term write RPC; add-term remains intent-only if unwired.
+
+#### Assistant drawer + grounding honesty
+
+- AI is a **bottom drawer**: collapsed bar (~status label); expanded hosts
+  existing `AssistantPanel` / Live / Offline / plugin panels — no new AI RPC.
+- Expanding the drawer must not hide Terms entirely; matches keep a usable
+  min-height (~180px) under flex constraints.
+- `GroundingInspector` renders only from a real `PromptBundle` (existing
+  `ai.grounding.preview` / LiveAssistant path). Counts and section text come
+  from the bundle. Unavailable → honest status string; never claim grounded
+  without inspectable sections.
+- Share one `GroundingInspector` between LiveAssistant and Stack; do not fork
+  grounding presentation.
+
+#### Preview dock (grid column only)
+
+- Mount under the **editor/grid column only**, never under Stack.
+- Chrome: document meta, follow-active checkbox, collapse/expand, pop-out,
+  existing height drag (`clampPreviewHeight` / prefs), `Ctrl+P` toggle path.
+- Follow-active highlight: signal-wash + left signal edge
+  (`[data-preview-active]`), not a heavy orange frame.
+- PDF: real page image + text layer when `pdf.page.*` data exists; dual column
+  when both image and text exist; otherwise single path + honesty.
+- Non-paginated formats: structure path only; explicit limitation copy — never
+  fake print layout or page numbers.
+- Pop-out is best-effort (`window.open` / hash). On block, disable control with
+  honest aria-label/title. Do not claim multi-monitor product polish.
+
+#### Layout host residual
+
+- Dual-pane Stack + PreviewDock ship on legacy flex. `.wb` +
+  `data-stack=collapsed|overlay` remain deferred (dead CSS until remount).
+- Collapse rail width may still follow legacy `.suggestions-panel` tokens
+  (~48px) rather than design 40px until `.wb` remount — document residual; do
+  not break dual-pane for rail pixel perfection.
+- `.segment-grid` remains sole scroll owner; do not add overflow-y owners on
+  matrix or outer flex that steal Matrix viewport sync.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Expanded stack, TM + term hits | Matches and Terms both visible without tab switch |
+| Stack collapse | Single control; body inert/aria-hidden; focus on rail expand |
+| Stored `suggestionsMode: maximized` | Read as `docked`; no dual maximize/collapse primary chrome |
+| Match source equals active source | Plain text; no empty ins/del noise |
+| Match source differs | Word-level del/ins only; no color-block diff CSS |
+| Forbidden term translation | Error treatment; no insert button for forbidden |
+| Grounding snapshot null, no reason | Inspector renders nothing (not “grounded”) |
+| Grounding snapshot null + reason | Honest unavailable status |
+| Grounding snapshot present | Sections from `bundle.sections` only |
+| Preview pop-out blocked | Control disabled + localized blocked reason |
+| Non-PDF without layout structure | Limitation/honesty copy; no fake pages |
+| Preview navigate click | Host `onNavigateSegment` only; no local `activeId` mutation |
+| Engine/contracts/preload change for Phase 4 | Forbidden — expression-only |
+
+### 5. Good / Base / Bad Cases
+
+- Good: select a segment with TM + terms → both lists on screen; open AI drawer
+  → generate → GroundingInspector lists real injected sections.
+- Good: `Ctrl+9` collapses stack to rail; focus on expand; expand restores
+  collapse control focus.
+- Good: Preview under grid follows active segment with signal edge; PDF still
+  loads page image when document is PDF.
+- Base: no TM/terms → empty/loading/error visual states without circular
+  spinners; assistant drawer stays collapsed by default.
+- Bad: restore Matches/Terms/Assistant/QA tablist or put QA list back in Stack.
+- Bad: dual maximize + collapse as peer primary stack controls or floating
+  capsule toggle.
+- Bad: green/blue block diff, invent fuzzy TM scores, or label UI “grounded”
+  without a real `PromptBundle`.
+- Bad: mount Preview under Stack, or remount `.wb` mid-task if it breaks Matrix
+  / grid scroll ownership without a dedicated layout pass.
+
+### 6. Tests Required
+
+- Unit: `wordDiff` equal / substitute / insert / delete / empty; CJK or
+  whitespace tokenization smoke as covered by colocated tests.
+- Unit: `StackPanel` no tablist; Matches + Terms co-mounted; single collapse
+  (no maximize peer label); collapsed body inert path where tested.
+- Integration/host: Workbench wires `assistantOpen`, insert, applyMutation,
+  preview prefs; no new Engine methods.
+- Typecheck + `apps/desktop` renderer Vitest green without contracts package
+  edits.
+- E2E residual (when harness available): stack collapse intermediate geometry,
+  Ctrl+9, preview follow/navigate, PDF page path, en/zh chrome strings; no
+  page horizontal overflow at 1250×744 / 1680×942 / 1920×1080.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+// Tabbed mutual-exclusive panes — fails co-visible AC.
+<div role="tablist">Matches | Terms | Assistant | QA</div>
+
+// Color-block “diff” and invented fuzzy score.
+<span style={{ background: "lightgreen" }}>{match.sourceText}</span>
+<span>{Math.round(localFuzzy(match) * 100)}%</span>
+
+// Grounding badge without inspectable content.
+{didGenerate && <span>Grounded</span>}
+
+// Second primary collapse chrome.
+<button>Maximize</button>
+<button>Collapse</button>
+```
+
+#### Correct
+
+```tsx
+// Co-visible sections + drawer + single collapse.
+<section className="sec sec--matches">…</section>
+<section className="sec sec--terms">…</section>
+<AssistantDrawer open={assistantOpen} onOpenChange={setAssistantOpen} />
+<button onClick={() => onModeChange(togglePanelCollapsed(mode))} />
+
+// Word-level del/ins vs active source.
+const tokens = wordDiff(activeSegment?.sourceText ?? "", match.sourceText);
+tokens.map((t) =>
+  t.kind === "delete" ? <del>{t.text}</del> :
+  t.kind === "insert" ? <ins>{t.text}</ins> : <span>{t.text}</span>,
+);
+
+// Honest grounding only with real PromptBundle.
+<GroundingInspector
+  open={open}
+  onOpenChange={setOpen}
+  snapshot={bundle ? { contextKey, bundle } : null}
+  unavailableReason={reason}
+/>
 ```

@@ -30,7 +30,6 @@ import {
   Clock3,
   Cpu,
   Database,
-  Eye,
   HardDrive,
   MessageSquarePlus,
   RotateCcw,
@@ -39,6 +38,7 @@ import {
   X,
 } from "lucide-react";
 
+import { GroundingInspector } from "./components/workbench/Stack/GroundingInspector";
 import { formatEngineError } from "./workbench-utils";
 import { createAssistantTurn, type ReasoningLevel } from "./assistant-state";
 import { useLocale } from "./i18n/LocaleProvider";
@@ -603,34 +603,15 @@ export function LiveAssistantPanel({
 
       <div className="assistant-grounding-slot">
         {selectedModel !== "local-preview" && grounding ? (
-          <details
-            className="grounding-inspector"
+          <GroundingInspector
             open={showGrounding}
-            onToggle={(event) => setShowGrounding(event.currentTarget.open)}
-          >
-            <summary>
-              <Eye size={13} /> {t("assistant.groundingContext")}{" "}
-              <span>
-                {grounding.totalChars.toLocaleString()}{" "}
-                {t("assistant.characters")} · {grounding.sections.length}{" "}
-                {t("assistant.sections")}
-              </span>
-            </summary>
-            <div className="grounding-sections">
-              {grounding.sections.map((section) => (
-                <article key={section.id}>
-                  <header>
-                    <strong>{section.label}</strong>
-                    <small>
-                      {section.itemCount} items
-                      {section.truncated ? " · truncated" : ""}
-                    </small>
-                  </header>
-                  <pre>{section.text}</pre>
-                </article>
-              ))}
-            </div>
-          </details>
+            onOpenChange={setShowGrounding}
+            snapshot={
+              groundingSnapshot?.contextKey === groundingContextKey
+                ? groundingSnapshot
+                : null
+            }
+          />
         ) : null}
       </div>
 

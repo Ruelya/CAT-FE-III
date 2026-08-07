@@ -245,9 +245,63 @@ kbd {
 
 .term__state[data-forbidden] { color: var(--err-ink); }
 
+/* —— Stack body (dual-pane, replaces tab grid) ————— */
+.stack.suggestions-panel .stack__body.suggestions-content {
+  display: flex;
+  flex-direction: column;
+  grid-template-rows: none;
+  min-width: 0;
+  position: absolute;
+  inset: 0;
+}
+
+.stack .sec__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.stack .sec__body::-webkit-scrollbar { display: none; }
+
+.stack .sec--matches {
+  flex: 1 1 auto;
+  min-block-size: 180px;
+  overflow: hidden;
+}
+
+.stack .sec--terms {
+  flex: 0 1 auto;
+  max-block-size: 30%;
+  min-block-size: 72px;
+  overflow: hidden;
+}
+
+.stack .term__target--forbidden {
+  color: var(--err-ink);
+}
+
+.stack .term__insert {
+  margin-inline-start: var(--s-3);
+}
+
 /* —— AI 抽屉 ————————————————————————————————————— */
-.ai-drawer {
+.ai-drawer-shell {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   border-block-start: 1px solid var(--rule-strong);
+  background: var(--frame);
+}
+
+.ai-drawer-shell[data-open] {
+  flex: 1 1 50%;
+  min-block-size: 160px;
+  max-block-size: 55%;
+}
+
+.ai-drawer {
   block-size: 34px;
   display: flex;
   align-items: center;
@@ -257,8 +311,42 @@ kbd {
   color: var(--text-2);
   font-size: var(--t-meta);
   inline-size: 100%;
+  border: 0;
+  text-align: start;
+  cursor: pointer;
 }
 
+.ai-drawer:hover { background: var(--shade); }
+
 .ai-drawer .grow { flex: 1; }
+
+.ai-drawer__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  border-block-start: 1px solid var(--rule);
+  background: var(--paper);
+}
+
+.ai-drawer__body::-webkit-scrollbar { display: none; }
+
+/* Preview active segment: signal wash + left edge */
+[data-preview-active] {
+  background: var(--signal-wash, color-mix(in oklab, var(--signal) 12%, transparent));
+  box-shadow: inset 2px 0 0 var(--signal);
+}
+
+.preview-popout-status {
+  color: var(--text-2);
+  font-size: var(--t-meta);
+  white-space: nowrap;
+}
+
+.preview-line.active,
+.pdf-block.active {
+  background: var(--signal-wash, color-mix(in oklab, var(--signal) 12%, transparent));
+  box-shadow: inset 2px 0 0 var(--signal);
+}
 
 }

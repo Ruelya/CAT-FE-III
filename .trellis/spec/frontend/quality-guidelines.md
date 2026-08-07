@@ -64,6 +64,10 @@ font rendering, panel seams, focus order, and horizontal transcript overflow.
   and batch adapter enablement. Live Electron IME matrix, axe with batch/QA
   visible, and 10k P95 remain required product quality when the Engine/harness
   is available—do not treat window-only select-all or bulk-sign Lock as green.
+- Phase 4 stack/dock coverage: `wordDiff` unit cases; StackPanel co-visible
+  Matches+Terms with no tablist and single collapse; GroundingInspector only
+  with real `PromptBundle`; PreviewDock under grid column with honest pop-out
+  residual. Do not reintroduce QA-in-stack tabs or color-block TM diffs.
 
 ## Review Checklist
 
@@ -72,8 +76,8 @@ font rendering, panel seams, focus order, and horizontal transcript overflow.
   duplicate invocation would be unsafe.
 - Navigation flushes pending saves before unmounting Workbench.
 - Generated contracts, labels, aria state, and CSS transitions agree.
-- Responsive screenshots show the editor, Suggestions, status, and Preview
-  boundaries without overlap at the three supported viewport sizes.
+- Responsive screenshots show the editor, Stack (Suggestions rail), status, and
+  Preview dock boundaries without overlap at the three supported viewport sizes.
 - Production build is tested, including Vite's relative asset base and preload
   output.
 

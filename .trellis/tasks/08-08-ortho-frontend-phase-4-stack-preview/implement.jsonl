@@ -1,0 +1,11 @@
+{"file": "docs/design-ii/09-implementation.md", "reason": "Phase 4 delivery list (Stack dual-pane, match cards, grounding, preview dock) and Workbench split targets"}
+{"file": "docs/design-ii/screens/workbench.md", "reason": "Authoritative UX for Stack §4 and Preview dock §5 including collapse, diff, term rows, drawer, follow/pop-out"}
+{"file": "docs/design-ii/05-components.md", "reason": "G2 Match Card, G3 Term Row, G6 Grounding Inspector component contracts"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Workbench extract patterns, controlled props, collapse focus/inert rules"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Where Stack/PreviewDock extracts live under renderer/components/workbench"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Presentation state vs engine-owned data; preference persistence discipline"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "Keep data loading in Workbench; presentational leaves"}
+{"file": ".trellis/spec/guides/autoloop-orchestration.md", "reason": "Autoloop phase artifacts and worker boundaries"}
+{"file": ".trellis/tasks/08-08-ortho-frontend-phase-4-stack-preview/prd.md", "reason": "Task requirements and acceptance criteria"}
+{"file": ".trellis/tasks/08-08-ortho-frontend-phase-4-stack-preview/design.md", "reason": "Technical design, props, layout trade-offs"}
+{"file": ".trellis/tasks/08-08-ortho-frontend-phase-4-stack-preview/implement.md", "reason": "Ordered implementation checklist and validation"}

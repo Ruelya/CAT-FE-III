@@ -212,6 +212,30 @@ BEM 变体：`.block__element` + `data-*` 状态（不用 `--modifier` 类）。
 
 **验收**：TM 与术语同屏可见；无双向箭头/悬浮胶囊；接地内容可检查。
 
+#### 期 4 实现记录（2026-08）
+
+| 交付 | 位置 | 说明 |
+| --- | --- | --- |
+| `StackPanel` | `components/workbench/Stack/StackPanel.tsx` | 替换 `SuggestionsPanel` 四标签；Matches + Terms 常驻同屏；单一折叠控件 → 40px rail；`inert`/`aria-hidden` + 焦点迁移保留 |
+| `MatchList` / `MatchCard` | `Stack/MatchList.tsx` · `MatchCard.tsx` | 规则分隔卡；100% 档位 + 项目 TM + 日期；`wordDiff` 词级 `del`/`ins`（删除线/下划线，无色块） |
+| `wordDiff` | `Stack/wordDiff.ts` + 单测 | 纯函数 LCS 分词 diff；无新依赖 |
+| `TermList` / `TermRow` | `Stack/TermList.tsx` · `TermRow.tsx` | `原文 → 译文` + 首选/禁用/待定 chip；禁用用 `--err-ink` |
+| `AssistantDrawer` | `Stack/AssistantDrawer.tsx` | 底栏抽屉默认收起；展开挂载既有 `AssistantPanel` / `PluginAiActions` / `PluginWorkbenchPanels` |
+| `GroundingInspector` | `Stack/GroundingInspector.tsx` | 抽自 Live 面板；仅有真实 `PromptBundle` 时展示可检视段落；`LiveAssistantPanel` 改用此组件 |
+| `PreviewDock` | `components/workbench/PreviewDock/PreviewDock.tsx` | 从 `Workbench` 抽出原 `DocumentPreview`；跟随段 + 信号淡染左缘；PDF 图文双栏保留；`window.open` 弹出（失败则禁用并诚实文案） |
+| 编排 | `Workbench.tsx` | `suggestionTab` → `assistantOpen`；去掉 Stack 内 QA 标签（QA 行内 + 后续 Surface）；`suggestionsMode: maximized` 读偏好时夹到 `docked`；最大化对等箭头已从 Stack 移除 |
+| 样式 | `styles/30-surfaces/workbench-stack.css` | 双区 flex、AI 抽屉展开、预览 `[data-preview-active]` |
+| i18n | `i18n/messages.ts` | 术语态 / 抽屉 / 接地条目 / 预览弹出 en+zh |
+| 布局宿主 | legacy flex | **仍不挂载**设计稿 `.wb` + `data-stack` 区划（与 Matrix 滚动所有权解耦；双区 Stack 在 flex 上交付） |
+
+**未做 / 残留**：
+- `.wb` CSS grid 宿主与 `data-stack=collapsed|overlay` 响应式覆盖列未挂载（死 CSS 仍在 `workbench.css`；双区 Stack + 预览坞已可用）
+- 弹出预览为 `window.open` 尽力路径，非完整第二显示器 BrowserWindow 同步会话；环境拦截时控件禁用
+- 匹配/术语区间缝可拖高度与比例持久化未做
+- TM 分数仍为 100% exact 展示（无模糊分桶 engine）
+- 术语添加对话框 / hover 定义 popover 无新 RPC，未发明后端
+- Stack 折叠宽度仍走既有 `.suggestions-panel` / `.suggestions-collapsed` 与偏好键
+
 ### 期 5 · 项目类页面
 项目首页（35/65 + 卡片 FLIP 转场）、新建向导（30/70 + 分组表单 + 新 Stepper）、
 洞察（竖 Tab + 概览动作绑定 + 各子面板）。

@@ -1,0 +1,9 @@
+{"file": "docs/design-ii/09-implementation.md", "reason": "Verify Phase 4 scope only; no Phase 5–8 or engine work"}
+{"file": "docs/design-ii/screens/workbench.md", "reason": "Acceptance against Stack co-visibility, single collapse, match/term/assistant/preview specs"}
+{"file": "docs/design-ii/05-components.md", "reason": "Grounding Inspector must show real injection; match/term geometry"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "a11y collapse focus, no spinner, prop discipline"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Quality bar for expression-only UI and tests"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Props/types for extracts without untyped payloads"}
+{"file": ".trellis/tasks/08-08-ortho-frontend-phase-4-stack-preview/prd.md", "reason": "AC checklist AC1–AC14"}
+{"file": ".trellis/tasks/08-08-ortho-frontend-phase-4-stack-preview/design.md", "reason": "Contracts, rollback, residual rules for .wb and pop-out"}
+{"file": ".trellis/tasks/08-08-ortho-frontend-phase-4-stack-preview/implement.md", "reason": "Validation commands and risk points for review/verify"}

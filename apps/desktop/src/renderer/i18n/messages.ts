@@ -1601,6 +1601,18 @@ export type MessageKey =
   | "workbench.reopen"
   | "workbench.resolve"
   | "workbench.changedFrom"
+  | "workbench.termState.preferred"
+  | "workbench.termState.forbidden"
+  | "workbench.termState.pending"
+  | "workbench.assistant.drawerCollapsed"
+  | "workbench.assistant.drawerOpen"
+  | "workbench.grounding.items"
+  | "workbench.grounding.truncated"
+  | "workbench.preview.popOut"
+  | "workbench.preview.popOutBlocked"
+  | "workbench.preview.poppedOut"
+  | "workbench.preview.restore"
+  | "workbench.preview.maximize"
   | "common.pageRange"
   | "common.positionOf"
   | "common.revision"
@@ -3531,6 +3543,20 @@ const enUs: MessageCatalog = {
   "workbench.reopen": "Reopen",
   "workbench.resolve": "Resolve",
   "workbench.changedFrom": "Changed from {before} to {after}",
+  "workbench.termState.preferred": "Preferred",
+  "workbench.termState.forbidden": "Forbidden",
+  "workbench.termState.pending": "Pending",
+  "workbench.assistant.drawerCollapsed": "Collapsed",
+  "workbench.assistant.drawerOpen": "Open",
+  "workbench.grounding.items":
+    "{count, plural, one {# item} other {# items}}",
+  "workbench.grounding.truncated": "truncated",
+  "workbench.preview.popOut": "Open preview in separate window",
+  "workbench.preview.popOutBlocked":
+    "Pop-out blocked by the environment; use the docked preview",
+  "workbench.preview.poppedOut": "Open in a separate window",
+  "workbench.preview.restore": "Restore preview",
+  "workbench.preview.maximize": "Maximize preview",
   "common.pageRange": "{start}–{end} of {total}",
   "common.positionOf": "{position} of {total}",
   "common.revision": "Revision {revision}",
@@ -5381,6 +5407,19 @@ const zhCn: MessageCatalog = {
   "workbench.reopen": "重新打开",
   "workbench.resolve": "解决",
   "workbench.changedFrom": "从 {before} 更改为 {after}",
+  "workbench.termState.preferred": "首选",
+  "workbench.termState.forbidden": "禁用",
+  "workbench.termState.pending": "待定",
+  "workbench.assistant.drawerCollapsed": "已收起",
+  "workbench.assistant.drawerOpen": "已展开",
+  "workbench.grounding.items":
+    "{count, plural, one {# 项} other {# 项}}",
+  "workbench.grounding.truncated": "已截断",
+  "workbench.preview.popOut": "在独立窗口打开预览",
+  "workbench.preview.popOutBlocked": "环境阻止弹出窗口；请使用坞内预览",
+  "workbench.preview.poppedOut": "已在独立窗口中打开",
+  "workbench.preview.restore": "还原预览",
+  "workbench.preview.maximize": "最大化预览",
   "common.pageRange": "{start}–{end} / 共 {total}",
   "common.positionOf": "{position} / 共 {total}",
   "common.revision": "修订 {revision}",
