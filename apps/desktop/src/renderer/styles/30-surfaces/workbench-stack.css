@@ -349,4 +349,85 @@ kbd {
   box-shadow: inset 2px 0 0 var(--signal);
 }
 
+
+
+/* —— Layout host (replaces legacy .suggestions-panel width rules) —— */
+.stack {
+  position: relative;
+  width: var(--stack-w, 400px);
+  min-width: 0;
+  max-width: var(--stack-w, 400px);
+  flex: 0 0 var(--stack-w, 400px);
+  overflow: hidden;
+  transition: flex-basis 220ms var(--ease-move), width 220ms var(--ease-move), max-width 220ms var(--ease-move);
+}
+
+.suggestions-collapsed .stack,
+.workbench-app.suggestions-collapsed .stack {
+  width: 40px;
+  max-width: 40px;
+  flex-basis: 40px;
+}
+
+.stack__body {
+  display: flex;
+  flex-direction: column;
+  position: absolute;
+  inset: 0;
+  min-width: 280px;
+  min-height: 0;
+}
+
+.suggestions-collapsed .stack__body {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.stack:not([data-stack-mode="collapsed"]) .stack-rail {
+  display: none;
+}
+
+.stack[data-stack-mode="collapsed"] .stack__body {
+  display: none;
+}
+
+.stack[data-stack-mode="collapsed"] .stack-rail {
+  display: flex;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+}
+
+.stack__field {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-inline-end: 10px;
+}
+
+.stack__field-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stack-rail__expand {
+  inline-size: 32px;
+  block-size: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--rule-field);
+  border-radius: var(--r-ctl);
+  background: var(--deck);
+  color: var(--text-2);
+}
+
+.stack-rail__expand:hover { background: var(--shade); }
+
+.sec__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
 }

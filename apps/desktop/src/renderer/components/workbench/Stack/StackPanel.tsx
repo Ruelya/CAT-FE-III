@@ -50,25 +50,24 @@ export function StackPanel({
 
   return (
     <aside
-      className="stack suggestions-panel"
+      className="stack"
       aria-label={t("common.suggestions")}
       data-stack-mode={collapsed ? "collapsed" : "expanded"}
     >
       <div
-        className="stack__body suggestions-content"
+        className="stack__body"
         aria-hidden={collapsed}
         inert={collapsed ? true : undefined}
       >
-        <header className="stack__head suggestions-header">
-          <strong className="stack__title suggestions-title" data-cut-terminal="true">
+        <header className="stack__head">
+          <strong className="stack__title" data-cut-terminal="true">
             {t("common.suggestions")}
           </strong>
-          <div className="stack__field suggestions-header-field">
-            <div className="suggestions-dots" aria-hidden="true" />
-            <div className="suggestions-header-tools">
+          <div className="stack__field">
+            <div className="stack__field-tools">
               <button
                 type="button"
-                className="stack__collapse icon-button"
+                className="stack__collapse"
                 ref={collapseButtonRef}
                 onClick={() => {
                   focusAfterModeRef.current = "rail";
@@ -141,13 +140,13 @@ export function StackPanel({
       </div>
 
       <div
-        className="stack-rail suggestions-rail"
+        className="stack-rail"
         aria-hidden={!collapsed}
         inert={!collapsed ? true : undefined}
       >
         <button
           type="button"
-          className="suggestions-expand"
+          className="stack-rail__expand"
           ref={expandButtonRef}
           onClick={() => {
             focusAfterModeRef.current = "content";

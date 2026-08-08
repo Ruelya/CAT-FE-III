@@ -6,7 +6,6 @@ import type {
 } from "@translunar/contracts";
 import { ArrowLeft, FileText } from "lucide-react";
 
-import { BrandMark } from "./BrandMark";
 import { AiControlPage } from "./AiControlPage";
 import { ExportReviewPage as ComprehensiveExportReviewPage } from "./ExportReviewPage";
 import { QaReviewPage as ComprehensiveQaReviewPage } from "./QaReviewPage";
@@ -79,26 +78,23 @@ function SurfaceHeader({
           ? t("nav.aiControl")
           : t("nav.projectInsights");
   return (
-    <header className="app-bar surface-header">
+    <header className="surface-masthead" role="banner">
       <button
         type="button"
-        className="surface-back"
+        className="surface-masthead__back"
         onClick={() => onNavigate("workbench")}
         aria-label={t("nav.backToWorkbench")}
         title={t("nav.backToWorkbench")}
       >
         <ArrowLeft size={15} />
       </button>
-      <div className="project-identity">
-        <BrandMark />
-        <div>
-          <strong>{snapshot.project.name}</strong>
-          <span>{pageTitle}</span>
-        </div>
+      <div className="surface-masthead__identity brand-plate">
+        <div className="surface-masthead__name">{snapshot.project.name}</div>
+        <div className="surface-masthead__meta micro">{pageTitle}</div>
       </div>
-      <div className="surface-page-title">{pageTitle}</div>
-      <div className="surface-document">
-        <FileText size={14} />
+      <div className="surface-masthead__title">{pageTitle}</div>
+      <div className="surface-masthead__doc">
+        <FileText size={14} aria-hidden="true" />
         <span>{document.name}</span>
       </div>
     </header>

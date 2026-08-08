@@ -46,7 +46,7 @@ export function Masthead({
   ].join(" · ");
 
   return (
-    <header className="masthead app-bar" role="banner">
+    <header className="masthead" role="banner">
       <div className="identity brand-plate" data-project-identity>
         <div className="identity__name">{projectName}</div>
         <div className="identity__meta micro">{metaLine}</div>

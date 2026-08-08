@@ -166,10 +166,14 @@ test.describe("ORTHO live acceptance", () => {
   test("boots shell, surfaces, theme, and workbench chrome with screenshots", async () => {
     const harness = await launchHarness("boot");
     const { application, page, consoleErrors } = harness;
-    const report: Record<string, unknown> = {
+    const report: {
+      engine: string;
+      shots: string[];
+      checks: Record<string, boolean | string | number | string[]>;
+    } = {
       engine: enginePath(),
-      shots: [] as string[],
-      checks: {} as Record<string, boolean | string | number>,
+      shots: [],
+      checks: {},
     };
 
     try {
@@ -309,7 +313,7 @@ test.describe("ORTHO live acceptance", () => {
       ).toBe(true);
       // Axis: 0 or 1 only
       expect(
-        Number(report.checks.axisCount),
+        Number(report.checks.axisCount ?? 0),
         "[data-axis=active] ≤ 1",
       ).toBeLessThanOrEqual(1);
 
