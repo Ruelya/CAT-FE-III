@@ -1303,8 +1303,9 @@ button:active:not(:disabled) {
 /* Workbench shell */
 .workbench-app {
   display: grid;
-  /* 已删两行：9px 横向彩条（→ Shell 竖脊柱）与状态条（→ Instrument Strip） */
-  grid-template-rows: var(--appbar-height) minmax(0, 1fr);
+  /* 已删两行：9px 横向彩条（→ Shell 竖脊柱）与状态条（→ Instrument Strip）
+     Masthead replaces .app-bar; use masthead height so row 1 is not undersized. */
+  grid-template-rows: var(--masthead-h, var(--appbar-height)) minmax(0, 1fr);
   position: relative;
   width: 100%;
   height: 100%;
@@ -1312,6 +1313,12 @@ button:active:not(:disabled) {
   overflow: hidden;
   color: var(--text-1);
   background: var(--paper-grain), var(--bg);
+}
+
+/* Masthead is the sole direct header child of .workbench-app (Phase 2). */
+.workbench-app > .masthead {
+  min-height: var(--masthead-h, var(--appbar-height));
+  z-index: 20;
 }
 
 .app-bar {

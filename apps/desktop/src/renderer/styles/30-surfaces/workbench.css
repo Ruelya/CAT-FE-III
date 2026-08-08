@@ -31,8 +31,14 @@
 }
 
 /* —— Masthead ——————————————————————————————————— */
-.masthead {
+/* Named grid-area only under .wb host. Legacy .workbench-app is a 2-row grid
+   (app-bar + main); applying grid-area: masthead there auto-places the bar
+   into an implicit area and collapses the segment grid (live acceptance fail). */
+.wb > .masthead {
   grid-area: masthead;
+}
+
+.masthead {
   display: flex;
   align-items: stretch;
   min-block-size: var(--masthead-h, var(--appbar-height, 64px));
@@ -112,8 +118,11 @@
 .docswitch__pct { color: var(--text-2); }
 
 /* —— Filter Rail ————————————————————————————————— */
-.filter {
+.wb > .filter {
   grid-area: filter;
+}
+
+.filter {
   display: flex;
   align-items: center;
   gap: var(--s-4);
@@ -156,9 +165,13 @@
 .issuenav__btn:disabled { color: var(--text-3); cursor: not-allowed; }
 
 /* —— 段落网格（Phase 3 plate + seam） ——————————— */
+.wb .grid,
+.wb .segment-grid.grid {
+  grid-area: grid;
+}
+
 .grid,
 .segment-grid.grid {
-  grid-area: grid;
   min-height: 0;
   overflow: hidden;
   background: var(--paper);

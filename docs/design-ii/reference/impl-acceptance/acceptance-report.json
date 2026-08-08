@@ -1,0 +1,44 @@
+{
+  "engine": "D:\\Workbench\\CAT-design-ii\\target\\debug\\translunar-engine.exe",
+  "shots": [
+    "D:\\Workbench\\CAT-design-ii\\docs\\design-ii\\reference\\impl-acceptance\\01-home-or-shell.png",
+    "D:\\Workbench\\CAT-design-ii\\docs\\design-ii\\reference\\impl-acceptance\\02-theme-dark-home.png",
+    "D:\\Workbench\\CAT-design-ii\\docs\\design-ii\\reference\\impl-acceptance\\03-surface-home.png",
+    "D:\\Workbench\\CAT-design-ii\\docs\\design-ii\\reference\\impl-acceptance\\03-surface-workbench.png",
+    "D:\\Workbench\\CAT-design-ii\\docs\\design-ii\\reference\\impl-acceptance\\03-surface-assets.png",
+    "D:\\Workbench\\CAT-design-ii\\docs\\design-ii\\reference\\impl-acceptance\\03-surface-qa.png",
+    "D:\\Workbench\\CAT-design-ii\\docs\\design-ii\\reference\\impl-acceptance\\03-surface-ai.png",
+    "D:\\Workbench\\CAT-design-ii\\docs\\design-ii\\reference\\impl-acceptance\\03-surface-export.png",
+    "D:\\Workbench\\CAT-design-ii\\docs\\design-ii\\reference\\impl-acceptance\\04-command-palette.png",
+    "D:\\Workbench\\CAT-design-ii\\docs\\design-ii\\reference\\impl-acceptance\\05-workbench-1250x744.png",
+    "D:\\Workbench\\CAT-design-ii\\docs\\design-ii\\reference\\impl-acceptance\\06-workbench-1680x942.png",
+    "D:\\Workbench\\CAT-design-ii\\docs\\design-ii\\reference\\impl-acceptance\\07-workbench-1920x1080.png",
+    "D:\\Workbench\\CAT-design-ii\\docs\\design-ii\\reference\\impl-acceptance\\08-density-compact-scale-1.png",
+    "D:\\Workbench\\CAT-design-ii\\docs\\design-ii\\reference\\impl-acceptance\\08-density-compact-scale-1_25.png",
+    "D:\\Workbench\\CAT-design-ii\\docs\\design-ii\\reference\\impl-acceptance\\08-density-compact-scale-1_6.png",
+    "D:\\Workbench\\CAT-design-ii\\docs\\design-ii\\reference\\impl-acceptance\\08-density-standard-scale-1.png",
+    "D:\\Workbench\\CAT-design-ii\\docs\\design-ii\\reference\\impl-acceptance\\08-density-standard-scale-1_25.png",
+    "D:\\Workbench\\CAT-design-ii\\docs\\design-ii\\reference\\impl-acceptance\\08-density-standard-scale-1_6.png",
+    "D:\\Workbench\\CAT-design-ii\\docs\\design-ii\\reference\\impl-acceptance\\08-density-comfortable-scale-1.png",
+    "D:\\Workbench\\CAT-design-ii\\docs\\design-ii\\reference\\impl-acceptance\\08-density-comfortable-scale-1_25.png",
+    "D:\\Workbench\\CAT-design-ii\\docs\\design-ii\\reference\\impl-acceptance\\08-density-comfortable-scale-1_6.png",
+    "D:\\Workbench\\CAT-design-ii\\docs\\design-ii\\reference\\impl-acceptance\\09-workbench-dark.png"
+  ],
+  "checks": {
+    "bandSpine": true,
+    "indexSpine": true,
+    "noThemeDarkClass": true,
+    "commandPalette": true,
+    "masthead": true,
+    "filterRail": true,
+    "documentMatrix": true,
+    "segmentGrid": true,
+    "stack": true,
+    "axisCount": 1,
+    "axeSerious": 1,
+    "axeViolations": [
+      "scrollable-region-focusable"
+    ],
+    "consoleErrors": []
+  }
+}

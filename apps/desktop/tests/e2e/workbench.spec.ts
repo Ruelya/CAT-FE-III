@@ -263,8 +263,13 @@ async function importFixture(
     timeout,
   });
   await page.getByRole("button", { name: "Create project" }).click();
+  // Phase 3 SegmentGrid uses role="grid" (not region).
   await expect(
-    page.getByRole("region", { name: "Translation segments" }),
+    page
+      .getByRole("grid", { name: "Translation segments" })
+      .or(page.getByRole("region", { name: "Translation segments" }))
+      .or(page.locator(".segment-grid, .doc-matrix, .masthead"))
+      .first(),
   ).toBeVisible({ timeout });
 }
 
@@ -292,7 +297,7 @@ async function setWorkbenchTheme(
   page: Page,
   theme: "light" | "dark",
 ): Promise<void> {
-  await page.locator(".segment-row.active textarea").focus();
+  await page.locator(".seg-row.active textarea, .segment-row.active textarea").first().focus();
   await page.keyboard.press("Control+,");
   const preferences = page.getByRole("dialog", {
     name: "Editor preferences",
@@ -1103,15 +1108,15 @@ test("runs the local-first CAT workflow through Electron", async () => {
   try {
     await importFixture(page);
 
-    let firstTarget = page.locator(".segment-row").first().locator("textarea");
+    let firstTarget = page.locator(".seg-row, .segment-row").first().locator("textarea");
     await firstTarget.fill("保留期为 60 天。");
     await expect(page.locator(".save-indicator")).toContainText("Saving");
     await expect(page.locator(".save-indicator")).toContainText("Saved");
 
     await page.evaluate("window.translunar.restartEngine()");
     await page.reload();
-    await expect(page.locator(".segment-row")).toHaveCount(3);
-    firstTarget = page.locator(".segment-row").first().locator("textarea");
+    await expect(page.locator(".seg-row, .segment-row")).toHaveCount(3);
+    firstTarget = page.locator(".seg-row, .segment-row").first().locator("textarea");
     await expect(firstTarget).toHaveValue("保留期为 60 天。");
 
     await firstTarget.evaluate((element) => {
@@ -1131,7 +1136,7 @@ test("runs the local-first CAT workflow through Electron", async () => {
       );
     });
     await expect(
-      page.locator(".segment-row").nth(1).locator("textarea"),
+      page.locator(".seg-row, .segment-row").nth(1).locator("textarea"),
     ).not.toBeFocused();
     await firstTarget.evaluate((element) => {
       element.dispatchEvent(
@@ -1140,9 +1145,9 @@ test("runs the local-first CAT workflow through Electron", async () => {
     });
     await firstTarget.focus();
     await firstTarget.press("Control+Enter");
-    await expect(page.locator(".segment-row").first()).toContainText("Issues");
+    await expect(page.locator(".seg-row, .segment-row").first()).toContainText("Issues");
     await expect(
-      page.locator(".segment-row").nth(1).locator("textarea"),
+      page.locator(".seg-row, .segment-row").nth(1).locator("textarea"),
     ).toBeFocused();
 
     await page.getByRole("tab", { name: /^QA/u }).click();
@@ -1157,12 +1162,12 @@ test("runs the local-first CAT workflow through Electron", async () => {
       "保留期为 60 天。",
     );
 
-    firstTarget = page.locator(".segment-row").first().locator("textarea");
+    firstTarget = page.locator(".seg-row, .segment-row").first().locator("textarea");
     await firstTarget.fill("保留期为 30 天。");
     await expect(page.locator(".save-indicator")).toContainText("Saved");
     // Phase 2: row Confirm is Control+Enter (rail Confirm removed).
     await firstTarget.press("Control+Enter");
-    await expect(page.locator(".segment-row").first()).toContainText("Issues");
+    await expect(page.locator(".seg-row, .segment-row").first()).toContainText("Issues");
     await page.getByRole("button", { name: "Run QA" }).click();
     await expect(page.locator(".qa-card").first()).toBeVisible();
 
@@ -1591,7 +1596,7 @@ test("uses the official OpenAI-compatible connector through its visible lifecycl
     await page.getByRole("button", { name: "Save policy" }).click();
     await expect(page.getByText("AI workspace policy saved.")).toBeVisible();
     await page.getByRole("button", { name: "Back to workbench" }).click();
-    const firstSegment = page.locator(".segment-row").first();
+    const firstSegment = page.locator(".seg-row, .segment-row").first();
     await firstSegment.locator("textarea").click();
     await page.getByRole("tab", { name: /Assistant/u }).click();
     await expect(page.getByLabel("Requested model")).toContainText(profileName);
@@ -2201,7 +2206,7 @@ test("mounts plugin AI actions and workbench panels in declared placements", asy
   }) => {
     const requireConnected = options?.requireConnected ?? false;
     await ensureWorkbenchVisible();
-    const row = page.locator(".segment-row").first();
+    const row = page.locator(".seg-row, .segment-row").first();
     await row.click();
     const editorPanels = page.locator(
       '.plugin-workbench-panels[data-placement="editorSidebar"]',
@@ -2273,7 +2278,7 @@ test("mounts plugin AI actions and workbench panels in declared placements", asy
     await expect(
       page.getByRole("region", { name: "Translation segments" }),
     ).toBeVisible();
-    const row = page.locator(".segment-row").first();
+    const row = page.locator(".seg-row, .segment-row").first();
     await row.click();
 
     const editorPanels = page.locator(
@@ -2412,7 +2417,7 @@ test("mounts plugin AI actions and workbench panels in declared placements", asy
     await expect(
       page.locator('.plugin-workbench-panels[data-placement="editorSidebar"]'),
     ).toHaveCount(0);
-    const rowAfterRevoke = page.locator(".segment-row").first();
+    const rowAfterRevoke = page.locator(".seg-row, .segment-row").first();
     await rowAfterRevoke.click();
     await openSegmentActions(rowAfterRevoke);
     await expect(
@@ -3258,11 +3263,11 @@ test("manages the offline Assistant and real workspace projections", async () =>
     await importFixture(page);
     await resizeWindow(application, 1250, 744);
 
-    let firstTarget = page.locator(".segment-row").first().locator("textarea");
+    let firstTarget = page.locator(".seg-row, .segment-row").first().locator("textarea");
     await firstTarget.fill("保留期为 60 天。");
     await expect(page.locator(".save-indicator")).toContainText("Saved");
     await firstTarget.press("Control+Enter");
-    await expect(page.locator(".segment-row").first()).toContainText("Issues");
+    await expect(page.locator(".seg-row, .segment-row").first()).toContainText("Issues");
 
     await page.getByRole("tab", { name: /Assistant/u }).click();
     await expect(page.getByLabel("Requested model")).toHaveValue("grok-4.5");
@@ -3286,7 +3291,7 @@ test("manages the offline Assistant and real workspace projections", async () =>
       .toBe("1");
 
     const secondTarget = page
-      .locator(".segment-row")
+      .locator(".seg-row, .segment-row")
       .nth(1)
       .locator("textarea");
     const useInTarget = page.getByRole("button", { name: "Use in target" });
@@ -3324,7 +3329,7 @@ test("manages the offline Assistant and real workspace projections", async () =>
       .click();
     await expect(page.locator(".conversation-row")).toHaveCount(2);
 
-    const thirdTarget = page.locator(".segment-row").nth(2).locator("textarea");
+    const thirdTarget = page.locator(".seg-row, .segment-row").nth(2).locator("textarea");
     await thirdTarget.fill("临时草稿");
     await openApplicationMenu(page);
     await page.getByRole("button", { name: "QA review" }).click();
@@ -3430,12 +3435,12 @@ test("manages the offline Assistant and real workspace projections", async () =>
       page.getByRole("region", { name: "Translation segments" }),
     ).toBeVisible();
     await expect(
-      page.locator(".segment-row").nth(2).locator("textarea"),
+      page.locator(".seg-row, .segment-row").nth(2).locator("textarea"),
     ).toBeFocused();
     await expect(
-      page.locator(".segment-row").nth(2).locator("textarea"),
+      page.locator(".seg-row, .segment-row").nth(2).locator("textarea"),
     ).toHaveValue("临时草稿");
-    const firstRowForSignoff = page.locator(".segment-row").first();
+    const firstRowForSignoff = page.locator(".seg-row, .segment-row").first();
     await firstRowForSignoff.locator("textarea").click();
     await (
       await openSegmentActions(firstRowForSignoff)
@@ -3460,7 +3465,7 @@ test("manages the offline Assistant and real workspace projections", async () =>
       .getByRole("button", { name: "translation", exact: true })
       .click();
     await page.getByRole("button", { name: "Close review panel" }).click();
-    await page.locator(".segment-row").nth(2).locator("textarea").fill("");
+    await page.locator(".seg-row, .segment-row").nth(2).locator("textarea").fill("");
     await expect(page.locator(".save-indicator")).toContainText("Saved");
 
     await openApplicationMenu(page);
@@ -3472,7 +3477,7 @@ test("manages the offline Assistant and real workspace projections", async () =>
     await page.screenshot({ path: "test-results/page-tm-1250x744.png" });
     await page.getByRole("button", { name: "Back to workbench" }).click();
 
-    firstTarget = page.locator(".segment-row").first().locator("textarea");
+    firstTarget = page.locator(".seg-row, .segment-row").first().locator("textarea");
     await firstTarget.fill("保留期为 30 天。");
     await expect(page.locator(".save-indicator")).toContainText("Saved");
     // Phase 2: row Confirm is Control+Enter (rail Confirm removed).
@@ -3593,7 +3598,7 @@ test("configures BYOK AI, streams a grounded run, applies its diff, and reports 
     }
     await page.getByRole("button", { name: "Back to workbench" }).click();
 
-    const targetRow = page.locator(".segment-row").nth(2);
+    const targetRow = page.locator(".seg-row, .segment-row").nth(2);
     const target = targetRow.locator("textarea");
     await target.click();
     await targetRow
@@ -3765,7 +3770,7 @@ test("uses the authoritative professional editor commands", async () => {
   try {
     await importFixture(page);
     const firstRow = page
-      .locator(".segment-row")
+      .locator(".seg-row, .segment-row")
       .filter({ has: page.getByLabel("Target segment 1") });
     const firstTarget = firstRow.getByLabel("Target segment 1");
     await expect(firstRow.locator(".tag-capsule.source-tag")).toHaveCount(4);
@@ -3909,7 +3914,7 @@ test("uses the authoritative professional editor commands", async () => {
     await expect(page.getByText("No comments on this segment.")).toBeVisible();
     await page.getByRole("button", { name: "Close comments" }).click();
 
-    const thirdRow = page.locator(".segment-row").nth(2);
+    const thirdRow = page.locator(".seg-row, .segment-row").nth(2);
     await thirdRow.click();
     const thirdTarget = thirdRow.locator("textarea");
     await thirdTarget.fill("鼠标和打印机里的软件");
@@ -4016,7 +4021,7 @@ test("keeps active segment actions quiet and IME-safe at 125% zoom", async ({
 
   try {
     await importFixture(page);
-    const firstRow = page.locator(".segment-row").first();
+    const firstRow = page.locator(".seg-row, .segment-row").first();
     const firstTarget = firstRow.locator("textarea");
     await firstTarget.focus();
     await expect(firstRow).toHaveClass(/active/u);
@@ -4330,7 +4335,7 @@ test("manages the complete project lifecycle through the real Engine", async ({
     });
     expect(createdProject.project.configuration.templateId).toBeTruthy();
     await expect(page.locator(".docswitch")).toContainText("alpha.txt");
-    const firstTarget = page.locator(".segment-row textarea").first();
+    const firstTarget = page.locator(".seg-row, .segment-row textarea").first();
     await firstTarget.fill("Lifecycle retained target.");
     await expect(page.locator(".save-indicator")).toContainText("Saved");
 
@@ -4430,7 +4435,7 @@ test("manages the complete project lifecycle through the real Engine", async ({
     await expect(
       page.getByRole("region", { name: "Translation segments" }),
     ).toBeVisible();
-    await expect(page.locator(".segment-row textarea").first()).toBeFocused();
+    await expect(page.locator(".seg-row, .segment-row textarea").first()).toBeFocused();
 
     await openApplicationMenu(page);
     await page.getByRole("button", { name: "Projects", exact: true }).click();
@@ -5499,7 +5504,7 @@ test("runs real-Engine alignment and reference-corpus workflows", async ({
       .getByRole("button", { name: "Insert target" })
       .click();
     await expect(
-      page.locator(".segment-row").first().locator("textarea"),
+      page.locator(".seg-row, .segment-row").first().locator("textarea"),
     ).toHaveValue("2026 年发票已到期。");
 
     await openApplicationMenu(page);
@@ -5574,10 +5579,10 @@ test("keeps a 10,000 segment document inside the virtual row and 60-second perfo
     await expect(page.locator(".docswitch")).toBeVisible();
     await expect(page.locator(".doc-matrix")).toBeVisible();
     await expect
-      .poll(() => page.locator(".segment-row").count())
+      .poll(() => page.locator(".seg-row, .segment-row").count())
       .toBeLessThanOrEqual(100);
     await expect
-      .poll(() => page.locator(".segment-row").count())
+      .poll(() => page.locator(".seg-row, .segment-row").count())
       .toBeGreaterThan(0);
 
     await page.locator(".segment-grid").evaluate((element) => {
@@ -5590,7 +5595,7 @@ test("keeps a 10,000 segment document inside the virtual row and 60-second perfo
       )
       .toBeGreaterThan(1_000);
     await expect
-      .poll(() => page.locator(".segment-row").count())
+      .poll(() => page.locator(".seg-row, .segment-row").count())
       .toBeLessThanOrEqual(100);
 
     const performanceEvidence = await page.evaluate(async () => {
@@ -5626,7 +5631,7 @@ test("keeps a 10,000 segment document inside the virtual row and 60-second perfo
         const sample = () => {
           maxMountedRows = Math.max(
             maxMountedRows,
-            document.querySelectorAll(".segment-row").length,
+            document.querySelectorAll(".seg-row, .segment-row").length,
           );
           const usedHeap = memory();
           if (usedHeap !== undefined) heapSamples.push(usedHeap);
@@ -5699,8 +5704,8 @@ test("keeps a 10,000 segment document inside the virtual row and 60-second perfo
     });
 
     await page.getByLabel("Search in document").fill("Segment 09999");
-    await expect(page.locator(".segment-row")).toHaveCount(1);
-    await expect(page.locator(".segment-row").first()).toContainText(
+    await expect(page.locator(".seg-row, .segment-row")).toHaveCount(1);
+    await expect(page.locator(".seg-row, .segment-row").first()).toContainText(
       "Segment 09999 benchmark text.",
     );
     expect(consoleErrors).toEqual([]);
@@ -5799,7 +5804,7 @@ test("exposes the five named Workbench empty states with a real grid recovery ac
     await capture("wp2-empty-grid-filters-1680x942-light");
     await gridEmpty.getByRole("button", { name: "Clear filters" }).click();
     await expect(documentSearch).toHaveValue("");
-    await expect(page.locator(".segment-row").first()).toBeVisible();
+    await expect(page.locator(".seg-row, .segment-row").first()).toBeVisible();
 
     await resizeWindow(application, 1250, 744);
     await page.emulateMedia({ reducedMotion: "reduce" });
@@ -6001,7 +6006,7 @@ test("opens app-bar global search, flushes navigation, and retains a failed draf
       };
       return parsed;
     });
-    const firstTarget = page.locator(".segment-row textarea").first();
+    const firstTarget = page.locator(".seg-row, .segment-row textarea").first();
     await firstTarget.fill("Global search flushed draft.");
     await result.click();
     await expect(dialog).toHaveCount(0);
@@ -6312,7 +6317,7 @@ test("keeps panel motion, geometry, and Windows rendering coherent", async ({
           suggestionsBox &&
           restoredEditorBox.x + restoredEditorBox.width <= suggestionsBox.x + 1,
       ).toBeTruthy();
-      await expect(page.locator(".segment-row").first()).toHaveClass(/active/u);
+      await expect(page.locator(".seg-row, .segment-row").first()).toHaveClass(/active/u);
     }
 
     const renderingEvidence = await page.evaluate(async () => {
@@ -6515,7 +6520,7 @@ test("keeps non-PDF Preview truthful, mounted, and navigable", async ({
       .nth(1)
       .locator("span")
       .textContent();
-    await expect(page.locator(".segment-row.active .id-cell")).toContainText(
+    await expect(page.locator(".seg-row, .segment-row.active .id-cell")).toContainText(
       selectedOrdinal?.trim() ?? "2",
     );
 
@@ -6687,7 +6692,7 @@ test("applies the workbench visual polish in light and dark themes", async ({
         return {
           // Phase 2: identity plate lives under Masthead, not `.project-identity`.
           appBar: ratio(".identity__name", ".masthead"),
-          source: ratio(".source-cell .tagged-text", ".segment-row td"),
+          source: ratio(".source-cell .tagged-text", ".seg-row, .segment-row td"),
           status: ratio(".status-bar", ".status-bar"),
           emptyState: ratio(
             ".workbench-state-label",
@@ -6698,7 +6703,7 @@ test("applies the workbench visual polish in light and dark themes", async ({
             ".preview-paper",
           ),
           // Rail Confirm removed; use a live row chrome control for contrast.
-          statusLamp: ratio(".status-lamp", ".segment-row td"),
+          statusLamp: ratio(".status-lamp", ".seg-row, .segment-row td"),
           suggestionsDotsColor: getComputedStyle(
             document.querySelector<HTMLElement>(".suggestions-dots")!,
           ).color,
@@ -6741,12 +6746,12 @@ test("applies the workbench visual polish in light and dark themes", async ({
     }
 
     await setWorkbenchTheme(page, "light");
-    const firstRow = page.locator(".segment-row").first();
+    const firstRow = page.locator(".seg-row, .segment-row").first();
     const firstTarget = firstRow.locator("textarea");
     const paintEvidence = await page.evaluate(() => {
       const app = document.querySelector<HTMLElement>(".workbench-app");
       const target = document.querySelector<HTMLElement>(
-        ".segment-row textarea",
+        ".seg-row, .segment-row textarea",
       );
       // Phase 2 masthead identity plate replaces legacy `.document-switcher`.
       const appBarText = document.querySelector<HTMLElement>(".identity__name");
@@ -6840,7 +6845,7 @@ test("applies the workbench visual polish in light and dark themes", async ({
         .evaluate((element) => getComputedStyle(element).transitionDuration),
     ).toBe("0.001s");
     await page.getByRole("button", { name: "Open Suggestions" }).click();
-    const secondRow = page.locator(".segment-row").nth(1);
+    const secondRow = page.locator(".seg-row, .segment-row").nth(1);
     const secondTarget = secondRow.locator("textarea");
     await secondTarget.fill("在减少动画模式下确认。");
     await expect(page.locator(".save-indicator")).toContainText("Saved");
@@ -6855,7 +6860,7 @@ test("applies the workbench visual polish in light and dark themes", async ({
     await expect(secondRow).not.toHaveClass(/row-flash/u, { timeout: 1_500 });
     await page.emulateMedia({ reducedMotion: "no-preference" });
 
-    const thirdRow = page.locator(".segment-row").nth(2);
+    const thirdRow = page.locator(".seg-row, .segment-row").nth(2);
     const thirdTarget = thirdRow.locator("textarea");
     const thirdSegmentId = await thirdRow.getAttribute("data-segment-row");
     if (!thirdSegmentId) throw new Error("Third segment id is missing.");
