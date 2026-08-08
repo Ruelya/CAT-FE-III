@@ -36,17 +36,22 @@ the desktop package does not yet enforce.
 - Read [Electron Workbench](./electron-workbench.md) before changing Electron
   main/preload, renderer RPC orchestration, workbench panels, Vite, or desktop
   tests.
+- Read [Directory Structure](./directory-structure.md) for the P0 renderer
+  layout (`shell/`, `routes/`, `surfaces/`, `workbench/`, `state/`, `lib/`).
+  Do not reintroduce the deleted root `Workbench.tsx` monolith.
 - Search the generated method catalog before adding a preload method or local
   payload type.
 - Decide whether state is presentation-only or engine-owned before adding it to
-  React.
+  React. Drafts/saves go through `SaveCoordinator`; session identity is
+  versioned project/document IDs only.
+- New renderer icons: Phosphor (`@phosphor-icons/react`). Appearance: light
+  default + advanced-brown accent; no glass (`backdrop-filter`).
 
 ## Quality Check
 
 - Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, and
   `pnpm test:e2e:desktop`.
-- Inspect the 1250x744, 1680x942, and 1920x1080 screenshots for overlap,
-  rendering quality, and panel boundary regressions.
+- Confirm no renderer matches for `backdrop-filter` or new `lucide-react`.
 - Verify there are no renderer console errors and no exact-pixel assertions
   where Windows DPI can produce fractional CSS pixels.
 

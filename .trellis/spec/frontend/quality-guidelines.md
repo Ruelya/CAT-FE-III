@@ -22,43 +22,68 @@ the real engine and an isolated data directory.
 `pnpm build:desktop` before that focused command. The final
 `pnpm test:e2e:desktop` gate builds automatically and remains authoritative.
 
+### P0 static appearance audit
+
+These searches must produce no renderer matches for forbidden materials/icons:
+
+```text
+rg -n "backdrop-filter|-webkit-backdrop-filter|lucide-react" apps/desktop/src/renderer
+```
+
+Theme/accent strings are allowed only as fixed appearance constants and CSS
+tokens — not as settings controls or storage keys.
+
 ## Test Expectations
 
-Unit tests cover pure interaction guards and reducer transitions, including
-IME-safe confirmation, panel mode transitions, preview clamping, assistant
-conversation/model/reasoning actions, and metric formatting. Do not mock the
-engine to claim persistence coverage.
+Unit tests cover pure interaction guards and controller transitions:
 
-Desktop E2E must exercise import, editable CJK target input, debounce/restart
-recovery, confirm-and-advance, TM, number QA and resolution, export, Assistant
-controls/metrics, and Suggestions/Preview docked/collapsed/maximized states.
-Capture evidence at 1250x744, 1680x942, and 1920x1080 and inspect for overlap,
-font rendering, panel seams, focus order, and horizontal transcript overflow.
+- Session parser: missing, malformed, unsupported version, blank IDs, valid
+  identity, canonical serialization (`state/session.test.ts`)
+- Surface resolver: valid session, empty/non-empty project list, open-project
+  document routing (`routes/resolveSurface.test.ts`)
+- IME guard: composition lifecycle, `isComposing`, keyCode/which 229, no side
+  effects, post-composition confirm (`lib/ime.test.ts` + component/integration)
+- Save coordinator: generations, flush stability while typing, journal error
+  without Engine rollback (`state/save-coordinator.test.ts`)
+- Draft recovery classification and multi-record retention
+- Appearance/tokens: light + advanced brown defaults, required vars, forbidden
+  glass CSS (`state/appearance.test.ts`)
+- Recovery dialog keyboard: initial focus, trap, non-destructive Escape
+
+Do not mock the engine to claim persistence coverage in E2E. Integration tests
+may use a typed `DesktopApi` fake at the renderer boundary
+(`test/fake-desktop-api.ts`) with deferred promises for ordering.
+
+Desktop E2E (P0 vertical slice) must exercise real-Engine create/import,
+editable CJK target, confirm, exact TM, QA, gate-enforced export with real
+output file, relaunch resume, Project Home Open, axe on stable states, and no
+renderer console errors. Prefer `tests/e2e/p0-vertical-slice.spec.ts` as the
+focused acceptance path for this shell.
 
 ## Accessibility And Visual Review
 
 - Every control is keyboard reachable and has a name; icon-only controls use
-  Lucide plus `title`/`aria-label`.
-- Use semantic roles for tabs, menus, regions, separators, and live status.
-- Preserve focus across animated collapse/expand and keep hidden content inert.
-- Test IME composition with a real composition event, not only a direct state
-  toggle.
+  Phosphor (`@phosphor-icons/react`) plus `title`/`aria-label`.
+- Use semantic roles for dialogs, regions, lists, and live status.
+- Preserve focus across panel collapse/expand and recovery open/close; keep
+  hidden content inert.
+- Test IME composition with real composition events and keyboard 229 paths, not
+  only a direct state toggle.
 - Prefer numeric geometry tolerances over exact CSS strings; Windows DPI can
   produce fractional values.
-- Before each keyboard-resize phase, focus the separator and assert both its
-  `aria-valuenow` transition and the final numeric geometry. Panel motion can
-  otherwise make a sent key and a handled key indistinguishable in a long suite.
 - Check no renderer console/page errors in Playwright.
+- No filler UI copy, guiding microcopy, or “不是”-style contrast constructions.
 
 ## Review Checklist
 
 - Renderer contains no Node/Electron imports and no domain/persistence rules.
 - All async actions handle errors and expose a busy/disabled state where
   duplicate invocation would be unsafe.
-- Navigation flushes pending saves before unmounting Workbench.
+- Navigation flushes pending saves via `SaveCoordinator.flush()` before leaving
+  Workbench.
+- Session is identity-only; no domain snapshot in `localStorage`.
 - Generated contracts, labels, aria state, and CSS transitions agree.
-- Responsive screenshots show the editor, Suggestions, status, and Preview
-  boundaries without overlap at the three supported viewport sizes.
+- Light-first paint, advanced-brown accent, no glass CSS, Phosphor icons.
 - Production build is tested, including Vite's relative asset base and preload
   output.
 
@@ -69,17 +94,4 @@ font rendering, panel seams, focus order, and horizontal transcript overflow.
 - No disabled button that hides a save or engine error.
 - No animation implemented by unmounting the animated subtree.
 - No broad `eslint-disable` or TypeScript suppression in production code.
-
-## Task Package Quality Gate
-
-The real-Engine task-package E2E must cover trusted `.tltask` dialogs,
-assignment export, assignment preview/import, return export, all Engine
-dispositions, paging, cross-page selection, stale retry, terminal applied and
-discarded states, and no-clobber/error paths. Assert accessible names for tabs,
-checkboxes, pagination, dialog actions, and icon-only discard. Capture
-1250x744, 1680x942, and 1920x1080 screenshots and fail on console/page errors,
-horizontal overflow, overlapping controls, or text escaping its container.
-
-The renderer must not parse package files or compute hashes/conflicts. A
-failed apply must leave the preview visible and retryable; a terminal preview
-must not expose another mutation command.
+- No new `lucide-react` or `backdrop-filter` in the renderer.

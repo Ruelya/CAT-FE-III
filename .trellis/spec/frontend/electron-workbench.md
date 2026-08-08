@@ -8,6 +8,25 @@ packaging, React workbench state, panel interactions, or desktop tests.
 Electron owns operating-system integration and presentation orchestration. It
 does not own segment transitions, QA, TM, segmentation, persistence, or counts.
 
+### P0 renderer layout (authoritative for new UI)
+
+The renderer was rebuilt as a vertical slice. New work must use:
+
+- `shell/` — chrome, boot gate, Engine status banner, recovery dialog
+- `routes/` — pure surface decisions (no URL router)
+- `surfaces/` — Welcome, Project Home, Create, Import, Workbench, QA, Export
+- `workbench/` — segment grid, target editor, exact-TM panel
+- `state/` — app controller, session identity, `SaveCoordinator`, draft recovery,
+  fixed appearance constants
+- `lib/` — typed RPC adapter, UI errors, IME guards
+- `tokens.css` + `styles.css` — light / advanced-brown appearance; no glass
+
+Historical root-level monolith files (`Workbench.tsx`, `WorkbenchPages.tsx`,
+`SetupView.tsx`, `AssistantPanel.tsx`, `workbench-utils.ts`) are gone. Later
+sections of this document may still describe Engine contracts and panel
+behaviors that remain valid; file path examples that mention those deleted
+files should be read as historical and mapped to the layout above.
+
 ## 2. Signatures
 
 The only renderer bridge is `DesktopApi`:
@@ -73,16 +92,20 @@ The main-process E2E delay seam uses three process-only environment keys:
   the Electron executable under a hard timeout. `onlyBuiltDependencies:
   [electron]` belongs in `pnpm-workspace.yaml`.
 - Engine responses replace persisted display state. React owns only ephemeral
-  UI state such as search/filter, active segment, tab, save indicator, toast,
-  and docked/collapsed/maximized panel modes.
-- IME composition is tracked per segment. Ctrl/Cmd+Enter must do nothing during
-  composition; focus advances only after save and confirmation succeed.
-- Suggestions and Preview each have exactly three presentation modes:
-  `docked`, `collapsed`, and `maximized`, with symmetric transitions.
-- Leaving the workbench for QA, export, TM, or setup must call the shared
-  persist-all path before unmount. The parent then reloads project, segment,
-  and QA projections through RPC; a review page never receives a stale copy of
-  debounced renderer state.
+  UI state such as search/filter, active segment, save indicator, and panel
+  collapse. Domain drafts are coordinated by `SaveCoordinator` (generations +
+  DraftJournal), not claimed as confirmed status.
+- Session identity is only versioned `{ projectId, documentId }` under
+  `translunar.renderer.session.v1`. Validate through RPC before use; clear only
+  on proven invalid/recycled identity.
+- IME composition is tracked via `lib/ime.ts` and the save coordinator.
+  Confirm/update/focus-advance must no-op during composition, `isComposing`,
+  or keyCode/which 229; focus advances only after flush and confirmation
+  succeed.
+- Leaving the workbench for QA, export, or Home must await
+  `SaveCoordinator.flush()` before changing surface. On failure, remain on
+  Workbench with draft and typed error intact. Surfaces reload projections
+  through RPC after a successful transition.
 - Collapsed panel content stays mounted for the exit animation but becomes
   `inert` and `aria-hidden`. Focus hands off to the visible expand control;
   expanding returns focus to the collapse control. Do not use `display: none`
@@ -674,10 +697,10 @@ metadata sizing.
   a protected tag, insert a protected tag pair, and open comments. Group only
   lower-frequency split, merge, source-correction, Chinese-conversion, and
   review commands in one accessible overflow menu.
-- Direct controls and the overflow trigger use Lucide icons, a visible
-  tooltip/title, an accessible name, and a stable 32px square hit area. The
-  menu uses `role="menu"`/`role="menuitem"`, closes on blur or Escape, and
-  returns focus to its trigger on Escape.
+- Direct controls and the overflow trigger use Phosphor icons
+  (`@phosphor-icons/react`), a visible tooltip/title, an accessible name, and a
+  stable 32px square hit area. The menu uses `role="menu"`/`role="menuitem"`,
+  closes on blur or Escape, and returns focus to its trigger on Escape.
 - Composition state is checked at every command boundary. While a segment's
   IME composition is active, no split/merge/correction/conversion/comment/
   review mutation or focus transition may run.
@@ -736,13 +759,14 @@ setAiCredential(profileId: string, secret: string): Promise<void>;
   workspace profiles; non-empty lists exact profile IDs. The UI may disable
   known-invalid selections for ergonomics, but Engine enforcement remains
   authoritative—never invent a local bypass or alternate profile.
-- Product-facing AI error text on Live Assistant and AI Control must use
-  `formatEngineError(error, t)` from `workbench-utils.ts` (not bare
-  `formatError`). When `code === "policy_denied"`, map to catalog key
-  `error.allowlistDenied` and interpolate `profileId` from structured
-  `data.profileId` (camelCase wire shape). Unknown codes keep the audited
-  technical protocol message. Branch only on stable `code`/`data` fields—never
-  on English `message` text.
+- Product-facing AI error text on Live Assistant and AI Control must use a
+  structured Engine error formatter + i18n catalog (not bare string conversion).
+  When `code === "policy_denied"`, map to catalog key `error.allowlistDenied`
+  and interpolate `profileId` from structured `data.profileId` (camelCase wire
+  shape). Unknown codes keep the audited technical protocol message. Branch
+  only on stable `code`/`data` fields—never on English `message` text. P0
+  surfaces normalize errors through `lib/errors.ts` (`toUiError`); restore the
+  catalog-backed formatter with AI surfaces when those modules return.
 
 ### 4. Validation & Error Matrix
 
@@ -1884,14 +1908,13 @@ frameWindow.postMessage({ version: 1, type: "translunar.plugin.initialize", nonc
 
 - Package with `apps/desktop/electron-builder.yml`; unsigned artifacts are valid
   for development.
-- Shell copy should prefer `i18n/messages.ts` catalogs (`en-US` / `zh-CN`).
-- Product-facing status, dialog, tutorial, update, backup/restore, allowlist,
-  and accessibility labels must use the typed catalog. Protocol/`formatError`
-  technical payloads may remain audited English; product-facing structured
-  codes such as `policy_denied` must map through `formatEngineError` + catalog
-  keys (see Engine-Backed AI Control And Assistant). Remaining hard-coded
-  English in `Workbench.tsx` is owned by the separate visual task and is not
-  an excuse to add new uncatalogued shell strings elsewhere.
+- Shell copy should prefer typed i18n catalogs (`en-US` / `zh-CN`) when the
+  catalog module is present. P0 vertical-slice surfaces use concise functional
+  English labels; when the catalog returns, product-facing status, dialog,
+  update, backup/restore, allowlist, and accessibility labels must use it.
+  Protocol technical payloads may remain audited English; product-facing
+  structured codes such as `policy_denied` must map through a structured
+  formatter + catalog keys (see Engine-Backed AI Control And Assistant).
 - Project Home may use its dedicated Settings affordance. Workbench and
   secondary workspace surfaces expose Settings through their application
   overflow menu; they must not render a fixed floating Settings control over a

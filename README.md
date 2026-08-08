@@ -140,6 +140,6 @@ The MVP deliberately excludes network AI connectors and API-key storage,
 persistent termbases, fuzzy/CJK memory retrieval, collaboration, installers,
 automatic updates, and formats beyond DOCX. The Assistant is a deterministic
 offline interaction preview and never claims a model request. See
-[Architecture](docs/architecture.md), [Design Notes](docs/design-notes.md), and
+[Architecture](docs/architecture.md) and
 [Product Requirements](docs/PRD.md) for the fixed boundaries and longer-term
 direction.

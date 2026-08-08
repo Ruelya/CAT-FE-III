@@ -38,7 +38,8 @@
     "07-19-platform-packaging-product-shell",
     "07-19-full-prd-release-qualification",
     "07-20-project-lifecycle-acceptance",
-    "08-02-mineru-ocr-pdf-pipeline"
+    "08-02-mineru-ocr-pdf-pipeline",
+    "08-08-frontend-rebuild-p0-vertical-slice"
   ],
   "parent": null,
   "relatedFiles": [],

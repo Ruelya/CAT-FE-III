@@ -1,0 +1,8 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Frontend specification entry point and precedence for rebuilding the renderer from the scaffold."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Guides placement and boundaries for shell, routes, surfaces, workbench, state, library, and colocated test modules."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Binding Electron workbench behavior: Engine-owned projection, RPC hydration/resume, IME-safe confirmation, save-before-leave, recovery, and desktop interaction contracts."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Applies component composition, semantic controls, accessible names, focus handling, and reusable shell/workbench primitives."}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"Applies to Strict Mode-safe Engine status/reconnect subscriptions, async effect cleanup, and stale-response handling in controller hooks."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Constrains renderer versus Engine state ownership, versioned session identity, disposable UI preferences, draft handling, and mutation sequencing."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Defines renderer testing, accessibility, reduced-motion, error/loading/cancellation states, and quality gates for the complete P0 slice."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Requires canonical DesktopApi/protocol typing, exhaustive state unions, typed errors, and avoidance of duplicated schemas or unchecked casts."}
