@@ -29,16 +29,25 @@ export interface DesktopApi {
 ```
 
 In catch blocks use `unknown` and normalize through a small helper such as
-`formatError`. Narrow DOM events through `currentTarget`, and use explicit
-unions for finite UI states (`PanelMode`, `SuggestionTab`, `AppSurface`) rather
-than arbitrary strings.
+`toUiError` in `lib/errors.ts`. Narrow DOM events through `currentTarget`, and
+use explicit unions for finite UI states (surface kinds, save state, draft
+classification, session parse result) rather than arbitrary strings.
+
+Engine invocations go through `lib/rpc.ts` so method names stay tied to the
+generated catalog. Do not hand-write parallel request/response interfaces for
+Engine methods.
 
 ## Data And Reducers
 
-Prefer discriminated unions for action-like values. `assistant-state.ts`
-defines `AssistantAction`, `AssistantModel`, and `ReasoningLevel`; its reducer
-switch is the single transition owner. Keep IDs and optional fields explicit;
-do not use truthiness to reinterpret a numeric count or revision.
+Prefer discriminated unions for action-like values. P0 examples:
+
+- Session: `SessionParseResult` in `state/session.ts`
+- Draft journal: `DraftClassification` in `state/draft-recovery.ts`
+- Startup destination: `StartupDestination` in `routes/resolveSurface.ts`
+- App surface / boot machine: `state/app-state.ts`
+
+Keep IDs and optional fields explicit; do not use truthiness to reinterpret a
+numeric count or revision.
 
 When a payload is `unknown`, create one decoder/type guard next to its owner
 and share it. Do not cast the same JSON field independently in multiple

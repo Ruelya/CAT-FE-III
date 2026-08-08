@@ -1,0 +1,317 @@
+import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
+import { mkdtemp, rm, access } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { test, expect, type Page, type ConsoleMessage } from "@playwright/test";
+import { _electron as electron, type ElectronApplication } from "playwright";
+
+const require = createRequire(import.meta.url);
+const electronExecutable = require("electron") as string;
+const axeCorePath = require.resolve("axe-core", {
+  paths: [dirname(require.resolve("@axe-core/playwright"))],
+});
+const axeSource = readFileSync(axeCorePath, "utf8");
+const desktopRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
+/** Deterministic single-segment source so the real Engine gate can clear. */
+const sourceFixture = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "fixtures/single-segment-source.txt",
+);
+
+async function launchApp(options: {
+  userData: string;
+  sourcePath?: string;
+  exportPath?: string;
+}): Promise<{ app: ElectronApplication; page: Page }> {
+  const env: { [key: string]: string } = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (typeof value === "string") env[key] = value;
+  }
+  env.TRANSLUNAR_TEST_USER_DATA = options.userData;
+  env.TRANSLUNAR_DATA_DIR = join(options.userData, "engine-data");
+  if (options.sourcePath) {
+    env.TRANSLUNAR_TEST_SOURCE = options.sourcePath;
+  }
+  if (options.exportPath) {
+    env.TRANSLUNAR_TEST_EXPORT_DOCX = options.exportPath;
+  }
+
+  const app = await electron.launch({
+    executablePath: electronExecutable,
+    args: ["."],
+    cwd: desktopRoot,
+    env,
+  });
+
+  const page = await app.firstWindow();
+  await page.waitForLoadState("domcontentloaded");
+  return { app, page };
+}
+
+function attachConsoleGuard(page: Page): {
+  errors: string[];
+  dispose: () => void;
+} {
+  const errors: string[] = [];
+  const onConsole = (msg: ConsoleMessage) => {
+    if (msg.type() === "error") {
+      errors.push(msg.text());
+    }
+  };
+  const onPageError = (err: Error) => {
+    errors.push(err.message);
+  };
+  page.on("console", onConsole);
+  page.on("pageerror", onPageError);
+  return {
+    errors,
+    dispose: () => {
+      page.off("console", onConsole);
+      page.off("pageerror", onPageError);
+    },
+  };
+}
+
+/**
+ * Electron + CSP blocks script tags and @axe-core/playwright's newPage path.
+ * Inject axe-core via CDP evaluate (not subject to page CSP script-src).
+ */
+async function expectNoCriticalAxe(page: Page, label: string): Promise<void> {
+  // CDP evaluate is not constrained by page CSP script-src; required for Electron.
+  await page.evaluate((source: string) => {
+    const indirectEval: (code: string) => unknown = eval;
+    indirectEval(source);
+  }, axeSource);
+
+  const results = await page.evaluate(async () => {
+    const axe = (
+      globalThis as unknown as {
+        axe: {
+          run: () => Promise<{
+            violations: Array<{
+              id: string;
+              impact?: string | null;
+              help: string;
+            }>;
+          }>;
+        };
+      }
+    ).axe;
+    return axe.run();
+  });
+
+  const serious = results.violations.filter(
+    (v) => v.impact === "serious" || v.impact === "critical",
+  );
+  expect(serious, `${label}: ${JSON.stringify(serious, null, 2)}`).toEqual([]);
+}
+
+test.describe("P0 vertical slice", () => {
+  test("welcome → create → import → edit/confirm → QA → export → resume", async () => {
+    const userData = await mkdtemp(join(tmpdir(), "tl-p0-"));
+    const exportPath = join(userData, "export-out.txt");
+    let app: ElectronApplication | undefined;
+    let page: Page;
+    let consoleGuard: ReturnType<typeof attachConsoleGuard> | undefined;
+
+    try {
+      ({ app, page } = await launchApp({
+        userData,
+        sourcePath: sourceFixture,
+        exportPath,
+      }));
+      consoleGuard = attachConsoleGuard(page);
+
+      await expect(page.getByTestId("welcome")).toBeVisible({
+        timeout: 60_000,
+      });
+      await expectNoCriticalAxe(page, "welcome");
+
+      await page.getByRole("button", { name: "Create project" }).click();
+      await expect(page.getByTestId("create-project")).toBeVisible();
+
+      await page.getByLabel("Name").fill("P0 Demo");
+      await page.getByRole("button", { name: "Create" }).click();
+
+      await expect(page.getByTestId("import-document")).toBeVisible({
+        timeout: 30_000,
+      });
+      await page.getByRole("button", { name: "Choose file" }).click();
+
+      await expect(page.getByTestId("workbench")).toBeVisible({
+        timeout: 60_000,
+      });
+      await expectNoCriticalAxe(page, "workbench");
+
+      // Exact TM panel: collapse/expand remains accessible and body stays mounted.
+      const tmPanel = page.getByTestId("tm-panel");
+      await expect(tmPanel).toBeVisible();
+      const collapseTm = page.getByRole("button", {
+        name: /Collapse exact TM panel/i,
+      });
+      if (await collapseTm.isVisible().catch(() => false)) {
+        await collapseTm.click();
+        await expect(
+          page.getByRole("button", { name: /Expand exact TM panel/i }),
+        ).toBeVisible();
+        // Body remains in DOM (inert) when collapsed.
+        await expect(tmPanel.locator(".tm-panel__body")).toHaveCount(1);
+        await page
+          .getByRole("button", { name: /Expand exact TM panel/i })
+          .click();
+      }
+
+      // Confirm every imported segment with a non-empty target so QA gate is Clear.
+      // Avoid digits (qa.number-mismatch is an error blocker) and empty targets.
+      // Multi-segment fixtures must not leave empty-target blockers (Blocked ≠ success).
+      const safeTargets = [
+        "欢迎使用 Translunar CAT 离线垂直切片示例。",
+        "本示例在本机完成导入编辑确认质检与导出。",
+        "翻译记忆与术语库均保留在本地设备。",
+      ];
+      for (let i = 0; i < 20; i += 1) {
+        const target = page.locator('[data-testid^="target-editor-"]').first();
+        await expect(target).toBeVisible();
+        const beforeConfirmed = await page
+          .locator(".status-chip--confirmed")
+          .count();
+        await target.fill(safeTargets[i % safeTargets.length]!);
+        await page.getByRole("button", { name: "Confirm" }).click();
+        await expect(page.locator(".status-chip--confirmed")).toHaveCount(
+          beforeConfirmed + 1,
+          { timeout: 30_000 },
+        );
+        // Stop when all rows show confirmed chips.
+        const confirmed = await page.locator(".status-chip--confirmed").count();
+        const activateCount = await page
+          .locator('[data-testid^="segment-activate-"]')
+          .count();
+        // activate controls exist only for inactive rows; +1 active ≈ total segments.
+        const totalSegments = activateCount + 1;
+        if (confirmed >= totalSegments) break;
+      }
+
+      // Authoritative confirmed state must appear in Engine-rendered UI.
+      await expect(page.locator(".status-chip--confirmed").first()).toBeVisible(
+        { timeout: 30_000 },
+      );
+
+      await page
+        .getByTestId("workbench")
+        .getByRole("button", { name: "QA" })
+        .click();
+      await expect(page.getByTestId("qa-review")).toBeVisible();
+      // Wait for authoritative list (loading → empty or issues), not invented empty.
+      await expect(
+        page.getByText(/No issues|error|warning|#/i).first(),
+      ).toBeVisible({ timeout: 30_000 });
+      await page.getByRole("button", { name: "Run QA" }).click();
+      await expect(
+        page.getByText(/No issues|error|warning|#/i).first(),
+      ).toBeVisible({ timeout: 30_000 });
+      await expectNoCriticalAxe(page, "qa");
+
+      await page
+        .getByTestId("qa-review")
+        .getByRole("button", { name: "Export" })
+        .click();
+      await expect(page.getByTestId("export-review")).toBeVisible();
+      await page
+        .getByTestId("export-review")
+        .getByRole("button", { name: "Export" })
+        .click();
+
+      // Deterministic pass: require clear gate + export result + real file.
+      // Blocked is NOT accepted as success for this fixture path.
+      await expect(page.getByTestId("export-result")).toBeVisible({
+        timeout: 45_000,
+      });
+      await expect(page.getByText(/Blocked/i)).toHaveCount(0);
+      await access(exportPath);
+      await expectNoCriticalAxe(page, "export");
+
+      expect(
+        consoleGuard.errors,
+        `renderer/page console errors: ${consoleGuard.errors.join("\n")}`,
+      ).toEqual([]);
+
+      await app.close();
+      app = undefined;
+
+      ({ app, page } = await launchApp({
+        userData,
+        sourcePath: sourceFixture,
+        exportPath,
+      }));
+      const resumeGuard = attachConsoleGuard(page);
+      await expect(page.getByTestId("workbench")).toBeVisible({
+        timeout: 60_000,
+      });
+      await expect(page.getByTestId("app-shell")).toContainText("P0 Demo");
+      expect(
+        resumeGuard.errors,
+        `resume console errors: ${resumeGuard.errors.join("\n")}`,
+      ).toEqual([]);
+      resumeGuard.dispose();
+    } finally {
+      consoleGuard?.dispose();
+      if (app) await app.close().catch(() => undefined);
+      await rm(userData, { recursive: true, force: true }).catch(
+        () => undefined,
+      );
+    }
+  });
+
+  test("project home Open resumes an existing project", async () => {
+    const userData = await mkdtemp(join(tmpdir(), "tl-p0-home-"));
+    let app: ElectronApplication | undefined;
+    let page: Page;
+
+    try {
+      ({ app, page } = await launchApp({
+        userData,
+        sourcePath: sourceFixture,
+      }));
+      await expect(page.getByTestId("welcome")).toBeVisible({
+        timeout: 60_000,
+      });
+      await page.getByRole("button", { name: "Create project" }).click();
+      await page.getByLabel("Name").fill("Listed");
+      await page.getByRole("button", { name: "Create" }).click();
+      await expect(page.getByTestId("import-document")).toBeVisible({
+        timeout: 30_000,
+      });
+      await page.getByRole("button", { name: "Choose file" }).click();
+      await expect(page.getByTestId("workbench")).toBeVisible({
+        timeout: 60_000,
+      });
+
+      await page.evaluate(() => {
+        localStorage.removeItem("translunar.renderer.session.v1");
+      });
+      await app.close();
+      app = undefined;
+
+      ({ app, page } = await launchApp({ userData }));
+      await expect(page.getByTestId("project-home")).toBeVisible({
+        timeout: 60_000,
+      });
+      await expect(page.getByText("Listed")).toBeVisible();
+      await expectNoCriticalAxe(page, "project-home");
+
+      await page.getByRole("button", { name: "Open" }).click();
+      await expect(page.getByTestId("workbench")).toBeVisible({
+        timeout: 60_000,
+      });
+      await expect(page.getByTestId("app-shell")).toContainText("Listed");
+    } finally {
+      if (app) await app.close().catch(() => undefined);
+      await rm(userData, { recursive: true, force: true }).catch(
+        () => undefined,
+      );
+    }
+  });
+});

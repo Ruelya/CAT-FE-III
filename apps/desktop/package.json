@@ -18,6 +18,7 @@
     "package:dir": "node ../../scripts/package-desktop.mjs --dir"
   },
   "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
     "@translunar/contracts": "workspace:*",
     "electron-updater": "6.8.9",
     "lucide-react": "1.25.0",
@@ -25,9 +26,8 @@
     "react-dom": "19.2.7"
   },
   "devDependencies": {
-    "@playwright/test": "1.61.1",
     "@axe-core/playwright": "4.10.2",
-    "playwright": "1.61.1",
+    "@playwright/test": "1.61.1",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.2",
     "@testing-library/user-event": "14.6.1",
@@ -38,11 +38,12 @@
     "concurrently": "10.0.3",
     "cross-env": "10.1.0",
     "electron": "41.10.3",
+    "electron-builder": "26.0.12",
     "jsdom": "29.1.1",
+    "playwright": "1.61.1",
     "typescript": "6.0.3",
     "vite": "8.1.5",
     "vitest": "4.1.10",
-    "wait-on": "9.0.10",
-    "electron-builder": "26.0.12"
+    "wait-on": "9.0.10"
   }
 }

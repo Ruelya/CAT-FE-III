@@ -1,0 +1,88 @@
+/**
+ * P0 appearance tokens — light default, advanced-brown accent, no glass.
+ * Appearance is fixed; no theme/accent persistence in P0.
+ */
+:root {
+  color-scheme: light;
+
+  /* Surfaces */
+  --color-canvas: #f4f1ec;
+  --color-surface: #fbfaf7;
+  --color-surface-raised: #fffdf9;
+  --color-surface-subtle: #ece6de;
+
+  /* Borders */
+  --color-border: #d8d0c5;
+  --color-border-strong: #b7aa9c;
+
+  /* Text */
+  --color-text: #261f1a;
+  --color-text-muted: #6b6158;
+  --color-text-inverse: #fffdf9;
+
+  /* Advanced brown accent (interactive only) */
+  --color-accent: #765847;
+  --color-accent-hover: #624638;
+  --color-accent-active: #513a2e;
+  --color-accent-soft: #ebe0d6;
+
+  /* Semantic (independent of accent; AA on surface-subtle / light QA) */
+  --color-success: #1f5c3c;
+  --color-warning: #7a4f0f;
+  --color-error: #a83f3f;
+  --color-focus: #765847;
+
+  /* Brand ribbon (mark only) */
+  --color-brand-burnt: #d9562b;
+  --color-brand-ochre: #d29a2e;
+  --color-brand-lichen: #87904a;
+  --color-brand-teal: #4f8076;
+  --color-brand-dusk: #526f86;
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  /* Elevation */
+  --shadow-sm: 0 1px 2px rgb(38 31 26 / 6%);
+  --shadow-md: 0 4px 12px rgb(38 31 26 / 8%);
+
+  /* Type */
+  --font-sans:
+    "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.8125rem;
+  --font-size-md: 0.875rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.5rem;
+  --line-height-tight: 1.25;
+  --line-height-body: 1.45;
+
+  /* Motion */
+  --motion-fast: 120ms;
+  --motion-shell: 180ms;
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* Layout */
+  --chrome-height: 48px;
+  --tm-panel-width: 320px;
+  --tm-rail-width: 36px;
+  --focus-ring: 2px solid var(--color-focus);
+  --focus-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-shell: 0ms;
+  }
+}

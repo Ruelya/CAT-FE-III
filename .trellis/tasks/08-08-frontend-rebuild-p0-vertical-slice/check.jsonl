@@ -1,0 +1,8 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Review against the complete frontend guideline set and task-specific frozen design precedence."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Check that the rebuilt renderer preserves clear shell/surface/workbench/state boundaries without monolithic or misplaced modules."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Verify Engine authority, session validation, draft recovery, save flushing, IME safety, reconnect, QA gate, and Electron workflow behavior."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Review semantic structure, icon accessible names, focus behavior, composition, and absence of dead placeholder controls."}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"Review Strict Mode listener cleanup, effect dependencies, operation generations, and stale asynchronous result suppression."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Check that localStorage is limited to session identity/disposable UI preferences and that domain facts remain Engine-owned."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Review automated coverage, axe/keyboard basics, reduced motion, complete async states, real-Engine E2E, and touched-path validation."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Check canonical RPC request/result use, typed state/error boundaries, exhaustive routing, and absence of any/invented protocol models."}

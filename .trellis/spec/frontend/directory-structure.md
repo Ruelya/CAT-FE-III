@@ -13,11 +13,69 @@ apps/desktop/
 `-- tests/e2e/      # Playwright tests against a built app and real engine
 ```
 
-`apps/desktop/src/renderer/main.tsx` is the renderer entry point. `App.tsx`
-owns surface/session orchestration; `SetupView.tsx`, `Workbench.tsx`,
-`WorkbenchPages.tsx`, and `AssistantPanel.tsx` own visible feature areas.
-`Workbench.tsx` contains the current editor, Suggestions, and Preview shell;
-shared interaction math lives in `workbench-utils.ts` with colocated tests.
+## Renderer Layout (P0 rebuild)
+
+`apps/desktop/src/renderer/main.tsx` is the entry. `App.tsx` composes chrome,
+boot/recovery gates, and exactly one resolved surface. Domain ownership stays
+in the Engine; the renderer is a projection and interaction client.
+
+```text
+apps/desktop/src/renderer/
+|-- main.tsx
+|-- App.tsx
+|-- global.d.ts
+|-- tokens.css              # appearance custom properties (light / advanced brown)
+|-- styles.css              # reset, layout, component primitives
+|-- shell/                  # persistent chrome, boot gate, status banner, recovery
+|   |-- AppChrome.tsx
+|   |-- BootGate.tsx
+|   |-- EngineStatusBanner.tsx
+|   `-- RecoveryDialog.tsx
+|-- routes/                 # pure surface decisions (not a URL router)
+|   `-- resolveSurface.ts
+|-- surfaces/               # workflow screens
+|   |-- Welcome.tsx
+|   |-- ProjectHome.tsx
+|   |-- CreateProject.tsx
+|   |-- ImportDocument.tsx
+|   |-- Workbench.tsx
+|   |-- QaReview.tsx
+|   `-- ExportReview.tsx
+|-- workbench/              # editor-specific interaction pieces
+|   |-- SegmentGrid.tsx
+|   |-- TargetEditor.tsx
+|   |-- TmExactPanel.tsx
+|   `-- PanelChrome.tsx
+|-- state/                  # cross-surface controller, session, save, recovery
+|   |-- app-state.ts
+|   |-- use-app-controller.ts
+|   |-- session.ts
+|   |-- save-coordinator.ts
+|   |-- draft-recovery.ts
+|   `-- appearance.ts
+|-- lib/                    # typed RPC adapter and pure guards
+|   |-- rpc.ts
+|   |-- errors.ts
+|   `-- ime.ts
+`-- test/                   # shared fakes for renderer tests
+```
+
+### Boundary meanings
+
+| Directory | Owns | Does not own |
+| --- | --- | --- |
+| `shell/` | Chrome, boot blocking, Engine status UI, recovery dialog | Domain mutations |
+| `routes/` | Pure startup/open routing decisions | Side effects, storage, RPC |
+| `surfaces/` | Workflow screens and surface-local form UI | Direct `window.translunar` (use controller commands) |
+| `workbench/` | Segment grid, target editor, exact-TM panel chrome | Cross-surface navigation policy |
+| `state/` | App controller, versioned session identity, save coordinator, draft classification, fixed appearance constants | Engine domain facts |
+| `lib/` | Typed `invoke`, UI error projection, IME predicates | React components |
+
+> **Stale paths:** Historical monolith files such as root-level
+> `Workbench.tsx`, `WorkbenchPages.tsx`, `SetupView.tsx`, `AssistantPanel.tsx`,
+> and `workbench-utils.ts` were removed by the P0 rebuild. Point new work at
+> `surfaces/`, `workbench/`, `state/`, and `lib/` above. Do not reintroduce a
+> multi-thousand-line root Workbench.
 
 ## Placement Rules
 
@@ -25,34 +83,40 @@ shared interaction math lives in `workbench-utils.ts` with colocated tests.
   `src/main`.
 - Put only the minimal bridge in `src/preload/index.cts`; do not expose
   arbitrary Electron or Node objects.
-- Put renderer-only React components and UI helpers in `src/renderer`.
+- Put renderer-only React components and UI helpers in `src/renderer` under the
+  folders above.
 - Put a type in `src/shared` only when main, preload, and renderer all need the
   same boundary definition. Engine payload types come from
   `@translunar/contracts`, not a shared handwritten duplicate.
 - Put deterministic unit tests beside the source as `*.test.ts(x)`. Put
   browser/process acceptance tests under `tests/e2e/*.spec.ts`.
-- Keep global styling in `src/renderer/styles.css`; use component class names
-  already aligned with the workbench shell instead of introducing inline style
+- Keep appearance tokens in `tokens.css` and layout/component CSS in
+  `styles.css`. Prefer class names aligned with the shell over inline style
   objects for layout.
 
 ## Naming And Imports
 
 Use PascalCase for React component files and exports (`Workbench`,
-`AssistantPanel`), lower-kebab or descriptive names for utility files
-(`workbench-utils.ts`), and `*.cts` only where Electron's CommonJS preload
-output requires it. Use type-only imports for types and import generated
-contracts from `@translunar/contracts`.
+`TargetEditor`), lower-kebab or descriptive names for utility modules
+(`save-coordinator.ts`, `resolveSurface.ts`), and `*.cts` only where Electron's
+CommonJS preload output requires it. Use type-only imports for types and import
+generated contracts from `@translunar/contracts`.
+
+New renderer icons import from `@phosphor-icons/react`. Do not add new
+`lucide-react` usage under `src/renderer`.
 
 ## Source-Backed Examples
 
 - `src/main/engine-client.ts` owns line-delimited request correlation and
   process restart; renderer code calls it only through `DesktopApi`.
-- `src/preload/index.cts` exposes `invoke`, source/export dialogs, and restart
-  through `contextBridge`.
-- `src/renderer/WorkbenchPages.tsx` groups review/export/TM projections while
-  `Workbench.tsx` performs the save-before-navigation handoff.
-- `tests/e2e/workbench.spec.ts` launches the built Electron app and uses the
-  test source/export environment variables rather than mocking the engine.
+- `src/preload/index.cts` exposes `invoke`, source/export dialogs, draft
+  journal APIs, and restart through `contextBridge`.
+- `src/renderer/state/use-app-controller.ts` owns surface transitions and
+  save-before-leave; `src/renderer/state/save-coordinator.ts` owns draft
+  generations and journal/domain flush.
+- `src/renderer/lib/rpc.ts` is the only generic Engine invocation adapter.
+- `tests/e2e/p0-vertical-slice.spec.ts` launches the built Electron app with a
+  real Engine and isolated user data.
 
 ## Avoid
 
@@ -61,3 +125,4 @@ contracts from `@translunar/contracts`.
 - Do not put domain filtering, QA calculation, or persistence in a page.
 - Do not place Playwright specs under `src`, where Vitest or the renderer
   TypeScript project can collect them accidentally.
+- Do not revive the pre-rebuild root monolith layout for new features.
