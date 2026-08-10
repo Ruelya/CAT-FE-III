@@ -6,11 +6,16 @@ import { formatUiError } from "../lib/errors";
 import type { SessionContext } from "../state/app-state";
 import type { SegmentEditState } from "../state/save-coordinator";
 import type { EditorOperationsApi } from "../state/use-editor-operations";
+import { shouldMountPdfDock } from "../state/pdf-review";
+import type { PdfReviewApi } from "../state/use-pdf-review";
+import type { ReimportApi } from "../state/use-reimport-controller";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
+import { ReimportDialog } from "../insights/ReimportDialog";
 import { BatchImportSummary } from "../workbench/BatchImportSummary";
 import { DocumentSwitcher } from "../workbench/DocumentSwitcher";
 import { EditorCommandBar } from "../workbench/EditorCommandBar";
 import { EditorPanels } from "../workbench/EditorPanels";
+import { PdfPageReview } from "../workbench/PdfPageReview";
 import { SegmentGrid } from "../workbench/SegmentGrid";
 import { TmExactPanel } from "../workbench/TmExactPanel";
 
@@ -30,6 +35,8 @@ export interface WorkbenchProps {
   batchResult?: ProjectBatchImportResult | null;
   disabled?: boolean;
   editorOps?: EditorOperationsApi | null;
+  pdfReview?: PdfReviewApi | null;
+  reimport?: ReimportApi | null;
   selectedSegmentIds?: string[];
   onToggleSelect?: (segmentId: string) => void;
   onSelectSegment: (segmentId: string) => void;
@@ -68,6 +75,8 @@ export function Workbench({
   batchResult,
   disabled,
   editorOps,
+  pdfReview,
+  reimport,
   selectedSegmentIds = [],
   onToggleSelect,
   onSelectSegment,
@@ -169,6 +178,17 @@ export function Workbench({
               Assets
             </button>
           ) : null}
+          {reimport ? (
+            <button
+              type="button"
+              className="btn btn--secondary"
+              disabled={headerBusy}
+              onClick={() => reimport.open()}
+              data-testid="reimport-open"
+            >
+              Reimport
+            </button>
+          ) : null}
           <button
             type="button"
             className="btn btn--secondary"
@@ -201,12 +221,38 @@ export function Workbench({
       ) : null}
 
       <div
-        className={
-          tmCollapsed
-            ? "workbench__body workbench__body--tm-collapsed"
-            : "workbench__body"
-        }
+        className={[
+          "workbench__body",
+          tmCollapsed ? "workbench__body--tm-collapsed" : "",
+          pdfReview &&
+          shouldMountPdfDock({
+            pageCount: pdfReview.state.pages.length,
+            listStatus: pdfReview.state.listStatus,
+            listError: pdfReview.state.listError,
+          })
+            ? "workbench__body--with-pdf"
+            : "",
+          pdfReview?.state.dockMode === "collapsed"
+            ? "workbench__body--pdf-collapsed"
+            : "",
+          pdfReview?.state.dockMode === "maximized"
+            ? "workbench__body--pdf-maximized"
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
       >
+        {pdfReview &&
+        shouldMountPdfDock({
+          pageCount: pdfReview.state.pages.length,
+          listStatus: pdfReview.state.listStatus,
+          listError: pdfReview.state.listError,
+        }) ? (
+          <PdfPageReview
+            pdf={pdfReview}
+            {...(disabled !== undefined ? { disabled } : {})}
+          />
+        ) : null}
         <div className="workbench__main">
           <SegmentGrid
             rows={ctx.rows}
@@ -241,6 +287,13 @@ export function Workbench({
           onToggle={onToggleTm}
         />
       </div>
+
+      {reimport ? (
+        <ReimportDialog
+          reimport={reimport}
+          {...(disabled !== undefined ? { disabled } : {})}
+        />
+      ) : null}
 
       {recycleOpen ? (
         <ConfirmDialog

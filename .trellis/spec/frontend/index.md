@@ -18,6 +18,7 @@ renderer interaction patterns currently used by Translunar CAT.
 | [Electron Workbench](./electron-workbench.md)     | Main/preload/renderer boundary, state ownership, packaging, and E2E contracts | Active  |
 | [Project Lifecycle](./project-lifecycle.md)       | P1 multi-doc, batch import, templates, recycle vs lifecycle, search, feature ops | Active  |
 | [Editor & Assets](./editor-assets.md)             | P2 editor ops, command registry/keyboard, Asset Hub domains, curation rollback | Active  |
+| [Interop & PDF (P3)](./interop-pdf.md)            | PDF dock/OCR, Insights interop + task packages, reimport, P3 e2e fixtures       | Active  |
 | [Directory Structure](./directory-structure.md)   | Module organization and file layout                                           | Active  |
 | [Component Guidelines](./component-guidelines.md) | Component patterns, props, composition                                        | Active  |
 | [Hook Guidelines](./hook-guidelines.md)           | Custom hooks, data fetching patterns                                          | Active  |
@@ -46,6 +47,9 @@ the desktop package does not yet enforce.
 - For Workbench editor commands/panels, find/replace, undo/history, review
   queue, or Asset Hub (TM/TB/alignment/corpus/catalog/curation), read
   [Editor & Assets](./editor-assets.md).
+- For Workbench PDF page review/OCR, Insights interop review/table, offline
+  task packages, or document reimport, read
+  [Interop & PDF (P3)](./interop-pdf.md).
 - Search the generated method catalog before adding a preload method or local
   payload type.
 - Decide whether state is presentation-only or engine-owned before adding it to

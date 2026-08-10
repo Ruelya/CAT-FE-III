@@ -13,7 +13,7 @@ apps/desktop/
 `-- tests/e2e/      # Playwright tests against a built app and real engine
 ```
 
-## Renderer Layout (P0 + P1 + P2)
+## Renderer Layout (P0 + P1 + P2 + P3)
 
 `apps/desktop/src/renderer/main.tsx` is the entry. `App.tsx` composes chrome,
 boot/recovery gates, and exactly one resolved surface. Domain ownership stays
@@ -40,14 +40,19 @@ apps/desktop/src/renderer/
 |   |-- ProjectHome.tsx     # active/archived lists, edit, archive, recycle entry
 |   |-- CreateProject.tsx
 |   |-- ImportDocument.tsx  # multi-file selectSourceDocuments + batchImport
-|   |-- Workbench.tsx       # editor command bar + panel composition (P2)
+|   |-- Workbench.tsx       # editor + PDF dock gate (P2/P3) + reimport entry
 |   |-- AssetHub.tsx        # project-scoped TM|TB|alignment|corpus|catalog|curation
 |   |-- QaReview.tsx
 |   |-- ExportReview.tsx
 |   |-- Templates.tsx
 |   |-- RecycleBin.tsx
 |   |-- GlobalSearch.tsx
-|   `-- ProjectInsights.tsx
+|   `-- ProjectInsights.tsx # analytics | interop | taskPackage sections (P1/P3)
+|-- insights/               # P3 Insights panels (optional folder; not top-level surfaces)
+|   |-- InteropReviewPanel.tsx
+|   |-- InteropTablePanel.tsx
+|   |-- TaskPackagePanel.tsx
+|   `-- InsightsSectionNav.tsx
 |-- workbench/              # editor-specific interaction pieces
 |   |-- SegmentGrid.tsx
 |   |-- TargetEditor.tsx
@@ -56,10 +61,12 @@ apps/desktop/src/renderer/
 |   |-- DocumentSwitcher.tsx
 |   |-- BatchImportSummary.tsx
 |   |-- EditorCommandBar.tsx  # compact P2 commands + overflow
-|   `-- EditorPanels.tsx      # find/tags/structure/comments/spell/history/prefs/review
+|   |-- EditorPanels.tsx      # find/tags/structure/comments/spell/history/prefs/review
+|   |-- PdfPageReview.tsx     # P3 page list + canvas + block overlay
+|   `-- PdfOcrCorrectDialog.tsx
 |-- state/                  # cross-surface controller, session, save, recovery
 |   |-- app-state.ts          # includes assets surface (route identity only)
-|   |-- use-app-controller.ts # goAssets / setAssetsSection / backFromAssets gateway
+|   |-- use-app-controller.ts # goAssets / goInsights / feature-op invalidate gateway
 |   |-- session.ts
 |   |-- save-coordinator.ts
 |   |-- draft-recovery.ts
@@ -72,7 +79,15 @@ apps/desktop/src/renderer/
 |   |-- use-editor-operations.ts
 |   |-- asset-state.ts          # local Asset Hub section state shapes
 |   |-- asset-view.ts           # presentation formatting / selection guards
-|   `-- use-asset-controller.ts # per-domain list/mutation op tokens
+|   |-- use-asset-controller.ts # per-domain list/mutation op tokens
+|   |-- pdf-review.ts           # P3 pure: page map, OCR guards, dock mount
+|   |-- use-pdf-review.ts
+|   |-- interop-view.ts         # P3 pure: eligible rows, TM library filter
+|   |-- use-interop-controller.ts
+|   |-- task-package-view.ts    # P3 pure: mergePageSelection, terminal guards
+|   |-- use-task-package-controller.ts
+|   |-- reimport-view.ts        # P3 pure: plan apply guards / disposition counts
+|   `-- use-reimport-controller.ts
 |-- lib/                    # typed RPC adapter and pure guards
 |   |-- rpc.ts
 |   |-- errors.ts
@@ -87,8 +102,9 @@ apps/desktop/src/renderer/
 | `shell/` | Chrome, boot blocking, Engine status UI, recovery/confirm dialogs | Domain mutations |
 | `routes/` | Pure startup/open routing decisions | Side effects, storage, RPC |
 | `surfaces/` | Workflow screens and surface-local form UI | Direct `window.translunar` (use controller commands); TM scoring / alignment algorithms |
-| `workbench/` | Segment grid, target editor, exact-TM panel, document switcher, import summary, editor command/panel chrome | Cross-surface navigation policy / flush rules |
-| `state/` | App controller, session identity, save coordinator, draft classification, appearance, P1 pure helpers, P2 editor/asset orchestration | Engine domain facts; filesystem parse of TMX/TBX/corpus |
+| `insights/` | Interop / task-package presentation panels and section nav | ZIP/DOCX/XLSX parse; disposition inventing |
+| `workbench/` | Segment grid, target editor, exact-TM panel, document switcher, import summary, editor command/panel chrome, PDF dock chrome | Cross-surface navigation policy / flush rules; PDF byte parse |
+| `state/` | App controller, session identity, save coordinator, draft classification, appearance, P1–P3 pure helpers + domain controllers | Engine domain facts; filesystem parse of TMX/TBX/corpus/PDF/packages |
 | `lib/` | Typed `invoke`, UI error projection, IME predicates | React components |
 
 > **Stale paths:** Historical monolith files such as root-level

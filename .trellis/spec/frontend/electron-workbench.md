@@ -11,17 +11,19 @@ does not own segment transitions, QA, TM, segmentation, persistence, or counts.
 ### Renderer layout (authoritative for new UI)
 
 The renderer was rebuilt as a vertical slice (P0), extended for project
-lifecycle discoverability (P1), and editor operations plus Asset Hub (P2).
-New work must use:
+lifecycle discoverability (P1), editor operations plus Asset Hub (P2), and
+PDF/interop/task-package/reimport surfaces (P3). New work must use:
 
 - `shell/` — chrome, boot gate, Engine status banner, recovery/confirm dialogs
 - `routes/` — pure surface decisions (no URL router)
 - `surfaces/` — Welcome, Project Home, Create, Import, Workbench, Asset Hub,
   QA, Export, Templates, Recycle, Global Search, Project Insights
 - `workbench/` — segment grid, target editor, exact-TM panel, document
-  switcher, batch import summary, editor command bar/panels
+  switcher, batch import summary, editor command bar/panels, PDF page review
+- `insights/` — Interop review/table panels, task package panel, section nav
 - `state/` — app controller, session identity, `SaveCoordinator`, draft recovery,
-  fixed appearance constants, P1 pure helpers, P2 editor/asset orchestration
+  fixed appearance constants, P1 pure helpers, P2 editor/asset orchestration,
+  P3 pdf/interop/task/reimport pure helpers + controllers
 - `lib/` — typed RPC adapter, UI errors, IME guards
 - `tokens.css` + `styles.css` — light / advanced-brown appearance; no glass
 
@@ -32,6 +34,9 @@ save-before-nav, feature op tokens, and switcher testids:
 P2 editor mutation sequences, command registry/keyboard ownership, Asset Hub
 domains, exchange dialog boundary, and curation rollback:
 [editor-assets.md](./editor-assets.md).
+
+P3 PDF dock mount rules, interop/task multi-page selection, reimport retry,
+and fixture-gated e2e env keys: [interop-pdf.md](./interop-pdf.md).
 
 Historical root-level monolith files (`Workbench.tsx`, `WorkbenchPages.tsx`,
 `SetupView.tsx`, `AssistantPanel.tsx`, `workbench-utils.ts`) are gone. Later
@@ -58,6 +63,7 @@ export interface DesktopApi {
   ): Promise<string | null>;
   selectExportPath(suggestedName: string): Promise<string | null>;
   selectInteropInput(kind: "review" | "table"): Promise<string | null>;
+  selectTaskPackageInput(): Promise<string | null>;
   resolveDroppedPaths(files: readonly File[]): string[];
   restartEngine(): Promise<void>;
   setAiCredential(profileId: string, secret: string): Promise<void>;
@@ -527,6 +533,10 @@ setDependencyDiagnostics(result.diagnostics);
 
 ## PDF Review Surface
 
+> **P3 layout:** Workbench dock modules and mount helpers live under
+> `workbench/PdfPageReview.tsx`, `state/pdf-review.ts`, `state/use-pdf-review.ts`.
+> Executable mount/selection contracts: [interop-pdf.md](./interop-pdf.md).
+
 ### 1. Scope / Trigger
 
 Use this contract for source selection, PDF original-page review, OCR source
@@ -543,9 +553,13 @@ and generic document.export method contracts.
 - Main owns the file dialog and accepts DOCX/XLSX/PPTX/PDF/TXT/Markdown/
   HTML/XHTML/XLIFF/SDLXLIFF/MQXLIFF/MQXLZ extensions. Setup creates the project,
   then imports through document.import; legacy DOCX RPCs remain compatible.
-- DocumentPreview loads page summaries first and lazily requests one PNG when
-  visible. segmentIds map the active segment to its page; React does not parse
-  the PDF structural path.
+- DocumentPreview / PdfPageReview loads page summaries first and lazily requests
+  one PNG when visible. segmentIds map the active segment to its page; React
+  does not parse the PDF structural path.
+- **Mount gate (P3):** mount the PDF dock only when `shouldMountPdfDock` is true.
+  Non-PDF documents that reject `pdf.page.list` with messages such as “requires
+  a pdf” must **not** mount dock or error chrome (`isNonPdfDocumentListError`).
+  Real list failures may show thin error chrome without fake pages.
 - Original page bytes are rendered as an in-memory data URL. Renderer code
   never receives or opens the managed source path.
 - OCR correction is available only for active OCR, non-confirmed blocks. The
@@ -567,7 +581,8 @@ and generic document.export method contracts.
 | Condition | Required behavior |
 | --- | --- |
 | Source dialog canceled | Keep Setup state; do not create/import |
-| Page summary/image loading fails | Keep editor usable and show typed preview error |
+| Non-PDF `pdf.page.list` InvalidRequest | Hide dock; no fake pages / error chrome |
+| Page summary/image loading fails (real PDF path) | Keep editor usable; thin typed preview error chrome |
 | Correction reason/source empty | Disable save; make no RPC |
 | Stale OCR revision | Show conflict; keep authoritative current state |
 | Confirmed/non-OCR block | Do not render correction command |
@@ -961,6 +976,10 @@ return <ConnectorConfigFields fields={connector.configFields} />;
 
 ## Bilingual Review And Table Interop Surface
 
+> **P3 layout:** Insights interop panels + `state/interop-view.ts` /
+> `use-interop-controller.ts`. Cross-page selection uses `mergePageSelection`
+> from `task-package-view.ts`. Full P3 contracts: [interop-pdf.md](./interop-pdf.md).
+
 ### 1. Scope / Trigger
 
 Use this contract for the Project Insights Interop panel, trusted review/table
@@ -997,8 +1016,11 @@ uses generated `DesktopApi.invoke` contracts for `tm.library.list` and the five
   Initial selection includes those eligible rows, and apply sends explicit row
   IDs plus bounded actor/reason fields.
 - Paging reuses `previewId` and the returned expected revision/locales/limit.
-  Source provenance displays raw `sourceRow`; it must not add another header
-  offset. Structural paths and diagnostics are display-only strings.
+  **Do not replace the full selection set with the current page's eligible
+  IDs.** First open seeds eligible rows; later pages must
+  `mergePageSelection(current, pageRowIds, selectedOnPage)` so off-page IDs
+  survive. Source provenance displays raw `sourceRow`; it must not add another
+  header offset. Structural paths and diagnostics are display-only strings.
 - Busy, typed error, notice, empty, preview, and terminal states are mutually
   coherent. A rendered preview replaces the empty state. Applied previews show
   `Applied`, clear selection, disable apply, and never render `Apply 0`.
@@ -1212,6 +1234,11 @@ if (isTerminalAiRunStatus(run.status)) stopPolling();
 ```
 
 ## Offline Task Package Surface
+
+> **P3 layout:** Insights task panel + `state/task-package-view.ts` /
+> `use-task-package-controller.ts`. Shared selection helper also used by interop.
+> Reimport modal: `state/reimport-view.ts` / `use-reimport-controller.ts`
+> (apply failure restores `planReady` for retry). See [interop-pdf.md](./interop-pdf.md).
 
 ### 1. Scope / Trigger
 
