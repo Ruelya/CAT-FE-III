@@ -177,6 +177,30 @@ describe("appearance-v1", () => {
     expect(combined).not.toMatch(/-webkit-backdrop-filter/i);
   });
 
+  it("title strip uses solid tokens with drag and no-drag regions", () => {
+    expect(stylesCss).toMatch(/\.app-chrome\s*\{[^}]*-webkit-app-region:\s*drag/s);
+    expect(stylesCss).toMatch(
+      /\.app-chrome__actions\s*\{[^}]*-webkit-app-region:\s*no-drag/s,
+    );
+    expect(stylesCss).toMatch(
+      /\.window-controls\s*\{[^}]*-webkit-app-region:\s*no-drag/s,
+    );
+    expect(stylesCss).toMatch(
+      /\.app-chrome\s*\{[^}]*background:\s*var\(--color-surface\)/s,
+    );
+    expect(stylesCss).toMatch(
+      /data-window-chrome=["']macos["'][^}]*padding-left:\s*78px/s,
+    );
+    expect(stylesCss).not.toMatch(/backdrop-filter/i);
+    // Close active: token-only mix (no raw #000); text ink darkens light / lightens dark.
+    expect(stylesCss).toMatch(
+      /\.window-controls__btn--close:active\s*\{[^}]*color-mix\(\s*in\s+srgb\s*,\s*var\(--color-error\)[^)]*var\(--color-text\)/s,
+    );
+    expect(stylesCss).not.toMatch(
+      /\.window-controls__btn--close:active\s*\{[^}]*#000\b/s,
+    );
+  });
+
   it("keeps static light fallback in html for first paint", () => {
     expect(indexHtml).toMatch(/color-scheme:\s*light/i);
     expect(indexHtml.toLowerCase()).toContain("#f4f1ec");

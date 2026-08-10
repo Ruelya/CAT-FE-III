@@ -17,7 +17,8 @@ Source-backed examples:
   `workbench/TmExactPanel.tsx`, `workbench/PanelChrome.tsx`,
   `workbench/DocumentSwitcher.tsx`, `workbench/BatchImportSummary.tsx`,
   `workbench/EditorCommandBar.tsx`, `workbench/EditorPanels.tsx`
-- Shell: `shell/AppChrome.tsx`, `shell/RecoveryDialog.tsx`,
+- Shell: `shell/AppChrome.tsx` (product title strip), `shell/WindowControls.tsx`,
+  `shell/use-window-chrome.ts`, `shell/RecoveryDialog.tsx`,
   `shell/EngineStatusBanner.tsx`, `shell/ConfirmDialog.tsx`,
   `shell/ModalDialog.tsx`
 
@@ -107,11 +108,17 @@ low-contrast glass panels that fail professional CAT density.
   mounts.
 - Brand ribbon colors are for the brand mark only; interactive controls use
   advanced brown.
+- Title-strip chrome (`.app-chrome`, `.window-controls*`) uses the same solid
+  surface/border/text/semantic tokens. Close active may mix `--color-error`
+  with another token (e.g. `--color-text`); raw `#000` / chrome-only literals
+  are forbidden. Drag/no-drag and platform inset rules live in
+  [electron-workbench.md](./electron-workbench.md) (custom title bar scenario).
 - Honor `prefers-reduced-motion: reduce` (collapse motion to effectively
   immediate).
 
 **Related**: `state/appearance.test.ts` asserts required token vars, light/
-brown defaults, semantic separation, and absence of glass CSS.
+brown defaults, semantic separation, absence of glass CSS, and title-strip
+drag/no-drag + token-only close active rules.
 
 ## Editor command bar and Asset Hub
 

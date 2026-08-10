@@ -14,7 +14,10 @@ import type {
   GlobalSearchHit,
 } from "@translunar/contracts";
 
-import type { DesktopApi } from "../../shared/desktop-api";
+import type {
+  DesktopApi,
+  WindowChromePlatform,
+} from "../../shared/desktop-api";
 import type {
   DraftJournalRecord,
   DraftJournalSnapshot,
@@ -131,6 +134,10 @@ export interface FakeEngineState {
     }) => void
   >;
   reconnectListeners: Array<() => void>;
+  /** Fake maximized state for window-chrome bridge methods. */
+  windowMaximized: boolean;
+  /** Platform branch for title-strip controls (default custom). */
+  windowChromePlatform: WindowChromePlatform;
 }
 
 export function createFakeEngineState(
@@ -160,6 +167,8 @@ export function createFakeEngineState(
     exampleResult: { ok: false, message: "no example", code: "NO_EXAMPLE" },
     statusListeners: [],
     reconnectListeners: [],
+    windowMaximized: false,
+    windowChromePlatform: "custom",
     ...overrides,
   };
 }
@@ -2165,6 +2174,18 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
         );
       };
     },
+    minimizeWindow: async () => {
+      state.windowMaximized = false;
+    },
+    maximizeWindow: async () => {
+      state.windowMaximized = !state.windowMaximized;
+      return state.windowMaximized;
+    },
+    closeWindow: async () => {
+      /* no-op in fake */
+    },
+    isWindowMaximized: async () => state.windowMaximized,
+    getWindowChromePlatform: () => state.windowChromePlatform,
   };
 
   return api;
