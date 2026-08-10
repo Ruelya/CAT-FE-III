@@ -1,0 +1,7 @@
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Defines the Electron main/preload/renderer boundary, BrowserWindow security contract, IPC sender validation, packaging, and desktop test expectations for this cross-layer chrome change."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Defines AppChrome shell composition, Phosphor icon usage, focus-visible behavior, solid appearance-token rules, and accessible renderer controls."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Defines required lint/typecheck/unit/E2E gates, appearance audits, accessibility expectations, DPI-safe geometry checks, and no-glass/no-Lucene rules."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Defines the typed DesktopApi boundary, unknown IPC handling, strict TypeScript expectations, and prohibition on raw Electron/Node access in the renderer."}
+{"file":".trellis/spec/frontend/ai-plugins-settings.md","reason":"Documents the appearance-v1 renderer-local contract and explicitly identifies custom title-bar chrome as a separate task boundary."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Confirms the intended shell, shared bridge, preload, main, and renderer test locations for the implementation plan."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Provides the required cross-layer data-flow and boundary checklist for the main/preload/shared/renderer IPC contract."}

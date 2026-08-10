@@ -43,6 +43,13 @@ export interface PluginPanelSession {
   bridgeVersion: 1;
 }
 
+/**
+ * Title-strip platform branch.
+ * - `macos`: native traffic lights via hiddenInset (renderer omits custom controls).
+ * - `custom`: Windows / Linux / other fallback with renderer-owned window controls.
+ */
+export type WindowChromePlatform = "macos" | "custom";
+
 export interface DesktopApi {
   invoke<Method extends EngineMethod>(
     method: Method,
@@ -117,6 +124,15 @@ export interface DesktopApi {
       message?: string;
     }) => void,
   ): () => void;
+
+  // Window chrome (custom title bar) — narrow surface only
+  minimizeWindow(): Promise<void>;
+  /** Toggle maximize when normal / restore when maximized; returns resulting state. */
+  maximizeWindow(): Promise<boolean>;
+  closeWindow(): Promise<void>;
+  isWindowMaximized(): Promise<boolean>;
+  /** Sync platform capability for native vs custom control branch. */
+  getWindowChromePlatform(): WindowChromePlatform;
 }
 
 export type {

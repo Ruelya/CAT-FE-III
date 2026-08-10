@@ -51,6 +51,7 @@ import {
   PLUGIN_ASSET_SCHEME,
   PluginAssetSessionRegistry,
 } from "./plugin-asset-sessions.js";
+import { windowChromeTitleBarOptions } from "./window-chrome.js";
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -113,6 +114,10 @@ const IPC_CHANNELS = {
   openExampleProject: "translunar:shell:example:open",
   engineStatus: "translunar:engine:status",
   engineReconnected: "translunar:engine:reconnected",
+  minimizeWindow: "translunar:window:minimize",
+  maximizeWindow: "translunar:window:maximize",
+  closeWindow: "translunar:window:close",
+  isWindowMaximized: "translunar:window:is-maximized",
 } as const;
 
 let mainWindow: BrowserWindow | null = null;
@@ -389,14 +394,17 @@ function createWindow(): void {
     "preload",
     "index.cjs",
   );
+  const chrome = windowChromeTitleBarOptions(process.platform);
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 860,
     minWidth: 1180,
     minHeight: 700,
     show: false,
-    backgroundColor: "#f1e7d6",
+    // Light canvas token fallback; renderer appearance-v1 owns persisted theme.
+    backgroundColor: "#f4f1ec",
     autoHideMenuBar: true,
+    titleBarStyle: chrome.titleBarStyle,
     webPreferences: {
       preload,
       contextIsolation: true,
@@ -1132,6 +1140,32 @@ function registerIpc(): void {
       return next.tutorial;
     },
   );
+  ipcMain.handle(IPC_CHANNELS.minimizeWindow, (event) => {
+    assertTrustedSender(event);
+    requireWindow().minimize();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.maximizeWindow, (event) => {
+    assertTrustedSender(event);
+    const win = requireWindow();
+    if (win.isMaximized()) {
+      win.unmaximize();
+    } else {
+      win.maximize();
+    }
+    return win.isMaximized();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.closeWindow, (event) => {
+    assertTrustedSender(event);
+    requireWindow().close();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.isWindowMaximized, (event) => {
+    assertTrustedSender(event);
+    return requireWindow().isMaximized();
+  });
+
   ipcMain.handle(IPC_CHANNELS.openExampleProject, async (event) => {
     assertTrustedSender(event);
     try {

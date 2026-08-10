@@ -1,0 +1,7 @@
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Review against the BrowserWindow security/lifecycle contract, trusted IPC sender rules, renderer bridge ownership, and desktop E2E requirements."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Review AppChrome and WindowControls composition, icon/accessibility conventions, drag-strip layout, and solid-token usage."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Review required validation gates, accessibility/no-overflow expectations, DPI-safe assertions, console-error checks, and forbidden CSS/icon audits."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Review strict typed DesktopApi additions and confirm renderer code does not import Electron or expose a general IPC surface."}
+{"file":".trellis/spec/frontend/ai-plugins-settings.md","reason":"Review that appearance-v1 remains renderer-local and that title-bar work does not widen shell settings or create a second appearance source."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Review that changed responsibilities stay within the documented main, preload, shared, shell, and test boundaries."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Review end-to-end contract consistency across BrowserWindow options, IPC handlers, preload methods, controller state, and DOM controls."}

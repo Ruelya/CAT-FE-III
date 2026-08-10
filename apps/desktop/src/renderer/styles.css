@@ -202,6 +202,15 @@ textarea:disabled {
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
   min-height: var(--chrome-height);
+  /* Product title strip is the draggable window region. */
+  -webkit-app-region: drag;
+  app-region: drag;
+  user-select: none;
+}
+
+/* Reserve left inset for native macOS traffic lights (hiddenInset). */
+.app-chrome[data-window-chrome="macos"] {
+  padding-left: 78px;
 }
 
 .app-chrome__brand {
@@ -257,6 +266,74 @@ textarea:disabled {
   align-items: center;
   gap: var(--space-2);
   flex-shrink: 0;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* Interactive chrome descendants must not initiate window drag. */
+.app-chrome button,
+.app-chrome a,
+.app-chrome input,
+.app-chrome select,
+.app-chrome textarea,
+.app-chrome [data-no-drag] {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* ── Custom window controls (Windows / Linux fallback) ── */
+
+.window-controls {
+  display: inline-flex;
+  align-items: stretch;
+  align-self: stretch;
+  flex-shrink: 0;
+  height: var(--chrome-height);
+  margin-right: calc(-1 * var(--space-4));
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.window-controls__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  min-width: 46px;
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+  cursor: default;
+  transition:
+    background var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard);
+}
+
+.window-controls__btn:hover {
+  background: var(--color-surface-subtle);
+}
+
+.window-controls__btn:active {
+  background: var(--color-accent-soft);
+}
+
+.window-controls__btn--close:hover {
+  background: var(--color-error);
+  color: var(--color-text-inverse);
+}
+
+.window-controls__btn--close:active {
+  background: color-mix(in srgb, var(--color-error) 85%, var(--color-text));
+  color: var(--color-text-inverse);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .window-controls__btn {
+    transition: none;
+  }
 }
 
 .app-stage {

@@ -38,8 +38,9 @@ the desktop package does not yet enforce.
 ## Pre-Development Checklist
 
 - Read [Electron Workbench](./electron-workbench.md) before changing Electron
-  main/preload, renderer RPC orchestration, workbench panels, Vite, or desktop
-  tests.
+  main/preload, renderer RPC orchestration, workbench panels, Vite, desktop
+  tests, or custom title-bar / window-chrome (BrowserWindow frame, drag
+  regions, Minimize/Maximize/Close bridge).
 - Read [Directory Structure](./directory-structure.md) for the renderer
   layout (`shell/`, `routes/`, `surfaces/`, `workbench/`, `state/`, `lib/`).
   Do not reintroduce the deleted root `Workbench.tsx` monolith.
@@ -70,7 +71,8 @@ the desktop package does not yet enforce.
 - New renderer icons: Phosphor (`@phosphor-icons/react`). Appearance: versioned
   `translunar.renderer.appearance.v1` (light default + advanced-brown seed
   `#765847`, optional dark + custom seed); no glass (`backdrop-filter`); never
-  store appearance in `ProductShellSettings`.
+  store appearance in `ProductShellSettings`. Title-strip chrome uses the same
+  solid tokens (no raw black close-active mixes).
 
 ## Quality Check
 

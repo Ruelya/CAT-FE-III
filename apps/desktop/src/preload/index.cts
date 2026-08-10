@@ -8,12 +8,17 @@ import type {
 import type {
   DesktopApi,
   DesktopEngineInvokeResponse,
+  WindowChromePlatform,
 } from "../shared/desktop-api.js";
 import type {
   ShellLocalePreferencePatch,
   TutorialState,
   UpdateMode,
 } from "../shared/product-shell.js";
+
+function resolveWindowChromePlatform(platform: string): WindowChromePlatform {
+  return platform === "darwin" ? "macos" : "custom";
+}
 
 const IPC_CHANNELS = {
   invoke: "translunar:engine:invoke",
@@ -62,6 +67,10 @@ const IPC_CHANNELS = {
   openExampleProject: "translunar:shell:example:open",
   engineStatus: "translunar:engine:status",
   engineReconnected: "translunar:engine:reconnected",
+  minimizeWindow: "translunar:window:minimize",
+  maximizeWindow: "translunar:window:maximize",
+  closeWindow: "translunar:window:close",
+  isWindowMaximized: "translunar:window:is-maximized",
 } as const;
 
 async function invokeEngine<Method extends EngineMethod>(
@@ -243,6 +252,15 @@ const api: DesktopApi = {
     return () =>
       electron.ipcRenderer.removeListener(IPC_CHANNELS.engineStatus, handler);
   },
+  minimizeWindow: () =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.minimizeWindow),
+  maximizeWindow: () =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.maximizeWindow),
+  closeWindow: () => electron.ipcRenderer.invoke(IPC_CHANNELS.closeWindow),
+  isWindowMaximized: () =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.isWindowMaximized),
+  getWindowChromePlatform: () =>
+    resolveWindowChromePlatform(process.platform),
 };
 
 electron.contextBridge.exposeInMainWorld("translunar", api);

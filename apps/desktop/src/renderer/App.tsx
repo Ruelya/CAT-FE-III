@@ -5,6 +5,7 @@ import { AppChrome } from "./shell/AppChrome";
 import { BootGate } from "./shell/BootGate";
 import { EngineStatusBanner } from "./shell/EngineStatusBanner";
 import { RecoveryDialog } from "./shell/RecoveryDialog";
+import { useWindowChrome } from "./shell/use-window-chrome";
 import { AiControl } from "./surfaces/AiControl";
 import { AssetHub } from "./surfaces/AssetHub";
 import { Collaboration } from "./surfaces/Collaboration";
@@ -36,6 +37,7 @@ import { useTaskPackageController } from "./state/use-task-package-controller";
 export function App() {
   const { state, saveCoordinator, featureGeneration, commands } =
     useAppController();
+  const windowChrome = useWindowChrome();
   const { surface } = state;
   const disabled = !state.mutationsEnabled;
 
@@ -367,6 +369,11 @@ export function App() {
         onPlugins={() => void commands.goPlugins()}
         onCollaboration={() => void commands.goCollaboration()}
         onSettings={() => void commands.goSettings()}
+        windowChromePlatform={windowChrome.platform}
+        windowMaximized={windowChrome.maximized}
+        onWindowMinimize={windowChrome.minimize}
+        onWindowToggleMaximize={windowChrome.toggleMaximize}
+        onWindowClose={windowChrome.close}
       />
       <div className="app-banner-slot">
         <EngineStatusBanner

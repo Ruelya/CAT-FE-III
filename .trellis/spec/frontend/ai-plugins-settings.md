@@ -23,13 +23,16 @@ generated `lib/rpc` invoke and existing `DesktopApi` trusted paths. React owns
 forms, selection, paging cursors, polling timers, panel open state, and
 presentation formatting only.
 
-**Out of P4 product scope (do not treat as shipped):** custom/frameless
-Electron title-bar chrome remains default OS frame unless a separate task
-schedules it.
+Custom Electron title-bar chrome is **shipped** outside P4 product surfaces:
+platform-hidden frame, `AppChrome` drag strip, and non-macOS window controls.
+See [electron-workbench.md](./electron-workbench.md) (Desktop custom title bar
+chrome). P4 must not reintroduce a default OS title bar, glass material, or a
+second appearance store for chrome.
 
-Related: [electron-workbench.md](./electron-workbench.md) (bridge, save-before-nav,
-historical AI/plugin notes), [project-lifecycle.md](./project-lifecycle.md)
-(feature ops), [directory-structure.md](./directory-structure.md),
+Related: [electron-workbench.md](./electron-workbench.md) (bridge, window chrome,
+save-before-nav, historical AI/plugin notes),
+[project-lifecycle.md](./project-lifecycle.md) (feature ops),
+[directory-structure.md](./directory-structure.md),
 [quality-guidelines.md](./quality-guidelines.md).
 
 ### Source-backed modules (shipped layout)
@@ -575,4 +578,5 @@ configuration: mergeConfiguration(existingProfile.configuration, fields, form);
   may remain thin when env fixtures are unset. Always-on gates and product
   completeness of shipped surfaces are required; skipped deep cases are not
   reinterpreted as passed.
-- Custom frameless title-bar chrome is **not** part of P4.
+- Custom title-bar chrome is maintained under the Electron workbench window-
+  chrome contract, not as a P4 surface deliverable.

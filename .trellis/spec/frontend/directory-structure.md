@@ -6,7 +6,7 @@ The desktop app is one package with explicit Electron boundaries:
 
 ```text
 apps/desktop/
-|-- src/main/       # Electron lifecycle, trusted IPC handlers, EngineClient
+|-- src/main/       # Electron lifecycle, window chrome helper, trusted IPC, EngineClient
 |-- src/preload/    # contextBridge-only DesktopApi exposure
 |-- src/shared/     # small cross-runtime public types (desktop-api.ts)
 |-- src/renderer/   # React surfaces, presentation state, CSS, local tests
@@ -28,8 +28,10 @@ apps/desktop/src/renderer/
 |-- global.d.ts
 |-- tokens.css              # solid light/dark tokens + accent operational vars
 |-- styles.css              # reset, layout, component primitives
-|-- shell/                  # persistent chrome, boot gate, status banner, recovery
-|   |-- AppChrome.tsx       # Assets + P4 AI/Plugins/Collab/Settings nav
+|-- shell/                  # product title strip, boot gate, status, recovery
+|   |-- AppChrome.tsx       # title strip + drag region; Assets + P4 nav
+|   |-- WindowControls.tsx  # custom min/max/close (non-macOS only)
+|   |-- use-window-chrome.ts # trusted DesktopApi window-chrome controller
 |   |-- BootGate.tsx
 |   |-- EngineStatusBanner.tsx
 |   |-- RecoveryDialog.tsx

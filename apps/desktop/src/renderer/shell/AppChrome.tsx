@@ -1,3 +1,4 @@
+import type { MouseEvent as ReactMouseEvent } from "react";
 import {
   ChartLine,
   Export,
@@ -11,8 +12,10 @@ import {
   UsersThree,
 } from "@phosphor-icons/react";
 
+import type { WindowChromePlatform } from "../../shared/desktop-api";
 import type { AppState } from "../state/app-state";
 import { collaborationAvailable, resolveP4RouteContext } from "../state/p4-route-context";
+import { WindowControls } from "./WindowControls";
 
 export interface AppChromeProps {
   state: AppState;
@@ -26,6 +29,12 @@ export interface AppChromeProps {
   onPlugins?: () => void;
   onCollaboration?: () => void;
   onSettings?: () => void;
+  /** Window chrome platform branch from DesktopApi (default: custom). */
+  windowChromePlatform?: WindowChromePlatform;
+  windowMaximized?: boolean;
+  onWindowMinimize?: () => void;
+  onWindowToggleMaximize?: () => void;
+  onWindowClose?: () => void;
 }
 
 export function AppChrome({
@@ -40,6 +49,11 @@ export function AppChrome({
   onPlugins,
   onCollaboration,
   onSettings,
+  windowChromePlatform = "custom",
+  windowMaximized = false,
+  onWindowMinimize,
+  onWindowToggleMaximize,
+  onWindowClose,
 }: AppChromeProps) {
   const surface = state.surface;
 
@@ -99,9 +113,32 @@ export function AppChrome({
     Boolean(onCollaboration) &&
     collaborationAvailable(resolveP4RouteContext(surface));
   const disabled = !state.mutationsEnabled;
+  const showCustomWindowControls =
+    windowChromePlatform === "custom" &&
+    Boolean(onWindowMinimize && onWindowToggleMaximize && onWindowClose);
+
+  const handleTitleDoubleClick = (
+    event: ReactMouseEvent<HTMLElement>,
+  ): void => {
+    if (!showCustomWindowControls || !onWindowToggleMaximize) return;
+    const target = event.target as HTMLElement | null;
+    if (
+      target?.closest(
+        "button, a, input, select, textarea, [data-no-drag], .window-controls",
+      )
+    ) {
+      return;
+    }
+    onWindowToggleMaximize();
+  };
 
   return (
-    <header className="app-chrome" data-testid="app-shell">
+    <header
+      className="app-chrome"
+      data-testid="app-shell"
+      data-window-chrome={windowChromePlatform}
+      onDoubleClick={handleTitleDoubleClick}
+    >
       <div className="app-chrome__brand">
         <span className="app-chrome__ribbon" aria-hidden="true">
           <span />
@@ -115,7 +152,7 @@ export function AppChrome({
       <div className="app-chrome__identity" title={identity}>
         {identity}
       </div>
-      <div className="app-chrome__actions">
+      <div className="app-chrome__actions" data-no-drag>
         {showHomeSearch ? (
           <>
             <button
@@ -267,6 +304,18 @@ export function AppChrome({
           </button>
         ) : null}
       </div>
+      {showCustomWindowControls &&
+      onWindowMinimize &&
+      onWindowToggleMaximize &&
+      onWindowClose ? (
+        <WindowControls
+          platform={windowChromePlatform}
+          maximized={windowMaximized}
+          onMinimize={onWindowMinimize}
+          onToggleMaximize={onWindowToggleMaximize}
+          onClose={onWindowClose}
+        />
+      ) : null}
     </header>
   );
 }

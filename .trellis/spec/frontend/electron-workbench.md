@@ -15,7 +15,8 @@ lifecycle discoverability (P1), editor operations plus Asset Hub (P2),
 PDF/interop/task-package/reimport surfaces (P3), and AI Control / Plugins /
 Collaboration / Product Settings plus appearance-v1 (P4). New work must use:
 
-- `shell/` — chrome, boot gate, Engine status banner, recovery/confirm dialogs
+- `shell/` — product title strip (`AppChrome`), window controls, boot gate,
+  Engine status banner, recovery/confirm dialogs
 - `routes/` — pure surface decisions (no URL router)
 - `surfaces/` — Welcome, Project Home, Create, Import, Workbench, Asset Hub,
   QA, Export, Templates, Recycle, Global Search, Project Insights, AiControl,
@@ -42,6 +43,9 @@ and fixture-gated e2e env keys: [interop-pdf.md](./interop-pdf.md).
 
 P4 AI Control, plugins/connectors, local collab, product settings, and
 appearance-v1 contracts: [ai-plugins-settings.md](./ai-plugins-settings.md).
+
+Custom title-bar / window chrome (platform branches, trusted bridge, drag
+regions): section **Desktop custom title bar chrome** below.
 
 Historical root-level monolith files (`Workbench.tsx`, `WorkbenchPages.tsx`,
 `SetupView.tsx`, `AssistantPanel.tsx`, `workbench-utils.ts`) are gone. Later
@@ -100,16 +104,26 @@ export interface DesktopApi {
   openUpdateInstaller(): Promise<UpdateStatusSnapshot>;
   getTutorialState(): Promise<TutorialState>;
   updateTutorialState(patch: Partial<TutorialState>): Promise<TutorialState>;
+  // Window chrome (custom title bar) — narrow surface only
+  minimizeWindow(): Promise<void>;
+  maximizeWindow(): Promise<boolean>; // toggle; returns resulting maximized state
+  closeWindow(): Promise<void>;
+  isWindowMaximized(): Promise<boolean>;
+  getWindowChromePlatform(): WindowChromePlatform; // "macos" | "custom"
   // … draft journal, example project, engine status listeners — see desktop-api.ts
 }
 ```
 
-Full product-shell and plugin-panel contracts for P4 surfaces:
+`WindowChromePlatform` is only `"macos"` | `"custom"`. Full window-chrome
+contracts: **Desktop custom title bar chrome** below. Full product-shell and
+plugin-panel contracts for P4 surfaces:
 [ai-plugins-settings.md](./ai-plugins-settings.md).
 
 IPC channels are main/preload-private constants. Main accepts engine methods
 only when they exist in generated `ENGINE_METHODS`, and it verifies the sender
-is the current main window.
+is the current main window. Window-chrome handlers use the same
+`assertTrustedSender` + `requireWindow` guard and target only the single main
+window.
 
 The tested host toolchain is Node 24.x for development plus Node 22.17+ within
 major 22 for the retained release lane, pnpm 10.18.3, Electron 41.10.3,
@@ -133,6 +147,9 @@ The main-process E2E delay seam uses three process-only environment keys:
 
 - BrowserWindow uses `contextIsolation: true`, `nodeIntegration: false`, and
   `sandbox: true`. Preload exposes only `DesktopApi` through contextBridge.
+- BrowserWindow title-bar style is platform-selected: macOS `hiddenInset`
+  (native traffic lights), Windows/Linux/other `hidden` (renderer custom
+  controls). See **Desktop custom title bar chrome**.
 - Main owns file dialogs and the engine child process. Renderer receives paths
   selected by main and never imports Node filesystem APIs.
 - Startup must use a non-blocking `void bootstrap()` call. Do not top-level
@@ -216,6 +233,9 @@ The main-process E2E delay seam uses three process-only environment keys:
 | Navigation encounters a pending-save failure      | Stay in Workbench and show the typed save error (includes P4)   |
 | Appearance storage missing/malformed              | Apply light/`#765847` defaults; boot continues                  |
 | `updateShellSettings` used for theme/accent       | Invalid — appearance is renderer localStorage v1 only           |
+| Window-chrome IPC sender is not the trusted main frame | Reject via `assertTrustedSender`; no window mutation       |
+| Window chrome command when main window is missing | Fail through `requireWindow()`; do not target another window    |
+| Domain mutations disabled / boot / reconnect      | Window controls remain enabled; never gated by `mutationsEnabled` |
 | Stored panel preference is missing or invalid     | Use docked/docked, 200px, and follow-active defaults            |
 | A panel enters `collapsed`                         | Hide it from AT/tab order, animate it out, then focus expand     |
 | Test delay is absent, invalid, or exhausted        | Invoke the real Engine immediately                              |
@@ -379,6 +399,227 @@ bridge or duplicate the Rust matching/format rules. Asset pages must render
 the returned `items`/`matches` pages and surface typed `not_found`, `conflict`,
 and row-diagnostic `invalid_request` errors without reading SQLite or local
 exchange files from React.
+
+## Scenario: Desktop custom title bar chrome
+
+### 1. Scope / Trigger
+
+Use this contract when changing:
+
+- `BrowserWindow` frame / `titleBarStyle` options
+- Main/preload private IPC for minimize, maximize/restore, close, or maximized
+  state
+- `DesktopApi` window-chrome methods or `WindowChromePlatform`
+- `AppChrome` as the product title strip, drag/no-drag CSS, or
+  `WindowControls`
+- Title-strip appearance tokens (close hover/active, surface/border/text)
+
+**Why code-spec depth:** this is a main ↔ preload ↔ renderer cross-layer
+contract with platform-specific BrowserWindow options and a trusted narrow
+bridge. Do not expand into a general Electron or filesystem API.
+
+Source-backed modules:
+
+| Layer | Paths |
+| --- | --- |
+| Pure main helper | `main/window-chrome.ts` (`resolveWindowChromePlatform`, `windowChromeTitleBarOptions`) |
+| Main wiring | `main/index.ts` (`createWindow` options + `registerIpc` chrome handlers) |
+| Preload | `preload/index.cts` |
+| Shared types | `shared/desktop-api.ts` |
+| Renderer controller | `renderer/shell/use-window-chrome.ts` |
+| Title strip | `renderer/shell/AppChrome.tsx` |
+| Controls | `renderer/shell/WindowControls.tsx` |
+| Styles | `renderer/styles.css` (`.app-chrome`, `.window-controls*`) |
+| Fake bridge | `renderer/test/fake-desktop-api.ts` |
+| Unit | `main/window-chrome.test.ts`, `shell/WindowControls.test.tsx`, appearance style contract |
+| E2E | `tests/e2e/desktop-titlebar.spec.ts` |
+
+### 2. Signatures
+
+```typescript
+export type WindowChromePlatform = "macos" | "custom";
+
+// DesktopApi (window chrome only)
+minimizeWindow(): Promise<void>;
+maximizeWindow(): Promise<boolean>; // toggle maximize/restore; return resulting maximized
+closeWindow(): Promise<void>;
+isWindowMaximized(): Promise<boolean>;
+getWindowChromePlatform(): WindowChromePlatform; // preload platform fact, not a general process API
+
+// Pure main helper (no Electron bootstrap import)
+resolveWindowChromePlatform(platform: string): WindowChromePlatform;
+windowChromeTitleBarOptions(platform: string): {
+  titleBarStyle: "hidden" | "hiddenInset";
+  usesCustomWindowControls: boolean;
+};
+```
+
+Channel names are main/preload-private constants. Renderer never sees raw
+channel strings, `BrowserWindow`, `ipcRenderer`, or Node APIs.
+
+### 3. Contracts
+
+| Host (`process.platform`) | `titleBarStyle` | Renderer platform | Visible controls |
+| --- | --- | --- | --- |
+| `darwin` | `hiddenInset` | `macos` | Native traffic lights only; omit `WindowControls` |
+| `win32` | `hidden` | `custom` | Minimize / Maximize\|Restore / Close |
+| Linux / other | `hidden` (documented fallback) | `custom` | Same custom controls as Windows |
+
+- Only the explicit macOS branch is native-traffic-light mode. Unknown platform
+  strings map to `custom`.
+- Keep existing window geometry: resizable, `minWidth` 1180, `minHeight` 700,
+  current default size, secure `webPreferences`, navigation guards.
+- Do **not** use `titleBarOverlay` for this product; custom controls share one
+  token-driven surface with the brand ribbon.
+- Do **not** draw custom macOS traffic lights.
+- `AppChrome` is the single product title strip: `.app-chrome` uses
+  `-webkit-app-region: drag` (and `app-region: drag`).
+- Interactive descendants must be `no-drag`: actions cluster, `.window-controls`,
+  and `.app-chrome button, a, input, select, textarea, [data-no-drag]`.
+- macOS strip uses `data-window-chrome="macos"` with a left inset (`padding-left:
+  78px`) so native traffic lights do not overlap ribbon/identity/nav.
+- Appearance remains renderer-local `translunar.renderer.appearance.v1`. Chrome
+  backgrounds, borders, text, hover, focus, and close states use solid
+  appearance-v1 / semantic tokens only. No glass (`backdrop-filter`), no second
+  theme store, no shell-settings theme patch.
+- Close hover may use `--color-error` + inverse text. Close **active** must mix
+  tokens only (e.g. `color-mix(..., var(--color-error), var(--color-text))`);
+  raw `#000` / chrome-only literals are forbidden in production title-strip
+  rules.
+- `useWindowChrome` owns bridge calls. Presentational controls receive intents
+  only. Controls stay available when `mutationsEnabled` is false and during
+  boot/reconnect/recovery.
+- Maximized state: query on mount, after maximize toggle, and on `window.resize`
+  (covers OS maximize/snap/keyboard). Cleanup the listener on unmount. OS-chrome
+  rejections retain last known UI state; do not crash or unmount the app.
+- Accessible names: Minimize, Maximize / Restore, Close (or equivalent
+  functional names). Icon-only Phosphor buttons need `title` + `aria-label` and
+  visible `:focus-visible`.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| IPC sender is not trusted main window | Reject; no minimize/maximize/close |
+| Main window missing | `requireWindow()` error path; no other window targeted |
+| Maximize when normal | Maximize; return `true` |
+| Maximize when already maximized | Restore; return `false` |
+| `isWindowMaximized` after native unmaximize / snap | UI re-queries (resize) and exposes Restore vs Maximize correctly |
+| Platform is `macos` | No renderer window controls; inset class applied |
+| Platform is `custom` | Three named controls; no macOS inset assumption |
+| Domain mutations disabled | Window controls still enabled and keyboard-reachable |
+| OS-chrome command rejects | Swallow non-fatally; keep last maximized state |
+| Title-strip style uses glass / raw black close active | Invalid — token-only solid chrome contract |
+
+### 5. Good / Base / Bad Cases
+
+- Good: Windows launches with hidden title bar, only `AppChrome` as title strip,
+  Minimize/Maximize/Restore/Close work via the trusted bridge, drag on inert
+  strip, no-drag on buttons, light/dark tokens update the same DOM.
+- Good: macOS uses `hiddenInset`, native traffic lights, no duplicate custom
+  controls, 78px left inset.
+- Base: Linux uses the documented custom-control fallback; window remains
+  usable under the project Electron environment.
+- Bad: `titleBarOverlay` for “easier” native symbols that diverge from
+  appearance-v1.
+- Bad: second set of custom traffic lights on macOS.
+- Bad: missing `no-drag` on buttons (clicks swallowed by drag region).
+- Bad: gate window controls on `mutationsEnabled` or surface loading flags.
+- Bad: expose raw Electron/`BrowserWindow`/general IPC invoker to the renderer.
+- Bad: `color-mix(..., #000)` or other non-token literals on chrome control
+  active states.
+
+### 6. Tests Required
+
+- Unit: pure platform helper (darwin → `hiddenInset`/no custom controls;
+  win32/linux/other → `hidden`/custom controls).
+- Unit: `WindowControls` — custom branch names/keyboard activation; macOS omits
+  controls; disabled domain mutations do not disable chrome; maximize/restore
+  label follows state.
+- Unit/static: appearance/style contract — drag/no-drag declarations, solid
+  surface tokens, macOS inset selector, no `backdrop-filter`, close:active
+  token-only mix without raw `#000`.
+- Fake `DesktopApi` defaults for all chrome methods so App integration tests
+  boot without Engine mocks.
+- Focused Electron E2E (`desktop-titlebar.spec.ts`): title strip reachability,
+  platform-gated controls, maximize→restore on stable non-macOS runners,
+  computed drag/no-drag, no console/page errors. Do not click Close in a shared
+  multi-assertion flow. Gate macOS/Linux assertions honestly when runners are
+  unavailable.
+- Production build is part of real-Electron evidence. Prefer native
+  BrowserWindow probes (min size, resizable, security prefs, isolated close)
+  when acceptance is evidence-gated.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```typescript
+// Default framed window + overlay symbols outside appearance-v1.
+new BrowserWindow({ /* no titleBarStyle */ titleBarOverlay: true });
+
+// Renderer imports Electron and bypasses preload.
+import { ipcRenderer } from "electron";
+ipcRenderer.invoke("window:close");
+
+// Drag swallows clicks; mutations gate hides close during reconnect.
+<div style={{ WebkitAppRegion: "drag" }}>
+  <button disabled={!mutationsEnabled} onClick={close}>×</button>
+</div>
+```
+
+```css
+/* Token violation + glass */
+.window-controls__btn--close:active {
+  background: color-mix(in srgb, var(--color-error) 85%, #000);
+}
+.app-chrome {
+  backdrop-filter: blur(12px);
+}
+```
+
+#### Correct
+
+```typescript
+const chrome = windowChromeTitleBarOptions(process.platform);
+new BrowserWindow({
+  ...chrome, // titleBarStyle only; keep min size + sandbox webPreferences
+  contextIsolation: true,
+  nodeIntegration: false,
+  sandbox: true,
+});
+
+// Preload-only surface; main asserts trusted sender then requireWindow().
+await window.translunar.maximizeWindow();
+```
+
+```css
+.app-chrome {
+  -webkit-app-region: drag;
+  background: var(--color-surface);
+}
+.app-chrome button,
+.window-controls {
+  -webkit-app-region: no-drag;
+}
+.window-controls__btn--close:active {
+  background: color-mix(in srgb, var(--color-error) 85%, var(--color-text));
+  color: var(--color-text-inverse);
+}
+.app-chrome[data-window-chrome="macos"] {
+  padding-left: 78px;
+}
+```
+
+### Residual platform notes
+
+- Windows built runtime has been the primary verification host for hidden frame,
+  controls, min size, maximize sync, security prefs, and drag CSS.
+- Linux/Xvfb and macOS traffic-light geometry remain host-gated. Do not treat
+  pure helper unit tests as native window-manager proof.
+- macOS first React commit currently may initialize platform as `custom` before
+  an effect reads the bridge (accepted residual unless a darwin runner elevates
+  it). Prefer synchronous platform init when fixing first-frame fidelity.
 
 ## Project Lifecycle Desktop Surface
 
