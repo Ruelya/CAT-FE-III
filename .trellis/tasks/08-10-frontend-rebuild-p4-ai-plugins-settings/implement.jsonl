@@ -1,0 +1,15 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Frontend pre-development checklist and authoritative links for the P0-P3 renderer contracts that P4 must extend."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"DesktopApi/main-preload-renderer boundary, Workbench save/IME/session rules, existing AI/plugin shell contracts, packaging, and real-Engine E2E expectations."}
+{"file":".trellis/spec/frontend/project-lifecycle.md","reason":"P1 save-before-navigation, identity-only session, P4 return rehydrate, feature operation tokens, paging, and stale-completion rules."}
+{"file":".trellis/spec/frontend/editor-assets.md","reason":"P2 dedicated controller pattern, snapshot-before-pending, read-vs-mutation tokens, schema/unknown preservation, and Workbench mutation sequencing reused by P4."}
+{"file":".trellis/spec/frontend/interop-pdf.md","reason":"P3 local-controller ownership, terminal/error/cancel completeness, trusted dialog boundaries, and regression test contracts that P4 must preserve."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Authoritative renderer folders and placement rules; prevents reintroducing the deleted monolith while adding P4 surfaces/controllers/panels."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Named component/props shape, Phosphor icon rule, solid/no-glass appearance, dialogs, accessibility, layout, and no-filler-copy constraints."}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"Strict-Mode-safe effects, subscriptions/timers, generation guards, controller ownership, refs, and cleanup rules for AI polling, panel revoke, and presence heartbeat."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Engine-vs-React ownership, session/localStorage restrictions, SaveCoordinator, reconnect invalidation, and P1-P3 operation token conventions."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Generated method maps, DesktopApi as sole bridge, unknown boundary decoding, strict TypeScript, and discriminated state requirements."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Desktop type/unit/build/E2E gates, stable P0-P3 regression expectations, static Lucide/glass audit, accessibility, and console/overflow checks."}
+{"file":".trellis/spec/backend/engine-boundary.md","reason":"Existing Engine authority and durable AI, plugin, external connector, collaboration, allowlist, revision, and error contracts the renderer must project without duplicating."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Structured Engine error mapping and safe client-facing behavior for policy, conflict, permission, connector, and lifecycle failures."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"P4 crosses renderer, generated RPC, trusted IPC, localStorage, and plugin iframe boundaries; use it to keep validation and data ownership explicit."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Large P4 scope must reuse shared dialogs, controllers, decoders, event reducers, and schema projectors instead of copying boundary logic."}

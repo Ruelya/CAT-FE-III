@@ -19,6 +19,7 @@ renderer interaction patterns currently used by Translunar CAT.
 | [Project Lifecycle](./project-lifecycle.md)       | P1 multi-doc, batch import, templates, recycle vs lifecycle, search, feature ops | Active  |
 | [Editor & Assets](./editor-assets.md)             | P2 editor ops, command registry/keyboard, Asset Hub domains, curation rollback | Active  |
 | [Interop & PDF (P3)](./interop-pdf.md)            | PDF dock/OCR, Insights interop + task packages, reimport, P3 e2e fixtures       | Active  |
+| [AI / Plugins / Collab / Settings (P4)](./ai-plugins-settings.md) | AI Control, plugins/connectors, local collab, product settings, appearance-v1 | Active  |
 | [Directory Structure](./directory-structure.md)   | Module organization and file layout                                           | Active  |
 | [Component Guidelines](./component-guidelines.md) | Component patterns, props, composition                                        | Active  |
 | [Hook Guidelines](./hook-guidelines.md)           | Custom hooks, data fetching patterns                                          | Active  |
@@ -50,19 +51,26 @@ the desktop package does not yet enforce.
 - For Workbench PDF page review/OCR, Insights interop review/table, offline
   task packages, or document reimport, read
   [Interop & PDF (P3)](./interop-pdf.md).
+- For AI Control, Plugins (lifecycle/permissions/actions/panels/connectors),
+  project Collaboration, Product Settings (locale/data/backup/restore/updates/
+  tutorial), or renderer appearance-v1, read
+  [AI / Plugins / Collab / Settings (P4)](./ai-plugins-settings.md).
 - Search the generated method catalog before adding a preload method or local
   payload type.
 - Decide whether state is presentation-only or engine-owned before adding it to
   React. Drafts/saves go through `SaveCoordinator`; session identity is
   versioned project/document IDs only. Workbench exits use one
-  save-before-transition boundary (including document switch, Search, and
-  Assets).
+  save-before-transition boundary (including document switch, Search, Assets,
+  and P4 destinations).
 - Feature async domains use independent operation tokens; reconnect invalidates
   them all. Editor mutations use a separate mut/read token pair; Asset Hub uses
-  per-domain list + mutation counters. See Project Lifecycle and Editor &
-  Assets.
-- New renderer icons: Phosphor (`@phosphor-icons/react`). Appearance: light
-  default + advanced-brown accent; no glass (`backdrop-filter`).
+  per-domain list + mutation counters; P4 AI/plugin/collab/settings controllers
+  use the same generation-scoped ownership pattern. See Project Lifecycle,
+  Editor & Assets, and P4.
+- New renderer icons: Phosphor (`@phosphor-icons/react`). Appearance: versioned
+  `translunar.renderer.appearance.v1` (light default + advanced-brown seed
+  `#765847`, optional dark + custom seed); no glass (`backdrop-filter`); never
+  store appearance in `ProductShellSettings`.
 
 ## Quality Check
 

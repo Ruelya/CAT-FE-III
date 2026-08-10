@@ -11,21 +11,23 @@ does not own segment transitions, QA, TM, segmentation, persistence, or counts.
 ### Renderer layout (authoritative for new UI)
 
 The renderer was rebuilt as a vertical slice (P0), extended for project
-lifecycle discoverability (P1), editor operations plus Asset Hub (P2), and
-PDF/interop/task-package/reimport surfaces (P3). New work must use:
+lifecycle discoverability (P1), editor operations plus Asset Hub (P2),
+PDF/interop/task-package/reimport surfaces (P3), and AI Control / Plugins /
+Collaboration / Product Settings plus appearance-v1 (P4). New work must use:
 
 - `shell/` — chrome, boot gate, Engine status banner, recovery/confirm dialogs
 - `routes/` — pure surface decisions (no URL router)
 - `surfaces/` — Welcome, Project Home, Create, Import, Workbench, Asset Hub,
-  QA, Export, Templates, Recycle, Global Search, Project Insights
+  QA, Export, Templates, Recycle, Global Search, Project Insights, AiControl,
+  Plugins, Collaboration, ProductSettings
 - `workbench/` — segment grid, target editor, exact-TM panel, document
   switcher, batch import summary, editor command bar/panels, PDF page review
 - `insights/` — Interop review/table panels, task package panel, section nav
 - `state/` — app controller, session identity, `SaveCoordinator`, draft recovery,
-  fixed appearance constants, P1 pure helpers, P2 editor/asset orchestration,
-  P3 pdf/interop/task/reimport pure helpers + controllers
+  appearance-v1, P1–P4 pure helpers + dedicated domain controllers
 - `lib/` — typed RPC adapter, UI errors, IME guards
-- `tokens.css` + `styles.css` — light / advanced-brown appearance; no glass
+- `appearance-bootstrap.ts` — pre-React apply of appearance-v1
+- `tokens.css` + `styles.css` — solid light/dark tokens + derived accent; no glass
 
 P1 multi-document, batch import, templates, recycle vs lifecycle, search
 save-before-nav, feature op tokens, and switcher testids:
@@ -37,6 +39,9 @@ domains, exchange dialog boundary, and curation rollback:
 
 P3 PDF dock mount rules, interop/task multi-page selection, reimport retry,
 and fixture-gated e2e env keys: [interop-pdf.md](./interop-pdf.md).
+
+P4 AI Control, plugins/connectors, local collab, product settings, and
+appearance-v1 contracts: [ai-plugins-settings.md](./ai-plugins-settings.md).
 
 Historical root-level monolith files (`Workbench.tsx`, `WorkbenchPages.tsx`,
 `SetupView.tsx`, `AssistantPanel.tsx`, `workbench-utils.ts`) are gone. Later
@@ -64,11 +69,43 @@ export interface DesktopApi {
   selectExportPath(suggestedName: string): Promise<string | null>;
   selectInteropInput(kind: "review" | "table"): Promise<string | null>;
   selectTaskPackageInput(): Promise<string | null>;
+  selectCorpusInput(): Promise<string | null>;
+  selectPluginPackage(): Promise<string | null>;
+  issuePluginPanelSession(request: PluginPanelSessionRequest): Promise<PluginPanelSession>;
+  revokePluginPanelSession(sessionId: string): Promise<boolean>;
+  onPluginPanelRevoked(listener: (pluginId: string | null) => void): () => void;
   resolveDroppedPaths(files: readonly File[]): string[];
   restartEngine(): Promise<void>;
   setAiCredential(profileId: string, secret: string): Promise<void>;
+  // Product shell (locale-only patch; data/backup/restore/update/tutorial)
+  getSystemLocale(): Promise<string>;
+  getShellSettings(): Promise<ProductShellSettings>;
+  updateShellSettings(patch: ShellLocalePreferencePatch): Promise<ProductShellSettings>;
+  getDataDirectoryStatus(): Promise<DataDirectoryStatus>;
+  selectDataDirectory(): Promise<string | null>;
+  validateDataDirectory(path: string): Promise<DataDirectoryValidation>;
+  migrateDataDirectory(path: string): Promise<DataDirectoryMigrationResult>;
+  selectBackupDestination(suggestedName?: string): Promise<string | null>;
+  createWorkspaceBackup(destinationPath?: string | null): Promise<ShellActionResult>;
+  selectRestoreSource(): Promise<string | null>;
+  previewRestore(path: string): Promise<ShellActionResult>;
+  restoreWorkspaceBackup(params: RestoreApplyParams): Promise<DataDirectoryMigrationResult>;
+  getUpdateStatus(): Promise<UpdateStatusSnapshot>;
+  setUpdateMode(mode: UpdateMode): Promise<UpdateStatusSnapshot>;
+  checkForUpdates(): Promise<UpdateStatusSnapshot>;
+  deferUpdate(untilMs: number): Promise<UpdateStatusSnapshot>;
+  downloadUpdate(): Promise<UpdateStatusSnapshot>;
+  installUpdate(): Promise<UpdateStatusSnapshot>;
+  rollbackUpdate(): Promise<UpdateStatusSnapshot>;
+  openUpdateInstaller(): Promise<UpdateStatusSnapshot>;
+  getTutorialState(): Promise<TutorialState>;
+  updateTutorialState(patch: Partial<TutorialState>): Promise<TutorialState>;
+  // … draft journal, example project, engine status listeners — see desktop-api.ts
 }
 ```
+
+Full product-shell and plugin-panel contracts for P4 surfaces:
+[ai-plugins-settings.md](./ai-plugins-settings.md).
 
 IPC channels are main/preload-private constants. Main accepts engine methods
 only when they exist in generated `ENGINE_METHODS`, and it verifies the sender
@@ -120,9 +157,10 @@ The main-process E2E delay seam uses three process-only environment keys:
   Confirm/update/focus-advance must no-op during composition, `isComposing`,
   or keyCode/which 229; focus advances only after flush and confirmation
   succeed.
-- Leaving the workbench for QA, export, Home, Search, Insights, another
-  document, or active-document recycle must await `SaveCoordinator.flush()`
-  before changing surface or hydrating the destination. On failure, remain on
+- Leaving the workbench for QA, export, Home, Search, Insights, Assets,
+  another document, active-document recycle, or any P4 destination (AI Control,
+  Plugins, Collaboration, Settings) must await `SaveCoordinator.flush()` before
+  changing surface or hydrating the destination. On failure, remain on
   Workbench with draft and typed error intact. Surfaces reload projections
   through RPC after a successful transition.
 - Multi-file import uses `selectSourceDocuments()` then one
@@ -175,7 +213,9 @@ The main-process E2E delay seam uses three process-only environment keys:
 | Engine restart/reload finds a stored session      | Reload project, segments, and QA through RPC                    |
 | Local session references missing data             | Remove the session key and return to setup                      |
 | Renderer file assets use absolute `/assets` paths | Build is invalid for Electron `loadFile()`                      |
-| Navigation encounters a pending-save failure      | Stay in Workbench and show the typed save error                 |
+| Navigation encounters a pending-save failure      | Stay in Workbench and show the typed save error (includes P4)   |
+| Appearance storage missing/malformed              | Apply light/`#765847` defaults; boot continues                  |
+| `updateShellSettings` used for theme/accent       | Invalid — appearance is renderer localStorage v1 only           |
 | Stored panel preference is missing or invalid     | Use docked/docked, 200px, and follow-active defaults            |
 | A panel enters `collapsed`                         | Hide it from AT/tab order, animate it out, then focus expand     |
 | Test delay is absent, invalid, or exhausted        | Invoke the real Engine immediately                              |
@@ -755,6 +795,13 @@ test remains the authority for row height, spacer math, and mounted-row limits.
 
 ## Engine-Backed AI Control And Assistant
 
+> **P4 rebuild:** The authoritative shipped AI Control surface, controllers,
+> runnable-profile honesty, paging, apply/rehydrate, and appearance separation
+> live in [ai-plugins-settings.md](./ai-plugins-settings.md)
+> (`surfaces/AiControl.tsx`, `state/use-ai-controller.ts`). The rules below
+> remain valid for credential/Engine authority; prefer the P4 doc for route
+> identity and module paths.
+
 ### 1. Scope / Trigger
 
 Use this contract when changing provider settings, credential entry, online
@@ -865,6 +912,13 @@ setError(formatEngineError(reason, t)); // policy_denied → error.allowlistDeni
 ```
 
 ## Plugin Connector Catalog And Profiles
+
+> **P4 rebuild:** Full plugin lifecycle, permissions, AI actions, authorized UI
+> panel sessions, and external-connector invoke console contracts are in
+> [ai-plugins-settings.md](./ai-plugins-settings.md)
+> (`surfaces/Plugins.tsx`, `state/use-plugin-controller.ts`,
+> `state/external-connector-request.ts`). The rules below remain valid for
+> schema-only config and secret boundaries.
 
 ### 1. Scope / Trigger
 

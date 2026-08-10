@@ -78,6 +78,45 @@ export interface FakeEngineState {
   interopReviewPath: string | null;
   interopTablePath: string | null;
   taskPackagePath: string | null;
+  pluginPackagePath: string | null;
+  pluginPanelRevokeListeners: Array<(pluginId: string | null) => void>;
+  systemLocale?: string;
+  shellSettings?: Partial<{
+    locale: "en-US" | "zh-CN" | null;
+    updateMode: "automatic" | "manual" | "disabled";
+    deferredUntilMs: number | null;
+    tutorial: {
+      version: number;
+      step:
+        | "welcome"
+        | "create"
+        | "import"
+        | "edit"
+        | "qa"
+        | "export"
+        | "complete";
+      skipped: boolean;
+      completed: boolean;
+      updatedAtMs: number;
+    };
+    dataDirectoryPath: string | null;
+  }>;
+  dataDirectoryStatus?: {
+    path: string;
+    absolutePath: string;
+    exists: boolean;
+    writable: boolean;
+    freeBytes: number | null;
+    freeBytesLabel: string;
+    isTestOverride: boolean;
+    healthy: boolean | null;
+    schemaVersion: number | null;
+  };
+  dataDirectoryPath?: string | null;
+  backupDestination?: string | null;
+  restoreSource?: string | null;
+  updateStatus?: import("../../shared/product-shell").UpdateStatusSnapshot;
+  tutorial?: import("../../shared/product-shell").TutorialState;
   /** Optional PDF pages keyed by documentId. */
   pdfPagesByDocument: Record<string, FakePdfPage[]>;
   journal: DraftJournalRecord[];
@@ -112,6 +151,8 @@ export function createFakeEngineState(
     interopReviewPath: null,
     interopTablePath: null,
     taskPackagePath: null,
+    pluginPackagePath: null,
+    pluginPanelRevokeListeners: [],
     pdfPagesByDocument: {},
     journal: [],
     calls: [],
@@ -1871,36 +1912,109 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
       kind === "review" ? state.interopReviewPath : state.interopTablePath,
     selectTaskPackageInput: async () => state.taskPackagePath,
     selectCorpusInput: async () => null,
-    selectPluginPackage: async () => null,
-    issuePluginPanelSession: async () => {
-      throw new Error("not used");
+    selectPluginPackage: async () => state.pluginPackagePath ?? null,
+    issuePluginPanelSession: async (request) => {
+      state.calls.push({ method: "issuePluginPanelSession", params: request });
+      return {
+        sessionId: `panel-session-${request.pluginId}`,
+        url: `translunar-plugin://panel/${request.pluginId}/${request.contributionId}`,
+        expiresAtMs: Date.now() + 60_000,
+        revision: request.revision,
+        bridgeVersion: 1 as const,
+      };
     },
-    revokePluginPanelSession: async () => true,
-    onPluginPanelRevoked: () => () => undefined,
+    revokePluginPanelSession: async (sessionId) => {
+      state.calls.push({
+        method: "revokePluginPanelSession",
+        params: { sessionId },
+      });
+      return true;
+    },
+    onPluginPanelRevoked: (listener) => {
+      state.pluginPanelRevokeListeners.push(listener);
+      return () => {
+        state.pluginPanelRevokeListeners =
+          state.pluginPanelRevokeListeners.filter((l) => l !== listener);
+      };
+    },
     resolveDroppedPaths: () => [],
     restartEngine: async () => undefined,
-    setAiCredential: async () => undefined,
+    setAiCredential: async (profileId, secret) => {
+      state.calls.push({
+        method: "setAiCredential",
+        params: { profileId, secretLength: secret.length },
+      });
+    },
     onEditorCommand: () => () => undefined,
-    getSystemLocale: async () => "en-US",
-    getShellSettings: async () => ({ ...shellSettingsBase }),
-    updateShellSettings: async (patch) => ({
+    getSystemLocale: async () => state.systemLocale ?? "en-US",
+    getShellSettings: async () => ({
       ...shellSettingsBase,
-      ...patch,
+      ...(state.shellSettings ?? {}),
     }),
-    getDataDirectoryStatus: async () => {
-      throw new Error("not used");
+    updateShellSettings: async (patch) => {
+      state.calls.push({ method: "updateShellSettings", params: patch });
+      state.shellSettings = {
+        ...(state.shellSettings ?? shellSettingsBase),
+        ...patch,
+      };
+      return {
+        ...shellSettingsBase,
+        ...state.shellSettings,
+      };
     },
-    selectDataDirectory: async () => null,
-    validateDataDirectory: async () => ({ ok: true, path: "" }),
-    migrateDataDirectory: async () => {
-      throw new Error("not used");
-    },
-    selectBackupDestination: async () => null,
-    createWorkspaceBackup: async () => ({ ok: true }),
-    selectRestoreSource: async () => null,
-    previewRestore: async () => ({ ok: true }),
-    restoreWorkspaceBackup: async () => {
-      throw new Error("not used");
+    getDataDirectoryStatus: async () =>
+      state.dataDirectoryStatus ?? {
+        path: "/data",
+        absolutePath: "/data",
+        exists: true,
+        writable: true,
+        freeBytes: 1_000_000_000,
+        freeBytesLabel: "1 GB",
+        isTestOverride: true,
+        healthy: true,
+        schemaVersion: 1,
+      },
+    selectDataDirectory: async () => state.dataDirectoryPath ?? null,
+    validateDataDirectory: async (path) => ({
+      ok: true,
+      path,
+    }),
+    migrateDataDirectory: async (path) => ({
+      ok: true,
+      phase: "committed" as const,
+      sourcePath: "/data",
+      targetPath: path,
+      activePath: path,
+    }),
+    selectBackupDestination: async () => state.backupDestination ?? null,
+    createWorkspaceBackup: async () => ({ ok: true, code: "OK" }),
+    selectRestoreSource: async () => state.restoreSource ?? null,
+    previewRestore: async (path) => ({
+      ok: true,
+      data: {
+        path,
+        formatVersion: 1,
+        schemaVersion: 1,
+        engineVersion: "test",
+        createdAtMs: Date.now(),
+        fileCount: 1,
+        totalBytes: 10,
+        hashesOk: true,
+        compatible: true,
+        freeBytes: 1000,
+        freeBytesLabel: "1 KB",
+        confirmationToken: "tok-test",
+      },
+    }),
+    restoreWorkspaceBackup: async (params) => {
+      state.calls.push({ method: "restoreWorkspaceBackup", params });
+      return {
+        ok: true,
+        phase: "committed" as const,
+        sourcePath: params.path,
+        targetPath: params.path,
+        activePath: "/data",
+      };
     },
     getDraftJournal: async (): Promise<DraftJournalSnapshot> => ({
       path: "journal.json",
@@ -1936,45 +2050,104 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
         totalBytes: 0,
       };
     },
-    getUpdateStatus: async () => {
-      throw new Error("not used");
-    },
-    setUpdateMode: async () => {
-      throw new Error("not used");
+    getUpdateStatus: async () =>
+      state.updateStatus ?? {
+        status: "idle" as const,
+        mode: "manual" as const,
+        currentVersion: "0.1.0",
+        availableVersion: null,
+        feedUrl: null,
+        deferredUntilMs: null,
+        lastCheckedAtMs: null,
+        lastError: null,
+        downloadPercent: null,
+        requiresBackup: false,
+        unsigned: false,
+        feedKind: "none" as const,
+        installLedger: {
+          feedKind: "none" as const,
+          backupCreatedAtMs: null,
+          backupPath: null,
+          installStartedAtMs: null,
+          installFinishedAtMs: null,
+          healthCheckedAtMs: null,
+          rollbackRequired: false,
+          packagePath: null,
+          packageIdentity: null,
+          installInvocationAccepted: false,
+          claimedInstalled: false,
+          pendingRestart: false,
+          targetVersion: null,
+          previousVersion: null,
+          stagedPath: null,
+          lastRecoveryAction: null,
+          lastRecoveryAtMs: null,
+          lastRecoveryOutcome: null,
+          recoveryHistoryRecorded: false,
+        },
+        canRollback: false,
+        canOpenInstaller: false,
+        recoveryBusy: false,
+      },
+    setUpdateMode: async (mode) => {
+      const base = await api.getUpdateStatus();
+      const next = { ...base, mode };
+      state.updateStatus = next;
+      return next;
     },
     checkForUpdates: async () => {
-      throw new Error("not used");
+      const base = await api.getUpdateStatus();
+      const next = {
+        ...base,
+        status: "idle" as const,
+        lastCheckedAtMs: Date.now(),
+      };
+      state.updateStatus = next;
+      return next;
     },
-    deferUpdate: async () => {
-      throw new Error("not used");
+    deferUpdate: async (untilMs) => {
+      const base = await api.getUpdateStatus();
+      const next = {
+        ...base,
+        status: "deferred" as const,
+        deferredUntilMs: untilMs,
+      };
+      state.updateStatus = next;
+      return next;
     },
     downloadUpdate: async () => {
-      throw new Error("not used");
+      const base = await api.getUpdateStatus();
+      const next = { ...base, status: "ready" as const };
+      state.updateStatus = next;
+      return next;
     },
     installUpdate: async () => {
-      throw new Error("not used");
+      const base = await api.getUpdateStatus();
+      const next = { ...base, status: "pending-restart" as const };
+      state.updateStatus = next;
+      return next;
     },
     rollbackUpdate: async () => {
-      throw new Error("not used");
+      const base = await api.getUpdateStatus();
+      const next = { ...base, status: "idle" as const };
+      state.updateStatus = next;
+      return next;
     },
-    openUpdateInstaller: async () => {
-      throw new Error("not used");
+    openUpdateInstaller: async () => api.getUpdateStatus(),
+    getTutorialState: async () =>
+      state.tutorial ?? {
+        version: 1,
+        step: "welcome" as const,
+        skipped: false,
+        completed: false,
+        updatedAtMs: 0,
+      },
+    updateTutorialState: async (patch) => {
+      const current = await api.getTutorialState();
+      const next = { ...current, ...patch, updatedAtMs: Date.now() };
+      state.tutorial = next;
+      return next;
     },
-    getTutorialState: async () => ({
-      version: 1,
-      step: "welcome" as const,
-      skipped: false,
-      completed: false,
-      updatedAtMs: 0,
-    }),
-    updateTutorialState: async (patch) => ({
-      version: 1,
-      step: "welcome" as const,
-      skipped: false,
-      completed: false,
-      updatedAtMs: 0,
-      ...patch,
-    }),
     openExampleProject: async () => state.exampleResult,
     onEngineReconnected: (listener) => {
       state.reconnectListeners.push(listener);

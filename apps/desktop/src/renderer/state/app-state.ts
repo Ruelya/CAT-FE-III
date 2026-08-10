@@ -18,6 +18,14 @@ import type {
 import type { DraftJournalRecord } from "../../shared/product-shell";
 import type { UiError } from "../lib/errors";
 import type { SessionIdentity } from "./session";
+import type {
+  AiControlSection,
+  CollaborationSection,
+  P4ProjectContext,
+  P4ReturnTarget,
+  PluginsSection,
+  SettingsSection,
+} from "./p4-route-context";
 
 export type EngineConnectionStatus =
   | "unknown"
@@ -35,6 +43,15 @@ export type AssetHubSection =
   | "catalog"
   | "curation";
 
+export type {
+  AiControlSection,
+  CollaborationSection,
+  P4ProjectContext,
+  P4ReturnTarget,
+  PluginsSection,
+  SettingsSection,
+};
+
 export type SurfaceKind =
   | "boot"
   | "recovery"
@@ -49,7 +66,11 @@ export type SurfaceKind =
   | "recycle"
   | "search"
   | "insights"
-  | "assets";
+  | "assets"
+  | "ai-control"
+  | "plugins"
+  | "collaboration"
+  | "settings";
 
 export type ProjectListLifecycle = "active" | "archived";
 
@@ -190,6 +211,30 @@ export type AppSurface =
       returnTo: "workbench" | "projects";
       session: SessionIdentity | null;
       section: AssetHubSection;
+    }
+  | {
+      kind: "ai-control";
+      returnTarget: P4ReturnTarget;
+      context: P4ProjectContext | null;
+      section: AiControlSection;
+    }
+  | {
+      kind: "plugins";
+      returnTarget: P4ReturnTarget;
+      context: P4ProjectContext | null;
+      section: PluginsSection;
+    }
+  | {
+      kind: "collaboration";
+      returnTarget: P4ReturnTarget;
+      context: P4ProjectContext;
+      section: CollaborationSection;
+    }
+  | {
+      kind: "settings";
+      returnTarget: P4ReturnTarget;
+      context: P4ProjectContext | null;
+      section: SettingsSection;
     };
 
 export interface AppState {
@@ -259,6 +304,22 @@ export type AppAction =
   | {
       type: "PATCH_WELCOME";
       patch: Partial<Extract<AppSurface, { kind: "welcome" }>>;
+    }
+  | {
+      type: "PATCH_AI_CONTROL";
+      patch: Partial<Extract<AppSurface, { kind: "ai-control" }>>;
+    }
+  | {
+      type: "PATCH_PLUGINS";
+      patch: Partial<Extract<AppSurface, { kind: "plugins" }>>;
+    }
+  | {
+      type: "PATCH_COLLABORATION";
+      patch: Partial<Extract<AppSurface, { kind: "collaboration" }>>;
+    }
+  | {
+      type: "PATCH_SETTINGS";
+      patch: Partial<Extract<AppSurface, { kind: "settings" }>>;
     };
 
 export function createInitialState(): AppState {
@@ -397,6 +458,34 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         surface: { ...state.surface, ...action.patch, kind: "welcome" },
+      };
+    }
+    case "PATCH_AI_CONTROL": {
+      if (state.surface.kind !== "ai-control") return state;
+      return {
+        ...state,
+        surface: { ...state.surface, ...action.patch, kind: "ai-control" },
+      };
+    }
+    case "PATCH_PLUGINS": {
+      if (state.surface.kind !== "plugins") return state;
+      return {
+        ...state,
+        surface: { ...state.surface, ...action.patch, kind: "plugins" },
+      };
+    }
+    case "PATCH_COLLABORATION": {
+      if (state.surface.kind !== "collaboration") return state;
+      return {
+        ...state,
+        surface: { ...state.surface, ...action.patch, kind: "collaboration" },
+      };
+    }
+    case "PATCH_SETTINGS": {
+      if (state.surface.kind !== "settings") return state;
+      return {
+        ...state,
+        surface: { ...state.surface, ...action.patch, kind: "settings" },
       };
     }
     default:

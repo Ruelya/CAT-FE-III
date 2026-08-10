@@ -53,3 +53,33 @@ export function toUiError(
 export function formatUiError(error: UiError): string {
   return error.code ? `${error.message} (${error.code})` : error.message;
 }
+
+function readErrorDataField(
+  details: unknown,
+  key: string,
+): string | null {
+  if (!details || typeof details !== "object" || Array.isArray(details)) {
+    return null;
+  }
+  const value = (details as Record<string, unknown>)[key];
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+/**
+ * Structured AI error formatter keyed by stable Engine code/data.
+ * Never interpolates secrets — only stable identifiers and catalog messages.
+ */
+export function formatAiError(error: UiError): string {
+  const profileId = readErrorDataField(error.details, "profileId");
+  if (error.code === "policy_denied" || error.code.includes("POLICY")) {
+    const policy = readErrorDataField(error.details, "policy") ?? error.message;
+    const parts = [`Policy denied: ${policy}`];
+    if (profileId) parts.push(`profile ${profileId}`);
+    parts.push(`(${error.code})`);
+    return parts.join(" · ");
+  }
+  if (profileId) {
+    return `${error.message} · profile ${profileId} (${error.code})`;
+  }
+  return formatUiError(error);
+}

@@ -13,21 +13,23 @@ apps/desktop/
 `-- tests/e2e/      # Playwright tests against a built app and real engine
 ```
 
-## Renderer Layout (P0 + P1 + P2 + P3)
+## Renderer Layout (P0 + P1 + P2 + P3 + P4)
 
-`apps/desktop/src/renderer/main.tsx` is the entry. `App.tsx` composes chrome,
-boot/recovery gates, and exactly one resolved surface. Domain ownership stays
-in the Engine; the renderer is a projection and interaction client.
+`apps/desktop/src/renderer/main.tsx` is the entry (after
+`appearance-bootstrap.ts`). `App.tsx` composes chrome, boot/recovery gates,
+and exactly one resolved surface. Domain ownership stays in the Engine; the
+renderer is a projection and interaction client.
 
 ```text
 apps/desktop/src/renderer/
 |-- main.tsx
+|-- appearance-bootstrap.ts # pre-React read/apply of appearance-v1
 |-- App.tsx
 |-- global.d.ts
-|-- tokens.css              # appearance custom properties (light / advanced brown)
+|-- tokens.css              # solid light/dark tokens + accent operational vars
 |-- styles.css              # reset, layout, component primitives
 |-- shell/                  # persistent chrome, boot gate, status banner, recovery
-|   |-- AppChrome.tsx       # real Assets destination when project/session exists
+|   |-- AppChrome.tsx       # Assets + P4 AI/Plugins/Collab/Settings nav
 |   |-- BootGate.tsx
 |   |-- EngineStatusBanner.tsx
 |   |-- RecoveryDialog.tsx
@@ -47,7 +49,11 @@ apps/desktop/src/renderer/
 |   |-- Templates.tsx
 |   |-- RecycleBin.tsx
 |   |-- GlobalSearch.tsx
-|   `-- ProjectInsights.tsx # analytics | interop | taskPackage sections (P1/P3)
+|   |-- ProjectInsights.tsx # analytics | interop | taskPackage sections (P1/P3)
+|   |-- AiControl.tsx       # P4 AI Control surface shell
+|   |-- Plugins.tsx         # P4 plugins + external connectors
+|   |-- Collaboration.tsx   # P4 project-scoped local collab
+|   `-- ProductSettings.tsx # P4 locale/appearance/data/updates/tutorial
 |-- insights/               # P3 Insights panels (optional folder; not top-level surfaces)
 |   |-- InteropReviewPanel.tsx
 |   |-- InteropTablePanel.tsx
@@ -65,12 +71,13 @@ apps/desktop/src/renderer/
 |   |-- PdfPageReview.tsx     # P3 page list + canvas + block overlay
 |   `-- PdfOcrCorrectDialog.tsx
 |-- state/                  # cross-surface controller, session, save, recovery
-|   |-- app-state.ts          # includes assets surface (route identity only)
-|   |-- use-app-controller.ts # goAssets / goInsights / feature-op invalidate gateway
+|   |-- app-state.ts          # P0–P4 surface kinds (route identity only)
+|   |-- use-app-controller.ts # P1–P4 enter/leave + feature-op invalidate gateway
 |   |-- session.ts
 |   |-- save-coordinator.ts
 |   |-- draft-recovery.ts
-|   |-- appearance.ts
+|   |-- appearance.ts         # appearance-v1 parse/derive/apply (not shell settings)
+|   |-- p4-route-context.ts   # P4 return target + project context extractors
 |   |-- document-navigation.ts  # bounded document.list aggregate, post-delete route
 |   |-- template-definition.ts  # unknown-preserving P1 template keys
 |   |-- search-navigation.ts    # hit classification
@@ -87,7 +94,16 @@ apps/desktop/src/renderer/
 |   |-- task-package-view.ts    # P3 pure: mergePageSelection, terminal guards
 |   |-- use-task-package-controller.ts
 |   |-- reimport-view.ts        # P3 pure: plan apply guards / disposition counts
-|   `-- use-reimport-controller.ts
+|   |-- use-reimport-controller.ts
+|   |-- ai-view.ts / ai-events.ts
+|   |-- use-ai-controller.ts
+|   |-- plugin-view.ts
+|   |-- external-connector-request.ts
+|   |-- use-plugin-controller.ts
+|   |-- collab-view.ts
+|   |-- use-collaboration-controller.ts
+|   |-- product-settings-view.ts
+|   `-- use-product-settings.ts
 |-- lib/                    # typed RPC adapter and pure guards
 |   |-- rpc.ts
 |   |-- errors.ts
@@ -104,7 +120,7 @@ apps/desktop/src/renderer/
 | `surfaces/` | Workflow screens and surface-local form UI | Direct `window.translunar` (use controller commands); TM scoring / alignment algorithms |
 | `insights/` | Interop / task-package presentation panels and section nav | ZIP/DOCX/XLSX parse; disposition inventing |
 | `workbench/` | Segment grid, target editor, exact-TM panel, document switcher, import summary, editor command/panel chrome, PDF dock chrome | Cross-surface navigation policy / flush rules; PDF byte parse |
-| `state/` | App controller, session identity, save coordinator, draft classification, appearance, P1–P3 pure helpers + domain controllers | Engine domain facts; filesystem parse of TMX/TBX/corpus/PDF/packages |
+| `state/` | App controller, session identity, save coordinator, draft classification, appearance-v1, P1–P4 pure helpers + domain controllers | Engine domain facts; filesystem parse of TMX/TBX/corpus/PDF/packages/plugins |
 | `lib/` | Typed `invoke`, UI error projection, IME predicates | React components |
 
 > **Stale paths:** Historical monolith files such as root-level
@@ -128,7 +144,9 @@ apps/desktop/src/renderer/
   browser/process acceptance tests under `tests/e2e/*.spec.ts`.
 - Keep appearance tokens in `tokens.css` and layout/component CSS in
   `styles.css`. Prefer class names aligned with the shell over inline style
-  objects for layout.
+  objects for layout. Appearance preference lives only in versioned renderer
+  localStorage (`translunar.renderer.appearance.v1`); apply via
+  `appearance-bootstrap.ts` before React and `applyAppearance` on change.
 
 ## Naming And Imports
 
@@ -148,21 +166,27 @@ New renderer icons import from `@phosphor-icons/react`. Do not add new
 - `src/preload/index.cts` exposes `invoke`, source/export dialogs, draft
   journal APIs, and restart through `contextBridge`.
 - `src/renderer/state/use-app-controller.ts` owns surface transitions,
-  save-before-leave, feature operation tokens, P1 lifecycle commands, and the
-  Assets entry/return gateway; `src/renderer/state/save-coordinator.ts` owns
-  draft generations and journal/domain flush.
+  save-before-leave, feature operation tokens, P1 lifecycle commands, Assets/
+  Insights entry/return, and P4 AI/Plugins/Collaboration/Settings gateways;
+  `src/renderer/state/save-coordinator.ts` owns draft generations and
+  journal/domain flush.
 - `src/renderer/state/use-editor-operations.ts` and
-  `use-asset-controller.ts` own P2 local form/paging/pending state; the app
-  controller must not absorb those domains.
+  `use-asset-controller.ts` own P2 local form/paging/pending state; P4
+  `use-ai-controller` / `use-plugin-controller` /
+  `use-collaboration-controller` / `use-product-settings` own their domains.
+  The app controller must not absorb those forms/projections.
 - `src/renderer/lib/rpc.ts` is the only generic Engine invocation adapter.
-- `tests/e2e/p0-vertical-slice.spec.ts`,
-  `tests/e2e/p1-project-lifecycle.spec.ts`, and
-  `tests/e2e/p2-editor-assets.spec.ts` launch the built Electron app with a
-  real Engine and isolated user data.
+- `tests/e2e/p0-vertical-slice.spec.ts` through
+  `tests/e2e/p4-ai-plugins-settings.spec.ts` launch the built Electron app with
+  a real Engine and isolated user data.
 - P1 lifecycle conventions:
   [project-lifecycle.md](./project-lifecycle.md).
 - P2 editor/Asset Hub conventions:
   [editor-assets.md](./editor-assets.md).
+- P3 interop/PDF conventions:
+  [interop-pdf.md](./interop-pdf.md).
+- P4 AI/plugins/collab/settings + appearance-v1:
+  [ai-plugins-settings.md](./ai-plugins-settings.md).
 
 ## Avoid
 
