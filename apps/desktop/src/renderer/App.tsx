@@ -1,7 +1,10 @@
+import { useEffect, useMemo, useState } from "react";
+
 import { AppChrome } from "./shell/AppChrome";
 import { BootGate } from "./shell/BootGate";
 import { EngineStatusBanner } from "./shell/EngineStatusBanner";
 import { RecoveryDialog } from "./shell/RecoveryDialog";
+import { AssetHub } from "./surfaces/AssetHub";
 import { CreateProject } from "./surfaces/CreateProject";
 import { ExportReview } from "./surfaces/ExportReview";
 import { GlobalSearch } from "./surfaces/GlobalSearch";
@@ -14,11 +17,104 @@ import { Templates } from "./surfaces/Templates";
 import { Welcome } from "./surfaces/Welcome";
 import { Workbench } from "./surfaces/Workbench";
 import { useAppController } from "./state/use-app-controller";
+import { useAssetController } from "./state/use-asset-controller";
+import { useEditorOperations } from "./state/use-editor-operations";
 
 export function App() {
-  const { state, saveCoordinator, commands } = useAppController();
+  const { state, saveCoordinator, featureGeneration, commands } =
+    useAppController();
   const { surface } = state;
   const disabled = !state.mutationsEnabled;
+
+  const [selectedSegmentIds, setSelectedSegmentIds] = useState<string[]>([]);
+
+  /** Editor chrome and keyboard ownership is Workbench-only (not QA/Export/Home). */
+  const workbenchCtx = surface.kind === "workbench" ? surface.ctx : null;
+  const workbenchActive = surface.kind === "workbench";
+
+  const editorGateway = useMemo(
+    () => ({
+      generation: featureGeneration,
+      mutationsEnabled: state.mutationsEnabled,
+      workbenchActive,
+      ctx: workbenchCtx,
+      activeSegmentId:
+        surface.kind === "workbench" ? surface.activeSegmentId : null,
+      focusSegmentId:
+        surface.kind === "workbench" ? surface.focusSegmentId : null,
+      selectedSegmentIds,
+      saveCoordinator,
+      flushOrStay: commands.flushOrStay,
+      commitWorkbenchRows: (input: {
+        rows: NonNullable<typeof workbenchCtx>["rows"];
+        counts: NonNullable<typeof workbenchCtx>["counts"];
+        activeSegmentId: string | null;
+        focusSegmentId: string | null;
+        needsRefresh: boolean;
+      }) => {
+        commands.applyWorkbenchRows({
+          rows: input.rows,
+          counts: input.counts,
+          activeSegmentId: input.activeSegmentId,
+          focusSegmentId: input.focusSegmentId,
+        });
+        return Promise.resolve();
+      },
+      refreshActiveDocumentRows: async (focusSegmentId?: string | null) => {
+        await commands.refreshWorkbenchRows(focusSegmentId);
+      },
+    }),
+    [
+      commands,
+      featureGeneration,
+      saveCoordinator,
+      selectedSegmentIds,
+      state.mutationsEnabled,
+      surface,
+      workbenchActive,
+      workbenchCtx,
+    ],
+  );
+
+  const editorOps = useEditorOperations(editorGateway);
+
+  useEffect(() => {
+    editorOps.invalidate();
+  }, [featureGeneration]);
+
+  // Reset multi-select when document changes
+  useEffect(() => {
+    setSelectedSegmentIds([]);
+  }, [workbenchCtx?.document.id]);
+
+  const assetsGateway = useMemo(() => {
+    if (surface.kind !== "assets") {
+      return {
+        generation: featureGeneration,
+        mutationsEnabled: false,
+        projectId: "",
+        projectName: "",
+        sourceLocale: "en",
+        targetLocale: "zh",
+        section: "tm" as const,
+      };
+    }
+    return {
+      generation: featureGeneration,
+      mutationsEnabled: state.mutationsEnabled,
+      projectId: surface.projectId,
+      projectName: surface.projectName,
+      sourceLocale: surface.sourceLocale,
+      targetLocale: surface.targetLocale,
+      section: surface.section,
+    };
+  }, [featureGeneration, state.mutationsEnabled, surface]);
+
+  const assets = useAssetController(assetsGateway);
+
+  useEffect(() => {
+    assets.invalidate();
+  }, [featureGeneration]);
 
   return (
     <div className="app-root">
@@ -29,6 +125,7 @@ export function App() {
         onQa={() => void commands.goQa()}
         onExport={() => void commands.goExport()}
         onInsights={() => void commands.goInsights()}
+        onAssets={() => void commands.goAssets()}
       />
       <div className="app-banner-slot">
         <EngineStatusBanner
@@ -128,6 +225,9 @@ export function App() {
             onInsights={(projectId) => {
               void commands.goInsights(projectId);
             }}
+            onAssets={(projectId) => {
+              void commands.goAssets(projectId);
+            }}
           />
         ) : null}
 
@@ -176,7 +276,17 @@ export function App() {
             addFilesPending={surface.addFilesPending === true}
             batchResult={surface.batchResult ?? null}
             disabled={disabled}
+            editorOps={editorOps}
+            selectedSegmentIds={selectedSegmentIds}
+            onToggleSelect={(id) => {
+              setSelectedSegmentIds((prev) => {
+                if (prev.includes(id)) return prev.filter((x) => x !== id);
+                const next = [...prev, id];
+                return next.slice(-2);
+              });
+            }}
             onSelectSegment={(id) => {
+              setSelectedSegmentIds([id]);
               void commands.selectSegment(id);
             }}
             onDraftChange={commands.updateTargetDraft}
@@ -194,6 +304,9 @@ export function App() {
             }}
             onInsights={() => {
               void commands.goInsights();
+            }}
+            onAssets={() => {
+              void commands.goAssets();
             }}
             onSwitchDocument={(id) => {
               void commands.switchDocument(id);
@@ -348,6 +461,19 @@ export function App() {
             }}
             onRetry={() => {
               void commands.refreshInsights();
+            }}
+          />
+        ) : null}
+
+        {surface.kind === "assets" ? (
+          <AssetHub
+            assets={assets}
+            disabled={disabled}
+            onBack={() => {
+              void commands.backFromAssets();
+            }}
+            onSectionChange={(section) => {
+              commands.setAssetsSection(section);
             }}
           />
         ) : null}

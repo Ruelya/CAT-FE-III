@@ -27,6 +27,14 @@ export type EngineConnectionStatus =
   | "disconnected"
   | "failed";
 
+export type AssetHubSection =
+  | "tm"
+  | "termbase"
+  | "alignment"
+  | "corpus"
+  | "catalog"
+  | "curation";
+
 export type SurfaceKind =
   | "boot"
   | "recovery"
@@ -40,7 +48,8 @@ export type SurfaceKind =
   | "templates"
   | "recycle"
   | "search"
-  | "insights";
+  | "insights"
+  | "assets";
 
 export type ProjectListLifecycle = "active" | "archived";
 
@@ -171,6 +180,16 @@ export type AppSurface =
       documents: Document[];
       loading: boolean;
       error: UiError | null;
+    }
+  | {
+      kind: "assets";
+      projectId: string;
+      projectName: string;
+      sourceLocale: string;
+      targetLocale: string;
+      returnTo: "workbench" | "projects";
+      session: SessionIdentity | null;
+      section: AssetHubSection;
     };
 
 export interface AppState {
@@ -232,6 +251,10 @@ export type AppAction =
   | {
       type: "PATCH_INSIGHTS";
       patch: Partial<Extract<AppSurface, { kind: "insights" }>>;
+    }
+  | {
+      type: "PATCH_ASSETS";
+      patch: Partial<Extract<AppSurface, { kind: "assets" }>>;
     }
   | {
       type: "PATCH_WELCOME";
@@ -360,6 +383,13 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         surface: { ...state.surface, ...action.patch, kind: "insights" },
+      };
+    }
+    case "PATCH_ASSETS": {
+      if (state.surface.kind !== "assets") return state;
+      return {
+        ...state,
+        surface: { ...state.surface, ...action.patch, kind: "assets" },
       };
     }
     case "PATCH_WELCOME": {

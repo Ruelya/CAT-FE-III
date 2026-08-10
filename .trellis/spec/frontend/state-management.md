@@ -7,11 +7,11 @@ counts, TM entries, and QA issues. React state is a presentation cache and
 ephemeral interaction state. A successful RPC response replaces the affected
 object; it is never merged with a guessed revision or count.
 
-### Owners (P0 + P1)
+### Owners (P0 + P1 + P2)
 
 | Concern | Owner | Persistence |
 | --- | --- | --- |
-| Projects, documents, segments, revisions, statuses, counts, TM, QA, export, templates, recycle, search, analytics | Engine via `lib/rpc.ts` | Engine |
+| Projects, documents, segments, revisions, statuses, counts, TM, QA, export, templates, recycle, search, analytics, asset catalogs, curation runs | Engine via `lib/rpc.ts` | Engine |
 | Active surface / boot / recovery gating | `state/use-app-controller.ts` + `state/app-state.ts` | Memory (derived) |
 | Session identity (projectId + documentId only) | `state/session.ts` | Versioned `localStorage` key `translunar.renderer.session.v1` |
 | Project document collection in `SessionContext.documents` | Controller hydrate + `document-navigation` aggregate | Memory (Engine list cache; never localStorage) |
@@ -19,13 +19,16 @@ object; it is never merged with a guessed revision or count.
 | Draft journal classification | `state/draft-recovery.ts` | Read-only classification of journal snapshot |
 | Appearance (light / advanced brown) | `state/appearance.ts` + CSS tokens | None — fixed constants |
 | Template definition P1 keys / search hit classify / analytics format | Pure helpers under `state/*` | None |
-| Feature operation tokens (import, switch, search, …) | Controller refs (`beginOp` / `isOpCurrent`) | Memory |
+| Editor command registry, mutation apply, shortcut acceptance | `state/editor-operations.ts` + `use-editor-operations.ts` | Memory (preferences durable only via Engine) |
+| Asset Hub section forms/paging/pending | `state/asset-state.ts` + `use-asset-controller.ts` | Memory |
+| Feature operation tokens (import, switch, search, assets entry, …) | Controller refs (`beginOp` / `isOpCurrent`) | Memory |
 | Active segment, panel collapse, form fields | Owning surface / workbench piece | Memory (optional disposable UI pref for panel only) |
 | Engine connection | Preload events + controller | Memory |
 
 `App.tsx` composes the controller and gates; it is not a second state store.
 Full P1 lifecycle contracts live in
-[project-lifecycle.md](./project-lifecycle.md).
+[project-lifecycle.md](./project-lifecycle.md). P2 editor and Asset Hub
+contracts live in [editor-assets.md](./editor-assets.md).
 
 ## Session Routing
 
@@ -101,10 +104,11 @@ Sequence:
    preserve draft, show typed error, make no QA/export/home/search/insights/
    document-switch/active-document-recycle call.
 
-**P1 save-before-transition destinations** share one controller boundary:
-Home, Search, QA, Export, Insights, document switch, search-hit navigation
-when leaving Workbench, and active-document recycle. See
-[project-lifecycle.md](./project-lifecycle.md).
+**P1/P2 save-before-transition destinations** share one controller boundary:
+Home, Search, QA, Export, Insights, Assets (`goAssets` from Workbench),
+document switch, search-hit navigation when leaving Workbench, and
+active-document recycle. See [project-lifecycle.md](./project-lifecycle.md)
+and [editor-assets.md](./editor-assets.md).
 
 **Don't**: claim domain confirmation from local draft state, or clear a multi-
 record recovery map after applying only the active segment.
@@ -124,7 +128,7 @@ record recovery map after applying only the active segment.
 - Discard requires successful `clearDraftJournal` (or visible failure that
   withholds the transition).
 
-## Feature operation tokens (P1)
+## Feature operation tokens (P1 + P2)
 
 Each async feature domain uses an independent counter ref plus the app boot
 generation:
@@ -141,9 +145,28 @@ type FeatureOp = {
 - Completions apply only when `isOpCurrent` (generation + opId + optional origin
   surface still matches).
 - Domains include open-project, switch-document, import, example, search,
-  insights, templates, recycle, lifecycle, and QA load.
+  insights, templates, recycle, lifecycle, QA load, and Assets entry/return.
 - Reconnect increments the app generation **and** calls
   `invalidateFeatureOps()` so every in-flight feature completion is discarded.
+  Asset Hub also bumps per-domain list/mutation counters via
+  `useAssetController.invalidate()`.
+
+### P2 editor tokens
+
+- **Mutation token** (`mutOpRef`): tags, propagate, replace apply, split/merge,
+  source correction, undo/redo, spell write paths, preferences update, review
+  decisions.
+- **Read token** (`readOpRef`): history, find, comment list, and similar
+  non-owning reads. Read completions must not clear mutation busy or steal
+  mutation ownership.
+
+### P2 asset domain tokens
+
+Independent list + mutation counters per domain:
+`tm | termbase | alignment | corpus | catalog | curation`. Mutations use a
+synchronous pending flag (`beginMut` returns `null` when already in flight).
+Read form/query params from `stateRef.current` **before** pending `setState`
+patches — never only inside a state updater (see editor-assets §3.5).
 
 Do not rely on UI `disabled` alone for duplicate-submit safety; command code
 must re-check guards and op identity.
@@ -179,10 +202,11 @@ input -> SaveCoordinator draft/generation
       -> leave surface only after flush success
 ```
 
-Navigation from Workbench to QA, Export, Home, Search, Insights, another
-document, or active-document recycle must await coordinator flush first.
+Navigation from Workbench to QA, Export, Home, Search, Insights, Assets,
+another document, or active-document recycle must await coordinator flush first.
 Surfaces re-fetch projections through RPC; they must not receive stale draft
-objects from a previous surface as domain truth.
+objects from a previous surface as domain truth. Returning from Assets to
+Workbench rehydrates the session; do not trust asset-side document revisions.
 
 ### Recycle vs project lifecycle
 
@@ -206,7 +230,10 @@ translation state, or revision numbers from only the visible/filtered rows.
 - No persistence of source/target text or API secrets in localStorage.
 - No state update after an unmounted async request without an owner/generation
   guard.
-- No theme/accent settings persistence in P0/P1.
+- No theme/accent settings persistence in P0/P1/P2 (editor preferences are
+  Engine-only; shell appearance stays fixed constants).
 - No treating transport failure as recycled session identity.
-- No optimistic template/recycle/search/analytics mutation before Engine success.
+- No optimistic template/recycle/search/analytics/asset mutation before Engine success.
 - No sorting or inventing document order for the Workbench switcher.
+- No React-side TM/TB/corpus parsing, match scoring, or alignment algorithms.
+- No main-process global interception of Workbench editor keyboard chords.

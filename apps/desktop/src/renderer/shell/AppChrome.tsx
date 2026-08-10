@@ -1,6 +1,7 @@
 import {
   ChartLine,
   Export,
+  FolderSimple,
   House,
   MagnifyingGlass,
   SealCheck,
@@ -15,6 +16,7 @@ export interface AppChromeProps {
   onQa: () => void;
   onExport: () => void;
   onInsights: () => void;
+  onAssets?: () => void;
 }
 
 export function AppChrome({
@@ -24,6 +26,7 @@ export function AppChrome({
   onQa,
   onExport,
   onInsights,
+  onAssets,
 }: AppChromeProps) {
   const surface = state.surface;
 
@@ -32,7 +35,7 @@ export function AppChrome({
     surface.kind === "qa" ||
     surface.kind === "export"
       ? `${surface.ctx.project.name} · ${surface.ctx.document.name}`
-      : surface.kind === "insights"
+      : surface.kind === "insights" || surface.kind === "assets"
         ? surface.projectName
         : surface.kind === "import-document"
           ? surface.projectName
@@ -51,6 +54,7 @@ export function AppChrome({
   const startupResolved =
     surface.kind !== "boot" && surface.kind !== "recovery";
   const showHomeSearch = startupResolved;
+  // Assets does not host QA/Export/Insights — hide them to avoid dead chrome.
   const showSessionActions =
     surface.kind === "workbench" ||
     surface.kind === "qa" ||
@@ -61,6 +65,13 @@ export function AppChrome({
     surface.kind === "qa" ||
     surface.kind === "export" ||
     surface.kind === "insights";
+  const showAssets =
+    Boolean(onAssets) &&
+    (surface.kind === "workbench" ||
+      surface.kind === "qa" ||
+      surface.kind === "export" ||
+      surface.kind === "assets" ||
+      (surface.kind === "insights" && surface.returnTo === "workbench"));
   const disabled = !state.mutationsEnabled;
 
   return (
@@ -111,8 +122,21 @@ export function AppChrome({
             </button>
           </>
         ) : null}
-        {showSessionActions || showInsights ? (
+        {showSessionActions || showInsights || showAssets ? (
           <>
+            {showAssets && onAssets ? (
+              <button
+                type="button"
+                className="btn btn--ghost btn--icon"
+                aria-label="Assets"
+                aria-current={surface.kind === "assets" ? "page" : undefined}
+                disabled={disabled}
+                onClick={onAssets}
+                data-testid="nav-assets"
+              >
+                <FolderSimple size={18} weight="regular" />
+              </button>
+            ) : null}
             {showInsights ? (
               <button
                 type="button"

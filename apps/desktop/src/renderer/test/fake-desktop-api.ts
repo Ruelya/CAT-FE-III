@@ -766,6 +766,665 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
             degradation: [],
           } as EngineResult<Method>;
         }
+        // P2 editor
+        case "segment.find": {
+          const p = params as EngineParams<"segment.find">;
+          if (!p.query) {
+            return {
+              matches: [],
+              total: 0,
+              offset: 0,
+              limit: p.limit ?? 25,
+            } as EngineResult<Method>;
+          }
+          const matches = state.segments
+            .filter((s) => s.documentId === p.documentId)
+            .filter((s) =>
+              `${s.sourceText} ${s.targetText}`
+                .toLowerCase()
+                .includes(p.query.toLowerCase()),
+            )
+            .map((s) => ({
+              segmentId: s.id,
+              field: "target" as const,
+              matchedText: s.targetText || s.sourceText,
+              start: 0,
+              end: 1,
+              revision: s.revision,
+            }));
+          return {
+            matches,
+            total: matches.length,
+            offset: p.offset ?? 0,
+            limit: p.limit ?? 25,
+          } as EngineResult<Method>;
+        }
+        case "segment.replace.preview": {
+          const p = params as EngineParams<"segment.replace.preview">;
+          const items = state.segments
+            .filter((s) => s.documentId === p.documentId)
+            .filter((s) => s.targetText.includes(p.query))
+            .map((s) => ({
+              segmentId: s.id,
+              field: "target" as const,
+              before: s.targetText,
+              after: s.targetText.replaceAll(p.query, p.replacement),
+              replacements: 1,
+              revision: s.revision,
+            }));
+          return {
+            documentId: p.documentId,
+            token: "preview-token",
+            changedSegments: items.length,
+            replacementCount: items.length,
+            items,
+          } as EngineResult<Method>;
+        }
+        case "segment.replace.apply": {
+          const p = params as EngineParams<"segment.replace.apply">;
+          if (p.preview.token !== "preview-token") {
+            return Promise.reject({
+              code: "STALE_PREVIEW",
+              message: "Stale preview token",
+            }) as never;
+          }
+          const rows = [];
+          for (const item of p.preview.items) {
+            const seg = state.segments.find((s) => s.id === item.segmentId);
+            if (!seg) continue;
+            seg.targetText = item.after;
+            seg.revision += 1;
+            seg.state = "draft";
+            rows.push(rowFromSegment(seg));
+          }
+          return {
+            rows,
+            counts: emptyCounts(),
+            focusSegmentId: rows[0]?.segment.id ?? null,
+          } as EngineResult<Method>;
+        }
+        case "segment.tag.set": {
+          const p = params as EngineParams<"segment.tag.set">;
+          const seg = state.segments.find((s) => s.id === p.segmentId);
+          if (!seg) {
+            return Promise.reject({
+              code: "NOT_FOUND",
+              message: "Segment not found",
+            }) as never;
+          }
+          if (seg.revision !== p.expectedRevision) {
+            return Promise.reject({
+              code: "REVISION_CONFLICT",
+              message: "Revision conflict",
+            }) as never;
+          }
+          seg.revision += 1;
+          const editorRow = rowFromSegment(seg);
+          editorRow.targetTags = p.targetTags;
+          return {
+            rows: [editorRow],
+            counts: emptyCounts(),
+            focusSegmentId: seg.id,
+          } as EngineResult<Method>;
+        }
+        case "segment.propagate": {
+          const p = params as EngineParams<"segment.propagate">;
+          const seg = state.segments.find((s) => s.id === p.segmentId);
+          if (!seg) {
+            return Promise.reject({
+              code: "NOT_FOUND",
+              message: "Segment not found",
+            }) as never;
+          }
+          seg.revision += 1;
+          return {
+            rows: [rowFromSegment(seg)],
+            counts: emptyCounts(),
+            focusSegmentId: seg.id,
+          } as EngineResult<Method>;
+        }
+        case "segment.split":
+        case "segment.merge":
+        case "segment.correctSource":
+        case "segment.chinese.convert":
+        case "editor.undo":
+        case "editor.redo": {
+          const rows = state.segments.map(rowFromSegment);
+          return {
+            rows,
+            counts: emptyCounts(),
+            focusSegmentId: rows[0]?.segment.id ?? null,
+          } as EngineResult<Method>;
+        }
+        case "segment.comment.list":
+          return { comments: [] } as EngineResult<Method>;
+        case "segment.comment.create": {
+          const p = params as EngineParams<"segment.comment.create">;
+          return {
+            id: "c-1",
+            segmentId: p.segmentId,
+            author: p.author,
+            text: p.text,
+            resolved: false,
+            immutable: false,
+            revision: 1,
+            createdAtMs: Date.now(),
+            updatedAtMs: Date.now(),
+          } as EngineResult<Method>;
+        }
+        case "segment.comment.resolve":
+        case "segment.comment.update":
+        case "segment.comment.delete":
+          return {
+            id: "c-1",
+            segmentId: "seg-1",
+            author: "local",
+            text: "x",
+            resolved: true,
+            immutable: false,
+            revision: 2,
+            createdAtMs: 1,
+            updatedAtMs: Date.now(),
+          } as EngineResult<Method>;
+        case "segment.spell.check":
+          return {
+            available: true,
+            provider: "fake",
+            findings: [],
+          } as EngineResult<Method>;
+        case "dictionary.list":
+        case "dictionary.add":
+        case "dictionary.remove":
+          return {
+            locale: (params as { locale: string }).locale,
+            words: [],
+          } as EngineResult<Method>;
+        case "editor.history":
+          return {
+            canUndo: false,
+            canRedo: false,
+            operations: [],
+            total: 0,
+          } as EngineResult<Method>;
+        case "editor.preferences.get":
+        case "editor.preferences.update":
+          return {
+            zoom: 1,
+            theme: "default",
+            showNonprinting: false,
+            autocomplete: true,
+            cjkSpacing: false,
+            punctuationAssistance: false,
+            shortcuts: {},
+            ...((params as { preferences?: Record<string, unknown> })
+              .preferences ?? {}),
+          } as EngineResult<Method>;
+        case "review.queue":
+          return {
+            items: [],
+            total: 0,
+            offset: 0,
+            limit: 25,
+          } as EngineResult<Method>;
+        case "review.accept":
+          return {
+            rows: state.segments.map(rowFromSegment),
+            counts: emptyCounts(),
+            focusSegmentId: null,
+          } as EngineResult<Method>;
+        case "review.reject":
+          return {
+            id: "r-1",
+            segmentId: "seg-1",
+            author: "a",
+            reason: "r",
+            baseRevision: 1,
+            beforeTarget: "",
+            proposedTarget: "",
+            status: "rejected",
+            createdAtMs: 1,
+            updatedAtMs: 1,
+          } as EngineResult<Method>;
+        // P2 assets
+        case "tm.library.list":
+          return {
+            items: [
+              {
+                id: "tm-1",
+                name: "Default TM",
+                sourceLocale: "en",
+                targetLocale: "zh",
+                writable: true,
+                revision: 1,
+                createdAtMs: 1,
+                updatedAtMs: 1,
+              },
+            ],
+            mounts: [],
+            total: 1,
+            offset: 0,
+            limit: 50,
+          } as EngineResult<Method>;
+        case "tm.library.create": {
+          const p = params as EngineParams<"tm.library.create">;
+          return {
+            id: "tm-1",
+            name: p.name,
+            sourceLocale: p.sourceLocale,
+            targetLocale: p.targetLocale,
+            writable: true,
+            revision: 1,
+            createdAtMs: Date.now(),
+            updatedAtMs: Date.now(),
+          } as EngineResult<Method>;
+        }
+        case "tm.library.mount": {
+          const p = params as EngineParams<"tm.library.mount">;
+          return {
+            libraryId: p.libraryId,
+            projectId: p.projectId,
+            mode: p.mode,
+            enabled: true,
+            priority: 0,
+            revision: 1,
+            createdAtMs: Date.now(),
+            updatedAtMs: Date.now(),
+          } as EngineResult<Method>;
+        }
+        case "tm.library.unmount":
+          return {} as EngineResult<Method>;
+        case "tm.search": {
+          const p = params as EngineParams<"tm.search">;
+          return {
+            matches: [],
+            total: 50,
+            offset: p.offset ?? 0,
+            limit: p.limit ?? 25,
+          } as EngineResult<Method>;
+        }
+        case "tm.concordance": {
+          const p = params as EngineParams<"tm.concordance">;
+          return {
+            hits: [],
+            total: 50,
+            offset: p.offset ?? 0,
+            limit: p.limit ?? 25,
+            corpusHits: [],
+            corpusTotal: 0,
+          } as EngineResult<Method>;
+        }
+        case "tm.export": {
+          const p = params as EngineParams<"tm.export">;
+          return {
+            libraryId: p.libraryId,
+            outputPath: p.outputPath,
+            unitCount: 0,
+          } as EngineResult<Method>;
+        }
+        case "tm.import":
+          return {
+            libraryId: "tm-1",
+            inserted: 0,
+            skipped: 0,
+            diagnostics: [],
+          } as EngineResult<Method>;
+        case "termbase.list":
+          return {
+            items: [],
+            mounts: [],
+            total: 0,
+            offset: 0,
+            limit: 50,
+          } as EngineResult<Method>;
+        case "termbase.create": {
+          const p = params as EngineParams<"termbase.create">;
+          return {
+            id: "tb-1",
+            name: p.name,
+            sourceLocale: p.sourceLocale,
+            writable: true,
+            revision: 1,
+            createdAtMs: Date.now(),
+            updatedAtMs: Date.now(),
+          } as EngineResult<Method>;
+        }
+        case "termbase.mount": {
+          const p = params as EngineParams<"termbase.mount">;
+          return {
+            termbaseId: p.termbaseId,
+            projectId: p.projectId,
+            writable: p.writable ?? true,
+            enabled: true,
+            priority: 0,
+            revision: 1,
+            createdAtMs: Date.now(),
+            updatedAtMs: Date.now(),
+          } as EngineResult<Method>;
+        }
+        case "termbase.unmount":
+          return {} as EngineResult<Method>;
+        case "term.search": {
+          const p = params as EngineParams<"term.search">;
+          return {
+            matches: [],
+            total: 50,
+            offset: p.offset ?? 0,
+            limit: p.limit ?? 25,
+          } as EngineResult<Method>;
+        }
+        case "term.upsert": {
+          const p = params as EngineParams<"term.upsert">;
+          return {
+            id: "term-1",
+            termbaseId: p.termbaseId,
+            sourceLocale: p.sourceLocale,
+            sourceTerm: p.sourceTerm,
+            status: "active",
+            revision: 1,
+            translations: [],
+            createdAtMs: Date.now(),
+            updatedAtMs: Date.now(),
+          } as EngineResult<Method>;
+        }
+        case "termbase.export": {
+          const p = params as EngineParams<"termbase.export">;
+          return {
+            termbaseId: p.termbaseId,
+            outputPath: p.outputPath,
+            entryCount: 0,
+          } as EngineResult<Method>;
+        }
+        case "termbase.import":
+          return {
+            termbaseId: "tb-1",
+            inserted: 0,
+            skipped: 0,
+            diagnostics: [],
+          } as EngineResult<Method>;
+        case "alignment.session.list":
+          return {
+            items: [],
+            total: 0,
+            offset: 0,
+            limit: 25,
+          } as EngineResult<Method>;
+        case "alignment.session.create": {
+          const p = params as EngineParams<"alignment.session.create">;
+          return {
+            session: {
+              id: "align-1",
+              projectId: p.projectId,
+              sourceDocumentId: p.sourceDocumentId,
+              targetDocumentId: p.targetDocumentId,
+              sourceDocumentRevision: p.expectedSourceDocumentRevision,
+              targetDocumentRevision: p.expectedTargetDocumentRevision,
+              sourceLocale: "en",
+              targetLocale: "zh",
+              status: "open",
+              revision: 1,
+              algorithmVersion: "1",
+              createdAtMs: Date.now(),
+              updatedAtMs: Date.now(),
+            },
+            linkCount: 0,
+            operationId: "op-1",
+            sourceSegmentCount: 0,
+            targetSegmentCount: 0,
+            workUnits: 0,
+          } as EngineResult<Method>;
+        }
+        case "alignment.session.get": {
+          const p = params as EngineParams<"alignment.session.get">;
+          return {
+            session: {
+              id: p.sessionId,
+              projectId: "proj-1",
+              sourceDocumentId: "doc-1",
+              targetDocumentId: "doc-2",
+              sourceDocumentRevision: 1,
+              targetDocumentRevision: 1,
+              sourceLocale: "en",
+              targetLocale: "zh",
+              status: "open",
+              revision: 1,
+              algorithmVersion: "1",
+              createdAtMs: 1,
+              updatedAtMs: 1,
+            },
+            links: [],
+            total: 100,
+            offset: p.offset ?? 0,
+            limit: p.limit ?? 50,
+          } as EngineResult<Method>;
+        }
+        case "alignment.session.update": {
+          const p = params as EngineParams<"alignment.session.update">;
+          return {
+            session: {
+              id: p.sessionId,
+              projectId: "proj-1",
+              sourceDocumentId: "doc-1",
+              targetDocumentId: "doc-2",
+              sourceDocumentRevision: 1,
+              targetDocumentRevision: 1,
+              sourceLocale: "en",
+              targetLocale: "zh",
+              status: "open",
+              revision: p.expectedSessionRevision + 1,
+              algorithmVersion: "1",
+              createdAtMs: 1,
+              updatedAtMs: Date.now(),
+            },
+            links: [],
+            operationId: "op-u",
+          } as EngineResult<Method>;
+        }
+        case "alignment.session.refine":
+          return {
+            id: "ai-run-1",
+            kind: "alignmentRefine",
+            action: "refine",
+            status: "succeeded",
+            attempt: 1,
+            maxAttempts: 1,
+            model: "fake",
+            promptHash: "h",
+            request: {},
+            revision: 1,
+            cancellationRequested: false,
+            errorRetryable: false,
+            createdAtMs: Date.now(),
+            updatedAtMs: Date.now(),
+          } as EngineResult<Method>;
+        case "alignment.session.apply": {
+          const p = params as EngineParams<"alignment.session.apply">;
+          return {
+            sessionId: p.sessionId,
+            sessionRevision: p.expectedSessionRevision + 1,
+            libraryId: p.libraryId,
+            libraryRevision: p.expectedLibraryRevision + 1,
+            status: "applied",
+            insertedCount: p.links.length,
+            duplicateCount: 0,
+            selectedCount: p.links.length,
+            duplicates: [],
+            tmUnitIds: [],
+            operationId: "op-a",
+          } as EngineResult<Method>;
+        }
+        case "corpus.list":
+          return {
+            items: [],
+            total: 0,
+            offset: 0,
+            limit: 25,
+          } as EngineResult<Method>;
+        case "corpus.import": {
+          const p = params as EngineParams<"corpus.import">;
+          return {
+            id: "corpus-1",
+            projectId: p.projectId,
+            name: p.name,
+            kind: p.kind,
+            sourceLocale: p.sourceLocale,
+            targetLocale: p.targetLocale,
+            status: "active",
+            sourceKind: "file",
+            entryCount: 0,
+            diagnosticCount: 0,
+            diagnostics: [],
+            revision: 1,
+            createdAtMs: Date.now(),
+            updatedAtMs: Date.now(),
+          } as EngineResult<Method>;
+        }
+        case "corpus.search": {
+          const p = params as EngineParams<"corpus.search">;
+          return {
+            items: [],
+            total: 50,
+            offset: p.offset ?? 0,
+            limit: p.limit ?? 25,
+          } as EngineResult<Method>;
+        }
+        case "corpus.remove": {
+          const p = params as EngineParams<"corpus.remove">;
+          return {
+            corpus: {
+              id: p.corpusId,
+              projectId: "proj-1",
+              name: "removed",
+              kind: "bilingual",
+              sourceLocale: "en",
+              targetLocale: "zh",
+              status: "removed",
+              sourceKind: "file",
+              entryCount: 0,
+              diagnosticCount: 0,
+              diagnostics: [],
+              revision: p.expectedRevision + 1,
+              createdAtMs: 1,
+              updatedAtMs: Date.now(),
+            },
+            affectedEntryCount: 0,
+            operationId: "op-c",
+          } as EngineResult<Method>;
+        }
+        case "corpus.fromAlignment": {
+          const p = params as EngineParams<"corpus.fromAlignment">;
+          return {
+            id: "corpus-align",
+            projectId: p.projectId,
+            name: p.name,
+            kind: "bilingual",
+            sourceLocale: "en",
+            targetLocale: "zh",
+            status: "active",
+            sourceKind: "alignment",
+            entryCount: p.links.length,
+            diagnosticCount: 0,
+            diagnostics: [],
+            revision: 1,
+            createdAtMs: Date.now(),
+            updatedAtMs: Date.now(),
+            alignmentSessionId: p.sessionId,
+          } as EngineResult<Method>;
+        }
+        case "asset.catalog.list": {
+          const p = params as EngineParams<"asset.catalog.list">;
+          return {
+            items: [],
+            total: 50,
+            offset: p.offset ?? 0,
+            limit: p.limit ?? 25,
+          } as EngineResult<Method>;
+        }
+        case "curation.run":
+        case "curation.run.get": {
+          const runId =
+            (params as { runId?: string }).runId ??
+            `run-${Date.now()}`;
+          return {
+            run: {
+              id: runId,
+              projectId: (params as { projectId?: string }).projectId ?? "p",
+              libraryId: (params as { libraryId?: string }).libraryId ?? "tm-1",
+              mode: "offline",
+              status: "open",
+              revision: 1,
+              baseLibraryRevision: 1,
+              actor: "local",
+              reason: (params as { reason?: string }).reason ?? "",
+              policy: {
+                maximumLengthRatioPercent: 300,
+                minimumChars: 1,
+                minimumLengthRatioPercent: 20,
+                minimumTermFrequency: 2,
+                nearDuplicateThreshold: 0.9,
+                quarantineThresholdBasisPoints: 4000,
+                semanticAlignmentThresholdBasisPoints: 5000,
+              },
+              summary: {
+                analysis: {
+                  analyzedUnits: 0,
+                  findingCount: 0,
+                  unitsWithFindings: 0,
+                  quarantineCandidates: 0,
+                  driftGroupCount: 0,
+                  termCandidateCount: 0,
+                },
+                driftGroups: [],
+                termCandidates: [],
+              },
+              createdAtMs: Date.now(),
+              updatedAtMs: Date.now(),
+            },
+            units: [],
+            total: 0,
+            offset: 0,
+            limit: 50,
+          } as EngineResult<Method>;
+        }
+        case "curation.finding.list":
+          return {
+            items: [],
+            total: 0,
+            offset: 0,
+            limit: 25,
+          } as EngineResult<Method>;
+        case "curation.apply":
+        case "curation.rollback": {
+          const p = params as {
+            runId: string;
+            expectedRunRevision: number;
+            expectedLibraryRevision: number;
+          };
+          return {
+            runId: p.runId,
+            runRevision: p.expectedRunRevision + 1,
+            libraryId: "tm-1",
+            libraryRevision: p.expectedLibraryRevision + 1,
+            status: "applied",
+            changedUnitCount: 0,
+            quarantinedUnitCount: 0,
+            restoredUnitCount: 0,
+            operationId: "op-cur",
+          } as EngineResult<Method>;
+        }
+        case "curation.export": {
+          const p = params as EngineParams<"curation.export">;
+          return {
+            runId: p.runId,
+            runRevision: p.expectedRunRevision,
+            libraryId: "tm-1",
+            libraryRevision: p.expectedLibraryRevision,
+            format: p.format,
+            outputPath: p.outputPath,
+            rowCount: 0,
+            bytesWritten: 0,
+            sha256: "abc",
+          } as EngineResult<Method>;
+        }
         default:
           return Promise.reject({
             code: "UNSUPPORTED",

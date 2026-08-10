@@ -46,6 +46,7 @@ export interface ProjectHomeProps {
     reason: string,
   ) => Promise<boolean>;
   onInsights?: (projectId: string) => void;
+  onAssets?: (projectId: string) => void;
 }
 
 type DialogState =
@@ -78,6 +79,7 @@ export function ProjectHome({
   onSetLifecycle,
   onRecycleProject,
   onInsights,
+  onAssets,
 }: ProjectHomeProps) {
   const [dialog, setDialog] = useState<DialogState>({ kind: "none" });
   const [pending, setPending] = useState(false);
@@ -345,6 +347,17 @@ export function ProjectHome({
                   onClick={() => onInsights(project.id)}
                 >
                   Insights
+                </button>
+              ) : null}
+              {onAssets ? (
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  disabled={busy}
+                  onClick={() => onAssets(project.id)}
+                  data-testid={`project-assets-${project.id}`}
+                >
+                  Assets
                 </button>
               ) : null}
             </div>
