@@ -17,6 +17,7 @@ renderer interaction patterns currently used by Translunar CAT.
 | ------------------------------------------------- | ----------------------------------------------------------------------------- | ------- |
 | [Electron Workbench](./electron-workbench.md)     | Main/preload/renderer boundary, state ownership, packaging, and E2E contracts | Active  |
 | [Project Lifecycle](./project-lifecycle.md)       | P1 multi-doc, batch import, templates, recycle vs lifecycle, search, feature ops | Active  |
+| [Editor & Assets](./editor-assets.md)             | P2 editor ops, command registry/keyboard, Asset Hub domains, curation rollback | Active  |
 | [Directory Structure](./directory-structure.md)   | Module organization and file layout                                           | Active  |
 | [Component Guidelines](./component-guidelines.md) | Component patterns, props, composition                                        | Active  |
 | [Hook Guidelines](./hook-guidelines.md)           | Custom hooks, data fetching patterns                                          | Active  |
@@ -42,14 +43,20 @@ the desktop package does not yet enforce.
   Do not reintroduce the deleted root `Workbench.tsx` monolith.
 - For multi-document, batch import, templates, recycle, search, insights, or
   project archive work, read [Project Lifecycle](./project-lifecycle.md).
+- For Workbench editor commands/panels, find/replace, undo/history, review
+  queue, or Asset Hub (TM/TB/alignment/corpus/catalog/curation), read
+  [Editor & Assets](./editor-assets.md).
 - Search the generated method catalog before adding a preload method or local
   payload type.
 - Decide whether state is presentation-only or engine-owned before adding it to
   React. Drafts/saves go through `SaveCoordinator`; session identity is
   versioned project/document IDs only. Workbench exits use one
-  save-before-transition boundary (including document switch and Search).
+  save-before-transition boundary (including document switch, Search, and
+  Assets).
 - Feature async domains use independent operation tokens; reconnect invalidates
-  them all. See Project Lifecycle.
+  them all. Editor mutations use a separate mut/read token pair; Asset Hub uses
+  per-domain list + mutation counters. See Project Lifecycle and Editor &
+  Assets.
 - New renderer icons: Phosphor (`@phosphor-icons/react`). Appearance: light
   default + advanced-brown accent; no glass (`backdrop-filter`).
 

@@ -423,19 +423,9 @@ function createWindow(): void {
     revokeWindowPluginSessions();
   });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  mainWindow.webContents.on("before-input-event", (event, input) => {
-    if (input.isComposing) return;
-    const modifier = input.control || input.meta;
-    const command =
-      modifier && input.key.toLocaleLowerCase() === "k"
-        ? "editor.palette"
-        : modifier && input.key.toLocaleLowerCase() === "f"
-          ? "editor.findReplace"
-          : null;
-    if (!command) return;
-    event.preventDefault();
-    mainWindow?.webContents.send(IPC_CHANNELS.editorCommand, command);
-  });
+  // Editor shortcuts (Ctrl/Cmd+F/Z/Y, …) are accepted only in the renderer when a
+  // visible Workbench session owns focus and IME is idle. Main must not
+  // preventDefault or dispatch unregistered commands (e.g. editor.palette).
   mainWindow.webContents.on("will-navigate", (event, url) => {
     const current = mainWindow?.webContents.getURL();
     if (current && new URL(url).origin !== new URL(current).origin)

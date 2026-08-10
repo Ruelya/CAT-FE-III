@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "Review/verify entry checklist: confirm P2 changes stay within frontend package locks and correct child-spec ownership."}
+{"file": ".trellis/spec/frontend/electron-workbench.md", "reason": "Verify editor mutation flush/revision/token rules, IME safety, command panels, and Workbench regression against Workbench contract."}
+{"file": ".trellis/spec/frontend/project-lifecycle.md", "reason": "Verify Asset Hub navigation, save-before-leave, session rehydrate on return, and P0/P1 lifecycle regression."}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Verify a11y, focus, dialog Cancel-first, Phosphor-only icons, solid surfaces, no glass/dead nav/filler copy on new panels."}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Verify no optimistic domain writes, op-token/reconnect invalidation, and that app reducer does not absorb asset form databases."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify unit/integration/E2E coverage, static visual locks, and AC-aligned quality gates before closeout."}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Verify all new Engine calls use generated types and typed fakes; no cast-all or string method names."}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Verify new modules land under approved renderer directories (workbench/, assets/, state/, e2e) per package layout."}

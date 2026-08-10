@@ -2,21 +2,27 @@
 
 ## Current Pattern
 
-The app uses React built-ins plus one primary controller hook:
+The app uses React built-ins plus a small set of ownership hooks:
 
 - `state/use-app-controller.ts` — boot, session routing, surface transitions,
   Engine status/reconnect, recovery, feature operation tokens, save-before-
-  transition, and command wiring for surfaces (including P1 lifecycle)
+  transition, and command wiring for surfaces (including P1 lifecycle and the
+  Assets entry/return gateway)
+- `state/use-editor-operations.ts` — Workbench editor command sequences,
+  panel/pending/error state, mut vs read op tokens, keyboard/registry dispatch
+- `state/use-asset-controller.ts` — project-scoped Asset Hub section forms,
+  paging, and per-domain list/mutation tokens
 - Surfaces and workbench pieces use `useState` / `useEffect` / refs for local
   presentation (form fields, focus, panel collapse, search query text)
-- Pure P1 helpers live beside state (`document-navigation`,
-  `template-definition`, `search-navigation`, `analytics-view`) without hooks
+- Pure helpers live beside state without hooks (`document-navigation`,
+  `template-definition`, `search-navigation`, `analytics-view`,
+  `editor-operations`, `asset-view`, `asset-state` factories)
 - There is no project-wide third-party state library
 
 Keep a feature-local effect or reducer inline when it is used once and its
 ownership is clear. Cross-surface coordination belongs in the app controller,
-not duplicated in each surface. Feature form/query state that does not cross
-surfaces stays in the surface.
+not duplicated in each surface. Large P2 form/query/paging state stays in the
+editor or asset hook — **not** in `app-state` / the app reducer.
 
 ## Creating A Custom Hook
 
@@ -54,6 +60,13 @@ introducing a second debounce path in a component.
   `isOpCurrent` / `invalidateFeatureOps` in the app controller). Do not add a
   second ad-hoc “latest request id” pattern in a surface when the controller
   already owns that domain.
+- P2 editor: keep **mutation** and **read** tokens separate so history/find
+  cannot clear undo busy.
+- P2 assets: keep **list** and **mutation** counters per domain; read
+  query/form fields from a `stateRef` (or equivalent) **before** pending
+  patches — never only inside a `setState` updater side effect.
+- Editor target-affecting commands: composition block → `flushOrStay` → re-read
+  authoritative revisions → invoke → verify token/generation → commit.
 
 ## Focus And IME
 
@@ -75,3 +88,7 @@ during composition; journal local draft only. Keyboard handling must not
 - No hook that silently mutates global/localStorage state for every render.
 - No hook that invents a second Engine client or bypasses `lib/rpc.ts`.
 - No confirm/save path that omits the shared IME guard.
+- No folding Asset Hub or editor panel form state into `use-app-controller`.
+- No keyboard `preventDefault` for editor chords unless
+  `resolveAcceptedEditorShortcut` (or equivalent registry gate) accepts them.
+- No asset action that invents TM/corpus scores or parses exchange files.

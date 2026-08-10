@@ -1,13 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ProjectBatchImportResult, TmEntry } from "@translunar/contracts";
 
 import type { UiError } from "../lib/errors";
 import { formatUiError } from "../lib/errors";
 import type { SessionContext } from "../state/app-state";
 import type { SegmentEditState } from "../state/save-coordinator";
+import type { EditorOperationsApi } from "../state/use-editor-operations";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
 import { BatchImportSummary } from "../workbench/BatchImportSummary";
 import { DocumentSwitcher } from "../workbench/DocumentSwitcher";
+import { EditorCommandBar } from "../workbench/EditorCommandBar";
+import { EditorPanels } from "../workbench/EditorPanels";
 import { SegmentGrid } from "../workbench/SegmentGrid";
 import { TmExactPanel } from "../workbench/TmExactPanel";
 
@@ -26,6 +29,9 @@ export interface WorkbenchProps {
   addFilesPending?: boolean;
   batchResult?: ProjectBatchImportResult | null;
   disabled?: boolean;
+  editorOps?: EditorOperationsApi | null;
+  selectedSegmentIds?: string[];
+  onToggleSelect?: (segmentId: string) => void;
   onSelectSegment: (segmentId: string) => void;
   onDraftChange: (text: string) => void;
   onCompositionStart: () => void;
@@ -39,6 +45,7 @@ export interface WorkbenchProps {
   onQa: () => void;
   onExport: () => void;
   onInsights: () => void;
+  onAssets?: () => void;
   onSwitchDocument: (documentId: string) => void;
   onAddFiles: () => void;
   onRecycleDocument: (reason: string) => Promise<boolean>;
@@ -60,6 +67,9 @@ export function Workbench({
   addFilesPending,
   batchResult,
   disabled,
+  editorOps,
+  selectedSegmentIds = [],
+  onToggleSelect,
   onSelectSegment,
   onDraftChange,
   onCompositionStart,
@@ -69,6 +79,7 @@ export function Workbench({
   onQa,
   onExport,
   onInsights,
+  onAssets,
   onSwitchDocument,
   onAddFiles,
   onRecycleDocument,
@@ -82,6 +93,12 @@ export function Workbench({
   const headerBusy = Boolean(
     disabled || switchPending || addFilesPending || pendingConfirm,
   );
+
+  const activeRow = ctx.rows.find((r) => r.segment.id === activeSegmentId);
+
+  useEffect(() => {
+    // Keep multi-select membership in sync when active changes without toggle
+  }, [activeSegmentId]);
 
   return (
     <section className="workbench" data-testid="workbench">
@@ -141,6 +158,17 @@ export function Workbench({
           >
             {addFilesPending ? "Importing" : "Add files"}
           </button>
+          {onAssets ? (
+            <button
+              type="button"
+              className="btn btn--secondary"
+              disabled={headerBusy}
+              onClick={onAssets}
+              data-testid="nav-assets-workbench"
+            >
+              Assets
+            </button>
+          ) : null}
           <button
             type="button"
             className="btn btn--secondary"
@@ -167,6 +195,11 @@ export function Workbench({
           </button>
         </div>
       </div>
+
+      {editorOps ? (
+        <EditorCommandBar ops={editorOps} disabled={disabled === true} />
+      ) : null}
+
       <div
         className={
           tmCollapsed
@@ -174,20 +207,32 @@ export function Workbench({
             : "workbench__body"
         }
       >
-        <SegmentGrid
-          rows={ctx.rows}
-          activeSegmentId={activeSegmentId}
-          focusSegmentId={focusSegmentId}
-          editState={editState}
-          disabled={disabled ?? false}
-          onSelect={(id) => {
-            void onSelectSegment(id);
-          }}
-          onDraftChange={onDraftChange}
-          onCompositionStart={onCompositionStart}
-          onCompositionEnd={onCompositionEnd}
-          onConfirm={onConfirm}
-        />
+        <div className="workbench__main">
+          <SegmentGrid
+            rows={ctx.rows}
+            activeSegmentId={activeSegmentId}
+            focusSegmentId={focusSegmentId}
+            selectedSegmentIds={selectedSegmentIds}
+            editState={editState}
+            disabled={disabled ?? false}
+            onSelect={(id) => {
+              void onSelectSegment(id);
+            }}
+            {...(onToggleSelect ? { onToggleSelect } : {})}
+            onDraftChange={onDraftChange}
+            onCompositionStart={onCompositionStart}
+            onCompositionEnd={onCompositionEnd}
+            onConfirm={onConfirm}
+          />
+          {editorOps ? (
+            <EditorPanels
+              ops={editorOps}
+              disabled={disabled === true}
+              sourceTags={activeRow?.sourceTags ?? []}
+              tagIssues={activeRow?.tagIssues ?? []}
+            />
+          ) : null}
+        </div>
         <TmExactPanel
           collapsed={tmCollapsed}
           matches={tmMatches}

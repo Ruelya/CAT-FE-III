@@ -11,10 +11,12 @@ Source-backed examples:
 - Surfaces: `surfaces/Workbench.tsx`, `surfaces/ProjectHome.tsx`,
   `surfaces/QaReview.tsx`, `surfaces/ExportReview.tsx`,
   `surfaces/Templates.tsx`, `surfaces/RecycleBin.tsx`,
-  `surfaces/GlobalSearch.tsx`, `surfaces/ProjectInsights.tsx`
+  `surfaces/GlobalSearch.tsx`, `surfaces/ProjectInsights.tsx`,
+  `surfaces/AssetHub.tsx`
 - Workbench pieces: `workbench/TargetEditor.tsx`, `workbench/SegmentGrid.tsx`,
   `workbench/TmExactPanel.tsx`, `workbench/PanelChrome.tsx`,
-  `workbench/DocumentSwitcher.tsx`, `workbench/BatchImportSummary.tsx`
+  `workbench/DocumentSwitcher.tsx`, `workbench/BatchImportSummary.tsx`,
+  `workbench/EditorCommandBar.tsx`, `workbench/EditorPanels.tsx`
 - Shell: `shell/AppChrome.tsx`, `shell/RecoveryDialog.tsx`,
   `shell/EngineStatusBanner.tsx`, `shell/ConfirmDialog.tsx`,
   `shell/ModalDialog.tsx`
@@ -110,6 +112,40 @@ low-contrast glass panels that fail professional CAT density.
 
 **Related**: `state/appearance.test.ts` asserts required token vars, light/
 brown defaults, semantic separation, and absence of glass CSS.
+
+## Editor command bar and Asset Hub
+
+### Convention: Registry-driven editor chrome
+
+**What**: Workbench editor actions use `EDITOR_COMMAND_REGISTRY` +
+`EditorCommandBar` / `EditorPanels`. Panels call intents on
+`use-editor-operations`; they do not invent RPC names or inverse history.
+
+**Why**: Keeps keyboard, overflow, availability, and IME gates consistent.
+
+**Rules**:
+
+- Icon-only or dense controls still need `title`/`aria-label` (Phosphor only).
+- Target-affecting panels inherit composition + flush sequencing from the hook.
+- Review is a Workbench panel, not a top-level chrome destination.
+- Full contracts: [editor-assets.md](./editor-assets.md).
+
+### Convention: Asset Hub is a real project-scoped surface
+
+**What**: `surfaces/AssetHub.tsx` hosts TM, termbase, alignment, corpus,
+catalog, and curation with complete empty/loading/error/success states.
+
+**Why**: Placeholder tabs and dead nav violate P2 acceptance.
+
+**Rules**:
+
+- Every displayed section is Engine-backed; no marketing dashboard cards.
+- Dense lists/tables with confined scroll; no viewport horizontal overflow.
+- Destructive actions use Cancel-first `ConfirmDialog` and stay mounted until
+  success/cancel (curation rollback closes only when the controller returns
+  true).
+- Do not expose TM/TB import controls until a trusted open-dialog filter
+  accepts tmx/tbx/csv/tsv (`WP0-TM-TB-IMPORT-FILTER`).
 
 ## Document switcher landmarks
 

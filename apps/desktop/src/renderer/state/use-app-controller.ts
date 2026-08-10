@@ -31,9 +31,11 @@ import {
   readTmCollapsed,
   writeTmCollapsed,
   type AppState,
+  type AssetHubSection,
   type ProjectListLifecycle,
   type SessionContext,
 } from "./app-state";
+import { countsFromEditorRows } from "./editor-operations";
 // AppState imported for FeatureOp origin typing.
 import {
   aggregateProjectDocuments,
@@ -193,6 +195,8 @@ export interface AppController {
   saveTick: number;
   composition: CompositionState;
   saveCoordinator: SaveCoordinator;
+  /** Bumps on reconnect / feature invalidation for editor & asset op tokens. */
+  featureGeneration: number;
   commands: {
     retryBoot: () => void;
     restartEngine: () => Promise<void>;
@@ -236,6 +240,18 @@ export interface AppController {
     goInsights: (projectId?: string) => Promise<void>;
     refreshInsights: () => Promise<void>;
     backFromInsights: () => Promise<void>;
+    goAssets: (projectId?: string) => Promise<void>;
+    setAssetsSection: (section: AssetHubSection) => void;
+    backFromAssets: () => Promise<void>;
+    /** Apply authoritative editor rows after P2 mutations. */
+    applyWorkbenchRows: (input: {
+      rows: SegmentEditorRow[];
+      counts: SegmentCounts | null;
+      activeSegmentId: string | null;
+      focusSegmentId: string | null;
+    }) => void;
+    refreshWorkbenchRows: (focusSegmentId?: string | null) => Promise<void>;
+    flushOrStay: () => Promise<boolean>;
     goTemplates: () => Promise<void>;
     templatesPage: (offset: number) => Promise<void>;
     templateCreateStart: () => void;
@@ -303,6 +319,7 @@ export function useAppController(): AppController {
     createInitialState,
   );
   const [saveTick, setSaveTick] = useState(0);
+  const [featureGeneration, setFeatureGeneration] = useState(0);
   const generationRef = useRef(0);
   const openProjectOpRef = useRef(0);
   const qaLoadOpRef = useRef(0);
@@ -311,6 +328,7 @@ export function useAppController(): AppController {
   const exampleOpRef = useRef(0);
   const searchOpRef = useRef(0);
   const insightsOpRef = useRef(0);
+  const assetsOpRef = useRef(0);
   const templatesOpRef = useRef(0);
   const recycleOpRef = useRef(0);
   const lifecycleOpRef = useRef(0);
@@ -348,9 +366,11 @@ export function useAppController(): AppController {
     exampleOpRef.current += 1;
     searchOpRef.current += 1;
     insightsOpRef.current += 1;
+    assetsOpRef.current += 1;
     templatesOpRef.current += 1;
     recycleOpRef.current += 1;
     lifecycleOpRef.current += 1;
+    setFeatureGeneration((n) => n + 1);
   }, []);
 
   const beginOp = useCallback(
@@ -968,6 +988,94 @@ export function useAppController(): AppController {
         } else if (current.kind === "boot" || current.kind === "recovery") {
           await boot(gen);
           revalidationOk = true;
+        } else if (current.kind === "assets") {
+          // Revalidate project + session identity before Asset Hub mutations resume.
+          try {
+            const project = await invokeEngine("project.get", {
+              projectId: current.projectId,
+            });
+            if (!isCurrent(gen)) return;
+            if (stateRef.current.surface.kind !== "assets") return;
+            let session = current.session;
+            if (session) {
+              try {
+                await hydrateSession(session);
+              } catch {
+                // Workbench session may be gone; keep Assets project-scoped.
+                session = null;
+              }
+            }
+            if (!isCurrent(gen)) return;
+            if (stateRef.current.surface.kind !== "assets") return;
+            dispatch({
+              type: "SET_SURFACE",
+              surface: {
+                ...current,
+                projectName: project.project.name,
+                sourceLocale: project.project.sourceLocale,
+                targetLocale: project.project.targetLocale,
+                session,
+              },
+            });
+            // Bump feature generation so useAssetController invalidates tokens
+            // and reloads the active section before mutations are re-enabled.
+            invalidateFeatureOps();
+            // Allow React to process generation + section reload scheduling.
+            await Promise.resolve();
+            if (!isCurrent(gen)) return;
+            if (stateRef.current.surface.kind !== "assets") return;
+            // Authoritative section list for the active section (shared RPC).
+            const section = current.section;
+            if (section === "tm") {
+              await invokeEngine("tm.library.list", {
+                projectId: current.projectId,
+                offset: 0,
+                limit: 50,
+              });
+            } else if (section === "termbase") {
+              await invokeEngine("termbase.list", {
+                projectId: current.projectId,
+                offset: 0,
+                limit: 50,
+              });
+            } else if (section === "alignment") {
+              await invokeEngine("alignment.session.list", {
+                projectId: current.projectId,
+                offset: 0,
+                limit: 25,
+              });
+            } else if (section === "corpus") {
+              await invokeEngine("corpus.list", {
+                projectId: current.projectId,
+                offset: 0,
+                limit: 25,
+              });
+            } else if (section === "catalog") {
+              await invokeEngine("asset.catalog.list", {
+                projectId: current.projectId,
+                offset: 0,
+                limit: 25,
+              });
+            } else if (section === "curation") {
+              await invokeEngine("tm.library.list", {
+                projectId: current.projectId,
+                offset: 0,
+                limit: 50,
+              });
+            }
+            if (!isCurrent(gen)) return;
+            if (stateRef.current.surface.kind !== "assets") return;
+            dispatch({ type: "SET_MUTATIONS_ENABLED", enabled: true });
+            revalidationOk = true;
+          } catch (error) {
+            if (!isCurrent(gen)) return;
+            dispatch({
+              type: "ENGINE_STATUS",
+              status: "failed",
+              message: toUiError(error).message,
+            });
+            // Keep mutations disabled until a successful revalidation.
+          }
         } else {
           dispatch({ type: "SET_MUTATIONS_ENABLED", enabled: true });
           revalidationOk = true;
@@ -1260,12 +1368,14 @@ export function useAppController(): AppController {
           surface.kind === "workbench" ||
           surface.kind === "qa" ||
           surface.kind === "export" ||
-          (surface.kind === "insights" && surface.returnTo === "workbench")
+          (surface.kind === "insights" && surface.returnTo === "workbench") ||
+          (surface.kind === "assets" && surface.returnTo === "workbench")
         ) {
           if (surface.kind === "workbench") {
             const ok = await flushOrStay();
             if (!ok) return;
           }
+          // Intentional leave of Workbench-scoped session (incl. Assets-from-WB).
           clearSessionStorage();
           saveCoordinator.clearActive();
         }
@@ -2518,6 +2628,207 @@ export function useAppController(): AppController {
         await resolveHome();
       },
 
+      goAssets: async (projectId) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        let targetProjectId: string | undefined;
+        let projectName: string;
+        let sourceLocale: string;
+        let targetLocale: string;
+        let returnTo: "workbench" | "projects";
+        let session: SessionIdentity | null = null;
+
+        if (
+          surface.kind === "workbench" ||
+          surface.kind === "qa" ||
+          surface.kind === "export"
+        ) {
+          if (surface.kind === "workbench") {
+            if (surface.pendingConfirm || surface.switchPending) return;
+            if (saveCoordinator.active?.isComposing) return;
+            const ok = await flushOrStay();
+            if (!ok) return;
+          }
+          const current = stateRef.current.surface;
+          if (
+            current.kind !== "workbench" &&
+            current.kind !== "qa" &&
+            current.kind !== "export"
+          ) {
+            return;
+          }
+          targetProjectId = current.ctx.project.id;
+          projectName = current.ctx.project.name;
+          sourceLocale = current.ctx.project.sourceLocale;
+          targetLocale = current.ctx.project.targetLocale;
+          returnTo = "workbench";
+          session = current.ctx.session;
+        } else if (surface.kind === "projects" && projectId) {
+          const project = surface.projects.find((p) => p.id === projectId);
+          if (!project) return;
+          targetProjectId = projectId;
+          projectName = project.name;
+          sourceLocale = project.sourceLocale;
+          targetLocale = project.targetLocale;
+          returnTo = "projects";
+        } else if (surface.kind === "insights") {
+          targetProjectId = surface.projectId;
+          projectName = surface.projectName;
+          sourceLocale = "en";
+          targetLocale = "zh";
+          returnTo = surface.returnTo;
+          session = surface.session;
+          try {
+            const snapshot = await invokeEngine("project.get", {
+              projectId: surface.projectId,
+            });
+            projectName = snapshot.project.name;
+            sourceLocale = snapshot.project.sourceLocale;
+            targetLocale = snapshot.project.targetLocale;
+          } catch {
+            // keep fallback locales; Asset hub reloads project on enter
+          }
+        } else if (surface.kind === "assets") {
+          targetProjectId = surface.projectId;
+          projectName = surface.projectName;
+          sourceLocale = surface.sourceLocale;
+          targetLocale = surface.targetLocale;
+          returnTo = surface.returnTo;
+          session = surface.session;
+        } else {
+          return;
+        }
+        if (!targetProjectId) return;
+
+        invalidateFeatureOps();
+        assetsOpRef.current += 1;
+        dispatch({
+          type: "SET_SURFACE",
+          surface: {
+            kind: "assets",
+            projectId: targetProjectId,
+            projectName,
+            sourceLocale,
+            targetLocale,
+            returnTo,
+            session,
+            section: "tm",
+          },
+        });
+      },
+
+      setAssetsSection: (section) => {
+        if (stateRef.current.surface.kind !== "assets") return;
+        dispatch({
+          type: "PATCH_ASSETS",
+          patch: { section },
+        });
+      },
+
+      backFromAssets: async () => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "assets") return;
+        invalidateFeatureOps();
+        if (surface.returnTo === "workbench" && surface.session) {
+          try {
+            const ctx = await hydrateSession(surface.session);
+            enterWorkbench(ctx, { persistSession: true });
+          } catch (error) {
+            dispatch({
+              type: "PATCH_ASSETS",
+              // Keep assets surface; surface has no error field — bounce via bootless toast on identity
+              patch: {
+                projectName: surface.projectName,
+              },
+            });
+            void error;
+            // Re-resolve home on hard failure
+            await resolveHome();
+          }
+          return;
+        }
+        await resolveHome();
+      },
+
+      applyWorkbenchRows: (input) => {
+        if (stateRef.current.surface.kind !== "workbench") return;
+        const ctx = stateRef.current.surface.ctx;
+        const rows = input.rows;
+        const counts = input.counts ?? countsFromEditorRows(rows);
+        const activeId =
+          input.activeSegmentId ?? stateRef.current.surface.activeSegmentId;
+        const focusId = input.focusSegmentId ?? activeId;
+        dispatch({
+          type: "PATCH_WORKBENCH",
+          patch: {
+            ctx: { ...ctx, rows, counts },
+            activeSegmentId: activeId,
+            focusSegmentId: focusId,
+            transitionError: null,
+          },
+        });
+        if (activeId) {
+          const row = rows.find((r) => r.segment.id === activeId);
+          if (row) {
+            attachSegmentWithPending(
+              { ...ctx, rows, counts },
+              row.segment.id,
+              row.segment.targetText,
+              row.segment.revision,
+            );
+          }
+        }
+      },
+
+      refreshWorkbenchRows: async (focusSegmentId) => {
+        if (stateRef.current.surface.kind !== "workbench") return;
+        const ctx = stateRef.current.surface.ctx;
+        try {
+          const { rows } = await listAllEditorRows(ctx.document.id);
+          if (stateRef.current.surface.kind !== "workbench") return;
+          if (stateRef.current.surface.ctx.document.id !== ctx.document.id) {
+            return;
+          }
+          const counts = countsFromEditorRows(rows);
+          const focus =
+            focusSegmentId && rows.some((r) => r.segment.id === focusSegmentId)
+              ? focusSegmentId
+              : (stateRef.current.surface.activeSegmentId ??
+                rows[0]?.segment.id ??
+                null);
+          dispatch({
+            type: "PATCH_WORKBENCH",
+            patch: {
+              ctx: { ...ctx, rows, counts },
+              activeSegmentId: focus,
+              focusSegmentId: focus,
+              transitionError: null,
+            },
+          });
+          if (focus) {
+            const row = rows.find((r) => r.segment.id === focus);
+            if (row) {
+              attachSegmentWithPending(
+                { ...ctx, rows, counts },
+                row.segment.id,
+                row.segment.targetText,
+                row.segment.revision,
+              );
+            }
+          }
+        } catch (error) {
+          if (stateRef.current.surface.kind === "workbench") {
+            dispatch({
+              type: "PATCH_WORKBENCH",
+              patch: { transitionError: toUiError(error) },
+            });
+          }
+        }
+      },
+
+      flushOrStay: () => flushOrStay(),
+
       goTemplates: async () => {
         if (!stateRef.current.mutationsEnabled) return;
         invalidateFeatureOps();
@@ -3417,6 +3728,7 @@ export function useAppController(): AppController {
     saveTick,
     composition: compositionRef.current,
     saveCoordinator,
+    featureGeneration,
     commands,
   };
 }

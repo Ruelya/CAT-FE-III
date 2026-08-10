@@ -45,7 +45,9 @@ Prefer discriminated unions for action-like values. Examples:
 - Draft journal: `DraftClassification` in `state/draft-recovery.ts`
 - Startup destination: `StartupDestination` in `routes/resolveSurface.ts`
 - App surface / boot machine: `state/app-state.ts` (includes P1
-  `templates` | `recycle` | `search` | `insights`)
+  `templates` | `recycle` | `search` | `insights` and P2 `assets`)
+- Editor command IDs: `EditorCommandId` / registry in `state/editor-operations.ts`
+- Asset sections: `AssetSection` in `state/asset-state.ts`
 - Search hit destination: `SearchHitDestination` in `state/search-navigation.ts`
 - Template definition decode: `DecodeTemplateDefinitionResult` in
   `state/template-definition.ts`

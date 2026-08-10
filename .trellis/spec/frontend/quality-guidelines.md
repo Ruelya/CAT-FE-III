@@ -70,6 +70,24 @@ document switch, templates/create-from-template, recycle restore/purge and
 Home/search exclusion, search jump, insights, example project identity +
 relaunch. Prefer `tests/e2e/p1-project-lifecycle.spec.ts`.
 
+Desktop E2E (P2 editor + assets) must exercise real-Engine editor mutation path
+and Asset Hub navigation across all six sections with return to Workbench.
+Prefer `tests/e2e/p2-editor-assets.spec.ts`. Keep P0/P1 specs green.
+Catalog/curation may remain presence-level in E2E when controller unit tests
+own exact RPC params and rollback boolean contracts — see
+[editor-assets.md](./editor-assets.md) residual notes.
+
+### P2 unit / integration expectations
+
+- Pure `editor-operations`: mutation apply modes, merge adjacency, shortcut
+  acceptance/suppression (IME 229, inactive Workbench, unregistered chords).
+- `use-editor-operations`: flush-before-mutate, stale op ignore, independent
+  history read token, replace preview no-write.
+- `use-asset-controller`: per-domain tokens, snapshot-before-pending search/
+  paging, curation rollback success/failure/duplicate/missing snapshot.
+- Extend `test/fake-desktop-api.ts` with typed defaults for every P2 method
+  exercised; do not stringly-type method names in fakes.
+
 ### Stable P1 landmarks (`data-testid`)
 
 Ordinary assertions still prefer roles, labels, and Engine-rendered text. Use
@@ -107,13 +125,16 @@ the global Open example control.
 - All async actions handle errors and expose a busy/disabled state where
   duplicate invocation would be unsafe.
 - Navigation flushes pending saves via `SaveCoordinator.flush()` before leaving
-  Workbench (including Search, Insights, document switch, active-document
-  recycle).
+  Workbench (including Search, Insights, Assets, document switch, active-
+  document recycle).
 - Session is identity-only; no domain snapshot in `localStorage`.
 - Generated contracts, labels, aria state, and CSS transitions agree.
 - Light-first paint, advanced-brown accent, no glass CSS, Phosphor icons.
 - Production build is tested, including Vite's relative asset base and preload
   output.
+- Editor keyboard chords are renderer-owned; main does not swallow Ctrl/Cmd+F/K.
+- Asset Hub shows no placeholder sections; TM/TB import is omitted without a
+  trusted dialog filter rather than faking a path.
 
 ## Avoid
 

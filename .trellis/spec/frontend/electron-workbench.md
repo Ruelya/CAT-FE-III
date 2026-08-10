@@ -10,24 +10,28 @@ does not own segment transitions, QA, TM, segmentation, persistence, or counts.
 
 ### Renderer layout (authoritative for new UI)
 
-The renderer was rebuilt as a vertical slice (P0) and extended for project
-lifecycle discoverability (P1). New work must use:
+The renderer was rebuilt as a vertical slice (P0), extended for project
+lifecycle discoverability (P1), and editor operations plus Asset Hub (P2).
+New work must use:
 
 - `shell/` — chrome, boot gate, Engine status banner, recovery/confirm dialogs
 - `routes/` — pure surface decisions (no URL router)
-- `surfaces/` — Welcome, Project Home, Create, Import, Workbench, QA, Export,
-  Templates, Recycle, Global Search, Project Insights
+- `surfaces/` — Welcome, Project Home, Create, Import, Workbench, Asset Hub,
+  QA, Export, Templates, Recycle, Global Search, Project Insights
 - `workbench/` — segment grid, target editor, exact-TM panel, document
-  switcher, batch import summary
+  switcher, batch import summary, editor command bar/panels
 - `state/` — app controller, session identity, `SaveCoordinator`, draft recovery,
-  fixed appearance constants, P1 pure helpers (document paging, template
-  definition, search hits, analytics formatting)
+  fixed appearance constants, P1 pure helpers, P2 editor/asset orchestration
 - `lib/` — typed RPC adapter, UI errors, IME guards
 - `tokens.css` + `styles.css` — light / advanced-brown appearance; no glass
 
 P1 multi-document, batch import, templates, recycle vs lifecycle, search
 save-before-nav, feature op tokens, and switcher testids:
 [project-lifecycle.md](./project-lifecycle.md).
+
+P2 editor mutation sequences, command registry/keyboard ownership, Asset Hub
+domains, exchange dialog boundary, and curation rollback:
+[editor-assets.md](./editor-assets.md).
 
 Historical root-level monolith files (`Workbench.tsx`, `WorkbenchPages.tsx`,
 `SetupView.tsx`, `AssistantPanel.tsx`, `workbench-utils.ts`) are gone. Later

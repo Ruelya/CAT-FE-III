@@ -8,9 +8,13 @@ export interface SegmentGridProps {
   rows: SegmentEditorRow[];
   activeSegmentId: string | null;
   focusSegmentId: string | null;
+  /** Additional explicit selection for multi-segment ops (merge). */
+  selectedSegmentIds?: string[];
   editState: SegmentEditState | null;
   disabled?: boolean;
   onSelect: (segmentId: string) => void;
+  /** Ctrl/Meta click toggles multi-select membership. */
+  onToggleSelect?: (segmentId: string) => void;
   onDraftChange: (text: string) => void;
   onCompositionStart: () => void;
   onCompositionEnd: () => void;
@@ -25,9 +29,11 @@ export function SegmentGrid({
   rows,
   activeSegmentId,
   focusSegmentId,
+  selectedSegmentIds = [],
   editState,
   disabled,
   onSelect,
+  onToggleSelect,
   onDraftChange,
   onCompositionStart,
   onCompositionEnd,
@@ -37,8 +43,12 @@ export function SegmentGrid({
     return <div className="empty-state">No segments</div>;
   }
 
-  const activateRow = (segmentId: string) => {
+  const activateRow = (segmentId: string, multi = false) => {
     if (disabled) return;
+    if (multi && onToggleSelect) {
+      onToggleSelect(segmentId);
+      return;
+    }
     if (segmentId === activeSegmentId) return;
     void onSelect(segmentId);
   };
@@ -49,7 +59,7 @@ export function SegmentGrid({
   ) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      activateRow(segmentId);
+      activateRow(segmentId, event.ctrlKey || event.metaKey);
     }
   };
 
@@ -72,6 +82,7 @@ export function SegmentGrid({
           {rows.map((row) => {
             const id = row.segment.id;
             const active = id === activeSegmentId;
+            const multiSelected = selectedSegmentIds.includes(id);
             const displayTarget =
               active && editState?.segmentId === id
                 ? editState.draftTarget
@@ -90,8 +101,15 @@ export function SegmentGrid({
             return (
               <tr
                 key={id}
-                className={active ? "segment-row--active" : undefined}
+                className={
+                  active
+                    ? "segment-row--active"
+                    : multiSelected
+                      ? "segment-row--selected"
+                      : undefined
+                }
                 data-testid={`segment-row-${id}`}
+                aria-selected={active || multiSelected}
               >
                 <td>
                   <div className="segment-source">{row.segment.sourceText}</div>
@@ -117,7 +135,9 @@ export function SegmentGrid({
                       className="segment-target-activate"
                       data-testid={`segment-activate-${id}`}
                       disabled={disabled}
-                      onClick={() => activateRow(id)}
+                      onClick={(event) =>
+                        activateRow(id, event.ctrlKey || event.metaKey)
+                      }
                       onKeyDown={(event) => onRowKeyDown(event, id)}
                       aria-label={`Edit segment ${row.segment.ordinal}`}
                     >
