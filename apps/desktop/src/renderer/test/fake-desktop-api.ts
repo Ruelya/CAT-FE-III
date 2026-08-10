@@ -5,15 +5,20 @@ import type {
   EngineResult,
   Project,
   Document,
+  ProjectAnalyticsSummary,
+  ProjectTemplate,
+  RecycleEntry,
   Segment,
   SegmentEditorRow,
   SegmentCounts,
+  GlobalSearchHit,
 } from "@translunar/contracts";
 
 import type { DesktopApi } from "../../shared/desktop-api";
 import type {
   DraftJournalRecord,
   DraftJournalSnapshot,
+  ExampleProjectResult,
 } from "../../shared/product-shell";
 
 function emptyCounts(): SegmentCounts {
@@ -42,12 +47,18 @@ export interface FakeEngineState {
   projects: Project[];
   documents: Document[];
   segments: Segment[];
+  templates: ProjectTemplate[];
+  recycle: RecycleEntry[];
+  searchHits: GlobalSearchHit[];
+  analytics: ProjectAnalyticsSummary | null;
   failMethods: Set<string>;
   sourcePath: string | null;
+  sourcePaths: string[] | null;
   exportPath: string | null;
   journal: DraftJournalRecord[];
   calls: Array<{ method: string; params: unknown }>;
   gateClear: boolean;
+  exampleResult: ExampleProjectResult;
   statusListeners: Array<
     (payload: {
       type: "reconnecting" | "reconnected" | "failed";
@@ -65,12 +76,18 @@ export function createFakeEngineState(
     projects: [],
     documents: [],
     segments: [],
+    templates: [],
+    recycle: [],
+    searchHits: [],
+    analytics: null,
     failMethods: new Set(),
     sourcePath: null,
+    sourcePaths: null,
     exportPath: null,
     journal: [],
     calls: [],
     gateClear: true,
+    exampleResult: { ok: false, message: "no example", code: "NO_EXAMPLE" },
     statusListeners: [],
     reconnectListeners: [],
     ...overrides,
@@ -121,13 +138,22 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
             engineVersion: "test",
             capabilities: [],
           } as EngineResult<Method>;
-        case "project.list":
+        case "project.list": {
+          const p = params as EngineParams<"project.list">;
+          const lifecycle = p.lifecycle ?? "active";
+          const filtered = state.projects.filter(
+            (project) => project.lifecycle === lifecycle,
+          );
+          const offset = p.offset ?? 0;
+          const limit = p.limit ?? 200;
+          const items = filtered.slice(offset, offset + limit);
           return {
-            items: state.projects,
-            limit: 200,
-            offset: 0,
-            total: state.projects.length,
+            items,
+            limit,
+            offset,
+            total: filtered.length,
           } as EngineResult<Method>;
+        }
         case "project.create": {
           const p = params as EngineParams<"project.create">;
           const project: Project = {
@@ -144,6 +170,385 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
           };
           state.projects.push(project);
           return project as EngineResult<Method>;
+        }
+        case "project.update": {
+          const p = params as EngineParams<"project.update">;
+          const project = state.projects.find((x) => x.id === p.projectId);
+          if (!project) {
+            return Promise.reject({
+              code: "NOT_FOUND",
+              message: "Project not found",
+            }) as never;
+          }
+          if (project.revision !== p.expectedRevision) {
+            return Promise.reject({
+              code: "REVISION_CONFLICT",
+              message: "Revision conflict",
+            }) as never;
+          }
+          project.name = p.name;
+          project.domain = p.domain;
+          project.sourceLocale = p.sourceLocale;
+          project.targetLocale = p.targetLocale;
+          if (p.configuration) {
+            project.configuration = p.configuration as Project["configuration"];
+          }
+          project.revision += 1;
+          project.updatedAtMs = Date.now();
+          return { ...project } as EngineResult<Method>;
+        }
+        case "project.setLifecycle": {
+          const p = params as EngineParams<"project.setLifecycle">;
+          const project = state.projects.find((x) => x.id === p.projectId);
+          if (!project) {
+            return Promise.reject({
+              code: "NOT_FOUND",
+              message: "Project not found",
+            }) as never;
+          }
+          if (project.revision !== p.expectedRevision) {
+            return Promise.reject({
+              code: "REVISION_CONFLICT",
+              message: "Revision conflict",
+            }) as never;
+          }
+          project.lifecycle = p.lifecycle;
+          project.revision += 1;
+          project.updatedAtMs = Date.now();
+          return { ...project } as EngineResult<Method>;
+        }
+        case "project.batchImport": {
+          const p = params as EngineParams<"project.batchImport">;
+          const items = p.items.map((item, index) => {
+            const doc: Document = {
+              id: `doc-${state.documents.length + 1}`,
+              projectId: p.projectId,
+              name: item.path.split(/[/\\]/).pop() || `file-${index}.txt`,
+              format: "txt",
+              filterId: "builtin.txt",
+              relativePath:
+                item.path.split(/[/\\]/).pop() || `file-${index}.txt`,
+              status: "active",
+              revision: 1,
+              currentVersion: 1,
+              segmentCount: 1,
+              sourceSha256: `sha-${index}`,
+              importedAtMs: Date.now(),
+              updatedAtMs: Date.now(),
+              degradation: [],
+            };
+            state.documents.push(doc);
+            // Prefer rebinding pre-seeded segments (P0 test pattern) for first file.
+            const orphanSegments = state.segments.filter(
+              (s) => !state.documents.some((d) => d.id === s.documentId),
+            );
+            if (index === 0 && orphanSegments.length > 0) {
+              for (const seg of orphanSegments) {
+                seg.documentId = doc.id;
+              }
+              doc.segmentCount = orphanSegments.length;
+            } else if (!state.segments.some((s) => s.documentId === doc.id)) {
+              const segmentId =
+                state.segments.length === 0
+                  ? "seg-1"
+                  : `seg-${state.segments.length + 1}`;
+              state.segments.push({
+                id: segmentId,
+                documentId: doc.id,
+                ordinal: 1,
+                revision: 1,
+                sourceText:
+                  segmentId === "seg-1"
+                    ? "Hello world"
+                    : `Hello from ${doc.name}`,
+                targetText: "",
+                state: "untranslated",
+                contextHash: "c",
+                sourceHash: "s",
+                structuralPath: "1",
+                updatedAtMs: Date.now(),
+              });
+            }
+            return {
+              path: item.path,
+              relativePath: doc.relativePath,
+              status: "succeeded",
+              document: doc,
+              message: null,
+              errorCode: null,
+            };
+          });
+          return {
+            succeeded: items.length,
+            failed: 0,
+            items,
+          } as EngineResult<Method>;
+        }
+        case "project.template.list": {
+          const p = params as EngineParams<"project.template.list">;
+          const offset = p.offset ?? 0;
+          const limit = p.limit ?? 50;
+          const items = state.templates.slice(offset, offset + limit);
+          return {
+            items,
+            limit,
+            offset,
+            total: state.templates.length,
+          } as EngineResult<Method>;
+        }
+        case "project.template.get": {
+          const p = params as EngineParams<"project.template.get">;
+          const template = state.templates.find((t) => t.id === p.templateId);
+          if (!template) {
+            return Promise.reject({
+              code: "NOT_FOUND",
+              message: "Template not found",
+            }) as never;
+          }
+          return { ...template } as EngineResult<Method>;
+        }
+        case "project.template.create": {
+          const p = params as EngineParams<"project.template.create">;
+          const template: ProjectTemplate = {
+            id: `tpl-${state.templates.length + 1}`,
+            name: p.name,
+            description: p.description ?? "",
+            definition: p.definition ?? {},
+            builtIn: false,
+            revision: 1,
+            createdAtMs: Date.now(),
+            updatedAtMs: Date.now(),
+          };
+          state.templates.push(template);
+          return template as EngineResult<Method>;
+        }
+        case "project.template.update": {
+          const p = params as EngineParams<"project.template.update">;
+          const template = state.templates.find((t) => t.id === p.templateId);
+          if (!template) {
+            return Promise.reject({
+              code: "NOT_FOUND",
+              message: "Template not found",
+            }) as never;
+          }
+          if (template.builtIn) {
+            return Promise.reject({
+              code: "BUILTIN",
+              message: "Built-in template",
+            }) as never;
+          }
+          if (template.revision !== p.expectedRevision) {
+            return Promise.reject({
+              code: "REVISION_CONFLICT",
+              message: "Revision conflict",
+            }) as never;
+          }
+          template.name = p.name;
+          if (p.description !== undefined) template.description = p.description;
+          if (p.definition !== undefined) template.definition = p.definition;
+          template.revision += 1;
+          template.updatedAtMs = Date.now();
+          return { ...template } as EngineResult<Method>;
+        }
+        case "project.template.delete": {
+          const p = params as EngineParams<"project.template.delete">;
+          const index = state.templates.findIndex((t) => t.id === p.templateId);
+          if (index < 0) {
+            return Promise.reject({
+              code: "NOT_FOUND",
+              message: "Template not found",
+            }) as never;
+          }
+          const template = state.templates[index]!;
+          if (template.builtIn) {
+            return Promise.reject({
+              code: "BUILTIN",
+              message: "Built-in template",
+            }) as never;
+          }
+          if (template.revision !== p.expectedRevision) {
+            return Promise.reject({
+              code: "REVISION_CONFLICT",
+              message: "Revision conflict",
+            }) as never;
+          }
+          state.templates.splice(index, 1);
+          return {} as EngineResult<Method>;
+        }
+        case "project.createFromTemplate": {
+          const p = params as EngineParams<"project.createFromTemplate">;
+          const template = state.templates.find((t) => t.id === p.templateId);
+          if (!template) {
+            return Promise.reject({
+              code: "NOT_FOUND",
+              message: "Template not found",
+            }) as never;
+          }
+          const project: Project = {
+            id: `proj-${state.projects.length + 1}`,
+            name: p.name,
+            domain: p.domain ?? "general",
+            sourceLocale: p.sourceLocale ?? "en-US",
+            targetLocale: p.targetLocale ?? "zh-CN",
+            lifecycle: "active",
+            revision: 1,
+            createdAtMs: Date.now(),
+            updatedAtMs: Date.now(),
+            configuration: { templateId: template.id },
+          };
+          state.projects.push(project);
+          return {
+            project,
+            diagnostics: [],
+          } as EngineResult<Method>;
+        }
+        case "project.analytics.get": {
+          const p = params as EngineParams<"project.analytics.get">;
+          if (state.analytics) {
+            return {
+              ...state.analytics,
+              projectId: p.projectId,
+            } as EngineResult<Method>;
+          }
+          const emptyProgress = {
+            completionBasisPoints: 0,
+            confirmedSegments: 0,
+            draftSegments: 0,
+            qaBlockers: 0,
+            reviewedSegments: 0,
+            totalSegments: 0,
+            untranslatedSegments: 0,
+            workflowReview: 0,
+            workflowSigned: 0,
+            workflowTranslation: 0,
+          };
+          return {
+            projectId: p.projectId,
+            generatedAtMs: Date.now(),
+            progress: emptyProgress,
+            documentProgress: {},
+            productivity: {
+              activeEditingMs: { available: false, reason: "no data" },
+              activityEvents: 0,
+              confirmedSegmentsPerHourMilli: {
+                available: false,
+                reason: "no data",
+              },
+              idleGapMs: 0,
+              timeInStateMs: {},
+            },
+            trends: [],
+            ai: {
+              available: false,
+              contribution: {
+                appliedSegments: 0,
+                editDistance: 0,
+                proposalCharacters: 0,
+                replacedSegments: 0,
+                retainedCharacters: 0,
+                retainedSegments: 0,
+              },
+              reason: "not surfaced",
+            },
+            assets: {
+              curationOutcomes: { available: false },
+              mountedLibraryHitSegments: { available: false },
+              qaOpenBlockers: 0,
+              termEntries: 0,
+              tmConfirmedUnits: 0,
+              tmReuseSegments: { available: false },
+            },
+          } as EngineResult<Method>;
+        }
+        case "recycle.list": {
+          const p = params as EngineParams<"recycle.list">;
+          const offset = p.offset ?? 0;
+          const limit = p.limit ?? 50;
+          const items = state.recycle.slice(offset, offset + limit);
+          return {
+            items,
+            limit,
+            offset,
+            total: state.recycle.length,
+          } as EngineResult<Method>;
+        }
+        case "recycle.delete": {
+          const p = params as EngineParams<"recycle.delete">;
+          const entry: RecycleEntry = {
+            id: `rec-${state.recycle.length + 1}`,
+            entityId: p.entityId,
+            entityType: p.entityType,
+            displayName:
+              p.entityType === "project"
+                ? (state.projects.find((x) => x.id === p.entityId)?.name ??
+                  p.entityId)
+                : (state.documents.find((x) => x.id === p.entityId)?.name ??
+                  p.entityId),
+            projectId:
+              p.entityType === "project"
+                ? p.entityId
+                : (state.documents.find((x) => x.id === p.entityId)
+                    ?.projectId ?? ""),
+            reason: p.reason,
+            actor: "test",
+            deletedAtMs: Date.now(),
+            retentionUntilMs: Date.now() + 86_400_000,
+            previousState: "active",
+          };
+          if (p.entityType === "project") {
+            state.projects = state.projects.filter((x) => x.id !== p.entityId);
+          } else if (p.entityType === "document") {
+            state.documents = state.documents.filter(
+              (x) => x.id !== p.entityId,
+            );
+            state.segments = state.segments.filter(
+              (s) => s.documentId !== p.entityId,
+            );
+          }
+          state.recycle.push(entry);
+          return entry as EngineResult<Method>;
+        }
+        case "recycle.restore": {
+          const p = params as EngineParams<"recycle.restore">;
+          const index = state.recycle.findIndex((e) => e.id === p.entryId);
+          if (index < 0) {
+            return Promise.reject({
+              code: "NOT_FOUND",
+              message: "Entry not found",
+            }) as never;
+          }
+          state.recycle.splice(index, 1);
+          return {} as EngineResult<Method>;
+        }
+        case "recycle.purge": {
+          const p = params as EngineParams<"recycle.purge">;
+          const index = state.recycle.findIndex((e) => e.id === p.entryId);
+          if (index < 0) {
+            return Promise.reject({
+              code: "NOT_FOUND",
+              message: "Entry not found",
+            }) as never;
+          }
+          state.recycle.splice(index, 1);
+          return {} as EngineResult<Method>;
+        }
+        case "search.global": {
+          const p = params as EngineParams<"search.global">;
+          const text = p.text.toLowerCase();
+          const filtered = state.searchHits.filter(
+            (hit) =>
+              hit.snippet.toLowerCase().includes(text) ||
+              hit.projectName.toLowerCase().includes(text) ||
+              (hit.documentName ?? "").toLowerCase().includes(text),
+          );
+          const offset = p.offset ?? 0;
+          const limit = p.limit ?? 25;
+          return {
+            items: filtered.slice(offset, offset + limit),
+            limit,
+            offset,
+            total: filtered.length,
+          } as EngineResult<Method>;
         }
         case "project.get": {
           const p = params as EngineParams<"project.get">;
@@ -370,8 +775,10 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
     },
 
     selectSourceDocument: async () => state.sourcePath,
-    selectSourceDocuments: async () =>
-      state.sourcePath ? [state.sourcePath] : [],
+    selectSourceDocuments: async () => {
+      if (state.sourcePaths) return [...state.sourcePaths];
+      return state.sourcePath ? [state.sourcePath] : [];
+    },
     selectSourceFolder: async () => null,
     selectProjectArchive: async () => null,
     selectProjectArchiveDestination: async () => null,
@@ -483,9 +890,7 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
       updatedAtMs: 0,
       ...patch,
     }),
-    openExampleProject: async () => {
-      throw new Error("not used");
-    },
+    openExampleProject: async () => state.exampleResult,
     onEngineReconnected: (listener) => {
       state.reconnectListeners.push(listener);
       return () => {

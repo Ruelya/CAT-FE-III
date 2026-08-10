@@ -1,34 +1,66 @@
-import { House, SealCheck, Export } from "@phosphor-icons/react";
+import {
+  ChartLine,
+  Export,
+  House,
+  MagnifyingGlass,
+  SealCheck,
+} from "@phosphor-icons/react";
 
 import type { AppState } from "../state/app-state";
 
 export interface AppChromeProps {
   state: AppState;
   onHome: () => void;
+  onSearch: () => void;
   onQa: () => void;
   onExport: () => void;
+  onInsights: () => void;
 }
 
-export function AppChrome({ state, onHome, onQa, onExport }: AppChromeProps) {
+export function AppChrome({
+  state,
+  onHome,
+  onSearch,
+  onQa,
+  onExport,
+  onInsights,
+}: AppChromeProps) {
   const surface = state.surface;
-  const sessionSurface =
+
+  const identity =
     surface.kind === "workbench" ||
     surface.kind === "qa" ||
     surface.kind === "export"
-      ? surface
-      : null;
+      ? `${surface.ctx.project.name} · ${surface.ctx.document.name}`
+      : surface.kind === "insights"
+        ? surface.projectName
+        : surface.kind === "import-document"
+          ? surface.projectName
+          : surface.kind === "projects"
+            ? "Projects"
+            : surface.kind === "create-project"
+              ? "New project"
+              : surface.kind === "templates"
+                ? "Templates"
+                : surface.kind === "recycle"
+                  ? "Recycle"
+                  : surface.kind === "search"
+                    ? "Search"
+                    : "";
 
-  const identity = sessionSurface
-    ? `${sessionSurface.ctx.project.name} · ${sessionSurface.ctx.document.name}`
-    : surface.kind === "import-document"
-      ? surface.projectName
-      : surface.kind === "projects"
-        ? "Projects"
-        : surface.kind === "create-project"
-          ? "New project"
-          : "";
-
-  const showSessionActions = Boolean(sessionSurface);
+  const startupResolved =
+    surface.kind !== "boot" && surface.kind !== "recovery";
+  const showHomeSearch = startupResolved;
+  const showSessionActions =
+    surface.kind === "workbench" ||
+    surface.kind === "qa" ||
+    surface.kind === "export" ||
+    (surface.kind === "insights" && surface.returnTo === "workbench");
+  const showInsights =
+    surface.kind === "workbench" ||
+    surface.kind === "qa" ||
+    surface.kind === "export" ||
+    surface.kind === "insights";
   const disabled = !state.mutationsEnabled;
 
   return (
@@ -47,12 +79,20 @@ export function AppChrome({ state, onHome, onQa, onExport }: AppChromeProps) {
         {identity}
       </div>
       <div className="app-chrome__actions">
-        {showSessionActions ? (
+        {showHomeSearch ? (
           <>
             <button
               type="button"
               className="btn btn--ghost btn--icon"
               aria-label="Home"
+              aria-current={
+                surface.kind === "projects" ||
+                surface.kind === "welcome" ||
+                surface.kind === "templates" ||
+                surface.kind === "recycle"
+                  ? "page"
+                  : undefined
+              }
               disabled={disabled}
               onClick={onHome}
             >
@@ -61,21 +101,55 @@ export function AppChrome({ state, onHome, onQa, onExport }: AppChromeProps) {
             <button
               type="button"
               className="btn btn--ghost btn--icon"
-              aria-label="QA"
+              aria-label="Search"
+              aria-current={surface.kind === "search" ? "page" : undefined}
               disabled={disabled}
-              onClick={onQa}
+              onClick={onSearch}
+              data-testid="nav-search"
             >
-              <SealCheck size={18} weight="regular" />
+              <MagnifyingGlass size={18} weight="regular" />
             </button>
-            <button
-              type="button"
-              className="btn btn--ghost btn--icon"
-              aria-label="Export"
-              disabled={disabled}
-              onClick={onExport}
-            >
-              <Export size={18} weight="regular" />
-            </button>
+          </>
+        ) : null}
+        {showSessionActions || showInsights ? (
+          <>
+            {showInsights ? (
+              <button
+                type="button"
+                className="btn btn--ghost btn--icon"
+                aria-label="Insights"
+                aria-current={surface.kind === "insights" ? "page" : undefined}
+                disabled={disabled}
+                onClick={onInsights}
+                data-testid="nav-insights"
+              >
+                <ChartLine size={18} weight="regular" />
+              </button>
+            ) : null}
+            {showSessionActions ? (
+              <>
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--icon"
+                  aria-label="QA"
+                  aria-current={surface.kind === "qa" ? "page" : undefined}
+                  disabled={disabled}
+                  onClick={onQa}
+                >
+                  <SealCheck size={18} weight="regular" />
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--icon"
+                  aria-label="Export"
+                  aria-current={surface.kind === "export" ? "page" : undefined}
+                  disabled={disabled}
+                  onClick={onExport}
+                >
+                  <Export size={18} weight="regular" />
+                </button>
+              </>
+            ) : null}
           </>
         ) : null}
       </div>

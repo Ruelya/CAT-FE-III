@@ -8,6 +8,7 @@ import {
 } from "react";
 import type {
   Document,
+  GlobalSearchHit,
   Project,
   Segment,
   SegmentCounts,
@@ -30,10 +31,19 @@ import {
   readTmCollapsed,
   writeTmCollapsed,
   type AppState,
+  type ProjectListLifecycle,
   type SessionContext,
 } from "./app-state";
+// AppState imported for FeatureOp origin typing.
+import {
+  aggregateProjectDocuments,
+  chooseImportOpenDocumentId,
+  DOCUMENT_PAGE_LIMIT,
+  resolvePostDeleteDocumentRoute,
+} from "./document-navigation";
 import { classifyDraftJournal, probesFromRows } from "./draft-recovery";
 import { SaveCoordinator } from "./save-coordinator";
+import { classifySearchHit, trimSearchQuery } from "./search-navigation";
 import {
   clearSessionStorage,
   makeSession,
@@ -41,8 +51,27 @@ import {
   writeSessionToStorage,
   type SessionIdentity,
 } from "./session";
+import {
+  createTemplateDefinition,
+  isBuiltInTemplate,
+  mergeTemplateDefinition,
+  type P1TemplateDefaults,
+} from "./template-definition";
 
 const PAGE_LIMIT = 200;
+const PROJECT_PAGE_LIMIT = 50;
+const TEMPLATE_PAGE_LIMIT = 50;
+const RECYCLE_PAGE_LIMIT = 50;
+const SEARCH_PAGE_LIMIT = 25;
+
+type SurfaceKindName = AppState["surface"]["kind"];
+
+interface FeatureOp {
+  generation: number;
+  opId: number;
+  /** When set, the live surface must still match before committing. */
+  origin: SurfaceKindName | null;
+}
 
 function snapshotActiveDraft(saveCoordinator: SaveCoordinator): {
   segmentId: string;
@@ -61,22 +90,53 @@ function snapshotActiveDraft(saveCoordinator: SaveCoordinator): {
   };
 }
 
-async function listAllProjects(): Promise<Project[]> {
+async function listProjectsPage(
+  lifecycle: ProjectListLifecycle = "active",
+  offset = 0,
+  limit = PROJECT_PAGE_LIMIT,
+): Promise<{
+  items: Project[];
+  total: number;
+  offset: number;
+  limit: number;
+}> {
   const page = await invokeEngine("project.list", {
-    limit: PAGE_LIMIT,
-    offset: 0,
-    lifecycle: "active",
+    limit,
+    offset,
+    lifecycle,
   });
-  return page.items;
+  return {
+    items: page.items,
+    total: page.total,
+    offset: page.offset ?? offset,
+    limit: page.limit || limit,
+  };
 }
 
 async function listAllDocuments(projectId: string): Promise<Document[]> {
-  const page = await invokeEngine("document.list", {
+  const result = await aggregateProjectDocuments(
     projectId,
-    limit: PAGE_LIMIT,
-    offset: 0,
-  });
-  return page.items;
+    async (id, offset, limit) => {
+      const page = await invokeEngine("document.list", {
+        projectId: id,
+        limit,
+        offset,
+      });
+      return {
+        items: page.items,
+        total: page.total,
+        offset: page.offset,
+        limit: page.limit,
+      };
+    },
+    { limit: DOCUMENT_PAGE_LIMIT },
+  );
+  if (!result.ok) {
+    throw Object.assign(new Error(result.error.message), {
+      code: result.error.code,
+    });
+  }
+  return result.documents;
 }
 
 async function listAllEditorRows(documentId: string): Promise<{
@@ -164,6 +224,75 @@ export interface AppController {
     goExport: () => Promise<void>;
     checkGateAndExport: () => Promise<void>;
     backToWorkbench: (focusSegmentId?: string | null) => Promise<void>;
+    // P1
+    switchDocument: (documentId: string) => Promise<void>;
+    addFiles: () => Promise<void>;
+    dismissBatchSummary: () => void;
+    openExample: () => Promise<void>;
+    goSearch: () => Promise<void>;
+    runSearch: (query: string) => Promise<void>;
+    searchPage: (offset: number) => Promise<void>;
+    activateSearchHit: (hit: GlobalSearchHit) => Promise<void>;
+    goInsights: (projectId?: string) => Promise<void>;
+    refreshInsights: () => Promise<void>;
+    backFromInsights: () => Promise<void>;
+    goTemplates: () => Promise<void>;
+    templatesPage: (offset: number) => Promise<void>;
+    templateCreateStart: () => void;
+    templateEditStart: (templateId: string, revision: number) => Promise<void>;
+    templateUseStart: (templateId: string, revision: number) => Promise<void>;
+    templateCancelMode: () => void;
+    templateCreate: (input: {
+      name: string;
+      description: string;
+      defaults: P1TemplateDefaults;
+    }) => Promise<void>;
+    templateUpdate: (input: {
+      templateId: string;
+      expectedRevision: number;
+      name: string;
+      description: string;
+      defaults: P1TemplateDefaults;
+    }) => Promise<void>;
+    templateDelete: (
+      templateId: string,
+      expectedRevision: number,
+    ) => Promise<boolean>;
+    createFromTemplate: (input: {
+      templateId: string;
+      templateRevision: number;
+      name: string;
+      sourceLocale: string;
+      targetLocale: string;
+      domain: string;
+    }) => Promise<void>;
+    goRecycle: () => Promise<void>;
+    recyclePage: (offset: number) => Promise<void>;
+    recycleRestore: (entryId: string) => Promise<boolean>;
+    recyclePurge: (entryId: string) => Promise<boolean>;
+    setProjectListLifecycle: (lifecycle: ProjectListLifecycle) => Promise<void>;
+    projectsPage: (offset: number) => Promise<void>;
+    beginEditProject: (projectId: string) => Promise<Project | null>;
+    updateProject: (input: {
+      projectId: string;
+      expectedRevision: number;
+      name: string;
+      domain: string;
+      sourceLocale: string;
+      targetLocale: string;
+      configuration: Project["configuration"];
+    }) => Promise<boolean>;
+    setProjectLifecycle: (
+      projectId: string,
+      expectedRevision: number,
+      lifecycle: "active" | "archived",
+    ) => Promise<boolean>;
+    recycleProject: (
+      projectId: string,
+      expectedRevision: number,
+      reason: string,
+    ) => Promise<boolean>;
+    recycleActiveDocument: (reason: string) => Promise<boolean>;
   };
 }
 
@@ -177,6 +306,16 @@ export function useAppController(): AppController {
   const generationRef = useRef(0);
   const openProjectOpRef = useRef(0);
   const qaLoadOpRef = useRef(0);
+  const switchDocOpRef = useRef(0);
+  const importOpRef = useRef(0);
+  const exampleOpRef = useRef(0);
+  const searchOpRef = useRef(0);
+  const insightsOpRef = useRef(0);
+  const templatesOpRef = useRef(0);
+  const recycleOpRef = useRef(0);
+  const lifecycleOpRef = useRef(0);
+  /** Synchronous guard so double-activation cannot race React re-render. */
+  const addFilesGuardRef = useRef(false);
   const rehydrateRef = useRef<((gen: number) => Promise<void>) | null>(null);
   const compositionRef = useRef(createCompositionState());
   /**
@@ -201,6 +340,40 @@ export function useAppController(): AppController {
     return generationRef.current === generation;
   }, []);
 
+  const invalidateFeatureOps = useCallback(() => {
+    openProjectOpRef.current += 1;
+    qaLoadOpRef.current += 1;
+    switchDocOpRef.current += 1;
+    importOpRef.current += 1;
+    exampleOpRef.current += 1;
+    searchOpRef.current += 1;
+    insightsOpRef.current += 1;
+    templatesOpRef.current += 1;
+    recycleOpRef.current += 1;
+    lifecycleOpRef.current += 1;
+  }, []);
+
+  const beginOp = useCallback(
+    (
+      ref: { current: number },
+      origin: SurfaceKindName | null = null,
+    ): FeatureOp => ({
+      generation: generationRef.current,
+      opId: ++ref.current,
+      origin,
+    }),
+    [],
+  );
+
+  const isOpCurrent = useCallback((op: FeatureOp, ref: { current: number }) => {
+    if (generationRef.current !== op.generation) return false;
+    if (ref.current !== op.opId) return false;
+    if (op.origin !== null && stateRef.current.surface.kind !== op.origin) {
+      return false;
+    }
+    return true;
+  }, []);
+
   const hydrateSession = useCallback(
     async (session: SessionIdentity): Promise<SessionContext> => {
       const snapshot = await invokeEngine("project.get", {
@@ -214,12 +387,21 @@ export function useAppController(): AppController {
           code: "SESSION_INVALID",
         });
       }
+      const documents = await listAllDocuments(session.projectId);
+      if (!documents.some((d) => d.id === document.id)) {
+        // Document must be in the authoritative active list — never fabricate.
+        throw Object.assign(
+          new Error("Document is not in the active project document list."),
+          { code: "SESSION_STALE" },
+        );
+      }
       const { rows } = await listAllEditorRows(session.documentId);
       const counts = snapshot.counts ?? countsFromRows(rows);
       return {
         session,
         project: snapshot.project,
         document,
+        documents,
         rows,
         counts,
       };
@@ -311,6 +493,9 @@ export function useAppController(): AppController {
           tmCollapsed,
           transitionError: null,
           pendingConfirm: false,
+          switchPending: false,
+          addFilesPending: false,
+          batchResult: null,
         },
       });
       dispatch({ type: "SET_MUTATIONS_ENABLED", enabled: true });
@@ -334,18 +519,28 @@ export function useAppController(): AppController {
     [attachSegmentWithPending, mergePendingRecovered, saveCoordinator],
   );
 
-  const resolveHome = useCallback(async () => {
-    const projects = await listAllProjects();
-    if (projects.length === 0) {
-      dispatch({ type: "SET_SURFACE", surface: { kind: "welcome" } });
-    } else {
-      dispatch({
-        type: "SET_SURFACE",
-        surface: { kind: "projects", projects },
-      });
-    }
-    dispatch({ type: "SET_MUTATIONS_ENABLED", enabled: true });
-  }, []);
+  const resolveHome = useCallback(
+    async (lifecycle: ProjectListLifecycle = "active") => {
+      const page = await listProjectsPage(lifecycle, 0, PROJECT_PAGE_LIMIT);
+      if (page.total === 0 && lifecycle === "active") {
+        dispatch({ type: "SET_SURFACE", surface: { kind: "welcome" } });
+      } else {
+        dispatch({
+          type: "SET_SURFACE",
+          surface: {
+            kind: "projects",
+            projects: page.items,
+            lifecycle,
+            total: page.total,
+            offset: page.offset,
+            limit: page.limit,
+          },
+        });
+      }
+      dispatch({ type: "SET_MUTATIONS_ENABLED", enabled: true });
+    },
+    [],
+  );
 
   const boot = useCallback(
     async (generation: number) => {
@@ -531,6 +726,8 @@ export function useAppController(): AppController {
         status: "connecting",
         message: "Rehydrating",
       });
+      /** Local flag — stateRef lags until React re-renders after dispatch. */
+      let revalidationOk = false;
       try {
         await initializeEngine();
         if (!isCurrent(gen)) return;
@@ -559,6 +756,7 @@ export function useAppController(): AppController {
               ...(recoveredDrafts.size > 0 ? { recoveredDrafts } : {}),
               persistSession: true,
             });
+            revalidationOk = true;
           } else if (current.kind === "qa") {
             // Refresh QA issues on reconnect; do not invent empty success.
             dispatch({
@@ -589,6 +787,7 @@ export function useAppController(): AppController {
                 },
               });
               dispatch({ type: "SET_MUTATIONS_ENABLED", enabled: true });
+              revalidationOk = true;
             } catch (error) {
               if (!isCurrent(gen)) return;
               if (stateRef.current.surface.kind !== "qa") return;
@@ -599,7 +798,7 @@ export function useAppController(): AppController {
                   error: toUiError(error),
                 },
               });
-              dispatch({ type: "SET_MUTATIONS_ENABLED", enabled: true });
+              // Keep mutations disabled until a successful revalidation.
             }
           } else {
             dispatch({
@@ -610,14 +809,180 @@ export function useAppController(): AppController {
               },
             });
             dispatch({ type: "SET_MUTATIONS_ENABLED", enabled: true });
+            revalidationOk = true;
+          }
+        } else if (current.kind === "insights") {
+          try {
+            if (current.session) {
+              await hydrateSession(current.session);
+            } else {
+              await invokeEngine("project.get", {
+                projectId: current.projectId,
+              });
+            }
+            if (!isCurrent(gen)) return;
+            const analytics = await invokeEngine("project.analytics.get", {
+              projectId: current.projectId,
+            });
+            const documents = await listAllDocuments(current.projectId);
+            if (!isCurrent(gen)) return;
+            if (stateRef.current.surface.kind !== "insights") return;
+            dispatch({
+              type: "PATCH_INSIGHTS",
+              patch: {
+                analytics,
+                documents,
+                loading: false,
+                error: null,
+              },
+            });
+            dispatch({ type: "SET_MUTATIONS_ENABLED", enabled: true });
+            revalidationOk = true;
+          } catch (error) {
+            if (!isCurrent(gen)) return;
+            if (stateRef.current.surface.kind === "insights") {
+              dispatch({
+                type: "PATCH_INSIGHTS",
+                patch: { loading: false, error: toUiError(error) },
+              });
+            }
+            // Keep mutations disabled until a successful revalidation.
+          }
+        } else if (current.kind === "projects") {
+          try {
+            const page = await listProjectsPage(
+              current.lifecycle,
+              current.offset,
+              current.limit || PROJECT_PAGE_LIMIT,
+            );
+            if (!isCurrent(gen)) return;
+            dispatch({
+              type: "SET_SURFACE",
+              surface: {
+                kind: "projects",
+                projects: page.items,
+                lifecycle: current.lifecycle,
+                total: page.total,
+                offset: page.offset,
+                limit: page.limit,
+              },
+            });
+            dispatch({ type: "SET_MUTATIONS_ENABLED", enabled: true });
+            revalidationOk = true;
+          } catch (error) {
+            if (!isCurrent(gen)) return;
+            dispatch({
+              type: "PATCH_PROJECTS",
+              patch: { loading: false, error: toUiError(error) },
+            });
+            // Keep mutations disabled until a successful revalidation.
+          }
+        } else if (current.kind === "templates") {
+          try {
+            const page = await invokeEngine("project.template.list", {
+              limit: current.limit,
+              offset: current.offset,
+            });
+            if (!isCurrent(gen)) return;
+            if (stateRef.current.surface.kind !== "templates") return;
+            dispatch({
+              type: "PATCH_TEMPLATES",
+              patch: {
+                items: page.items,
+                total: page.total,
+                loading: false,
+                error: null,
+              },
+            });
+            dispatch({ type: "SET_MUTATIONS_ENABLED", enabled: true });
+            revalidationOk = true;
+          } catch (error) {
+            if (!isCurrent(gen)) return;
+            dispatch({
+              type: "PATCH_TEMPLATES",
+              patch: { loading: false, error: toUiError(error) },
+            });
+            // Keep mutations disabled until a successful revalidation.
+          }
+        } else if (current.kind === "recycle") {
+          try {
+            const page = await invokeEngine("recycle.list", {
+              limit: current.limit,
+              offset: current.offset,
+            });
+            if (!isCurrent(gen)) return;
+            if (stateRef.current.surface.kind !== "recycle") return;
+            dispatch({
+              type: "PATCH_RECYCLE",
+              patch: {
+                items: page.items,
+                total: page.total,
+                loading: false,
+                error: null,
+              },
+            });
+            dispatch({ type: "SET_MUTATIONS_ENABLED", enabled: true });
+            revalidationOk = true;
+          } catch (error) {
+            if (!isCurrent(gen)) return;
+            dispatch({
+              type: "PATCH_RECYCLE",
+              patch: { loading: false, error: toUiError(error) },
+            });
+            // Keep mutations disabled until a successful revalidation.
+          }
+        } else if (current.kind === "search" && current.submittedQuery) {
+          try {
+            const page = await invokeEngine("search.global", {
+              text: current.submittedQuery,
+              includeRecycled: false,
+              offset: current.offset,
+              limit: current.limit,
+            });
+            if (!isCurrent(gen)) return;
+            if (stateRef.current.surface.kind !== "search") return;
+            dispatch({
+              type: "PATCH_SEARCH",
+              patch: {
+                items: page.items,
+                total: page.total,
+                loading: false,
+                error: null,
+                pendingQuery: null,
+              },
+            });
+            dispatch({ type: "SET_MUTATIONS_ENABLED", enabled: true });
+            revalidationOk = true;
+          } catch (error) {
+            if (!isCurrent(gen)) return;
+            dispatch({
+              type: "PATCH_SEARCH",
+              patch: {
+                loading: false,
+                error: toUiError(error),
+                pendingQuery: current.submittedQuery,
+              },
+            });
+            // Keep mutations disabled until a successful revalidation.
           }
         } else if (current.kind === "boot" || current.kind === "recovery") {
           await boot(gen);
+          revalidationOk = true;
         } else {
-          dispatch({ type: "ENGINE_STATUS", status: "connected" });
           dispatch({ type: "SET_MUTATIONS_ENABLED", enabled: true });
+          revalidationOk = true;
         }
-        dispatch({ type: "ENGINE_STATUS", status: "connected" });
+        if (!isCurrent(gen)) return;
+        if (revalidationOk) {
+          dispatch({ type: "ENGINE_STATUS", status: "connected" });
+        } else {
+          // Feature revalidation failed: keep mutations off and expose Retry.
+          dispatch({
+            type: "ENGINE_STATUS",
+            status: "failed",
+            message: "Revalidation failed",
+          });
+        }
       } catch (error) {
         if (!isCurrent(gen)) return;
         dispatch({
@@ -632,6 +997,7 @@ export function useAppController(): AppController {
 
     const unsubReconnect = desktopApi().onEngineReconnected(() => {
       generationRef.current += 1;
+      invalidateFeatureOps();
       const gen = generationRef.current;
       void rehydrateHydratedSurface(gen);
     });
@@ -641,7 +1007,14 @@ export function useAppController(): AppController {
       unsubStatus();
       unsubReconnect();
     };
-  }, [boot, enterWorkbench, hydrateSession, isCurrent, saveCoordinator]);
+  }, [
+    boot,
+    enterWorkbench,
+    hydrateSession,
+    invalidateFeatureOps,
+    isCurrent,
+    saveCoordinator,
+  ]);
 
   // Exact TM lookup when active segment changes on workbench.
   useEffect(() => {
@@ -769,7 +1142,12 @@ export function useAppController(): AppController {
         if (
           surface.kind === "workbench" ||
           surface.kind === "qa" ||
-          surface.kind === "export"
+          surface.kind === "export" ||
+          surface.kind === "insights" ||
+          surface.kind === "projects" ||
+          surface.kind === "templates" ||
+          surface.kind === "recycle" ||
+          surface.kind === "search"
         ) {
           const rehydrate = rehydrateRef.current;
           if (rehydrate) {
@@ -881,17 +1259,18 @@ export function useAppController(): AppController {
         if (
           surface.kind === "workbench" ||
           surface.kind === "qa" ||
-          surface.kind === "export"
+          surface.kind === "export" ||
+          (surface.kind === "insights" && surface.returnTo === "workbench")
         ) {
           if (surface.kind === "workbench") {
             const ok = await flushOrStay();
             if (!ok) return;
-          } else if (surface.kind === "qa" || surface.kind === "export") {
-            // Leaving session surfaces: no pending editor, but clear session intentionally.
           }
           clearSessionStorage();
           saveCoordinator.clearActive();
         }
+        // Abandon in-flight feature loaders so they cannot resurrect surfaces.
+        invalidateFeatureOps();
         try {
           await resolveHome();
         } catch (error) {
@@ -933,16 +1312,16 @@ export function useAppController(): AppController {
         if (!stateRef.current.mutationsEnabled) return;
         if (stateRef.current.surface.kind !== "projects") return;
         if (stateRef.current.surface.loading) return;
-        const opId = ++openProjectOpRef.current;
+        const op = beginOp(openProjectOpRef, "projects");
         dispatch({
           type: "PATCH_PROJECTS",
           patch: { loading: true, error: null },
         });
         try {
           const snapshot = await invokeEngine("project.get", { projectId });
-          if (openProjectOpRef.current !== opId) return;
+          if (!isOpCurrent(op, openProjectOpRef)) return;
           const documents = await listAllDocuments(projectId);
-          if (openProjectOpRef.current !== opId) return;
+          if (!isOpCurrent(op, openProjectOpRef)) return;
           const route = resolveOpenProjectRoute(documents);
           if (route.kind === "import") {
             dispatch({
@@ -957,10 +1336,10 @@ export function useAppController(): AppController {
           }
           const session = makeSession(projectId, route.documentId);
           const ctx = await hydrateSession(session);
-          if (openProjectOpRef.current !== opId) return;
+          if (!isOpCurrent(op, openProjectOpRef)) return;
           enterWorkbench(ctx, { persistSession: true });
         } catch (error) {
-          if (openProjectOpRef.current !== opId) return;
+          if (!isOpCurrent(op, openProjectOpRef)) return;
           if (stateRef.current.surface.kind === "projects") {
             dispatch({
               type: "PATCH_PROJECTS",
@@ -974,27 +1353,75 @@ export function useAppController(): AppController {
         if (!stateRef.current.mutationsEnabled) return;
         const surface = stateRef.current.surface;
         if (surface.kind !== "import-document") return;
+        if (surface.pending) return;
+        const opId = ++importOpRef.current;
         dispatch({
           type: "PATCH_IMPORT",
           patch: { pending: true, error: null },
         });
         try {
-          const path = await desktopApi().selectSourceDocument();
-          if (!path) {
+          const paths = await desktopApi().selectSourceDocuments();
+          if (importOpRef.current !== opId) return;
+          if (!paths || paths.length === 0) {
             dispatch({
               type: "PATCH_IMPORT",
               patch: { pending: false, error: null },
             });
             return;
           }
-          const imported = await invokeEngine("document.import", {
+          const batch = await invokeEngine("project.batchImport", {
             projectId: surface.projectId,
-            sourcePath: path,
+            atomicity: "bestEffort",
+            items: paths.map((path) => ({ path })),
           });
-          const session = makeSession(surface.projectId, imported.document.id);
+          if (importOpRef.current !== opId) return;
+          if (batch.succeeded <= 0) {
+            dispatch({
+              type: "PATCH_IMPORT",
+              patch: {
+                pending: false,
+                batchResult: batch,
+                error: {
+                  code: "IMPORT_FAILED",
+                  message: "Import failed for all files.",
+                  kind: "domain",
+                },
+              },
+            });
+            return;
+          }
+          const documents = await listAllDocuments(surface.projectId);
+          if (importOpRef.current !== opId) return;
+          const openId = chooseImportOpenDocumentId({
+            projectId: surface.projectId,
+            diagnostics: batch.items,
+            documents,
+          });
+          if (!openId) {
+            dispatch({
+              type: "PATCH_IMPORT",
+              patch: {
+                pending: false,
+                batchResult: batch,
+                error: {
+                  code: "IMPORT_NO_DOCUMENT",
+                  message: "Import succeeded without a usable document.",
+                  kind: "domain",
+                },
+              },
+            });
+            return;
+          }
+          const session = makeSession(surface.projectId, openId);
           const ctx = await hydrateSession(session);
+          if (importOpRef.current !== opId) return;
           enterWorkbench(ctx, { persistSession: true });
+          dispatch({
+            type: "PATCH_WORKBENCH",
+            patch: { batchResult: batch },
+          });
         } catch (error) {
+          if (importOpRef.current !== opId) return;
           dispatch({
             type: "PATCH_IMPORT",
             patch: { pending: false, error: toUiError(error) },
@@ -1471,13 +1898,1516 @@ export function useAppController(): AppController {
           }
         }
       },
+
+      switchDocument: async (documentId) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "workbench") return;
+        if (surface.ctx.document.id === documentId) return;
+        if (surface.switchPending || surface.pendingConfirm) return;
+        if (saveCoordinator.active?.isComposing) return;
+        const opId = ++switchDocOpRef.current;
+        dispatch({
+          type: "PATCH_WORKBENCH",
+          patch: { switchPending: true, transitionError: null },
+        });
+        const ok = await flushOrStay();
+        if (!ok) {
+          if (switchDocOpRef.current === opId) {
+            dispatch({
+              type: "PATCH_WORKBENCH",
+              patch: { switchPending: false },
+            });
+          }
+          return;
+        }
+        try {
+          const projectId = surface.ctx.project.id;
+          const documents = await listAllDocuments(projectId);
+          if (switchDocOpRef.current !== opId) return;
+          if (!documents.some((d) => d.id === documentId)) {
+            dispatch({
+              type: "PATCH_WORKBENCH",
+              patch: {
+                switchPending: false,
+                transitionError: {
+                  code: "DOCUMENT_NOT_FOUND",
+                  message: "Document is not in this project.",
+                  kind: "domain",
+                },
+                ctx: { ...surface.ctx, documents },
+              },
+            });
+            return;
+          }
+          const session = makeSession(projectId, documentId);
+          const ctx = await hydrateSession(session);
+          if (switchDocOpRef.current !== opId) return;
+          enterWorkbench(ctx, { persistSession: true });
+        } catch (error) {
+          if (switchDocOpRef.current !== opId) return;
+          if (stateRef.current.surface.kind === "workbench") {
+            dispatch({
+              type: "PATCH_WORKBENCH",
+              patch: {
+                switchPending: false,
+                transitionError: toUiError(error),
+              },
+            });
+          }
+        }
+      },
+
+      addFiles: async () => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "workbench") return;
+        if (
+          surface.addFilesPending ||
+          surface.switchPending ||
+          addFilesGuardRef.current
+        ) {
+          return;
+        }
+        if (saveCoordinator.active?.isComposing) return;
+        // Acquire command-owned pending/ref before the first await (flush).
+        addFilesGuardRef.current = true;
+        const op = beginOp(importOpRef, "workbench");
+        dispatch({
+          type: "PATCH_WORKBENCH",
+          patch: { addFilesPending: true, transitionError: null },
+        });
+        const ok = await flushOrStay();
+        if (!ok) {
+          addFilesGuardRef.current = false;
+          if (isOpCurrent(op, importOpRef)) {
+            dispatch({
+              type: "PATCH_WORKBENCH",
+              patch: { addFilesPending: false },
+            });
+          }
+          return;
+        }
+        try {
+          const paths = await desktopApi().selectSourceDocuments();
+          if (!isOpCurrent(op, importOpRef)) return;
+          if (!paths || paths.length === 0) {
+            dispatch({
+              type: "PATCH_WORKBENCH",
+              patch: { addFilesPending: false },
+            });
+            return;
+          }
+          const projectId = surface.ctx.project.id;
+          const batch = await invokeEngine("project.batchImport", {
+            projectId,
+            atomicity: "bestEffort",
+            items: paths.map((path) => ({ path })),
+          });
+          if (!isOpCurrent(op, importOpRef)) return;
+          let documents = surface.ctx.documents;
+          if (batch.succeeded > 0) {
+            documents = await listAllDocuments(projectId);
+          }
+          if (!isOpCurrent(op, importOpRef)) return;
+          if (stateRef.current.surface.kind !== "workbench") return;
+          dispatch({
+            type: "PATCH_WORKBENCH",
+            patch: {
+              addFilesPending: false,
+              batchResult: batch,
+              ctx: {
+                ...stateRef.current.surface.ctx,
+                documents,
+              },
+              transitionError:
+                batch.succeeded <= 0
+                  ? {
+                      code: "IMPORT_FAILED",
+                      message: "Import failed for all files.",
+                      kind: "domain",
+                    }
+                  : null,
+            },
+          });
+        } catch (error) {
+          if (!isOpCurrent(op, importOpRef)) return;
+          if (stateRef.current.surface.kind === "workbench") {
+            dispatch({
+              type: "PATCH_WORKBENCH",
+              patch: {
+                addFilesPending: false,
+                transitionError: toUiError(error),
+              },
+            });
+          }
+        } finally {
+          if (isOpCurrent(op, importOpRef) || !addFilesGuardRef.current) {
+            addFilesGuardRef.current = false;
+          }
+          // Always release the synchronous guard after this invocation ends.
+          addFilesGuardRef.current = false;
+        }
+      },
+
+      dismissBatchSummary: () => {
+        const surface = stateRef.current.surface;
+        if (surface.kind === "workbench") {
+          dispatch({
+            type: "PATCH_WORKBENCH",
+            patch: { batchResult: null },
+          });
+        } else if (surface.kind === "import-document") {
+          dispatch({
+            type: "PATCH_IMPORT",
+            patch: { batchResult: null },
+          });
+        }
+      },
+
+      openExample: async () => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "welcome" && surface.kind !== "projects") return;
+        if (
+          (surface.kind === "welcome" && surface.pendingExample) ||
+          (surface.kind === "projects" && surface.pendingExample)
+        ) {
+          return;
+        }
+        const origin = surface.kind;
+        const op = beginOp(exampleOpRef, origin);
+        if (surface.kind === "welcome") {
+          dispatch({
+            type: "PATCH_WELCOME",
+            patch: { pendingExample: true, error: null },
+          });
+        } else {
+          dispatch({
+            type: "PATCH_PROJECTS",
+            patch: { pendingExample: true, actionError: null },
+          });
+        }
+        try {
+          const result = await desktopApi().openExampleProject();
+          if (!isOpCurrent(op, exampleOpRef)) return;
+          if (!result.ok || !result.projectId) {
+            const ui: UiError = {
+              code: result.code ?? "EXAMPLE_FAILED",
+              message: result.message ?? "Could not open example project.",
+              kind: "domain",
+            };
+            if (stateRef.current.surface.kind === "welcome") {
+              dispatch({
+                type: "PATCH_WELCOME",
+                patch: { pendingExample: false, error: ui },
+              });
+            } else if (stateRef.current.surface.kind === "projects") {
+              dispatch({
+                type: "PATCH_PROJECTS",
+                patch: { pendingExample: false, actionError: ui },
+              });
+            }
+            return;
+          }
+          const projectId = result.projectId;
+          await invokeEngine("project.get", { projectId });
+          if (!isOpCurrent(op, exampleOpRef)) return;
+          let documentId = result.documentId ?? null;
+          if (!documentId) {
+            const documents = await listAllDocuments(projectId);
+            if (!isOpCurrent(op, exampleOpRef)) return;
+            if (documents.length === 0) {
+              const snapshot = await invokeEngine("project.get", { projectId });
+              if (!isOpCurrent(op, exampleOpRef)) return;
+              dispatch({
+                type: "SET_SURFACE",
+                surface: {
+                  kind: "import-document",
+                  projectId,
+                  projectName: snapshot.project.name,
+                },
+              });
+              dispatch({ type: "SET_MUTATIONS_ENABLED", enabled: true });
+              return;
+            }
+            documentId = documents[0]!.id;
+          }
+          const session = makeSession(projectId, documentId);
+          const ctx = await hydrateSession(session);
+          if (!isOpCurrent(op, exampleOpRef)) return;
+          enterWorkbench(ctx, { persistSession: true });
+        } catch (error) {
+          if (!isOpCurrent(op, exampleOpRef)) return;
+          const ui = toUiError(error);
+          if (stateRef.current.surface.kind === "welcome") {
+            dispatch({
+              type: "PATCH_WELCOME",
+              patch: { pendingExample: false, error: ui },
+            });
+          } else if (stateRef.current.surface.kind === "projects") {
+            dispatch({
+              type: "PATCH_PROJECTS",
+              patch: { pendingExample: false, actionError: ui },
+            });
+          }
+        }
+      },
+
+      goSearch: async () => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind === "workbench") {
+          if (surface.pendingConfirm || surface.switchPending) return;
+          if (saveCoordinator.active?.isComposing) return;
+          const ok = await flushOrStay();
+          if (!ok) return;
+        }
+        invalidateFeatureOps();
+        dispatch({
+          type: "SET_SURFACE",
+          surface: {
+            kind: "search",
+            submittedQuery: "",
+            pendingQuery: null,
+            items: [],
+            total: 0,
+            offset: 0,
+            limit: SEARCH_PAGE_LIMIT,
+            loading: false,
+            error: null,
+            navigationError: null,
+          },
+        });
+      },
+
+      runSearch: async (query) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "search") return;
+        const text = trimSearchQuery(query);
+        if (!text) return;
+        const op = beginOp(searchOpRef, "search");
+        // Do not replace submitted projection until a current success arrives.
+        dispatch({
+          type: "PATCH_SEARCH",
+          patch: {
+            loading: true,
+            error: null,
+            navigationError: null,
+            pendingQuery: text,
+          },
+        });
+        try {
+          const page = await invokeEngine("search.global", {
+            text,
+            includeRecycled: false,
+            offset: 0,
+            limit: SEARCH_PAGE_LIMIT,
+          });
+          if (!isOpCurrent(op, searchOpRef)) return;
+          dispatch({
+            type: "PATCH_SEARCH",
+            patch: {
+              submittedQuery: text,
+              pendingQuery: null,
+              items: page.items,
+              total: page.total,
+              offset: 0,
+              limit: page.limit || SEARCH_PAGE_LIMIT,
+              loading: false,
+              error: null,
+            },
+          });
+        } catch (error) {
+          if (!isOpCurrent(op, searchOpRef)) return;
+          dispatch({
+            type: "PATCH_SEARCH",
+            patch: {
+              loading: false,
+              error: toUiError(error),
+              // Keep pendingQuery so UI can attribute the failed attempt.
+            },
+          });
+        }
+      },
+
+      searchPage: async (offset) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "search") return;
+        if (!surface.submittedQuery) return;
+        const op = beginOp(searchOpRef, "search");
+        dispatch({
+          type: "PATCH_SEARCH",
+          patch: {
+            loading: true,
+            error: null,
+            navigationError: null,
+            pendingQuery: surface.submittedQuery,
+          },
+        });
+        try {
+          const page = await invokeEngine("search.global", {
+            text: surface.submittedQuery,
+            includeRecycled: false,
+            offset,
+            limit: surface.limit,
+          });
+          if (!isOpCurrent(op, searchOpRef)) return;
+          dispatch({
+            type: "PATCH_SEARCH",
+            patch: {
+              items: page.items,
+              total: page.total,
+              offset,
+              pendingQuery: null,
+              loading: false,
+              error: null,
+            },
+          });
+        } catch (error) {
+          if (!isOpCurrent(op, searchOpRef)) return;
+          dispatch({
+            type: "PATCH_SEARCH",
+            patch: { loading: false, error: toUiError(error) },
+          });
+        }
+      },
+
+      activateSearchHit: async (hit) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "search") return;
+        const dest = classifySearchHit(hit);
+        if (dest.kind === "invalid") {
+          dispatch({
+            type: "PATCH_SEARCH",
+            patch: {
+              navigationError: {
+                code: "SEARCH_HIT_INVALID",
+                message: dest.reason,
+                kind: "domain",
+              },
+            },
+          });
+          return;
+        }
+        const op = beginOp(searchOpRef, "search");
+        dispatch({
+          type: "PATCH_SEARCH",
+          patch: { navigationError: null, loading: true },
+        });
+        try {
+          if (dest.kind === "project") {
+            const snapshot = await invokeEngine("project.get", {
+              projectId: dest.projectId,
+            });
+            if (!isOpCurrent(op, searchOpRef)) return;
+            const documents = await listAllDocuments(dest.projectId);
+            if (!isOpCurrent(op, searchOpRef)) return;
+            const route = resolveOpenProjectRoute(documents);
+            if (route.kind === "import") {
+              dispatch({
+                type: "SET_SURFACE",
+                surface: {
+                  kind: "import-document",
+                  projectId: snapshot.project.id,
+                  projectName: snapshot.project.name,
+                },
+              });
+              return;
+            }
+            const session = makeSession(dest.projectId, route.documentId);
+            const ctx = await hydrateSession(session);
+            if (!isOpCurrent(op, searchOpRef)) return;
+            enterWorkbench(ctx, { persistSession: true });
+            return;
+          }
+          const session = makeSession(dest.projectId, dest.documentId);
+          const ctx = await hydrateSession(session);
+          if (!isOpCurrent(op, searchOpRef)) return;
+          if (dest.kind === "segment") {
+            const exists = ctx.rows.some(
+              (r) => r.segment.id === dest.segmentId,
+            );
+            if (!exists) {
+              dispatch({
+                type: "PATCH_SEARCH",
+                patch: {
+                  loading: false,
+                  navigationError: {
+                    code: "SEGMENT_NOT_FOUND",
+                    message: "Segment is no longer available.",
+                    kind: "domain",
+                  },
+                },
+              });
+              return;
+            }
+            enterWorkbench(ctx, {
+              focusSegmentId: dest.segmentId,
+              persistSession: true,
+            });
+            return;
+          }
+          enterWorkbench(ctx, { persistSession: true });
+        } catch (error) {
+          if (!isOpCurrent(op, searchOpRef)) return;
+          if (stateRef.current.surface.kind === "search") {
+            dispatch({
+              type: "PATCH_SEARCH",
+              patch: {
+                loading: false,
+                navigationError: toUiError(error),
+              },
+            });
+          }
+        }
+      },
+
+      goInsights: async (projectId) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        let targetProjectId: string | undefined;
+        let projectName: string;
+        let returnTo: "workbench" | "projects";
+        let session: SessionIdentity | null = null;
+
+        if (
+          surface.kind === "workbench" ||
+          surface.kind === "qa" ||
+          surface.kind === "export"
+        ) {
+          if (surface.kind === "workbench") {
+            if (surface.pendingConfirm || surface.switchPending) return;
+            if (saveCoordinator.active?.isComposing) return;
+            const ok = await flushOrStay();
+            if (!ok) return;
+          }
+          const current = stateRef.current.surface;
+          if (
+            current.kind !== "workbench" &&
+            current.kind !== "qa" &&
+            current.kind !== "export"
+          ) {
+            return;
+          }
+          targetProjectId = current.ctx.project.id;
+          projectName = current.ctx.project.name;
+          returnTo = "workbench";
+          session = current.ctx.session;
+        } else if (surface.kind === "projects" && projectId) {
+          targetProjectId = projectId;
+          const project = surface.projects.find((p) => p.id === projectId);
+          projectName = project?.name ?? projectId;
+          returnTo = "projects";
+        } else if (surface.kind === "insights") {
+          targetProjectId = surface.projectId;
+          projectName = surface.projectName;
+          returnTo = surface.returnTo;
+          session = surface.session;
+        } else {
+          return;
+        }
+        if (!targetProjectId) return;
+
+        invalidateFeatureOps();
+        const op = beginOp(insightsOpRef, "insights");
+        dispatch({
+          type: "SET_SURFACE",
+          surface: {
+            kind: "insights",
+            projectId: targetProjectId,
+            projectName,
+            returnTo,
+            session,
+            analytics: null,
+            documents: [],
+            loading: true,
+            error: null,
+          },
+        });
+        try {
+          const snapshot = await invokeEngine("project.get", {
+            projectId: targetProjectId,
+          });
+          if (!isOpCurrent(op, insightsOpRef)) return;
+          const analytics = await invokeEngine("project.analytics.get", {
+            projectId: targetProjectId,
+          });
+          const documents = await listAllDocuments(targetProjectId);
+          if (!isOpCurrent(op, insightsOpRef)) return;
+          dispatch({
+            type: "SET_SURFACE",
+            surface: {
+              kind: "insights",
+              projectId: targetProjectId,
+              projectName: snapshot.project.name,
+              returnTo,
+              session,
+              analytics,
+              documents,
+              loading: false,
+              error: null,
+            },
+          });
+        } catch (error) {
+          if (!isOpCurrent(op, insightsOpRef)) return;
+          if (stateRef.current.surface.kind === "insights") {
+            dispatch({
+              type: "PATCH_INSIGHTS",
+              patch: { loading: false, error: toUiError(error) },
+            });
+          }
+        }
+      },
+
+      refreshInsights: async () => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "insights") return;
+        const opId = ++insightsOpRef.current;
+        dispatch({
+          type: "PATCH_INSIGHTS",
+          patch: { loading: true, error: null },
+        });
+        try {
+          const analytics = await invokeEngine("project.analytics.get", {
+            projectId: surface.projectId,
+          });
+          const documents = await listAllDocuments(surface.projectId);
+          if (insightsOpRef.current !== opId) return;
+          if (stateRef.current.surface.kind !== "insights") return;
+          dispatch({
+            type: "PATCH_INSIGHTS",
+            patch: {
+              analytics,
+              documents,
+              loading: false,
+              error: null,
+            },
+          });
+        } catch (error) {
+          if (insightsOpRef.current !== opId) return;
+          if (stateRef.current.surface.kind === "insights") {
+            dispatch({
+              type: "PATCH_INSIGHTS",
+              patch: { loading: false, error: toUiError(error) },
+            });
+          }
+        }
+      },
+
+      backFromInsights: async () => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "insights") return;
+        if (surface.returnTo === "workbench" && surface.session) {
+          try {
+            const ctx = await hydrateSession(surface.session);
+            enterWorkbench(ctx, { persistSession: true });
+          } catch (error) {
+            dispatch({
+              type: "PATCH_INSIGHTS",
+              patch: { error: toUiError(error) },
+            });
+          }
+          return;
+        }
+        await resolveHome();
+      },
+
+      goTemplates: async () => {
+        if (!stateRef.current.mutationsEnabled) return;
+        invalidateFeatureOps();
+        const op = beginOp(templatesOpRef, "templates");
+        dispatch({
+          type: "SET_SURFACE",
+          surface: {
+            kind: "templates",
+            items: [],
+            total: 0,
+            offset: 0,
+            limit: TEMPLATE_PAGE_LIMIT,
+            loading: true,
+            error: null,
+            pending: false,
+            selected: null,
+            mode: "list",
+          },
+        });
+        try {
+          const page = await invokeEngine("project.template.list", {
+            limit: TEMPLATE_PAGE_LIMIT,
+            offset: 0,
+          });
+          if (!isOpCurrent(op, templatesOpRef)) return;
+          dispatch({
+            type: "SET_SURFACE",
+            surface: {
+              kind: "templates",
+              items: page.items,
+              total: page.total,
+              offset: 0,
+              limit: page.limit || TEMPLATE_PAGE_LIMIT,
+              loading: false,
+              error: null,
+              pending: false,
+              selected: null,
+              mode: "list",
+            },
+          });
+        } catch (error) {
+          if (!isOpCurrent(op, templatesOpRef)) return;
+          dispatch({
+            type: "SET_SURFACE",
+            surface: {
+              kind: "templates",
+              items: [],
+              total: 0,
+              offset: 0,
+              limit: TEMPLATE_PAGE_LIMIT,
+              loading: false,
+              error: toUiError(error),
+              pending: false,
+              selected: null,
+              mode: "list",
+            },
+          });
+        }
+      },
+
+      templatesPage: async (offset) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "templates") return;
+        const opId = ++templatesOpRef.current;
+        dispatch({
+          type: "PATCH_TEMPLATES",
+          patch: { loading: true, error: null, mode: "list", selected: null },
+        });
+        try {
+          const page = await invokeEngine("project.template.list", {
+            limit: surface.limit,
+            offset,
+          });
+          if (templatesOpRef.current !== opId) return;
+          dispatch({
+            type: "PATCH_TEMPLATES",
+            patch: {
+              items: page.items,
+              total: page.total,
+              offset,
+              loading: false,
+              error: null,
+            },
+          });
+        } catch (error) {
+          if (templatesOpRef.current !== opId) return;
+          dispatch({
+            type: "PATCH_TEMPLATES",
+            patch: { loading: false, error: toUiError(error) },
+          });
+        }
+      },
+
+      templateCreateStart: () => {
+        if (!stateRef.current.mutationsEnabled) return;
+        if (stateRef.current.surface.kind !== "templates") return;
+        dispatch({
+          type: "PATCH_TEMPLATES",
+          patch: { mode: "create", selected: null, error: null },
+        });
+      },
+
+      templateEditStart: async (templateId, revision) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        if (stateRef.current.surface.kind !== "templates") return;
+        const opId = ++templatesOpRef.current;
+        dispatch({
+          type: "PATCH_TEMPLATES",
+          patch: { pending: true, error: null },
+        });
+        try {
+          const template = await invokeEngine("project.template.get", {
+            templateId,
+            revision,
+          });
+          if (templatesOpRef.current !== opId) return;
+          if (isBuiltInTemplate(template)) {
+            dispatch({
+              type: "PATCH_TEMPLATES",
+              patch: {
+                pending: false,
+                error: {
+                  code: "TEMPLATE_BUILTIN",
+                  message: "Built-in templates cannot be edited.",
+                  kind: "domain",
+                },
+              },
+            });
+            return;
+          }
+          dispatch({
+            type: "PATCH_TEMPLATES",
+            patch: {
+              pending: false,
+              selected: template,
+              mode: "edit",
+              error: null,
+            },
+          });
+        } catch (error) {
+          if (templatesOpRef.current !== opId) return;
+          dispatch({
+            type: "PATCH_TEMPLATES",
+            patch: { pending: false, error: toUiError(error) },
+          });
+        }
+      },
+
+      templateUseStart: async (templateId, revision) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        if (stateRef.current.surface.kind !== "templates") return;
+        const opId = ++templatesOpRef.current;
+        dispatch({
+          type: "PATCH_TEMPLATES",
+          patch: { pending: true, error: null },
+        });
+        try {
+          const template = await invokeEngine("project.template.get", {
+            templateId,
+            revision,
+          });
+          if (templatesOpRef.current !== opId) return;
+          dispatch({
+            type: "PATCH_TEMPLATES",
+            patch: {
+              pending: false,
+              selected: template,
+              mode: "use",
+              error: null,
+            },
+          });
+        } catch (error) {
+          if (templatesOpRef.current !== opId) return;
+          dispatch({
+            type: "PATCH_TEMPLATES",
+            patch: { pending: false, error: toUiError(error) },
+          });
+        }
+      },
+
+      templateCancelMode: () => {
+        if (stateRef.current.surface.kind !== "templates") return;
+        dispatch({
+          type: "PATCH_TEMPLATES",
+          patch: { mode: "list", selected: null, error: null, pending: false },
+        });
+      },
+
+      templateCreate: async (input) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        if (stateRef.current.surface.kind !== "templates") return;
+        if (stateRef.current.surface.pending) return;
+        const opId = ++templatesOpRef.current;
+        dispatch({
+          type: "PATCH_TEMPLATES",
+          patch: { pending: true, error: null },
+        });
+        try {
+          await invokeEngine("project.template.create", {
+            name: input.name,
+            description: input.description,
+            definition: createTemplateDefinition(input.defaults),
+          });
+          if (templatesOpRef.current !== opId) return;
+          const page = await invokeEngine("project.template.list", {
+            limit: TEMPLATE_PAGE_LIMIT,
+            offset: 0,
+          });
+          if (templatesOpRef.current !== opId) return;
+          dispatch({
+            type: "PATCH_TEMPLATES",
+            patch: {
+              items: page.items,
+              total: page.total,
+              offset: 0,
+              pending: false,
+              mode: "list",
+              selected: null,
+              error: null,
+            },
+          });
+        } catch (error) {
+          if (templatesOpRef.current !== opId) return;
+          dispatch({
+            type: "PATCH_TEMPLATES",
+            patch: { pending: false, error: toUiError(error) },
+          });
+        }
+      },
+
+      templateUpdate: async (input) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "templates") return;
+        if (surface.pending) return;
+        if (!surface.selected || isBuiltInTemplate(surface.selected)) return;
+        const opId = ++templatesOpRef.current;
+        dispatch({
+          type: "PATCH_TEMPLATES",
+          patch: { pending: true, error: null },
+        });
+        try {
+          const merged = mergeTemplateDefinition(
+            surface.selected.definition,
+            input.defaults,
+          );
+          if (!merged.ok) {
+            dispatch({
+              type: "PATCH_TEMPLATES",
+              patch: {
+                pending: false,
+                error: {
+                  code: "TEMPLATE_DEFINITION",
+                  message: "Template definition cannot be updated.",
+                  kind: "domain",
+                },
+              },
+            });
+            return;
+          }
+          await invokeEngine("project.template.update", {
+            templateId: input.templateId,
+            expectedRevision: input.expectedRevision,
+            name: input.name,
+            description: input.description,
+            definition: merged.definition,
+          });
+          if (templatesOpRef.current !== opId) return;
+          const page = await invokeEngine("project.template.list", {
+            limit: surface.limit,
+            offset: surface.offset,
+          });
+          if (templatesOpRef.current !== opId) return;
+          dispatch({
+            type: "PATCH_TEMPLATES",
+            patch: {
+              items: page.items,
+              total: page.total,
+              pending: false,
+              mode: "list",
+              selected: null,
+              error: null,
+            },
+          });
+        } catch (error) {
+          if (templatesOpRef.current !== opId) return;
+          dispatch({
+            type: "PATCH_TEMPLATES",
+            patch: { pending: false, error: toUiError(error) },
+          });
+        }
+      },
+
+      templateDelete: async (templateId, expectedRevision) => {
+        if (!stateRef.current.mutationsEnabled) return false;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "templates") return false;
+        if (surface.pending) return false;
+        // Built-in / identity guards must not rely only on hidden UI.
+        const selected = surface.selected;
+        const listed = surface.items.find((t) => t.id === templateId);
+        const candidate = selected?.id === templateId ? selected : listed;
+        if (!candidate) {
+          dispatch({
+            type: "PATCH_TEMPLATES",
+            patch: {
+              error: {
+                code: "TEMPLATE_NOT_SELECTED",
+                message: "Template is no longer available.",
+                kind: "domain",
+              },
+            },
+          });
+          return false;
+        }
+        if (isBuiltInTemplate(candidate)) {
+          dispatch({
+            type: "PATCH_TEMPLATES",
+            patch: {
+              error: {
+                code: "TEMPLATE_BUILTIN",
+                message: "Built-in templates cannot be deleted.",
+                kind: "domain",
+              },
+            },
+          });
+          return false;
+        }
+        if (candidate.revision !== expectedRevision) {
+          dispatch({
+            type: "PATCH_TEMPLATES",
+            patch: {
+              error: {
+                code: "TEMPLATE_REVISION_MISMATCH",
+                message: "Template revision does not match selection.",
+                kind: "domain",
+              },
+            },
+          });
+          return false;
+        }
+        const op = beginOp(templatesOpRef, "templates");
+        dispatch({
+          type: "PATCH_TEMPLATES",
+          patch: { pending: true, error: null },
+        });
+        try {
+          await invokeEngine("project.template.delete", {
+            templateId,
+            expectedRevision,
+          });
+          if (!isOpCurrent(op, templatesOpRef)) return false;
+          const page = await invokeEngine("project.template.list", {
+            limit: surface.limit,
+            offset: surface.offset,
+          });
+          if (!isOpCurrent(op, templatesOpRef)) return false;
+          dispatch({
+            type: "PATCH_TEMPLATES",
+            patch: {
+              items: page.items,
+              total: page.total,
+              pending: false,
+              mode: "list",
+              selected: null,
+              error: null,
+            },
+          });
+          return true;
+        } catch (error) {
+          if (!isOpCurrent(op, templatesOpRef)) return false;
+          dispatch({
+            type: "PATCH_TEMPLATES",
+            patch: { pending: false, error: toUiError(error) },
+          });
+          return false;
+        }
+      },
+
+      createFromTemplate: async (input) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        if (stateRef.current.surface.kind !== "templates") return;
+        if (stateRef.current.surface.pending) return;
+        const opId = ++templatesOpRef.current;
+        dispatch({
+          type: "PATCH_TEMPLATES",
+          patch: { pending: true, error: null },
+        });
+        try {
+          const result = await invokeEngine("project.createFromTemplate", {
+            templateId: input.templateId,
+            templateRevision: input.templateRevision,
+            name: input.name,
+            sourceLocale: input.sourceLocale,
+            targetLocale: input.targetLocale,
+            domain: input.domain,
+          });
+          if (templatesOpRef.current !== opId) return;
+          // No session until a document hydrates — route to Import.
+          dispatch({
+            type: "SET_SURFACE",
+            surface: {
+              kind: "import-document",
+              projectId: result.project.id,
+              projectName: result.project.name,
+              templateDiagnostics: result.diagnostics,
+            },
+          });
+        } catch (error) {
+          if (templatesOpRef.current !== opId) return;
+          dispatch({
+            type: "PATCH_TEMPLATES",
+            patch: { pending: false, error: toUiError(error) },
+          });
+        }
+      },
+
+      goRecycle: async () => {
+        if (!stateRef.current.mutationsEnabled) return;
+        invalidateFeatureOps();
+        const op = beginOp(recycleOpRef, "recycle");
+        dispatch({
+          type: "SET_SURFACE",
+          surface: {
+            kind: "recycle",
+            items: [],
+            total: 0,
+            offset: 0,
+            limit: RECYCLE_PAGE_LIMIT,
+            loading: true,
+            error: null,
+            pending: false,
+          },
+        });
+        try {
+          const page = await invokeEngine("recycle.list", {
+            limit: RECYCLE_PAGE_LIMIT,
+            offset: 0,
+          });
+          if (!isOpCurrent(op, recycleOpRef)) return;
+          dispatch({
+            type: "SET_SURFACE",
+            surface: {
+              kind: "recycle",
+              items: page.items,
+              total: page.total,
+              offset: 0,
+              limit: page.limit || RECYCLE_PAGE_LIMIT,
+              loading: false,
+              error: null,
+              pending: false,
+            },
+          });
+        } catch (error) {
+          if (!isOpCurrent(op, recycleOpRef)) return;
+          dispatch({
+            type: "SET_SURFACE",
+            surface: {
+              kind: "recycle",
+              items: [],
+              total: 0,
+              offset: 0,
+              limit: RECYCLE_PAGE_LIMIT,
+              loading: false,
+              error: toUiError(error),
+              pending: false,
+            },
+          });
+        }
+      },
+
+      recyclePage: async (offset) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "recycle") return;
+        const opId = ++recycleOpRef.current;
+        dispatch({
+          type: "PATCH_RECYCLE",
+          patch: { loading: true, error: null },
+        });
+        try {
+          const page = await invokeEngine("recycle.list", {
+            limit: surface.limit,
+            offset,
+          });
+          if (recycleOpRef.current !== opId) return;
+          dispatch({
+            type: "PATCH_RECYCLE",
+            patch: {
+              items: page.items,
+              total: page.total,
+              offset,
+              loading: false,
+              error: null,
+            },
+          });
+        } catch (error) {
+          if (recycleOpRef.current !== opId) return;
+          dispatch({
+            type: "PATCH_RECYCLE",
+            patch: { loading: false, error: toUiError(error) },
+          });
+        }
+      },
+
+      recycleRestore: async (entryId) => {
+        if (!stateRef.current.mutationsEnabled) return false;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "recycle") return false;
+        if (surface.pending) return false;
+        const opId = ++recycleOpRef.current;
+        dispatch({
+          type: "PATCH_RECYCLE",
+          patch: { pending: true, error: null },
+        });
+        try {
+          await invokeEngine("recycle.restore", { entryId });
+          if (recycleOpRef.current !== opId) return false;
+          const page = await invokeEngine("recycle.list", {
+            limit: surface.limit,
+            offset: surface.offset,
+          });
+          if (recycleOpRef.current !== opId) return false;
+          dispatch({
+            type: "PATCH_RECYCLE",
+            patch: {
+              items: page.items,
+              total: page.total,
+              pending: false,
+              error: null,
+            },
+          });
+          return true;
+        } catch (error) {
+          if (recycleOpRef.current !== opId) return false;
+          dispatch({
+            type: "PATCH_RECYCLE",
+            patch: { pending: false, error: toUiError(error) },
+          });
+          return false;
+        }
+      },
+
+      recyclePurge: async (entryId) => {
+        if (!stateRef.current.mutationsEnabled) return false;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "recycle") return false;
+        if (surface.pending) return false;
+        const opId = ++recycleOpRef.current;
+        dispatch({
+          type: "PATCH_RECYCLE",
+          patch: { pending: true, error: null },
+        });
+        try {
+          // Engine requires non-empty purge reason (actor defaults server-side).
+          await invokeEngine("recycle.purge", {
+            entryId,
+            reason: "permanent delete",
+          });
+          if (recycleOpRef.current !== opId) return false;
+          const page = await invokeEngine("recycle.list", {
+            limit: surface.limit,
+            offset: surface.offset,
+          });
+          if (recycleOpRef.current !== opId) return false;
+          dispatch({
+            type: "PATCH_RECYCLE",
+            patch: {
+              items: page.items,
+              total: page.total,
+              pending: false,
+              error: null,
+            },
+          });
+          return true;
+        } catch (error) {
+          if (recycleOpRef.current !== opId) return false;
+          dispatch({
+            type: "PATCH_RECYCLE",
+            patch: { pending: false, error: toUiError(error) },
+          });
+          return false;
+        }
+      },
+
+      setProjectListLifecycle: async (lifecycle) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const op = beginOp(lifecycleOpRef, "projects");
+        dispatch({
+          type: "SET_SURFACE",
+          surface: {
+            kind: "projects",
+            projects: [],
+            lifecycle,
+            total: 0,
+            offset: 0,
+            limit: PROJECT_PAGE_LIMIT,
+            loading: true,
+            error: null,
+          },
+        });
+        try {
+          const page = await listProjectsPage(lifecycle, 0, PROJECT_PAGE_LIMIT);
+          if (!isOpCurrent(op, lifecycleOpRef)) return;
+          dispatch({
+            type: "SET_SURFACE",
+            surface: {
+              kind: "projects",
+              projects: page.items,
+              lifecycle,
+              total: page.total,
+              offset: page.offset,
+              limit: page.limit,
+              loading: false,
+            },
+          });
+        } catch (error) {
+          if (!isOpCurrent(op, lifecycleOpRef)) return;
+          dispatch({
+            type: "SET_SURFACE",
+            surface: {
+              kind: "projects",
+              projects: [],
+              lifecycle,
+              total: 0,
+              offset: 0,
+              limit: PROJECT_PAGE_LIMIT,
+              loading: false,
+              error: toUiError(error),
+            },
+          });
+        }
+      },
+
+      projectsPage: async (offset) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "projects") return;
+        const op = beginOp(lifecycleOpRef, "projects");
+        const limit = surface.limit || PROJECT_PAGE_LIMIT;
+        const lifecycle = surface.lifecycle;
+        dispatch({
+          type: "PATCH_PROJECTS",
+          patch: { loading: true, error: null },
+        });
+        try {
+          const page = await listProjectsPage(lifecycle, offset, limit);
+          if (!isOpCurrent(op, lifecycleOpRef)) return;
+          dispatch({
+            type: "SET_SURFACE",
+            surface: {
+              kind: "projects",
+              projects: page.items,
+              lifecycle,
+              total: page.total,
+              offset: page.offset,
+              limit: page.limit,
+              loading: false,
+            },
+          });
+        } catch (error) {
+          if (!isOpCurrent(op, lifecycleOpRef)) return;
+          dispatch({
+            type: "PATCH_PROJECTS",
+            patch: { loading: false, error: toUiError(error) },
+          });
+        }
+      },
+
+      beginEditProject: async (projectId) => {
+        if (!stateRef.current.mutationsEnabled) return null;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "projects") return null;
+        const op = beginOp(lifecycleOpRef, "projects");
+        try {
+          const snapshot = await invokeEngine("project.get", { projectId });
+          if (!isOpCurrent(op, lifecycleOpRef)) return null;
+          return snapshot.project;
+        } catch (error) {
+          if (!isOpCurrent(op, lifecycleOpRef)) return null;
+          dispatch({
+            type: "PATCH_PROJECTS",
+            patch: { actionError: toUiError(error) },
+          });
+          return null;
+        }
+      },
+
+      updateProject: async (input) => {
+        if (!stateRef.current.mutationsEnabled) return false;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "projects") return false;
+        const op = beginOp(lifecycleOpRef, "projects");
+        try {
+          await invokeEngine("project.update", {
+            projectId: input.projectId,
+            expectedRevision: input.expectedRevision,
+            name: input.name,
+            domain: input.domain,
+            sourceLocale: input.sourceLocale,
+            targetLocale: input.targetLocale,
+            configuration: input.configuration,
+          });
+          if (!isOpCurrent(op, lifecycleOpRef)) return false;
+          const page = await listProjectsPage(
+            surface.lifecycle,
+            surface.offset,
+            surface.limit || PROJECT_PAGE_LIMIT,
+          );
+          if (!isOpCurrent(op, lifecycleOpRef)) return false;
+          dispatch({
+            type: "PATCH_PROJECTS",
+            patch: {
+              projects: page.items,
+              total: page.total,
+              offset: page.offset,
+              limit: page.limit,
+              actionError: null,
+            },
+          });
+          return true;
+        } catch (error) {
+          if (!isOpCurrent(op, lifecycleOpRef)) return false;
+          dispatch({
+            type: "PATCH_PROJECTS",
+            patch: { actionError: toUiError(error) },
+          });
+          return false;
+        }
+      },
+
+      setProjectLifecycle: async (projectId, expectedRevision, lifecycle) => {
+        if (!stateRef.current.mutationsEnabled) return false;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "projects") return false;
+        const op = beginOp(lifecycleOpRef, "projects");
+        try {
+          await invokeEngine("project.setLifecycle", {
+            projectId,
+            expectedRevision,
+            lifecycle,
+          });
+          if (!isOpCurrent(op, lifecycleOpRef)) return false;
+          const page = await listProjectsPage(
+            surface.lifecycle,
+            surface.offset,
+            surface.limit || PROJECT_PAGE_LIMIT,
+          );
+          if (!isOpCurrent(op, lifecycleOpRef)) return false;
+          dispatch({
+            type: "PATCH_PROJECTS",
+            patch: {
+              projects: page.items,
+              total: page.total,
+              offset: page.offset,
+              limit: page.limit,
+              actionError: null,
+            },
+          });
+          return true;
+        } catch (error) {
+          if (!isOpCurrent(op, lifecycleOpRef)) return false;
+          dispatch({
+            type: "PATCH_PROJECTS",
+            patch: { actionError: toUiError(error) },
+          });
+          return false;
+        }
+      },
+
+      recycleProject: async (projectId, expectedRevision, reason) => {
+        if (!stateRef.current.mutationsEnabled) return false;
+        if (!reason.trim()) return false;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "projects") return false;
+        const op = beginOp(lifecycleOpRef, "projects");
+        try {
+          await invokeEngine("recycle.delete", {
+            entityId: projectId,
+            entityType: "project",
+            expectedRevision,
+            reason: reason.trim(),
+          });
+          if (!isOpCurrent(op, lifecycleOpRef)) return false;
+          // Clear session if the recycled project was active.
+          const stored = readSessionFromStorage();
+          if (stored.ok && stored.session.projectId === projectId) {
+            clearSessionStorage();
+            saveCoordinator.clearActive();
+          }
+          const page = await listProjectsPage(
+            surface.lifecycle,
+            surface.offset,
+            surface.limit || PROJECT_PAGE_LIMIT,
+          );
+          if (!isOpCurrent(op, lifecycleOpRef)) return false;
+          if (page.total === 0 && surface.lifecycle === "active") {
+            dispatch({ type: "SET_SURFACE", surface: { kind: "welcome" } });
+          } else {
+            dispatch({
+              type: "PATCH_PROJECTS",
+              patch: {
+                projects: page.items,
+                total: page.total,
+                offset: page.offset,
+                limit: page.limit,
+                actionError: null,
+              },
+            });
+          }
+          return true;
+        } catch (error) {
+          if (!isOpCurrent(op, lifecycleOpRef)) return false;
+          dispatch({
+            type: "PATCH_PROJECTS",
+            patch: { actionError: toUiError(error) },
+          });
+          return false;
+        }
+      },
+
+      recycleActiveDocument: async (reason) => {
+        if (!stateRef.current.mutationsEnabled) return false;
+        if (!reason.trim()) return false;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "workbench") return false;
+        if (surface.switchPending || surface.pendingConfirm) return false;
+        if (saveCoordinator.active?.isComposing) return false;
+        const opId = ++switchDocOpRef.current;
+        const ok = await flushOrStay();
+        if (!ok) return false;
+        const current =
+          stateRef.current.surface.kind === "workbench"
+            ? stateRef.current.surface
+            : null;
+        if (!current) return false;
+        try {
+          await invokeEngine("recycle.delete", {
+            entityId: current.ctx.document.id,
+            entityType: "document",
+            expectedRevision: current.ctx.document.revision,
+            reason: reason.trim(),
+          });
+          if (switchDocOpRef.current !== opId) return false;
+          const documents = await listAllDocuments(current.ctx.project.id);
+          if (switchDocOpRef.current !== opId) return false;
+          const route = resolvePostDeleteDocumentRoute(
+            documents,
+            current.ctx.document.id,
+          );
+          if (route.kind === "import") {
+            clearSessionStorage();
+            saveCoordinator.clearActive();
+            dispatch({
+              type: "SET_SURFACE",
+              surface: {
+                kind: "import-document",
+                projectId: current.ctx.project.id,
+                projectName: current.ctx.project.name,
+              },
+            });
+            return true;
+          }
+          const session = makeSession(current.ctx.project.id, route.documentId);
+          const ctx = await hydrateSession(session);
+          if (switchDocOpRef.current !== opId) return false;
+          enterWorkbench(ctx, { persistSession: true });
+          return true;
+        } catch (error) {
+          if (switchDocOpRef.current !== opId) return false;
+          if (stateRef.current.surface.kind === "workbench") {
+            dispatch({
+              type: "PATCH_WORKBENCH",
+              patch: { transitionError: toUiError(error) },
+            });
+          }
+          return false;
+        }
+      },
     };
   }, [
     attachSegmentWithPending,
+    beginOp,
     boot,
     enterWorkbench,
     flushOrStay,
     hydrateSession,
+    invalidateFeatureOps,
+    isOpCurrent,
     resolveHome,
     saveCoordinator,
   ]);

@@ -5,14 +5,18 @@
 The app uses React built-ins plus one primary controller hook:
 
 - `state/use-app-controller.ts` — boot, session routing, surface transitions,
-  Engine status/reconnect, recovery, and command wiring for surfaces
+  Engine status/reconnect, recovery, feature operation tokens, save-before-
+  transition, and command wiring for surfaces (including P1 lifecycle)
 - Surfaces and workbench pieces use `useState` / `useEffect` / refs for local
-  presentation (form fields, focus, panel collapse)
+  presentation (form fields, focus, panel collapse, search query text)
+- Pure P1 helpers live beside state (`document-navigation`,
+  `template-definition`, `search-navigation`, `analytics-view`) without hooks
 - There is no project-wide third-party state library
 
 Keep a feature-local effect or reducer inline when it is used once and its
 ownership is clear. Cross-surface coordination belongs in the app controller,
-not duplicated in each surface.
+not duplicated in each surface. Feature form/query state that does not cross
+surfaces stays in the surface.
 
 ## Creating A Custom Hook
 
@@ -46,6 +50,10 @@ introducing a second debounce path in a component.
   timers on cleanup.
 - Guard async completions with boot/reconnect generation IDs so stale retries
   cannot replace current state.
+- P1 feature domains also use per-domain op counters (`beginOp` /
+  `isOpCurrent` / `invalidateFeatureOps` in the app controller). Do not add a
+  second ad-hoc “latest request id” pattern in a surface when the controller
+  already owns that domain.
 
 ## Focus And IME
 

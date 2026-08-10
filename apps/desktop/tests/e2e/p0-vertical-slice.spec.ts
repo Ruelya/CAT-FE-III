@@ -34,6 +34,8 @@ async function launchApp(options: {
   env.TRANSLUNAR_DATA_DIR = join(options.userData, "engine-data");
   if (options.sourcePath) {
     env.TRANSLUNAR_TEST_SOURCE = options.sourcePath;
+    // P1 import uses multi-select; keep single-file P0 path as a one-item batch.
+    env.TRANSLUNAR_TEST_SOURCE_FILES = options.sourcePath;
   }
   if (options.exportPath) {
     env.TRANSLUNAR_TEST_EXPORT_DOCX = options.exportPath;
@@ -139,7 +141,7 @@ test.describe("P0 vertical slice", () => {
       await expect(page.getByTestId("import-document")).toBeVisible({
         timeout: 30_000,
       });
-      await page.getByRole("button", { name: "Choose file" }).click();
+      await page.getByRole("button", { name: "Choose files" }).click();
 
       await expect(page.getByTestId("workbench")).toBeVisible({
         timeout: 60_000,
@@ -284,7 +286,7 @@ test.describe("P0 vertical slice", () => {
       await expect(page.getByTestId("import-document")).toBeVisible({
         timeout: 30_000,
       });
-      await page.getByRole("button", { name: "Choose file" }).click();
+      await page.getByRole("button", { name: "Choose files" }).click();
       await expect(page.getByTestId("workbench")).toBeVisible({
         timeout: 60_000,
       });
@@ -302,7 +304,12 @@ test.describe("P0 vertical slice", () => {
       await expect(page.getByText("Listed")).toBeVisible();
       await expectNoCriticalAxe(page, "project-home");
 
-      await page.getByRole("button", { name: "Open" }).click();
+      // Scope to the listed project row so "Open" does not collide with "Open example".
+      await page
+        .locator(".project-row")
+        .filter({ hasText: "Listed" })
+        .getByRole("button", { name: "Open", exact: true })
+        .click();
       await expect(page.getByTestId("workbench")).toBeVisible({
         timeout: 60_000,
       });

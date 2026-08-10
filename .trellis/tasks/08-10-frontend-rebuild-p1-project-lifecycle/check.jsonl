@@ -1,0 +1,12 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Review P1 against the current frontend pre-development and quality checklist."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Verify DesktopApi trust boundary, real Engine use, session/save/IME compatibility, and Electron E2E behavior."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Verify P1 respects current renderer layering and does not revive the deleted monolith architecture."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Review semantic components, Phosphor icon use, focus/modal behavior, no-glass styling, and concise labels."}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"Review controller/feature ownership, effect cleanup, generation guards, and absence of duplicate save/IME paths."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Check Engine authority, session-v1 identity only, save-before-navigation, reconnect refresh, and no optimistic domain state."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Check generated contract use, safe narrowing of unknown template data, and absence of any/parallel payload schemas."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Apply required automated, accessibility, visual, no-console-error, and real-Engine E2E review gates."}
+{"file":".trellis/spec/guides/autoloop-orchestration.md","reason":"Review/verify artifact and quality-loop contract for task completion."}
+{"file":".trellis/tasks/archive/2026-08/08-08-frontend-rebuild-p0-vertical-slice/prd.md","reason":"Regression oracle for S0-S8 boot, create/import, Workbench, QA, export, resume, reconnect, and appearance acceptance."}
+{"file":".trellis/tasks/archive/2026-08/08-08-frontend-rebuild-p0-vertical-slice/design.md","reason":"Regression oracle for P0 state/session/save/IME method ordering and architectural invariants."}
+{"file":".trellis/tasks/archive/2026-08/08-08-frontend-rebuild-p0-vertical-slice/closeout-summary.md","reason":"Compare P1 results with the shipped P0 baseline and accepted residual risk record."}

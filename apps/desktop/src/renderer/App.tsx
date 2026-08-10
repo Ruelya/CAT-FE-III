@@ -4,9 +4,13 @@ import { EngineStatusBanner } from "./shell/EngineStatusBanner";
 import { RecoveryDialog } from "./shell/RecoveryDialog";
 import { CreateProject } from "./surfaces/CreateProject";
 import { ExportReview } from "./surfaces/ExportReview";
+import { GlobalSearch } from "./surfaces/GlobalSearch";
 import { ImportDocument } from "./surfaces/ImportDocument";
 import { ProjectHome } from "./surfaces/ProjectHome";
+import { ProjectInsights } from "./surfaces/ProjectInsights";
 import { QaReview } from "./surfaces/QaReview";
+import { RecycleBin } from "./surfaces/RecycleBin";
+import { Templates } from "./surfaces/Templates";
 import { Welcome } from "./surfaces/Welcome";
 import { Workbench } from "./surfaces/Workbench";
 import { useAppController } from "./state/use-app-controller";
@@ -21,8 +25,10 @@ export function App() {
       <AppChrome
         state={state}
         onHome={() => void commands.goHome()}
+        onSearch={() => void commands.goSearch()}
         onQa={() => void commands.goQa()}
         onExport={() => void commands.goExport()}
+        onInsights={() => void commands.goInsights()}
       />
       <div className="app-banner-slot">
         <EngineStatusBanner
@@ -73,19 +79,55 @@ export function App() {
         ) : null}
 
         {surface.kind === "welcome" ? (
-          <Welcome onCreate={commands.goCreateProject} disabled={disabled} />
+          <Welcome
+            onCreate={commands.goCreateProject}
+            onOpenExample={() => {
+              void commands.openExample();
+            }}
+            pendingExample={surface.pendingExample === true}
+            error={surface.error ?? null}
+            disabled={disabled}
+          />
         ) : null}
 
         {surface.kind === "projects" ? (
           <ProjectHome
             projects={surface.projects}
+            lifecycle={surface.lifecycle}
+            total={surface.total}
+            offset={surface.offset}
+            limit={surface.limit}
             error={surface.error ?? null}
+            actionError={surface.actionError ?? null}
             loading={surface.loading ?? false}
+            pendingExample={surface.pendingExample === true}
             disabled={disabled}
             onOpen={(id) => {
               void commands.openProject(id);
             }}
             onCreate={commands.goCreateProject}
+            onOpenExample={() => {
+              void commands.openExample();
+            }}
+            onLifecycleFilter={(lifecycle) => {
+              void commands.setProjectListLifecycle(lifecycle);
+            }}
+            onPage={(offset) => {
+              void commands.projectsPage(offset);
+            }}
+            onGoTemplates={() => {
+              void commands.goTemplates();
+            }}
+            onGoRecycle={() => {
+              void commands.goRecycle();
+            }}
+            onBeginEdit={commands.beginEditProject}
+            onUpdateProject={commands.updateProject}
+            onSetLifecycle={commands.setProjectLifecycle}
+            onRecycleProject={commands.recycleProject}
+            onInsights={(projectId) => {
+              void commands.goInsights(projectId);
+            }}
           />
         ) : null}
 
@@ -108,10 +150,13 @@ export function App() {
             projectName={surface.projectName}
             pending={surface.pending ?? false}
             error={surface.error ?? null}
+            batchResult={surface.batchResult ?? null}
+            templateDiagnostics={surface.templateDiagnostics ?? null}
             disabled={disabled}
             onImport={() => {
               void commands.importDocument();
             }}
+            onDismissBatch={commands.dismissBatchSummary}
           />
         ) : null}
 
@@ -127,6 +172,9 @@ export function App() {
             tmCollapsed={surface.tmCollapsed}
             transitionError={surface.transitionError}
             pendingConfirm={surface.pendingConfirm}
+            switchPending={surface.switchPending === true}
+            addFilesPending={surface.addFilesPending === true}
+            batchResult={surface.batchResult ?? null}
             disabled={disabled}
             onSelectSegment={(id) => {
               void commands.selectSegment(id);
@@ -144,6 +192,17 @@ export function App() {
             onExport={() => {
               void commands.goExport();
             }}
+            onInsights={() => {
+              void commands.goInsights();
+            }}
+            onSwitchDocument={(id) => {
+              void commands.switchDocument(id);
+            }}
+            onAddFiles={() => {
+              void commands.addFiles();
+            }}
+            onRecycleDocument={commands.recycleActiveDocument}
+            onDismissBatch={commands.dismissBatchSummary}
           />
         ) : null}
 
@@ -188,6 +247,107 @@ export function App() {
             }}
             onQa={() => {
               void commands.goQa();
+            }}
+          />
+        ) : null}
+
+        {surface.kind === "templates" ? (
+          <Templates
+            items={surface.items}
+            total={surface.total}
+            offset={surface.offset}
+            limit={surface.limit}
+            loading={surface.loading}
+            error={surface.error}
+            pending={surface.pending}
+            selected={surface.selected}
+            mode={surface.mode}
+            disabled={disabled}
+            onBack={() => {
+              void commands.goHome();
+            }}
+            onPage={(offset) => {
+              void commands.templatesPage(offset);
+            }}
+            onCreateStart={commands.templateCreateStart}
+            onEditStart={(id, rev) => {
+              void commands.templateEditStart(id, rev);
+            }}
+            onUseStart={(id, rev) => {
+              void commands.templateUseStart(id, rev);
+            }}
+            onCancelMode={commands.templateCancelMode}
+            onCreate={(input) => {
+              void commands.templateCreate(input);
+            }}
+            onUpdate={(input) => {
+              void commands.templateUpdate(input);
+            }}
+            onDelete={(id, rev) => commands.templateDelete(id, rev)}
+            onCreateFromTemplate={(input) => {
+              void commands.createFromTemplate(input);
+            }}
+          />
+        ) : null}
+
+        {surface.kind === "recycle" ? (
+          <RecycleBin
+            items={surface.items}
+            total={surface.total}
+            offset={surface.offset}
+            limit={surface.limit}
+            loading={surface.loading}
+            error={surface.error}
+            pending={surface.pending}
+            disabled={disabled}
+            onBack={() => {
+              void commands.goHome();
+            }}
+            onPage={(offset) => {
+              void commands.recyclePage(offset);
+            }}
+            onRestore={commands.recycleRestore}
+            onPurge={commands.recyclePurge}
+          />
+        ) : null}
+
+        {surface.kind === "search" ? (
+          <GlobalSearch
+            submittedQuery={surface.submittedQuery}
+            pendingQuery={surface.pendingQuery}
+            items={surface.items}
+            total={surface.total}
+            offset={surface.offset}
+            limit={surface.limit}
+            loading={surface.loading}
+            error={surface.error}
+            navigationError={surface.navigationError}
+            disabled={disabled}
+            onSearch={(query) => {
+              void commands.runSearch(query);
+            }}
+            onPage={(offset) => {
+              void commands.searchPage(offset);
+            }}
+            onActivate={(hit) => {
+              void commands.activateSearchHit(hit);
+            }}
+          />
+        ) : null}
+
+        {surface.kind === "insights" ? (
+          <ProjectInsights
+            projectName={surface.projectName}
+            analytics={surface.analytics}
+            documents={surface.documents}
+            loading={surface.loading}
+            error={surface.error}
+            disabled={disabled}
+            onBack={() => {
+              void commands.backFromInsights();
+            }}
+            onRetry={() => {
+              void commands.refreshInsights();
             }}
           />
         ) : null}
