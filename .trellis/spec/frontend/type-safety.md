@@ -39,12 +39,17 @@ Engine methods.
 
 ## Data And Reducers
 
-Prefer discriminated unions for action-like values. P0 examples:
+Prefer discriminated unions for action-like values. Examples:
 
 - Session: `SessionParseResult` in `state/session.ts`
 - Draft journal: `DraftClassification` in `state/draft-recovery.ts`
 - Startup destination: `StartupDestination` in `routes/resolveSurface.ts`
-- App surface / boot machine: `state/app-state.ts`
+- App surface / boot machine: `state/app-state.ts` (includes P1
+  `templates` | `recycle` | `search` | `insights`)
+- Search hit destination: `SearchHitDestination` in `state/search-navigation.ts`
+- Template definition decode: `DecodeTemplateDefinitionResult` in
+  `state/template-definition.ts`
+- Document aggregate / post-delete route: `state/document-navigation.ts`
 
 Keep IDs and optional fields explicit; do not use truthiness to reinterpret a
 numeric count or revision.
@@ -52,6 +57,19 @@ numeric count or revision.
 When a payload is `unknown`, create one decoder/type guard next to its owner
 and share it. Do not cast the same JSON field independently in multiple
 components.
+
+### Convention: Unknown-preserving template definition
+
+Template `definition` is generated as `unknown`. Only
+`template-definition.ts` may narrow it:
+
+- Decode P1 keys `sourceLocale`, `targetLocale`, `domain` from a plain object.
+- Non-object definitions are `invalid-definition` for edit merge.
+- Create emits a plain object with only those three keys.
+- Update spreads the fetched object and overwrites only the three P1 keys so
+  asset/profile/editor/reference keys survive.
+- Surfaces must not `as TemplateDefinition` or rebuild definition from form
+  fields alone on update.
 
 ## Avoid
 

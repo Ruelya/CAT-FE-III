@@ -13,7 +13,7 @@ apps/desktop/
 `-- tests/e2e/      # Playwright tests against a built app and real engine
 ```
 
-## Renderer Layout (P0 rebuild)
+## Renderer Layout (P0 + P1)
 
 `apps/desktop/src/renderer/main.tsx` is the entry. `App.tsx` composes chrome,
 boot/recovery gates, and exactly one resolved surface. Domain ownership stays
@@ -30,29 +30,41 @@ apps/desktop/src/renderer/
 |   |-- AppChrome.tsx
 |   |-- BootGate.tsx
 |   |-- EngineStatusBanner.tsx
-|   `-- RecoveryDialog.tsx
+|   |-- RecoveryDialog.tsx
+|   |-- ConfirmDialog.tsx   # reusable destructive confirm (Cancel-first)
+|   `-- ModalDialog.tsx
 |-- routes/                 # pure surface decisions (not a URL router)
 |   `-- resolveSurface.ts
 |-- surfaces/               # workflow screens
 |   |-- Welcome.tsx
-|   |-- ProjectHome.tsx
+|   |-- ProjectHome.tsx     # active/archived lists, edit, archive, recycle entry
 |   |-- CreateProject.tsx
-|   |-- ImportDocument.tsx
+|   |-- ImportDocument.tsx  # multi-file selectSourceDocuments + batchImport
 |   |-- Workbench.tsx
 |   |-- QaReview.tsx
-|   `-- ExportReview.tsx
+|   |-- ExportReview.tsx
+|   |-- Templates.tsx
+|   |-- RecycleBin.tsx
+|   |-- GlobalSearch.tsx
+|   `-- ProjectInsights.tsx
 |-- workbench/              # editor-specific interaction pieces
 |   |-- SegmentGrid.tsx
 |   |-- TargetEditor.tsx
 |   |-- TmExactPanel.tsx
-|   `-- PanelChrome.tsx
+|   |-- PanelChrome.tsx
+|   |-- DocumentSwitcher.tsx
+|   `-- BatchImportSummary.tsx
 |-- state/                  # cross-surface controller, session, save, recovery
 |   |-- app-state.ts
 |   |-- use-app-controller.ts
 |   |-- session.ts
 |   |-- save-coordinator.ts
 |   |-- draft-recovery.ts
-|   `-- appearance.ts
+|   |-- appearance.ts
+|   |-- document-navigation.ts  # bounded document.list aggregate, post-delete route
+|   |-- template-definition.ts  # unknown-preserving P1 template keys
+|   |-- search-navigation.ts    # hit classification
+|   `-- analytics-view.ts       # presentation formatting only
 |-- lib/                    # typed RPC adapter and pure guards
 |   |-- rpc.ts
 |   |-- errors.ts
@@ -64,11 +76,11 @@ apps/desktop/src/renderer/
 
 | Directory | Owns | Does not own |
 | --- | --- | --- |
-| `shell/` | Chrome, boot blocking, Engine status UI, recovery dialog | Domain mutations |
+| `shell/` | Chrome, boot blocking, Engine status UI, recovery/confirm dialogs | Domain mutations |
 | `routes/` | Pure startup/open routing decisions | Side effects, storage, RPC |
 | `surfaces/` | Workflow screens and surface-local form UI | Direct `window.translunar` (use controller commands) |
-| `workbench/` | Segment grid, target editor, exact-TM panel chrome | Cross-surface navigation policy |
-| `state/` | App controller, versioned session identity, save coordinator, draft classification, fixed appearance constants | Engine domain facts |
+| `workbench/` | Segment grid, target editor, exact-TM panel, document switcher, import summary | Cross-surface navigation policy / flush rules |
+| `state/` | App controller, session identity, save coordinator, draft classification, appearance, P1 pure helpers | Engine domain facts |
 | `lib/` | Typed `invoke`, UI error projection, IME predicates | React components |
 
 > **Stale paths:** Historical monolith files such as root-level
@@ -111,12 +123,16 @@ New renderer icons import from `@phosphor-icons/react`. Do not add new
   process restart; renderer code calls it only through `DesktopApi`.
 - `src/preload/index.cts` exposes `invoke`, source/export dialogs, draft
   journal APIs, and restart through `contextBridge`.
-- `src/renderer/state/use-app-controller.ts` owns surface transitions and
-  save-before-leave; `src/renderer/state/save-coordinator.ts` owns draft
-  generations and journal/domain flush.
+- `src/renderer/state/use-app-controller.ts` owns surface transitions,
+  save-before-leave, feature operation tokens, and P1 lifecycle commands;
+  `src/renderer/state/save-coordinator.ts` owns draft generations and
+  journal/domain flush.
 - `src/renderer/lib/rpc.ts` is the only generic Engine invocation adapter.
-- `tests/e2e/p0-vertical-slice.spec.ts` launches the built Electron app with a
+- `tests/e2e/p0-vertical-slice.spec.ts` and
+  `tests/e2e/p1-project-lifecycle.spec.ts` launch the built Electron app with a
   real Engine and isolated user data.
+- P1 lifecycle conventions:
+  [project-lifecycle.md](./project-lifecycle.md).
 
 ## Avoid
 

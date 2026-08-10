@@ -1,9 +1,13 @@
-import type { TmEntry } from "@translunar/contracts";
+import { useState } from "react";
+import type { ProjectBatchImportResult, TmEntry } from "@translunar/contracts";
 
 import type { UiError } from "../lib/errors";
 import { formatUiError } from "../lib/errors";
 import type { SessionContext } from "../state/app-state";
 import type { SegmentEditState } from "../state/save-coordinator";
+import { ConfirmDialog } from "../shell/ConfirmDialog";
+import { BatchImportSummary } from "../workbench/BatchImportSummary";
+import { DocumentSwitcher } from "../workbench/DocumentSwitcher";
 import { SegmentGrid } from "../workbench/SegmentGrid";
 import { TmExactPanel } from "../workbench/TmExactPanel";
 
@@ -18,6 +22,9 @@ export interface WorkbenchProps {
   tmCollapsed: boolean;
   transitionError: UiError | null;
   pendingConfirm: boolean;
+  switchPending?: boolean;
+  addFilesPending?: boolean;
+  batchResult?: ProjectBatchImportResult | null;
   disabled?: boolean;
   onSelectSegment: (segmentId: string) => void;
   onDraftChange: (text: string) => void;
@@ -31,6 +38,11 @@ export interface WorkbenchProps {
   onToggleTm: () => void;
   onQa: () => void;
   onExport: () => void;
+  onInsights: () => void;
+  onSwitchDocument: (documentId: string) => void;
+  onAddFiles: () => void;
+  onRecycleDocument: (reason: string) => Promise<boolean>;
+  onDismissBatch?: () => void;
 }
 
 export function Workbench({
@@ -44,6 +56,9 @@ export function Workbench({
   tmCollapsed,
   transitionError,
   pendingConfirm,
+  switchPending,
+  addFilesPending,
+  batchResult,
   disabled,
   onSelectSegment,
   onDraftChange,
@@ -53,8 +68,20 @@ export function Workbench({
   onToggleTm,
   onQa,
   onExport,
+  onInsights,
+  onSwitchDocument,
+  onAddFiles,
+  onRecycleDocument,
+  onDismissBatch,
 }: WorkbenchProps) {
   const counts = ctx.counts;
+  const [recycleOpen, setRecycleOpen] = useState(false);
+  const [recycleReason, setRecycleReason] = useState("");
+  const [recyclePending, setRecyclePending] = useState(false);
+  const [recycleError, setRecycleError] = useState<string | null>(null);
+  const headerBusy = Boolean(
+    disabled || switchPending || addFilesPending || pendingConfirm,
+  );
 
   return (
     <section className="workbench" data-testid="workbench">
@@ -77,6 +104,18 @@ export function Workbench({
               </span>
             ) : null}
           </p>
+          <DocumentSwitcher
+            documents={ctx.documents}
+            activeDocumentId={ctx.document.id}
+            disabled={headerBusy}
+            pending={switchPending === true}
+            onSelect={onSwitchDocument}
+            onRecycle={() => {
+              setRecycleError(null);
+              setRecycleReason("");
+              setRecycleOpen(true);
+            }}
+          />
           {transitionError ? (
             <p className="error-text">{formatUiError(transitionError)}</p>
           ) : null}
@@ -85,12 +124,35 @@ export function Workbench({
               {formatUiError(editState.journalError)}
             </p>
           ) : null}
+          {batchResult ? (
+            <BatchImportSummary
+              result={batchResult}
+              {...(onDismissBatch ? { onDismiss: onDismissBatch } : {})}
+            />
+          ) : null}
         </div>
         <div className="workbench__header-actions">
           <button
             type="button"
             className="btn btn--secondary"
-            disabled={disabled}
+            disabled={headerBusy}
+            onClick={onAddFiles}
+            data-testid="add-files"
+          >
+            {addFilesPending ? "Importing" : "Add files"}
+          </button>
+          <button
+            type="button"
+            className="btn btn--secondary"
+            disabled={headerBusy}
+            onClick={onInsights}
+          >
+            Insights
+          </button>
+          <button
+            type="button"
+            className="btn btn--secondary"
+            disabled={headerBusy}
             onClick={onQa}
           >
             QA
@@ -98,7 +160,7 @@ export function Workbench({
           <button
             type="button"
             className="btn btn--secondary"
-            disabled={disabled}
+            disabled={headerBusy}
             onClick={onExport}
           >
             Export
@@ -134,6 +196,34 @@ export function Workbench({
           onToggle={onToggleTm}
         />
       </div>
+
+      {recycleOpen ? (
+        <ConfirmDialog
+          title="Recycle document"
+          body={`${ctx.document.name} will move to recycle.`}
+          confirmLabel="Recycle"
+          pending={recyclePending}
+          error={recycleError}
+          reasonLabel="Reason"
+          reason={recycleReason}
+          onReasonChange={setRecycleReason}
+          onCancel={() => setRecycleOpen(false)}
+          onConfirm={() => {
+            if (recyclePending) return;
+            setRecyclePending(true);
+            setRecycleError(null);
+            void onRecycleDocument(recycleReason.trim()).then((ok) => {
+              setRecyclePending(false);
+              if (ok) {
+                setRecycleOpen(false);
+              } else {
+                setRecycleError("Recycle failed.");
+              }
+            });
+          }}
+          testId="recycle-document-confirm"
+        />
+      ) : null}
     </section>
   );
 }

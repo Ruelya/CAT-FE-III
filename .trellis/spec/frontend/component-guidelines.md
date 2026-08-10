@@ -6,14 +6,18 @@ Use named function components with an explicit props interface. Keep a
 component responsible for rendering and event orchestration for one surface;
 move reusable pure transformations to a typed utility and test them there.
 
-P0 source-backed examples:
+Source-backed examples:
 
 - Surfaces: `surfaces/Workbench.tsx`, `surfaces/ProjectHome.tsx`,
-  `surfaces/QaReview.tsx`, `surfaces/ExportReview.tsx`
+  `surfaces/QaReview.tsx`, `surfaces/ExportReview.tsx`,
+  `surfaces/Templates.tsx`, `surfaces/RecycleBin.tsx`,
+  `surfaces/GlobalSearch.tsx`, `surfaces/ProjectInsights.tsx`
 - Workbench pieces: `workbench/TargetEditor.tsx`, `workbench/SegmentGrid.tsx`,
-  `workbench/TmExactPanel.tsx`, `workbench/PanelChrome.tsx`
+  `workbench/TmExactPanel.tsx`, `workbench/PanelChrome.tsx`,
+  `workbench/DocumentSwitcher.tsx`, `workbench/BatchImportSummary.tsx`
 - Shell: `shell/AppChrome.tsx`, `shell/RecoveryDialog.tsx`,
-  `shell/EngineStatusBanner.tsx`
+  `shell/EngineStatusBanner.tsx`, `shell/ConfirmDialog.tsx`,
+  `shell/ModalDialog.tsx`
 
 ```tsx
 interface TargetEditorProps {
@@ -107,6 +111,21 @@ low-contrast glass panels that fail professional CAT density.
 **Related**: `state/appearance.test.ts` asserts required token vars, light/
 brown defaults, semantic separation, and absence of glass CSS.
 
+## Document switcher landmarks
+
+`workbench/DocumentSwitcher.tsx` is the Workbench multi-document control:
+
+- Root: `data-testid="document-switcher"`
+- Select: `id="document-switcher-select"` and
+  `data-testid="document-switcher-select"`
+- Options use stable Engine document IDs as values; labels are Engine names
+- Active document is identified; pending switch disables the control
+- Keyboard reachable with a programmatic label (“Document”)
+
+Tests and E2E must prefer `document-switcher-select` over ambiguous name
+matchers that also hit Recycle “Document” rows. See
+[project-lifecycle.md](./project-lifecycle.md).
+
 ## Accessibility And Layout
 
 - Use semantic headings, regions, dialogs, lists/tables, and labels before
@@ -120,8 +139,10 @@ brown defaults, semantic separation, and absence of glass CSS.
   tolerances because Windows DPI can return fractional CSS values.
 - Visible `:focus-visible` treatment is required; selected-row styling must not
   remove focus affordance.
-- Recovery is a modal dialog: initial focus on the safest non-destructive
-  action, focus trap, Escape is non-destructive, restore prior focus on close.
+- Recovery and destructive confirms are modal dialogs: initial focus on Cancel
+  (safest non-destructive action), focus trap, Escape is non-destructive,
+  restore prior focus on close. Purge uses distinct permanent-action copy from
+  restore/delete.
 
 ## Composition
 

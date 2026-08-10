@@ -53,10 +53,12 @@ describe("App P0 vertical slice (fake DesktopApi)", () => {
     await user.click(screen.getByRole("button", { name: "Create" }));
 
     await screen.findByTestId("import-document");
-    await user.click(screen.getByRole("button", { name: "Choose file" }));
+    await user.click(screen.getByRole("button", { name: "Choose files" }));
 
     await screen.findByTestId("workbench");
-    expect(state.calls.some((c) => c.method === "document.import")).toBe(true);
+    expect(state.calls.some((c) => c.method === "project.batchImport")).toBe(
+      true,
+    );
     expect(localStorage.getItem(SESSION_STORAGE_KEY)).toContain("doc-");
 
     const editor = await screen.findByTestId("target-editor-seg-1");
@@ -133,7 +135,7 @@ describe("App P0 vertical slice (fake DesktopApi)", () => {
     await user.type(screen.getByLabelText("Name"), "Gate");
     await user.click(screen.getByRole("button", { name: "Create" }));
     await screen.findByTestId("import-document");
-    await user.click(screen.getByRole("button", { name: "Choose file" }));
+    await user.click(screen.getByRole("button", { name: "Choose files" }));
     await screen.findByTestId("workbench");
 
     await user.click(
@@ -165,9 +167,9 @@ describe("App P0 vertical slice (fake DesktopApi)", () => {
     await user.type(screen.getByLabelText("Name"), "Cancel");
     await user.click(screen.getByRole("button", { name: "Create" }));
     await screen.findByTestId("import-document");
-    await user.click(screen.getByRole("button", { name: "Choose file" }));
+    await user.click(screen.getByRole("button", { name: "Choose files" }));
     await waitFor(() => {
-      expect(state.calls.some((c) => c.method === "document.import")).toBe(
+      expect(state.calls.some((c) => c.method === "project.batchImport")).toBe(
         false,
       );
     });
@@ -222,7 +224,7 @@ describe("App P0 vertical slice (fake DesktopApi)", () => {
     await user.type(screen.getByLabelText("Name"), "QA");
     await user.click(screen.getByRole("button", { name: "Create" }));
     await screen.findByTestId("import-document");
-    await user.click(screen.getByRole("button", { name: "Choose file" }));
+    await user.click(screen.getByRole("button", { name: "Choose files" }));
     await screen.findByTestId("workbench");
     await user.click(
       within(screen.getByTestId("workbench")).getByRole("button", {
@@ -247,7 +249,7 @@ describe("App P0 vertical slice (fake DesktopApi)", () => {
     await user.type(screen.getByLabelText("Name"), "SaveFail");
     await user.click(screen.getByRole("button", { name: "Create" }));
     await screen.findByTestId("import-document");
-    await user.click(screen.getByRole("button", { name: "Choose file" }));
+    await user.click(screen.getByRole("button", { name: "Choose files" }));
     await screen.findByTestId("workbench");
     const editor = await screen.findByTestId("target-editor-seg-1");
     await user.clear(editor);
@@ -301,7 +303,7 @@ describe("App P0 vertical slice (fake DesktopApi)", () => {
     await user.type(screen.getByLabelText("Name"), "Keys");
     await user.click(screen.getByRole("button", { name: "Create" }));
     await screen.findByTestId("import-document");
-    await user.click(screen.getByRole("button", { name: "Choose file" }));
+    await user.click(screen.getByRole("button", { name: "Choose files" }));
     await screen.findByTestId("workbench");
     const activate = await screen.findByTestId("segment-activate-seg-2");
     activate.focus();
@@ -385,7 +387,7 @@ describe("App P0 vertical slice (fake DesktopApi)", () => {
     await user.type(screen.getByLabelText("Name"), "ConfirmRace");
     await user.click(screen.getByRole("button", { name: "Create" }));
     await screen.findByTestId("import-document");
-    await user.click(screen.getByRole("button", { name: "Choose file" }));
+    await user.click(screen.getByRole("button", { name: "Choose files" }));
     await screen.findByTestId("workbench");
     const editor = await screen.findByTestId("target-editor-seg-1");
     await user.clear(editor);
@@ -434,7 +436,7 @@ describe("App P0 vertical slice (fake DesktopApi)", () => {
     await user.type(screen.getByLabelText("Name"), "IME");
     await user.click(screen.getByRole("button", { name: "Create" }));
     await screen.findByTestId("import-document");
-    await user.click(screen.getByRole("button", { name: "Choose file" }));
+    await user.click(screen.getByRole("button", { name: "Choose files" }));
     await screen.findByTestId("workbench");
     const editor = await screen.findByTestId("target-editor-seg-1");
     const beforeUpdates = state.calls.filter(
@@ -629,7 +631,7 @@ describe("App P0 vertical slice (fake DesktopApi)", () => {
     await user.type(screen.getByLabelText("Name"), "Reconnect");
     await user.click(screen.getByRole("button", { name: "Create" }));
     await screen.findByTestId("import-document");
-    await user.click(screen.getByRole("button", { name: "Choose file" }));
+    await user.click(screen.getByRole("button", { name: "Choose files" }));
     await screen.findByTestId("workbench");
     const editor = await screen.findByTestId("target-editor-seg-1");
     await user.clear(editor);
@@ -684,7 +686,7 @@ describe("App P0 vertical slice (fake DesktopApi)", () => {
     await user.type(screen.getByLabelText("Name"), "JournalClear");
     await user.click(screen.getByRole("button", { name: "Create" }));
     await screen.findByTestId("import-document");
-    await user.click(screen.getByRole("button", { name: "Choose file" }));
+    await user.click(screen.getByRole("button", { name: "Choose files" }));
     await screen.findByTestId("workbench");
     const editor = await screen.findByTestId("target-editor-seg-1");
     await user.clear(editor);

@@ -49,6 +49,11 @@ Unit tests cover pure interaction guards and controller transitions:
 - Appearance/tokens: light + advanced brown defaults, required vars, forbidden
   glass CSS (`state/appearance.test.ts`)
 - Recovery dialog keyboard: initial focus, trap, non-destructive Escape
+- P1 pure helpers: document aggregate/post-delete route, template definition
+  merge, search hit classify, analytics availability formatting
+- P1 integration (`App.p1.integration.test.tsx`): batch import cancel/mixed,
+  document switch save-before, templates, recycle restore/purge, search nav,
+  insights, example, archive/update, stale feature-op guards
 
 Do not mock the engine to claim persistence coverage in E2E. Integration tests
 may use a typed `DesktopApi` fake at the renderer boundary
@@ -58,7 +63,29 @@ Desktop E2E (P0 vertical slice) must exercise real-Engine create/import,
 editable CJK target, confirm, exact TM, QA, gate-enforced export with real
 output file, relaunch resume, Project Home Open, axe on stable states, and no
 renderer console errors. Prefer `tests/e2e/p0-vertical-slice.spec.ts` as the
-focused acceptance path for this shell.
+focused acceptance path for the P0 shell.
+
+Desktop E2E (P1 project lifecycle) must exercise real-Engine multi-file import,
+document switch, templates/create-from-template, recycle restore/purge and
+Home/search exclusion, search jump, insights, example project identity +
+relaunch. Prefer `tests/e2e/p1-project-lifecycle.spec.ts`.
+
+### Stable P1 landmarks (`data-testid`)
+
+Ordinary assertions still prefer roles, labels, and Engine-rendered text. Use
+these landmarks when accessible names collide (especially Recycle vs Workbench
+“Document”, and Home **Open** vs **Open example**):
+
+| testid | Use |
+| --- | --- |
+| `document-switcher` | Switcher region root |
+| `document-switcher-select` | Document `<select>` options (Engine-ordered) |
+| `global-search` | Search surface root |
+| `nav-search` | Chrome Search |
+| `nav-insights` | Chrome Insights |
+
+P0 Home Open must target the **Listed** project row’s exact `Open` name — not
+the global Open example control.
 
 ## Accessibility And Visual Review
 
@@ -80,7 +107,8 @@ focused acceptance path for this shell.
 - All async actions handle errors and expose a busy/disabled state where
   duplicate invocation would be unsafe.
 - Navigation flushes pending saves via `SaveCoordinator.flush()` before leaving
-  Workbench.
+  Workbench (including Search, Insights, document switch, active-document
+  recycle).
 - Session is identity-only; no domain snapshot in `localStorage`.
 - Generated contracts, labels, aria state, and CSS transitions agree.
 - Light-first paint, advanced-brown accent, no glass CSS, Phosphor icons.

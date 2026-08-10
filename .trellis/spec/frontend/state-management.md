@@ -7,20 +7,25 @@ counts, TM entries, and QA issues. React state is a presentation cache and
 ephemeral interaction state. A successful RPC response replaces the affected
 object; it is never merged with a guessed revision or count.
 
-### Owners (P0 rebuild)
+### Owners (P0 + P1)
 
 | Concern | Owner | Persistence |
 | --- | --- | --- |
-| Projects, documents, segments, revisions, statuses, counts, TM, QA, export | Engine via `lib/rpc.ts` | Engine |
+| Projects, documents, segments, revisions, statuses, counts, TM, QA, export, templates, recycle, search, analytics | Engine via `lib/rpc.ts` | Engine |
 | Active surface / boot / recovery gating | `state/use-app-controller.ts` + `state/app-state.ts` | Memory (derived) |
 | Session identity (projectId + documentId only) | `state/session.ts` | Versioned `localStorage` key `translunar.renderer.session.v1` |
+| Project document collection in `SessionContext.documents` | Controller hydrate + `document-navigation` aggregate | Memory (Engine list cache; never localStorage) |
 | Target draft, dirty/saving/error, journal coordination | `state/save-coordinator.ts` | DraftJournal via preload while pending |
 | Draft journal classification | `state/draft-recovery.ts` | Read-only classification of journal snapshot |
 | Appearance (light / advanced brown) | `state/appearance.ts` + CSS tokens | None — fixed constants |
+| Template definition P1 keys / search hit classify / analytics format | Pure helpers under `state/*` | None |
+| Feature operation tokens (import, switch, search, …) | Controller refs (`beginOp` / `isOpCurrent`) | Memory |
 | Active segment, panel collapse, form fields | Owning surface / workbench piece | Memory (optional disposable UI pref for panel only) |
 | Engine connection | Preload events + controller | Memory |
 
 `App.tsx` composes the controller and gates; it is not a second state store.
+Full P1 lifecycle contracts live in
+[project-lifecycle.md](./project-lifecycle.md).
 
 ## Session Routing
 
@@ -37,16 +42,20 @@ and never throws. A syntactically valid identity becomes active only after
 - No valid session + non-empty list → Project Home (`projects`)
 - Non-empty recoverable draft journal → Recovery before normal editing
 - Open project with zero documents → Import; otherwise first Engine-returned
-  document (P0 has no document manager)
+  document from bounded `document.list` aggregation
+- Workbench exposes an Engine-ordered document switcher; active selection is a
+  no-op; other selection uses save-before-switch (see Project Lifecycle)
 
 **Rules**:
 
 - Clear the session key only when identity is proven invalid/recycled, not on
   transport outage.
-- Write the session only after import/open hydration succeeds — never after
-  bare project create.
+- Write the session only after import/open/switch/search hydration succeeds —
+  never after bare project create or create-from-template.
 - Home navigation flushes Workbench saves, intentionally clears session, then
   reloads `project.list`.
+- `SessionContext.documents` is a presentation cache replaced from Engine order;
+  it is not part of session-v1 storage.
 
 **Example**:
 
@@ -89,7 +98,13 @@ Sequence:
 5. Confirm: IME guard → flush → `segment.confirm` → refresh → focus advance
    only on success and still-current command.
 6. Leave Workbench: `flush()` first; on failure keep surface = Workbench,
-   preserve draft, show typed error, make no QA/export/home call.
+   preserve draft, show typed error, make no QA/export/home/search/insights/
+   document-switch/active-document-recycle call.
+
+**P1 save-before-transition destinations** share one controller boundary:
+Home, Search, QA, Export, Insights, document switch, search-hit navigation
+when leaving Workbench, and active-document recycle. See
+[project-lifecycle.md](./project-lifecycle.md).
 
 **Don't**: claim domain confirmation from local draft state, or clear a multi-
 record recovery map after applying only the active segment.
@@ -109,12 +124,37 @@ record recovery map after applying only the active segment.
 - Discard requires successful `clearDraftJournal` (or visible failure that
   withholds the transition).
 
+## Feature operation tokens (P1)
+
+Each async feature domain uses an independent counter ref plus the app boot
+generation:
+
+```ts
+type FeatureOp = {
+  generation: number;
+  opId: number;
+  origin: SurfaceKindName | null;
+};
+```
+
+- `beginOp(ref, origin)` increments the domain counter and snapshots generation.
+- Completions apply only when `isOpCurrent` (generation + opId + optional origin
+  surface still matches).
+- Domains include open-project, switch-document, import, example, search,
+  insights, templates, recycle, lifecycle, and QA load.
+- Reconnect increments the app generation **and** calls
+  `invalidateFeatureOps()` so every in-flight feature completion is discarded.
+
+Do not rely on UI `disabled` alone for duplicate-submit safety; command code
+must re-check guards and op identity.
+
 ## Reconnect
 
 While reconnecting: retain the mounted projection and dirty draft, show a
 status banner, disable domain mutations and new navigation, revalidate
 identities, rehydrate, then re-enable. Startup/reconnect operations carry a
-generation so stale responses cannot replace current state.
+generation so stale responses cannot replace current state. Feature domain
+counters are invalidated together with the app generation.
 
 ## State Mechanisms
 
@@ -139,9 +179,18 @@ input -> SaveCoordinator draft/generation
       -> leave surface only after flush success
 ```
 
-Navigation from Workbench to QA, Export, or Home must await coordinator flush
-first. Surfaces re-fetch projections through RPC; they must not receive stale
-draft objects from a previous surface as domain truth.
+Navigation from Workbench to QA, Export, Home, Search, Insights, another
+document, or active-document recycle must await coordinator flush first.
+Surfaces re-fetch projections through RPC; they must not receive stale draft
+objects from a previous surface as domain truth.
+
+### Recycle vs project lifecycle
+
+- `project.setLifecycle` is only for `active` ↔ `archived`.
+- Soft-delete uses `recycle.delete` with entity type/id/revision and a required
+  reason — never `setLifecycle("trash")`.
+- Restore/purge are separate confirmed `recycle.*` mutations.
+- Full matrix: [project-lifecycle.md](./project-lifecycle.md).
 
 ## Derived State
 
@@ -157,5 +206,7 @@ translation state, or revision numbers from only the visible/filtered rows.
 - No persistence of source/target text or API secrets in localStorage.
 - No state update after an unmounted async request without an owner/generation
   guard.
-- No theme/accent settings persistence in P0.
+- No theme/accent settings persistence in P0/P1.
 - No treating transport failure as recycled session identity.
+- No optimistic template/recycle/search/analytics mutation before Engine success.
+- No sorting or inventing document order for the Workbench switcher.

@@ -8,18 +8,26 @@ packaging, React workbench state, panel interactions, or desktop tests.
 Electron owns operating-system integration and presentation orchestration. It
 does not own segment transitions, QA, TM, segmentation, persistence, or counts.
 
-### P0 renderer layout (authoritative for new UI)
+### Renderer layout (authoritative for new UI)
 
-The renderer was rebuilt as a vertical slice. New work must use:
+The renderer was rebuilt as a vertical slice (P0) and extended for project
+lifecycle discoverability (P1). New work must use:
 
-- `shell/` — chrome, boot gate, Engine status banner, recovery dialog
+- `shell/` — chrome, boot gate, Engine status banner, recovery/confirm dialogs
 - `routes/` — pure surface decisions (no URL router)
-- `surfaces/` — Welcome, Project Home, Create, Import, Workbench, QA, Export
-- `workbench/` — segment grid, target editor, exact-TM panel
+- `surfaces/` — Welcome, Project Home, Create, Import, Workbench, QA, Export,
+  Templates, Recycle, Global Search, Project Insights
+- `workbench/` — segment grid, target editor, exact-TM panel, document
+  switcher, batch import summary
 - `state/` — app controller, session identity, `SaveCoordinator`, draft recovery,
-  fixed appearance constants
+  fixed appearance constants, P1 pure helpers (document paging, template
+  definition, search hits, analytics formatting)
 - `lib/` — typed RPC adapter, UI errors, IME guards
 - `tokens.css` + `styles.css` — light / advanced-brown appearance; no glass
+
+P1 multi-document, batch import, templates, recycle vs lifecycle, search
+save-before-nav, feature op tokens, and switcher testids:
+[project-lifecycle.md](./project-lifecycle.md).
 
 Historical root-level monolith files (`Workbench.tsx`, `WorkbenchPages.tsx`,
 `SetupView.tsx`, `AssistantPanel.tsx`, `workbench-utils.ts`) are gone. Later
@@ -102,10 +110,20 @@ The main-process E2E delay seam uses three process-only environment keys:
   Confirm/update/focus-advance must no-op during composition, `isComposing`,
   or keyCode/which 229; focus advances only after flush and confirmation
   succeed.
-- Leaving the workbench for QA, export, or Home must await
-  `SaveCoordinator.flush()` before changing surface. On failure, remain on
+- Leaving the workbench for QA, export, Home, Search, Insights, another
+  document, or active-document recycle must await `SaveCoordinator.flush()`
+  before changing surface or hydrating the destination. On failure, remain on
   Workbench with draft and typed error intact. Surfaces reload projections
   through RPC after a successful transition.
+- Multi-file import uses `selectSourceDocuments()` then one
+  `project.batchImport` with `atomicity: "bestEffort"` and `{ path }` items.
+  Empty picker array is cancel (no Engine call). Do not loop `document.import`.
+- Archive/unarchive use `project.setLifecycle` with `active`/`archived` only.
+  Soft-delete uses `recycle.delete` (never `setLifecycle("trash")`).
+- Global search uses `search.global` with `includeRecycled: false`. Empty
+  trimmed query makes no RPC.
+- Session identity remains identity-only; `SessionContext.documents` is an
+  in-memory Engine-ordered cache, not persisted.
 - Collapsed panel content stays mounted for the exit animation but becomes
   `inert` and `aria-hidden`. Focus hands off to the visible expand control;
   expanding returns focus to the collapse control. Do not use `display: none`

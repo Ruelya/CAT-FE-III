@@ -16,6 +16,7 @@ renderer interaction patterns currently used by Translunar CAT.
 | Guide                                             | Description                                                                   | Status  |
 | ------------------------------------------------- | ----------------------------------------------------------------------------- | ------- |
 | [Electron Workbench](./electron-workbench.md)     | Main/preload/renderer boundary, state ownership, packaging, and E2E contracts | Active  |
+| [Project Lifecycle](./project-lifecycle.md)       | P1 multi-doc, batch import, templates, recycle vs lifecycle, search, feature ops | Active  |
 | [Directory Structure](./directory-structure.md)   | Module organization and file layout                                           | Active  |
 | [Component Guidelines](./component-guidelines.md) | Component patterns, props, composition                                        | Active  |
 | [Hook Guidelines](./hook-guidelines.md)           | Custom hooks, data fetching patterns                                          | Active  |
@@ -36,14 +37,19 @@ the desktop package does not yet enforce.
 - Read [Electron Workbench](./electron-workbench.md) before changing Electron
   main/preload, renderer RPC orchestration, workbench panels, Vite, or desktop
   tests.
-- Read [Directory Structure](./directory-structure.md) for the P0 renderer
+- Read [Directory Structure](./directory-structure.md) for the renderer
   layout (`shell/`, `routes/`, `surfaces/`, `workbench/`, `state/`, `lib/`).
   Do not reintroduce the deleted root `Workbench.tsx` monolith.
+- For multi-document, batch import, templates, recycle, search, insights, or
+  project archive work, read [Project Lifecycle](./project-lifecycle.md).
 - Search the generated method catalog before adding a preload method or local
   payload type.
 - Decide whether state is presentation-only or engine-owned before adding it to
   React. Drafts/saves go through `SaveCoordinator`; session identity is
-  versioned project/document IDs only.
+  versioned project/document IDs only. Workbench exits use one
+  save-before-transition boundary (including document switch and Search).
+- Feature async domains use independent operation tokens; reconnect invalidates
+  them all. See Project Lifecycle.
 - New renderer icons: Phosphor (`@phosphor-icons/react`). Appearance: light
   default + advanced-brown accent; no glass (`backdrop-filter`).
 

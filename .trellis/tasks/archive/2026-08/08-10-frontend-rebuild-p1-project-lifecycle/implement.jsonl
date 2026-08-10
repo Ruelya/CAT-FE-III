@@ -1,0 +1,12 @@
+{"file":".trellis/spec/frontend/index.md","reason":"P1 pre-development checklist and authoritative frontend guide index."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"DesktopApi boundary, Engine ownership, session/save/IME contracts, Electron E2E rules, and current renderer architecture."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Required P0 renderer module boundaries and placement rules for new P1 surfaces, state helpers, and E2E."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Named component/props conventions, Phosphor/no-glass design locks, accessibility, collapse/focus behavior, and concise copy rules."}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"Controller versus feature-local hook ownership, async cleanup/generation guards, and preservation of SaveCoordinator/IME behavior."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Engine-authoritative projections, identity-only session, draft/save/reconnect invariants, and cross-surface navigation ownership."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Generated EngineParams/EngineResult typing, unknown-boundary narrowing for template definitions, and no duplicated protocol interfaces."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Required unit, integration, accessibility, build, and real-Engine desktop E2E gates plus static visual audits."}
+{"file":".trellis/spec/guides/autoloop-orchestration.md","reason":"Autoloop phase responsibilities, manifest contract, and implementation/review workflow."}
+{"file":".trellis/tasks/archive/2026-08/08-08-frontend-rebuild-p0-vertical-slice/prd.md","reason":"P0 S0-S8 requirements and regression acceptance contracts inherited by P1."}
+{"file":".trellis/tasks/archive/2026-08/08-08-frontend-rebuild-p0-vertical-slice/design.md","reason":"Shipped P0 state machine, method flow, session/save/IME architecture, test strategy, and design locks that P1 extends."}
+{"file":".trellis/tasks/archive/2026-08/08-08-frontend-rebuild-p0-vertical-slice/closeout-summary.md","reason":"P0 shipped-state evidence, green test baseline, primary source areas, and residual risks to preserve during P1."}

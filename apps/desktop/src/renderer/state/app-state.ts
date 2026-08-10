@@ -1,11 +1,17 @@
 import type {
   Document,
+  GlobalSearchHit,
   Project,
+  ProjectAnalyticsSummary,
+  ProjectBatchImportResult,
+  ProjectTemplate,
   QaGateResult,
   QaIssueView,
   QaRun,
+  RecycleEntry,
   SegmentCounts,
   SegmentEditorRow,
+  TemplateDependencyDiagnostic,
   TmEntry,
 } from "@translunar/contracts";
 
@@ -30,12 +36,20 @@ export type SurfaceKind =
   | "import-document"
   | "workbench"
   | "qa"
-  | "export";
+  | "export"
+  | "templates"
+  | "recycle"
+  | "search"
+  | "insights";
+
+export type ProjectListLifecycle = "active" | "archived";
 
 export interface SessionContext {
   session: SessionIdentity;
   project: Project;
   document: Document;
+  /** Engine-ordered active project documents (presentation cache). */
+  documents: Document[];
   rows: SegmentEditorRow[];
   counts: SegmentCounts | null;
 }
@@ -50,12 +64,18 @@ export type AppSurface =
       reason?: string;
       error?: UiError | null;
     }
-  | { kind: "welcome" }
+  | { kind: "welcome"; error?: UiError | null; pendingExample?: boolean }
   | {
       kind: "projects";
       projects: Project[];
+      lifecycle: ProjectListLifecycle;
+      total: number;
+      offset: number;
+      limit: number;
       error?: UiError | null;
       loading?: boolean;
+      pendingExample?: boolean;
+      actionError?: UiError | null;
     }
   | {
       kind: "create-project";
@@ -68,6 +88,8 @@ export type AppSurface =
       projectName: string;
       error?: UiError | null;
       pending?: boolean;
+      templateDiagnostics?: TemplateDependencyDiagnostic[] | null;
+      batchResult?: ProjectBatchImportResult | null;
     }
   | {
       kind: "workbench";
@@ -80,6 +102,9 @@ export type AppSurface =
       tmCollapsed: boolean;
       transitionError: UiError | null;
       pendingConfirm: boolean;
+      switchPending?: boolean;
+      batchResult?: ProjectBatchImportResult | null;
+      addFilesPending?: boolean;
     }
   | {
       kind: "qa";
@@ -99,6 +124,53 @@ export type AppSurface =
       exporting: boolean;
       error: UiError | null;
       resultPath: string | null;
+    }
+  | {
+      kind: "templates";
+      items: ProjectTemplate[];
+      total: number;
+      offset: number;
+      limit: number;
+      loading: boolean;
+      error: UiError | null;
+      pending: boolean;
+      selected: ProjectTemplate | null;
+      mode: "list" | "create" | "edit" | "use";
+    }
+  | {
+      kind: "recycle";
+      items: RecycleEntry[];
+      total: number;
+      offset: number;
+      limit: number;
+      loading: boolean;
+      error: UiError | null;
+      pending: boolean;
+    }
+  | {
+      kind: "search";
+      /** Last successfully committed query projection. */
+      submittedQuery: string;
+      /** Query currently in flight (not yet committed). */
+      pendingQuery: string | null;
+      items: GlobalSearchHit[];
+      total: number;
+      offset: number;
+      limit: number;
+      loading: boolean;
+      error: UiError | null;
+      navigationError: UiError | null;
+    }
+  | {
+      kind: "insights";
+      projectId: string;
+      projectName: string;
+      returnTo: "workbench" | "projects";
+      session: SessionIdentity | null;
+      analytics: ProjectAnalyticsSummary | null;
+      documents: Document[];
+      loading: boolean;
+      error: UiError | null;
     };
 
 export interface AppState {
@@ -144,6 +216,26 @@ export type AppAction =
   | {
       type: "PATCH_RECOVERY";
       patch: Partial<Extract<AppSurface, { kind: "recovery" }>>;
+    }
+  | {
+      type: "PATCH_TEMPLATES";
+      patch: Partial<Extract<AppSurface, { kind: "templates" }>>;
+    }
+  | {
+      type: "PATCH_RECYCLE";
+      patch: Partial<Extract<AppSurface, { kind: "recycle" }>>;
+    }
+  | {
+      type: "PATCH_SEARCH";
+      patch: Partial<Extract<AppSurface, { kind: "search" }>>;
+    }
+  | {
+      type: "PATCH_INSIGHTS";
+      patch: Partial<Extract<AppSurface, { kind: "insights" }>>;
+    }
+  | {
+      type: "PATCH_WELCOME";
+      patch: Partial<Extract<AppSurface, { kind: "welcome" }>>;
     };
 
 export function createInitialState(): AppState {
@@ -240,6 +332,41 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         surface: { ...state.surface, ...action.patch, kind: "recovery" },
+      };
+    }
+    case "PATCH_TEMPLATES": {
+      if (state.surface.kind !== "templates") return state;
+      return {
+        ...state,
+        surface: { ...state.surface, ...action.patch, kind: "templates" },
+      };
+    }
+    case "PATCH_RECYCLE": {
+      if (state.surface.kind !== "recycle") return state;
+      return {
+        ...state,
+        surface: { ...state.surface, ...action.patch, kind: "recycle" },
+      };
+    }
+    case "PATCH_SEARCH": {
+      if (state.surface.kind !== "search") return state;
+      return {
+        ...state,
+        surface: { ...state.surface, ...action.patch, kind: "search" },
+      };
+    }
+    case "PATCH_INSIGHTS": {
+      if (state.surface.kind !== "insights") return state;
+      return {
+        ...state,
+        surface: { ...state.surface, ...action.patch, kind: "insights" },
+      };
+    }
+    case "PATCH_WELCOME": {
+      if (state.surface.kind !== "welcome") return state;
+      return {
+        ...state,
+        surface: { ...state.surface, ...action.patch, kind: "welcome" },
       };
     }
     default:
