@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import type { Project, Segment } from "@translunar/contracts";
 
 import { AppChrome } from "./shell/AppChrome";
 import { BootGate } from "./shell/BootGate";
@@ -19,6 +20,10 @@ import { Workbench } from "./surfaces/Workbench";
 import { useAppController } from "./state/use-app-controller";
 import { useAssetController } from "./state/use-asset-controller";
 import { useEditorOperations } from "./state/use-editor-operations";
+import { useInteropController } from "./state/use-interop-controller";
+import { usePdfReview } from "./state/use-pdf-review";
+import { useReimportController } from "./state/use-reimport-controller";
+import { useTaskPackageController } from "./state/use-task-package-controller";
 
 export function App() {
   const { state, saveCoordinator, featureGeneration, commands } =
@@ -114,6 +119,149 @@ export function App() {
 
   useEffect(() => {
     assets.invalidate();
+  }, [featureGeneration]);
+
+  const pdfGateway = useMemo(
+    () => ({
+      generation: featureGeneration,
+      mutationsEnabled: state.mutationsEnabled,
+      documentId: workbenchCtx?.document.id ?? null,
+      activeSegmentId:
+        surface.kind === "workbench" ? surface.activeSegmentId : null,
+      flushOrStay: commands.flushOrStay,
+      onSegmentCorrected: async (segment: Segment) => {
+        await commands.refreshWorkbenchRows(segment.id);
+      },
+    }),
+    [
+      commands,
+      featureGeneration,
+      state.mutationsEnabled,
+      surface,
+      workbenchCtx?.document.id,
+    ],
+  );
+  const pdfReview = usePdfReview(pdfGateway);
+
+  useEffect(() => {
+    pdfReview.invalidate();
+  }, [featureGeneration]);
+
+  const reimportGateway = useMemo(
+    () => ({
+      generation: featureGeneration,
+      mutationsEnabled: state.mutationsEnabled,
+      documentId: workbenchCtx?.document.id ?? null,
+      documentRevision: workbenchCtx?.document.revision ?? 0,
+      flushOrStay: commands.flushOrStay,
+      onApplied: async () => {
+        await commands.refreshWorkbenchRows();
+      },
+    }),
+    [
+      commands,
+      featureGeneration,
+      state.mutationsEnabled,
+      workbenchCtx?.document.id,
+      workbenchCtx?.document.revision,
+    ],
+  );
+  const reimport = useReimportController(reimportGateway);
+
+  useEffect(() => {
+    reimport.invalidate();
+  }, [featureGeneration]);
+
+  const insightsProjectId =
+    surface.kind === "insights" ? surface.projectId : "";
+  const workbenchProject =
+    surface.kind === "workbench" ? surface.ctx.project : null;
+
+  const interopGateway = useMemo(() => {
+    const projectId =
+      insightsProjectId || workbenchProject?.id || "";
+    const document =
+      surface.kind === "workbench"
+        ? surface.ctx.document
+        : surface.kind === "insights" && surface.documents[0]
+          ? surface.documents[0]
+          : null;
+    return {
+      generation: featureGeneration,
+      mutationsEnabled:
+        state.mutationsEnabled && surface.kind === "insights",
+      projectId,
+      projectRevision: workbenchProject?.revision ?? 1,
+      documentId: document?.id ?? null,
+      documentRevision: document?.revision ?? 1,
+      ...(workbenchProject?.sourceLocale
+        ? { sourceLocale: workbenchProject.sourceLocale }
+        : {}),
+      ...(workbenchProject?.targetLocale
+        ? { targetLocale: workbenchProject.targetLocale }
+        : {}),
+      flushOrStay: commands.flushOrStay,
+      onReviewApplied: async () => {
+        await commands.refreshInsights();
+      },
+      onTableApplied: async () => {
+        /* library reload handled in controller */
+      },
+    };
+  }, [
+    commands,
+    featureGeneration,
+    insightsProjectId,
+    state.mutationsEnabled,
+    surface,
+    workbenchProject,
+  ]);
+  const interop = useInteropController(interopGateway);
+
+  useEffect(() => {
+    interop.invalidate();
+  }, [featureGeneration]);
+
+  const taskPackageGateway = useMemo(() => {
+    const documents =
+      surface.kind === "workbench"
+        ? surface.ctx.documents
+        : surface.kind === "insights"
+          ? surface.documents
+          : [];
+    const projectId =
+      workbenchProject?.id ??
+      (insightsProjectId !== "" ? insightsProjectId : null);
+    return {
+      generation: featureGeneration,
+      mutationsEnabled:
+        state.mutationsEnabled && surface.kind === "insights",
+      projectId,
+      projectRevision: workbenchProject?.revision ?? 1,
+      hasDocuments: documents.length > 0,
+      hasTaskPackageRef: Boolean(
+        workbenchProject?.configuration?.taskPackage,
+      ),
+      flushOrStay: commands.flushOrStay,
+      onApplied: async () => {
+        await commands.refreshInsights();
+      },
+      onImported: async (imported: Project) => {
+        await commands.openProject(imported.id);
+      },
+    };
+  }, [
+    commands,
+    featureGeneration,
+    insightsProjectId,
+    state.mutationsEnabled,
+    surface,
+    workbenchProject,
+  ]);
+  const taskPackage = useTaskPackageController(taskPackageGateway);
+
+  useEffect(() => {
+    taskPackage.invalidate();
   }, [featureGeneration]);
 
   return (
@@ -277,6 +425,8 @@ export function App() {
             batchResult={surface.batchResult ?? null}
             disabled={disabled}
             editorOps={editorOps}
+            pdfReview={pdfReview}
+            reimport={reimport}
             selectedSegmentIds={selectedSegmentIds}
             onToggleSelect={(id) => {
               setSelectedSegmentIds((prev) => {
@@ -456,6 +606,12 @@ export function App() {
             loading={surface.loading}
             error={surface.error}
             disabled={disabled}
+            interop={interop}
+            taskPackage={taskPackage}
+            hasDocument={
+              surface.documents.length > 0 ||
+              Boolean(surface.session?.documentId)
+            }
             onBack={() => {
               void commands.backFromInsights();
             }}

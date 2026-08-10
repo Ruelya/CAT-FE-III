@@ -1,0 +1,12 @@
+{"file": ".trellis/spec/frontend/electron-workbench.md", "reason": "Authoritative historical contracts for PDF page review, interop review/table, task packages, DesktopApi dialogs, and Engine method boundaries used by P3 rebuild."}
+{"file": ".trellis/spec/frontend/editor-assets.md", "reason": "P2 controller/gateway pattern (feature hooks, save-before, Engine authority) that P3 must extend without regressing."}
+{"file": ".trellis/spec/frontend/project-lifecycle.md", "reason": "Feature operation tokens, save-before-navigation, Insights surface identity, and P1 regression contracts."}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Session identity, SaveCoordinator, feature-op invalidation, and surface machine rules for new Insights sections and Workbench PDF dock."}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Phosphor icons, light/brown/no-glass tokens, IME/copy rules for new panels and dialogs."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Test matrix expectations, static glass/Lucide audits, viewport and a11y bars for desktop E2E."}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Renderer folder ownership (surfaces/workbench/state/shell) for placing P3 modules."}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "Hook orchestration patterns and feature-op usage for use-pdf-review / interop / task-package controllers."}
+{"file": ".trellis/spec/guides/autoloop-orchestration.md", "reason": "Autoloop phase boundaries for plan→implement→review without expanding plan into product code."}
+{"file": ".trellis/tasks/08-10-frontend-rebuild-p3-interop-pdf/prd.md", "reason": "P3 requirements and acceptance criteria for PDF, interop, task packages, and reimport."}
+{"file": ".trellis/tasks/08-10-frontend-rebuild-p3-interop-pdf/design.md", "reason": "Boundaries, data flows, pure helpers, error matrix, and rollback for implementers."}
+{"file": ".trellis/tasks/08-10-frontend-rebuild-p3-interop-pdf/implement.md", "reason": "Ordered work packages, gates, validation commands, and risk mitigations."}

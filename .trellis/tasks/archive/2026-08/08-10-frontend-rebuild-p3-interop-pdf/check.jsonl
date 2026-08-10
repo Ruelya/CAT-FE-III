@@ -1,0 +1,9 @@
+{"file": ".trellis/spec/frontend/electron-workbench.md", "reason": "Verify PDF/interop/task-package contracts still match implementation (lazy page get, eligible rows, safe apply, dialog ownership)."}
+{"file": ".trellis/spec/frontend/editor-assets.md", "reason": "Verify P2 editor/assets behavior remains intact and P3 hooks follow the same gateway discipline."}
+{"file": ".trellis/spec/frontend/project-lifecycle.md", "reason": "Verify save-before-nav to Insights and feature-op reconnect invalidation for P3 mutations."}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Verify session-v1 identity-only persistence and no domain blobs dumped into the global reducer."}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Verify Phosphor-only icons, light/brown tokens, no glass, and copy constraints on new UI."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify unit/E2E/static gates and viewport/a11y expectations for P3 panels."}
+{"file": ".trellis/tasks/08-10-frontend-rebuild-p3-interop-pdf/prd.md", "reason": "Acceptance checklist AC1–AC10 for review/verify mission."}
+{"file": ".trellis/tasks/08-10-frontend-rebuild-p3-interop-pdf/design.md", "reason": "Design boundaries and error matrix for review against shipped code."}
+{"file": ".trellis/tasks/08-10-frontend-rebuild-p3-interop-pdf/implement.md", "reason": "Work-package completion and validation command coverage."}

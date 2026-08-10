@@ -43,6 +43,26 @@ function rowFromSegment(segment: Segment): SegmentEditorRow {
   };
 }
 
+export interface FakePdfPage {
+  page: number;
+  width: number;
+  height: number;
+  imagePngBase64: string;
+  blocks: Array<{
+    segmentId: string;
+    sourceKind: string;
+    state: Segment["state"];
+    sourceText: string;
+    targetText: string;
+    revision: number;
+    kind: string;
+    confidence: number;
+    bbox: { x: number; y: number; width: number; height: number };
+  }>;
+  segmentIds: string[];
+  ocrBlockCount: number;
+}
+
 export interface FakeEngineState {
   projects: Project[];
   documents: Document[];
@@ -55,6 +75,11 @@ export interface FakeEngineState {
   sourcePath: string | null;
   sourcePaths: string[] | null;
   exportPath: string | null;
+  interopReviewPath: string | null;
+  interopTablePath: string | null;
+  taskPackagePath: string | null;
+  /** Optional PDF pages keyed by documentId. */
+  pdfPagesByDocument: Record<string, FakePdfPage[]>;
   journal: DraftJournalRecord[];
   calls: Array<{ method: string; params: unknown }>;
   gateClear: boolean;
@@ -84,6 +109,10 @@ export function createFakeEngineState(
     sourcePath: null,
     sourcePaths: null,
     exportPath: null,
+    interopReviewPath: null,
+    interopTablePath: null,
+    taskPackagePath: null,
+    pdfPagesByDocument: {},
     journal: [],
     calls: [],
     gateClear: true,
@@ -1425,6 +1454,402 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
             sha256: "abc",
           } as EngineResult<Method>;
         }
+        // P3 PDF
+        case "pdf.page.list": {
+          const p = params as EngineParams<"pdf.page.list">;
+          const pages = state.pdfPagesByDocument[p.documentId] ?? [];
+          return {
+            pages: pages.map((pg) => ({
+              page: pg.page,
+              width: pg.width,
+              height: pg.height,
+              blockCount: pg.blocks.length,
+              ocrBlockCount: pg.ocrBlockCount,
+              segmentIds: [...pg.segmentIds],
+            })),
+          } as EngineResult<Method>;
+        }
+        case "pdf.page.get": {
+          const p = params as EngineParams<"pdf.page.get">;
+          const pages = state.pdfPagesByDocument[p.documentId] ?? [];
+          const page = pages.find((pg) => pg.page === p.page);
+          if (!page) {
+            return Promise.reject({
+              code: "NOT_FOUND",
+              message: "Page not found",
+            }) as never;
+          }
+          return {
+            page: page.page,
+            dpi: p.dpi ?? 144,
+            width: page.width,
+            height: page.height,
+            imagePngBase64: page.imagePngBase64,
+            blocks: page.blocks.map((b) => ({
+              segmentId: b.segmentId,
+              sourceKind: b.sourceKind,
+              state: b.state,
+              sourceText: b.sourceText,
+              targetText: b.targetText,
+              revision: b.revision,
+              kind: b.kind,
+              confidence: b.confidence,
+              bbox: { ...b.bbox },
+            })),
+          } as EngineResult<Method>;
+        }
+        case "pdf.correctOcr": {
+          const p = params as EngineParams<"pdf.correctOcr">;
+          const seg = state.segments.find((s) => s.id === p.segmentId);
+          if (!seg) {
+            return Promise.reject({
+              code: "NOT_FOUND",
+              message: "Segment not found",
+            }) as never;
+          }
+          if (seg.revision !== p.expectedRevision) {
+            return Promise.reject({
+              code: "REVISION_CONFLICT",
+              message: "Revision conflict",
+            }) as never;
+          }
+          seg.sourceText = p.sourceText;
+          seg.revision += 1;
+          seg.updatedAtMs = Date.now();
+          // Keep PDF block cache in sync when present.
+          for (const pages of Object.values(state.pdfPagesByDocument)) {
+            for (const page of pages) {
+              for (const block of page.blocks) {
+                if (block.segmentId === p.segmentId) {
+                  block.sourceText = p.sourceText;
+                  block.revision = seg.revision;
+                }
+              }
+            }
+          }
+          return { ...seg } as EngineResult<Method>;
+        }
+        // P3 interop
+        case "interop.review.export": {
+          const p = params as EngineParams<"interop.review.export">;
+          return {
+            outputPath: p.outputPath,
+            rowCount: 1,
+            manifestHash: "manifest-review",
+          } as EngineResult<Method>;
+        }
+        case "interop.review.preview": {
+          const p = params as EngineParams<"interop.review.preview">;
+          const offset = p.offset ?? 0;
+          const limit = p.limit ?? 50;
+          const rows = [
+            {
+              rowId: "rr-1",
+              ordinal: 1,
+              sourceRow: 2,
+              disposition: "changed" as const,
+              segmentId: state.segments[0]?.id ?? "seg-1",
+              expectedSegmentRevision: state.segments[0]?.revision ?? 1,
+              sourceHash: "sh",
+              sourceText: state.segments[0]?.sourceText ?? "Hello",
+              targetText: "Bonjour",
+              currentTarget: state.segments[0]?.targetText ?? "",
+              currentStatus: "draft",
+              statusContext: "",
+              comments: "",
+              currentComments: "",
+              diagnostics: [] as string[],
+            },
+            {
+              rowId: "rr-2",
+              ordinal: 2,
+              sourceRow: 3,
+              disposition: "unchanged" as const,
+              segmentId: null,
+              expectedSegmentRevision: null,
+              sourceHash: "sh2",
+              sourceText: "Other",
+              targetText: "Autre",
+              currentTarget: "Autre",
+              currentStatus: "confirmed",
+              statusContext: "",
+              comments: "",
+              currentComments: "",
+              diagnostics: [] as string[],
+            },
+          ];
+          return {
+            previewId: p.previewId ?? "preview-review-1",
+            projectId: p.projectId,
+            documentId: p.documentId,
+            expectedDocumentRevision: p.expectedDocumentRevision,
+            inputFormat: "docx",
+            inputSha256: "sha-review",
+            manifestHash: "manifest-review",
+            status: "open" as const,
+            offset,
+            limit,
+            total: rows.length,
+            rows: rows.slice(offset, offset + limit),
+          } as EngineResult<Method>;
+        }
+        case "interop.review.apply": {
+          const p = params as EngineParams<"interop.review.apply">;
+          return {
+            previewId: p.previewId,
+            appliedCount: p.selectedRowIds.length,
+            skippedCount: 0,
+            status: "applied" as const,
+            currentRevision: p.expectedDocumentRevision + 1,
+            operationId: "op-review",
+            reviewIds: p.selectedRowIds,
+            commentIds: [],
+            tmUnitIds: [],
+          } as EngineResult<Method>;
+        }
+        case "interop.table.preview": {
+          const p = params as EngineParams<"interop.table.preview">;
+          const offset = p.offset ?? 0;
+          const limit = p.limit ?? 50;
+          const rows = [
+            {
+              rowId: "tr-1",
+              ordinal: 1,
+              sourceRow: 2,
+              disposition: "valid" as const,
+              sourceHash: "th1",
+              sourcePathHash: "ph1",
+              sourceText: "Source A",
+              targetText: "Target A",
+              structuralPath: "1",
+              metadata: {},
+              diagnostics: [] as string[],
+            },
+            {
+              rowId: "tr-2",
+              ordinal: 2,
+              sourceRow: 3,
+              disposition: "invalid" as const,
+              sourceHash: "th2",
+              sourcePathHash: "ph2",
+              sourceText: "Source B",
+              targetText: "",
+              structuralPath: "2",
+              metadata: {},
+              diagnostics: ["empty target"],
+            },
+          ];
+          return {
+            previewId: p.previewId ?? "preview-table-1",
+            projectId: p.projectId,
+            libraryId: p.libraryId,
+            expectedLibraryRevision: p.expectedLibraryRevision,
+            sourceLocale: p.sourceLocale,
+            targetLocale: p.targetLocale,
+            inputFormat: "xlsx",
+            inputSha256: "sha-table",
+            status: "open" as const,
+            offset,
+            limit,
+            total: rows.length,
+            rows: rows.slice(offset, offset + limit),
+          } as EngineResult<Method>;
+        }
+        case "interop.table.apply": {
+          const p = params as EngineParams<"interop.table.apply">;
+          return {
+            previewId: p.previewId,
+            appliedCount: p.selectedRowIds.length,
+            skippedCount: 0,
+            status: "applied" as const,
+            currentRevision: p.expectedLibraryRevision + 1,
+            operationId: "op-table",
+            reviewIds: [],
+            commentIds: [],
+            tmUnitIds: p.selectedRowIds.map((id) => `tm-${id}`),
+          } as EngineResult<Method>;
+        }
+        // P3 task packages
+        case "taskPackage.export": {
+          const p = params as EngineParams<"taskPackage.export">;
+          return {
+            packageId: "pkg-1",
+            packagePath: p.destinationPath,
+            packageSha256: "pkg-sha",
+            manifestHash: "pkg-manifest",
+            kind: p.kind,
+            status: "exported",
+          } as EngineResult<Method>;
+        }
+        case "taskPackage.preview": {
+          const p = params as EngineParams<"taskPackage.preview">;
+          const offset = p.offset ?? 0;
+          const limit = p.limit ?? 50;
+          const rows = [
+            {
+              rowId: "tp-1",
+              ordinal: 1,
+              disposition: "remoteChanged" as const,
+              safeToApply: true,
+              selected: false,
+              identicalChange: false,
+              originDocumentId: state.documents[0]?.id ?? "doc-1",
+              originSegmentId: state.segments[0]?.id ?? "seg-1",
+              reason: "remote",
+              currentRevision: 1,
+              remoteRevision: 2,
+            },
+            {
+              rowId: "tp-2",
+              ordinal: 2,
+              disposition: "bothChanged" as const,
+              safeToApply: false,
+              selected: false,
+              identicalChange: false,
+              originDocumentId: state.documents[0]?.id ?? "doc-1",
+              originSegmentId: state.segments[1]?.id ?? "seg-2",
+              reason: "conflict",
+              currentRevision: 2,
+              remoteRevision: 3,
+            },
+          ];
+          return {
+            previewId: p.previewId ?? "preview-task-1",
+            packageId: "pkg-1",
+            projectId: state.projects[0]?.id ?? "proj-1",
+            kind: "assignment" as const,
+            status: "open",
+            manifestHash: "pkg-manifest",
+            expectedProjectRevision: state.projects[0]?.revision ?? 1,
+            offset,
+            limit,
+            total: rows.length,
+            rows: rows.slice(offset, offset + limit),
+            counts: {
+              total: rows.length,
+              unchanged: 0,
+              remoteChanged: 1,
+              localChanged: 0,
+              bothChanged: 1,
+              deleted: 0,
+              added: 0,
+              tagInvalid: 0,
+              missingDependency: 0,
+            },
+            diagnostics: [],
+          } as EngineResult<Method>;
+        }
+        case "taskPackage.apply": {
+          const p = params as EngineParams<"taskPackage.apply">;
+          const project = state.projects[0];
+          if (project) project.revision = p.expectedProjectRevision + 1;
+          return {
+            previewId: p.previewId,
+            appliedCount: p.selectedRowIds.length,
+            selectedCount: p.selectedRowIds.length,
+            skippedCount: 0,
+            status: "applied",
+            projectRevision: project?.revision ?? p.expectedProjectRevision + 1,
+            documentRevisions: {},
+            segmentIds: p.selectedRowIds,
+            operationId: "op-task",
+          } as EngineResult<Method>;
+        }
+        case "taskPackage.import": {
+          const p = params as EngineParams<"taskPackage.import">;
+          const project: Project = {
+            id: `proj-import-${state.projects.length + 1}`,
+            name: p.projectName ?? "Imported task",
+            domain: p.domain ?? "general",
+            sourceLocale: "en",
+            targetLocale: "zh",
+            lifecycle: "active",
+            revision: 1,
+            createdAtMs: Date.now(),
+            updatedAtMs: Date.now(),
+            configuration: {
+              taskPackage: {
+                packageId: "pkg-1",
+                originProjectId: "origin-1",
+              },
+            },
+          };
+          state.projects.push(project);
+          return {
+            previewId: p.previewId,
+            packageId: "pkg-1",
+            project,
+            documents: [],
+            bindingCount: 1,
+          } as EngineResult<Method>;
+        }
+        case "taskPackage.discard": {
+          const p = params as EngineParams<"taskPackage.discard">;
+          return {
+            packageId: p.packageId,
+            previewId: p.previewId ?? null,
+            removedStagedFile: true,
+            status: "discarded",
+          } as EngineResult<Method>;
+        }
+        // P3 reimport
+        case "document.reimport.preview": {
+          const p = params as EngineParams<"document.reimport.preview">;
+          return {
+            previewId: "reimport-preview-1",
+            documentId: p.documentId,
+            expectedDocumentRevision: p.expectedRevision,
+            candidateSourceSha256: "reimport-sha",
+            createdAtMs: Date.now(),
+            plan: {
+              unchanged: 1,
+              changed: 1,
+              newSegments: 0,
+              removed: 0,
+              ambiguous: 0,
+              items: [
+                {
+                  disposition: "unchanged" as const,
+                  reason: "same",
+                  oldSegmentId: state.segments[0]?.id ?? "seg-1",
+                  oldOrdinal: 1,
+                  newSegmentId: state.segments[0]?.id ?? "seg-1",
+                  newOrdinal: 1,
+                },
+                {
+                  disposition: "changed" as const,
+                  reason: "source changed",
+                  oldSegmentId: state.segments[0]?.id ?? "seg-1",
+                  oldOrdinal: 1,
+                  newSegmentId: state.segments[0]?.id ?? "seg-1",
+                  newOrdinal: 1,
+                },
+              ],
+            },
+          } as EngineResult<Method>;
+        }
+        case "document.reimport.apply": {
+          const p = params as EngineParams<"document.reimport.apply">;
+          const doc =
+            state.documents.find(
+              (d) => d.revision === p.expectedDocumentRevision,
+            ) ?? state.documents[0];
+          if (!doc) {
+            return Promise.reject({
+              code: "NOT_FOUND",
+              message: "Document not found",
+            }) as never;
+          }
+          if (doc.revision !== p.expectedDocumentRevision) {
+            return Promise.reject({
+              code: "REVISION_CONFLICT",
+              message: "Revision conflict",
+            }) as never;
+          }
+          doc.revision += 1;
+          doc.updatedAtMs = Date.now();
+          return { ...doc } as EngineResult<Method>;
+        }
         default:
           return Promise.reject({
             code: "UNSUPPORTED",
@@ -1442,8 +1867,9 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
     selectProjectArchive: async () => null,
     selectProjectArchiveDestination: async () => null,
     selectExportPath: async () => state.exportPath,
-    selectInteropInput: async () => null,
-    selectTaskPackageInput: async () => null,
+    selectInteropInput: async (kind) =>
+      kind === "review" ? state.interopReviewPath : state.interopTablePath,
+    selectTaskPackageInput: async () => state.taskPackagePath,
     selectCorpusInput: async () => null,
     selectPluginPackage: async () => null,
     issuePluginPanelSession: async () => {
