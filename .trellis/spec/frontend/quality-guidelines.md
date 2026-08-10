@@ -22,7 +22,7 @@ the real engine and an isolated data directory.
 `pnpm build:desktop` before that focused command. The final
 `pnpm test:e2e:desktop` gate builds automatically and remains authoritative.
 
-### P0 static appearance audit
+### Static appearance / icon audit (P0–P4)
 
 These searches must produce no renderer matches for forbidden materials/icons:
 
@@ -30,8 +30,12 @@ These searches must produce no renderer matches for forbidden materials/icons:
 rg -n "backdrop-filter|-webkit-backdrop-filter|lucide-react" apps/desktop/src/renderer
 ```
 
-Theme/accent strings are allowed only as fixed appearance constants and CSS
-tokens — not as settings controls or storage keys.
+Appearance preference is the versioned renderer key
+`translunar.renderer.appearance.v1` (`state/appearance.ts`) with theme +
+`accentSeed` only. Defaults remain light and advanced-brown `#765847`. Do not
+store theme/accent in `ProductShellSettings`. Semantic success/warning/error
+tokens stay theme-fixed and independent of the custom accent seed. CSS tokens
+and pure derivation helpers remain the only operational color source.
 
 ## Test Expectations
 
@@ -46,14 +50,21 @@ Unit tests cover pure interaction guards and controller transitions:
 - Save coordinator: generations, flush stability while typing, journal error
   without Engine rollback (`state/save-coordinator.test.ts`)
 - Draft recovery classification and multi-record retention
-- Appearance/tokens: light + advanced brown defaults, required vars, forbidden
-  glass CSS (`state/appearance.test.ts`)
+- Appearance/tokens: light + advanced brown defaults, dark/custom seed, total
+  parse fallback, contrast/semantic independence, forbidden glass CSS
+  (`state/appearance.test.ts`)
 - Recovery dialog keyboard: initial focus, trap, non-destructive Escape
 - P1 pure helpers: document aggregate/post-delete route, template definition
   merge, search hit classify, analytics availability formatting
 - P1 integration (`App.p1.integration.test.tsx`): batch import cancel/mixed,
   document switch save-before, templates, recycle restore/purge, search nav,
   insights, example, archive/update, stale feature-op guards
+- P4 pure helpers: schema merge, external connector builder, restore decoder,
+  update command matrix, P4 route context (`ai-view`, `external-connector-request`,
+  `product-settings-view`, `p4-route-context`, collab/plugin view tests)
+- P4 controllers/surfaces: generation-scoped ops, secret lifecycle, panel
+  revoke, runnable-profile honesty, offset paging (see
+  [ai-plugins-settings.md](./ai-plugins-settings.md))
 
 Do not mock the engine to claim persistence coverage in E2E. Integration tests
 may use a typed `DesktopApi` fake at the renderer boundary
@@ -76,6 +87,17 @@ Prefer `tests/e2e/p2-editor-assets.spec.ts`. Keep P0/P1 specs green.
 Catalog/curation may remain presence-level in E2E when controller unit tests
 own exact RPC params and rollback boolean contracts — see
 [editor-assets.md](./editor-assets.md) residual notes.
+
+Desktop E2E (P3 interop/PDF) and (P4 AI/plugins/settings) use real Engine with
+always-on reachability plus **explicit fixture-gated skips** only when named
+env fixtures are absent. Prefer `tests/e2e/p3-interop-pdf.spec.ts` and
+`tests/e2e/p4-ai-plugins-settings.spec.ts`. P4 always-on covers chrome
+reachability, local collab when a project exists, appearance persistence
+across relaunch, locale/settings non-destructive paths, and console-error
+absence. Deep AI/plugin/connector paths may skip with
+`TRANSLUNAR_P4_LOOPBACK_AI`, `TRANSLUNAR_P4_PLUGIN_FIXTURE`, or
+`TRANSLUNAR_P4_CONNECTOR_FIXTURE` — see
+[ai-plugins-settings.md](./ai-plugins-settings.md).
 
 ### P2 unit / integration expectations
 
@@ -101,6 +123,10 @@ these landmarks when accessible names collide (especially Recycle vs Workbench
 | `global-search` | Search surface root |
 | `nav-search` | Chrome Search |
 | `nav-insights` | Chrome Insights |
+| `nav-ai-control` | Chrome AI Control (P4) |
+| `nav-plugins` | Chrome Plugins (P4) |
+| `nav-collaboration` | Chrome Collaboration (project-gated, P4) |
+| `nav-settings` | Chrome Settings (P4) |
 
 P0 Home Open must target the **Listed** project row’s exact `Open` name — not
 the global Open example control.

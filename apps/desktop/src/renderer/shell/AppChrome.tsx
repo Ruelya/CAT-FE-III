@@ -2,12 +2,17 @@ import {
   ChartLine,
   Export,
   FolderSimple,
+  GearSix,
   House,
   MagnifyingGlass,
+  Plugs,
+  Robot,
   SealCheck,
+  UsersThree,
 } from "@phosphor-icons/react";
 
 import type { AppState } from "../state/app-state";
+import { collaborationAvailable, resolveP4RouteContext } from "../state/p4-route-context";
 
 export interface AppChromeProps {
   state: AppState;
@@ -17,6 +22,10 @@ export interface AppChromeProps {
   onExport: () => void;
   onInsights: () => void;
   onAssets?: () => void;
+  onAiControl?: () => void;
+  onPlugins?: () => void;
+  onCollaboration?: () => void;
+  onSettings?: () => void;
 }
 
 export function AppChrome({
@@ -27,6 +36,10 @@ export function AppChrome({
   onExport,
   onInsights,
   onAssets,
+  onAiControl,
+  onPlugins,
+  onCollaboration,
+  onSettings,
 }: AppChromeProps) {
   const surface = state.surface;
 
@@ -49,7 +62,15 @@ export function AppChrome({
                   ? "Recycle"
                   : surface.kind === "search"
                     ? "Search"
-                    : "";
+                    : surface.kind === "ai-control"
+                      ? "AI Control"
+                      : surface.kind === "plugins"
+                        ? "Plugins"
+                        : surface.kind === "collaboration"
+                          ? "Collaboration"
+                          : surface.kind === "settings"
+                            ? "Settings"
+                            : "";
 
   const startupResolved =
     surface.kind !== "boot" && surface.kind !== "recovery";
@@ -72,6 +93,11 @@ export function AppChrome({
       surface.kind === "export" ||
       surface.kind === "assets" ||
       (surface.kind === "insights" && surface.returnTo === "workbench"));
+  const showP4Global = startupResolved;
+  const showCollaboration =
+    showP4Global &&
+    Boolean(onCollaboration) &&
+    collaborationAvailable(resolveP4RouteContext(surface));
   const disabled = !state.mutationsEnabled;
 
   return (
@@ -96,6 +122,7 @@ export function AppChrome({
               type="button"
               className="btn btn--ghost btn--icon"
               aria-label="Home"
+              title="Home"
               aria-current={
                 surface.kind === "projects" ||
                 surface.kind === "welcome" ||
@@ -113,6 +140,7 @@ export function AppChrome({
               type="button"
               className="btn btn--ghost btn--icon"
               aria-label="Search"
+              title="Search"
               aria-current={surface.kind === "search" ? "page" : undefined}
               disabled={disabled}
               onClick={onSearch}
@@ -129,6 +157,7 @@ export function AppChrome({
                 type="button"
                 className="btn btn--ghost btn--icon"
                 aria-label="Assets"
+                title="Assets"
                 aria-current={surface.kind === "assets" ? "page" : undefined}
                 disabled={disabled}
                 onClick={onAssets}
@@ -142,6 +171,7 @@ export function AppChrome({
                 type="button"
                 className="btn btn--ghost btn--icon"
                 aria-label="Insights"
+                title="Insights"
                 aria-current={surface.kind === "insights" ? "page" : undefined}
                 disabled={disabled}
                 onClick={onInsights}
@@ -156,6 +186,7 @@ export function AppChrome({
                   type="button"
                   className="btn btn--ghost btn--icon"
                   aria-label="QA"
+                  title="QA"
                   aria-current={surface.kind === "qa" ? "page" : undefined}
                   disabled={disabled}
                   onClick={onQa}
@@ -166,6 +197,7 @@ export function AppChrome({
                   type="button"
                   className="btn btn--ghost btn--icon"
                   aria-label="Export"
+                  title="Export"
                   aria-current={surface.kind === "export" ? "page" : undefined}
                   disabled={disabled}
                   onClick={onExport}
@@ -175,6 +207,64 @@ export function AppChrome({
               </>
             ) : null}
           </>
+        ) : null}
+        {showP4Global && onAiControl ? (
+          <button
+            type="button"
+            className="btn btn--ghost btn--icon"
+            aria-label="AI Control"
+            title="AI Control"
+            aria-current={surface.kind === "ai-control" ? "page" : undefined}
+            disabled={disabled}
+            onClick={onAiControl}
+            data-testid="nav-ai-control"
+          >
+            <Robot size={18} weight="regular" />
+          </button>
+        ) : null}
+        {showP4Global && onPlugins ? (
+          <button
+            type="button"
+            className="btn btn--ghost btn--icon"
+            aria-label="Plugins"
+            title="Plugins"
+            aria-current={surface.kind === "plugins" ? "page" : undefined}
+            disabled={disabled}
+            onClick={onPlugins}
+            data-testid="nav-plugins"
+          >
+            <Plugs size={18} weight="regular" />
+          </button>
+        ) : null}
+        {showCollaboration ? (
+          <button
+            type="button"
+            className="btn btn--ghost btn--icon"
+            aria-label="Collaboration"
+            title="Collaboration"
+            aria-current={
+              surface.kind === "collaboration" ? "page" : undefined
+            }
+            disabled={disabled}
+            onClick={onCollaboration}
+            data-testid="nav-collaboration"
+          >
+            <UsersThree size={18} weight="regular" />
+          </button>
+        ) : null}
+        {showP4Global && onSettings ? (
+          <button
+            type="button"
+            className="btn btn--ghost btn--icon"
+            aria-label="Settings"
+            title="Settings"
+            aria-current={surface.kind === "settings" ? "page" : undefined}
+            disabled={disabled}
+            onClick={onSettings}
+            data-testid="nav-settings"
+          >
+            <GearSix size={18} weight="regular" />
+          </button>
         ) : null}
       </div>
     </header>

@@ -1,0 +1,15 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Review baseline for all active frontend contracts and the required P0-P4 pre-development/quality checklist."}
+{"file":".trellis/spec/frontend/electron-workbench.md","reason":"Review P4 against the trusted Electron boundary, save-before-nav, session, appearance, AI, plugin, dialog, and real-Engine workbench contracts."}
+{"file":".trellis/spec/frontend/project-lifecycle.md","reason":"Review route transitions, identity-only persistence, revision authority, feature-op invalidation, and P0/P1 regression behavior."}
+{"file":".trellis/spec/frontend/editor-assets.md","reason":"Review P4 controller ownership and shared save/token/unknown-preserving patterns against P2 implementation conventions."}
+{"file":".trellis/spec/frontend/interop-pdf.md","reason":"Review P4 additions for P3 surface composition, complete state/error/cancel behavior, and no regression to interop/PDF/task flows."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Review file placement and boundary ownership; reject renderer monoliths, direct IPC, and parser leakage."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Review visual system, Phosphor/accessibility/dialog/focus/layout/copy requirements across every P4 surface."}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"Review async cleanup, timers, reconnect/unmount races, token ownership, and save/IME handoff in P4 controllers."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Review Engine authority, localStorage secrecy/session limits, reconnect behavior, and cross-surface state ownership."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Review generated contract usage, unknown decoders, strict unions, bridge isolation, and absence of parallel interfaces."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Review required static/unit/type/build/E2E/a11y/overflow/console gates and P0-P3 regression matrix."}
+{"file":".trellis/spec/backend/engine-boundary.md","reason":"Review that AI/plugin/connector/collaboration UI does not invent or weaken Engine authority, revisions, permissions, secrets, or errors."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Review safe structured error presentation and policy/conflict/permission/connector failure handling."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Review renderer-to-IPC-to-Engine-to-plugin-panel data flows and boundary validation evidence."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Review for duplicated decoders, command tables, state machines, icon/dialog patterns, and accidental alternate authorities."}

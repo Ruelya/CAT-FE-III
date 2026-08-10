@@ -30,11 +30,21 @@ import {
   createInitialState,
   readTmCollapsed,
   writeTmCollapsed,
+  type AiControlSection,
   type AppState,
   type AssetHubSection,
+  type CollaborationSection,
+  type PluginsSection,
   type ProjectListLifecycle,
   type SessionContext,
+  type SettingsSection,
 } from "./app-state";
+import {
+  collaborationAvailable,
+  defaultAiSection,
+  resolveP4ReturnTarget,
+  resolveP4RouteContext,
+} from "./p4-route-context";
 import { countsFromEditorRows } from "./editor-operations";
 // AppState imported for FeatureOp origin typing.
 import {
@@ -243,6 +253,17 @@ export interface AppController {
     goAssets: (projectId?: string) => Promise<void>;
     setAssetsSection: (section: AssetHubSection) => void;
     backFromAssets: () => Promise<void>;
+    goAiControl: (section?: AiControlSection) => Promise<void>;
+    setAiControlSection: (section: AiControlSection) => void;
+    goPlugins: (section?: PluginsSection) => Promise<void>;
+    setPluginsSection: (section: PluginsSection) => void;
+    goCollaboration: (section?: CollaborationSection) => Promise<void>;
+    setCollaborationSection: (section: CollaborationSection) => void;
+    goSettings: (section?: SettingsSection) => Promise<void>;
+    setSettingsSection: (section: SettingsSection) => void;
+    backFromP4: () => Promise<void>;
+    /** After workspace restore: clear session and cold-route from Engine/shell. */
+    coldRouteAfterRestore: () => Promise<void>;
     /** Apply authoritative editor rows after P2 mutations. */
     applyWorkbenchRows: (input: {
       rows: SegmentEditorRow[];
@@ -2749,6 +2770,181 @@ export function useAppController(): AppController {
           return;
         }
         await resolveHome();
+      },
+
+      goAiControl: async (section) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind === "workbench") {
+          if (surface.pendingConfirm || surface.switchPending) return;
+          if (saveCoordinator.active?.isComposing) return;
+          const ok = await flushOrStay();
+          if (!ok) return;
+        }
+        const current = stateRef.current.surface;
+        const context = resolveP4RouteContext(current);
+        const returnTarget = resolveP4ReturnTarget(current);
+        invalidateFeatureOps();
+        dispatch({
+          type: "SET_SURFACE",
+          surface: {
+            kind: "ai-control",
+            returnTarget,
+            context,
+            section: section ?? defaultAiSection(context),
+          },
+        });
+      },
+
+      setAiControlSection: (section) => {
+        if (stateRef.current.surface.kind !== "ai-control") return;
+        dispatch({ type: "PATCH_AI_CONTROL", patch: { section } });
+      },
+
+      goPlugins: async (section) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind === "workbench") {
+          if (surface.pendingConfirm || surface.switchPending) return;
+          if (saveCoordinator.active?.isComposing) return;
+          const ok = await flushOrStay();
+          if (!ok) return;
+        }
+        const current = stateRef.current.surface;
+        const context = resolveP4RouteContext(current);
+        const returnTarget = resolveP4ReturnTarget(current);
+        invalidateFeatureOps();
+        dispatch({
+          type: "SET_SURFACE",
+          surface: {
+            kind: "plugins",
+            returnTarget,
+            context,
+            section: section ?? "installed",
+          },
+        });
+      },
+
+      setPluginsSection: (section) => {
+        if (stateRef.current.surface.kind !== "plugins") return;
+        dispatch({ type: "PATCH_PLUGINS", patch: { section } });
+      },
+
+      goCollaboration: async (section) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind === "workbench") {
+          if (surface.pendingConfirm || surface.switchPending) return;
+          if (saveCoordinator.active?.isComposing) return;
+          const ok = await flushOrStay();
+          if (!ok) return;
+        }
+        const current = stateRef.current.surface;
+        const context = resolveP4RouteContext(current);
+        if (!collaborationAvailable(context)) return;
+        const returnTarget = resolveP4ReturnTarget(current);
+        invalidateFeatureOps();
+        dispatch({
+          type: "SET_SURFACE",
+          surface: {
+            kind: "collaboration",
+            returnTarget,
+            context,
+            section: section ?? "members",
+          },
+        });
+      },
+
+      setCollaborationSection: (section) => {
+        if (stateRef.current.surface.kind !== "collaboration") return;
+        dispatch({ type: "PATCH_COLLABORATION", patch: { section } });
+      },
+
+      goSettings: async (section) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind === "workbench") {
+          if (surface.pendingConfirm || surface.switchPending) return;
+          if (saveCoordinator.active?.isComposing) return;
+          const ok = await flushOrStay();
+          if (!ok) return;
+        }
+        const current = stateRef.current.surface;
+        const context = resolveP4RouteContext(current);
+        const returnTarget = resolveP4ReturnTarget(current);
+        invalidateFeatureOps();
+        dispatch({
+          type: "SET_SURFACE",
+          surface: {
+            kind: "settings",
+            returnTarget,
+            context,
+            section: section ?? "locale",
+          },
+        });
+      },
+
+      setSettingsSection: (section) => {
+        if (stateRef.current.surface.kind !== "settings") return;
+        dispatch({ type: "PATCH_SETTINGS", patch: { section } });
+      },
+
+      backFromP4: async () => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (
+          surface.kind !== "ai-control" &&
+          surface.kind !== "plugins" &&
+          surface.kind !== "collaboration" &&
+          surface.kind !== "settings"
+        ) {
+          return;
+        }
+        invalidateFeatureOps();
+        const target = surface.returnTarget;
+        if (target.kind === "workbench") {
+          try {
+            const ctx = await hydrateSession(target.session);
+            enterWorkbench(ctx, {
+              persistSession: true,
+              ...(target.activeSegmentId
+                ? { focusSegmentId: target.activeSegmentId }
+                : {}),
+            });
+          } catch (error) {
+            const patchKey =
+              surface.kind === "ai-control"
+                ? ("PATCH_AI_CONTROL" as const)
+                : surface.kind === "plugins"
+                  ? ("PATCH_PLUGINS" as const)
+                  : surface.kind === "collaboration"
+                    ? ("PATCH_COLLABORATION" as const)
+                    : ("PATCH_SETTINGS" as const);
+            void patchKey;
+            void error;
+            await resolveHome();
+          }
+          return;
+        }
+        if (target.kind === "welcome") {
+          dispatch({
+            type: "SET_SURFACE",
+            surface: { kind: "welcome", error: null },
+          });
+          return;
+        }
+        await resolveHome();
+      },
+
+      coldRouteAfterRestore: async () => {
+        clearSessionStorage();
+        saveCoordinator.clearActive();
+        invalidateFeatureOps();
+        try {
+          await resolveHome();
+        } catch (error) {
+          dispatch({ type: "SET_BOOT_ERROR", error: toUiError(error) });
+        }
       },
 
       applyWorkbenchRows: (input) => {

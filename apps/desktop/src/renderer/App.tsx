@@ -5,11 +5,15 @@ import { AppChrome } from "./shell/AppChrome";
 import { BootGate } from "./shell/BootGate";
 import { EngineStatusBanner } from "./shell/EngineStatusBanner";
 import { RecoveryDialog } from "./shell/RecoveryDialog";
+import { AiControl } from "./surfaces/AiControl";
 import { AssetHub } from "./surfaces/AssetHub";
+import { Collaboration } from "./surfaces/Collaboration";
 import { CreateProject } from "./surfaces/CreateProject";
 import { ExportReview } from "./surfaces/ExportReview";
 import { GlobalSearch } from "./surfaces/GlobalSearch";
 import { ImportDocument } from "./surfaces/ImportDocument";
+import { Plugins } from "./surfaces/Plugins";
+import { ProductSettings } from "./surfaces/ProductSettings";
 import { ProjectHome } from "./surfaces/ProjectHome";
 import { ProjectInsights } from "./surfaces/ProjectInsights";
 import { QaReview } from "./surfaces/QaReview";
@@ -17,11 +21,15 @@ import { RecycleBin } from "./surfaces/RecycleBin";
 import { Templates } from "./surfaces/Templates";
 import { Welcome } from "./surfaces/Welcome";
 import { Workbench } from "./surfaces/Workbench";
+import { useAiController } from "./state/use-ai-controller";
 import { useAppController } from "./state/use-app-controller";
 import { useAssetController } from "./state/use-asset-controller";
+import { useCollaborationController } from "./state/use-collaboration-controller";
 import { useEditorOperations } from "./state/use-editor-operations";
 import { useInteropController } from "./state/use-interop-controller";
 import { usePdfReview } from "./state/use-pdf-review";
+import { usePluginController } from "./state/use-plugin-controller";
+import { useProductSettings } from "./state/use-product-settings";
 import { useReimportController } from "./state/use-reimport-controller";
 import { useTaskPackageController } from "./state/use-task-package-controller";
 
@@ -264,6 +272,87 @@ export function App() {
     taskPackage.invalidate();
   }, [featureGeneration]);
 
+  const aiGateway = useMemo(
+    () => ({
+      generation: featureGeneration,
+      mutationsEnabled: state.mutationsEnabled,
+      active: surface.kind === "ai-control",
+      context: surface.kind === "ai-control" ? surface.context : null,
+      section: surface.kind === "ai-control" ? surface.section : "providers",
+    }),
+    [featureGeneration, state.mutationsEnabled, surface],
+  );
+  const ai = useAiController(aiGateway);
+  useEffect(() => {
+    ai.invalidate();
+  }, [featureGeneration]);
+
+  const pluginGateway = useMemo(
+    () => ({
+      generation: featureGeneration,
+      mutationsEnabled: state.mutationsEnabled,
+      active: surface.kind === "plugins",
+      context: surface.kind === "plugins" ? surface.context : null,
+      section: surface.kind === "plugins" ? surface.section : "installed",
+    }),
+    [featureGeneration, state.mutationsEnabled, surface],
+  );
+  const plugins = usePluginController(pluginGateway);
+  useEffect(() => {
+    plugins.invalidate();
+  }, [featureGeneration]);
+
+  const collabGateway = useMemo(() => {
+    if (surface.kind !== "collaboration") {
+      return {
+        generation: featureGeneration,
+        mutationsEnabled: false,
+        active: false,
+        section: "members" as const,
+        context: {
+          projectId: "",
+          projectName: "",
+          documentId: null,
+          activeSegmentId: null,
+          session: null,
+        },
+      };
+    }
+    return {
+      generation: featureGeneration,
+      mutationsEnabled: state.mutationsEnabled,
+      active: true,
+      section: surface.section,
+      context: surface.context,
+    };
+  }, [featureGeneration, state.mutationsEnabled, surface]);
+  const collab = useCollaborationController(collabGateway);
+  useEffect(() => {
+    collab.invalidate();
+  }, [featureGeneration]);
+
+  const settingsGateway = useMemo(
+    () => ({
+      generation: featureGeneration,
+      mutationsEnabled: state.mutationsEnabled,
+      active: surface.kind === "settings",
+      section: surface.kind === "settings" ? surface.section : "locale",
+      // Migration keeps the retained return identity and rehydrates from Engine.
+      onMigrationCommitted: () => {
+        void commands.backFromP4();
+      },
+      // Restore must cold-route: abandon session + feature work, then shell home.
+      onRestoreCommitted: () => {
+        void commands.coldRouteAfterRestore();
+      },
+    }),
+    [commands, featureGeneration, state.mutationsEnabled, surface],
+  );
+  const productSettings = useProductSettings(settingsGateway);
+  useEffect(() => {
+    productSettings.invalidate();
+  }, [featureGeneration]);
+
   return (
     <div className="app-root">
       <AppChrome
@@ -274,6 +363,10 @@ export function App() {
         onExport={() => void commands.goExport()}
         onInsights={() => void commands.goInsights()}
         onAssets={() => void commands.goAssets()}
+        onAiControl={() => void commands.goAiControl()}
+        onPlugins={() => void commands.goPlugins()}
+        onCollaboration={() => void commands.goCollaboration()}
+        onSettings={() => void commands.goSettings()}
       />
       <div className="app-banner-slot">
         <EngineStatusBanner
@@ -630,6 +723,64 @@ export function App() {
             }}
             onSectionChange={(section) => {
               commands.setAssetsSection(section);
+            }}
+          />
+        ) : null}
+
+        {surface.kind === "ai-control" ? (
+          <AiControl
+            ai={ai}
+            section={surface.section}
+            context={surface.context}
+            disabled={disabled}
+            onBack={() => {
+              void commands.backFromP4();
+            }}
+            onSectionChange={(section) => {
+              commands.setAiControlSection(section);
+            }}
+          />
+        ) : null}
+
+        {surface.kind === "plugins" ? (
+          <Plugins
+            plugins={plugins}
+            section={surface.section}
+            disabled={disabled}
+            onBack={() => {
+              void commands.backFromP4();
+            }}
+            onSectionChange={(section) => {
+              commands.setPluginsSection(section);
+            }}
+          />
+        ) : null}
+
+        {surface.kind === "collaboration" ? (
+          <Collaboration
+            collab={collab}
+            section={surface.section}
+            context={surface.context}
+            disabled={disabled}
+            onBack={() => {
+              void commands.backFromP4();
+            }}
+            onSectionChange={(section) => {
+              commands.setCollaborationSection(section);
+            }}
+          />
+        ) : null}
+
+        {surface.kind === "settings" ? (
+          <ProductSettings
+            settings={productSettings}
+            section={surface.section}
+            disabled={disabled}
+            onBack={() => {
+              void commands.backFromP4();
+            }}
+            onSectionChange={(section) => {
+              commands.setSettingsSection(section);
             }}
           />
         ) : null}

@@ -1,9 +1,11 @@
 /**
- * P0 appearance tokens — light default, advanced-brown accent, no glass.
- * Appearance is fixed; no theme/accent persistence in P0.
+ * Appearance tokens — light default, advanced-brown accent seed, solid surfaces.
+ * Dark theme via html[data-theme="dark"]. Semantic colors are theme-fixed.
  */
-:root {
+:root,
+html[data-theme="light"] {
   color-scheme: light;
+  --color-scheme: light;
 
   /* Surfaces */
   --color-canvas: #f4f1ec;
@@ -19,8 +21,10 @@
   --color-text: #261f1a;
   --color-text-muted: #6b6158;
   --color-text-inverse: #fffdf9;
+  --color-text-on-accent: #fffdf9;
 
-  /* Advanced brown accent (interactive only) */
+  /* Advanced brown accent (overridden by derived seed at runtime) */
+  --color-accent-seed: #765847;
   --color-accent: #765847;
   --color-accent-hover: #624638;
   --color-accent-active: #513a2e;
@@ -80,8 +84,42 @@
   --focus-offset: 2px;
 }
 
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --color-scheme: dark;
+
+  --color-canvas: #1a1613;
+  --color-surface: #24201a;
+  --color-surface-raised: #2e2922;
+  --color-surface-subtle: #1f1b16;
+
+  --color-border: #3f3830;
+  --color-border-strong: #5a5046;
+
+  --color-text: #f4efe8;
+  --color-text-muted: #a89f94;
+  --color-text-inverse: #1a1613;
+  --color-text-on-accent: #fffdf9;
+
+  --color-accent-seed: #765847;
+  --color-accent: #9a7660;
+  --color-accent-hover: #b08974;
+  --color-accent-active: #c49d87;
+  --color-accent-soft: #3a3028;
+
+  --color-success: #3d9b6a;
+  --color-warning: #d4a017;
+  --color-error: #e07070;
+  --color-focus: #9a7660;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 35%);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 45%);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  :root {
+  :root,
+  html[data-theme="light"],
+  html[data-theme="dark"] {
     --motion-fast: 0ms;
     --motion-shell: 0ms;
   }
