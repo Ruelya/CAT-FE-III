@@ -11,6 +11,7 @@ import {
   canResumeRun,
   formatProviderSource,
 } from "../state/ai-view";
+import { InlineEmpty, InlineLoading } from "../shell/InlineState";
 import { SectionNav } from "../shell/SectionNav";
 import { useDestructiveConfirm } from "../shell/use-destructive-confirm";
 import { TableEmpty } from "../shell/TableEmpty";
@@ -83,7 +84,9 @@ export function AiControl({
           {formatAiError(state.error)}
         </p>
       ) : null}
-      {state.loading ? <p className="status">Loading</p> : null}
+      {state.loading ? (
+        <InlineLoading label="Loading AI configuration" />
+      ) : null}
 
       {section === "providers" ? (
         <div className="p4-panel" data-testid="ai-providers">
@@ -99,9 +102,10 @@ export function AiControl({
           </div>
           <h2 className="p4-subtitle">Catalog</h2>
           {state.catalog.length === 0 && !state.loading ? (
-            <p className="status" data-testid="ai-catalog-empty">
-              Empty
-            </p>
+            <InlineEmpty
+              label="No providers in the catalog"
+              testId="ai-catalog-empty"
+            />
           ) : (
             <table className="p4-table">
               <thead>
@@ -109,7 +113,7 @@ export function AiControl({
                   <th>Name</th>
                   <th>Source</th>
                   <th>Availability</th>
-                  <th />
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -139,9 +143,7 @@ export function AiControl({
 
           <h2 className="p4-subtitle">Profiles</h2>
           {state.profiles.length === 0 ? (
-            <p className="status" data-testid="ai-profiles-empty">
-              Empty
-            </p>
+            <InlineEmpty label="No AI profiles" testId="ai-profiles-empty" />
           ) : (
             <table className="p4-table">
               <thead>
@@ -150,7 +152,7 @@ export function AiControl({
                   <th>Model</th>
                   <th>Enabled</th>
                   <th>Credential</th>
-                  <th />
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -499,9 +501,10 @@ export function AiControl({
       {section === "interactive" ? (
         <div className="p4-panel" data-testid="ai-interactive">
           {runnableProfiles.length === 0 ? (
-            <p className="status" data-testid="ai-no-credential-profile">
-              Empty
-            </p>
+            <InlineEmpty
+              label="No runnable profile. Add a profile with a credential first."
+              testId="ai-no-credential-profile"
+            />
           ) : null}
           {runnableProfiles.length > 0 ? (
             <div className="p4-form">
@@ -787,9 +790,10 @@ export function AiControl({
       {section === "batch" ? (
         <div className="p4-panel" data-testid="ai-batch">
           {runnableProfiles.length === 0 ? (
-            <p className="status" data-testid="ai-batch-no-profile">
-              Empty
-            </p>
+            <InlineEmpty
+              label="No runnable profile. Add a profile with a credential first."
+              testId="ai-batch-no-profile"
+            />
           ) : null}
           <div className="dialog__actions">
             <button
@@ -844,7 +848,7 @@ export function AiControl({
             </button>
           </div>
           {state.batchRuns.length === 0 ? (
-            <p className="status">Empty</p>
+            <InlineEmpty label="No batch runs" />
           ) : (
             <table className="p4-table">
               <thead>
@@ -852,7 +856,7 @@ export function AiControl({
                   <th>ID</th>
                   <th>Status</th>
                   <th>Counts</th>
-                  <th />
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1107,7 +1111,7 @@ export function AiControl({
               </table>
             </>
           ) : (
-            <p className="status">Empty</p>
+            <InlineEmpty label="No batch runs" />
           )}
         </div>
       ) : null}

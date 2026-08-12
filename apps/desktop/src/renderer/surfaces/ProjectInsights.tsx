@@ -3,6 +3,7 @@ import type { Document, ProjectAnalyticsSummary } from "@translunar/contracts";
 
 import type { UiError } from "../lib/errors";
 import { formatUiError } from "../lib/errors";
+import { InlineLoading } from "../shell/InlineState";
 import { SectionNav } from "../shell/SectionNav";
 import {
   documentDisplayName,
@@ -91,7 +92,7 @@ export function ProjectInsights({
             {error ? (
               <p className="error-text">{formatUiError(error)}</p>
             ) : null}
-            {loading ? <p className="muted">Loading</p> : null}
+            {loading ? <InlineLoading label="Loading content" /> : null}
 
             {analytics ? (
               <div className="insights-stack">

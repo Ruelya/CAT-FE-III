@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { formatUiError } from "../lib/errors";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
+import { InlineLoading } from "../shell/InlineState";
 import { SectionNav } from "../shell/SectionNav";
 import { TableEmpty } from "../shell/TableEmpty";
 import type { AssetSection } from "../state/asset-state";
@@ -309,7 +310,7 @@ export function AssetHub({
                 </button>
               </div>
               {state.tm.search.status === "loading" ? (
-                <p className="muted">Loading</p>
+                <InlineLoading label="Loading search" />
               ) : null}
               {state.tm.search.error ? (
                 <p className="error-text">
@@ -400,7 +401,7 @@ export function AssetHub({
                 </button>
               </div>
               {state.tm.concordance.status === "loading" ? (
-                <p className="muted">Loading</p>
+                <InlineLoading label="Loading concordance" />
               ) : null}
               {state.tm.concordance.error ? (
                 <p className="error-text">
@@ -649,7 +650,7 @@ export function AssetHub({
                 </button>
               </div>
               {state.termbase.search.status === "loading" ? (
-                <p className="muted">Loading</p>
+                <InlineLoading label="Loading term search" />
               ) : null}
               {state.termbase.search.error ? (
                 <p className="error-text">
@@ -844,7 +845,7 @@ export function AssetHub({
 
               <h2 className="insights-heading">Sessions</h2>
               {state.alignment.sessions.status === "loading" ? (
-                <p className="muted">Loading</p>
+                <InlineLoading label="Loading sessions" />
               ) : null}
               {state.alignment.sessions.error ? (
                 <p className="error-text">
@@ -1184,7 +1185,7 @@ export function AssetHub({
 
               <h2 className="insights-heading">Corpora</h2>
               {state.corpus.corpora.status === "loading" ? (
-                <p className="muted">Loading</p>
+                <InlineLoading label="Loading corpora" />
               ) : null}
               {state.corpus.corpora.error ? (
                 <p className="error-text">
@@ -1242,7 +1243,7 @@ export function AssetHub({
                 </button>
               </div>
               {state.corpus.search.status === "loading" ? (
-                <p className="muted">Loading</p>
+                <InlineLoading label="Loading search" />
               ) : null}
               {state.corpus.search.error ? (
                 <p className="error-text">
@@ -1420,7 +1421,7 @@ export function AssetHub({
                 </button>
               </div>
               {state.catalog.page.status === "loading" ? (
-                <p className="muted">Loading</p>
+                <InlineLoading label="Loading search" />
               ) : null}
               {state.catalog.page.error ? (
                 <p className="error-text">
@@ -1625,7 +1626,7 @@ export function AssetHub({
 
               <h2 className="insights-heading">Findings</h2>
               {state.curation.findings.status === "loading" ? (
-                <p className="muted">Loading</p>
+                <InlineLoading label="Loading findings" />
               ) : null}
               {state.curation.findings.status === "ready" &&
               state.curation.findings.items.length === 0 ? (

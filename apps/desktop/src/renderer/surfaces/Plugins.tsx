@@ -1,5 +1,6 @@
 import { formatUiError } from "../lib/errors";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
+import { InlineEmpty } from "../shell/InlineState";
 import { SectionNav } from "../shell/SectionNav";
 import { useDestructiveConfirm } from "../shell/use-destructive-confirm";
 import { TableEmpty } from "../shell/TableEmpty";
@@ -221,9 +222,10 @@ export function Plugins({
             </button>
           </div>
           {state.installed.length === 0 && !state.loading ? (
-            <p className="status" data-testid="plugins-installed-empty">
-              Empty
-            </p>
+            <InlineEmpty
+              label="No installed plugins"
+              testId="plugins-installed-empty"
+            />
           ) : (
             <table className="p4-table">
               <thead>
@@ -232,7 +234,7 @@ export function Plugins({
                   <th>Version</th>
                   <th>Status</th>
                   <th>Tier</th>
-                  <th />
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -310,7 +312,9 @@ export function Plugins({
                   <tr>
                     <th>Version</th>
                     <th>State</th>
-                    <th />
+                    <th scope="col">
+                      <span className="sr-only">Actions</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -409,9 +413,10 @@ export function Plugins({
       {section === "bundled" ? (
         <div className="p4-panel" data-testid="plugins-bundled">
           {state.bundled.length === 0 ? (
-            <p className="status" data-testid="plugins-bundled-empty">
-              Empty
-            </p>
+            <InlineEmpty
+              label="No bundled plugins"
+              testId="plugins-bundled-empty"
+            />
           ) : (
             <table className="p4-table">
               <thead>
@@ -419,7 +424,7 @@ export function Plugins({
                   <th>Name</th>
                   <th>Version</th>
                   <th>State</th>
-                  <th />
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -489,7 +494,7 @@ export function Plugins({
             </pre>
           ) : null}
           {state.permissionRequests.length === 0 ? (
-            <p className="status">Empty</p>
+            <InlineEmpty label="No permission requests" />
           ) : (
             <table className="p4-table">
               <thead>
@@ -498,7 +503,7 @@ export function Plugins({
                   <th>Decision</th>
                   <th>Risk</th>
                   <th>Required</th>
-                  <th />
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -562,14 +567,14 @@ export function Plugins({
       {section === "aiActions" ? (
         <div className="p4-panel" data-testid="plugins-ai-actions">
           {state.aiActions.length === 0 ? (
-            <p className="status">Empty</p>
+            <InlineEmpty label="No AI actions" />
           ) : (
             <table className="p4-table">
               <thead>
                 <tr>
                   <th>Action</th>
                   <th>State</th>
-                  <th />
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -731,14 +736,14 @@ export function Plugins({
       {section === "uiPanels" ? (
         <div className="p4-panel" data-testid="plugins-ui-panels">
           {state.uiPanels.length === 0 ? (
-            <p className="status">Empty</p>
+            <InlineEmpty label="No UI panels" />
           ) : (
             <table className="p4-table">
               <thead>
                 <tr>
                   <th>Panel</th>
                   <th>State</th>
-                  <th />
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -795,9 +800,7 @@ export function Plugins({
         <div className="p4-panel" data-testid="plugins-connectors">
           <h2 className="p4-subtitle">Catalog</h2>
           {state.connectors.length === 0 ? (
-            <p className="status" data-testid="connectors-empty">
-              Empty
-            </p>
+            <InlineEmpty label="No connectors" testId="connectors-empty" />
           ) : (
             <table className="p4-table">
               <thead>
@@ -805,7 +808,7 @@ export function Plugins({
                   <th>Name</th>
                   <th>State</th>
                   <th>Operations</th>
-                  <th />
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -966,7 +969,9 @@ export function Plugins({
               <tr>
                 <th>Name</th>
                 <th>Enabled</th>
-                <th />
+                <th scope="col">
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>

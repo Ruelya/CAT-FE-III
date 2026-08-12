@@ -7,6 +7,7 @@ import {
 } from "../state/collab-view";
 import type { CollaborationControllerApi } from "../state/use-collaboration-controller";
 import type { P4ProjectContext } from "../state/p4-route-context";
+import { InlineEmpty } from "../shell/InlineState";
 import { SectionNav } from "../shell/SectionNav";
 import { useDestructiveConfirm } from "../shell/use-destructive-confirm";
 import { TableEmpty } from "../shell/TableEmpty";
@@ -119,14 +120,14 @@ export function Collaboration({
             </button>
           </div>
           {state.members.length === 0 ? (
-            <p className="status">Empty</p>
+            <InlineEmpty label="No members" />
           ) : (
             <table className="p4-table">
               <thead>
                 <tr>
                   <th>Actor</th>
                   <th>Role</th>
-                  <th />
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -181,7 +182,7 @@ export function Collaboration({
             Acquire
           </button>
           {state.locks.length === 0 ? (
-            <p className="status">Empty</p>
+            <InlineEmpty label="No active locks" />
           ) : (
             <table className="p4-table">
               <thead>
@@ -189,7 +190,7 @@ export function Collaboration({
                   <th>Segment</th>
                   <th>Holder</th>
                   <th>Expires</th>
-                  <th />
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -256,7 +257,7 @@ export function Collaboration({
             </button>
           </div>
           {state.presence.length === 0 ? (
-            <p className="status">Empty</p>
+            <InlineEmpty label="No one present" />
           ) : (
             <table className="p4-table">
               <thead>
@@ -336,7 +337,7 @@ export function Collaboration({
             </button>
           </div>
           {state.assignments.length === 0 ? (
-            <p className="status">Empty</p>
+            <InlineEmpty label="No assignments" />
           ) : (
             <table className="p4-table">
               <thead>
@@ -344,7 +345,7 @@ export function Collaboration({
                   <th>Assignee</th>
                   <th>Range</th>
                   <th>Status</th>
-                  <th />
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -392,7 +393,7 @@ export function Collaboration({
             Load more
           </button>
           {state.opLog.length === 0 ? (
-            <p className="status">Empty</p>
+            <InlineEmpty label="No operations recorded" />
           ) : (
             <table className="p4-table">
               <thead>
