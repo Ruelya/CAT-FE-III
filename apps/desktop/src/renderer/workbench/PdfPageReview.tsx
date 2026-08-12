@@ -47,7 +47,9 @@ export function PdfPageReview({ pdf, disabled }: PdfPageReviewProps) {
   }
 
   return (
-    <aside
+    // Named region, not <aside>: see TmExactPanel for the landmark rationale.
+    <section
+      aria-label="PDF page review"
       className={[
         "pdf-panel",
         collapsed ? "pdf-panel--collapsed" : "",
@@ -183,7 +185,7 @@ export function PdfPageReview({ pdf, disabled }: PdfPageReviewProps) {
           onCancel={pdf.closeCorrect}
         />
       ) : null}
-    </aside>
+    </section>
   );
 }
 
@@ -223,6 +225,7 @@ function BlockOverlay({
         <button
           type="button"
           className="btn btn--ghost btn--sm pdf-block__correct"
+          data-hit-area="extended"
           disabled={disabled}
           onClick={onCorrect}
           data-testid={`pdf-correct-${block.segmentId}`}

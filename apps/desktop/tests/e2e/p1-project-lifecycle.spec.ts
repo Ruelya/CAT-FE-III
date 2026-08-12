@@ -1,5 +1,4 @@
 import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -8,12 +7,10 @@ import { fileURLToPath } from "node:url";
 import { test, expect, type Page, type ConsoleMessage } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright";
 
+import { expectNoAxeViolations } from "./helpers/ui-checks.js";
+
 const require = createRequire(import.meta.url);
 const electronExecutable = require("electron") as string;
-const axeCorePath = require.resolve("axe-core", {
-  paths: [dirname(require.resolve("@axe-core/playwright"))],
-});
-const axeSource = readFileSync(axeCorePath, "utf8");
 const desktopRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const fixtureA = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -70,35 +67,6 @@ function attachConsoleGuard(page: Page): {
       page.off("pageerror", onPageError);
     },
   };
-}
-
-async function expectNoCriticalAxe(page: Page, label: string): Promise<void> {
-  await page.evaluate((source: string) => {
-    const indirectEval: (code: string) => unknown = eval;
-    indirectEval(source);
-  }, axeSource);
-
-  const results = await page.evaluate(async () => {
-    const axe = (
-      globalThis as unknown as {
-        axe: {
-          run: () => Promise<{
-            violations: Array<{
-              id: string;
-              impact?: string | null;
-              help: string;
-            }>;
-          }>;
-        };
-      }
-    ).axe;
-    return axe.run();
-  });
-
-  const serious = results.violations.filter(
-    (v) => v.impact === "serious" || v.impact === "critical",
-  );
-  expect(serious, `${label}: ${JSON.stringify(serious, null, 2)}`).toEqual([]);
 }
 
 async function expectNoViewportOverflow(page: Page): Promise<void> {
@@ -159,6 +127,23 @@ async function openProjectRow(page: Page, projectName: string): Promise<void> {
     .filter({ hasText: projectName })
     .getByRole("button", { name: "Open", exact: true })
     .click();
+}
+
+/**
+ * Secondary and destructive row actions live behind the row overflow menu, so
+ * a test opens the menu exactly as a user does. Passing a row filter keeps the
+ * assertion bound to one project or template.
+ */
+async function openRowAction(
+  page: Page,
+  row: { hasText: string } | null,
+  action: string,
+): Promise<void> {
+  const scope = row
+    ? page.locator(".project-list__item").filter({ hasText: row.hasText })
+    : page.locator(".project-list__item").first();
+  await scope.getByRole("button", { name: /^More actions for / }).click();
+  await page.getByRole("menuitem", { name: action }).click();
 }
 
 test.describe("P1 project lifecycle", () => {
@@ -296,16 +281,12 @@ test.describe("P1 project lifecycle", () => {
       await expect(page.getByTestId("project-home")).toBeVisible({
         timeout: 30_000,
       });
-      await page
-        .locator(".project-row")
-        .filter({ hasText: "P1 Multi" })
-        .getByRole("button", { name: "Insights" })
-        .click();
+      await openRowAction(page, { hasText: "P1 Multi" }, "Insights");
       await expect(page.getByTestId("project-insights")).toBeVisible({
         timeout: 30_000,
       });
       await expect(page.getByText("Progress")).toBeVisible();
-      await expectNoCriticalAxe(page, "insights");
+      await expectNoAxeViolations(page, "insights");
       await expectNoViewportOverflow(page);
 
       // Hydrate final Workbench identity before process relaunch.
@@ -378,7 +359,7 @@ test.describe("P1 project lifecycle", () => {
       });
 
       // Project edit via authoritative get.
-      await page.getByRole("button", { name: "Edit" }).first().click();
+      await openRowAction(page, { hasText: "P1 Seed" }, "Edit");
       const editDialog = page.getByTestId("edit-project-dialog");
       await expect(editDialog).toBeVisible();
       await expect(
@@ -393,7 +374,7 @@ test.describe("P1 project lifecycle", () => {
       // Templates: create, edit, use, delete.
       await page.getByTestId("nav-templates").click();
       await expect(page.getByTestId("templates")).toBeVisible();
-      await expectNoCriticalAxe(page, "templates");
+      await expectNoAxeViolations(page, "templates");
       await page.getByRole("button", { name: "New template" }).click();
       await expect(page.getByTestId("template-form")).toBeVisible();
       await page.getByLabel("Name").fill("P1 Template");
@@ -402,7 +383,7 @@ test.describe("P1 project lifecycle", () => {
         timeout: 15_000,
       });
 
-      await page.getByRole("button", { name: "Edit" }).first().click();
+      await openRowAction(page, { hasText: "P1 Template" }, "Edit");
       await expect(page.getByTestId("template-form")).toBeVisible();
       await page.getByLabel("Name").fill("P1 Template Edited");
       await page.getByRole("button", { name: "Save" }).click();
@@ -410,7 +391,10 @@ test.describe("P1 project lifecycle", () => {
         timeout: 15_000,
       });
 
-      await page.getByRole("button", { name: "Use" }).first().click();
+      await page
+        .getByRole("button", { name: /^Use template / })
+        .first()
+        .click();
       await expect(page.getByTestId("use-template-form")).toBeVisible();
       await page.getByLabel("Project name").fill("From Template");
       await page.getByRole("button", { name: "Create" }).click();
@@ -428,7 +412,7 @@ test.describe("P1 project lifecycle", () => {
       });
       await page.getByTestId("nav-templates").click();
       await expect(page.getByTestId("templates")).toBeVisible();
-      await page.getByRole("button", { name: "Delete" }).first().click();
+      await openRowAction(page, { hasText: "P1 Template Edited" }, "Delete");
       const deleteConfirm = page.getByTestId("delete-template-confirm");
       await expect(deleteConfirm).toBeVisible();
       await expect(
@@ -441,10 +425,7 @@ test.describe("P1 project lifecycle", () => {
       await expect(page.getByTestId("project-home")).toBeVisible();
 
       // Archive / unarchive seed project.
-      const seedRow = page
-        .locator(".project-row")
-        .filter({ hasText: "P1 Seed Updated" });
-      await seedRow.getByRole("button", { name: "Archive" }).click();
+      await openRowAction(page, { hasText: "P1 Seed Updated" }, "Archive");
       const lifecycleConfirm = page.getByTestId("lifecycle-confirm");
       await expect(lifecycleConfirm).toBeVisible();
       await expect(
@@ -452,31 +433,24 @@ test.describe("P1 project lifecycle", () => {
       ).toBeFocused();
       await lifecycleConfirm.getByRole("button", { name: "Archive" }).click();
 
-      await page.getByRole("tab", { name: "Archived" }).click();
+      // Lifecycle filters are toggle buttons, not a partial tab widget.
+      await page.getByRole("button", { name: "Archived" }).click();
       await expect(page.getByText("P1 Seed Updated")).toBeVisible({
         timeout: 15_000,
       });
-      await page
-        .locator(".project-row")
-        .filter({ hasText: "P1 Seed Updated" })
-        .getByRole("button", { name: "Unarchive" })
-        .click();
+      await openRowAction(page, { hasText: "P1 Seed Updated" }, "Unarchive");
       await expect(page.getByTestId("lifecycle-confirm")).toBeVisible();
       await page
         .getByTestId("lifecycle-confirm")
         .getByRole("button", { name: "Unarchive" })
         .click();
-      await page.getByRole("tab", { name: "Active" }).click();
+      await page.getByRole("button", { name: "Active" }).click();
       await expect(page.getByText("P1 Seed Updated")).toBeVisible({
         timeout: 15_000,
       });
 
       // Recycle project, exclude from Home, restore, re-delete, purge.
-      await page
-        .locator(".project-row")
-        .filter({ hasText: "From Template" })
-        .getByRole("button", { name: "Recycle" })
-        .click();
+      await openRowAction(page, { hasText: "From Template" }, "Recycle");
       const recycleConfirm = page.getByTestId("recycle-project-confirm");
       await expect(recycleConfirm).toBeVisible();
       await recycleConfirm.getByLabel("Reason").fill("P1 disposable");
@@ -489,7 +463,7 @@ test.describe("P1 project lifecycle", () => {
       await expect(page.getByTestId("recycle-bin")).toBeVisible({
         timeout: 15_000,
       });
-      await expectNoCriticalAxe(page, "recycle");
+      await expectNoAxeViolations(page, "recycle");
       const recycleRow = page
         .locator(".project-row")
         .filter({ hasText: "From Template" });
@@ -508,11 +482,7 @@ test.describe("P1 project lifecycle", () => {
       });
 
       // Re-recycle the restored project, then purge permanently.
-      await page
-        .locator(".project-row")
-        .filter({ hasText: "From Template" })
-        .getByRole("button", { name: "Recycle" })
-        .click();
+      await openRowAction(page, { hasText: "From Template" }, "Recycle");
       await page
         .getByTestId("recycle-project-confirm")
         .getByLabel("Reason")

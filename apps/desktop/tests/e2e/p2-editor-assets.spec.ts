@@ -1,5 +1,4 @@
 import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -8,12 +7,10 @@ import { fileURLToPath } from "node:url";
 import { test, expect, type Page, type ConsoleMessage } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright";
 
+import { expectNoAxeViolations } from "./helpers/ui-checks.js";
+
 const require = createRequire(import.meta.url);
 const electronExecutable = require("electron") as string;
-const axeCorePath = require.resolve("axe-core", {
-  paths: [dirname(require.resolve("@axe-core/playwright"))],
-});
-const axeSource = readFileSync(axeCorePath, "utf8");
 const desktopRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const sourceFixture = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -71,35 +68,6 @@ function attachConsoleGuard(page: Page): {
   };
 }
 
-async function expectNoCriticalAxe(page: Page, label: string): Promise<void> {
-  await page.evaluate((source: string) => {
-    const indirectEval: (code: string) => unknown = eval;
-    indirectEval(source);
-  }, axeSource);
-
-  const results = await page.evaluate(async () => {
-    const axe = (
-      globalThis as unknown as {
-        axe: {
-          run: () => Promise<{
-            violations: Array<{
-              id: string;
-              impact?: string | null;
-              help: string;
-            }>;
-          }>;
-        };
-      }
-    ).axe;
-    return axe.run();
-  });
-
-  const serious = results.violations.filter(
-    (v) => v.impact === "serious" || v.impact === "critical",
-  );
-  expect(serious, `${label}: ${JSON.stringify(serious, null, 2)}`).toEqual([]);
-}
-
 async function expectNoHorizontalOverflow(page: Page, label: string) {
   const overflow = await page.evaluate(() => {
     const doc = document.documentElement;
@@ -150,7 +118,7 @@ test.describe("P2 editor + assets", () => {
 
       await seedWorkbench(page);
       await expect(page.getByTestId("editor-command-bar")).toBeVisible();
-      await expectNoCriticalAxe(page, "workbench-p2");
+      await expectNoAxeViolations(page, "workbench-p2");
       await expectNoHorizontalOverflow(page, "workbench-p2");
 
       // Primary commands + overflow menu (not a flat always-visible overflow group).
@@ -196,7 +164,7 @@ test.describe("P2 editor + assets", () => {
       await expect(
         page.getByTestId("app-shell").getByRole("button", { name: "Insights" }),
       ).toHaveCount(0);
-      await expectNoCriticalAxe(page, "assets");
+      await expectNoAxeViolations(page, "assets");
       await expectNoHorizontalOverflow(page, "assets");
 
       for (const tab of [

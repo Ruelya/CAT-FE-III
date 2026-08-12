@@ -563,7 +563,11 @@ export function App() {
       <main className="app-stage">
         {/* M1: keying on the surface kind replays the enter animation on every
             route change without remounting on sub-state changes. */}
-        <div className="app-stage__view surface-enter" key={surface.kind}>
+        <div
+          className="app-stage__view surface-enter"
+          key={surface.kind}
+          data-surface-container
+        >
           {surface.kind === "boot" ? (
             <BootGate
               {...(surface.message ? { message: surface.message } : {})}

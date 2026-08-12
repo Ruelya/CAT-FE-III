@@ -97,12 +97,15 @@ export function useSurfaceAnnouncement(state: AppState): SurfaceAnnouncement {
         !document.contains(active);
       if (!stranded) return;
 
-      const heading = stage.querySelector<HTMLElement>(
-        "h1, [data-surface-heading]",
-      );
-      if (!heading) return;
-      if (!heading.hasAttribute("tabindex")) heading.tabIndex = -1;
-      heading.focus({ preventScroll: true });
+      // Focus the surface container rather than the heading element. A
+      // programmatically focused non-interactive container reads from the top
+      // for a screen reader and restarts the Tab order in the right place,
+      // without painting a focus ring around a heading the user never
+      // targeted. WCAG 2.4.7 governs interface components, not this wrapper.
+      const container =
+        stage.querySelector<HTMLElement>("[data-surface-container]") ?? stage;
+      if (!container.hasAttribute("tabindex")) container.tabIndex = -1;
+      container.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
   }, [kind]);

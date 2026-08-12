@@ -430,3 +430,10 @@
   color: var(--color-text-subtle);
   flex-shrink: 0;
 }
+
+/* The surface container is a programmatic focus target for route changes,
+   not an interactive control, so it must not paint a focus ring. */
+.app-stage__view:focus,
+.app-stage__view:focus-visible {
+  outline: none;
+}

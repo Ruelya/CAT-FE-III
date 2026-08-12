@@ -1,8 +1,11 @@
 import { useState } from "react";
 import type { RecycleEntry } from "@translunar/contracts";
 
+import { Trash } from "@phosphor-icons/react";
+
 import type { UiError } from "../lib/errors";
 import { formatUiError } from "../lib/errors";
+import { formatRelativeTime } from "../lib/format";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
 
 export interface RecycleBinProps {
@@ -64,85 +67,130 @@ export function RecycleBin({
 
   return (
     <section className="surface" data-testid="recycle-bin">
-      <div className="surface__masthead">
-        <h1 className="surface__title">Recycle</h1>
-        <button
-          type="button"
-          className="btn btn--secondary"
-          disabled={busy}
-          onClick={onBack}
-        >
-          Projects
-        </button>
-      </div>
+      <div className="surface__inner">
+        <div className="surface__masthead">
+          <h1 className="surface__title">Recycle</h1>
+          <button
+            type="button"
+            className="btn btn--secondary"
+            disabled={busy}
+            onClick={onBack}
+          >
+            Projects
+          </button>
+        </div>
 
-      {error ? <p className="error-text">{formatUiError(error)}</p> : null}
-      {loading ? <p className="muted">Loading</p> : null}
-      {!loading && items.length === 0 ? <p className="muted">Empty</p> : null}
+        {error ? (
+          <p className="error-text" role="alert">
+            {formatUiError(error)}
+          </p>
+        ) : null}
+        {loading ? (
+          <div
+            className="skeleton-stack"
+            role="status"
+            aria-label="Loading recycled entries"
+          >
+            {[0, 1, 2].map((row) => (
+              <div key={row} className="skeleton skeleton-row" />
+            ))}
+          </div>
+        ) : null}
+        {!loading && items.length === 0 ? (
+          <div className="empty-state" data-testid="recycle-empty">
+            <Trash
+              size={24}
+              weight="regular"
+              className="empty-state__icon"
+              aria-hidden="true"
+            />
+            <h2 className="empty-state__title">Recycle is empty</h2>
+          </div>
+        ) : null}
 
-      <ul className="project-list">
-        {items.map((entry) => (
-          <li key={entry.id} className="project-row">
-            <div className="project-row__meta">
-              <p className="project-row__name">{entry.displayName}</p>
-              <p className="project-row__locales">
-                {entry.entityType} ·{" "}
-                {new Date(entry.deletedAtMs).toLocaleString()} · until{" "}
-                {new Date(entry.retentionUntilMs).toLocaleString()}
-              </p>
-              <p className="muted">{entry.reason}</p>
-            </div>
-            <div className="project-row__actions">
-              <button
-                type="button"
-                className="btn btn--secondary"
-                disabled={busy}
-                onClick={() => {
-                  setActionError(null);
-                  setConfirm({ kind: "restore", entry });
-                }}
-              >
-                Restore
-              </button>
-              <button
-                type="button"
-                className="btn btn--danger btn--sm"
-                disabled={busy}
-                onClick={() => {
-                  setActionError(null);
-                  setConfirm({ kind: "purge", entry });
-                }}
-              >
-                Purge
-              </button>
-            </div>
-          </li>
-        ))}
-      </ul>
+        <ul className="project-list">
+          {items.map((entry) => (
+            <li key={entry.id} className="project-list__item">
+              <div className="project-row">
+                <div className="project-row__meta">
+                  <p className="project-row__name">{entry.displayName}</p>
+                  <p className="project-row__facts">
+                    <span className="chip">{entry.entityType}</span>
+                    <span
+                      className="mono"
+                      title={new Date(entry.deletedAtMs).toLocaleString()}
+                    >
+                      deleted {formatRelativeTime(entry.deletedAtMs)}
+                    </span>
+                    <span
+                      className="mono"
+                      title={new Date(entry.retentionUntilMs).toLocaleString()}
+                    >
+                      kept until{" "}
+                      {new Date(entry.retentionUntilMs)
+                        .toISOString()
+                        .slice(0, 10)}
+                    </span>
+                  </p>
+                  {entry.reason ? (
+                    <p className="project-row__reason">{entry.reason}</p>
+                  ) : null}
+                </div>
+                <div className="project-row__actions">
+                  <button
+                    type="button"
+                    className="btn btn--secondary"
+                    disabled={busy}
+                    onClick={() => {
+                      setActionError(null);
+                      setConfirm({ kind: "restore", entry });
+                    }}
+                  >
+                    Restore
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--danger btn--sm"
+                    disabled={busy}
+                    onClick={() => {
+                      setActionError(null);
+                      setConfirm({ kind: "purge", entry });
+                    }}
+                  >
+                    Purge
+                  </button>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
 
-      <div className="dialog__actions">
-        <button
-          type="button"
-          className="btn btn--ghost btn--sm"
-          disabled={busy || offset <= 0}
-          onClick={() => onPage(Math.max(0, offset - limit))}
-        >
-          Previous
-        </button>
-        <span className="muted">
-          {total === 0
-            ? "0"
-            : `${offset + 1}-${Math.min(offset + limit, total)}`}{" "}
-          of {total}
-        </span>
-        <button
-          type="button"
-          className="btn btn--ghost btn--sm"
-          disabled={busy || offset + limit >= total}
-          onClick={() => onPage(offset + limit)}
-        >
-          Next
-        </button>
+        {items.length > 0 || offset > 0 ? (
+          <div className="pagination">
+            <button
+              type="button"
+              className="btn btn--quiet btn--sm"
+              disabled={busy || offset <= 0}
+              onClick={() => onPage(Math.max(0, offset - limit))}
+            >
+              Previous
+            </button>
+            <span className="pagination__count">
+              {total === 0
+                ? "0"
+                : `${offset + 1}-${Math.min(offset + limit, total)}`}{" "}
+              of {total}
+            </span>
+            <button
+              type="button"
+              className="btn btn--quiet btn--sm"
+              disabled={busy || offset + limit >= total}
+              onClick={() => onPage(offset + limit)}
+            >
+              Next
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {confirm?.kind === "restore" ? (

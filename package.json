@@ -42,7 +42,9 @@
     "plugins:package:check": "node scripts/package-plugins.mjs --check",
     "ui:audit": "node scripts/ui-audit.mjs",
     "ui:shots": "pnpm build:desktop && node scripts/ui-shots.mjs",
-    "ui:shots:matrix": "pnpm build:desktop && node scripts/ui-shots.mjs --theme light,dark --viewport 1180x700,1250x744,1680x942,1920x1080"
+    "ui:shots:matrix": "pnpm build:desktop && node scripts/ui-shots.mjs --theme light,dark --viewport 1180x700,1250x744,1680x942,1920x1080",
+    "test:e2e:desktop:linux": "./scripts/linux-display.sh pnpm test:e2e:desktop",
+    "ui:shots:linux": "./scripts/linux-display.sh pnpm ui:shots"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

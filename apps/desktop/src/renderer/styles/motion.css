@@ -31,9 +31,14 @@
   }
 }
 
+/*
+ * Transform only, deliberately. Fading a whole surface in briefly lowers the
+ * effective contrast of every string inside it, which a contrast checker
+ * correctly flags and a user genuinely experiences. The slide reads as the
+ * same transition without ever putting text below AA.
+ */
 @keyframes tl-surface-in {
   from {
-    opacity: 0;
     transform: translateY(8px);
   }
 }

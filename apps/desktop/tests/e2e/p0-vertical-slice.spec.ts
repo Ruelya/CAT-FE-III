@@ -1,5 +1,4 @@
 import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
 import { mkdtemp, rm, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -8,12 +7,10 @@ import { fileURLToPath } from "node:url";
 import { test, expect, type Page, type ConsoleMessage } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright";
 
+import { expectNoAxeViolations } from "./helpers/ui-checks.js";
+
 const require = createRequire(import.meta.url);
 const electronExecutable = require("electron") as string;
-const axeCorePath = require.resolve("axe-core", {
-  paths: [dirname(require.resolve("@axe-core/playwright"))],
-});
-const axeSource = readFileSync(axeCorePath, "utf8");
 const desktopRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
 /** Deterministic single-segment source so the real Engine gate can clear. */
 const sourceFixture = join(
@@ -77,40 +74,6 @@ function attachConsoleGuard(page: Page): {
   };
 }
 
-/**
- * Electron + CSP blocks script tags and @axe-core/playwright's newPage path.
- * Inject axe-core via CDP evaluate (not subject to page CSP script-src).
- */
-async function expectNoCriticalAxe(page: Page, label: string): Promise<void> {
-  // CDP evaluate is not constrained by page CSP script-src; required for Electron.
-  await page.evaluate((source: string) => {
-    const indirectEval: (code: string) => unknown = eval;
-    indirectEval(source);
-  }, axeSource);
-
-  const results = await page.evaluate(async () => {
-    const axe = (
-      globalThis as unknown as {
-        axe: {
-          run: () => Promise<{
-            violations: Array<{
-              id: string;
-              impact?: string | null;
-              help: string;
-            }>;
-          }>;
-        };
-      }
-    ).axe;
-    return axe.run();
-  });
-
-  const serious = results.violations.filter(
-    (v) => v.impact === "serious" || v.impact === "critical",
-  );
-  expect(serious, `${label}: ${JSON.stringify(serious, null, 2)}`).toEqual([]);
-}
-
 test.describe("P0 vertical slice", () => {
   test("welcome → create → import → edit/confirm → QA → export → resume", async () => {
     const userData = await mkdtemp(join(tmpdir(), "tl-p0-"));
@@ -130,7 +93,7 @@ test.describe("P0 vertical slice", () => {
       await expect(page.getByTestId("welcome")).toBeVisible({
         timeout: 60_000,
       });
-      await expectNoCriticalAxe(page, "welcome");
+      await expectNoAxeViolations(page, "welcome");
 
       await page.getByRole("button", { name: "Create project" }).click();
       await expect(page.getByTestId("create-project")).toBeVisible();
@@ -146,7 +109,7 @@ test.describe("P0 vertical slice", () => {
       await expect(page.getByTestId("workbench")).toBeVisible({
         timeout: 60_000,
       });
-      await expectNoCriticalAxe(page, "workbench");
+      await expectNoAxeViolations(page, "workbench");
 
       // Exact TM panel: collapse/expand remains accessible and body stays mounted.
       const tmPanel = page.getByTestId("tm-panel");
@@ -214,7 +177,7 @@ test.describe("P0 vertical slice", () => {
       await expect(
         page.getByText(/No issues|error|warning|#/i).first(),
       ).toBeVisible({ timeout: 30_000 });
-      await expectNoCriticalAxe(page, "qa");
+      await expectNoAxeViolations(page, "qa");
 
       await page
         .getByTestId("qa-review")
@@ -233,7 +196,7 @@ test.describe("P0 vertical slice", () => {
       });
       await expect(page.getByText(/Blocked/i)).toHaveCount(0);
       await access(exportPath);
-      await expectNoCriticalAxe(page, "export");
+      await expectNoAxeViolations(page, "export");
 
       expect(
         consoleGuard.errors,
@@ -302,7 +265,7 @@ test.describe("P0 vertical slice", () => {
         timeout: 60_000,
       });
       await expect(page.getByText("Listed")).toBeVisible();
-      await expectNoCriticalAxe(page, "project-home");
+      await expectNoAxeViolations(page, "project-home");
 
       // Scope to the listed project row so "Open" does not collide with "Open example".
       await page

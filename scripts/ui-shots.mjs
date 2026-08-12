@@ -102,6 +102,9 @@ const geometryProbe = `(() => {
       ({ el, rect }) =>
         el.tagName !== 'A' &&
         el.getAttribute('role') !== 'menuitem' &&
+        // Documented exception: an overlay chip whose visible box must stay
+        // small but whose hit area is extended by a pseudo-element.
+        el.getAttribute('data-hit-area') !== 'extended' &&
         (rect.width < ${MIN_TARGET} - 0.5 || rect.height < ${MIN_TARGET} - 0.5),
     )
     .map(({ el, rect }) => ({

@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
+import { FolderOpen } from "@phosphor-icons/react";
 import type { Project } from "@translunar/contracts";
 
 import type { UiError } from "../lib/errors";
 import { formatUiError } from "../lib/errors";
+import { formatRelativeTime } from "../lib/format";
 import type { ProjectListLifecycle } from "../state/app-state";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
 import { ModalDialog } from "../shell/ModalDialog";
+import { RowMenu } from "../shell/RowMenu";
 
 export interface ProjectHomeProps {
   projects: Project[];
@@ -198,202 +201,262 @@ export function ProjectHome({
 
   return (
     <section className="surface" data-testid="project-home">
-      <div className="surface__masthead">
-        <h1 className="surface__title">Projects</h1>
-        <div className="dialog__actions">
+      <div className="surface__inner">
+        <div className="surface__masthead">
+          <div className="surface__masthead-meta">
+            <h1 className="surface__title">Projects</h1>
+          </div>
+          <div className="surface__actions">
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={busy}
+              onClick={onGoTemplates}
+              data-testid="nav-templates"
+            >
+              Templates
+            </button>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={busy}
+              onClick={onGoRecycle}
+              data-testid="nav-recycle"
+            >
+              Recycle
+            </button>
+            <button
+              type="button"
+              className="btn btn--secondary"
+              disabled={busy || pendingExample}
+              onClick={onOpenExample}
+              data-testid="open-example"
+            >
+              {pendingExample ? "Opening" : "Open example"}
+            </button>
+            <button
+              type="button"
+              className="btn btn--primary"
+              disabled={busy}
+              onClick={onCreate}
+            >
+              Create project
+            </button>
+          </div>
+        </div>
+
+        {/* Two independent toggles rather than a partial tab widget: each is
+            reachable with Tab and activated with Space or Enter, which is the
+            complete contract for a toggle button. */}
+        <div
+          className="segmented"
+          role="group"
+          aria-label="Project lifecycle"
+          data-testid="project-lifecycle-tabs"
+        >
           <button
             type="button"
-            className="btn btn--secondary"
+            className="segmented__item"
+            aria-pressed={lifecycle === "active"}
+            data-selected={lifecycle === "active"}
             disabled={busy}
-            onClick={onGoTemplates}
-            data-testid="nav-templates"
+            onClick={() => onLifecycleFilter("active")}
           >
-            Templates
+            Active
           </button>
           <button
             type="button"
-            className="btn btn--secondary"
+            className="segmented__item"
+            aria-pressed={lifecycle === "archived"}
+            data-selected={lifecycle === "archived"}
             disabled={busy}
-            onClick={onGoRecycle}
-            data-testid="nav-recycle"
+            onClick={() => onLifecycleFilter("archived")}
           >
-            Recycle
-          </button>
-          <button
-            type="button"
-            className="btn btn--secondary"
-            disabled={busy || pendingExample}
-            onClick={onOpenExample}
-            data-testid="open-example"
-          >
-            {pendingExample ? "Opening" : "Open example"}
-          </button>
-          <button
-            type="button"
-            className="btn btn--primary"
-            disabled={busy}
-            onClick={onCreate}
-          >
-            Create project
+            Archived
           </button>
         </div>
-      </div>
 
-      <div
-        className="segmented"
-        role="tablist"
-        aria-label="Project lifecycle"
-        data-testid="project-lifecycle-tabs"
-      >
-        <button
-          type="button"
-          role="tab"
-          aria-selected={lifecycle === "active"}
-          className={
-            lifecycle === "active" ? "btn btn--secondary" : "btn btn--ghost"
-          }
-          disabled={busy}
-          onClick={() => onLifecycleFilter("active")}
-        >
-          Active
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={lifecycle === "archived"}
-          className={
-            lifecycle === "archived" ? "btn btn--secondary" : "btn btn--ghost"
-          }
-          disabled={busy}
-          onClick={() => onLifecycleFilter("archived")}
-        >
-          Archived
-        </button>
-      </div>
+        {error ? (
+          <p className="error-text" role="alert">
+            {formatUiError(error)}
+          </p>
+        ) : null}
+        {actionError ? (
+          <p className="error-text" role="alert">
+            {formatUiError(actionError)}
+          </p>
+        ) : null}
+        {dialogError && dialog.kind === "none" ? (
+          <p className="error-text" role="alert">
+            {dialogError}
+          </p>
+        ) : null}
 
-      {error ? <p className="error-text">{formatUiError(error)}</p> : null}
-      {actionError ? (
-        <p className="error-text">{formatUiError(actionError)}</p>
-      ) : null}
-      {dialogError && dialog.kind === "none" ? (
-        <p className="error-text">{dialogError}</p>
-      ) : null}
-      {loading ? <p className="muted">Loading</p> : null}
-
-      <ul className="project-list">
-        {projects.map((project) => (
-          <li key={project.id} className="project-row">
-            <div className="project-row__meta">
-              <p className="project-row__name">{project.name}</p>
-              <p className="project-row__locales">
-                {project.sourceLocale} → {project.targetLocale}
-              </p>
-            </div>
-            <div className="project-row__actions">
+        {loading ? (
+          <div
+            className="skeleton-stack"
+            role="status"
+            aria-label="Loading projects"
+            data-testid="projects-loading"
+          >
+            {[0, 1, 2].map((row) => (
+              <div key={row} className="skeleton skeleton-row" />
+            ))}
+          </div>
+        ) : projects.length === 0 ? (
+          <div className="empty-state" data-testid="projects-empty">
+            <FolderOpen
+              size={24}
+              weight="regular"
+              className="empty-state__icon"
+              aria-hidden="true"
+            />
+            <h2 className="empty-state__title">
+              {lifecycle === "active"
+                ? "No active projects"
+                : "No archived projects"}
+            </h2>
+            {/* Create project is already the masthead primary, so only the
+                archived case offers an action the surface does not have. */}
+            {lifecycle === "archived" ? (
               <button
                 type="button"
                 className="btn btn--secondary"
                 disabled={busy}
-                onClick={() => onOpen(project.id)}
+                onClick={() => onLifecycleFilter("active")}
               >
-                Open
+                Show active
               </button>
-              <button
-                type="button"
-                className="btn btn--ghost btn--sm"
-                disabled={busy}
-                onClick={(e) => void startEdit(project.id, e.currentTarget)}
-              >
-                Edit
-              </button>
-              {lifecycle === "active" ? (
-                <button
-                  type="button"
-                  className="btn btn--ghost btn--sm"
-                  disabled={busy}
-                  onClick={(e) =>
-                    openDialog({ kind: "archive", project }, e.currentTarget)
-                  }
-                >
-                  Archive
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="btn btn--ghost btn--sm"
-                  disabled={busy}
-                  onClick={(e) =>
-                    openDialog({ kind: "unarchive", project }, e.currentTarget)
-                  }
-                >
-                  Unarchive
-                </button>
-              )}
-              <button
-                type="button"
-                className="btn btn--ghost btn--sm"
-                disabled={busy}
-                onClick={(e) =>
-                  openDialog({ kind: "recycle", project }, e.currentTarget)
+            ) : null}
+          </div>
+        ) : (
+          <ul className="project-list">
+            {projects.map((project, index) => (
+              <li
+                key={project.id}
+                className="project-list__item row-enter"
+                style={
+                  index < 8
+                    ? ({ "--enter-index": index } as React.CSSProperties)
+                    : undefined
                 }
               >
-                Recycle
-              </button>
-              {onInsights ? (
-                <button
-                  type="button"
-                  className="btn btn--ghost btn--sm"
-                  disabled={busy}
-                  onClick={() => onInsights(project.id)}
-                >
-                  Insights
-                </button>
-              ) : null}
-              {onAssets ? (
-                <button
-                  type="button"
-                  className="btn btn--ghost btn--sm"
-                  disabled={busy}
-                  onClick={() => onAssets(project.id)}
-                  data-testid={`project-assets-${project.id}`}
-                >
-                  Assets
-                </button>
-              ) : null}
-            </div>
-          </li>
-        ))}
-      </ul>
+                <div className="project-row">
+                  <div className="project-row__meta">
+                    <p className="project-row__name" title={project.name}>
+                      {project.name}
+                    </p>
+                    <p className="project-row__facts">
+                      <span className="project-row__locales">
+                        {project.sourceLocale} to {project.targetLocale}
+                      </span>
+                      <span>{project.domain}</span>
+                      <span
+                        className="mono"
+                        title={new Date(project.updatedAtMs).toLocaleString()}
+                      >
+                        {formatRelativeTime(project.updatedAtMs)}
+                      </span>
+                    </p>
+                  </div>
+                  <div className="project-row__actions">
+                    <button
+                      type="button"
+                      className="btn btn--secondary"
+                      disabled={busy}
+                      onClick={() => onOpen(project.id)}
+                    >
+                      Open
+                    </button>
+                    <RowMenu
+                      label={`More actions for ${project.name}`}
+                      disabled={busy}
+                      testId={`project-menu-${project.id}`}
+                      items={[
+                        {
+                          id: "edit",
+                          label: "Edit",
+                          onSelect: () => {
+                            void startEdit(
+                              project.id,
+                              document.activeElement as HTMLElement,
+                            );
+                          },
+                        },
+                        lifecycle === "active"
+                          ? {
+                              id: "archive",
+                              label: "Archive",
+                              onSelect: () =>
+                                openDialog({ kind: "archive", project }),
+                            }
+                          : {
+                              id: "unarchive",
+                              label: "Unarchive",
+                              onSelect: () =>
+                                openDialog({ kind: "unarchive", project }),
+                            },
+                        ...(onInsights
+                          ? [
+                              {
+                                id: "insights",
+                                label: "Insights",
+                                onSelect: () => onInsights(project.id),
+                              },
+                            ]
+                          : []),
+                        ...(onAssets
+                          ? [
+                              {
+                                id: "assets",
+                                label: "Assets",
+                                testId: `project-assets-${project.id}`,
+                                onSelect: () => onAssets(project.id),
+                              },
+                            ]
+                          : []),
+                        {
+                          id: "recycle",
+                          label: "Recycle",
+                          danger: true,
+                          onSelect: () =>
+                            openDialog({ kind: "recycle", project }),
+                        },
+                      ]}
+                    />
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
 
-      {!loading && projects.length === 0 ? (
-        <p className="muted" data-testid="projects-empty">
-          No projects
-        </p>
-      ) : null}
-
-      <div className="dialog__actions" data-testid="projects-paging">
-        <button
-          type="button"
-          className="btn btn--ghost btn--sm"
-          disabled={busy || offset <= 0}
-          onClick={() => onPage(Math.max(0, offset - limit))}
-        >
-          Previous
-        </button>
-        <span className="muted">
-          {total === 0
-            ? "0"
-            : `${offset + 1}-${Math.min(offset + projects.length, total)}`}{" "}
-          of {total}
-        </span>
-        <button
-          type="button"
-          className="btn btn--ghost btn--sm"
-          disabled={busy || offset + limit >= total}
-          onClick={() => onPage(offset + limit)}
-        >
-          Next
-        </button>
+        {projects.length > 0 || offset > 0 ? (
+          <div className="pagination" data-testid="projects-paging">
+            <button
+              type="button"
+              className="btn btn--quiet btn--sm"
+              disabled={busy || offset <= 0}
+              onClick={() => onPage(Math.max(0, offset - limit))}
+            >
+              Previous
+            </button>
+            <span className="pagination__count">
+              {total === 0
+                ? "0"
+                : `${offset + 1}-${Math.min(offset + projects.length, total)}`}{" "}
+              of {total}
+            </span>
+            <button
+              type="button"
+              className="btn btn--quiet btn--sm"
+              disabled={busy || offset + limit >= total}
+              onClick={() => onPage(offset + limit)}
+            >
+              Next
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {dialog.kind === "edit" ? (

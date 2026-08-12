@@ -256,7 +256,8 @@ textarea.field__control {
 }
 
 .segmented__item {
-  min-height: 28px;
+  position: relative;
+  min-height: var(--control-h-sm);
   padding: 0 var(--space-3);
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
@@ -267,17 +268,6 @@ textarea.field__control {
   transition:
     background var(--motion-fast) var(--ease-standard),
     color var(--motion-fast) var(--ease-standard);
-}
-
-/* Keeps the visual band compact while the hit area meets the 32px floor. */
-.segmented__item::before {
-  content: "";
-  position: absolute;
-  inset: -2px 0;
-}
-
-.segmented__item {
-  position: relative;
 }
 
 .segmented__item:hover:not(:disabled) {
@@ -395,6 +385,16 @@ textarea.field__control {
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
   color: var(--color-text-subtle);
+}
+
+.row-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.row-menu__menu {
+  top: calc(100% + var(--space-1));
+  right: 0;
 }
 
 /* ── Tables ────────────────────────────────────────────── */

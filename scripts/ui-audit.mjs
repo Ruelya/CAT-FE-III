@@ -262,18 +262,39 @@ function scanOpenTag(text, start) {
   return null;
 }
 
-/** Remove balanced `{...}` JSX expressions and all element tags. */
+/**
+ * Text a sighted user would read inside an element.
+ *
+ * Literal children count, and so do string literals inside a JSX expression,
+ * because `{pending ? "Saving" : "Save"}` renders a visible label. Element
+ * tags and non-literal expressions do not count.
+ */
 function visibleTextOf(body) {
   let out = "";
   let depth = 0;
   let inTag = false;
+  let expression = "";
   for (let i = 0; i < body.length; i += 1) {
     const ch = body[i];
-    if (depth === 0 && !inTag && ch === "<") inTag = true;
-    else if (inTag && ch === ">") inTag = false;
-    else if (!inTag && ch === "{") depth += 1;
-    else if (!inTag && ch === "}") depth = Math.max(0, depth - 1);
-    else if (!inTag && depth === 0) out += ch;
+    if (depth === 0 && !inTag && ch === "<") {
+      inTag = true;
+    } else if (inTag && ch === ">") {
+      inTag = false;
+    } else if (!inTag && ch === "{") {
+      depth += 1;
+      if (depth === 1) expression = "";
+    } else if (!inTag && ch === "}") {
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) {
+        for (const match of expression.matchAll(/"([^"]*)"|'([^']*)'/g)) {
+          out += ` ${match[1] ?? match[2] ?? ""}`;
+        }
+      }
+    } else if (!inTag && depth > 0) {
+      expression += ch;
+    } else if (!inTag) {
+      out += ch;
+    }
   }
   return out.trim();
 }

@@ -384,8 +384,15 @@ next to the affected control with the user's input preserved, **cancellation**
 where the operation is long, and a **recovery path**.
 
 Every collection covers: **loading** as a skeleton matching settled geometry,
-**empty** as a bounded intentional state offering exactly one real action, and
-**error** with a retry.
+**empty** as a bounded intentional state, and **error** with a retry.
+
+An empty state carries an action only when that action is not already visible
+on the surface. Repeating the masthead primary action inside the empty state
+produces two controls with the same intent, which is a defect, not helpfulness.
+When the surface primary already covers the intent, the empty state states the
+fact and stops. When the useful next step is different, for example switching
+back to the active filter from an empty archived list, the empty state owns
+that action.
 
 An empty table rendered as a bare header row is a defect. The strings
 `Loading` and `Empty` on their own are defects.

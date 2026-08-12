@@ -19,8 +19,10 @@ function Harness({ kind }: { kind: string }) {
     <div>
       <p data-testid="live">{message}</p>
       <main className="app-stage">
-        <h1 data-testid="heading">{kind}</h1>
-        <input data-testid="field" />
+        <div data-surface-container data-testid="container">
+          <h1>{kind}</h1>
+          <input data-testid="field" />
+        </div>
       </main>
     </div>
   );
@@ -58,7 +60,11 @@ describe("useSurfaceAnnouncement", () => {
     rerender(<Harness kind="workbench" />);
     await flushFrame();
 
-    expect(document.activeElement).toBe(getByTestId("heading"));
+    // The container is the focus target, not the heading: a heading would
+    // paint a focus ring the user never asked for.
+    const container = getByTestId("container");
+    expect(document.activeElement).toBe(container);
+    expect(container).toHaveAttribute("tabindex", "-1");
   });
 
   it("leaves focus alone when the user already reached a control", async () => {
