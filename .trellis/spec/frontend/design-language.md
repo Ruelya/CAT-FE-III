@@ -348,9 +348,15 @@ Panel chrome is shared. Collapsed panel content stays mounted, becomes `inert`
 and `aria-hidden`, and focus moves to the expand control.
 
 Dialogs trap focus, restore the opener on close, treat Escape as
-non-destructive, and stay mounted through async completion. **Initial focus is
-always the safest action**, which is Cancel for recovery and destructive
-confirms.
+non-destructive, and stay mounted through async completion.
+
+**Initial focus is the safest action available in that dialog**, meaning the
+one that cannot lose user work or data. In a confirmation this is Cancel. In
+the draft recovery dialog there is no Cancel: the choice is Recover or
+Discard, and Recover is the action that preserves work, so Recover takes
+initial focus. In the stale variant the same reasoning selects Retry. Reading
+the rule as "always literally the Cancel button" would put initial focus on the
+destructive option in exactly the dialog where a mistake costs the most.
 
 ### Status
 

@@ -170,6 +170,7 @@ select:disabled {
   line-height: var(--leading-cjk);
 }
 
+.sr-only,
 .visually-hidden {
   position: absolute;
   width: 1px;

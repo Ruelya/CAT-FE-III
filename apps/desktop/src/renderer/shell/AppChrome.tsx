@@ -1,6 +1,7 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
 import {
   ChartLine,
+  Command,
   Export,
   FolderSimple,
   GearSix,
@@ -32,6 +33,8 @@ export interface AppChromeProps {
   onPlugins?: () => void;
   onCollaboration?: () => void;
   onSettings?: () => void;
+  /** Opens the Ctrl/Cmd+K command palette. */
+  onCommandPalette?: () => void;
   /** Window chrome platform branch from DesktopApi (default: custom). */
   windowChromePlatform?: WindowChromePlatform;
   windowMaximized?: boolean;
@@ -52,6 +55,7 @@ export function AppChrome({
   onPlugins,
   onCollaboration,
   onSettings,
+  onCommandPalette,
   windowChromePlatform = "custom",
   windowMaximized = false,
   onWindowMinimize,
@@ -60,34 +64,49 @@ export function AppChrome({
 }: AppChromeProps) {
   const surface = state.surface;
 
-  const identity =
-    surface.kind === "workbench" ||
-    surface.kind === "qa" ||
-    surface.kind === "export"
-      ? `${surface.ctx.project.name} · ${surface.ctx.document.name}`
-      : surface.kind === "insights" || surface.kind === "assets"
-        ? surface.projectName
-        : surface.kind === "import-document"
-          ? surface.projectName
-          : surface.kind === "projects"
-            ? "Projects"
-            : surface.kind === "create-project"
-              ? "New project"
-              : surface.kind === "templates"
-                ? "Templates"
-                : surface.kind === "recycle"
-                  ? "Recycle"
-                  : surface.kind === "search"
-                    ? "Search"
-                    : surface.kind === "ai-control"
-                      ? "AI Control"
-                      : surface.kind === "plugins"
-                        ? "Plugins"
-                        : surface.kind === "collaboration"
-                          ? "Collaboration"
-                          : surface.kind === "settings"
-                            ? "Settings"
-                            : "";
+  /**
+   * Identity is split so the project reads as the primary context and the
+   * document as its qualifier. Only the primary part is allowed to win the
+   * remaining width; both truncate rather than pushing the actions.
+   */
+  const identityParts: { primary: string; secondary?: string } = (() => {
+    switch (surface.kind) {
+      case "workbench":
+      case "qa":
+      case "export":
+        return {
+          primary: surface.ctx.project.name,
+          secondary: surface.ctx.document.name,
+        };
+      case "insights":
+      case "assets":
+      case "import-document":
+        return { primary: surface.projectName };
+      case "projects":
+        return { primary: "Projects" };
+      case "create-project":
+        return { primary: "New project" };
+      case "templates":
+        return { primary: "Templates" };
+      case "recycle":
+        return { primary: "Recycle" };
+      case "search":
+        return { primary: "Search" };
+      case "ai-control":
+        return { primary: "AI Control" };
+      case "plugins":
+        return { primary: "Plugins" };
+      case "collaboration":
+        return { primary: "Collaboration" };
+      case "settings":
+        return { primary: "Settings" };
+      default:
+        return { primary: "" };
+    }
+  })();
+  const identity = identityParts.secondary
+    ? `${identityParts.primary} / ${identityParts.secondary}`
+    : identityParts.primary;
 
   const startupResolved =
     surface.kind !== "boot" && surface.kind !== "recovery";
@@ -153,11 +172,20 @@ export function AppChrome({
         <span>Translunar</span>
       </div>
       <div className="app-chrome__identity" title={identity}>
-        {identity}
+        {identityParts.primary ? (
+          <span className="app-chrome__identity-primary">
+            {identityParts.primary}
+          </span>
+        ) : null}
+        {identityParts.secondary ? (
+          <span className="app-chrome__identity-secondary">
+            {identityParts.secondary}
+          </span>
+        ) : null}
       </div>
       <div className="app-chrome__actions" data-no-drag>
         {showHomeSearch ? (
-          <>
+          <div className="app-chrome__group">
             <button
               type="button"
               className="btn btn--ghost btn--icon"
@@ -188,10 +216,24 @@ export function AppChrome({
             >
               <MagnifyingGlass size={18} weight="regular" />
             </button>
-          </>
+            {onCommandPalette ? (
+              <button
+                type="button"
+                className="btn btn--ghost btn--icon"
+                aria-label="Commands"
+                title="Commands (Ctrl+K)"
+                aria-keyshortcuts="Control+K Meta+K"
+                disabled={disabled}
+                onClick={onCommandPalette}
+                data-testid="nav-commands"
+              >
+                <Command size={18} weight="regular" />
+              </button>
+            ) : null}
+          </div>
         ) : null}
         {showSessionActions || showInsights || showAssets ? (
-          <>
+          <div className="app-chrome__group">
             {showAssets && onAssets ? (
               <button
                 type="button"
@@ -246,63 +288,71 @@ export function AppChrome({
                 </button>
               </>
             ) : null}
-          </>
+          </div>
         ) : null}
-        {showP4Global && onAiControl ? (
-          <button
-            type="button"
-            className="btn btn--ghost btn--icon"
-            aria-label="AI Control"
-            title="AI Control"
-            aria-current={surface.kind === "ai-control" ? "page" : undefined}
-            disabled={disabled}
-            onClick={onAiControl}
-            data-testid="nav-ai-control"
-          >
-            <Robot size={18} weight="regular" />
-          </button>
-        ) : null}
-        {showP4Global && onPlugins ? (
-          <button
-            type="button"
-            className="btn btn--ghost btn--icon"
-            aria-label="Plugins"
-            title="Plugins"
-            aria-current={surface.kind === "plugins" ? "page" : undefined}
-            disabled={disabled}
-            onClick={onPlugins}
-            data-testid="nav-plugins"
-          >
-            <Plugs size={18} weight="regular" />
-          </button>
-        ) : null}
-        {showCollaboration ? (
-          <button
-            type="button"
-            className="btn btn--ghost btn--icon"
-            aria-label="Collaboration"
-            title="Collaboration"
-            aria-current={surface.kind === "collaboration" ? "page" : undefined}
-            disabled={disabled}
-            onClick={onCollaboration}
-            data-testid="nav-collaboration"
-          >
-            <UsersThree size={18} weight="regular" />
-          </button>
-        ) : null}
-        {showP4Global && onSettings ? (
-          <button
-            type="button"
-            className="btn btn--ghost btn--icon"
-            aria-label="Settings"
-            title="Settings"
-            aria-current={surface.kind === "settings" ? "page" : undefined}
-            disabled={disabled}
-            onClick={onSettings}
-            data-testid="nav-settings"
-          >
-            <GearSix size={18} weight="regular" />
-          </button>
+        {showP4Global || showCollaboration ? (
+          <div className="app-chrome__group">
+            {showP4Global && onAiControl ? (
+              <button
+                type="button"
+                className="btn btn--ghost btn--icon"
+                aria-label="AI Control"
+                title="AI Control"
+                aria-current={
+                  surface.kind === "ai-control" ? "page" : undefined
+                }
+                disabled={disabled}
+                onClick={onAiControl}
+                data-testid="nav-ai-control"
+              >
+                <Robot size={18} weight="regular" />
+              </button>
+            ) : null}
+            {showP4Global && onPlugins ? (
+              <button
+                type="button"
+                className="btn btn--ghost btn--icon"
+                aria-label="Plugins"
+                title="Plugins"
+                aria-current={surface.kind === "plugins" ? "page" : undefined}
+                disabled={disabled}
+                onClick={onPlugins}
+                data-testid="nav-plugins"
+              >
+                <Plugs size={18} weight="regular" />
+              </button>
+            ) : null}
+            {showCollaboration ? (
+              <button
+                type="button"
+                className="btn btn--ghost btn--icon"
+                aria-label="Collaboration"
+                title="Collaboration"
+                aria-current={
+                  surface.kind === "collaboration" ? "page" : undefined
+                }
+                disabled={disabled}
+                onClick={onCollaboration}
+                data-testid="nav-collaboration"
+              >
+                <UsersThree size={18} weight="regular" />
+              </button>
+            ) : null}
+            {showP4Global && onSettings ? (
+              <button
+                type="button"
+                className="btn btn--ghost btn--icon"
+                aria-label="Settings"
+                title="Settings"
+                aria-current={surface.kind === "settings" ? "page" : undefined}
+                disabled={disabled}
+                onClick={onSettings}
+                data-testid="nav-settings"
+              >
+                <GearSix size={18} weight="regular" />
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </div>
       {showCustomWindowControls &&

@@ -206,10 +206,14 @@ matchers that also hit Recycle “Document” rows. See
   tolerances because Windows DPI can return fractional CSS values.
 - Visible `:focus-visible` treatment is required; selected-row styling must not
   remove focus affordance.
-- Recovery and destructive confirms are modal dialogs: initial focus on Cancel
-  (safest non-destructive action), focus trap, Escape is non-destructive,
-  restore prior focus on close. Purge uses distinct permanent-action copy from
-  restore/delete.
+- Recovery and destructive confirms are modal dialogs: focus trap, Escape is
+  non-destructive, restore prior focus on close. Purge uses distinct
+  permanent-action copy from restore/delete.
+- Initial focus goes to **the safest action the dialog offers**, meaning the
+  one that cannot lose user work. For a confirmation that is Cancel. The draft
+  recovery dialog has no Cancel, so Recover (or Retry in the stale variant)
+  takes initial focus, because Discard is the destructive option there. See
+  [design-language.md](./design-language.md) §6.
 
 ## Composition
 

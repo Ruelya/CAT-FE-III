@@ -207,6 +207,11 @@
   position: relative;
 }
 
+.app-stage__view {
+  min-height: 100%;
+  height: 100%;
+}
+
 /* ── Engine status banner ──────────────────────────────── */
 
 .app-banner-slot {
@@ -345,9 +350,15 @@
   color: var(--color-text-subtle);
 }
 
-.command-palette__list {
+.command-palette__list,
+.command-palette__list ul,
+.command-palette__list li {
   list-style: none;
   margin: 0;
+  padding: 0;
+}
+
+.command-palette__list {
   padding: var(--space-1);
   overflow: auto;
   min-height: 0;

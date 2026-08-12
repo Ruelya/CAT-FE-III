@@ -12,6 +12,16 @@ export interface RecoveryDialogProps {
   onRetry?: () => void;
 }
 
+/**
+ * Draft recovery.
+ *
+ * Initial focus goes to the safest action, which is the one that cannot lose
+ * user work. This dialog has no Cancel: the choice is Recover or Discard, so
+ * Recover takes focus (Retry in the stale variant). Escape is inert here
+ * because every exit path is a decision about the user's draft.
+ *
+ * Contract: .trellis/spec/frontend/design-language.md section 6.
+ */
 export function RecoveryDialog({
   mode,
   reason,
@@ -21,8 +31,9 @@ export function RecoveryDialog({
   onRetry,
 }: RecoveryDialogProps) {
   const titleId = useId();
+  const bodyId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
-  const primaryRef = useRef<HTMLButtonElement>(null);
+  const safestRef = useRef<HTMLButtonElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -30,9 +41,10 @@ export function RecoveryDialog({
       document.activeElement instanceof HTMLElement
         ? document.activeElement
         : null;
-    primaryRef.current?.focus();
+    safestRef.current?.focus();
     return () => {
-      previouslyFocused.current?.focus?.();
+      const trigger = previouslyFocused.current;
+      if (trigger && document.contains(trigger)) trigger.focus();
     };
   }, []);
 
@@ -42,7 +54,7 @@ export function RecoveryDialog({
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        // Non-destructive: Escape never discards; only closes focus action path.
+        // Non-destructive: Escape never discards a draft.
         event.preventDefault();
         event.stopPropagation();
         return;
@@ -75,20 +87,25 @@ export function RecoveryDialog({
       <div
         ref={dialogRef}
         className="dialog"
-        role="dialog"
+        role="alertdialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        aria-describedby={bodyId}
         data-testid="recovery-dialog"
       >
         <h2 id={titleId} className="dialog__title">
           {mode === "recoverable" ? "Recover draft" : "Draft unavailable"}
         </h2>
-        <p className="dialog__body">
+        <p id={bodyId} className="dialog__body">
           {mode === "recoverable"
             ? "A pending target draft was found."
             : (reason ?? "The draft journal could not be restored.")}
         </p>
-        {error ? <p className="error-text">{formatUiError(error)}</p> : null}
+        {error ? (
+          <p className="error-text" role="alert">
+            {formatUiError(error)}
+          </p>
+        ) : null}
         <div className="dialog__actions">
           {mode === "recoverable" && onRecover ? (
             <>
@@ -100,7 +117,7 @@ export function RecoveryDialog({
                 Discard
               </button>
               <button
-                ref={primaryRef}
+                ref={safestRef}
                 type="button"
                 className="btn btn--primary"
                 onClick={onRecover}
@@ -109,39 +126,35 @@ export function RecoveryDialog({
                 Recover
               </button>
             </>
-          ) : (
+          ) : onRetry ? (
             <>
-              {onRetry ? (
-                <button
-                  ref={primaryRef}
-                  type="button"
-                  className="btn btn--secondary"
-                  onClick={onRetry}
-                  data-testid="recovery-primary"
-                >
-                  Retry
-                </button>
-              ) : (
-                <button
-                  ref={primaryRef}
-                  type="button"
-                  className="btn btn--primary"
-                  onClick={onDiscard}
-                  data-testid="recovery-primary"
-                >
-                  Discard
-                </button>
-              )}
-              {onRetry ? (
-                <button
-                  type="button"
-                  className="btn btn--primary"
-                  onClick={onDiscard}
-                >
-                  Discard
-                </button>
-              ) : null}
+              <button
+                ref={safestRef}
+                type="button"
+                className="btn btn--secondary"
+                onClick={onRetry}
+                data-testid="recovery-primary"
+              >
+                Retry
+              </button>
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={onDiscard}
+              >
+                Discard
+              </button>
             </>
+          ) : (
+            <button
+              ref={safestRef}
+              type="button"
+              className="btn btn--primary"
+              onClick={onDiscard}
+              data-testid="recovery-primary"
+            >
+              Discard
+            </button>
           )}
         </div>
       </div>
