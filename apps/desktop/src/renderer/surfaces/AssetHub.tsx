@@ -3,6 +3,7 @@ import { useState } from "react";
 import { formatUiError } from "../lib/errors";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
 import { SectionNav } from "../shell/SectionNav";
+import { TableEmpty } from "../shell/TableEmpty";
 import type { AssetSection } from "../state/asset-state";
 import {
   formatBasisPoints,
@@ -217,6 +218,9 @@ export function AssetHub({
                         </tr>
                       );
                     })}
+                    {state.tm.libraries.items.length === 0 ? (
+                      <TableEmpty colSpan={4} />
+                    ) : null}
                   </tbody>
                 </table>
               </div>
@@ -609,6 +613,9 @@ export function AssetHub({
                         </tr>
                       );
                     })}
+                    {state.termbase.termbases.items.length === 0 ? (
+                      <TableEmpty colSpan={5} />
+                    ) : null}
                   </tbody>
                 </table>
               </div>
@@ -1447,6 +1454,9 @@ export function AssetHub({
                         </td>
                       </tr>
                     ))}
+                    {state.catalog.page.items.length === 0 ? (
+                      <TableEmpty colSpan={5} />
+                    ) : null}
                   </tbody>
                 </table>
               </div>

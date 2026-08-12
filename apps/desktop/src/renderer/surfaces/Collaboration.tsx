@@ -8,6 +8,8 @@ import {
 import type { CollaborationControllerApi } from "../state/use-collaboration-controller";
 import type { P4ProjectContext } from "../state/p4-route-context";
 import { SectionNav } from "../shell/SectionNav";
+import { useDestructiveConfirm } from "../shell/use-destructive-confirm";
+import { TableEmpty } from "../shell/TableEmpty";
 
 export interface CollaborationProps {
   collab: CollaborationControllerApi;
@@ -36,6 +38,8 @@ export function Collaboration({
 }: CollaborationProps) {
   const { state } = collab;
   const busy = disabled === true || state.mutationPending;
+
+  const destructive = useDestructiveConfirm();
 
   return (
     <section className="surface p4-surface" data-testid="collaboration">
@@ -135,13 +139,23 @@ export function Collaboration({
                         type="button"
                         className="btn btn--danger btn--sm"
                         disabled={busy}
-                        onClick={() => void collab.removeMember(m.actorId)}
+                        onClick={() =>
+                          destructive.request({
+                            title: "Remove member",
+                            body: `${m.actorId} will lose access to this project.`,
+                            confirmLabel: "Remove",
+                            testId: "collab-member-remove-confirm",
+                            run: () => collab.removeMember(m.actorId),
+                          })
+                        }
+                        aria-label={`Remove member ${m.actorId}`}
                       >
                         Remove
                       </button>
                     </td>
                   </tr>
                 ))}
+                {state.members.length === 0 ? <TableEmpty colSpan={3} /> : null}
               </tbody>
             </table>
           )}
@@ -204,6 +218,7 @@ export function Collaboration({
                     </td>
                   </tr>
                 ))}
+                {state.locks.length === 0 ? <TableEmpty colSpan={4} /> : null}
               </tbody>
             </table>
           )}
@@ -261,6 +276,9 @@ export function Collaboration({
                     <td>{new Date(p.expiresAtMs).toISOString()}</td>
                   </tr>
                 ))}
+                {state.presence.length === 0 ? (
+                  <TableEmpty colSpan={4} />
+                ) : null}
               </tbody>
             </table>
           )}
@@ -353,6 +371,9 @@ export function Collaboration({
                     </td>
                   </tr>
                 ))}
+                {state.assignments.length === 0 ? (
+                  <TableEmpty colSpan={4} />
+                ) : null}
               </tbody>
             </table>
           )}
@@ -395,11 +416,13 @@ export function Collaboration({
                     </td>
                   </tr>
                 ))}
+                {state.opLog.length === 0 ? <TableEmpty colSpan={5} /> : null}
               </tbody>
             </table>
           )}
         </div>
       ) : null}
+      {destructive.dialog}
     </section>
   );
 }

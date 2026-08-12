@@ -1,6 +1,8 @@
 import { formatUiError } from "../lib/errors";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
 import { SectionNav } from "../shell/SectionNav";
+import { useDestructiveConfirm } from "../shell/use-destructive-confirm";
+import { TableEmpty } from "../shell/TableEmpty";
 import type { PluginsSection } from "../state/app-state";
 import { projectConnectorSchema } from "../state/ai-view";
 import {
@@ -136,6 +138,8 @@ export function Plugins({
     });
     return projectAiActionSchema(fields);
   }, [selectedAction]);
+
+  const destructive = useDestructiveConfirm();
 
   return (
     <section className="surface p4-surface" data-testid="plugins">
@@ -292,6 +296,9 @@ export function Plugins({
                     </td>
                   </tr>
                 ))}
+                {state.installed.length === 0 ? (
+                  <TableEmpty colSpan={5} />
+                ) : null}
               </tbody>
             </table>
           )}
@@ -333,6 +340,9 @@ export function Plugins({
                       </td>
                     </tr>
                   ))}
+                  {state.versions.length === 0 ? (
+                    <TableEmpty colSpan={3} />
+                  ) : null}
                 </tbody>
               </table>
               <button
@@ -430,6 +440,7 @@ export function Plugins({
                     </td>
                   </tr>
                 ))}
+                {state.bundled.length === 0 ? <TableEmpty colSpan={4} /> : null}
               </tbody>
             </table>
           )}
@@ -534,6 +545,9 @@ export function Plugins({
                     </td>
                   </tr>
                 ))}
+                {state.permissionRequests.length === 0 ? (
+                  <TableEmpty colSpan={5} />
+                ) : null}
               </tbody>
             </table>
           )}
@@ -592,6 +606,9 @@ export function Plugins({
                     </tr>
                   );
                 })}
+                {state.aiActions.length === 0 ? (
+                  <TableEmpty colSpan={3} />
+                ) : null}
               </tbody>
             </table>
           )}
@@ -742,6 +759,9 @@ export function Plugins({
                     </td>
                   </tr>
                 ))}
+                {state.uiPanels.length === 0 ? (
+                  <TableEmpty colSpan={3} />
+                ) : null}
               </tbody>
             </table>
           )}
@@ -816,6 +836,9 @@ export function Plugins({
                     </tr>
                   );
                 })}
+                {state.connectors.length === 0 ? (
+                  <TableEmpty colSpan={4} />
+                ) : null}
               </tbody>
             </table>
           )}
@@ -974,14 +997,22 @@ export function Plugins({
                       className="btn btn--danger btn--sm"
                       disabled={busy}
                       onClick={() =>
-                        void plugins.deleteProfile(p.id, p.revision)
+                        destructive.request({
+                          title: "Delete connector profile",
+                          body: `${p.displayName} will be deleted.`,
+                          confirmLabel: "Delete",
+                          testId: "connector-profile-delete-confirm",
+                          run: () => plugins.deleteProfile(p.id, p.revision),
+                        })
                       }
+                      aria-label={`Delete connector profile ${p.displayName}`}
                     >
                       Delete
                     </button>
                   </td>
                 </tr>
               ))}
+              {state.profiles.length === 0 ? <TableEmpty colSpan={3} /> : null}
             </tbody>
           </table>
           {state.selectedProfileId ? (
@@ -1073,7 +1104,15 @@ export function Plugins({
                       type="button"
                       className="btn btn--ghost"
                       disabled={busy || !state.credentialSlot}
-                      onClick={() => void plugins.deleteCredential()}
+                      onClick={() =>
+                        destructive.request({
+                          title: "Delete credential",
+                          body: "The stored connector credential will be removed from the OS keyring.",
+                          confirmLabel: "Delete",
+                          testId: "connector-credential-delete-confirm",
+                          run: () => plugins.deleteCredential(),
+                        })
+                      }
                       data-testid="connector-credential-delete"
                     >
                       Delete credential
@@ -1164,6 +1203,7 @@ export function Plugins({
           }}
         />
       ) : null}
+      {destructive.dialog}
     </section>
   );
 }

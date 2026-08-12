@@ -3,12 +3,30 @@
  * Dense operational panels rather than framed cards.
  */
 
+/*
+ * The P4 surfaces share the surface content width instead of stretching every
+ * control and table to the full window. A full-bleed 1680px submit button is
+ * not a primary action, it is a banner.
+ */
 .p4-surface {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
   min-height: 0;
   overflow: hidden;
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+/* A control inside a P4 panel takes its natural width, not the row width. */
+.p4-panel > .field,
+.p4-panel > label.field {
+  max-width: 420px;
+}
+
+.p4-panel > .btn {
+  align-self: flex-start;
 }
 
 .p4-tabs {

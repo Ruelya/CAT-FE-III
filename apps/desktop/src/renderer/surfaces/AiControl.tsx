@@ -12,6 +12,8 @@ import {
   formatProviderSource,
 } from "../state/ai-view";
 import { SectionNav } from "../shell/SectionNav";
+import { useDestructiveConfirm } from "../shell/use-destructive-confirm";
+import { TableEmpty } from "../shell/TableEmpty";
 
 export interface AiControlProps {
   ai: AiControllerApi;
@@ -46,6 +48,8 @@ export function AiControl({
     aiSectionAvailable(s.id, context),
   );
   const runnableProfiles = ai.runnableProfiles();
+
+  const destructive = useDestructiveConfirm();
 
   return (
     <section className="surface p4-surface" data-testid="ai-control">
@@ -128,6 +132,7 @@ export function AiControl({
                     </td>
                   </tr>
                 ))}
+                {state.catalog.length === 0 ? <TableEmpty colSpan={4} /> : null}
               </tbody>
             </table>
           )}
@@ -179,13 +184,25 @@ export function AiControl({
                         type="button"
                         className="btn btn--danger btn--sm"
                         disabled={busy}
-                        onClick={() => void ai.deleteProfile(p.id, p.revision)}
+                        onClick={() =>
+                          destructive.request({
+                            title: "Delete AI profile",
+                            body: `${p.name} will be deleted.`,
+                            confirmLabel: "Delete",
+                            testId: "ai-profile-delete-confirm",
+                            run: () => ai.deleteProfile(p.id, p.revision),
+                          })
+                        }
+                        aria-label={`Delete AI profile ${p.name}`}
                       >
                         Delete
                       </button>
                     </td>
                   </tr>
                 ))}
+                {state.profiles.length === 0 ? (
+                  <TableEmpty colSpan={5} />
+                ) : null}
               </tbody>
             </table>
           )}
@@ -352,7 +369,13 @@ export function AiControl({
                   className="btn btn--secondary"
                   disabled={busy}
                   onClick={() =>
-                    void ai.deleteCredential(state.selectedProfileId!)
+                    destructive.request({
+                      title: "Delete credential",
+                      body: "The stored credential for this profile will be removed from the OS keyring.",
+                      confirmLabel: "Delete",
+                      testId: "ai-credential-delete-confirm",
+                      run: () => ai.deleteCredential(state.selectedProfileId!),
+                    })
                   }
                 >
                   Delete credential
@@ -852,6 +875,9 @@ export function AiControl({
                     </td>
                   </tr>
                 ))}
+                {state.batchRuns.length === 0 ? (
+                  <TableEmpty colSpan={4} />
+                ) : null}
               </tbody>
             </table>
           )}
@@ -937,6 +963,9 @@ export function AiControl({
                       <td>{item.attempts}</td>
                     </tr>
                   ))}
+                  {state.batchItems.length === 0 ? (
+                    <TableEmpty colSpan={4} />
+                  ) : null}
                 </tbody>
               </table>
             </div>
@@ -1071,6 +1100,9 @@ export function AiControl({
                       <td>{r.elapsedMs}</td>
                     </tr>
                   ))}
+                  {state.usage.records.length === 0 ? (
+                    <TableEmpty colSpan={5} />
+                  ) : null}
                 </tbody>
               </table>
             </>
@@ -1128,6 +1160,7 @@ export function AiControl({
           ) : null}
         </div>
       ) : null}
+      {destructive.dialog}
     </section>
   );
 }

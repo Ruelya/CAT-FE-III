@@ -858,3 +858,11 @@ textarea.field__control {
 .measure {
   max-width: var(--measure);
 }
+
+/* Empty table body: a header row with nothing under it reads as a bug. */
+.table-empty td {
+  padding: var(--space-5) var(--space-3);
+  text-align: center;
+  color: var(--color-text-subtle);
+  font-size: var(--text-sm);
+}
