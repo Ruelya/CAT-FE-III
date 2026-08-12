@@ -376,6 +376,60 @@ test.describe("accessibility and keyboard", () => {
     }
   });
 
+  test("a destructive confirmation shows which button Enter will activate", async () => {
+    // Regression: focus moved to Cancel programmatically, but because the
+    // dialog was opened with the pointer, :focus-visible suppressed the ring
+    // and a tester could not tell which button was armed on a destructive
+    // confirmation.
+    const userData = await mkdtemp(join(tmpdir(), "tl-confirm-"));
+    let app: ElectronApplication | undefined;
+
+    try {
+      const launched = await launchApp(userData);
+      app = launched.app;
+      const { page } = launched;
+
+      await createOpenProject(page, "Confirm Project");
+      await page.getByRole("button", { name: "Home", exact: true }).click();
+      await expect(page.getByTestId("project-home")).toBeVisible({
+        timeout: 30_000,
+      });
+
+      await page
+        .getByRole("button", { name: /^More actions for / })
+        .first()
+        .click();
+      await page.getByRole("menuitem", { name: "Recycle" }).click();
+
+      const dialog = page.getByTestId("recycle-project-confirm");
+      await expect(dialog).toBeVisible();
+
+      const cancel = dialog.getByRole("button", { name: "Cancel" });
+      await expect(cancel).toBeFocused();
+
+      const ring = await cancel.evaluate((node) => {
+        const style = getComputedStyle(node);
+        return {
+          style: style.outlineStyle,
+          width: Number.parseFloat(style.outlineWidth),
+          color: style.outlineColor,
+        };
+      });
+      expect(ring.style).not.toBe("none");
+      expect(ring.width).toBeGreaterThanOrEqual(2);
+
+      // Escape must remain non-destructive.
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+      await expect(page.getByTestId("project-home")).toBeVisible();
+    } finally {
+      if (app) await app.close().catch(() => undefined);
+      await rm(userData, { recursive: true, force: true }).catch(
+        () => undefined,
+      );
+    }
+  });
+
   test("reduced motion collapses every transition to zero", async () => {
     const userData = await mkdtemp(join(tmpdir(), "tl-a11y-motion-"));
     let app: ElectronApplication | undefined;

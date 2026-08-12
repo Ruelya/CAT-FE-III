@@ -885,3 +885,20 @@ textarea.field__control {
   font-size: var(--text-sm);
   text-align: center;
 }
+
+/*
+ * Inside a modal, the focus ring is shown for :focus, not only for
+ * :focus-visible.
+ *
+ * A dialog moves focus programmatically to its safest action. When the dialog
+ * was opened with the pointer, Chromium's :focus-visible heuristic suppresses
+ * the ring, so the user sees no indication of which button Enter will activate
+ * in the one place where that mistake is expensive. A walkthrough tester hit
+ * exactly this on a destructive confirmation. A modal is a decision point, so
+ * the keyboard target is always visible here.
+ */
+.dialog button:focus,
+.command-palette button:focus {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}

@@ -350,6 +350,13 @@ and `aria-hidden`, and focus moves to the expand control.
 Dialogs trap focus, restore the opener on close, treat Escape as
 non-destructive, and stay mounted through async completion.
 
+Inside a modal the focus ring is shown on `:focus`, not only on
+`:focus-visible`. A dialog moves focus programmatically, and when it was opened
+with the pointer the `:focus-visible` heuristic suppresses the ring, leaving no
+indication of which button Enter will activate in the one place where that
+mistake is expensive. A modal is a decision point, so its keyboard target is
+always visible.
+
 **Initial focus is the safest action available in that dialog**, meaning the
 one that cannot lose user work or data. In a confirmation this is Cancel. In
 the draft recovery dialog there is no Cancel: the choice is Recover or
