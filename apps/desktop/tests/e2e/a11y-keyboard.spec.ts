@@ -296,6 +296,86 @@ test.describe("accessibility and keyboard", () => {
     }
   });
 
+  test("a row overflow menu is fully visible and paints above later content", async () => {
+    // Regression: the project list used overflow hidden to round its corners,
+    // which cut the menu off after the second item, and the row entrance
+    // animation left a stacking context that let the pagination row paint over
+    // what was left. A walkthrough found it; a viewport-only geometry check
+    // could not, because a clipped element still reports its full box.
+    const userData = await mkdtemp(join(tmpdir(), "tl-menu-"));
+    let app: ElectronApplication | undefined;
+
+    try {
+      const launched = await launchApp(userData);
+      app = launched.app;
+      const { page } = launched;
+
+      await createOpenProject(page, "Menu Project");
+      await page.getByRole("button", { name: "Home", exact: true }).click();
+      await expect(page.getByTestId("project-home")).toBeVisible({
+        timeout: 30_000,
+      });
+
+      await page
+        .getByRole("button", { name: /^More actions for / })
+        .first()
+        .click();
+      const menu = page.getByRole("menu");
+      await expect(menu).toBeVisible();
+
+      // Every item the surface offers must actually be reachable.
+      const labels = await menu.getByRole("menuitem").allInnerTexts();
+      expect(labels.map((l) => l.trim())).toEqual([
+        "Edit",
+        "Archive",
+        "Insights",
+        "Assets",
+        "Recycle",
+      ]);
+
+      const report = await page.evaluate(() => {
+        const node = document.querySelector('[role="menu"]');
+        if (!node) return null;
+        const rect = node.getBoundingClientRect();
+
+        // No ancestor may clip the menu box.
+        let clippedBy: string | null = null;
+        let parent = node.parentElement;
+        while (parent && parent !== document.body) {
+          const style = getComputedStyle(parent);
+          if (style.overflow !== "visible" || style.overflowY !== "visible") {
+            const box = parent.getBoundingClientRect();
+            if (rect.bottom - box.bottom > 2 || rect.right - box.right > 2) {
+              clippedBy = parent.className || parent.tagName;
+              break;
+            }
+          }
+          parent = parent.parentElement;
+        }
+
+        // The menu must be what a click actually lands on.
+        const topAtItems = document.elementFromPoint(
+          rect.left + 40,
+          rect.top + 42,
+        );
+        return {
+          clippedBy,
+          topAtItems: topAtItems
+            ? `${topAtItems.tagName}.${String(topAtItems.className)}`
+            : "none",
+        };
+      });
+
+      expect(report?.clippedBy, "menu is clipped by an ancestor").toBeNull();
+      expect(report?.topAtItems).toContain("menu__item");
+    } finally {
+      if (app) await app.close().catch(() => undefined);
+      await rm(userData, { recursive: true, force: true }).catch(
+        () => undefined,
+      );
+    }
+  });
+
   test("reduced motion collapses every transition to zero", async () => {
     const userData = await mkdtemp(join(tmpdir(), "tl-a11y-motion-"));
     let app: ElectronApplication | undefined;

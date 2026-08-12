@@ -121,6 +121,38 @@ const geometryProbe = `(() => {
       right: Math.round(rect.right),
     }));
 
+  /*
+   * A popover taller than its row is silently cut off when an ancestor uses
+   * overflow hidden to round its corners. The element still reports a full
+   * bounding box, so a viewport check cannot see it; the ancestor's clip
+   * rectangle has to be compared directly.
+   */
+  const occluded = [];
+  for (const { el, rect } of visible) {
+    let node = el.parentElement;
+    while (node && node !== document.body) {
+      const style = getComputedStyle(node);
+      const clips =
+        style.overflow === 'hidden' ||
+        style.overflowY === 'hidden' ||
+        style.overflowX === 'hidden';
+      if (clips) {
+        const box = node.getBoundingClientRect();
+        const hiddenBelow = rect.bottom - box.bottom;
+        const hiddenRight = rect.right - box.right;
+        if (hiddenBelow > 2 || hiddenRight > 2) {
+          occluded.push({
+            ...describe(el),
+            hiddenPx: Math.round(Math.max(hiddenBelow, hiddenRight)),
+            clippedBy: node.className || node.tagName,
+          });
+          break;
+        }
+      }
+      node = node.parentElement;
+    }
+  }
+
   const overlaps = [];
   for (let i = 0; i < visible.length; i += 1) {
     for (let j = i + 1; j < visible.length; j += 1) {
@@ -166,6 +198,7 @@ const geometryProbe = `(() => {
     overflow,
     undersized,
     clipped,
+    occluded,
     overlaps: overlaps.slice(0, 40),
     overlapCount: overlaps.length,
     truncated,
@@ -350,6 +383,11 @@ async function seedAndCapture({ theme, viewport, zoom }) {
     }
     if (geometry.clipped.length > 0) {
       failures.push(`${geometry.clipped.length} clipped control(s)`);
+    }
+    if (geometry.occluded.length > 0) {
+      failures.push(
+        `${geometry.occluded.length} control(s) cut off by an ancestor overflow`,
+      );
     }
     if (geometry.overlapCount > 0) {
       failures.push(`${geometry.overlapCount} overlapping control pair(s)`);

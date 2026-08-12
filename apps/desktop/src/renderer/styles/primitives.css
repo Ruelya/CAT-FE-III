@@ -387,9 +387,17 @@ textarea.field__control {
   color: var(--color-text-subtle);
 }
 
+/*
+ * The row that owns an open menu is lifted so the popover cannot be painted
+ * over by a later sibling such as the pagination row.
+ */
 .row-menu {
   position: relative;
   display: inline-flex;
+}
+
+.row-menu:has(> [role="menu"]) {
+  z-index: var(--z-menu);
 }
 
 .row-menu__menu {

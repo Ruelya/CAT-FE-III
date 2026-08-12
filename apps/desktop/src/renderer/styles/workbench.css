@@ -573,7 +573,8 @@
 
 /* Document progress lives beside the identity, not as a separate band. */
 .workbench__progress {
-  width: 96px;
+  width: 132px;
+  height: 6px;
   flex-shrink: 0;
   align-self: center;
 }

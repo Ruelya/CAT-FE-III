@@ -43,9 +43,14 @@
   }
 }
 
-/* Fallback when startViewTransition is unavailable. */
+/*
+ * Fill mode is `backwards`, not `both`, deliberately. `both` keeps the
+ * animation in effect after it finishes, which leaves a stacking context on
+ * the element and can make a later sibling paint over a popover opened inside
+ * it. `backwards` still covers the stagger delay and then gets out of the way.
+ */
 .surface-enter {
-  animation: tl-surface-in var(--motion-base) var(--ease-decelerate) both;
+  animation: tl-surface-in var(--motion-base) var(--ease-decelerate) backwards;
 }
 
 /* ── M4 · async lifecycle ───────────────────────────────── */
@@ -79,7 +84,7 @@
 }
 
 .content-enter {
-  animation: tl-fade-in var(--motion-fast) var(--ease-decelerate) both;
+  animation: tl-fade-in var(--motion-fast) var(--ease-decelerate) backwards;
 }
 
 @keyframes tl-fade-in {
@@ -107,7 +112,7 @@
  * No overshoot easing: on dense data an overshoot reads as sloppy.
  */
 .row-enter {
-  animation: tl-row-enter var(--motion-base) var(--ease-decelerate) both;
+  animation: tl-row-enter var(--motion-base) var(--ease-decelerate) backwards;
   animation-delay: calc(var(--enter-index, 0) * var(--stagger-step));
 }
 

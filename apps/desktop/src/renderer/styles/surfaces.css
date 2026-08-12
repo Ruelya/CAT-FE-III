@@ -199,6 +199,11 @@
 
 /* ── Project list ──────────────────────────────────────── */
 
+/*
+ * No overflow clipping here. A row overflow menu is taller than its row, so
+ * hiding overflow to round the container corners silently cut the menu off
+ * after the second item. The corners are rounded on the edge children instead.
+ */
 .project-list {
   list-style: none;
   margin: 0;
@@ -208,11 +213,22 @@
   border: 1px solid var(--color-line);
   border-radius: var(--radius-md);
   background: var(--color-surface);
-  overflow: hidden;
 }
 
 .project-list__item + .project-list__item {
   border-top: 1px solid var(--color-line);
+}
+
+.project-list__item:first-child,
+.project-list__item:first-child > .project-row {
+  border-start-start-radius: var(--radius-md);
+  border-start-end-radius: var(--radius-md);
+}
+
+.project-list__item:last-child,
+.project-list__item:last-child > .project-row {
+  border-end-start-radius: var(--radius-md);
+  border-end-end-radius: var(--radius-md);
 }
 
 .project-row {
@@ -297,7 +313,16 @@
   border: 1px solid var(--color-line);
   border-radius: var(--radius-md);
   background: var(--color-surface);
-  overflow: hidden;
+}
+
+.issue-list__item:first-child > .issue-row {
+  border-start-start-radius: var(--radius-md);
+  border-start-end-radius: var(--radius-md);
+}
+
+.issue-list__item:last-child > .issue-row {
+  border-end-start-radius: var(--radius-md);
+  border-end-end-radius: var(--radius-md);
 }
 
 .issue-list__item + .issue-list__item {
@@ -496,17 +521,31 @@
 .counts-bar {
   display: inline-flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-3);
+  align-items: baseline;
+  gap: var(--space-4);
   font-size: var(--text-xs);
   color: var(--color-text-muted);
+}
+
+/*
+ * JSX collapses the newline between the value span and its label, so the two
+ * would render as "4open" with no separator. A walkthrough tester read the
+ * jammed pair as a wrong number, which is exactly the failure mode this
+ * spacing prevents.
+ */
+.counts-bar > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  white-space: nowrap;
 }
 
 .counts-bar__value {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
   color: var(--color-text);
-  margin-right: var(--space-0-5);
 }
 
 .diagnostic-list {
