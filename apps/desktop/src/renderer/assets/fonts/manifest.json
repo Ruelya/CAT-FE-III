@@ -15,7 +15,7 @@
     "packagedAppDelta": {
       "status": "measured-from-emitted-renderer-assets",
       "bytes": 7963684,
-      "method": "sum of the five font files emitted by the production Vite renderer build; no remote font payload"
+      "method": "sum of the five woff2 files emitted by the production Vite renderer build; no remote font payload"
     }
   },
   "families": [
@@ -32,7 +32,7 @@
       "file": "translunar-space-grotesk.woff2",
       "sha256": "8e085aa438094f11487a836652edd5c054fa6a96f63fc7c282105ee3a4b08c07",
       "bytes": 49256,
-      "weights": "300-700 variable (Workbench uses 400, 500, 600, 700)",
+      "weights": "300-700 variable; the renderer uses 600 and 700 for display type",
       "unicodeCoverage": "Upstream latin, latin-ext, vietnamese, and menu glyphs; 735 mapped code points"
     },
     {
@@ -48,7 +48,7 @@
       "file": "translunar-chivo.woff2",
       "sha256": "665cf19af7c64db9a73bf9c3382a67e79886d93877a5e517888eff5245ae2625",
       "bytes": 62100,
-      "weights": "100-900 variable (Workbench uses 400, 500, 600, 700)",
+      "weights": "100-900 variable; the renderer uses 400, 500, 600, and 700",
       "unicodeCoverage": "Upstream latin, latin-ext, vietnamese, and menu glyphs; 644 mapped code points"
     },
     {
@@ -95,5 +95,11 @@
       "weights": "100-900 variable (Workbench uses 400, 500, 600, 700)",
       "unicodeCoverage": "Full upstream Noto Sans SC variable cmap, no fixture subset: 30,890 mapped code points, including Simplified Chinese Han ranges and supplementary CJK code points present in the source"
     }
-  ]
+  ],
+  "delivery": {
+    "latinSessionFontRequests": 3,
+    "cjkSessionFontRequests": 4,
+    "method": "scripts/ui-perf.mjs counts woff2 requests in a real Electron window before and after CJK content renders",
+    "note": "Noto Sans SC is declared with a unicode-range covering CJK, Kana, and Hangul and is never preloaded, so a Latin-only session does not download it."
+  }
 }
