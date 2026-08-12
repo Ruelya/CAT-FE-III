@@ -54,6 +54,9 @@
 }
 
 /* ── M4 · async lifecycle ───────────────────────────────── */
+/* M7 press is implemented directly on .btn:active in primitives.css, so there
+   is deliberately no separate utility class here: two implementations of one
+   behaviour is how they drift apart. */
 
 .skeleton {
   position: relative;
@@ -81,10 +84,6 @@
   to {
     transform: translateX(100%);
   }
-}
-
-.content-enter {
-  animation: tl-fade-in var(--motion-fast) var(--ease-decelerate) backwards;
 }
 
 @keyframes tl-fade-in {
@@ -121,16 +120,6 @@
     opacity: 0;
     transform: translateY(6px);
   }
-}
-
-/* ── M7 · press ─────────────────────────────────────────── */
-
-.pressable {
-  transition: transform var(--motion-instant) var(--ease-standard);
-}
-
-.pressable:active:not(:disabled) {
-  transform: translateY(1px);
 }
 
 /* ── Reduced motion ─────────────────────────────────────── */

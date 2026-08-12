@@ -42,6 +42,24 @@ build in Electron. Commands: `pnpm test:e2e:desktop`, `pnpm ui:shots:matrix`,
 - Five destructive commands ran on a single click with no confirmation. All now
   use a Cancel-first dialog that stays mounted through the async call.
 
+## Known gap: visible labels on dense form controls
+
+Twenty-six controls across the Asset Hub and P4 sections have a programmatic
+name and pass axe, but no on-screen label: their only visual affordance is a
+placeholder or their position in a row. That satisfies the accessibility
+contract and violates the design language rule against a placeholder standing
+in for a label.
+
+Converting them would restructure six Asset Hub sections and two P4 sections,
+so it is recorded as debt rather than rushed. Reproduce the list with a probe
+that selects every visible `input`, `select`, and `textarea` with neither a
+`label[for]` nor a wrapping `label`, walking each section of each surface.
+
+Two controls in that set had no accessible name at all, the Plugins permissions
+plugin select and the Collaboration member role select. Both are fixed, and the
+section sweep described above exists so that class of defect cannot hide behind
+a tab again.
+
 ## Manual and platform gates still required
 
 These cannot be produced in this environment and are **not** claimed:
