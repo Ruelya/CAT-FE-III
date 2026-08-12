@@ -145,23 +145,32 @@ export function Workbench({
           <p className="workbench__header-sub">
             <span className="truncate">{ctx.project.name}</span>
             {counts ? (
-              <span className="counts-bar">
+              <span
+                className="counts-bar"
+                title={`${counts.confirmed} confirmed, ${counts.draft} draft, ${counts.untranslated} open, ${counts.total} total`}
+              >
                 <span>
-                  <span className="counts-bar__value">{counts.confirmed}</span>
+                  <span className="counts-bar__value" data-abbr="C">
+                    {counts.confirmed}
+                  </span>
                   confirmed
                 </span>
                 <span>
-                  <span className="counts-bar__value">{counts.draft}</span>
+                  <span className="counts-bar__value" data-abbr="D">
+                    {counts.draft}
+                  </span>
                   draft
                 </span>
                 <span>
-                  <span className="counts-bar__value">
+                  <span className="counts-bar__value" data-abbr="O">
                     {counts.untranslated}
                   </span>
                   open
                 </span>
                 <span>
-                  <span className="counts-bar__value">{counts.total}</span>
+                  <span className="counts-bar__value" data-abbr="T">
+                    {counts.total}
+                  </span>
                   total
                 </span>
               </span>

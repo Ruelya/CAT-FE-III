@@ -43,6 +43,47 @@
   gap: var(--space-3);
 }
 
+/*
+ * At the window minimum the counts used to wrap one per line, which tripled
+ * the header height and squeezed the document name down to a few characters.
+ * Below the threshold the labels drop and the numbers stay, with the progress
+ * bar and the group title carrying the meaning.
+ *
+ * This is a viewport query on purpose, unlike the editor region. The header
+ * spans the whole window, so its available width is the window width; a
+ * container query here would need `container-type: inline-size`, which
+ * contains the element's inline size and collapses it inside the flex row.
+ */
+@media (max-width: 1320px) {
+  /* The title strip already carries the project name, so a two-character
+     truncation of it here is noise rather than context. */
+  .workbench__header-sub > .truncate {
+    display: none;
+  }
+
+  .counts-bar {
+    gap: var(--space-2);
+    flex-wrap: nowrap;
+    /* The document name yields first; the status figures must stay whole. */
+    flex-shrink: 0;
+  }
+
+  .counts-bar > span {
+    font-size: 0;
+    gap: 0;
+  }
+
+  .counts-bar__value {
+    font-size: var(--text-xs);
+  }
+
+  .counts-bar__value::after {
+    content: attr(data-abbr);
+    margin-left: 1px;
+    color: var(--color-text-muted);
+  }
+}
+
 .workbench__header-title {
   margin: 0;
   font-family: var(--font-display);
