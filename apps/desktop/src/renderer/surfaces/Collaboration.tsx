@@ -7,6 +7,7 @@ import {
 } from "../state/collab-view";
 import type { CollaborationControllerApi } from "../state/use-collaboration-controller";
 import type { P4ProjectContext } from "../state/p4-route-context";
+import { SectionNav } from "../shell/SectionNav";
 
 export interface CollaborationProps {
   collab: CollaborationControllerApi;
@@ -53,30 +54,17 @@ export function Collaboration({
         </button>
       </div>
 
-      <div
-        className="p4-tabs"
-        role="tablist"
-        aria-label="Collaboration sections"
-      >
-        {SECTIONS.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            role="tab"
-            className={
-              section === s.id
-                ? "btn btn--secondary btn--sm"
-                : "btn btn--ghost btn--sm"
-            }
-            aria-selected={section === s.id}
-            disabled={busy}
-            onClick={() => onSectionChange(s.id)}
-            data-testid={`collab-tab-${s.id}`}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
+      <SectionNav
+        label="Collaboration sections"
+        items={SECTIONS.map((s) => ({
+          id: s.id,
+          label: s.label,
+          testId: `collab-tab-${s.id}`,
+        }))}
+        current={section}
+        disabled={busy}
+        onSelect={onSectionChange}
+      />
 
       {state.error ? (
         <p className="status status--error" role="alert">

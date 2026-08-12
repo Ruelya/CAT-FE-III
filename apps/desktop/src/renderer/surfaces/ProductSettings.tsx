@@ -1,5 +1,6 @@
 import { formatUiError } from "../lib/errors";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
+import { SectionNav } from "../shell/SectionNav";
 import type { SettingsSection } from "../state/app-state";
 import { canRunUpdateCommand } from "../state/product-settings-view";
 import type { ProductSettingsApi } from "../state/use-product-settings";
@@ -45,26 +46,17 @@ export function ProductSettings({
         </button>
       </div>
 
-      <div className="p4-tabs" role="tablist" aria-label="Settings sections">
-        {SECTIONS.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            role="tab"
-            className={
-              section === s.id
-                ? "btn btn--secondary btn--sm"
-                : "btn btn--ghost btn--sm"
-            }
-            aria-selected={section === s.id}
-            disabled={busy}
-            onClick={() => onSectionChange(s.id)}
-            data-testid={`settings-tab-${s.id}`}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
+      <SectionNav
+        label="Settings sections"
+        items={SECTIONS.map((s) => ({
+          id: s.id,
+          label: s.label,
+          testId: `settings-tab-${s.id}`,
+        }))}
+        current={section}
+        disabled={busy}
+        onSelect={onSectionChange}
+      />
 
       {state.error ? (
         <p className="status status--error" role="alert">

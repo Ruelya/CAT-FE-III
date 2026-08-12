@@ -241,3 +241,46 @@
   position: absolute;
   inset: -6px -8px;
 }
+
+/* Insights analytics sections read as one dense report, not loose tables. */
+.insights-stack > section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.insights-stack .data-table {
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.insights-stack .data-table tr:last-child th,
+.insights-stack .data-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* An unavailable metric stays a value cell; the reason lives in the tooltip. */
+.metric-unavailable {
+  font-family: var(--font-mono);
+  color: var(--color-text-subtle);
+  cursor: help;
+}
+
+/* Asset Hub sections share the surface panel rhythm. */
+.asset-hub__body > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.asset-hub__body .data-table,
+.asset-hub__body .p4-table {
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overflow: hidden;
+}

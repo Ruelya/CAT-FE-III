@@ -3,6 +3,7 @@ import type { Document, ProjectAnalyticsSummary } from "@translunar/contracts";
 
 import type { UiError } from "../lib/errors";
 import { formatUiError } from "../lib/errors";
+import { SectionNav } from "../shell/SectionNav";
 import {
   documentDisplayName,
   formatDurationMs,
@@ -54,236 +55,247 @@ export function ProjectInsights({
 
   return (
     <section className="surface" data-testid="project-insights">
-      <div className="surface__masthead">
-        <h1 className="surface__title">{projectName}</h1>
-        <div className="dialog__actions">
-          <button
-            type="button"
-            className="btn btn--secondary"
-            disabled={disabled}
-            onClick={onBack}
-          >
-            Back
-          </button>
-          {section === "analytics" ? (
+      <div className="surface__inner">
+        <div className="surface__masthead">
+          <h1 className="surface__title">{projectName}</h1>
+          <div className="surface__actions">
             <button
               type="button"
-              className="btn btn--ghost"
-              disabled={disabled || loading}
-              onClick={onRetry}
+              className="btn btn--secondary"
+              disabled={disabled}
+              onClick={onBack}
             >
-              Retry
+              Back
             </button>
-          ) : null}
+            {section === "analytics" ? (
+              <button
+                type="button"
+                className="btn btn--ghost"
+                disabled={disabled || loading}
+                onClick={onRetry}
+              >
+                Retry
+              </button>
+            ) : null}
+          </div>
         </div>
-      </div>
 
-      <InsightsSectionNav
-        section={section}
-        onChange={setSection}
-        {...(disabled !== undefined ? { disabled } : {})}
-      />
+        <InsightsSectionNav
+          section={section}
+          onChange={setSection}
+          {...(disabled !== undefined ? { disabled } : {})}
+        />
 
-      {section === "analytics" ? (
-        <>
-          {error ? <p className="error-text">{formatUiError(error)}</p> : null}
-          {loading ? <p className="muted">Loading</p> : null}
+        {section === "analytics" ? (
+          <>
+            {error ? (
+              <p className="error-text">{formatUiError(error)}</p>
+            ) : null}
+            {loading ? <p className="muted">Loading</p> : null}
 
-          {analytics ? (
-            <div className="insights-stack">
-              <section aria-labelledby="insights-progress">
-                <h2 id="insights-progress" className="insights-heading">
-                  Progress
-                </h2>
-                <table className="data-table">
-                  <tbody>
-                    {progress.map((row) => (
-                      <tr key={row.label}>
-                        <th scope="row">{row.label}</th>
-                        <td>{row.value}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </section>
-
-              <section aria-labelledby="insights-docs">
-                <h2 id="insights-docs" className="insights-heading">
-                  Documents
-                </h2>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">Document</th>
-                      <th scope="col">Completion</th>
-                      <th scope="col">Confirmed</th>
-                      <th scope="col">Draft</th>
-                      <th scope="col">Open</th>
-                      <th scope="col">QA</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Object.entries(analytics.documentProgress).map(
-                      ([documentId, docProgress]) => (
-                        <tr key={documentId}>
-                          <th scope="row">
-                            {documentDisplayName(documentId, documents)}
-                          </th>
-                          <td>
-                            {(docProgress.completionBasisPoints / 100).toFixed(
-                              docProgress.completionBasisPoints % 100 === 0
-                                ? 0
-                                : 1,
-                            )}
-                            %
-                          </td>
-                          <td>{docProgress.confirmedSegments}</td>
-                          <td>{docProgress.draftSegments}</td>
-                          <td>{docProgress.untranslatedSegments}</td>
-                          <td>{docProgress.qaBlockers}</td>
-                        </tr>
-                      ),
-                    )}
-                  </tbody>
-                </table>
-              </section>
-
-              {productivity ? (
-                <section aria-labelledby="insights-productivity">
-                  <h2 id="insights-productivity" className="insights-heading">
-                    Productivity
+            {analytics ? (
+              <div className="insights-stack">
+                <section aria-labelledby="insights-progress">
+                  <h2 id="insights-progress" className="insights-heading">
+                    Progress
                   </h2>
                   <table className="data-table">
                     <tbody>
-                      <tr>
-                        <th scope="row">Active editing</th>
-                        <td>
-                          {formatOptional(
-                            presentOptionalMetric(
-                              productivity.activeEditingMs,
-                              formatDurationMs,
-                            ),
-                          )}
-                        </td>
-                      </tr>
-                      <tr>
-                        <th scope="row">Confirmed / hour</th>
-                        <td>
-                          {formatOptional(
-                            presentOptionalMetric(
-                              productivity.confirmedSegmentsPerHourMilli,
-                              (v) => (v / 1000).toFixed(2),
-                            ),
-                          )}
-                        </td>
-                      </tr>
-                      <tr>
-                        <th scope="row">Activity events</th>
-                        <td>{productivity.activityEvents}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </section>
-              ) : null}
-
-              <section aria-labelledby="insights-trends">
-                <h2 id="insights-trends" className="insights-heading">
-                  Activity
-                </h2>
-                {trends.length === 0 ? (
-                  <p className="muted">No trend data</p>
-                ) : (
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th scope="col">Range</th>
-                        <th scope="col">Confirmations</th>
-                        <th scope="col">Edits</th>
-                        <th scope="col">QA runs</th>
-                        <th scope="col">Workflow</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {trends.map((row) => (
-                        <tr key={`${row.startMs}-${row.endMs}`}>
-                          <th scope="row">{row.rangeLabel}</th>
-                          <td>{row.confirmations}</td>
-                          <td>{row.targetEdits}</td>
-                          <td>{row.qaRunsCompleted}</td>
-                          <td>{row.workflowTransitions}</td>
+                      {progress.map((row) => (
+                        <tr key={row.label}>
+                          <th scope="row">{row.label}</th>
+                          <td>{row.value}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                )}
-              </section>
-            </div>
-          ) : null}
-        </>
-      ) : null}
+                </section>
 
-      {section === "interop" && interop ? (
-        <div className="insights-stack" data-testid="insights-interop">
-          <div className="insights-subnav" role="tablist" aria-label="Interop">
-            <button
-              type="button"
-              role="tab"
-              className={
-                interop.state.mode === "review"
-                  ? "btn btn--secondary"
-                  : "btn btn--ghost"
-              }
-              aria-selected={interop.state.mode === "review"}
-              disabled={disabled}
-              onClick={() => interop.setMode("review")}
-              data-testid="interop-mode-review"
-            >
-              Review
-            </button>
-            <button
-              type="button"
-              role="tab"
-              className={
-                interop.state.mode === "table"
-                  ? "btn btn--secondary"
-                  : "btn btn--ghost"
-              }
-              aria-selected={interop.state.mode === "table"}
-              disabled={disabled}
-              onClick={() => interop.setMode("table")}
-              data-testid="interop-mode-table"
-            >
-              Table
-            </button>
+                <section aria-labelledby="insights-docs">
+                  <h2 id="insights-docs" className="insights-heading">
+                    Documents
+                  </h2>
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Document</th>
+                        <th scope="col">Completion</th>
+                        <th scope="col">Confirmed</th>
+                        <th scope="col">Draft</th>
+                        <th scope="col">Open</th>
+                        <th scope="col">QA</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(analytics.documentProgress).map(
+                        ([documentId, docProgress]) => (
+                          <tr key={documentId}>
+                            <th scope="row">
+                              {documentDisplayName(documentId, documents)}
+                            </th>
+                            <td>
+                              {(
+                                docProgress.completionBasisPoints / 100
+                              ).toFixed(
+                                docProgress.completionBasisPoints % 100 === 0
+                                  ? 0
+                                  : 1,
+                              )}
+                              %
+                            </td>
+                            <td>{docProgress.confirmedSegments}</td>
+                            <td>{docProgress.draftSegments}</td>
+                            <td>{docProgress.untranslatedSegments}</td>
+                            <td>{docProgress.qaBlockers}</td>
+                          </tr>
+                        ),
+                      )}
+                    </tbody>
+                  </table>
+                </section>
+
+                {productivity ? (
+                  <section aria-labelledby="insights-productivity">
+                    <h2 id="insights-productivity" className="insights-heading">
+                      Productivity
+                    </h2>
+                    <table className="data-table">
+                      <tbody>
+                        <tr>
+                          <th scope="row">Active editing</th>
+                          <td>
+                            <OptionalMetric
+                              display={presentOptionalMetric(
+                                productivity.activeEditingMs,
+                                formatDurationMs,
+                              )}
+                            />
+                          </td>
+                        </tr>
+                        <tr>
+                          <th scope="row">Confirmed / hour</th>
+                          <td>
+                            <OptionalMetric
+                              display={presentOptionalMetric(
+                                productivity.confirmedSegmentsPerHourMilli,
+                                (v) => (v / 1000).toFixed(2),
+                              )}
+                            />
+                          </td>
+                        </tr>
+                        <tr>
+                          <th scope="row">Activity events</th>
+                          <td>{productivity.activityEvents}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </section>
+                ) : null}
+
+                <section aria-labelledby="insights-trends">
+                  <h2 id="insights-trends" className="insights-heading">
+                    Activity
+                  </h2>
+                  {trends.length === 0 ? (
+                    <p className="muted">No trend data</p>
+                  ) : (
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th scope="col">Range</th>
+                          <th scope="col">Confirmations</th>
+                          <th scope="col">Edits</th>
+                          <th scope="col">QA runs</th>
+                          <th scope="col">Workflow</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {trends.map((row) => (
+                          <tr key={`${row.startMs}-${row.endMs}`}>
+                            <th scope="row">{row.rangeLabel}</th>
+                            <td>{row.confirmations}</td>
+                            <td>{row.targetEdits}</td>
+                            <td>{row.qaRunsCompleted}</td>
+                            <td>{row.workflowTransitions}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </section>
+              </div>
+            ) : null}
+          </>
+        ) : null}
+
+        {section === "interop" && interop ? (
+          <div className="insights-stack" data-testid="insights-interop">
+            <SectionNav
+              label="Interop mode"
+              items={[
+                {
+                  id: "review" as const,
+                  label: "Review",
+                  testId: "interop-mode-review",
+                },
+                {
+                  id: "table" as const,
+                  label: "Table",
+                  testId: "interop-mode-table",
+                },
+              ]}
+              current={interop.state.mode === "table" ? "table" : "review"}
+              {...(disabled !== undefined ? { disabled } : {})}
+              onSelect={(mode) => interop.setMode(mode)}
+            />
+            {interop.state.mode === "review" ? (
+              <InteropReviewPanel
+                interop={interop}
+                hasDocument={hasDocument}
+                {...(disabled !== undefined ? { disabled } : {})}
+              />
+            ) : (
+              <InteropTablePanel
+                interop={interop}
+                {...(disabled !== undefined ? { disabled } : {})}
+              />
+            )}
           </div>
-          {interop.state.mode === "review" ? (
-            <InteropReviewPanel
-              interop={interop}
-              hasDocument={hasDocument}
-              {...(disabled !== undefined ? { disabled } : {})}
-            />
-          ) : (
-            <InteropTablePanel
-              interop={interop}
-              {...(disabled !== undefined ? { disabled } : {})}
-            />
-          )}
-        </div>
-      ) : null}
+        ) : null}
 
-      {section === "taskPackage" && taskPackage ? (
-        <TaskPackagePanel
-          taskPackage={taskPackage}
-          {...(disabled !== undefined ? { disabled } : {})}
-        />
-      ) : null}
+        {section === "taskPackage" && taskPackage ? (
+          <TaskPackagePanel
+            taskPackage={taskPackage}
+            {...(disabled !== undefined ? { disabled } : {})}
+          />
+        ) : null}
+      </div>
     </section>
   );
 }
 
-function formatOptional(
+/**
+ * Render an optional metric.
+ *
+ * An unavailable metric used to print its explanation into the value cell, so
+ * a table of numbers contained sentences such as "at least two durable editing
+ * events are required". The value column now stays a value column: unavailable
+ * reads as a dash, and the Engine reason moves to the tooltip where a curious
+ * user can still reach it.
+ */
+function OptionalMetric({
+  display,
+}: {
   display:
-    { kind: "value"; value: string } | { kind: "unavailable"; reason: string },
-): string {
-  return display.kind === "value" ? display.value : display.reason;
+    { kind: "value"; value: string } | { kind: "unavailable"; reason: string };
+}) {
+  if (display.kind === "value") {
+    return <span className="mono">{display.value}</span>;
+  }
+  return (
+    <span className="metric-unavailable" title={display.reason}>
+      <span aria-hidden="true">-</span>
+      <span className="sr-only">Unavailable. {display.reason}</span>
+    </span>
+  );
 }

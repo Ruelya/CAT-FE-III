@@ -11,6 +11,7 @@ import {
   canResumeRun,
   formatProviderSource,
 } from "../state/ai-view";
+import { SectionNav } from "../shell/SectionNav";
 
 export interface AiControlProps {
   ai: AiControllerApi;
@@ -61,26 +62,17 @@ export function AiControl({
         </button>
       </div>
 
-      <div className="p4-tabs" role="tablist" aria-label="AI sections">
-        {sections.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            role="tab"
-            className={
-              section === s.id
-                ? "btn btn--secondary btn--sm"
-                : "btn btn--ghost btn--sm"
-            }
-            aria-selected={section === s.id}
-            disabled={busy}
-            onClick={() => onSectionChange(s.id)}
-            data-testid={`ai-tab-${s.id}`}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
+      <SectionNav
+        label="AI sections"
+        items={sections.map((s) => ({
+          id: s.id,
+          label: s.label,
+          testId: `ai-tab-${s.id}`,
+        }))}
+        current={section}
+        disabled={busy}
+        onSelect={onSectionChange}
+      />
 
       {state.error ? (
         <p className="status status--error" role="alert">
