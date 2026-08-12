@@ -17,9 +17,7 @@ export function InteropTablePanel({
 }: InteropTablePanelProps) {
   const { state, canApply, matchingLibraries } = interop;
   const preview = state.tablePreview;
-  const terminal = preview
-    ? isTerminalPreviewStatus(preview.status)
-    : false;
+  const terminal = preview ? isTerminalPreviewStatus(preview.status) : false;
   const busy = Boolean(disabled || state.pending);
   const noLibrary = matchingLibraries.length === 0;
 
@@ -74,9 +72,7 @@ export function InteropTablePanel({
             className="field__control"
             value={state.libraryId ?? ""}
             disabled={busy || terminal || noLibrary}
-            onChange={(e) =>
-              interop.setLibraryId(e.target.value || null)
-            }
+            onChange={(e) => interop.setLibraryId(e.target.value || null)}
             data-testid="interop-table-library"
           >
             {noLibrary ? (

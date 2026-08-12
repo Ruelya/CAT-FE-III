@@ -53,7 +53,11 @@ export function Collaboration({
         </button>
       </div>
 
-      <div className="p4-tabs" role="tablist" aria-label="Collaboration sections">
+      <div
+        className="p4-tabs"
+        role="tablist"
+        aria-label="Collaboration sections"
+      >
         {SECTIONS.map((s) => (
           <button
             key={s.id}

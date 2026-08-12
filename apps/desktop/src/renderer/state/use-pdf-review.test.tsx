@@ -102,8 +102,9 @@ describe("usePdfReview", () => {
     const { result } = renderHook(() => usePdfReview(gateway(engine)));
     await waitFor(() => expect(result.current.state.pageStatus).toBe("ready"));
 
-    const before = engine.calls.filter((c) => c.method === "pdf.page.get")
-      .length;
+    const before = engine.calls.filter(
+      (c) => c.method === "pdf.page.get",
+    ).length;
 
     await act(async () => {
       result.current.setDockMode("collapsed");
@@ -112,8 +113,9 @@ describe("usePdfReview", () => {
       result.current.selectPage(1);
     });
 
-    const after = engine.calls.filter((c) => c.method === "pdf.page.get")
-      .length;
+    const after = engine.calls.filter(
+      (c) => c.method === "pdf.page.get",
+    ).length;
     expect(after).toBe(before);
   });
 
@@ -132,18 +134,16 @@ describe("usePdfReview", () => {
     await act(async () => {
       await result.current.submitCorrect();
     });
-    expect(
-      engine.calls.some((c) => c.method === "pdf.correctOcr"),
-    ).toBe(false);
+    expect(engine.calls.some((c) => c.method === "pdf.correctOcr")).toBe(false);
 
     await act(async () => {
       result.current.setCorrectReason("fix");
       await result.current.submitCorrect();
     });
     await waitFor(() => {
-      expect(
-        engine.calls.some((c) => c.method === "pdf.correctOcr"),
-      ).toBe(true);
+      expect(engine.calls.some((c) => c.method === "pdf.correctOcr")).toBe(
+        true,
+      );
     });
     expect(engine.segments[0]?.sourceText).toBe("Fixed");
   });
@@ -175,10 +175,13 @@ describe("usePdfReview", () => {
     const originalInvoke = api.invoke.bind(api);
     api.invoke = async (method, params) => {
       if (method === "pdf.page.list") {
-        return Promise.reject({
-          code: "invalid_request",
-          message: "pdf.page.list requires a PDF document",
-        }) as never;
+        // Engine failures reach the renderer as `{ code, message }`; an Error
+        // carrying `code` satisfies the same duck type that toUiError reads.
+        return Promise.reject(
+          Object.assign(new Error("pdf.page.list requires a PDF document"), {
+            code: "invalid_request",
+          }),
+        );
       }
       return originalInvoke(method, params);
     };

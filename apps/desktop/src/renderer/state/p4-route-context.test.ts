@@ -149,20 +149,18 @@ describe("p4-route-context", () => {
     expect(aiSectionAvailable("providers", null)).toBe(true);
     expect(aiSectionAvailable("batch", null)).toBe(false);
     expect(aiSectionAvailable("batch", ctx)).toBe(true);
-    expect(aiSectionAvailable("interactive", { ...ctx, documentId: null })).toBe(
-      false,
-    );
+    expect(
+      aiSectionAvailable("interactive", { ...ctx, documentId: null }),
+    ).toBe(false);
     expect(
       aiSectionAvailable("interactive", { ...ctx, activeSegmentId: null }),
     ).toBe(false);
     expect(aiSectionAvailable("interactive", ctx)).toBe(true);
-    expect(aiSectionAvailable("quality", { ...ctx, activeSegmentId: null })).toBe(
-      true,
-    );
+    expect(
+      aiSectionAvailable("quality", { ...ctx, activeSegmentId: null }),
+    ).toBe(true);
     expect(defaultAiSection(null)).toBe("providers");
     expect(defaultAiSection(ctx)).toBe("interactive");
-    expect(
-      defaultAiSection({ ...ctx, activeSegmentId: null }),
-    ).toBe("batch");
+    expect(defaultAiSection({ ...ctx, activeSegmentId: null })).toBe("batch");
   });
 });

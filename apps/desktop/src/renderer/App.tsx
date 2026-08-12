@@ -188,8 +188,7 @@ export function App() {
     surface.kind === "workbench" ? surface.ctx.project : null;
 
   const interopGateway = useMemo(() => {
-    const projectId =
-      insightsProjectId || workbenchProject?.id || "";
+    const projectId = insightsProjectId || workbenchProject?.id || "";
     const document =
       surface.kind === "workbench"
         ? surface.ctx.document
@@ -198,8 +197,7 @@ export function App() {
           : null;
     return {
       generation: featureGeneration,
-      mutationsEnabled:
-        state.mutationsEnabled && surface.kind === "insights",
+      mutationsEnabled: state.mutationsEnabled && surface.kind === "insights",
       projectId,
       projectRevision: workbenchProject?.revision ?? 1,
       documentId: document?.id ?? null,
@@ -244,14 +242,11 @@ export function App() {
       (insightsProjectId !== "" ? insightsProjectId : null);
     return {
       generation: featureGeneration,
-      mutationsEnabled:
-        state.mutationsEnabled && surface.kind === "insights",
+      mutationsEnabled: state.mutationsEnabled && surface.kind === "insights",
       projectId,
       projectRevision: workbenchProject?.revision ?? 1,
       hasDocuments: documents.length > 0,
-      hasTaskPackageRef: Boolean(
-        workbenchProject?.configuration?.taskPackage,
-      ),
+      hasTaskPackageRef: Boolean(workbenchProject?.configuration?.taskPackage),
       flushOrStay: commands.flushOrStay,
       onApplied: async () => {
         await commands.refreshInsights();

@@ -269,7 +269,10 @@ test.describe("P4 AI plugins settings", () => {
 
   test("always-on: appearance survives relaunch and reset", async () => {
     const userData = await mkdtemp(join(tmpdir(), "tl-p4-appear-"));
-    let { app, page } = await launchApp({ userData, sourcePath: sourceFixture });
+    let { app, page } = await launchApp({
+      userData,
+      sourcePath: sourceFixture,
+    });
     let guard = attachConsoleGuard(page);
     try {
       await createOpenProject(page);
@@ -303,9 +306,9 @@ test.describe("P4 AI plugins settings", () => {
       await expect
         .poll(async () =>
           page.evaluate(() =>
-            getComputedStyle(document.documentElement).getPropertyValue(
-              "--color-accent-seed",
-            ).trim(),
+            getComputedStyle(document.documentElement)
+              .getPropertyValue("--color-accent-seed")
+              .trim(),
           ),
         )
         .toBe("#336699");

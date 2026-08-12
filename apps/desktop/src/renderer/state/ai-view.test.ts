@@ -106,9 +106,9 @@ describe("ai-view terminal guards", () => {
   });
 
   it("formats provider source identity", () => {
-    expect(
-      formatProviderSource({ kind: "builtin", provider: "openai" }),
-    ).toBe("builtin:openai");
+    expect(formatProviderSource({ kind: "builtin", provider: "openai" })).toBe(
+      "builtin:openai",
+    );
     expect(
       formatProviderSource({
         kind: "plugin",

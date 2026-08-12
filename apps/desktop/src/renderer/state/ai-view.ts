@@ -5,7 +5,8 @@ import type {
   EngineConnectorConfigSchemaV1,
 } from "@translunar/contracts";
 
-export type SupportedConfigFieldType = "text" | "boolean" | "integer" | "select";
+export type SupportedConfigFieldType =
+  "text" | "boolean" | "integer" | "select";
 
 export interface ProjectedConfigField {
   key: string;
@@ -46,11 +47,13 @@ export function projectConnectorSchema(
   return { ok: true, fields };
 }
 
-function projectField(field: EngineConnectorConfigFieldV1): ProjectedConfigField {
+function projectField(
+  field: EngineConnectorConfigFieldV1,
+): ProjectedConfigField {
   return {
     key: field.key,
     label: field.label,
-    fieldType: field.fieldType as SupportedConfigFieldType,
+    fieldType: field.fieldType,
     required: field.required,
     description: field.description ?? null,
     min: field.min ?? null,
@@ -139,9 +142,7 @@ export function canResumeRun(status: AiRunStatus): boolean {
 
 export function canCancelBatch(status: AiBatchStatus): boolean {
   return (
-    status === "queued" ||
-    status === "running" ||
-    status === "interrupted"
+    status === "queued" || status === "running" || status === "interrupted"
   );
 }
 

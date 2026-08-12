@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { formatAiError, formatUiError, toUiError, type UiError } from "./errors";
+import {
+  formatAiError,
+  formatUiError,
+  toUiError,
+  type UiError,
+} from "./errors";
 
 describe("formatAiError", () => {
   it("formats policy_denied with profileId", () => {

@@ -3,7 +3,10 @@ import { Trash } from "@phosphor-icons/react";
 
 import { formatUiError } from "../lib/errors";
 import { basenameFromPath } from "../state/interop-view";
-import { isSafeSelectableRow, isTerminalTaskPreviewStatus } from "../state/task-package-view";
+import {
+  isSafeSelectableRow,
+  isTerminalTaskPreviewStatus,
+} from "../state/task-package-view";
 import type { TaskPackageApi } from "../state/use-task-package-controller";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
 

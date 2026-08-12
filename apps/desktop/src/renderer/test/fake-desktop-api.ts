@@ -19,6 +19,10 @@ import type {
   WindowChromePlatform,
 } from "../../shared/desktop-api";
 import type {
+  TutorialState,
+  UpdateStatusSnapshot,
+} from "../../shared/product-shell";
+import type {
   DraftJournalRecord,
   DraftJournalSnapshot,
   ExampleProjectResult,
@@ -91,13 +95,7 @@ export interface FakeEngineState {
     tutorial: {
       version: number;
       step:
-        | "welcome"
-        | "create"
-        | "import"
-        | "edit"
-        | "qa"
-        | "export"
-        | "complete";
+        "welcome" | "create" | "import" | "edit" | "qa" | "export" | "complete";
       skipped: boolean;
       completed: boolean;
       updatedAtMs: number;
@@ -118,8 +116,8 @@ export interface FakeEngineState {
   dataDirectoryPath?: string | null;
   backupDestination?: string | null;
   restoreSource?: string | null;
-  updateStatus?: import("../../shared/product-shell").UpdateStatusSnapshot;
-  tutorial?: import("../../shared/product-shell").TutorialState;
+  updateStatus?: UpdateStatusSnapshot;
+  tutorial?: TutorialState;
   /** Optional PDF pages keyed by documentId. */
   pdfPagesByDocument: Record<string, FakePdfPage[]>;
   journal: DraftJournalRecord[];
@@ -1421,8 +1419,7 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
         case "curation.run":
         case "curation.run.get": {
           const runId =
-            (params as { runId?: string }).runId ??
-            `run-${Date.now()}`;
+            (params as { runId?: string }).runId ?? `run-${Date.now()}`;
           return {
             run: {
               id: runId,

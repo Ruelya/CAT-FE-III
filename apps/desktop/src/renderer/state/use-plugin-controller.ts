@@ -208,15 +208,9 @@ export interface PluginControllerApi {
   ) => Promise<void>;
   loadPermissions: (pluginId: string) => Promise<void>;
   reviewPermissions: (pluginId: string) => Promise<void>;
-  grantPermission: (
-    request: PluginCapabilityRequestView,
-  ) => Promise<boolean>;
-  denyPermission: (
-    request: PluginCapabilityRequestView,
-  ) => Promise<boolean>;
-  revokePermission: (
-    request: PluginCapabilityRequestView,
-  ) => Promise<boolean>;
+  grantPermission: (request: PluginCapabilityRequestView) => Promise<boolean>;
+  denyPermission: (request: PluginCapabilityRequestView) => Promise<boolean>;
+  revokePermission: (request: PluginCapabilityRequestView) => Promise<boolean>;
   loadAiActions: () => Promise<void>;
   setActionConfigValue: (key: string, value: string | boolean | number) => void;
   invokeAiAction: (action: PluginAiActionView) => Promise<void>;
@@ -349,9 +343,7 @@ export function usePluginController(
       ops.current[k] += 1;
       pending.current[k] = 0;
     }
-    setState((s) =>
-      s.mutationPending ? { ...s, mutationPending: false } : s,
-    );
+    setState((s) => (s.mutationPending ? { ...s, mutationPending: false } : s));
     void closeUiPanel();
   }, [closeUiPanel]);
 
@@ -1641,10 +1633,7 @@ export function usePluginController(
 
   useEffect(() => {
     if (!gateway.active) return;
-    if (
-      gateway.section === "installed" ||
-      gateway.section === "permissions"
-    ) {
+    if (gateway.section === "installed" || gateway.section === "permissions") {
       void reloadInstalled(0);
     }
     if (gateway.section === "bundled") void reloadBundled();

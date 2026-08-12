@@ -14,7 +14,10 @@ import {
 
 import type { WindowChromePlatform } from "../../shared/desktop-api";
 import type { AppState } from "../state/app-state";
-import { collaborationAvailable, resolveP4RouteContext } from "../state/p4-route-context";
+import {
+  collaborationAvailable,
+  resolveP4RouteContext,
+} from "../state/p4-route-context";
 import { WindowControls } from "./WindowControls";
 
 export interface AppChromeProps {
@@ -279,9 +282,7 @@ export function AppChrome({
             className="btn btn--ghost btn--icon"
             aria-label="Collaboration"
             title="Collaboration"
-            aria-current={
-              surface.kind === "collaboration" ? "page" : undefined
-            }
+            aria-current={surface.kind === "collaboration" ? "page" : undefined}
             disabled={disabled}
             onClick={onCollaboration}
             data-testid="nav-collaboration"

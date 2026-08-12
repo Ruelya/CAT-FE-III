@@ -6,11 +6,7 @@ import type {
 } from "@translunar/contracts";
 
 export type SupportedAiActionFieldType =
-  | "text"
-  | "boolean"
-  | "integer"
-  | "number"
-  | "select";
+  "text" | "boolean" | "integer" | "number" | "select";
 
 export interface ProjectedAiActionField {
   key: string;
@@ -72,11 +68,15 @@ export function projectAiActionSchema(
 }
 
 export function isPluginLifecycleActive(status: PluginStatus): boolean {
-  return status === "enabled" || status === "installed" || status === "disabled";
+  return (
+    status === "enabled" || status === "installed" || status === "disabled"
+  );
 }
 
 export function canEnablePlugin(status: PluginStatus): boolean {
-  return status === "installed" || status === "disabled" || status === "degraded";
+  return (
+    status === "installed" || status === "disabled" || status === "degraded"
+  );
 }
 
 export function canDisablePlugin(status: PluginStatus): boolean {

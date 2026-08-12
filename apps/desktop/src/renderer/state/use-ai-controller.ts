@@ -260,9 +260,7 @@ export interface AiControllerApi {
   reopenRun: (runId: string) => Promise<void>;
 }
 
-export function useAiController(
-  gateway: AiControllerGateway,
-): AiControllerApi {
+export function useAiController(gateway: AiControllerGateway): AiControllerApi {
   const [state, setState] = useState<AiControllerState>(initialState);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -290,9 +288,7 @@ export function useAiController(
     }
     clearPoll();
     // Clear disposable pending presentation so re-entry is usable.
-    setState((s) =>
-      s.mutationPending ? { ...s, mutationPending: false } : s,
-    );
+    setState((s) => (s.mutationPending ? { ...s, mutationPending: false } : s));
   }, [clearPoll]);
 
   useEffect(() => {
@@ -356,28 +352,31 @@ export function useAiController(
     }
   }, [isCurrent]);
 
-  const selectProfile = useCallback((profileId: string | null) => {
-    setState((s) => ({
-      ...s,
-      selectedProfileId: profileId,
-      credentialStatus: null,
-      testResult: null,
-    }));
-    if (!profileId) return;
-    void (async () => {
-      const op = ++listOps.current.credentials;
-      try {
-        const status = await invokeEngine("ai.credential.status", {
-          profileId,
-        });
-        if (!isCurrent("credentials", op, "list")) return;
-        setState((s) => ({ ...s, credentialStatus: status }));
-      } catch (error) {
-        if (!isCurrent("credentials", op, "list")) return;
-        setState((s) => ({ ...s, error: toUiError(error) }));
-      }
-    })();
-  }, [isCurrent]);
+  const selectProfile = useCallback(
+    (profileId: string | null) => {
+      setState((s) => ({
+        ...s,
+        selectedProfileId: profileId,
+        credentialStatus: null,
+        testResult: null,
+      }));
+      if (!profileId) return;
+      void (async () => {
+        const op = ++listOps.current.credentials;
+        try {
+          const status = await invokeEngine("ai.credential.status", {
+            profileId,
+          });
+          if (!isCurrent("credentials", op, "list")) return;
+          setState((s) => ({ ...s, credentialStatus: status }));
+        } catch (error) {
+          if (!isCurrent("credentials", op, "list")) return;
+          setState((s) => ({ ...s, error: toUiError(error) }));
+        }
+      })();
+    },
+    [isCurrent],
+  );
 
   const beginCreateProfile = useCallback((catalogId: string) => {
     const item = stateRef.current.catalog.find((c) => c.id === catalogId);
@@ -405,7 +404,10 @@ export function useAiController(
     if (!profile) return;
     const catalogItem = stateRef.current.catalog.find((c) => {
       if (profile.source.kind === "builtin") {
-        return c.source.kind === "builtin" && c.source.provider === profile.source.provider;
+        return (
+          c.source.kind === "builtin" &&
+          c.source.provider === profile.source.provider
+        );
       }
       return (
         c.source.kind === "plugin" &&
@@ -429,7 +431,11 @@ export function useAiController(
       const cfg = (profile.configuration ?? {}) as Record<string, unknown>;
       for (const f of projected.fields) {
         const v = cfg[f.key];
-        if (typeof v === "string" || typeof v === "boolean" || typeof v === "number") {
+        if (
+          typeof v === "string" ||
+          typeof v === "boolean" ||
+          typeof v === "number"
+        ) {
           form.configValues[f.key] = v;
         } else if (f.defaultValue !== null) {
           form.configValues[f.key] = f.defaultValue;
@@ -608,7 +614,12 @@ export function useAiController(
     async (profileId: string) => {
       const op = beginMut("catalog");
       if (op === null) return;
-      setState((s) => ({ ...s, mutationPending: true, error: null, testResult: null }));
+      setState((s) => ({
+        ...s,
+        mutationPending: true,
+        error: null,
+        testResult: null,
+      }));
       try {
         const result = await invokeEngine("ai.provider.test", { profileId });
         const _still = isCurrent("catalog", op, "mut");
@@ -753,59 +764,60 @@ export function useAiController(
     }
   }, [beginMut, endMut, isCurrent]);
 
-  const hydrateSegmentRevision = useCallback(async (): Promise<SegmentRevisionSnapshot | null> => {
-    const ctx = gatewayRef.current.context;
-    const documentId = ctx?.documentId ?? null;
-    const segmentId = ctx?.activeSegmentId ?? null;
-    if (!documentId || !segmentId) {
-      setState((s) => ({ ...s, segmentRevision: null }));
-      return null;
-    }
-    const gen = generationRef.current;
-    const ownerDoc = documentId;
-    const ownerSeg = segmentId;
-    const op = ++listOps.current.grounding;
-    try {
-      const page = await invokeEngine("segment.editor.list", {
-        documentId,
-        limit: 200,
-        offset: 0,
-      });
-      // Reject stale completions: generation, surface owner, document/segment.
-      if (generationRef.current !== gen) return null;
-      if (!gatewayRef.current.active) return null;
-      const live = gatewayRef.current.context;
-      if (
-        live?.documentId !== ownerDoc ||
-        live?.activeSegmentId !== ownerSeg
-      ) {
-        return null;
-      }
-      if (listOps.current.grounding !== op) return null;
-      const row = page.items.find((r) => r.segment.id === ownerSeg);
-      if (!row) {
+  const hydrateSegmentRevision =
+    useCallback(async (): Promise<SegmentRevisionSnapshot | null> => {
+      const ctx = gatewayRef.current.context;
+      const documentId = ctx?.documentId ?? null;
+      const segmentId = ctx?.activeSegmentId ?? null;
+      if (!documentId || !segmentId) {
         setState((s) => ({ ...s, segmentRevision: null }));
         return null;
       }
-      const snapshot: SegmentRevisionSnapshot = {
-        segmentId: ownerSeg,
-        revision: row.segment.revision,
-      };
-      setState((s) => ({ ...s, segmentRevision: snapshot.revision }));
-      return snapshot;
-    } catch {
-      if (
-        generationRef.current === gen &&
-        gatewayRef.current.active &&
-        gatewayRef.current.context?.documentId === ownerDoc &&
-        gatewayRef.current.context?.activeSegmentId === ownerSeg &&
-        listOps.current.grounding === op
-      ) {
-        setState((s) => ({ ...s, segmentRevision: null }));
+      const gen = generationRef.current;
+      const ownerDoc = documentId;
+      const ownerSeg = segmentId;
+      const op = ++listOps.current.grounding;
+      try {
+        const page = await invokeEngine("segment.editor.list", {
+          documentId,
+          limit: 200,
+          offset: 0,
+        });
+        // Reject stale completions: generation, surface owner, document/segment.
+        if (generationRef.current !== gen) return null;
+        if (!gatewayRef.current.active) return null;
+        const live = gatewayRef.current.context;
+        if (
+          live?.documentId !== ownerDoc ||
+          live?.activeSegmentId !== ownerSeg
+        ) {
+          return null;
+        }
+        if (listOps.current.grounding !== op) return null;
+        const row = page.items.find((r) => r.segment.id === ownerSeg);
+        if (!row) {
+          setState((s) => ({ ...s, segmentRevision: null }));
+          return null;
+        }
+        const snapshot: SegmentRevisionSnapshot = {
+          segmentId: ownerSeg,
+          revision: row.segment.revision,
+        };
+        setState((s) => ({ ...s, segmentRevision: snapshot.revision }));
+        return snapshot;
+      } catch {
+        if (
+          generationRef.current === gen &&
+          gatewayRef.current.active &&
+          gatewayRef.current.context?.documentId === ownerDoc &&
+          gatewayRef.current.context?.activeSegmentId === ownerSeg &&
+          listOps.current.grounding === op
+        ) {
+          setState((s) => ({ ...s, segmentRevision: null }));
+        }
+        return null;
       }
-      return null;
-    }
-  }, []);
+    }, []);
 
   const loadConversations = useCallback(async () => {
     const projectId = gatewayRef.current.context?.projectId;

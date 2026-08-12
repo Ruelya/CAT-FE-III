@@ -86,9 +86,7 @@ export function ProductSettings({
               }
               data-testid="settings-locale-select"
             >
-              <option value="system">
-                System ({state.systemLocale})
-              </option>
+              <option value="system">System ({state.systemLocale})</option>
               <option value="en-US">English</option>
               <option value="zh-CN">Chinese</option>
             </select>
@@ -217,7 +215,9 @@ export function ProductSettings({
             </button>
           </div>
           {state.dataValidationMessage ? (
-            <p className="status status--error">{state.dataValidationMessage}</p>
+            <p className="status status--error">
+              {state.dataValidationMessage}
+            </p>
           ) : null}
           {state.backupResult ? (
             <p className="status">
@@ -261,7 +261,8 @@ export function ProductSettings({
           {state.updateStatus ? (
             <>
               <p className="status" data-testid="settings-update-status">
-                {state.updateStatus.status} · v{state.updateStatus.currentVersion}
+                {state.updateStatus.status} · v
+                {state.updateStatus.currentVersion}
                 {state.updateStatus.availableVersion
                   ? ` → ${state.updateStatus.availableVersion}`
                   : ""}
@@ -275,7 +276,8 @@ export function ProductSettings({
                   }
                   onChange={(e) =>
                     void settings.runUpdateCommand("setMode", {
-                      mode: e.target.value as "automatic" | "manual" | "disabled",
+                      mode: e.target.value as
+                        "automatic" | "manual" | "disabled",
                     })
                   }
                   data-testid="settings-update-mode"

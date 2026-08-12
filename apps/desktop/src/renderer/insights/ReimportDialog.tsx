@@ -43,7 +43,9 @@ export function ReimportDialog({ reimport, disabled }: ReimportDialogProps) {
             }}
             data-testid="reimport-apply"
           >
-            {state.pending && state.status === "applying" ? "Applying" : "Apply"}
+            {state.pending && state.status === "applying"
+              ? "Applying"
+              : "Apply"}
           </button>
         </>
       }

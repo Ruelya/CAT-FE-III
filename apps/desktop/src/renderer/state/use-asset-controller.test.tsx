@@ -81,9 +81,7 @@ describe("useAssetController current-state capture", () => {
     });
 
     expect(engine.calls.some((c) => c.method === "tm.search")).toBe(false);
-    expect(engine.calls.some((c) => c.method === "tm.concordance")).toBe(
-      false,
-    );
+    expect(engine.calls.some((c) => c.method === "tm.concordance")).toBe(false);
     expect(engine.calls.some((c) => c.method === "term.search")).toBe(false);
     expect(engine.calls.some((c) => c.method === "corpus.search")).toBe(false);
   });

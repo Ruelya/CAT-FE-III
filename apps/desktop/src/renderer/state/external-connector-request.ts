@@ -3,12 +3,7 @@
  * contract without a renderer runtime dependency on the package).
  */
 export type ConnectorOperation =
-  | "validateConfig"
-  | "test"
-  | "pull"
-  | "push"
-  | "poll"
-  | "webhook";
+  "validateConfig" | "test" | "pull" | "push" | "poll" | "webhook";
 
 export interface ExternalConnectorRequestHeaderV1 {
   contractVersion: 1;
@@ -151,9 +146,7 @@ export function buildExternalConnectorRequest(
       configSchemaVersion: 1 as const,
       checkpointSchemaVersion: 1 as const,
     },
-    ...(form.idempotencyKey
-      ? { idempotencyKey: form.idempotencyKey }
-      : {}),
+    ...(form.idempotencyKey ? { idempotencyKey: form.idempotencyKey } : {}),
     ...(typeof form.expectedCheckpointRevision === "number"
       ? { expectedCheckpointRevision: form.expectedCheckpointRevision }
       : {}),
@@ -181,12 +174,8 @@ export function buildExternalConnectorRequest(
             streamId,
             limit,
             ...(form.cursor ? { cursor: form.cursor } : {}),
-            ...(form.sourceLocale
-              ? { sourceLocale: form.sourceLocale }
-              : {}),
-            ...(form.targetLocale
-              ? { targetLocale: form.targetLocale }
-              : {}),
+            ...(form.sourceLocale ? { sourceLocale: form.sourceLocale } : {}),
+            ...(form.targetLocale ? { targetLocale: form.targetLocale } : {}),
           },
         },
       };

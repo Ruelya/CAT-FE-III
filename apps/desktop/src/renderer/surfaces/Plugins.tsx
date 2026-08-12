@@ -124,7 +124,13 @@ export function Plugins({
             : null,
       };
       return field.options
-        ? { ...base, options: field.options.map((o) => ({ label: o.label, value: o.value })) }
+        ? {
+            ...base,
+            options: field.options.map((o) => ({
+              label: o.label,
+              value: o.value,
+            })),
+          }
         : base;
     });
     return projectAiActionSchema(fields);
@@ -620,7 +626,10 @@ export function Plugins({
                         value={String(state.actionConfig[field.key] ?? "")}
                         disabled={busy}
                         onChange={(e) =>
-                          plugins.setActionConfigValue(field.key, e.target.value)
+                          plugins.setActionConfigValue(
+                            field.key,
+                            e.target.value,
+                          )
                         }
                       >
                         {field.options.map((o) => (
@@ -747,7 +756,9 @@ export function Plugins({
           {state.panelSession ? (
             <div className="p4-panel-host" data-testid="plugin-panel-host">
               <div className="p4-toolbar">
-                <span className="p4-wrap">{state.panelSession.contributionId}</span>
+                <span className="p4-wrap">
+                  {state.panelSession.contributionId}
+                </span>
                 <button
                   type="button"
                   className="btn btn--secondary btn--sm"
@@ -795,9 +806,7 @@ export function Plugins({
                     ? projectConnectorSchema(desc.configSchema).ok
                     : false;
                   return (
-                    <tr
-                      key={`${c.owner.pluginId}:${c.owner.contributionId}`}
-                    >
+                    <tr key={`${c.owner.pluginId}:${c.owner.contributionId}`}>
                       <td className="p4-wrap">{c.displayName}</td>
                       <td>{c.state}</td>
                       <td className="p4-wrap">{c.operations.join(", ")}</td>
@@ -805,9 +814,7 @@ export function Plugins({
                         <button
                           type="button"
                           className="btn btn--ghost btn--sm"
-                          disabled={
-                            busy || c.state !== "active" || !schemaOk
-                          }
+                          disabled={busy || c.state !== "active" || !schemaOk}
                           onClick={() => plugins.beginCreateProfile(c)}
                           data-testid="connector-profile-create"
                         >

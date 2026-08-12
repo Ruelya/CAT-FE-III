@@ -272,9 +272,7 @@ export function useInteropController(
   const toggleRow = useCallback((rowId: string, selected: boolean) => {
     setState((s) => {
       const status =
-        s.mode === "review"
-          ? s.reviewPreview?.status
-          : s.tablePreview?.status;
+        s.mode === "review" ? s.reviewPreview?.status : s.tablePreview?.status;
       if (status && isTerminalPreviewStatus(status)) return s;
       return {
         ...s,
@@ -286,8 +284,7 @@ export function useInteropController(
   const exportReview = useCallback(async () => {
     const gw = gatewayRef.current;
     await ensureProjectContext();
-    const documentId =
-      stateRef.current.resolvedDocumentId ?? gw.documentId;
+    const documentId = stateRef.current.resolvedDocumentId ?? gw.documentId;
     const documentRevision =
       stateRef.current.resolvedDocumentRevision || gw.documentRevision;
     if (!gw.mutationsEnabled || !documentId) return;
@@ -338,143 +335,144 @@ export function useInteropController(
     setState(next);
   }, []);
 
-  const preview = useCallback(async (offset = 0) => {
-    const gw = gatewayRef.current;
-    const s = stateRef.current;
-    if (!gw.mutationsEnabled) return;
-    if (!s.path && !s.reviewPreview && !s.tablePreview) return;
-    const op = ++opRef.current;
-    setState((prev) => ({ ...prev, pending: true, error: null }));
-    try {
-      if (s.mode === "review") {
-        await ensureProjectContext();
-        const documentId =
-          stateRef.current.resolvedDocumentId ?? gw.documentId;
-        const documentRevision =
-          stateRef.current.resolvedDocumentRevision || gw.documentRevision;
-        if (!documentId) {
+  const preview = useCallback(
+    async (offset = 0) => {
+      const gw = gatewayRef.current;
+      const s = stateRef.current;
+      if (!gw.mutationsEnabled) return;
+      if (!s.path && !s.reviewPreview && !s.tablePreview) return;
+      const op = ++opRef.current;
+      setState((prev) => ({ ...prev, pending: true, error: null }));
+      try {
+        if (s.mode === "review") {
+          await ensureProjectContext();
+          const documentId =
+            stateRef.current.resolvedDocumentId ?? gw.documentId;
+          const documentRevision =
+            stateRef.current.resolvedDocumentRevision || gw.documentRevision;
+          if (!documentId) {
+            setState((prev) => ({
+              ...prev,
+              pending: false,
+              error: {
+                code: "NO_DOCUMENT",
+                message: "No document",
+                kind: "domain",
+              },
+            }));
+            return;
+          }
+          const result = await invokeEngine("interop.review.preview", {
+            projectId: gw.projectId,
+            documentId,
+            expectedDocumentRevision: documentRevision,
+            inputPath: s.path,
+            previewId: s.reviewPreview?.previewId ?? null,
+            offset,
+            limit: PAGE,
+          });
+          if (op !== opRef.current) return;
+          const eligible = eligibleReviewRowIds(result.rows);
+          const eligibleSet = new Set(eligible);
+          const pageIds = result.rows.map((r) => r.rowId);
+          const firstLoad = !s.reviewPreview;
+          const nextSelection = firstLoad
+            ? initialSelectionFromEligible(eligible)
+            : mergePageSelection(
+                s.selectedRowIds,
+                pageIds,
+                new Set(
+                  pageIds.filter(
+                    (id) => s.selectedRowIds.has(id) && eligibleSet.has(id),
+                  ),
+                ),
+              );
           setState((prev) => ({
             ...prev,
             pending: false,
-            error: {
-              code: "NO_DOCUMENT",
-              message: "No document",
-              kind: "domain",
-            },
+            reviewPreview: result,
+            tablePreview: null,
+            selectedRowIds: isTerminalPreviewStatus(result.status)
+              ? new Set()
+              : nextSelection,
+            notice: null,
           }));
-          return;
-        }
-        const result = await invokeEngine("interop.review.preview", {
-          projectId: gw.projectId,
-          documentId,
-          expectedDocumentRevision: documentRevision,
-          inputPath: s.path,
-          previewId: s.reviewPreview?.previewId ?? null,
-          offset,
-          limit: PAGE,
-        });
-        if (op !== opRef.current) return;
-        const eligible = eligibleReviewRowIds(result.rows);
-        const eligibleSet = new Set(eligible);
-        const pageIds = result.rows.map((r) => r.rowId);
-        const firstLoad = !s.reviewPreview;
-        const nextSelection = firstLoad
-          ? initialSelectionFromEligible(eligible)
-          : mergePageSelection(
-              s.selectedRowIds,
-              pageIds,
-              new Set(
-                pageIds.filter(
-                  (id) => s.selectedRowIds.has(id) && eligibleSet.has(id),
+        } else {
+          const libraryId = s.libraryId;
+          if (!libraryId) {
+            setState((prev) => ({
+              ...prev,
+              pending: false,
+              error: {
+                code: "NO_LIBRARY",
+                message: "No matching library",
+                kind: "domain",
+              },
+            }));
+            return;
+          }
+          const library = s.libraries.find((l) => l.id === libraryId);
+          const expectedLibraryRevision = library?.revision ?? 1;
+          const sourceLocale =
+            stateRef.current.sourceLocale || gw.sourceLocale || "";
+          const targetLocale =
+            stateRef.current.targetLocale || gw.targetLocale || "";
+          const result = await invokeEngine("interop.table.preview", {
+            projectId: gw.projectId,
+            libraryId,
+            expectedLibraryRevision,
+            sourceLocale,
+            targetLocale,
+            inputPath: s.path,
+            previewId: s.tablePreview?.previewId ?? null,
+            offset,
+            limit: PAGE,
+          });
+          if (op !== opRef.current) return;
+          const eligible = eligibleTableRowIds(result.rows);
+          const eligibleSet = new Set(eligible);
+          const pageIds = result.rows.map((r) => r.rowId);
+          const firstLoad = !s.tablePreview;
+          const nextSelection = firstLoad
+            ? initialSelectionFromEligible(eligible)
+            : mergePageSelection(
+                s.selectedRowIds,
+                pageIds,
+                new Set(
+                  pageIds.filter(
+                    (id) => s.selectedRowIds.has(id) && eligibleSet.has(id),
+                  ),
                 ),
-              ),
-            );
-        setState((prev) => ({
-          ...prev,
-          pending: false,
-          reviewPreview: result,
-          tablePreview: null,
-          selectedRowIds: isTerminalPreviewStatus(result.status)
-            ? new Set()
-            : nextSelection,
-          notice: null,
-        }));
-      } else {
-        const libraryId = s.libraryId;
-        if (!libraryId) {
+              );
           setState((prev) => ({
             ...prev,
             pending: false,
-            error: {
-              code: "NO_LIBRARY",
-              message: "No matching library",
-              kind: "domain",
-            },
+            tablePreview: result,
+            reviewPreview: null,
+            selectedRowIds: isTerminalPreviewStatus(result.status)
+              ? new Set()
+              : nextSelection,
+            notice: null,
           }));
-          return;
         }
-        const library = s.libraries.find((l) => l.id === libraryId);
-        const expectedLibraryRevision = library?.revision ?? 1;
-        const sourceLocale =
-          stateRef.current.sourceLocale || gw.sourceLocale || "";
-        const targetLocale =
-          stateRef.current.targetLocale || gw.targetLocale || "";
-        const result = await invokeEngine("interop.table.preview", {
-          projectId: gw.projectId,
-          libraryId,
-          expectedLibraryRevision,
-          sourceLocale,
-          targetLocale,
-          inputPath: s.path,
-          previewId: s.tablePreview?.previewId ?? null,
-          offset,
-          limit: PAGE,
-        });
+      } catch (error) {
         if (op !== opRef.current) return;
-        const eligible = eligibleTableRowIds(result.rows);
-        const eligibleSet = new Set(eligible);
-        const pageIds = result.rows.map((r) => r.rowId);
-        const firstLoad = !s.tablePreview;
-        const nextSelection = firstLoad
-          ? initialSelectionFromEligible(eligible)
-          : mergePageSelection(
-              s.selectedRowIds,
-              pageIds,
-              new Set(
-                pageIds.filter(
-                  (id) => s.selectedRowIds.has(id) && eligibleSet.has(id),
-                ),
-              ),
-            );
         setState((prev) => ({
           ...prev,
           pending: false,
-          tablePreview: result,
-          reviewPreview: null,
-          selectedRowIds: isTerminalPreviewStatus(result.status)
-            ? new Set()
-            : nextSelection,
-          notice: null,
+          error: toUiError(error),
         }));
       }
-    } catch (error) {
-      if (op !== opRef.current) return;
-      setState((prev) => ({
-        ...prev,
-        pending: false,
-        error: toUiError(error),
-      }));
-    }
-  }, [ensureProjectContext]);
+    },
+    [ensureProjectContext],
+  );
 
   const apply = useCallback(async () => {
     const gw = gatewayRef.current;
     const s = stateRef.current;
     if (!gw.mutationsEnabled) return;
     const status: InteropPreviewStatus | undefined =
-      s.mode === "review"
-        ? s.reviewPreview?.status
-        : s.tablePreview?.status;
+      s.mode === "review" ? s.reviewPreview?.status : s.tablePreview?.status;
     if (!status || !canApplySelection(s.selectedRowIds, status)) return;
     if (!s.actor.trim() || !s.reason.trim()) return;
 

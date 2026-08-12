@@ -489,286 +489,282 @@ export function AiControl({
             </p>
           ) : null}
           {runnableProfiles.length > 0 ? (
-              <div className="p4-form">
-                <label className="field">
-                  <span>Profile</span>
-                  <select
-                    value={state.selectedProfileId ?? ""}
-                    disabled={busy}
-                    onChange={(e) =>
-                      ai.selectProfile(e.target.value || null)
-                    }
-                    data-testid="ai-run-profile"
-                  >
-                    <option value="">Default</option>
-                    {runnableProfiles.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field">
-                  <span>Action</span>
-                  <select
-                    value={state.action}
-                    disabled={busy}
-                    onChange={(e) =>
-                      ai.setAction(e.target.value as typeof state.action)
-                    }
-                  >
-                    {(
-                      [
-                        "translate",
-                        "improve",
-                        "formal",
-                        "conversational",
-                        "shorten",
-                        "expand",
-                        "literal",
-                        "freeform",
-                      ] as const
-                    ).map((a) => (
-                      <option key={a} value={a}>
-                        {a}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field">
-                  <span>Prompt</span>
-                  <textarea
-                    value={state.prompt}
-                    disabled={busy}
-                    onChange={(e) => ai.setPrompt(e.target.value)}
-                    rows={3}
-                  />
-                </label>
-                <div className="dialog__actions">
-                  <button
-                    type="button"
-                    className="btn btn--secondary"
-                    disabled={busy}
-                    onClick={() => void ai.previewGrounding()}
-                    data-testid="ai-grounding"
-                  >
-                    Grounding
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn--primary"
-                    disabled={busy}
-                    onClick={() => void ai.startRun()}
-                    data-testid="ai-run-start"
-                  >
-                    Start run
-                  </button>
-                </div>
+            <div className="p4-form">
+              <label className="field">
+                <span>Profile</span>
+                <select
+                  value={state.selectedProfileId ?? ""}
+                  disabled={busy}
+                  onChange={(e) => ai.selectProfile(e.target.value || null)}
+                  data-testid="ai-run-profile"
+                >
+                  <option value="">Default</option>
+                  {runnableProfiles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>Action</span>
+                <select
+                  value={state.action}
+                  disabled={busy}
+                  onChange={(e) =>
+                    ai.setAction(e.target.value as typeof state.action)
+                  }
+                >
+                  {(
+                    [
+                      "translate",
+                      "improve",
+                      "formal",
+                      "conversational",
+                      "shorten",
+                      "expand",
+                      "literal",
+                      "freeform",
+                    ] as const
+                  ).map((a) => (
+                    <option key={a} value={a}>
+                      {a}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>Prompt</span>
+                <textarea
+                  value={state.prompt}
+                  disabled={busy}
+                  onChange={(e) => ai.setPrompt(e.target.value)}
+                  rows={3}
+                />
+              </label>
+              <div className="dialog__actions">
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  disabled={busy}
+                  onClick={() => void ai.previewGrounding()}
+                  data-testid="ai-grounding"
+                >
+                  Grounding
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  disabled={busy}
+                  onClick={() => void ai.startRun()}
+                  data-testid="ai-run-start"
+                >
+                  Start run
+                </button>
               </div>
+            </div>
           ) : null}
           <>
-              {state.groundingPreview ? (
-                <pre className="p4-pre" data-testid="ai-grounding-preview">
-                  {state.groundingPreview}
-                </pre>
-              ) : null}
-              {state.activeRun ? (
-                <div className="p4-form" data-testid="ai-run-status">
-                  <p className="status">
-                    Run {state.activeRun.id} · {state.activeRun.status}
-                  </p>
-                  <pre className="p4-pre">
-                    {state.activeRun.proposalText ??
-                      state.eventReplay.proposalText}
-                  </pre>
-                  <div className="dialog__actions">
-                    {canCancelRun(state.activeRun.status) ? (
-                      <button
-                        type="button"
-                        className="btn btn--secondary"
-                        disabled={busy}
-                        onClick={() => void ai.cancelRun()}
-                      >
-                        Cancel
-                      </button>
-                    ) : null}
-                    {canResumeRun(state.activeRun.status) ? (
-                      <button
-                        type="button"
-                        className="btn btn--secondary"
-                        disabled={busy}
-                        onClick={() => void ai.resumeRun()}
-                      >
-                        Resume
-                      </button>
-                    ) : null}
-                    {canApplyRun(
-                      state.activeRun.status,
-                      state.activeRun.proposalText,
-                    ) ? (
-                      <button
-                        type="button"
-                        className="btn btn--primary"
-                        disabled={busy}
-                        onClick={() => void ai.applyResult()}
-                        data-testid="ai-run-apply"
-                      >
-                        Apply
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="btn btn--ghost"
-                      disabled={busy}
-                      onClick={() => ai.discardProposal()}
-                    >
-                      Discard
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-              <h2 className="p4-subtitle">Conversations</h2>
-              <div className="p4-toolbar">
-                <input
-                  value={state.conversationTitle}
-                  disabled={busy}
-                  onChange={(e) => ai.setConversationTitle(e.target.value)}
-                  placeholder="Title"
-                />
-                <button
-                  type="button"
-                  className="btn btn--secondary btn--sm"
-                  disabled={busy}
-                  onClick={() => void ai.createConversation()}
-                >
-                  Create
-                </button>
-              </div>
-              <ul className="p4-list">
-                {state.conversations.map((c) => (
-                  <li key={c.id}>
-                    <button
-                      type="button"
-                      className="btn btn--ghost btn--sm"
-                      disabled={busy}
-                      onClick={() => void ai.selectConversation(c.id)}
-                    >
-                      {c.title}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn--ghost btn--sm"
-                      disabled={busy}
-                      onClick={() =>
-                        void ai.archiveConversation(c.id, c.revision)
-                      }
-                    >
-                      Archive
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              {state.selectedConversationId ? (
-                <div className="p4-form" data-testid="ai-messages">
-                  <div className="p4-toolbar">
-                    <button
-                      type="button"
-                      className="btn btn--ghost btn--sm"
-                      disabled={busy || state.messagesOffset <= 0}
-                      onClick={() =>
-                        void ai.loadMessages(
-                          Math.max(0, state.messagesOffset - 50),
-                        )
-                      }
-                    >
-                      Prev
-                    </button>
-                    <span className="status">
-                      {state.messagesOffset}/{state.messagesTotal}
-                    </span>
-                    <button
-                      type="button"
-                      className="btn btn--ghost btn--sm"
-                      disabled={
-                        busy ||
-                        state.messagesOffset + state.messages.length >=
-                          state.messagesTotal
-                      }
-                      onClick={() =>
-                        void ai.loadMessages(state.messagesOffset + 50)
-                      }
-                    >
-                      Next
-                    </button>
-                  </div>
-                  <ul className="p4-list" data-testid="ai-message-list">
-                    {state.messages.map((m) => (
-                      <li key={m.id} className="p4-wrap">
-                        <strong>{m.role}</strong>: {m.text}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-              <h2 className="p4-subtitle">Runs</h2>
-              <div className="p4-toolbar">
-                <button
-                  type="button"
-                  className="btn btn--secondary btn--sm"
-                  disabled={busy}
-                  onClick={() => void ai.loadRuns(0)}
-                  data-testid="ai-run-list"
-                >
-                  Reload runs
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--ghost btn--sm"
-                  disabled={busy || state.runsOffset <= 0}
-                  onClick={() =>
-                    void ai.loadRuns(Math.max(0, state.runsOffset - PAGE_SIZE))
-                  }
-                  data-testid="ai-runs-prev"
-                >
-                  Prev
-                </button>
-                <span className="status" data-testid="ai-runs-page">
-                  {state.runsOffset}/{state.runsTotal}
-                </span>
-                <button
-                  type="button"
-                  className="btn btn--ghost btn--sm"
-                  disabled={
-                    busy ||
-                    state.runsOffset + state.runs.length >= state.runsTotal
-                  }
-                  onClick={() =>
-                    void ai.loadRuns(state.runsOffset + PAGE_SIZE)
-                  }
-                  data-testid="ai-runs-next"
-                >
-                  Next
-                </button>
-              </div>
-              <ul className="p4-list" data-testid="ai-runs">
-                {state.runs.map((r) => (
-                  <li key={r.id}>
-                    <button
-                      type="button"
-                      className="btn btn--ghost btn--sm"
-                      disabled={busy}
-                      onClick={() => void ai.reopenRun(r.id)}
-                    >
-                      {r.id} · {r.status}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              {state.lastApplyMutation ? (
-                <p className="status" data-testid="ai-apply-mutation">
-                  Applied rows {state.lastApplyMutation.rows.length}
+            {state.groundingPreview ? (
+              <pre className="p4-pre" data-testid="ai-grounding-preview">
+                {state.groundingPreview}
+              </pre>
+            ) : null}
+            {state.activeRun ? (
+              <div className="p4-form" data-testid="ai-run-status">
+                <p className="status">
+                  Run {state.activeRun.id} · {state.activeRun.status}
                 </p>
-              ) : null}
+                <pre className="p4-pre">
+                  {state.activeRun.proposalText ??
+                    state.eventReplay.proposalText}
+                </pre>
+                <div className="dialog__actions">
+                  {canCancelRun(state.activeRun.status) ? (
+                    <button
+                      type="button"
+                      className="btn btn--secondary"
+                      disabled={busy}
+                      onClick={() => void ai.cancelRun()}
+                    >
+                      Cancel
+                    </button>
+                  ) : null}
+                  {canResumeRun(state.activeRun.status) ? (
+                    <button
+                      type="button"
+                      className="btn btn--secondary"
+                      disabled={busy}
+                      onClick={() => void ai.resumeRun()}
+                    >
+                      Resume
+                    </button>
+                  ) : null}
+                  {canApplyRun(
+                    state.activeRun.status,
+                    state.activeRun.proposalText,
+                  ) ? (
+                    <button
+                      type="button"
+                      className="btn btn--primary"
+                      disabled={busy}
+                      onClick={() => void ai.applyResult()}
+                      data-testid="ai-run-apply"
+                    >
+                      Apply
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    disabled={busy}
+                    onClick={() => ai.discardProposal()}
+                  >
+                    Discard
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            <h2 className="p4-subtitle">Conversations</h2>
+            <div className="p4-toolbar">
+              <input
+                value={state.conversationTitle}
+                disabled={busy}
+                onChange={(e) => ai.setConversationTitle(e.target.value)}
+                placeholder="Title"
+              />
+              <button
+                type="button"
+                className="btn btn--secondary btn--sm"
+                disabled={busy}
+                onClick={() => void ai.createConversation()}
+              >
+                Create
+              </button>
+            </div>
+            <ul className="p4-list">
+              {state.conversations.map((c) => (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    disabled={busy}
+                    onClick={() => void ai.selectConversation(c.id)}
+                  >
+                    {c.title}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    disabled={busy}
+                    onClick={() =>
+                      void ai.archiveConversation(c.id, c.revision)
+                    }
+                  >
+                    Archive
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {state.selectedConversationId ? (
+              <div className="p4-form" data-testid="ai-messages">
+                <div className="p4-toolbar">
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    disabled={busy || state.messagesOffset <= 0}
+                    onClick={() =>
+                      void ai.loadMessages(
+                        Math.max(0, state.messagesOffset - 50),
+                      )
+                    }
+                  >
+                    Prev
+                  </button>
+                  <span className="status">
+                    {state.messagesOffset}/{state.messagesTotal}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    disabled={
+                      busy ||
+                      state.messagesOffset + state.messages.length >=
+                        state.messagesTotal
+                    }
+                    onClick={() =>
+                      void ai.loadMessages(state.messagesOffset + 50)
+                    }
+                  >
+                    Next
+                  </button>
+                </div>
+                <ul className="p4-list" data-testid="ai-message-list">
+                  {state.messages.map((m) => (
+                    <li key={m.id} className="p4-wrap">
+                      <strong>{m.role}</strong>: {m.text}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            <h2 className="p4-subtitle">Runs</h2>
+            <div className="p4-toolbar">
+              <button
+                type="button"
+                className="btn btn--secondary btn--sm"
+                disabled={busy}
+                onClick={() => void ai.loadRuns(0)}
+                data-testid="ai-run-list"
+              >
+                Reload runs
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                disabled={busy || state.runsOffset <= 0}
+                onClick={() =>
+                  void ai.loadRuns(Math.max(0, state.runsOffset - PAGE_SIZE))
+                }
+                data-testid="ai-runs-prev"
+              >
+                Prev
+              </button>
+              <span className="status" data-testid="ai-runs-page">
+                {state.runsOffset}/{state.runsTotal}
+              </span>
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                disabled={
+                  busy ||
+                  state.runsOffset + state.runs.length >= state.runsTotal
+                }
+                onClick={() => void ai.loadRuns(state.runsOffset + PAGE_SIZE)}
+                data-testid="ai-runs-next"
+              >
+                Next
+              </button>
+            </div>
+            <ul className="p4-list" data-testid="ai-runs">
+              {state.runs.map((r) => (
+                <li key={r.id}>
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    disabled={busy}
+                    onClick={() => void ai.reopenRun(r.id)}
+                  >
+                    {r.id} · {r.status}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {state.lastApplyMutation ? (
+              <p className="status" data-testid="ai-apply-mutation">
+                Applied rows {state.lastApplyMutation.rows.length}
+              </p>
+            ) : null}
           </>
         </div>
       ) : null}
@@ -924,9 +920,7 @@ export function AiControl({
                       state.batchItemsTotal
                   }
                   onClick={() =>
-                    void ai.loadBatchItems(
-                      state.batchItemsOffset + PAGE_SIZE,
-                    )
+                    void ai.loadBatchItems(state.batchItemsOffset + PAGE_SIZE)
                   }
                   data-testid="ai-batch-items-next"
                 >

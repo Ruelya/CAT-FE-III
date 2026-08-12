@@ -8,7 +8,11 @@ export interface InsightsSectionNavProps {
 
 const SECTIONS: Array<{ id: InsightsSection; label: string; testId: string }> =
   [
-    { id: "analytics", label: "Analytics", testId: "insights-section-analytics" },
+    {
+      id: "analytics",
+      label: "Analytics",
+      testId: "insights-section-analytics",
+    },
     { id: "interop", label: "Interop", testId: "insights-section-interop" },
     {
       id: "taskPackage",

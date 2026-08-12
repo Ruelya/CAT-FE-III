@@ -54,10 +54,7 @@ export function formatUiError(error: UiError): string {
   return error.code ? `${error.message} (${error.code})` : error.message;
 }
 
-function readErrorDataField(
-  details: unknown,
-  key: string,
-): string | null {
+function readErrorDataField(details: unknown, key: string): string | null {
   if (!details || typeof details !== "object" || Array.isArray(details)) {
     return null;
   }

@@ -635,9 +635,7 @@ export function useEditorOperations(
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (isImeKeyboardEvent(event)) return;
-      const workbenchRoot = document.querySelector(
-        '[data-testid="workbench"]',
-      );
+      const workbenchRoot = document.querySelector('[data-testid="workbench"]');
       const workbenchFocused =
         workbenchRoot instanceof HTMLElement &&
         (document.activeElement === null ||

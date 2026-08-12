@@ -84,9 +84,7 @@ export function PdfPageReview({ pdf, disabled }: PdfPageReviewProps) {
             aria-label={collapsed ? "Expand PDF panel" : "Collapse PDF panel"}
             aria-expanded={!collapsed}
             disabled={disabled}
-            onClick={() =>
-              pdf.setDockMode(collapsed ? "docked" : "collapsed")
-            }
+            onClick={() => pdf.setDockMode(collapsed ? "docked" : "collapsed")}
             data-testid="pdf-collapse"
           >
             {collapsed ? (
@@ -154,9 +152,7 @@ export function PdfPageReview({ pdf, disabled }: PdfPageReviewProps) {
                       block={block}
                       pageWidth={state.pageDetail!.width}
                       pageHeight={state.pageDetail!.height}
-                      active={
-                        pdf.activeBlock?.segmentId === block.segmentId
-                      }
+                      active={pdf.activeBlock?.segmentId === block.segmentId}
                       disabled={disabled === true}
                       onCorrect={() => pdf.openCorrect(block)}
                     />
@@ -211,11 +207,7 @@ function BlockOverlay({
 
   return (
     <div
-      className={
-        active
-          ? "pdf-block pdf-block--active"
-          : "pdf-block"
-      }
+      className={active ? "pdf-block pdf-block--active" : "pdf-block"}
       style={{
         left: `${left}%`,
         top: `${top}%`,

@@ -83,7 +83,12 @@ export function parseAppearancePreference(
   if (record.version !== 1) {
     return { ...DEFAULT_APPEARANCE };
   }
-  const theme = record.theme === "dark" ? "dark" : record.theme === "light" ? "light" : null;
+  const theme =
+    record.theme === "dark"
+      ? "dark"
+      : record.theme === "light"
+        ? "light"
+        : null;
   const seed =
     typeof record.accentSeed === "string"
       ? normalizeAccentSeed(record.accentSeed)
@@ -95,7 +100,8 @@ export function parseAppearancePreference(
 }
 
 export function readAppearancePreference(
-  storage: Pick<Storage, "getItem"> | null | undefined = globalThis.localStorage,
+  storage:
+    Pick<Storage, "getItem"> | null | undefined = globalThis.localStorage,
 ): RendererAppearancePreferenceV1 {
   if (!storage) return { ...DEFAULT_APPEARANCE };
   try {
@@ -110,7 +116,8 @@ export function readAppearancePreference(
 export function serializeAppearancePreference(
   preference: RendererAppearancePreferenceV1,
 ): string {
-  const seed = normalizeAccentSeed(preference.accentSeed) ?? DEFAULT_APPEARANCE.accentSeed;
+  const seed =
+    normalizeAccentSeed(preference.accentSeed) ?? DEFAULT_APPEARANCE.accentSeed;
   return JSON.stringify({
     version: 1,
     theme: preference.theme === "dark" ? "dark" : "light",
@@ -120,7 +127,8 @@ export function serializeAppearancePreference(
 
 export function writeAppearancePreference(
   preference: RendererAppearancePreferenceV1,
-  storage: Pick<Storage, "setItem"> | null | undefined = globalThis.localStorage,
+  storage:
+    Pick<Storage, "setItem"> | null | undefined = globalThis.localStorage,
 ): { ok: true } | { ok: false; error: string } {
   if (!storage) {
     return { ok: false, error: "Storage unavailable" };
@@ -196,11 +204,10 @@ export const FALLBACK_FOCUS: Record<AppearanceTheme, string> = {
 
 const MIN_FOCUS_CONTRAST = 3;
 
-function meetsFocusContrast(
-  focus: Rgb,
-  surfaces: readonly Rgb[],
-): boolean {
-  return surfaces.every((surface) => contrastRatio(focus, surface) >= MIN_FOCUS_CONTRAST);
+function meetsFocusContrast(focus: Rgb, surfaces: readonly Rgb[]): boolean {
+  return surfaces.every(
+    (surface) => contrastRatio(focus, surface) >= MIN_FOCUS_CONTRAST,
+  );
 }
 
 /**
@@ -282,8 +289,8 @@ export function deriveAccentPalette(
   seedHex: string,
   theme: AppearanceTheme,
 ): DerivedAccentPalette {
-  const seed =
-    hexToRgb(seedHex) ?? hexToRgb(DEFAULT_APPEARANCE.accentSeed) ?? {
+  const seed = hexToRgb(seedHex) ??
+    hexToRgb(DEFAULT_APPEARANCE.accentSeed) ?? {
       r: 118,
       g: 88,
       b: 71,
@@ -296,18 +303,12 @@ export function deriveAccentPalette(
   const hover = shiftToward(seed, towardText, 0.12);
   const active = shiftToward(seed, towardText, 0.22);
   const surface: Rgb =
-    theme === "dark"
-      ? { r: 36, g: 30, b: 26 }
-      : { r: 251, g: 250, b: 247 };
+    theme === "dark" ? { r: 36, g: 30, b: 26 } : { r: 251, g: 250, b: 247 };
   const raised: Rgb =
-    theme === "dark"
-      ? { r: 44, g: 37, b: 32 }
-      : { r: 255, g: 253, b: 249 };
+    theme === "dark" ? { r: 44, g: 37, b: 32 } : { r: 255, g: 253, b: 249 };
   const soft = mix(surface, seed, theme === "dark" ? 0.28 : 0.18);
   const canvas: Rgb =
-    theme === "dark"
-      ? { r: 26, g: 22, b: 19 }
-      : { r: 244, g: 241, b: 236 };
+    theme === "dark" ? { r: 26, g: 22, b: 19 } : { r: 244, g: 241, b: 236 };
   const focus = deriveAccessibleFocus(seed, theme, [canvas, surface, raised]);
   return {
     accent: rgbToHex(seed),
@@ -341,7 +342,10 @@ export function applyAppearance(
 }
 
 export function resetAppearance(
-  storage: Pick<Storage, "setItem" | "removeItem"> | null | undefined = globalThis.localStorage,
+  storage:
+    | Pick<Storage, "setItem" | "removeItem">
+    | null
+    | undefined = globalThis.localStorage,
 ): RendererAppearancePreferenceV1 {
   const preference = { ...DEFAULT_APPEARANCE };
   if (storage) {

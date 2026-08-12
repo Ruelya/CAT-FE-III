@@ -133,9 +133,7 @@ export function useProductSettings(
     opRef.current += 1;
     mutRef.current += 1;
     mutPendingRef.current = 0;
-    setState((s) =>
-      s.mutationPending ? { ...s, mutationPending: false } : s,
-    );
+    setState((s) => (s.mutationPending ? { ...s, mutationPending: false } : s));
   }, []);
 
   useEffect(() => {
@@ -219,9 +217,7 @@ export function useProductSettings(
         tutorial: settings.tutorial,
       }));
       document.documentElement.lang =
-        settings.locale ??
-        stateRef.current.systemLocale.split("-")[0] ??
-        "en";
+        settings.locale ?? stateRef.current.systemLocale.split("-")[0] ?? "en";
     } catch (error) {
       endMut(mut);
       if (!isMutCurrent(mut)) return;
@@ -316,7 +312,8 @@ export function useProductSettings(
         setState((s) => ({
           ...s,
           dataPhase: "error",
-          dataValidationMessage: validation.message ?? validation.code ?? "Invalid",
+          dataValidationMessage:
+            validation.message ?? validation.code ?? "Invalid",
         }));
         return;
       }
@@ -357,7 +354,11 @@ export function useProductSettings(
         migrationResult: result,
         dataPhase: result.ok ? "committed" : "error",
         dataStatus: s.dataStatus
-          ? { ...s.dataStatus, path: result.activePath, absolutePath: result.activePath }
+          ? {
+              ...s.dataStatus,
+              path: result.activePath,
+              absolutePath: result.activePath,
+            }
           : s.dataStatus,
       }));
       if (result.ok) {
@@ -389,7 +390,8 @@ export function useProductSettings(
     const mut = beginMut();
     if (mut === null) return;
     try {
-      const dest = await desktopApi().selectBackupDestination("workspace-backup");
+      const dest =
+        await desktopApi().selectBackupDestination("workspace-backup");
       if (!isMutCurrent(mut)) {
         endMut(mut);
         return;
@@ -551,7 +553,9 @@ export function useProductSettings(
         let next: UpdateStatusSnapshot;
         switch (command) {
           case "setMode":
-            next = await desktopApi().setUpdateMode(opts?.mode ?? snapshot.mode);
+            next = await desktopApi().setUpdateMode(
+              opts?.mode ?? snapshot.mode,
+            );
             break;
           case "check":
             next = await desktopApi().checkForUpdates();

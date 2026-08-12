@@ -16,9 +16,7 @@ export function InteropReviewPanel({
 }: InteropReviewPanelProps) {
   const { state, canApply } = interop;
   const preview = state.reviewPreview;
-  const terminal = preview
-    ? isTerminalPreviewStatus(preview.status)
-    : false;
+  const terminal = preview ? isTerminalPreviewStatus(preview.status) : false;
   const busy = Boolean(disabled || state.pending);
 
   return (

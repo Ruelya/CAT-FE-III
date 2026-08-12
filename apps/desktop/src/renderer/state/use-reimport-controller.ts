@@ -181,9 +181,7 @@ export function useReimportController(gateway: ReimportGateway): ReimportApi {
     }
   }, []);
 
-  const summary = state.preview
-    ? reimportSummaryLine(state.preview.plan)
-    : "";
+  const summary = state.preview ? reimportSummaryLine(state.preview.plan) : "";
 
   const canApply = canConfirmReimportApply({
     hasPreview: Boolean(state.preview),

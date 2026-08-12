@@ -152,10 +152,7 @@ describe("appearance-v1", () => {
 
   it("applies DOM theme attributes", () => {
     const el = document.createElement("div");
-    applyAppearance(
-      { version: 1, theme: "dark", accentSeed: "#224466" },
-      el,
-    );
+    applyAppearance({ version: 1, theme: "dark", accentSeed: "#224466" }, el);
     expect(el.dataset.theme).toBe("dark");
     expect(el.style.colorScheme).toBe("dark");
     expect(el.style.getPropertyValue("--color-accent")).toBe("#224466");
@@ -178,7 +175,9 @@ describe("appearance-v1", () => {
   });
 
   it("title strip uses solid tokens with drag and no-drag regions", () => {
-    expect(stylesCss).toMatch(/\.app-chrome\s*\{[^}]*-webkit-app-region:\s*drag/s);
+    expect(stylesCss).toMatch(
+      /\.app-chrome\s*\{[^}]*-webkit-app-region:\s*drag/s,
+    );
     expect(stylesCss).toMatch(
       /\.app-chrome__actions\s*\{[^}]*-webkit-app-region:\s*no-drag/s,
     );
