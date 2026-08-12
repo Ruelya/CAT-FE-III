@@ -50,6 +50,19 @@ export function formatBytes(bytes: number): string {
   return `${value.toFixed(value >= 100 ? 0 : 1)} ${units[unit]}`;
 }
 
+/**
+ * Segment numbering shown to the user.
+ *
+ * Engine ordinals are zero based, but the Engine's own QA reports render
+ * `segment_ordinal + 1` (crates/qa-core), so one based is the product-facing
+ * convention. Every renderer surface goes through this helper so the grid, the
+ * QA list, and accessible names cannot drift apart or off by one.
+ */
+export function segmentNumber(ordinal: number): number {
+  if (!Number.isFinite(ordinal)) return 0;
+  return Math.trunc(ordinal) + 1;
+}
+
 /** Integer percentage from a part and a whole, safe at zero. */
 export function formatPercent(part: number, total: number): string {
   if (!Number.isFinite(part) || !Number.isFinite(total) || total <= 0) {

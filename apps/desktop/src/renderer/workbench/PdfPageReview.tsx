@@ -213,6 +213,7 @@ function BlockOverlay({
   return (
     <div
       className={active ? "pdf-block pdf-block--active" : "pdf-block"}
+      // data-geometry: the overlay box comes from the Engine page bbox.
       style={{
         left: `${left}%`,
         top: `${top}%`,

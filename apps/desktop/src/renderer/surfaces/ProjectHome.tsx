@@ -4,6 +4,7 @@ import type { Project } from "@translunar/contracts";
 
 import type { UiError } from "../lib/errors";
 import { formatUiError } from "../lib/errors";
+import { rowEnterProps, withListClass } from "../lib/dom";
 import { formatRelativeTime } from "../lib/format";
 import type { ProjectListLifecycle } from "../state/app-state";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
@@ -334,12 +335,7 @@ export function ProjectHome({
             {projects.map((project, index) => (
               <li
                 key={project.id}
-                className="project-list__item row-enter"
-                style={
-                  index < 8
-                    ? ({ "--enter-index": index } as React.CSSProperties)
-                    : undefined
-                }
+                {...withListClass("project-list__item", rowEnterProps(index))}
               >
                 <div className="project-row">
                   <div className="project-row__meta">

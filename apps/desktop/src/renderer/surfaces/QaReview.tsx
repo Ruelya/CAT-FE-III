@@ -7,7 +7,9 @@ import {
 import type { QaIssueView, QaRun } from "@translunar/contracts";
 
 import type { UiError } from "../lib/errors";
+import { rowEnterProps, withListClass } from "../lib/dom";
 import { formatUiError } from "../lib/errors";
+import { segmentNumber } from "../lib/format";
 import type { SessionContext } from "../state/app-state";
 
 export interface QaReviewProps {
@@ -160,12 +162,7 @@ export function QaReview({
                 return (
                   <li
                     key={issue.id}
-                    className="issue-list__item row-enter"
-                    style={
-                      index < 8
-                        ? ({ "--enter-index": index } as React.CSSProperties)
-                        : undefined
-                    }
+                    {...withListClass("issue-list__item", rowEnterProps(index))}
                   >
                     <div className="issue-row">
                       <div className="issue-row__body">
@@ -174,7 +171,9 @@ export function QaReview({
                           {issue.message}
                         </p>
                         <p className="issue-row__meta">
-                          <span className="mono">#{issue.segmentOrdinal}</span>
+                          <span className="mono">
+                            #{segmentNumber(issue.segmentOrdinal)}
+                          </span>
                           <span className="mono">{issue.ruleId}</span>
                         </p>
                       </div>
@@ -184,7 +183,7 @@ export function QaReview({
                           className="btn btn--secondary btn--sm"
                           disabled={disabled}
                           onClick={() => onJump(issue.segmentId)}
-                          aria-label={`Jump to segment ${issue.segmentOrdinal}`}
+                          aria-label={`Jump to segment ${segmentNumber(issue.segmentOrdinal)}`}
                         >
                           Jump
                         </button>

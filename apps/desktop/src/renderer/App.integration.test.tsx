@@ -74,7 +74,7 @@ describe("App P0 vertical slice (fake DesktopApi)", () => {
       { timeout: 2000 },
     );
 
-    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await user.click(screen.getByRole("button", { name: /^Confirm segment / }));
     await waitFor(() => {
       expect(state.calls.some((c) => c.method === "segment.confirm")).toBe(
         true,
@@ -394,7 +394,7 @@ describe("App P0 vertical slice (fake DesktopApi)", () => {
     await user.type(editor, "first");
 
     const confirmClick = user.click(
-      screen.getByRole("button", { name: "Confirm" }),
+      screen.getByRole("button", { name: /^Confirm segment / }),
     );
     await waitFor(() => {
       expect(updateEntered).toBe(true);
@@ -459,7 +459,7 @@ describe("App P0 vertical slice (fake DesktopApi)", () => {
       isComposing: true,
     });
     // Confirm button path also blocked while composing.
-    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await user.click(screen.getByRole("button", { name: /^Confirm segment / }));
     expect(
       state.calls.filter((c) => c.method === "segment.updateTarget").length,
     ).toBe(beforeUpdates);
@@ -479,7 +479,7 @@ describe("App P0 vertical slice (fake DesktopApi)", () => {
       },
       { timeout: 2000 },
     );
-    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await user.click(screen.getByRole("button", { name: /^Confirm segment / }));
     await waitFor(() => {
       expect(state.calls.some((c) => c.method === "segment.confirm")).toBe(
         true,

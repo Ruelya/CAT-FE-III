@@ -96,7 +96,7 @@ async function seedWorkbench(page: Page): Promise<void> {
   const target = page.locator('[data-testid^="target-editor-"]').first();
   await expect(target).toBeVisible();
   await target.fill("P2 seeded target for editor and assets.");
-  await page.getByRole("button", { name: "Confirm" }).click();
+  await page.getByRole("button", { name: /^Confirm segment / }).click();
   await expect(page.locator(".status-chip--confirmed").first()).toBeVisible({
     timeout: 30_000,
   });

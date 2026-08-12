@@ -144,7 +144,7 @@ test.describe("P0 vertical slice", () => {
           .locator(".status-chip--confirmed")
           .count();
         await target.fill(safeTargets[i % safeTargets.length]!);
-        await page.getByRole("button", { name: "Confirm" }).click();
+        await page.getByRole("button", { name: /^Confirm segment / }).click();
         await expect(page.locator(".status-chip--confirmed")).toHaveCount(
           beforeConfirmed + 1,
           { timeout: 30_000 },

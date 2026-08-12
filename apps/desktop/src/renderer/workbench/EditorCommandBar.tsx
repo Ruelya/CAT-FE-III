@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import {
   ArrowClockwise,
   ArrowCounterClockwise,
@@ -20,6 +20,7 @@ import {
   type EditorCommandId,
 } from "../state/editor-operations";
 import type { EditorOperationsApi } from "../state/use-editor-operations";
+import { useMenuKeyboard, useToolbarRoving } from "../shell/use-menu-keyboard";
 
 export interface EditorCommandBarProps {
   ops: EditorOperationsApi;
@@ -55,24 +56,23 @@ export function EditorCommandBar({ ops, disabled }: EditorCommandBarProps) {
   const [overflowOpen, setOverflowOpen] = useState(false);
   const menuId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
+  const primaryRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!overflowOpen) return;
-    const onDoc = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setOverflowOpen(false);
-      }
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOverflowOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [overflowOpen]);
+  const menu = useMenuKeyboard({
+    open: overflowOpen,
+    setOpen: setOverflowOpen,
+    triggerRef,
+    menuRef,
+  });
+  const onToolbarKeyDown = useToolbarRoving(primaryRef);
+
+  // A toolbar is one Tab stop: the first enabled command is reachable and the
+  // rest are visited with Arrow keys.
+  const firstEnabled = PRIMARY.find(
+    (cmd) => !busy && ops.isAvailable(cmd.id),
+  )?.id;
 
   return (
     <div
@@ -82,7 +82,11 @@ export function EditorCommandBar({ ops, disabled }: EditorCommandBarProps) {
       aria-label="Editor"
       ref={rootRef}
     >
-      <div className="editor-command-bar__primary">
+      <div
+        className="editor-command-bar__primary"
+        ref={primaryRef}
+        onKeyDown={onToolbarKeyDown}
+      >
         {PRIMARY.map((cmd) => {
           const title = cmd.shortcut
             ? `${cmd.label} (${cmd.shortcut})`
@@ -94,6 +98,7 @@ export function EditorCommandBar({ ops, disabled }: EditorCommandBarProps) {
               className="btn btn--ghost btn--sm"
               title={title}
               aria-label={title}
+              tabIndex={cmd.id === firstEnabled ? 0 : -1}
               disabled={busy || !ops.isAvailable(cmd.id)}
               onClick={() => ops.runCommand(cmd.id)}
               data-testid={`cmd-${cmd.id}`}
@@ -106,13 +111,15 @@ export function EditorCommandBar({ ops, disabled }: EditorCommandBarProps) {
       </div>
       <div className="editor-command-bar__overflow">
         <button
+          ref={triggerRef}
           type="button"
           className="btn btn--ghost btn--sm"
           aria-haspopup="menu"
           aria-expanded={overflowOpen}
-          aria-controls={menuId}
+          aria-controls={overflowOpen ? menuId : undefined}
           disabled={busy}
-          onClick={() => setOverflowOpen((v) => !v)}
+          onClick={menu.toggle}
+          onKeyDown={menu.onTriggerKeyDown}
           data-testid="cmd-overflow"
           title="More"
         >
@@ -121,9 +128,12 @@ export function EditorCommandBar({ ops, disabled }: EditorCommandBarProps) {
         </button>
         {overflowOpen ? (
           <div
+            ref={menuRef}
             className="editor-command-bar__menu"
             role="menu"
+            aria-label="More editor commands"
             id={menuId}
+            onKeyDown={menu.onMenuKeyDown}
             data-testid="cmd-overflow-menu"
           >
             {OVERFLOW.map((cmd) => {
@@ -136,12 +146,14 @@ export function EditorCommandBar({ ops, disabled }: EditorCommandBarProps) {
                   key={cmd.id}
                   type="button"
                   role="menuitem"
+                  tabIndex={-1}
                   className="editor-command-bar__menu-item"
                   title={title}
                   aria-label={title}
+                  aria-disabled={enabled ? undefined : true}
                   disabled={!enabled}
                   onClick={() => {
-                    setOverflowOpen(false);
+                    menu.close(true);
                     ops.runCommand(cmd.id);
                   }}
                   data-testid={`cmd-${cmd.id}`}

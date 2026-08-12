@@ -216,20 +216,27 @@ const lines = (text) => text.split(/\r?\n/);
 
 /* ── R5 · Inline layout styles ──────────────────────────── */
 {
-  // Data-derived geometry is a documented exception; everything else is CSS.
-  const allowed = new Set(["workbench/PdfPageReview.tsx"]);
+  /*
+   * Layout constants belong in CSS. Geometry that only exists at runtime, such
+   * as a percentage derived from Engine counts or a stagger index, cannot, so
+   * each of those sites must carry an explicit `data-geometry` marker comment
+   * within the three preceding lines. The marker makes every exception
+   * greppable instead of hiding behind a whole-file allowlist, and the check
+   * matches `style={` in any formatting rather than only the one-line form.
+   */
+  const MARKER = "data-geometry";
   for (const file of tsxFiles) {
-    const rel = relative(rendererDir, file).split("\\").join("/");
-    if (allowed.has(rel)) continue;
-    lines(read(file)).forEach((line, i) => {
-      if (/style=\{\{/.test(line)) {
-        report(
-          "R5-inline-style",
-          file,
-          i + 1,
-          "inline style; move layout constants to a class",
-        );
-      }
+    const source = lines(read(file));
+    source.forEach((line, i) => {
+      if (!/\bstyle=\{/.test(line)) return;
+      const context = source.slice(Math.max(0, i - 3), i + 1).join("\n");
+      if (context.includes(MARKER)) return;
+      report(
+        "R5-inline-style",
+        file,
+        i + 1,
+        `inline style without a ${MARKER} marker; move layout constants to a class`,
+      );
     });
   }
 }

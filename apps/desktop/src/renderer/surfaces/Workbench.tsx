@@ -9,6 +9,7 @@ import type { EditorOperationsApi } from "../state/use-editor-operations";
 import { shouldMountPdfDock } from "../state/pdf-review";
 import type { PdfReviewApi } from "../state/use-pdf-review";
 import type { ReimportApi } from "../state/use-reimport-controller";
+import { shareStyle } from "../lib/dom";
 import { useContainerDensity } from "../state/use-container-density";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
 import { ReimportDialog } from "../insights/ReimportDialog";
@@ -114,6 +115,33 @@ export function Workbench({
       <div className="workbench__header">
         <div className="workbench__header-meta">
           <h1 className="workbench__header-title">{ctx.document.name}</h1>
+          {counts && counts.total > 0 ? (
+            // The brand ribbon doing real work: confirmed, draft, and open
+            // shares of the document, with a text equivalent beside it.
+            // data-geometry: every share below is an Engine count proportion.
+            <span
+              className="progress-bar workbench__progress"
+              role="img"
+              aria-label={`${counts.confirmed} of ${counts.total} segments confirmed`}
+              title={`${counts.confirmed} confirmed, ${counts.draft} draft, ${counts.untranslated} open`}
+            >
+              <span
+                className="progress-bar__segment progress-bar__segment--confirmed"
+                // data-geometry: Engine count proportion.
+                style={shareStyle(counts.confirmed, counts.total)}
+              />
+              <span
+                className="progress-bar__segment progress-bar__segment--draft"
+                // data-geometry: Engine count proportion.
+                style={shareStyle(counts.draft, counts.total)}
+              />
+              <span
+                className="progress-bar__segment progress-bar__segment--open"
+                // data-geometry: Engine count proportion.
+                style={shareStyle(counts.untranslated, counts.total)}
+              />
+            </span>
+          ) : null}
           <p className="workbench__header-sub">
             <span className="truncate">{ctx.project.name}</span>
             {counts ? (
