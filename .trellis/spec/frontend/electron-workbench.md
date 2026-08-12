@@ -2547,11 +2547,17 @@ bridge.
 - A bridge request timer remains active until the asynchronous Engine call
   settles. Timeout, malformed message, unknown cancellation, external revoke,
   navigation, reload, or unmount closes the port and revokes the asset session.
-- `Workbench` observes `.editor-region` width. Below the compact threshold it
-  moves segment filters into one labeled select, hides redundant TM/button text,
-  and keeps icon-first controls named. No filter, search, TM, history, issue, or
-  confirm capability may disappear. This is container-responsive behavior, not
-  a viewport-only media query.
+- `Workbench` observes the width of `.editor-region` (the element wrapping the
+  command bar, segment grid, and editor panels, owned by
+  `surfaces/Workbench.tsx`) with a `ResizeObserver`, and writes the resulting
+  band onto `data-density="comfortable" | "compact"`. CSS reacts to that
+  attribute; there is no width media query, because dock state changes the
+  editor width without changing the viewport width.
+- Below the compact threshold the editor moves segment filters into one labeled
+  select, hides redundant TM and button label text while keeping every control
+  named through `title` and `aria-label`, and keeps icon-first controls at the
+  32 px target floor. No filter, search, TM, history, issue, or confirm
+  capability may disappear; compact mode changes presentation only.
 
 ### 4. Validation & Error Matrix
 

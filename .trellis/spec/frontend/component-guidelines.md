@@ -83,42 +83,54 @@ universally recognizable.
 
 **Don't**: import new icons from `lucide-react` under `src/renderer`.
 
-## Appearance Tokens (Light / Advanced Brown / No Glass)
+## Appearance Tokens (Light default / Advanced Brown / No Glass)
 
-### Convention: Fixed P0 appearance
+The full colour, type, space, shape, and motion system is defined in
+[design-language.md](./design-language.md). That file is the authority; the
+rules below are the component-level obligations that follow from it.
 
-**What**: Light canvas is the only default. Interactive accent is advanced
-brown (`--color-accent` family). Semantic success/warning/error tokens are
-independent of the accent. Appearance is not user-configurable in P0.
+### Convention: Light default, user-adjustable theme and accent seed
 
-**Why**: Prevents dark-first flash, theme-settings scope creep, and
-low-contrast glass panels that fail professional CAT density.
+**What**: Light canvas is the default. The interactive accent is advanced brown
+(`--color-accent` family). Semantic success/warning/error/info tokens are
+theme-fixed and never derived from the accent seed. Since P4 the user may
+select dark mode and a custom accent seed in Product Settings.
+
+**Why**: Prevents dark-first flash, keeps status meaning stable when a user
+re-seeds the accent, and keeps professional CAT density readable.
 
 **Rules**:
 
-- Tokens live in `tokens.css`; component CSS lives in `styles.css`.
-- Fixed constants live in `state/appearance.ts` (`APPEARANCE_THEME = "light"`,
-  `APPEARANCE_ACCENT = "advanced-brown"`). Never write theme/accent to shell
-  settings or `localStorage`.
-- Solid colors define surfaces. Alpha may be used for conventional shadows
-  only.
-- `backdrop-filter` and `-webkit-backdrop-filter` are forbidden (no frosted
-  glass / translucent panel material).
-- Initial HTML/`color-scheme: light` must match `--color-canvas` before React
-  mounts.
-- Brand ribbon colors are for the brand mark only; interactive controls use
-  advanced brown.
+- Design tokens live in `tokens.css`. Component CSS lives under `styles/`,
+  reached through the single `styles.css` entry point.
+- Appearance persists in exactly one versioned renderer key,
+  `translunar.renderer.appearance.v1`, parsed by `state/appearance.ts`
+  (`{ version: 1, theme, accentSeed }`). Never write theme or accent into
+  `ProductShellSettings`, and never introduce a second appearance key.
+- The preference is applied before React mounts
+  (`appearance-bootstrap.ts`), and a storage write failure stays visible to
+  the user rather than being swallowed.
+- A custom accent seed must still reach 4.5:1 for on-accent body text and 3:1
+  for the focus ring against canvas, surface, and raised. A seed that cannot
+  is rejected with a visible reason.
+- Surfaces are solid. `backdrop-filter` and `-webkit-backdrop-filter` are
+  forbidden. Tokenised modal scrims and bounded state tints are allowed; the
+  prohibition is on translucent panel *material*, not on all alpha.
+- The first-paint fallback in `index.html` must match `--color-canvas` and
+  `color-scheme` for the persisted theme.
+- Brand ribbon colours are the brand mark and the `--color-series-*` data
+  palette only. They never colour an interactive control.
 - Title-strip chrome (`.app-chrome`, `.window-controls*`) uses the same solid
-  surface/border/text/semantic tokens. Close active may mix `--color-error`
-  with another token (e.g. `--color-text`); raw `#000` / chrome-only literals
-  are forbidden. Drag/no-drag and platform inset rules live in
-  [electron-workbench.md](./electron-workbench.md) (custom title bar scenario).
-- Honor `prefers-reduced-motion: reduce` (collapse motion to effectively
-  immediate).
+  tokens. Close-active may mix `--color-error` with another token; raw `#000`
+  and chrome-only literals are forbidden. Drag/no-drag and platform inset rules
+  live in [electron-workbench.md](./electron-workbench.md).
+- Honour `prefers-reduced-motion: reduce`: motion tokens collapse to `0ms` and
+  view transitions are skipped.
 
-**Related**: `state/appearance.test.ts` asserts required token vars, light/
-brown defaults, semantic separation, absence of glass CSS, and title-strip
-drag/no-drag + token-only close active rules.
+**Related**: `state/appearance.test.ts` asserts required token vars, light and
+brown defaults, the surface-ladder lightness deltas, contrast floors, semantic
+independence, absence of glass CSS, and the title-strip token rules.
+`pnpm ui:audit` enforces the mechanical half at the file level.
 
 ## Editor command bar and Asset Hub
 
@@ -173,6 +185,18 @@ matchers that also hit Recycle “Document” rows. See
 
 - Use semantic headings, regions, dialogs, lists/tables, and labels before
   recreating them with ARIA.
+- Section switching that behaves like a route uses `<nav>` with `aria-current`.
+  `role="tab"` is only for a real tab widget and then requires the complete
+  APG pattern: roving `tabIndex`, Arrow, Home, End, `aria-controls`, and a
+  named `tabpanel`. A partial tab pattern is worse than a link list.
+- Interactive targets are at least 32x32 CSS pixels. A visually smaller
+  affordance extends its hit area with padding or a pseudo-element instead of
+  shrinking the target.
+- Menus follow the APG menu-button pattern: opening moves focus to the first
+  enabled item, Arrow/Home/End navigate, and Escape closes and returns focus to
+  the trigger.
+- A non-modal panel records its opener and returns focus there on close, with a
+  stable fallback target when the opener has unmounted.
 - Exact-TM (and similar) collapsed content remains mounted, becomes
   `inert`/`aria-hidden`, and focus moves to the expand control. Do not use
   `display: none` to animate a collapsible panel.
@@ -194,13 +218,35 @@ panel chrome (`workbench/PanelChrome.tsx`) and shared shell chrome rather than
 copying nearly identical controls. Keep transient busy/error states visible and
 keyboard reachable.
 
+Surface content is width-constrained and anchored to the top. A form must not
+float alone in an otherwise empty viewport: either the surface carries further
+real content, or the form sits in a bounded panel. A submit button never
+stretches to the full container width.
+
 Surfaces receive data and command callbacks from the app controller. Presentational
 leaves must not call `window.translunar` directly.
+
+## Interaction State Completeness
+
+Every interactive element covers rest, hover, focus-visible, active, selected
+or current, and disabled, without changing layout bounds.
+
+Every asynchronous action covers pending with a duplicate-submit guard,
+success where the result is not otherwise visible, a typed error rendered next
+to the affected control with the user's input preserved, cancellation for long
+operations, and a recovery path.
+
+Every collection covers loading as a skeleton matching settled geometry, an
+empty state that is bounded and offers exactly one real action, and an error
+state with retry. A bare header row with no body, or the lone strings
+`Loading` and `Empty`, is a defect.
 
 ## UI Copy
 
 Keep labels concise and functional. Do not add filler subtitles, guiding
-microcopy, or contrast-copy constructions using “不是”.
+microcopy, or contrast-copy constructions using “不是”. Do not use em dash or
+en dash characters, marketing filler verbs, or invented precise numbers. See
+[design-language.md](./design-language.md) §9.
 
 ## Avoid
 
