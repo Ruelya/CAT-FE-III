@@ -5,7 +5,7 @@ description: |
   (prd.md, design.md, implement.md, jsonl). No product code. No user Q&A.
   Dispatch: spawn_subagent subagent_type=trellis-plan; first line Active task: <path>.
 model: gpt-5.6-sol
-effort: max
+effort: xhigh
 ---
 
 ## Required: Load Trellis Context First
