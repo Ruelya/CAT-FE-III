@@ -107,6 +107,7 @@ export function TaskPackagePanel({
           type="button"
           className="btn btn--ghost btn--icon"
           aria-label="Discard package preview"
+          title="Discard package preview"
           disabled={busy || !taskPackage.canDiscard}
           onClick={() => setConfirm({ kind: "discard" })}
           data-testid="task-discard"

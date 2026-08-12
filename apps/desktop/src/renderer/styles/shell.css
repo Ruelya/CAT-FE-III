@@ -1,0 +1,421 @@
+/**
+ * Application shell: title strip, brand, navigation, window controls,
+ * engine status, boot and recovery.
+ */
+
+.app-root {
+  display: grid;
+  /* chrome | optional banner | flexible stage; the stage is the grow row */
+  grid-template-rows: var(--chrome-height) auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 100%;
+  background: var(--color-canvas);
+  color: var(--color-text);
+}
+
+/* ── Title strip ───────────────────────────────────────── */
+
+.app-chrome {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  min-height: var(--chrome-height);
+  /* The product title strip is the draggable window region. */
+  -webkit-app-region: drag;
+  app-region: drag;
+  user-select: none;
+}
+
+/* Reserve the left inset for native macOS traffic lights (hiddenInset). */
+.app-chrome[data-window-chrome="macos"] {
+  padding-left: 78px;
+}
+
+.app-chrome__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wide);
+  flex-shrink: 0;
+}
+
+.app-chrome__ribbon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.app-chrome__ribbon span {
+  flex: 1;
+}
+
+.app-chrome__ribbon span:nth-child(1) {
+  background: var(--color-brand-burnt);
+}
+.app-chrome__ribbon span:nth-child(2) {
+  background: var(--color-brand-ochre);
+}
+.app-chrome__ribbon span:nth-child(3) {
+  background: var(--color-brand-lichen);
+}
+.app-chrome__ribbon span:nth-child(4) {
+  background: var(--color-brand-teal);
+}
+.app-chrome__ribbon span:nth-child(5) {
+  background: var(--color-brand-dusk);
+}
+
+.app-chrome__identity {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  flex: 1;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.app-chrome__identity-primary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+
+.app-chrome__identity-secondary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.app-chrome__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-0-5);
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.app-chrome__group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-0-5);
+}
+
+.app-chrome__group + .app-chrome__group::before {
+  content: "";
+  width: 1px;
+  height: 18px;
+  margin: 0 var(--space-2);
+  background: var(--color-line);
+}
+
+/* Current destination reads without relying on colour alone. */
+.app-chrome__actions .btn[aria-current="page"] {
+  background: var(--color-accent-soft);
+  color: var(--color-text);
+  position: relative;
+}
+
+.app-chrome__actions .btn[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  left: 50%;
+  width: 14px;
+  height: 2px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  transform: translateX(-50%);
+}
+
+/* Interactive chrome descendants must not initiate a window drag. */
+.app-chrome button,
+.app-chrome a,
+.app-chrome input,
+.app-chrome select,
+.app-chrome textarea,
+.app-chrome [data-no-drag] {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* ── Custom window controls (Windows / Linux fallback) ── */
+
+.window-controls {
+  display: inline-flex;
+  align-items: stretch;
+  align-self: stretch;
+  flex-shrink: 0;
+  height: var(--chrome-height);
+  margin-right: calc(-1 * var(--space-3));
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.window-controls__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  min-width: 46px;
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+  cursor: default;
+  transition:
+    background var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard);
+}
+
+.window-controls__btn:hover {
+  background: var(--color-hover-tint);
+}
+
+.window-controls__btn:active {
+  background: var(--color-active-tint);
+}
+
+.window-controls__btn--close:hover {
+  background: var(--color-error);
+  color: var(--color-on-solid);
+}
+
+.window-controls__btn--close:active {
+  background: color-mix(in srgb, var(--color-error) 85%, var(--color-text));
+  color: var(--color-on-solid);
+}
+
+.app-stage {
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+}
+
+/* ── Engine status banner ──────────────────────────────── */
+
+.app-banner-slot {
+  min-height: 0;
+}
+
+.engine-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.engine-status--reconnecting,
+.engine-status--connecting {
+  background: var(--color-accent-soft);
+  color: var(--color-text);
+}
+
+.engine-status--failed,
+.engine-status--disconnected {
+  background: var(--color-error-soft);
+  color: var(--color-error);
+}
+
+.engine-status__actions {
+  display: inline-flex;
+  gap: var(--space-2);
+}
+
+/* ── Boot and recovery ─────────────────────────────────── */
+
+.boot-gate {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: var(--space-4);
+  min-height: 100%;
+  padding: var(--space-8) var(--space-5);
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.boot-gate__mark {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.boot-gate__mark span {
+  flex: 1;
+}
+
+.boot-gate__mark span:nth-child(1) {
+  background: var(--color-brand-burnt);
+}
+.boot-gate__mark span:nth-child(2) {
+  background: var(--color-brand-ochre);
+}
+.boot-gate__mark span:nth-child(3) {
+  background: var(--color-brand-lichen);
+}
+.boot-gate__mark span:nth-child(4) {
+  background: var(--color-brand-teal);
+}
+.boot-gate__mark span:nth-child(5) {
+  background: var(--color-brand-dusk);
+}
+
+.boot-gate__title {
+  margin: 0;
+  color: var(--color-text);
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+}
+
+.boot-gate__detail {
+  margin: 0;
+  font-size: var(--text-sm);
+  max-width: 48ch;
+}
+
+/* ── Command palette ───────────────────────────────────── */
+
+.command-palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-dialog);
+  display: grid;
+  align-items: start;
+  justify-items: center;
+  padding: 12vh var(--space-4) var(--space-4);
+  background: var(--color-scrim);
+  animation: tl-fade-in var(--motion-fast) var(--ease-decelerate) both;
+}
+
+.command-palette {
+  width: min(620px, 100%);
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  animation: tl-dialog-in var(--motion-base) var(--ease-decelerate) both;
+}
+
+.command-palette__search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--color-line);
+  flex-shrink: 0;
+}
+
+.command-palette__input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--text-lg);
+  outline: none;
+}
+
+.command-palette__input::placeholder {
+  color: var(--color-text-subtle);
+}
+
+.command-palette__list {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-1);
+  overflow: auto;
+  min-height: 0;
+}
+
+.command-palette__group-label {
+  padding: var(--space-2) var(--space-2) var(--space-1);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-text-subtle);
+}
+
+.command-palette__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--control-h-md);
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--text-md);
+  text-align: left;
+}
+
+.command-palette__item[data-active="true"] {
+  background: var(--color-accent-soft);
+}
+
+.command-palette__item-icon {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  display: inline-flex;
+}
+
+.command-palette__item-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-palette__item-hint {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--color-text-subtle);
+}
+
+.command-palette__empty {
+  padding: var(--space-5);
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.command-palette__footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--color-line);
+  font-size: var(--text-2xs);
+  color: var(--color-text-subtle);
+  flex-shrink: 0;
+}

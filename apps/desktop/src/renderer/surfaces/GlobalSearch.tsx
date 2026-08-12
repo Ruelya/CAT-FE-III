@@ -129,7 +129,7 @@ export function GlobalSearch({
           <span className="muted">
             {total === 0
               ? "0"
-              : `${offset + 1}–${Math.min(offset + items.length, total)}`}{" "}
+              : `${offset + 1}-${Math.min(offset + items.length, total)}`}{" "}
             of {total}
           </span>
           <button

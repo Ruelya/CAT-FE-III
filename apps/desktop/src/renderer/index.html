@@ -7,19 +7,36 @@
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ws://127.0.0.1:5173; frame-src translunar-plugin:"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="light" />
+    <meta name="color-scheme" content="light dark" />
     <title>Translunar CAT</title>
+    <!--
+      First-paint fallback only. These two pairs must equal --color-canvas and
+      --color-text in tokens.css; state/appearance.test.ts fails if they drift.
+    -->
     <style>
       html,
       body {
         margin: 0;
         min-height: 100%;
         height: 100%;
-        background: #f4f1ec;
-        color: #261f1a;
+        background: #eeeae1;
+        color: #1f1d1a;
         color-scheme: light;
       }
+      html[data-theme="dark"],
+      html[data-theme="dark"] body {
+        background: #1a1714;
+        color: #f3efe8;
+        color-scheme: dark;
+      }
     </style>
+    <!--
+      Blocking classic script, served from the renderer public directory so it
+      satisfies `script-src 'self'` without an inline hash. It runs before the
+      body is parsed, which is what stops a persisted dark preference from
+      flashing the light canvas.
+    -->
+    <script src="/theme-boot.js"></script>
   </head>
   <body>
     <div id="root"></div>

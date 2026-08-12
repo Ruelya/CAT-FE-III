@@ -16,6 +16,7 @@ export function PanelChrome({ title, collapsed, onToggle }: PanelChromeProps) {
         aria-label={
           collapsed ? "Expand exact TM panel" : "Collapse exact TM panel"
         }
+        title={collapsed ? "Expand exact TM panel" : "Collapse exact TM panel"}
         aria-expanded={!collapsed}
         onClick={onToggle}
       >

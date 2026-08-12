@@ -33,7 +33,7 @@ export function EngineStatusBanner({
     >
       <span>
         {label}
-        {message ? ` — ${message}` : ""}
+        {message ? `: ${message}` : ""}
       </span>
       <span className="engine-status__actions">
         {onRetry ? (

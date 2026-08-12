@@ -383,7 +383,7 @@ export function ProjectHome({
         <span className="muted">
           {total === 0
             ? "0"
-            : `${offset + 1}–${Math.min(offset + projects.length, total)}`}{" "}
+            : `${offset + 1}-${Math.min(offset + projects.length, total)}`}{" "}
           of {total}
         </span>
         <button

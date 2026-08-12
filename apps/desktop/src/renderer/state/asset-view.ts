@@ -25,24 +25,24 @@ export function joinTermbaseMount(
 export function formatBasisPoints(
   basisPoints: number | null | undefined,
 ): string {
-  if (basisPoints === null || basisPoints === undefined) return "—";
+  if (basisPoints === null || basisPoints === undefined) return "-";
   return `${(basisPoints / 100).toFixed(1)}%`;
 }
 
 export function formatScore(score: number | null | undefined): string {
-  if (score === null || score === undefined) return "—";
-  if (!Number.isFinite(score)) return "—";
+  if (score === null || score === undefined) return "-";
+  if (!Number.isFinite(score)) return "-";
   return score.toFixed(3);
 }
 
 export function formatTimestamp(ms: number | null | undefined): string {
   if (ms === null || ms === undefined || !Number.isFinite(ms) || ms <= 0) {
-    return "—";
+    return "-";
   }
   try {
     return new Date(ms).toLocaleString();
   } catch {
-    return "—";
+    return "-";
   }
 }
 
@@ -70,7 +70,7 @@ export function pageLabel(
   if (total <= 0) return "0";
   const start = offset + 1;
   const end = Math.min(offset + limit, total);
-  return `${start}–${end} / ${total}`;
+  return `${start}-${end} / ${total}`;
 }
 
 export const DEFAULT_CURATION_POLICY = {

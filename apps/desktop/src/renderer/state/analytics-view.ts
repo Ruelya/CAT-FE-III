@@ -4,9 +4,9 @@ import type {
   ProgressSummary,
 } from "@translunar/contracts";
 
-/** Format basis points (0–10000) as a percentage label. */
+/** Format basis points (0 to 10000) as a percentage label. */
 export function formatBasisPoints(basisPoints: number): string {
-  if (!Number.isFinite(basisPoints)) return "—";
+  if (!Number.isFinite(basisPoints)) return "-";
   const pct = basisPoints / 100;
   if (Number.isInteger(pct)) return `${pct}%`;
   return `${pct.toFixed(1)}%`;
@@ -15,7 +15,7 @@ export function formatBasisPoints(basisPoints: number): string {
 /** Format a duration in milliseconds for compact display. */
 export function formatDurationMs(ms: number | null | undefined): string {
   if (ms === null || ms === undefined || !Number.isFinite(ms) || ms < 0) {
-    return "—";
+    return "-";
   }
   if (ms < 1000) return `${Math.round(ms)} ms`;
   const seconds = ms / 1000;
@@ -34,11 +34,11 @@ export function formatDurationMs(ms: number | null | undefined): string {
 }
 
 export function formatTimestampMs(ms: number | null | undefined): string {
-  if (ms === null || ms === undefined || !Number.isFinite(ms)) return "—";
+  if (ms === null || ms === undefined || !Number.isFinite(ms)) return "-";
   try {
     return new Date(ms).toLocaleString();
   } catch {
-    return "—";
+    return "-";
   }
 }
 
@@ -113,7 +113,7 @@ export function trendRows(
     return {
       startMs: bucket.startMs,
       endMs: bucket.endMs,
-      rangeLabel: `${formatTimestampMs(bucket.startMs)} – ${formatTimestampMs(bucket.endMs)}`,
+      rangeLabel: `${formatTimestampMs(bucket.startMs)} to ${formatTimestampMs(bucket.endMs)}`,
       confirmations: bucket.confirmations,
       targetEdits: bucket.targetEdits,
       qaRunsCompleted: bucket.qaRunsCompleted,

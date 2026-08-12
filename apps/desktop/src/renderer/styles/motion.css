@@ -1,0 +1,153 @@
+/**
+ * Motion classes M1 to M7.
+ * Specification: .trellis/spec/frontend/design-language.md §5.
+ *
+ * Every animation here moves only `transform` and `opacity`, and every one
+ * collapses under `prefers-reduced-motion: reduce` because the duration tokens
+ * become 0ms. The explicit reduce block at the end also removes staggering and
+ * view transitions, which duration alone cannot switch off.
+ */
+
+/* ── M1 · surface transition ────────────────────────────── */
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--motion-base);
+  animation-timing-function: var(--ease-standard);
+}
+
+::view-transition-old(root) {
+  animation-name: tl-surface-out;
+}
+
+::view-transition-new(root) {
+  animation-name: tl-surface-in;
+}
+
+@keyframes tl-surface-out {
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes tl-surface-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* Fallback when startViewTransition is unavailable. */
+.surface-enter {
+  animation: tl-surface-in var(--motion-base) var(--ease-decelerate) both;
+}
+
+/* ── M4 · async lifecycle ───────────────────────────────── */
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--color-sunken);
+  border-radius: var(--radius-sm);
+  /* Geometry must match the settled content, so height is set by the caller. */
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--color-hover-tint),
+    transparent
+  );
+  animation: tl-skeleton 1.4s var(--ease-standard) infinite;
+}
+
+@keyframes tl-skeleton {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.content-enter {
+  animation: tl-fade-in var(--motion-fast) var(--ease-decelerate) both;
+}
+
+@keyframes tl-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ── M5 · settle feedback ───────────────────────────────── */
+
+.settle-pulse {
+  animation: tl-settle var(--motion-fast) var(--ease-standard);
+}
+
+@keyframes tl-settle {
+  50% {
+    transform: scale(1.04);
+  }
+}
+
+/* ── M6 · list entrance ─────────────────────────────────── */
+
+/*
+ * Applied to the first eight rows only; the caller sets --enter-index.
+ * No overshoot easing: on dense data an overshoot reads as sloppy.
+ */
+.row-enter {
+  animation: tl-row-enter var(--motion-base) var(--ease-decelerate) both;
+  animation-delay: calc(var(--enter-index, 0) * var(--stagger-step));
+}
+
+@keyframes tl-row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* ── M7 · press ─────────────────────────────────────────── */
+
+.pressable {
+  transition: transform var(--motion-instant) var(--ease-standard);
+}
+
+.pressable:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+/* ── Reduced motion ─────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    /* A hair above zero keeps animationend listeners firing. Transitions go
+       to a true 0s so computed-style assertions can verify the collapse. */
+    animation-duration: var(--motion-hairline) !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: var(--motion-none) !important;
+    transition-delay: var(--motion-none) !important;
+    scroll-behavior: auto !important;
+  }
+
+  .skeleton::after {
+    display: none;
+  }
+
+  .row-enter {
+    animation: none;
+  }
+
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
+}

@@ -65,6 +65,7 @@ export function PdfPageReview({ pdf, disabled }: PdfPageReviewProps) {
               type="button"
               className="btn btn--ghost btn--icon btn--sm"
               aria-label={maximized ? "Dock PDF panel" : "Maximize PDF panel"}
+              title={maximized ? "Dock PDF panel" : "Maximize PDF panel"}
               disabled={disabled}
               onClick={() =>
                 pdf.setDockMode(maximized ? "docked" : "maximized")
@@ -82,6 +83,7 @@ export function PdfPageReview({ pdf, disabled }: PdfPageReviewProps) {
             type="button"
             className="btn btn--ghost btn--icon btn--sm"
             aria-label={collapsed ? "Expand PDF panel" : "Collapse PDF panel"}
+            title={collapsed ? "Expand PDF panel" : "Collapse PDF panel"}
             aria-expanded={!collapsed}
             disabled={disabled}
             onClick={() => pdf.setDockMode(collapsed ? "docked" : "collapsed")}
@@ -116,6 +118,7 @@ export function PdfPageReview({ pdf, disabled }: PdfPageReviewProps) {
                         ? "pdf-page-list__item pdf-page-list__item--active"
                         : "pdf-page-list__item"
                     }
+                    aria-current={page.page === state.activePage}
                     disabled={disabled || state.pageStatus === "loading"}
                     onClick={() => pdf.selectPage(page.page)}
                     data-testid={`pdf-page-${page.page}`}

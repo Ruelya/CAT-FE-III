@@ -77,4 +77,15 @@ export default tseslint.config(
       },
     },
   },
+  {
+    // Renderer public assets are classic browser scripts served verbatim.
+    files: ["apps/desktop/src/renderer/public/**/*.js"],
+    languageOptions: {
+      globals: {
+        window: "readonly",
+        document: "readonly",
+        localStorage: "readonly",
+      },
+    },
+  },
 );

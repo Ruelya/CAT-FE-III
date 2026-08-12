@@ -91,8 +91,9 @@ export function QaReview({
                   {issue.severity}
                 </span>
                 <span>{issue.message}</span>
-                <p className="muted" style={{ margin: "4px 0 0" }}>
-                  #{issue.segmentOrdinal} · {issue.ruleId}
+                <p className="issue-row__meta">
+                  <span className="mono">#{issue.segmentOrdinal}</span>
+                  <span className="mono">{issue.ruleId}</span>
                 </p>
               </div>
               {canJump ? (

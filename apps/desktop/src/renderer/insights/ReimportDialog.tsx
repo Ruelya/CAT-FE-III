@@ -75,8 +75,8 @@ export function ReimportDialog({ reimport, disabled }: ReimportDialogProps) {
               <tr key={`${item.disposition}-${index}`}>
                 <td>{item.disposition}</td>
                 <td>{item.reason}</td>
-                <td>{item.oldSegmentId ?? "—"}</td>
-                <td>{item.newSegmentId ?? "—"}</td>
+                <td>{item.oldSegmentId ?? "-"}</td>
+                <td>{item.newSegmentId ?? "-"}</td>
               </tr>
             ))}
           </tbody>

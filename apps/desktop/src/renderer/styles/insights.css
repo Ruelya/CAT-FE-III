@@ -1,0 +1,243 @@
+/**
+ * Project Insights, interop review, task packages, PDF dock, and Asset Hub.
+ */
+
+.insights-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.insights-heading {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+/* Key/value presentation used by the analytics tables. */
+.data-table th[scope="row"] {
+  font-weight: var(--weight-medium);
+  color: var(--color-text-muted);
+  width: 12rem;
+  text-transform: none;
+  letter-spacing: var(--tracking-normal);
+  font-size: var(--text-sm);
+  position: static;
+}
+
+.insights-section-nav {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+}
+
+.insights-subnav {
+  display: inline-flex;
+  gap: var(--space-1);
+}
+
+.interop-panel,
+.task-package-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.interop-panel__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.interop-panel__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--space-3);
+  max-width: 48rem;
+}
+
+/* ── Asset Hub ─────────────────────────────────────────── */
+
+.asset-hub__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-line);
+  margin-bottom: var(--space-3);
+}
+
+.asset-hub__body {
+  min-height: 0;
+  overflow: auto;
+}
+
+/* ── PDF dock ──────────────────────────────────────────── */
+
+.pdf-panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-line);
+  width: 100%;
+  min-width: 0;
+  transition: opacity var(--motion-slow) var(--ease-standard);
+}
+
+.pdf-panel--collapsed .pdf-panel__chrome {
+  padding: var(--space-1);
+  gap: 0;
+  justify-content: center;
+}
+
+.pdf-panel--collapsed .pdf-panel__body {
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
+  padding: 0;
+  width: 0;
+  min-width: 0;
+}
+
+.pdf-panel__chrome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--color-line);
+  min-height: var(--control-h-lg);
+}
+
+.pdf-panel__chrome-actions {
+  display: inline-flex;
+  gap: var(--space-0-5);
+}
+
+.pdf-panel__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.pdf-panel__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-2);
+}
+
+.pdf-panel__layout {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr);
+  gap: var(--space-2);
+  min-height: 0;
+  height: 100%;
+}
+
+.pdf-page-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  overflow: auto;
+}
+
+.pdf-page-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  width: 100%;
+  min-height: var(--control-h-sm);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-xs);
+  transition:
+    border-color var(--motion-fast) var(--ease-standard),
+    background var(--motion-fast) var(--ease-standard);
+}
+
+.pdf-page-list__item:hover:not(:disabled) {
+  background: var(--color-hover-tint);
+}
+
+.pdf-page-list__item--active,
+.pdf-page-list__item[aria-current="true"] {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  color: var(--color-text);
+  font-weight: var(--weight-semibold);
+}
+
+.pdf-page-list__badge {
+  font-size: var(--text-2xs);
+  color: var(--color-text-subtle);
+}
+
+.pdf-canvas {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.pdf-canvas__frame {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+
+.pdf-canvas__image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--color-line);
+  background: var(--color-raised);
+}
+
+.pdf-block {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  pointer-events: none;
+}
+
+.pdf-block--active {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+/*
+ * The visible chip is compact, but the hit area meets the 32px floor through
+ * the ::before extension so keyboard and pointer targets stay usable.
+ */
+.pdf-block__correct {
+  pointer-events: auto;
+  position: absolute;
+  top: 0;
+  right: 0;
+  transform: translateY(-100%);
+  font-size: var(--text-2xs);
+  padding: 0 var(--space-1);
+  min-height: 20px;
+}
+
+.pdf-block__correct::before {
+  content: "";
+  position: absolute;
+  inset: -6px -8px;
+}

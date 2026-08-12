@@ -142,7 +142,7 @@ export function SegmentGrid({
                       aria-label={`Edit segment ${row.segment.ordinal}`}
                     >
                       <span className="segment-source muted">
-                        {displayTarget || "—"}
+                        {displayTarget || "-"}
                       </span>
                     </button>
                   )}

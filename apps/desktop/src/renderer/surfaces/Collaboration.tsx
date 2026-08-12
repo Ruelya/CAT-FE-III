@@ -268,8 +268,8 @@ export function Collaboration({
                 {state.presence.map((p) => (
                   <tr key={`${p.actorId}:${p.updatedAtMs}`}>
                     <td className="p4-wrap">{p.actorId}</td>
-                    <td className="p4-wrap">{p.documentId ?? "—"}</td>
-                    <td className="p4-wrap">{p.segmentId ?? "—"}</td>
+                    <td className="p4-wrap">{p.documentId ?? "-"}</td>
+                    <td className="p4-wrap">{p.segmentId ?? "-"}</td>
                     <td>{new Date(p.expiresAtMs).toISOString()}</td>
                   </tr>
                 ))}
@@ -346,7 +346,7 @@ export function Collaboration({
                   <tr key={a.id}>
                     <td className="p4-wrap">{a.assigneeActorId}</td>
                     <td>
-                      {a.ordinalStart}–{a.ordinalEnd}
+                      {a.ordinalStart}-{a.ordinalEnd}
                     </td>
                     <td>{a.status}</td>
                     <td>
@@ -403,7 +403,7 @@ export function Collaboration({
                     <td className="p4-wrap">{e.actorId}</td>
                     <td>{new Date(e.createdAtMs).toISOString()}</td>
                     <td className="p4-wrap">
-                      {inspectOpPayload(e.payload) ?? "—"}
+                      {inspectOpPayload(e.payload) ?? "-"}
                     </td>
                   </tr>
                 ))}

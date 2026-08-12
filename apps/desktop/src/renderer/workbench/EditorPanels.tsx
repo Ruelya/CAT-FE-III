@@ -187,7 +187,7 @@ export function EditorPanels({
                 Prev
               </button>
               <span className="muted">
-                {fr.findOffset + 1}–
+                {fr.findOffset + 1}-
                 {Math.min(fr.findOffset + fr.matches.length, fr.findTotal)} /{" "}
                 {fr.findTotal}
               </span>

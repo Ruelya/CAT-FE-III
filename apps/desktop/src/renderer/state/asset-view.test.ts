@@ -49,16 +49,16 @@ describe("asset-view", () => {
   });
 
   it("formats scores and basis points without inventing values", () => {
-    expect(formatBasisPoints(null)).toBe("—");
+    expect(formatBasisPoints(null)).toBe("-");
     expect(formatBasisPoints(5050)).toBe("50.5%");
-    expect(formatScore(undefined)).toBe("—");
+    expect(formatScore(undefined)).toBe("-");
     expect(formatScore(0.9123)).toBe("0.912");
   });
 
   it("formats diagnostics and paging", () => {
     expect(formatDiagnostics([{ row: 2, message: "bad" }])).toBe("R2: bad");
     expect(pageLabel(0, 25, 0)).toBe("0");
-    expect(pageLabel(25, 25, 60)).toBe("26–50 / 60");
+    expect(pageLabel(25, 25, 60)).toBe("26-50 / 60");
   });
 
   it("maps catalog kinds to sections", () => {

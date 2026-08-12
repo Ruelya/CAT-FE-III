@@ -164,7 +164,7 @@ export function AssetHub({
                         <td>
                           {mount
                             ? `${mount.mode}${mount.enabled ? "" : " · off"}`
-                            : "—"}
+                            : "-"}
                         </td>
                         <td>
                           <div className="dialog__actions">
@@ -535,7 +535,7 @@ export function AssetHub({
                         <td>{tb.sourceLocale}</td>
                         <td>{tb.writable ? "yes" : "no"}</td>
                         <td>
-                          {mount ? (mount.writable ? "write" : "ref") : "—"}
+                          {mount ? (mount.writable ? "write" : "ref") : "-"}
                         </td>
                         <td>
                           <div className="dialog__actions">
@@ -711,7 +711,7 @@ export function AssetHub({
                 aria-label="Termbase"
                 data-testid="tb-upsert-id"
               >
-                <option value="">—</option>
+                <option value="">-</option>
                 {state.termbase.termbases.items.map((tb) => (
                   <option key={tb.id} value={tb.id}>
                     {tb.name}

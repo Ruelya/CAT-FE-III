@@ -171,7 +171,7 @@ export function Templates({
             <span className="muted">
               {total === 0
                 ? "0"
-                : `${offset + 1}–${Math.min(offset + limit, total)}`}{" "}
+                : `${offset + 1}-${Math.min(offset + limit, total)}`}{" "}
               of {total}
             </span>
             <button

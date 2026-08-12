@@ -165,8 +165,12 @@ const lines = (text) => text.split(/\r?\n/);
       }
       const radius = code.match(/border-radius:\s*([^;]+);/);
       if (radius && /\d/.test(radius[1]) && !radius[1].includes("var(")) {
-        // 50% and 999px pill/circle geometry are documented exceptions.
-        if (!/(50%|9999?px|100%)/.test(radius[1])) {
+        // `0` removes a radius rather than inventing one; 50% and pill
+        // geometry are documented exceptions.
+        if (
+          !/^\s*0\s*$/.test(radius[1]) &&
+          !/(50%|9999?px|100%)/.test(radius[1])
+        ) {
           report(
             "R4-raw-radius",
             file,

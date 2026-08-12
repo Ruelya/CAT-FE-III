@@ -67,7 +67,7 @@ export function ExportReview({
       </div>
 
       {gate ? (
-        <div className="surface__panel" style={{ marginBottom: 16 }}>
+        <div className="surface__panel">
           <p>
             Gate: <strong>{gate.clear ? "Clear" : "Blocked"}</strong>
             {` · ${gate.errorCount} errors · ${gate.warningCount} warnings`}

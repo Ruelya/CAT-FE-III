@@ -331,7 +331,7 @@ export function AiControl({
                   ? state.credentialStatus.present
                     ? "present"
                     : "missing"
-                  : "—"}
+                  : "-"}
               </p>
               <label className="field">
                 <span>Secret</span>
