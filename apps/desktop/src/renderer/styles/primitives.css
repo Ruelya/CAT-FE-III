@@ -902,3 +902,9 @@ textarea.field__control {
   outline: var(--focus-ring);
   outline-offset: var(--focus-offset);
 }
+
+/* A numeric threshold or similar short value does not need a full-width box. */
+.field--narrow {
+  max-width: 7rem;
+  flex: 0 0 auto;
+}

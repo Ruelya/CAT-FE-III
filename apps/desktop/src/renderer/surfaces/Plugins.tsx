@@ -463,6 +463,7 @@ export function Plugins({
                 void plugins.selectPlugin(id);
                 if (id) void plugins.loadPermissions(id);
               }}
+              aria-label="Plugin"
               data-testid="permission-plugin"
             >
               <option value="">Plugin</option>

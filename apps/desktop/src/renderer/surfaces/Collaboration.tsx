@@ -97,6 +97,7 @@ export function Collaboration({
               disabled={busy}
               placeholder="Actor id"
               onChange={(e) => collab.setNewMemberId(e.target.value)}
+              aria-label="Member actor ID"
               data-testid="collab-member-id"
             />
             <select
@@ -105,6 +106,8 @@ export function Collaboration({
               onChange={(e) =>
                 collab.setNewMemberRole(e.target.value as "owner" | "member")
               }
+              aria-label="Member role"
+              data-testid="collab-member-role"
             >
               <option value="member">member</option>
               <option value="owner">owner</option>

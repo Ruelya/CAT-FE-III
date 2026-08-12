@@ -225,17 +225,14 @@ export function AssetHub({
                   </tbody>
                 </table>
               </div>
-              <p className="muted">
-                {pageLabel(
-                  state.tm.libraries.offset,
-                  state.tm.libraries.limit,
-                  state.tm.libraries.total,
-                )}
-              </p>
-              <div
-                className="dialog__actions"
-                data-testid="tm-libraries-paging"
-              >
+              <div className="pagination" data-testid="tm-libraries-paging">
+                <span className="pagination__count">
+                  {pageLabel(
+                    state.tm.libraries.offset,
+                    state.tm.libraries.limit,
+                    state.tm.libraries.total,
+                  )}
+                </span>
                 <button
                   type="button"
                   className="btn btn--ghost btn--sm"
@@ -280,28 +277,38 @@ export function AssetHub({
 
               <h2 className="insights-heading">Search</h2>
               <div className="editor-panel__row">
-                <input
-                  value={state.tm.searchQuery}
-                  disabled={busy}
-                  onChange={(e) => assets.setTmSearchQuery(e.target.value)}
-                  data-testid="tm-search-query"
-                  aria-label="TM search"
-                />
-                <input
-                  type="number"
-                  step={0.05}
-                  min={0}
-                  max={1}
-                  value={state.tm.searchThreshold}
-                  disabled={busy}
-                  onChange={(e) =>
-                    assets.setTmSearchThreshold(Number(e.target.value) || 0)
-                  }
-                  aria-label="Threshold"
-                />
+                <div className="field">
+                  <label className="field__label" htmlFor="tm-search-query">
+                    Query
+                  </label>
+                  <input
+                    id="tm-search-query"
+                    value={state.tm.searchQuery}
+                    disabled={busy}
+                    onChange={(e) => assets.setTmSearchQuery(e.target.value)}
+                    data-testid="tm-search-query"
+                  />
+                </div>
+                <div className="field field--narrow">
+                  <label className="field__label" htmlFor="tm-search-threshold">
+                    Min score
+                  </label>
+                  <input
+                    id="tm-search-threshold"
+                    type="number"
+                    step={0.05}
+                    min={0}
+                    max={1}
+                    value={state.tm.searchThreshold}
+                    disabled={busy}
+                    onChange={(e) =>
+                      assets.setTmSearchThreshold(Number(e.target.value) || 0)
+                    }
+                  />
+                </div>
                 <button
                   type="button"
-                  className="btn btn--secondary btn--sm"
+                  className="btn btn--secondary"
                   disabled={busy}
                   onClick={() => void assets.runTmSearch(0)}
                   data-testid="tm-search"
@@ -335,17 +342,14 @@ export function AssetHub({
               </ul>
               {state.tm.search.status === "ready" ? (
                 <>
-                  <p className="muted">
-                    {pageLabel(
-                      state.tm.search.offset,
-                      state.tm.search.limit,
-                      state.tm.search.total,
-                    )}
-                  </p>
-                  <div
-                    className="dialog__actions"
-                    data-testid="tm-search-paging"
-                  >
+                  <div className="pagination" data-testid="tm-search-paging">
+                    <span className="pagination__count">
+                      {pageLabel(
+                        state.tm.search.offset,
+                        state.tm.search.limit,
+                        state.tm.search.total,
+                      )}
+                    </span>
                     <button
                       type="button"
                       className="btn btn--ghost btn--sm"
@@ -419,17 +423,17 @@ export function AssetHub({
               </ul>
               {state.tm.concordance.status === "ready" ? (
                 <>
-                  <p className="muted">
-                    {pageLabel(
-                      state.tm.concordance.offset,
-                      state.tm.concordance.limit,
-                      state.tm.concordance.total,
-                    )}
-                  </p>
                   <div
-                    className="dialog__actions"
+                    className="pagination"
                     data-testid="tm-concordance-paging"
                   >
+                    <span className="pagination__count">
+                      {pageLabel(
+                        state.tm.concordance.offset,
+                        state.tm.concordance.limit,
+                        state.tm.concordance.total,
+                      )}
+                    </span>
                     <button
                       type="button"
                       className="btn btn--ghost btn--sm"
@@ -669,17 +673,14 @@ export function AssetHub({
               </ul>
               {state.termbase.search.status === "ready" ? (
                 <>
-                  <p className="muted">
-                    {pageLabel(
-                      state.termbase.search.offset,
-                      state.termbase.search.limit,
-                      state.termbase.search.total,
-                    )}
-                  </p>
-                  <div
-                    className="dialog__actions"
-                    data-testid="tb-search-paging"
-                  >
+                  <div className="pagination" data-testid="tb-search-paging">
+                    <span className="pagination__count">
+                      {pageLabel(
+                        state.termbase.search.offset,
+                        state.termbase.search.limit,
+                        state.termbase.search.total,
+                      )}
+                    </span>
                     <button
                       type="button"
                       className="btn btn--ghost btn--sm"
@@ -743,6 +744,7 @@ export function AssetHub({
                     assets.setUpsertField({ sourceTerm: e.target.value })
                   }
                   placeholder="Source"
+                  aria-label="Source term"
                   data-testid="tb-upsert-source"
                 />
                 <input
@@ -752,6 +754,7 @@ export function AssetHub({
                     assets.setUpsertField({ translation: e.target.value })
                   }
                   placeholder="Target"
+                  aria-label="Target term"
                   data-testid="tb-upsert-target"
                 />
                 <button
@@ -825,6 +828,7 @@ export function AssetHub({
                     assets.setAlignmentCreate({ reason: e.target.value })
                   }
                   placeholder="Reason"
+                  aria-label="Alignment reason"
                   data-testid="align-reason"
                 />
                 <button
@@ -1007,17 +1011,14 @@ export function AssetHub({
                       Refine
                     </button>
                   </div>
-                  <p className="muted">
-                    {pageLabel(
-                      state.alignment.links.offset,
-                      state.alignment.links.limit,
-                      state.alignment.links.total,
-                    )}
-                  </p>
-                  <div
-                    className="dialog__actions"
-                    data-testid="align-links-paging"
-                  >
+                  <div className="pagination" data-testid="align-links-paging">
+                    <span className="pagination__count">
+                      {pageLabel(
+                        state.alignment.links.offset,
+                        state.alignment.links.limit,
+                        state.alignment.links.total,
+                      )}
+                    </span>
                     <button
                       type="button"
                       className="btn btn--ghost btn--sm"
@@ -1144,6 +1145,7 @@ export function AssetHub({
                     assets.setCorpusImport({ name: e.target.value })
                   }
                   placeholder="Name"
+                  aria-label="Corpus name"
                   data-testid="corpus-import-name"
                 />
                 <select
@@ -1261,17 +1263,17 @@ export function AssetHub({
               </ul>
               {state.corpus.search.status === "ready" ? (
                 <>
-                  <p className="muted">
-                    {pageLabel(
-                      state.corpus.search.offset,
-                      state.corpus.search.limit,
-                      state.corpus.search.total,
-                    )}
-                  </p>
                   <div
-                    className="dialog__actions"
+                    className="pagination"
                     data-testid="corpus-search-paging"
                   >
+                    <span className="pagination__count">
+                      {pageLabel(
+                        state.corpus.search.offset,
+                        state.corpus.search.limit,
+                        state.corpus.search.total,
+                      )}
+                    </span>
                     <button
                       type="button"
                       className="btn btn--ghost btn--sm"
@@ -1461,14 +1463,14 @@ export function AssetHub({
                   </tbody>
                 </table>
               </div>
-              <p className="muted">
-                {pageLabel(
-                  state.catalog.page.offset,
-                  state.catalog.page.limit,
-                  state.catalog.page.total,
-                )}
-              </p>
-              <div className="surface__actions">
+              <div className="pagination">
+                <span className="pagination__count">
+                  {pageLabel(
+                    state.catalog.page.offset,
+                    state.catalog.page.limit,
+                    state.catalog.page.total,
+                  )}
+                </span>
                 <button
                   type="button"
                   className="btn btn--ghost btn--sm"
@@ -1528,6 +1530,7 @@ export function AssetHub({
                   disabled={busy}
                   onChange={(e) => assets.setCurationReason(e.target.value)}
                   placeholder="Reason"
+                  aria-label="Curation reason"
                   data-testid="curation-reason"
                 />
                 <button
@@ -1583,6 +1586,7 @@ export function AssetHub({
                   disabled={busy}
                   onChange={(e) => assets.setKnownRunId(e.target.value)}
                   placeholder="Run ID"
+                  aria-label="Curation run ID"
                   data-testid="curation-run-id"
                 />
                 <button
@@ -1660,6 +1664,7 @@ export function AssetHub({
                   disabled={busy}
                   onChange={(e) => setCurationActionReason(e.target.value)}
                   placeholder="Reason"
+                  aria-label="Action reason"
                   data-testid="curation-action-reason"
                 />
                 <button

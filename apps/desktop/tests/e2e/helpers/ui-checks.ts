@@ -26,12 +26,21 @@ export interface AxeViolationNode {
  */
 export async function waitForAnimations(page: Page): Promise<void> {
   await page.evaluate(async () => {
-    const running = document
-      .getAnimations()
-      .filter((animation) => animation.playState === "running");
-    await Promise.all(
-      running.map((animation) => animation.finished.catch(() => undefined)),
-    );
+    const running = document.getAnimations().filter((animation) => {
+      if (animation.playState !== "running") return false;
+      // An infinite animation never settles, so awaiting it hangs forever.
+      // The skeleton shimmer and the button spinner are both infinite, and
+      // neither moves layout nor affects the contrast of any text.
+      const timing = animation.effect?.getComputedTiming();
+      return Number.isFinite(timing?.iterations ?? Number.POSITIVE_INFINITY);
+    });
+    // A hard ceiling as well: a settle helper must never hang a whole run.
+    await Promise.race([
+      Promise.all(
+        running.map((animation) => animation.finished.catch(() => undefined)),
+      ),
+      new Promise((resolve) => setTimeout(resolve, 2000)),
+    ]);
   });
 }
 

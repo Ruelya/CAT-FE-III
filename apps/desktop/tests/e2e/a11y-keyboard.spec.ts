@@ -177,6 +177,154 @@ test.describe("accessibility and keyboard", () => {
     }
   });
 
+  test("every section of every multi-section surface passes axe", async () => {
+    // Thirty axe runs in one session; the default 60s budget is for a single
+    // interaction path, not a sweep.
+    test.setTimeout(240_000);
+    /*
+     * Auditing only the default section of a surface hides everything behind
+     * the other tabs. A runtime probe found two selects with no accessible
+     * name at all, on the Plugins permissions section and the Collaboration
+     * members section, neither of which the surface-level audit ever reached.
+     */
+    const userData = await mkdtemp(join(tmpdir(), "tl-a11y-sections-"));
+    let app: ElectronApplication | undefined;
+    let guard: ReturnType<typeof attachConsoleGuard> | undefined;
+
+    try {
+      const launched = await launchApp(userData);
+      app = launched.app;
+      const { page } = launched;
+      guard = attachConsoleGuard(page);
+
+      await createOpenProject(page, "Sections Project");
+
+      const surfaces: Array<{
+        nav: string;
+        root: string;
+        sections: string[];
+      }> = [
+        {
+          nav: "nav-insights",
+          root: "project-insights",
+          sections: [
+            "insights-section-analytics",
+            "insights-section-interop",
+            "insights-section-task",
+          ],
+        },
+        {
+          nav: "nav-assets",
+          root: "asset-hub",
+          sections: [
+            "assets-tab-tm",
+            "assets-tab-termbase",
+            "assets-tab-alignment",
+            "assets-tab-corpus",
+            "assets-tab-catalog",
+            "assets-tab-curation",
+          ],
+        },
+        {
+          nav: "nav-ai-control",
+          root: "ai-control",
+          sections: [
+            "ai-tab-providers",
+            "ai-tab-usage",
+            "ai-tab-interactive",
+            "ai-tab-batch",
+            "ai-tab-quality",
+            // interactive is availability-gated and may not render.
+          ],
+        },
+        {
+          nav: "nav-plugins",
+          root: "plugins",
+          sections: [
+            "plugins-tab-installed",
+            "plugins-tab-bundled",
+            "plugins-tab-permissions",
+            "plugins-tab-aiActions",
+            "plugins-tab-uiPanels",
+            "plugins-tab-connectors",
+          ],
+        },
+        {
+          nav: "nav-collaboration",
+          root: "collaboration",
+          sections: [
+            "collab-tab-members",
+            "collab-tab-locks",
+            "collab-tab-presence",
+            "collab-tab-assignments",
+            "collab-tab-opLog",
+          ],
+        },
+        {
+          nav: "nav-settings",
+          root: "product-settings",
+          sections: [
+            "settings-tab-locale",
+            "settings-tab-appearance",
+            "settings-tab-data",
+            "settings-tab-updates",
+            "settings-tab-tutorial",
+          ],
+        },
+      ];
+
+      const audited: string[] = [];
+      for (const surface of surfaces) {
+        const nav = page.getByTestId(surface.nav);
+        // Session-scoped destinations are only offered from a session surface,
+        // so return to the Workbench before each hop rather than assuming the
+        // previous surface still exposes the next one.
+        if (!(await nav.isVisible().catch(() => false))) {
+          await page.keyboard.press("Control+k");
+          await page.getByTestId("command-palette-input").fill("workbench");
+          await page.keyboard.press("Enter");
+          await expect(page.getByTestId("workbench")).toBeVisible({
+            timeout: 30_000,
+          });
+        }
+        if (!(await nav.isVisible().catch(() => false))) {
+          throw new Error(`destination ${surface.nav} is unreachable`);
+        }
+        await nav.click();
+        await expect(page.getByTestId(surface.root)).toBeVisible({
+          timeout: 30_000,
+        });
+        for (const section of surface.sections) {
+          const tab = page.getByTestId(section);
+          if (!(await tab.isVisible().catch(() => false))) continue;
+          await tab.click();
+          await expectNoAxeViolations(page, `${surface.root}/${section}`);
+          audited.push(`${surface.root}/${section}`);
+        }
+      }
+
+      // A sweep that silently reaches nothing would pass vacuously. These two
+      // sections in particular are where the unnamed selects were found.
+      expect(audited).toContain("plugins/plugins-tab-permissions");
+      expect(audited).toContain("collaboration/collab-tab-members");
+      for (const surface of surfaces) {
+        expect(
+          audited.some((entry) => entry.startsWith(`${surface.root}/`)),
+          `${surface.root} contributed no audited section`,
+        ).toBe(true);
+      }
+      expect(audited.length, audited.join(", ")).toBeGreaterThanOrEqual(28);
+
+      expect(guard.errors, guard.errors.join("\n")).toEqual([]);
+    } finally {
+      guard?.dispose();
+      if (app) await app.close().catch(() => undefined);
+      await rm(userData, { recursive: true, force: true }).catch(
+        () => undefined,
+      );
+    }
+  });
+
   test("dark theme passes axe on the surfaces a user lives in", async () => {
     const userData = await mkdtemp(join(tmpdir(), "tl-a11y-dark-"));
     let app: ElectronApplication | undefined;
