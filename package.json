@@ -39,7 +39,10 @@
     "release:install-smoke": "node scripts/release-install-smoke.mjs",
     "docs:check": "node -e \"for (const f of ['docs/packaging.md','docs/tutorial.md','docs/contributing.md','docs/plugins/README.md','docs/plugins/external-connector-sdk.md','docs/release-signing.md','docs/accessibility-matrix.md','LICENSE','SECURITY.md','CODE_OF_CONDUCT.md']) require('fs').accessSync(f)\"",
     "plugins:package": "node scripts/package-plugins.mjs",
-    "plugins:package:check": "node scripts/package-plugins.mjs --check"
+    "plugins:package:check": "node scripts/package-plugins.mjs --check",
+    "ui:audit": "node scripts/ui-audit.mjs",
+    "ui:shots": "pnpm build:desktop && node scripts/ui-shots.mjs",
+    "ui:shots:matrix": "pnpm build:desktop && node scripts/ui-shots.mjs --theme light,dark --viewport 1180x700,1250x744,1680x942,1920x1080"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
