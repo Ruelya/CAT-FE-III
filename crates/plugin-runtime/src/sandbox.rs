@@ -40,6 +40,17 @@ pub const SANDBOX_STACK_BYTES: usize = 512 * 1024;
 pub const SANDBOX_INITIALIZATION_MILLIS: u64 = 1_000;
 pub const SANDBOX_INVOCATION_MILLIS: u64 = 2_000;
 pub const SANDBOX_SHUTDOWN_MILLIS: u64 = 500;
+/// Slack the caller of `shutdown` adds on top of the worker's own budget.
+///
+/// The worker starts its `deactivate` deadline when it pulls the shutdown
+/// request off the queue, so a caller that waits exactly `limits.shutdown`
+/// races the worker to the same instant: queue dispatch eats into the caller's
+/// window and unwinding an interrupted `deactivate` runs past it. Against a
+/// plugin whose `deactivate` never returns on its own the caller loses that
+/// race, reports a spurious `Timeout`, and — worse — skips the join that reaps
+/// the worker thread. The grace covers dispatch and unwind so the only timeout
+/// left is a genuinely wedged worker.
+const SANDBOX_SHUTDOWN_REPLY_GRACE: Duration = Duration::from_millis(250);
 pub const SANDBOX_MODULE_BYTES: usize = 1024 * 1024;
 pub const SANDBOX_MODULE_TOTAL_BYTES: usize = 8 * 1024 * 1024;
 pub const SANDBOX_MODULE_COUNT: usize = 128;
@@ -582,7 +593,10 @@ impl Drop for SandboxWorkerInner {
         self.interrupt.stopping.store(true, Ordering::Release);
         let (reply, response) = mpsc::sync_channel(1);
         let _ = self.sender.try_send(WorkerRequest::Shutdown { reply });
-        if response.recv_timeout(self.limits.shutdown).is_ok() {
+        if response
+            .recv_timeout(self.limits.shutdown + SANDBOX_SHUTDOWN_REPLY_GRACE)
+            .is_ok()
+        {
             if let Ok(join) = self.join.get_mut()
                 && let Some(join) = join.take()
             {
@@ -816,7 +830,7 @@ impl SandboxWorkerHandle {
             Err(TrySendError::Disconnected(_)) => return Err(SandboxError::Disconnected),
         }
         response
-            .recv_timeout(self.0.limits.shutdown)
+            .recv_timeout(self.0.limits.shutdown + SANDBOX_SHUTDOWN_REPLY_GRACE)
             .map_err(|_| SandboxError::Timeout)?;
         if let Ok(mut join) = self.0.join.lock()
             && let Some(join) = join.take()
@@ -2705,7 +2719,21 @@ mod tests {
         .expect("spawn shutdown fixture");
         let started = Instant::now();
         worker.shutdown().expect("bounded shutdown");
-        assert!(started.elapsed() < Duration::from_millis(SANDBOX_SHUTDOWN_MILLIS));
+        let elapsed = started.elapsed();
+        // The plugin's deactivate never returns on its own, so the worker must
+        // have run its full budget and been interrupted. If this ever drops
+        // below the budget the fixture stopped exercising the hostile path.
+        assert!(
+            elapsed >= Duration::from_millis(50),
+            "shutdown returned before the hostile deactivate could be interrupted: {elapsed:?}"
+        );
+        // ...and the caller must not declare a timeout while the worker is
+        // still inside that budget. Waiting exactly the budget races the
+        // worker to the same instant and loses roughly half the time.
+        assert!(
+            elapsed < Duration::from_millis(SANDBOX_SHUTDOWN_MILLIS),
+            "shutdown exceeded the global bound: {elapsed:?}"
+        );
         worker.shutdown().expect("idempotent shutdown");
         assert_eq!(worker.state(), SandboxWorkerState::Stopped);
     }
