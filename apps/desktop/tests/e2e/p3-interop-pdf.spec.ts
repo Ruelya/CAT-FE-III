@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -24,6 +25,21 @@ const pdfFixtureDefault = join(
   desktopRoot,
   "../../fixtures/pdf/text-layout.pdf",
 );
+
+function pdfInfoAvailable(): boolean {
+  const configured = process.env.TRANSLUNAR_PDFINFO_PATH?.trim();
+  const command = configured || "pdfinfo";
+  const result = spawnSync(command, ["-v"], {
+    encoding: "utf8",
+    timeout: 5_000,
+    windowsHide: true,
+  });
+  if (result.error) {
+    return false;
+  }
+  const output = `${result.stdout ?? ""}${result.stderr ?? ""}`.toLowerCase();
+  return result.status === 0 || output.includes("pdfinfo");
+}
 
 async function launchApp(options: {
   userData: string;
@@ -155,9 +171,14 @@ test.describe("P3 interop / PDF / task package", () => {
   test("PDF review path is fixture/tool gated", async () => {
     // PDF OCR requires Poppler/Tesseract + PDF fixture in the environment.
     // Unit tests cover list→get→correct with fake Engine. Real-Engine PDF E2E
-    // is skipped when no PDF fixture is configured.
+    // is skipped when no PDF fixture is configured, or when pdfinfo is absent
+    // (Windows packaging runners do not install Poppler).
     const pdfFixture = process.env.TRANSLUNAR_TEST_PDF ?? pdfFixtureDefault;
     test.skip(!existsSync(pdfFixture), `no PDF fixture at ${pdfFixture}`);
+    test.skip(
+      !pdfInfoAvailable(),
+      "pdfinfo not on PATH; PDF review E2E is tool-gated",
+    );
 
     const userData = await mkdtemp(join(tmpdir(), "tl-p3-pdf-"));
     const { app, page } = await launchApp({
