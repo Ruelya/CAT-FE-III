@@ -7,6 +7,10 @@ import {
 } from "../state/collab-view";
 import type { CollaborationControllerApi } from "../state/use-collaboration-controller";
 import type { P4ProjectContext } from "../state/p4-route-context";
+import { InlineEmpty } from "../shell/InlineState";
+import { SectionNav } from "../shell/SectionNav";
+import { useDestructiveConfirm } from "../shell/use-destructive-confirm";
+import { TableEmpty } from "../shell/TableEmpty";
 
 export interface CollaborationProps {
   collab: CollaborationControllerApi;
@@ -36,6 +40,8 @@ export function Collaboration({
   const { state } = collab;
   const busy = disabled === true || state.mutationPending;
 
+  const destructive = useDestructiveConfirm();
+
   return (
     <section className="surface p4-surface" data-testid="collaboration">
       <div className="surface__masthead">
@@ -53,26 +59,17 @@ export function Collaboration({
         </button>
       </div>
 
-      <div className="p4-tabs" role="tablist" aria-label="Collaboration sections">
-        {SECTIONS.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            role="tab"
-            className={
-              section === s.id
-                ? "btn btn--secondary btn--sm"
-                : "btn btn--ghost btn--sm"
-            }
-            aria-selected={section === s.id}
-            disabled={busy}
-            onClick={() => onSectionChange(s.id)}
-            data-testid={`collab-tab-${s.id}`}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
+      <SectionNav
+        label="Collaboration sections"
+        items={SECTIONS.map((s) => ({
+          id: s.id,
+          label: s.label,
+          testId: `collab-tab-${s.id}`,
+        }))}
+        current={section}
+        disabled={busy}
+        onSelect={onSectionChange}
+      />
 
       {state.error ? (
         <p className="status status--error" role="alert">
@@ -100,6 +97,7 @@ export function Collaboration({
               disabled={busy}
               placeholder="Actor id"
               onChange={(e) => collab.setNewMemberId(e.target.value)}
+              aria-label="Member actor ID"
               data-testid="collab-member-id"
             />
             <select
@@ -108,6 +106,8 @@ export function Collaboration({
               onChange={(e) =>
                 collab.setNewMemberRole(e.target.value as "owner" | "member")
               }
+              aria-label="Member role"
+              data-testid="collab-member-role"
             >
               <option value="member">member</option>
               <option value="owner">owner</option>
@@ -123,14 +123,14 @@ export function Collaboration({
             </button>
           </div>
           {state.members.length === 0 ? (
-            <p className="status">Empty</p>
+            <InlineEmpty label="No members" />
           ) : (
             <table className="p4-table">
               <thead>
                 <tr>
                   <th>Actor</th>
                   <th>Role</th>
-                  <th />
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -143,13 +143,23 @@ export function Collaboration({
                         type="button"
                         className="btn btn--danger btn--sm"
                         disabled={busy}
-                        onClick={() => void collab.removeMember(m.actorId)}
+                        onClick={() =>
+                          destructive.request({
+                            title: "Remove member",
+                            body: `${m.actorId} will lose access to this project.`,
+                            confirmLabel: "Remove",
+                            testId: "collab-member-remove-confirm",
+                            run: () => collab.removeMember(m.actorId),
+                          })
+                        }
+                        aria-label={`Remove member ${m.actorId}`}
                       >
                         Remove
                       </button>
                     </td>
                   </tr>
                 ))}
+                {state.members.length === 0 ? <TableEmpty colSpan={3} /> : null}
               </tbody>
             </table>
           )}
@@ -175,7 +185,7 @@ export function Collaboration({
             Acquire
           </button>
           {state.locks.length === 0 ? (
-            <p className="status">Empty</p>
+            <InlineEmpty label="No active locks" />
           ) : (
             <table className="p4-table">
               <thead>
@@ -183,7 +193,7 @@ export function Collaboration({
                   <th>Segment</th>
                   <th>Holder</th>
                   <th>Expires</th>
-                  <th />
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -212,6 +222,7 @@ export function Collaboration({
                     </td>
                   </tr>
                 ))}
+                {state.locks.length === 0 ? <TableEmpty colSpan={4} /> : null}
               </tbody>
             </table>
           )}
@@ -249,7 +260,7 @@ export function Collaboration({
             </button>
           </div>
           {state.presence.length === 0 ? (
-            <p className="status">Empty</p>
+            <InlineEmpty label="No one present" />
           ) : (
             <table className="p4-table">
               <thead>
@@ -264,11 +275,14 @@ export function Collaboration({
                 {state.presence.map((p) => (
                   <tr key={`${p.actorId}:${p.updatedAtMs}`}>
                     <td className="p4-wrap">{p.actorId}</td>
-                    <td className="p4-wrap">{p.documentId ?? "—"}</td>
-                    <td className="p4-wrap">{p.segmentId ?? "—"}</td>
+                    <td className="p4-wrap">{p.documentId ?? "-"}</td>
+                    <td className="p4-wrap">{p.segmentId ?? "-"}</td>
                     <td>{new Date(p.expiresAtMs).toISOString()}</td>
                   </tr>
                 ))}
+                {state.presence.length === 0 ? (
+                  <TableEmpty colSpan={4} />
+                ) : null}
               </tbody>
             </table>
           )}
@@ -326,7 +340,7 @@ export function Collaboration({
             </button>
           </div>
           {state.assignments.length === 0 ? (
-            <p className="status">Empty</p>
+            <InlineEmpty label="No assignments" />
           ) : (
             <table className="p4-table">
               <thead>
@@ -334,7 +348,7 @@ export function Collaboration({
                   <th>Assignee</th>
                   <th>Range</th>
                   <th>Status</th>
-                  <th />
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -342,7 +356,7 @@ export function Collaboration({
                   <tr key={a.id}>
                     <td className="p4-wrap">{a.assigneeActorId}</td>
                     <td>
-                      {a.ordinalStart}–{a.ordinalEnd}
+                      {a.ordinalStart}-{a.ordinalEnd}
                     </td>
                     <td>{a.status}</td>
                     <td>
@@ -361,6 +375,9 @@ export function Collaboration({
                     </td>
                   </tr>
                 ))}
+                {state.assignments.length === 0 ? (
+                  <TableEmpty colSpan={4} />
+                ) : null}
               </tbody>
             </table>
           )}
@@ -379,7 +396,7 @@ export function Collaboration({
             Load more
           </button>
           {state.opLog.length === 0 ? (
-            <p className="status">Empty</p>
+            <InlineEmpty label="No operations recorded" />
           ) : (
             <table className="p4-table">
               <thead>
@@ -399,15 +416,17 @@ export function Collaboration({
                     <td className="p4-wrap">{e.actorId}</td>
                     <td>{new Date(e.createdAtMs).toISOString()}</td>
                     <td className="p4-wrap">
-                      {inspectOpPayload(e.payload) ?? "—"}
+                      {inspectOpPayload(e.payload) ?? "-"}
                     </td>
                   </tr>
                 ))}
+                {state.opLog.length === 0 ? <TableEmpty colSpan={5} /> : null}
               </tbody>
             </table>
           )}
         </div>
       ) : null}
+      {destructive.dialog}
     </section>
   );
 }

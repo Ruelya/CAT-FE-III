@@ -60,13 +60,13 @@ describe("product-settings-view", () => {
     expect(canRunUpdateCommand(snap({ status: "ready" }), "install")).toBe(
       true,
     );
+    expect(canRunUpdateCommand(snap({ status: "installing" }), "install")).toBe(
+      false,
+    );
     expect(
-      canRunUpdateCommand(snap({ status: "installing" }), "install"),
-    ).toBe(false);
-    expect(
-      allowedUpdateCommands(
-        snap({ canRollback: true, status: "failed" }),
-      ).has("rollback"),
+      allowedUpdateCommands(snap({ canRollback: true, status: "failed" })).has(
+        "rollback",
+      ),
     ).toBe(true);
   });
 

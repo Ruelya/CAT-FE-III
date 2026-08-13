@@ -36,12 +36,7 @@ export type EngineConnectionStatus =
   | "failed";
 
 export type AssetHubSection =
-  | "tm"
-  | "termbase"
-  | "alignment"
-  | "corpus"
-  | "catalog"
-  | "curation";
+  "tm" | "termbase" | "alignment" | "corpus" | "catalog" | "curation";
 
 export type {
   AiControlSection,

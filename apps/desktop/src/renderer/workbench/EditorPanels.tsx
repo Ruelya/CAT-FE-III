@@ -3,6 +3,7 @@ import type { InlineTag } from "@translunar/contracts";
 
 import { formatUiError } from "../lib/errors";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
+import { EditorPanelShell } from "./EditorPanelShell";
 import type { EditorOperationsApi } from "../state/use-editor-operations";
 
 export interface EditorPanelsProps {
@@ -30,21 +31,11 @@ export function EditorPanels({
   if (panel === "findReplace") {
     const fr = ops.findReplace;
     return (
-      <aside
-        className="editor-panel"
-        data-testid="panel-find-replace"
-        aria-label="Find replace"
+      <EditorPanelShell
+        title="Find"
+        onClose={ops.closePanel}
+        testId="panel-find-replace"
       >
-        <header className="editor-panel__header">
-          <h2 className="editor-panel__title">Find</h2>
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            onClick={ops.closePanel}
-          >
-            Close
-          </button>
-        </header>
         <div className="editor-panel__body">
           <label className="field">
             <span>Query</span>
@@ -187,7 +178,7 @@ export function EditorPanels({
                 Prev
               </button>
               <span className="muted">
-                {fr.findOffset + 1}–
+                {fr.findOffset + 1}-
                 {Math.min(fr.findOffset + fr.matches.length, fr.findTotal)} /{" "}
                 {fr.findTotal}
               </span>
@@ -221,27 +212,17 @@ export function EditorPanels({
             </div>
           ) : null}
         </div>
-      </aside>
+      </EditorPanelShell>
     );
   }
 
   if (panel === "tags") {
     return (
-      <aside
-        className="editor-panel"
-        data-testid="panel-tags"
-        aria-label="Tags"
+      <EditorPanelShell
+        title="Tags"
+        onClose={ops.closePanel}
+        testId="panel-tags"
       >
-        <header className="editor-panel__header">
-          <h2 className="editor-panel__title">Tags</h2>
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            onClick={ops.closePanel}
-          >
-            Close
-          </button>
-        </header>
         <div className="editor-panel__body">
           <h3 className="insights-heading">Source</h3>
           <ul className="editor-panel__list">
@@ -298,7 +279,7 @@ export function EditorPanels({
             Apply tags
           </button>
         </div>
-      </aside>
+      </EditorPanelShell>
     );
   }
 
@@ -321,23 +302,11 @@ export function EditorPanels({
 
   if (panel === "structure") {
     return (
-      <aside
-        className="editor-panel"
-        data-testid="panel-structure"
-        aria-label="Structure"
+      <EditorPanelShell
+        title={ops.structureMode === "merge" ? "Merge" : "Split"}
+        onClose={ops.closePanel}
+        testId="panel-structure"
       >
-        <header className="editor-panel__header">
-          <h2 className="editor-panel__title">
-            {ops.structureMode === "merge" ? "Merge" : "Split"}
-          </h2>
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            onClick={ops.closePanel}
-          >
-            Close
-          </button>
-        </header>
         <div className="editor-panel__body">
           {ops.structureMode === "split" ? (
             <>
@@ -396,27 +365,17 @@ export function EditorPanels({
             </button>
           </div>
         </div>
-      </aside>
+      </EditorPanelShell>
     );
   }
 
   if (panel === "sourceCorrection") {
     return (
-      <aside
-        className="editor-panel"
-        data-testid="panel-source-correction"
-        aria-label="Source correction"
+      <EditorPanelShell
+        title="Source"
+        onClose={ops.closePanel}
+        testId="panel-source-correction"
       >
-        <header className="editor-panel__header">
-          <h2 className="editor-panel__title">Source</h2>
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            onClick={ops.closePanel}
-          >
-            Close
-          </button>
-        </header>
         <div className="editor-panel__body">
           <label className="field">
             <span>Source text</span>
@@ -456,27 +415,17 @@ export function EditorPanels({
             </button>
           </div>
         </div>
-      </aside>
+      </EditorPanelShell>
     );
   }
 
   if (panel === "comments") {
     return (
-      <aside
-        className="editor-panel"
-        data-testid="panel-comments"
-        aria-label="Comments"
+      <EditorPanelShell
+        title="Comments"
+        onClose={ops.closePanel}
+        testId="panel-comments"
       >
-        <header className="editor-panel__header">
-          <h2 className="editor-panel__title">Comments</h2>
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            onClick={ops.closePanel}
-          >
-            Close
-          </button>
-        </header>
         <div className="editor-panel__body">
           {ops.commentsLoading ? <p className="muted">Loading</p> : null}
           {ops.commentsError ? (
@@ -607,27 +556,17 @@ export function EditorPanels({
             testId="comment-delete-confirm"
           />
         ) : null}
-      </aside>
+      </EditorPanelShell>
     );
   }
 
   if (panel === "spell") {
     return (
-      <aside
-        className="editor-panel"
-        data-testid="panel-spell"
-        aria-label="Spell"
+      <EditorPanelShell
+        title="Spell"
+        onClose={ops.closePanel}
+        testId="panel-spell"
       >
-        <header className="editor-panel__header">
-          <h2 className="editor-panel__title">Spell</h2>
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            onClick={ops.closePanel}
-          >
-            Close
-          </button>
-        </header>
         <div className="editor-panel__body">
           <div className="editor-panel__row">
             <label>
@@ -721,27 +660,17 @@ export function EditorPanels({
             Add
           </button>
         </div>
-      </aside>
+      </EditorPanelShell>
     );
   }
 
   if (panel === "chinese") {
     return (
-      <aside
-        className="editor-panel"
-        data-testid="panel-chinese"
-        aria-label="Chinese"
+      <EditorPanelShell
+        title="Chinese"
+        onClose={ops.closePanel}
+        testId="panel-chinese"
       >
-        <header className="editor-panel__header">
-          <h2 className="editor-panel__title">Chinese</h2>
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            onClick={ops.closePanel}
-          >
-            Close
-          </button>
-        </header>
         <div className="editor-panel__body">
           <ul className="editor-panel__list">
             {ops.chineseProfiles.map((p) => (
@@ -759,27 +688,17 @@ export function EditorPanels({
             ))}
           </ul>
         </div>
-      </aside>
+      </EditorPanelShell>
     );
   }
 
   if (panel === "history") {
     return (
-      <aside
-        className="editor-panel"
-        data-testid="panel-history"
-        aria-label="History"
+      <EditorPanelShell
+        title="History"
+        onClose={ops.closePanel}
+        testId="panel-history"
       >
-        <header className="editor-panel__header">
-          <h2 className="editor-panel__title">History</h2>
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            onClick={ops.closePanel}
-          >
-            Close
-          </button>
-        </header>
         <div className="editor-panel__body">
           <div className="dialog__actions">
             <button
@@ -824,28 +743,18 @@ export function EditorPanels({
             ) : null}
           </ul>
         </div>
-      </aside>
+      </EditorPanelShell>
     );
   }
 
   if (panel === "preferences") {
     const prefs = ops.preferences;
     return (
-      <aside
-        className="editor-panel"
-        data-testid="panel-preferences"
-        aria-label="Preferences"
+      <EditorPanelShell
+        title="Preferences"
+        onClose={ops.closePanel}
+        testId="panel-preferences"
       >
-        <header className="editor-panel__header">
-          <h2 className="editor-panel__title">Preferences</h2>
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            onClick={ops.closePanel}
-          >
-            Close
-          </button>
-        </header>
         <div className="editor-panel__body">
           {ops.preferencesLoading ? <p className="muted">Loading</p> : null}
           {ops.preferencesError ? (
@@ -938,27 +847,17 @@ export function EditorPanels({
             </>
           ) : null}
         </div>
-      </aside>
+      </EditorPanelShell>
     );
   }
 
   if (panel === "review") {
     return (
-      <aside
-        className="editor-panel"
-        data-testid="panel-review"
-        aria-label="Review"
+      <EditorPanelShell
+        title="Review"
+        onClose={ops.closePanel}
+        testId="panel-review"
       >
-        <header className="editor-panel__header">
-          <h2 className="editor-panel__title">Review</h2>
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            onClick={ops.closePanel}
-          >
-            Close
-          </button>
-        </header>
         <div className="editor-panel__body">
           {ops.reviewLoading ? <p className="muted">Loading</p> : null}
           {ops.reviewError ? (
@@ -1033,7 +932,7 @@ export function EditorPanels({
             </div>
           ) : null}
         </div>
-      </aside>
+      </EditorPanelShell>
     );
   }
 

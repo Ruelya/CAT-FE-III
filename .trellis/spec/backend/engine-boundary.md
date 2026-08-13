@@ -2782,7 +2782,12 @@ permissions, manifest/contributions, revision, `last_error`, and
   document/corpus/export error code and never increment crash state.
 - Child processes inherit `TRANSLUNAR_PLUGIN_ID` only, plus the explicit
   non-secret Windows runtime allowlist `SystemRoot`/`WINDIR`. Host lookup may
-  read `TRANSLUNAR_NODE_PATH`, but it is not inherited by the plugin.
+  read `TRANSLUNAR_NODE_PATH`, but it is not inherited by the plugin. Because
+  the child has no `PATH`, the host resolves a `kind: "node"` entry to an
+  absolute interpreter path against its own `PATH` before spawning; handing the
+  child a bare program name would restrict the exec-time lookup to the
+  `confstr(_CS_PATH)` default and fail on any host that installs Node outside
+  `/bin` or `/usr/bin`.
 - Stdout frames and requests are limited to 8 MiB. Stderr is drained into a
   16 KiB rolling tail; only its byte count enters structured local logs. Raw
   stderr never enters RPC errors, `lastError`, SQLite, or the desktop.

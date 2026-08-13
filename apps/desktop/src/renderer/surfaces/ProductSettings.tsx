@@ -1,5 +1,6 @@
 import { formatUiError } from "../lib/errors";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
+import { SectionNav } from "../shell/SectionNav";
 import type { SettingsSection } from "../state/app-state";
 import { canRunUpdateCommand } from "../state/product-settings-view";
 import type { ProductSettingsApi } from "../state/use-product-settings";
@@ -45,26 +46,17 @@ export function ProductSettings({
         </button>
       </div>
 
-      <div className="p4-tabs" role="tablist" aria-label="Settings sections">
-        {SECTIONS.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            role="tab"
-            className={
-              section === s.id
-                ? "btn btn--secondary btn--sm"
-                : "btn btn--ghost btn--sm"
-            }
-            aria-selected={section === s.id}
-            disabled={busy}
-            onClick={() => onSectionChange(s.id)}
-            data-testid={`settings-tab-${s.id}`}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
+      <SectionNav
+        label="Settings sections"
+        items={SECTIONS.map((s) => ({
+          id: s.id,
+          label: s.label,
+          testId: `settings-tab-${s.id}`,
+        }))}
+        current={section}
+        disabled={busy}
+        onSelect={onSectionChange}
+      />
 
       {state.error ? (
         <p className="status status--error" role="alert">
@@ -86,9 +78,7 @@ export function ProductSettings({
               }
               data-testid="settings-locale-select"
             >
-              <option value="system">
-                System ({state.systemLocale})
-              </option>
+              <option value="system">System ({state.systemLocale})</option>
               <option value="en-US">English</option>
               <option value="zh-CN">Chinese</option>
             </select>
@@ -217,7 +207,9 @@ export function ProductSettings({
             </button>
           </div>
           {state.dataValidationMessage ? (
-            <p className="status status--error">{state.dataValidationMessage}</p>
+            <p className="status status--error">
+              {state.dataValidationMessage}
+            </p>
           ) : null}
           {state.backupResult ? (
             <p className="status">
@@ -261,7 +253,8 @@ export function ProductSettings({
           {state.updateStatus ? (
             <>
               <p className="status" data-testid="settings-update-status">
-                {state.updateStatus.status} · v{state.updateStatus.currentVersion}
+                {state.updateStatus.status} · v
+                {state.updateStatus.currentVersion}
                 {state.updateStatus.availableVersion
                   ? ` → ${state.updateStatus.availableVersion}`
                   : ""}
@@ -275,7 +268,8 @@ export function ProductSettings({
                   }
                   onChange={(e) =>
                     void settings.runUpdateCommand("setMode", {
-                      mode: e.target.value as "automatic" | "manual" | "disabled",
+                      mode: e.target.value as
+                        "automatic" | "manual" | "disabled",
                     })
                   }
                   data-testid="settings-update-mode"

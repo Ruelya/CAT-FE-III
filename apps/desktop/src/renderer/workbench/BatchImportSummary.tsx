@@ -36,7 +36,7 @@ export function BatchImportSummary({
             <span className="batch-import-summary__status">{item.status}</span>
             <span>{item.relativePath || item.path}</span>
             {item.message ? (
-              <span className="muted"> — {item.message}</span>
+              <span className="muted">{item.message}</span>
             ) : null}
             {item.document?.name ? (
               <span className="muted"> · {item.document.name}</span>

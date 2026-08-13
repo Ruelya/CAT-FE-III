@@ -1,4 +1,8 @@
-import type { PdfPageBlock, PdfPageSummary, SegmentState } from "@translunar/contracts";
+import type {
+  PdfPageBlock,
+  PdfPageSummary,
+  SegmentState,
+} from "@translunar/contracts";
 
 /** Build segmentId → page number map from Engine page summaries. */
 export function buildSegmentPageIndex(

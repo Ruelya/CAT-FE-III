@@ -1,0 +1,152 @@
+/**
+ * Motion classes M1 to M7.
+ * Specification: .trellis/spec/frontend/design-language.md §5.
+ *
+ * Every animation here moves only `transform` and `opacity`, and every one
+ * collapses under `prefers-reduced-motion: reduce` because the duration tokens
+ * become 0ms. The explicit reduce block at the end also removes staggering and
+ * view transitions, which duration alone cannot switch off.
+ */
+
+/* ── M1 · surface transition ────────────────────────────── */
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--motion-base);
+  animation-timing-function: var(--ease-standard);
+}
+
+::view-transition-old(root) {
+  animation-name: tl-surface-out;
+}
+
+::view-transition-new(root) {
+  animation-name: tl-surface-in;
+}
+
+@keyframes tl-surface-out {
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+/*
+ * Transform only, deliberately. Fading a whole surface in briefly lowers the
+ * effective contrast of every string inside it, which a contrast checker
+ * correctly flags and a user genuinely experiences. The slide reads as the
+ * same transition without ever putting text below AA.
+ */
+@keyframes tl-surface-in {
+  from {
+    transform: translateY(8px);
+  }
+}
+
+/*
+ * Fill mode is `backwards`, not `both`, deliberately. `both` keeps the
+ * animation in effect after it finishes, which leaves a stacking context on
+ * the element and can make a later sibling paint over a popover opened inside
+ * it. `backwards` still covers the stagger delay and then gets out of the way.
+ */
+.surface-enter {
+  animation: tl-surface-in var(--motion-base) var(--ease-decelerate) backwards;
+}
+
+/* ── M4 · async lifecycle ───────────────────────────────── */
+/* M7 press is implemented directly on .btn:active in primitives.css, so there
+   is deliberately no separate utility class here: two implementations of one
+   behaviour is how they drift apart. */
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--color-sunken);
+  border-radius: var(--radius-sm);
+  /* Geometry must match the settled content, so height is set by the caller. */
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--color-hover-tint),
+    transparent
+  );
+  animation: tl-skeleton 1.4s var(--ease-standard) infinite;
+}
+
+@keyframes tl-skeleton {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes tl-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ── M5 · settle feedback ───────────────────────────────── */
+
+.settle-pulse {
+  animation: tl-settle var(--motion-fast) var(--ease-standard);
+}
+
+@keyframes tl-settle {
+  50% {
+    transform: scale(1.04);
+  }
+}
+
+/* ── M6 · list entrance ─────────────────────────────────── */
+
+/*
+ * Applied to the first eight rows only; the caller sets --enter-index.
+ * No overshoot easing: on dense data an overshoot reads as sloppy.
+ */
+.row-enter {
+  animation: tl-row-enter var(--motion-base) var(--ease-decelerate) backwards;
+  animation-delay: calc(var(--enter-index, 0) * var(--stagger-step));
+}
+
+@keyframes tl-row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* ── Reduced motion ─────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    /* A hair above zero keeps animationend listeners firing. Transitions go
+       to a true 0s so computed-style assertions can verify the collapse. */
+    animation-duration: var(--motion-hairline) !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: var(--motion-none) !important;
+    transition-delay: var(--motion-none) !important;
+    scroll-behavior: auto !important;
+  }
+
+  .skeleton::after {
+    display: none;
+  }
+
+  .row-enter {
+    animation: none;
+  }
+
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
+}

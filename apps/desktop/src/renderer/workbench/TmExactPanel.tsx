@@ -50,8 +50,12 @@ export function TmExactPanel({
   }, [collapsed]);
 
   return (
-    <aside
+    // A named region rather than <aside>: these docks are part of the editor
+    // working area, and a complementary landmark nested inside main is a
+    // landmark-structure violation.
+    <section
       className={`tm-panel${collapsed ? " tm-panel--collapsed" : ""}`}
+      aria-label="Exact translation memory"
       data-testid="tm-panel"
     >
       <PanelChrome title="Exact TM" collapsed={collapsed} onToggle={onToggle} />
@@ -68,6 +72,6 @@ export function TmExactPanel({
           </article>
         ))}
       </div>
-    </aside>
+    </section>
   );
 }

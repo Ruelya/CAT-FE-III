@@ -4,9 +4,7 @@ import type { TmLibrary } from "@translunar/contracts";
 export function eligibleReviewRowIds(
   rows: readonly { rowId: string; disposition: string }[],
 ): string[] {
-  return rows
-    .filter((r) => r.disposition === "changed")
-    .map((r) => r.rowId);
+  return rows.filter((r) => r.disposition === "changed").map((r) => r.rowId);
 }
 
 /** Table apply only for Engine disposition `valid`. */

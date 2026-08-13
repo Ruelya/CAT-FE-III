@@ -47,7 +47,9 @@ export function PdfPageReview({ pdf, disabled }: PdfPageReviewProps) {
   }
 
   return (
-    <aside
+    // Named region, not <aside>: see TmExactPanel for the landmark rationale.
+    <section
+      aria-label="PDF page review"
       className={[
         "pdf-panel",
         collapsed ? "pdf-panel--collapsed" : "",
@@ -65,6 +67,7 @@ export function PdfPageReview({ pdf, disabled }: PdfPageReviewProps) {
               type="button"
               className="btn btn--ghost btn--icon btn--sm"
               aria-label={maximized ? "Dock PDF panel" : "Maximize PDF panel"}
+              title={maximized ? "Dock PDF panel" : "Maximize PDF panel"}
               disabled={disabled}
               onClick={() =>
                 pdf.setDockMode(maximized ? "docked" : "maximized")
@@ -82,11 +85,10 @@ export function PdfPageReview({ pdf, disabled }: PdfPageReviewProps) {
             type="button"
             className="btn btn--ghost btn--icon btn--sm"
             aria-label={collapsed ? "Expand PDF panel" : "Collapse PDF panel"}
+            title={collapsed ? "Expand PDF panel" : "Collapse PDF panel"}
             aria-expanded={!collapsed}
             disabled={disabled}
-            onClick={() =>
-              pdf.setDockMode(collapsed ? "docked" : "collapsed")
-            }
+            onClick={() => pdf.setDockMode(collapsed ? "docked" : "collapsed")}
             data-testid="pdf-collapse"
           >
             {collapsed ? (
@@ -118,6 +120,7 @@ export function PdfPageReview({ pdf, disabled }: PdfPageReviewProps) {
                         ? "pdf-page-list__item pdf-page-list__item--active"
                         : "pdf-page-list__item"
                     }
+                    aria-current={page.page === state.activePage}
                     disabled={disabled || state.pageStatus === "loading"}
                     onClick={() => pdf.selectPage(page.page)}
                     data-testid={`pdf-page-${page.page}`}
@@ -154,9 +157,7 @@ export function PdfPageReview({ pdf, disabled }: PdfPageReviewProps) {
                       block={block}
                       pageWidth={state.pageDetail!.width}
                       pageHeight={state.pageDetail!.height}
-                      active={
-                        pdf.activeBlock?.segmentId === block.segmentId
-                      }
+                      active={pdf.activeBlock?.segmentId === block.segmentId}
                       disabled={disabled === true}
                       onCorrect={() => pdf.openCorrect(block)}
                     />
@@ -184,7 +185,7 @@ export function PdfPageReview({ pdf, disabled }: PdfPageReviewProps) {
           onCancel={pdf.closeCorrect}
         />
       ) : null}
-    </aside>
+    </section>
   );
 }
 
@@ -211,11 +212,8 @@ function BlockOverlay({
 
   return (
     <div
-      className={
-        active
-          ? "pdf-block pdf-block--active"
-          : "pdf-block"
-      }
+      className={active ? "pdf-block pdf-block--active" : "pdf-block"}
+      // data-geometry: the overlay box comes from the Engine page bbox.
       style={{
         left: `${left}%`,
         top: `${top}%`,
@@ -228,6 +226,7 @@ function BlockOverlay({
         <button
           type="button"
           className="btn btn--ghost btn--sm pdf-block__correct"
+          data-hit-area="extended"
           disabled={disabled}
           onClick={onCorrect}
           data-testid={`pdf-correct-${block.segmentId}`}

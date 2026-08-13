@@ -35,7 +35,11 @@ export function allowedUpdateCommands(
     "ready",
     "disabled",
   ];
-  if (!busy && checkable.includes(snapshot.status) && snapshot.mode !== "disabled") {
+  if (
+    !busy &&
+    checkable.includes(snapshot.status) &&
+    snapshot.mode !== "disabled"
+  ) {
     allowed.add("check");
   }
 
@@ -54,11 +58,7 @@ export function allowedUpdateCommands(
   if (!busy && snapshot.status === "available") {
     allowed.add("download");
   }
-  if (
-    !busy &&
-    snapshot.status === "ready" &&
-    !snapshot.recoveryBusy
-  ) {
+  if (!busy && snapshot.status === "ready" && !snapshot.recoveryBusy) {
     allowed.add("install");
   }
   if (snapshot.canRollback && !snapshot.recoveryBusy) {
@@ -79,9 +79,7 @@ export function canRunUpdateCommand(
 
 export function decodeRestorePreviewSummary(
   data: unknown,
-):
-  | { ok: true; preview: RestorePreviewSummary }
-  | { ok: false; error: string } {
+): { ok: true; preview: RestorePreviewSummary } | { ok: false; error: string } {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
     return { ok: false, error: "Restore preview is missing" };
   }

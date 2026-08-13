@@ -159,9 +159,7 @@ export function useCollaborationController(
       pending.current[k] = 0;
     }
     stopPresence();
-    setState((s) =>
-      s.mutationPending ? { ...s, mutationPending: false } : s,
-    );
+    setState((s) => (s.mutationPending ? { ...s, mutationPending: false } : s));
   }, [stopPresence]);
 
   useEffect(() => {

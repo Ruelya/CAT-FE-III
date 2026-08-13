@@ -50,15 +50,15 @@ describe("pdf-review pure helpers", () => {
   });
 
   it("gates OCR correctability and submit", () => {
-    expect(
-      isOcrCorrectable({ sourceKind: "ocr", state: "untranslated" }),
-    ).toBe(true);
+    expect(isOcrCorrectable({ sourceKind: "ocr", state: "untranslated" })).toBe(
+      true,
+    );
     expect(isOcrCorrectable({ sourceKind: "ocr", state: "confirmed" })).toBe(
       false,
     );
-    expect(
-      isOcrCorrectable({ sourceKind: "text", state: "draft" }),
-    ).toBe(false);
+    expect(isOcrCorrectable({ sourceKind: "text", state: "draft" })).toBe(
+      false,
+    );
     expect(
       canSubmitOcrCorrection({
         sourceText: "hi",

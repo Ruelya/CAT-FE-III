@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { ProjectBatchImportResult, TmEntry } from "@translunar/contracts";
 
 import type { UiError } from "../lib/errors";
@@ -9,6 +9,8 @@ import type { EditorOperationsApi } from "../state/use-editor-operations";
 import { shouldMountPdfDock } from "../state/pdf-review";
 import type { PdfReviewApi } from "../state/use-pdf-review";
 import type { ReimportApi } from "../state/use-reimport-controller";
+import { shareStyle } from "../lib/dom";
+import { useContainerDensity } from "../state/use-container-density";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
 import { ReimportDialog } from "../insights/ReimportDialog";
 import { BatchImportSummary } from "../workbench/BatchImportSummary";
@@ -104,28 +106,77 @@ export function Workbench({
   );
 
   const activeRow = ctx.rows.find((r) => r.segment.id === activeSegmentId);
-
-  useEffect(() => {
-    // Keep multi-select membership in sync when active changes without toggle
-  }, [activeSegmentId]);
+  // Container-responsive density: dock changes resize the editor without
+  // resizing the window, so this cannot be a viewport media query.
+  const editorRegionRef = useContainerDensity<HTMLDivElement>();
 
   return (
     <section className="workbench" data-testid="workbench">
       <div className="workbench__header">
         <div className="workbench__header-meta">
           <h1 className="workbench__header-title">{ctx.document.name}</h1>
+          {counts && counts.total > 0 ? (
+            // The brand ribbon doing real work: confirmed, draft, and open
+            // shares of the document, with a text equivalent beside it.
+            // data-geometry: every share below is an Engine count proportion.
+            <span
+              className="progress-bar workbench__progress"
+              role="img"
+              aria-label={`${counts.confirmed} of ${counts.total} segments confirmed`}
+              title={`${counts.confirmed} confirmed, ${counts.draft} draft, ${counts.untranslated} open`}
+            >
+              <span
+                className="progress-bar__segment progress-bar__segment--confirmed"
+                // data-geometry: Engine count proportion.
+                style={shareStyle(counts.confirmed, counts.total)}
+              />
+              <span
+                className="progress-bar__segment progress-bar__segment--draft"
+                // data-geometry: Engine count proportion.
+                style={shareStyle(counts.draft, counts.total)}
+              />
+              <span
+                className="progress-bar__segment progress-bar__segment--open"
+                // data-geometry: Engine count proportion.
+                style={shareStyle(counts.untranslated, counts.total)}
+              />
+            </span>
+          ) : null}
           <p className="workbench__header-sub">
-            {ctx.project.name}
+            <span className="truncate">{ctx.project.name}</span>
             {counts ? (
-              <span className="counts-bar" style={{ marginLeft: 12 }}>
-                <span>{counts.confirmed} confirmed</span>
-                <span>{counts.draft} draft</span>
-                <span>{counts.untranslated} open</span>
-                <span>{counts.total} total</span>
+              <span
+                className="counts-bar"
+                title={`${counts.confirmed} confirmed, ${counts.draft} draft, ${counts.untranslated} open, ${counts.total} total`}
+              >
+                <span>
+                  <span className="counts-bar__value" data-abbr="C">
+                    {counts.confirmed}
+                  </span>
+                  confirmed
+                </span>
+                <span>
+                  <span className="counts-bar__value" data-abbr="D">
+                    {counts.draft}
+                  </span>
+                  draft
+                </span>
+                <span>
+                  <span className="counts-bar__value" data-abbr="O">
+                    {counts.untranslated}
+                  </span>
+                  open
+                </span>
+                <span>
+                  <span className="counts-bar__value" data-abbr="T">
+                    {counts.total}
+                  </span>
+                  total
+                </span>
               </span>
             ) : null}
             {pendingConfirm ? (
-              <span className="inline-status" style={{ marginLeft: 12 }}>
+              <span className="inline-status" role="status">
                 Confirming
               </span>
             ) : null}
@@ -142,20 +193,6 @@ export function Workbench({
               setRecycleOpen(true);
             }}
           />
-          {transitionError ? (
-            <p className="error-text">{formatUiError(transitionError)}</p>
-          ) : null}
-          {editState?.journalError ? (
-            <p className="error-text" data-testid="journal-error">
-              {formatUiError(editState.journalError)}
-            </p>
-          ) : null}
-          {batchResult ? (
-            <BatchImportSummary
-              result={batchResult}
-              {...(onDismissBatch ? { onDismiss: onDismissBatch } : {})}
-            />
-          ) : null}
         </div>
         <div className="workbench__header-actions">
           <button
@@ -216,8 +253,25 @@ export function Workbench({
         </div>
       </div>
 
-      {editorOps ? (
-        <EditorCommandBar ops={editorOps} disabled={disabled === true} />
+      {transitionError || editState?.journalError || batchResult ? (
+        <div className="workbench__notice">
+          {transitionError ? (
+            <p className="error-text" role="alert">
+              {formatUiError(transitionError)}
+            </p>
+          ) : null}
+          {editState?.journalError ? (
+            <p className="error-text" role="alert" data-testid="journal-error">
+              {formatUiError(editState.journalError)}
+            </p>
+          ) : null}
+          {batchResult ? (
+            <BatchImportSummary
+              result={batchResult}
+              {...(onDismissBatch ? { onDismiss: onDismissBatch } : {})}
+            />
+          ) : null}
+        </div>
       ) : null}
 
       <div
@@ -253,7 +307,10 @@ export function Workbench({
             {...(disabled !== undefined ? { disabled } : {})}
           />
         ) : null}
-        <div className="workbench__main">
+        <div className="editor-region" ref={editorRegionRef}>
+          {editorOps ? (
+            <EditorCommandBar ops={editorOps} disabled={disabled === true} />
+          ) : null}
           <SegmentGrid
             rows={ctx.rows}
             activeSegmentId={activeSegmentId}

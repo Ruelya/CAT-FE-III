@@ -11,7 +11,8 @@ const setAiCredential = vi.fn();
 vi.mock("../lib/rpc", () => ({
   invokeEngine: (...args: unknown[]) => invokeEngine(...args) as unknown,
   desktopApi: () => ({
-    setAiCredential: (...args: unknown[]) => setAiCredential(...args) as unknown,
+    setAiCredential: (...args: unknown[]) =>
+      setAiCredential(...args) as unknown,
   }),
 }));
 
@@ -52,7 +53,8 @@ describe("useAiController segment revision ownership", () => {
 
   it("returns validated revision from Engine for first grounding use", async () => {
     invokeEngine.mockImplementation((method: string) => {
-      if (method === "ai.provider.catalog") return Promise.resolve({ items: [] });
+      if (method === "ai.provider.catalog")
+        return Promise.resolve({ items: [] });
       if (method === "ai.provider.list") {
         return Promise.resolve({ items: [], total: 0, offset: 0, limit: 100 });
       }
@@ -127,7 +129,8 @@ describe("useAiController segment revision ownership", () => {
 
   it("invalidate clears mutationPending presentation", () => {
     invokeEngine.mockImplementation((method: string) => {
-      if (method === "ai.provider.catalog") return Promise.resolve({ items: [] });
+      if (method === "ai.provider.catalog")
+        return Promise.resolve({ items: [] });
       if (method === "ai.provider.list") {
         return Promise.resolve({ items: [], total: 0, offset: 0, limit: 100 });
       }

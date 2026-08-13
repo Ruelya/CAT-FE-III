@@ -82,7 +82,9 @@ describe("useReimportController", () => {
       await result.current.pickAndPreview();
     });
     expect(
-      engine.calls.some((c) => String(c.method).startsWith("document.reimport")),
+      engine.calls.some((c) =>
+        String(c.method).startsWith("document.reimport"),
+      ),
     ).toBe(false);
   });
 

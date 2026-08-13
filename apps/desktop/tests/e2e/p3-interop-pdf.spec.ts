@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -13,6 +14,15 @@ const desktopRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const sourceFixture = join(
   dirname(fileURLToPath(import.meta.url)),
   "fixtures/single-segment-source.txt",
+);
+/**
+ * The repository ships deterministic PDF fixtures, so the real-Engine PDF path
+ * is verifiable by default instead of skipped. TRANSLUNAR_TEST_PDF still wins
+ * when a lane wants to point at a different document.
+ */
+const pdfFixtureDefault = join(
+  desktopRoot,
+  "../../fixtures/pdf/text-layout.pdf",
 );
 
 async function launchApp(options: {
@@ -146,16 +156,13 @@ test.describe("P3 interop / PDF / task package", () => {
     // PDF OCR requires Poppler/Tesseract + PDF fixture in the environment.
     // Unit tests cover list→get→correct with fake Engine. Real-Engine PDF E2E
     // is skipped when no PDF fixture is configured.
-    const pdfFixture = process.env.TRANSLUNAR_TEST_PDF;
-    test.skip(
-      !pdfFixture,
-      "TRANSLUNAR_TEST_PDF not set — PDF real-Engine path covered by unit tests",
-    );
+    const pdfFixture = process.env.TRANSLUNAR_TEST_PDF ?? pdfFixtureDefault;
+    test.skip(!existsSync(pdfFixture), `no PDF fixture at ${pdfFixture}`);
 
     const userData = await mkdtemp(join(tmpdir(), "tl-p3-pdf-"));
     const { app, page } = await launchApp({
       userData,
-      sourcePath: pdfFixture as string,
+      sourcePath: pdfFixture,
     });
     const guard = attachConsoleGuard(page);
     try {
@@ -175,14 +182,14 @@ test.describe("P3 interop / PDF / task package", () => {
   });
 
   test("interop review export→preview→apply is fixture gated", async () => {
-    const reviewPath = process.env.TRANSLUNAR_TEST_INTEROP_REVIEW;
-    const exportPath = process.env.TRANSLUNAR_TEST_EXPORT_DOCX;
-    test.skip(
-      !reviewPath,
-      "TRANSLUNAR_TEST_INTEROP_REVIEW not set — review interop apply covered by unit tests",
-    );
-
+    // Round trip: the app exports the bilingual review document, then reads
+    // the same path back. No external fixture is required, and the export and
+    // import halves are verified against each other.
     const userData = await mkdtemp(join(tmpdir(), "tl-p3-review-"));
+    const reviewPath =
+      process.env.TRANSLUNAR_TEST_INTEROP_REVIEW ??
+      join(userData, "interop-review.docx");
+    const exportPath = process.env.TRANSLUNAR_TEST_EXPORT_DOCX ?? reviewPath;
     const env: { [key: string]: string } = {};
     for (const [key, value] of Object.entries(process.env)) {
       if (typeof value === "string") env[key] = value;
@@ -191,8 +198,8 @@ test.describe("P3 interop / PDF / task package", () => {
     env.TRANSLUNAR_DATA_DIR = join(userData, "engine-data");
     env.TRANSLUNAR_TEST_SOURCE = sourceFixture;
     env.TRANSLUNAR_TEST_SOURCE_FILES = sourceFixture;
-    env.TRANSLUNAR_TEST_INTEROP_REVIEW = reviewPath as string;
-    if (exportPath) env.TRANSLUNAR_TEST_EXPORT_DOCX = exportPath;
+    env.TRANSLUNAR_TEST_INTEROP_REVIEW = reviewPath;
+    env.TRANSLUNAR_TEST_EXPORT_DOCX = exportPath;
 
     const app = await electron.launch({
       executablePath: electronExecutable,
@@ -211,6 +218,12 @@ test.describe("P3 interop / PDF / task package", () => {
       });
       await page.getByTestId("insights-section-interop").click();
       await page.getByTestId("interop-mode-review").click();
+
+      // Produce the fixture with the product, then consume it.
+      await page.getByTestId("interop-review-export").click();
+      await expect(
+        page.getByTestId("interop-review-export-notice"),
+      ).toBeVisible({ timeout: 60_000 });
       await page.getByTestId("interop-review-open").click();
       await page.getByTestId("interop-review-preview").click();
       await expect(page.getByTestId("interop-review-table")).toBeVisible({
@@ -226,13 +239,12 @@ test.describe("P3 interop / PDF / task package", () => {
   });
 
   test("interop table preview is fixture gated", async () => {
-    const tablePath = process.env.TRANSLUNAR_TEST_INTEROP_TABLE;
-    test.skip(
-      !tablePath,
-      "TRANSLUNAR_TEST_INTEROP_TABLE not set — table interop covered by unit tests",
-    );
-
+    // The bilingual table filter accepts the same document the review panel
+    // exports, so the table path is exercised without an external fixture.
     const userData = await mkdtemp(join(tmpdir(), "tl-p3-table-"));
+    const tablePath =
+      process.env.TRANSLUNAR_TEST_INTEROP_TABLE ??
+      join(userData, "interop-table.docx");
     const env: { [key: string]: string } = {};
     for (const [key, value] of Object.entries(process.env)) {
       if (typeof value === "string") env[key] = value;
@@ -241,7 +253,8 @@ test.describe("P3 interop / PDF / task package", () => {
     env.TRANSLUNAR_DATA_DIR = join(userData, "engine-data");
     env.TRANSLUNAR_TEST_SOURCE = sourceFixture;
     env.TRANSLUNAR_TEST_SOURCE_FILES = sourceFixture;
-    env.TRANSLUNAR_TEST_INTEROP_TABLE = tablePath as string;
+    env.TRANSLUNAR_TEST_INTEROP_TABLE = tablePath;
+    env.TRANSLUNAR_TEST_EXPORT_DOCX = tablePath;
 
     const app = await electron.launch({
       executablePath: electronExecutable,
@@ -259,6 +272,14 @@ test.describe("P3 interop / PDF / task package", () => {
         timeout: 30_000,
       });
       await page.getByTestId("insights-section-interop").click();
+
+      // Produce the bilingual document, then read it back through the table.
+      await page.getByTestId("interop-mode-review").click();
+      await page.getByTestId("interop-review-export").click();
+      await expect(
+        page.getByTestId("interop-review-export-notice"),
+      ).toBeVisible({ timeout: 60_000 });
+
       await page.getByTestId("interop-mode-table").click();
       await page.getByTestId("interop-table-open").click();
       await page.getByTestId("interop-table-preview").click();
@@ -273,10 +294,21 @@ test.describe("P3 interop / PDF / task package", () => {
   });
 
   test("task package open→preview is fixture gated", async () => {
+    /*
+     * Still fixture gated, deliberately and with a recorded reason.
+     *
+     * The PDF, interop review, and interop table paths were closed by making
+     * the test produce its own fixture through the product's export. The same
+     * round trip was attempted here and did not settle inside the timeout, so
+     * rather than ship a flaky always-on case this stays gated on a supplied
+     * package until the export-then-open sequence is understood. Set
+     * TRANSLUNAR_TEST_TASK_PACKAGE_INPUT to a .tltask file to run it.
+     * Tracked in docs/release-readiness.md.
+     */
     const packagePath = process.env.TRANSLUNAR_TEST_TASK_PACKAGE_INPUT;
     test.skip(
       !packagePath,
-      "TRANSLUNAR_TEST_TASK_PACKAGE_INPUT not set — task package apply covered by unit tests",
+      "TRANSLUNAR_TEST_TASK_PACKAGE_INPUT not set; task package apply is covered by unit tests",
     );
 
     const userData = await mkdtemp(join(tmpdir(), "tl-p3-task-"));
@@ -307,6 +339,7 @@ test.describe("P3 interop / PDF / task package", () => {
       });
       await page.getByTestId("insights-section-task").click();
       await expect(page.getByTestId("task-package-panel")).toBeVisible();
+
       await page.getByTestId("task-open").click();
       await page.locator("#task-actor").fill("e2e");
       await page.locator("#task-reason").fill("fixture preview");

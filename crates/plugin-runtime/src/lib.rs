@@ -33,6 +33,7 @@ pub use sandbox::{
 };
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
@@ -4536,10 +4537,67 @@ fn fail_connector_writer_routes(
     );
 }
 
+#[cfg(windows)]
+const NODE_PROGRAM: &str = "node.exe";
+#[cfg(not(windows))]
+const NODE_PROGRAM: &str = "node";
+
+/// Absolute path to the Node runtime used for `kind: "node"` plugin entries.
+///
+/// Plugin processes are spawned with a cleared environment so a plugin can
+/// never read host secrets, and that necessarily removes `PATH` from the
+/// child. The exec-time program lookup happens *after* the environment has
+/// been replaced, so handing the child a bare `node` would only ever search
+/// the tiny `confstr(_CS_PATH)` default (`/bin:/usr/bin`) and fail with a bare
+/// ENOENT on any machine that installs Node anywhere else — which is nearly
+/// all of them. The host therefore performs the lookup itself, against its own
+/// `PATH`, and passes an absolute path down.
 fn node_executable() -> PathBuf {
-    std::env::var_os("TRANSLUNAR_NODE_PATH")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("node"))
+    if let Some(configured) = std::env::var_os("TRANSLUNAR_NODE_PATH") {
+        let configured = PathBuf::from(configured);
+        if configured.components().count() > 1 {
+            return configured;
+        }
+        if let Some(resolved) = lookup_program_on_path(
+            &configured.to_string_lossy(),
+            std::env::var_os("PATH").as_deref(),
+        ) {
+            return resolved;
+        }
+        return configured;
+    }
+    lookup_program_on_path(NODE_PROGRAM, std::env::var_os("PATH").as_deref())
+        .unwrap_or_else(|| PathBuf::from(NODE_PROGRAM))
+}
+
+/// Find `program` in `search_path`, returning the first executable match.
+///
+/// Kept separate from the environment so it can be tested without mutating
+/// process-global state.
+fn lookup_program_on_path(program: &str, search_path: Option<&OsStr>) -> Option<PathBuf> {
+    let search_path = search_path?;
+    std::env::split_paths(search_path).find_map(|directory| {
+        if directory.as_os_str().is_empty() {
+            return None;
+        }
+        let candidate = directory.join(program);
+        is_executable_file(&candidate).then_some(candidate)
+    })
+}
+
+#[cfg(unix)]
+fn is_executable_file(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path)
+        .map(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn is_executable_file(path: &Path) -> bool {
+    std::fs::metadata(path)
+        .map(|metadata| metadata.is_file())
+        .unwrap_or(false)
 }
 
 #[derive(Debug, Clone)]
@@ -6248,6 +6306,82 @@ setInterval(() => {}, 1_000);
             .call("test.echo", json!(true), Duration::from_secs(2))
             .expect("late event is discarded");
         assert!(echoed);
+    }
+
+    #[cfg(unix)]
+    fn write_fake_executable(directory: &Path, name: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let path = directory.join(name);
+        fs::write(&path, "#!/bin/sh\nexit 0\n").expect("write fake executable");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755))
+            .expect("mark fake executable");
+        path
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn host_resolves_a_bare_program_name_against_its_own_path() {
+        // Plugin processes are spawned with a cleared environment, so the child
+        // has no PATH of its own. If the host ever hands down a bare program
+        // name again, every process-tier Node plugin fails with a bare ENOENT
+        // on any machine that keeps Node outside /bin or /usr/bin.
+        let empty = tempdir().expect("empty directory");
+        let bin = tempdir().expect("bin directory");
+        let expected = write_fake_executable(bin.path(), "translunar-fake-node");
+
+        let search_path =
+            std::env::join_paths([empty.path(), bin.path()]).expect("join search path");
+        let resolved = lookup_program_on_path("translunar-fake-node", Some(&search_path))
+            .expect("program is found on the search path");
+
+        assert_eq!(resolved, expected);
+        assert!(resolved.is_absolute());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn host_lookup_skips_directories_and_non_executable_matches() {
+        let decoys = tempdir().expect("decoy directory");
+        let real = tempdir().expect("real directory");
+        fs::create_dir(decoys.path().join("translunar-fake-node")).expect("decoy directory entry");
+        let second_decoy = tempdir().expect("second decoy directory");
+        fs::write(
+            second_decoy.path().join("translunar-fake-node"),
+            "not executable",
+        )
+        .expect("decoy file entry");
+        let expected = write_fake_executable(real.path(), "translunar-fake-node");
+
+        let search_path = std::env::join_paths([decoys.path(), second_decoy.path(), real.path()])
+            .expect("join search path");
+
+        assert_eq!(
+            lookup_program_on_path("translunar-fake-node", Some(&search_path)),
+            Some(expected)
+        );
+        assert_eq!(lookup_program_on_path("translunar-fake-node", None), None);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn node_executable_is_an_absolute_path_when_node_is_installed() {
+        let node = node_executable();
+        if node.as_os_str() == NODE_PROGRAM {
+            // No Node runtime on this machine at all; the process-tier tests
+            // below cannot run either, so there is nothing to assert.
+            return;
+        }
+        assert!(
+            node.is_absolute(),
+            "node_executable() must resolve to an absolute path because the \
+             plugin child process is spawned with a cleared environment: {}",
+            node.display()
+        );
+        assert!(
+            is_executable_file(&node),
+            "{} is not executable",
+            node.display()
+        );
     }
 
     #[test]

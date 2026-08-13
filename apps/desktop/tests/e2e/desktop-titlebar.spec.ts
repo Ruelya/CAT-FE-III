@@ -73,8 +73,14 @@ test.describe("desktop custom title bar chrome", () => {
       const shell = page.getByTestId("app-shell");
       await expect(shell).toBeVisible({ timeout: 60_000 });
 
+      // `window.translunar` is injected by preload and is not part of the
+      // e2e TypeScript program, so read it through an explicit typed shape.
       const platform = await page.evaluate(() =>
-        window.translunar.getWindowChromePlatform(),
+        (
+          window as unknown as {
+            translunar: { getWindowChromePlatform: () => string };
+          }
+        ).translunar.getWindowChromePlatform(),
       );
       expect(platform === "macos" || platform === "custom").toBe(true);
 
@@ -92,9 +98,9 @@ test.describe("desktop custom title bar chrome", () => {
 
         // Maximize then restore via the same control; do not click Close.
         await maximize.click();
-        await expect(
-          page.getByRole("button", { name: "Restore" }),
-        ).toBeVisible({ timeout: 10_000 });
+        await expect(page.getByRole("button", { name: "Restore" })).toBeVisible(
+          { timeout: 10_000 },
+        );
         await expect(page.getByTestId("window-controls")).toHaveAttribute(
           "data-maximized",
           "true",
@@ -132,9 +138,10 @@ test.describe("desktop custom title bar chrome", () => {
       expect(regions?.headerDrag).toBe("drag");
       expect(regions?.actionsDrag).toBe("no-drag");
 
-      expect(guard.errors, `console/page errors: ${guard.errors.join("\n")}`).toEqual(
-        [],
-      );
+      expect(
+        guard.errors,
+        `console/page errors: ${guard.errors.join("\n")}`,
+      ).toEqual([]);
     } finally {
       guard?.dispose();
       if (app) await app.close();

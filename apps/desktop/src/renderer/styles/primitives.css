@@ -1,0 +1,906 @@
+/**
+ * Shared control and layout primitives.
+ * Specification: .trellis/spec/frontend/design-language.md §6.
+ *
+ * Every interactive control here is at least 32px in both axes. Visually
+ * smaller affordances extend their hit area rather than shrinking the target.
+ */
+
+/* ── Buttons ───────────────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--control-h-sm);
+  padding: 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+  white-space: nowrap;
+  transition:
+    background var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard),
+    transform var(--motion-instant) var(--ease-standard);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn--primary {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  border-color: var(--color-accent);
+}
+
+.btn--primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+}
+
+.btn--primary:active:not(:disabled) {
+  background: var(--color-accent-active);
+  border-color: var(--color-accent-active);
+}
+
+.btn--secondary {
+  background: var(--color-raised);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+.btn--secondary:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface);
+}
+
+.btn--secondary:active:not(:disabled) {
+  background: var(--color-sunken);
+}
+
+.btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-text);
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background: var(--color-hover-tint);
+}
+
+.btn--ghost:active:not(:disabled) {
+  background: var(--color-active-tint);
+}
+
+/* Tertiary row actions: reads as text, still a 32px target. */
+.btn--quiet {
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-text-muted);
+  font-weight: var(--weight-regular);
+  padding: 0 var(--space-2);
+}
+
+.btn--quiet:hover:not(:disabled) {
+  background: var(--color-hover-tint);
+  color: var(--color-text);
+}
+
+.btn--danger {
+  background: var(--color-error);
+  color: var(--color-on-solid);
+  border-color: var(--color-error);
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-error) 86%, var(--color-text));
+  border-color: color-mix(in srgb, var(--color-error) 86%, var(--color-text));
+}
+
+.btn--icon {
+  width: var(--control-h-sm);
+  min-width: var(--control-h-sm);
+  padding: 0;
+}
+
+.btn--md {
+  min-height: var(--control-h-md);
+  padding: 0 var(--space-4);
+}
+
+.btn--md.btn--icon {
+  width: var(--control-h-md);
+  min-width: var(--control-h-md);
+}
+
+.btn--lg {
+  min-height: var(--control-h-lg);
+  padding: 0 var(--space-5);
+  font-size: var(--text-lg);
+}
+
+/*
+ * Compact variant. The box stays at the 32px interactive floor; only the
+ * typography and horizontal padding tighten.
+ */
+.btn--sm {
+  font-size: var(--text-sm);
+  padding: 0 var(--space-2);
+}
+
+.btn__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Pending keeps the label so the button never changes width. */
+.btn[data-pending="true"] {
+  cursor: progress;
+}
+
+.btn__spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentcolor;
+  border-right-color: transparent;
+  border-radius: var(--radius-full);
+  animation: tl-spin var(--motion-spinner) linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes tl-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.btn-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* ── Fields ────────────────────────────────────────────── */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.field--inline {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.field__label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-muted);
+}
+
+.field__control {
+  min-height: var(--control-h-md);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-raised);
+  color: var(--color-text);
+  font-size: var(--text-md);
+  transition:
+    border-color var(--motion-fast) var(--ease-standard),
+    box-shadow var(--motion-fast) var(--ease-standard);
+}
+
+textarea.field__control {
+  padding: var(--space-2) var(--space-3);
+  line-height: var(--leading-body);
+  resize: vertical;
+}
+
+.field__control:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+}
+
+.field__control:focus-visible {
+  border-color: var(--color-accent);
+}
+
+.field__control[aria-invalid="true"] {
+  border-color: var(--color-error);
+}
+
+.field__control::placeholder {
+  color: var(--color-text-subtle);
+}
+
+.field__hint {
+  font-size: var(--text-xs);
+  color: var(--color-text-subtle);
+}
+
+.field__error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--color-error);
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-3);
+}
+
+/* ── Segmented control ─────────────────────────────────── */
+
+.segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-0-5);
+  padding: var(--space-0-5);
+  background: var(--color-sunken);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+}
+
+.segmented__item {
+  position: relative;
+  min-height: var(--control-h-sm);
+  padding: 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  transition:
+    background var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard);
+}
+
+.segmented__item:hover:not(:disabled) {
+  color: var(--color-text);
+}
+
+.segmented__item[aria-selected="true"],
+.segmented__item[aria-current="page"],
+.segmented__item[data-selected="true"] {
+  background: var(--color-raised);
+  border-color: var(--color-border);
+  color: var(--color-text);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ── Section navigation (route-like, not tabs) ─────────── */
+
+.section-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.section-nav__item {
+  position: relative;
+  min-height: var(--control-h-sm);
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  transition: color var(--motion-fast) var(--ease-standard);
+}
+
+.section-nav__item::after {
+  content: "";
+  position: absolute;
+  inset-inline: var(--space-2);
+  bottom: -1px;
+  height: 2px;
+  background: var(--color-accent);
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform var(--motion-fast) var(--ease-standard);
+}
+
+.section-nav__item:hover:not(:disabled) {
+  color: var(--color-text);
+}
+
+.section-nav__item[aria-current="page"],
+.section-nav__item[aria-selected="true"] {
+  color: var(--color-text);
+  font-weight: var(--weight-semibold);
+}
+
+.section-nav__item[aria-current="page"]::after,
+.section-nav__item[aria-selected="true"]::after {
+  transform: scaleX(1);
+}
+
+/* ── Menus ─────────────────────────────────────────────── */
+
+.menu {
+  position: absolute;
+  z-index: var(--z-menu);
+  min-width: 12rem;
+  padding: var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-raised);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+}
+
+.menu__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--control-h-sm);
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  text-align: left;
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+
+.menu__item:hover:not(:disabled),
+.menu__item:focus-visible {
+  background: var(--color-hover-tint);
+}
+
+.menu__item--danger {
+  color: var(--color-error);
+}
+
+.menu__separator {
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--color-line);
+}
+
+.menu__shortcut {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--color-text-subtle);
+}
+
+/*
+ * The row that owns an open menu is lifted so the popover cannot be painted
+ * over by a later sibling such as the pagination row.
+ */
+.row-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.row-menu:has(> [role="menu"]) {
+  z-index: var(--z-menu);
+}
+
+.row-menu__menu {
+  top: calc(100% + var(--space-1));
+  right: 0;
+}
+
+/* ── Tables ────────────────────────────────────────────── */
+
+.data-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--text-sm);
+}
+
+.data-table th,
+.data-table td {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-line);
+  vertical-align: middle;
+}
+
+.data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.data-table tbody tr {
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+
+.data-table tbody tr:hover {
+  background: var(--color-hover-tint);
+}
+
+.data-table tbody tr[aria-selected="true"] {
+  background: var(--color-accent-soft);
+}
+
+.data-table__num {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.data-table__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+
+.table-scroll {
+  overflow: auto;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  min-height: 0;
+}
+
+/* ── Status ────────────────────────────────────────────── */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--control-h-xs);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: var(--color-sunken);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+.chip--success {
+  background: var(--color-success-soft);
+  border-color: color-mix(in srgb, var(--color-success) 30%, transparent);
+  color: var(--color-success);
+}
+
+.chip--warning {
+  background: var(--color-warning-soft);
+  border-color: color-mix(in srgb, var(--color-warning) 30%, transparent);
+  color: var(--color-warning);
+}
+
+.chip--error {
+  background: var(--color-error-soft);
+  border-color: color-mix(in srgb, var(--color-error) 30%, transparent);
+  color: var(--color-error);
+}
+
+.chip--info {
+  background: var(--color-info-soft);
+  border-color: color-mix(in srgb, var(--color-info) 30%, transparent);
+  color: var(--color-info);
+}
+
+.chip--accent {
+  background: var(--color-accent-soft);
+  border-color: color-mix(in srgb, var(--color-accent) 30%, transparent);
+  color: var(--color-text);
+}
+
+.chip__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: currentcolor;
+  flex-shrink: 0;
+}
+
+/* Inline status text next to the control that produced it. */
+.inline-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.error-text {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-error);
+}
+
+/* ── Progress ──────────────────────────────────────────── */
+
+.progress-bar {
+  display: flex;
+  gap: 1px;
+  height: 4px;
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  background: var(--color-line);
+}
+
+.progress-bar__segment {
+  height: 100%;
+  transition: flex-basis var(--motion-base) var(--ease-standard);
+}
+
+.progress-bar__segment--confirmed {
+  background: var(--color-series-teal);
+}
+
+.progress-bar__segment--draft {
+  background: var(--color-series-ochre);
+}
+
+.progress-bar__segment--open {
+  background: var(--color-line);
+}
+
+/* ── Panels and sections ───────────────────────────────── */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+}
+
+.panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-line);
+  min-height: var(--control-h-lg);
+}
+
+.panel__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+.panel__body {
+  padding: var(--space-3);
+  min-height: 0;
+  overflow: auto;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.section__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.section__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.divider {
+  height: 1px;
+  border: none;
+  margin: 0;
+  background: var(--color-line);
+}
+
+/* ── Empty, loading, error states ──────────────────────── */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-5);
+  text-align: center;
+  color: var(--color-text-muted);
+  border: 1px dashed var(--color-line);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.empty-state__icon {
+  color: var(--color-text-subtle);
+}
+
+.empty-state__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+
+.empty-state__body {
+  margin: 0;
+  max-width: 42ch;
+  font-size: var(--text-sm);
+}
+
+.state-error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--color-error) 34%, transparent);
+  border-radius: var(--radius-md);
+  background: var(--color-error-soft);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+.skeleton-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.skeleton-row {
+  height: var(--control-h-md);
+}
+
+/* ── Dialogs ───────────────────────────────────────────── */
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--color-scrim);
+  z-index: var(--z-dialog);
+  padding: var(--space-4);
+  animation: tl-fade-in var(--motion-fast) var(--ease-decelerate) both;
+}
+
+.dialog {
+  width: min(440px, 100%);
+  max-height: calc(100vh - var(--space-8));
+  overflow: auto;
+  background: var(--color-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  animation: tl-dialog-in var(--motion-base) var(--ease-decelerate) both;
+}
+
+@keyframes tl-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.99);
+  }
+}
+
+.dialog--wide {
+  width: min(680px, 100%);
+}
+
+.dialog__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+}
+
+.dialog__body {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-md);
+}
+
+.dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* ── Toast region ──────────────────────────────────────── */
+
+.toast-region {
+  position: fixed;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  pointer-events: none;
+  max-width: min(420px, calc(100vw - var(--space-8)));
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-raised);
+  box-shadow: var(--shadow-md);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  pointer-events: auto;
+  animation: tl-toast-in var(--motion-base) var(--ease-decelerate) both;
+}
+
+@keyframes tl-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+.toast--success {
+  border-color: color-mix(in srgb, var(--color-success) 40%, transparent);
+}
+
+.toast--error {
+  border-color: color-mix(in srgb, var(--color-error) 40%, transparent);
+}
+
+.toast__icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.toast__body {
+  min-width: 0;
+  flex: 1;
+}
+
+.toast__close {
+  flex-shrink: 0;
+}
+
+/* ── Keyboard hint ─────────────────────────────────────── */
+
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-line);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--color-sunken);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  white-space: nowrap;
+}
+
+/* ── Layout helpers ────────────────────────────────────── */
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.row--between {
+  justify-content: space-between;
+}
+
+.row--wrap {
+  flex-wrap: wrap;
+}
+
+.spacer {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.truncate {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.measure {
+  max-width: var(--measure);
+}
+
+/* Empty table body: a header row with nothing under it reads as a bug. */
+.table-empty td {
+  padding: var(--space-5) var(--space-3);
+  text-align: center;
+  color: var(--color-text-subtle);
+  font-size: var(--text-sm);
+}
+
+/* Bounded inline state inside a panel section. */
+.state-inline {
+  margin: 0;
+  padding: var(--space-4) var(--space-3);
+  border: 1px dashed var(--color-line);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+/*
+ * Inside a modal, the focus ring is shown for :focus, not only for
+ * :focus-visible.
+ *
+ * A dialog moves focus programmatically to its safest action. When the dialog
+ * was opened with the pointer, Chromium's :focus-visible heuristic suppresses
+ * the ring, so the user sees no indication of which button Enter will activate
+ * in the one place where that mistake is expensive. A walkthrough tester hit
+ * exactly this on a destructive confirmation. A modal is a decision point, so
+ * the keyboard target is always visible here.
+ */
+.dialog button:focus,
+.command-palette button:focus {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+/* A numeric threshold or similar short value does not need a full-width box. */
+.field--narrow {
+  max-width: 7rem;
+  flex: 0 0 auto;
+}

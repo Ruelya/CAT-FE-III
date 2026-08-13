@@ -32,15 +32,14 @@ describe("plugin-view", () => {
     expect(isContributionOpenable("active")).toBe(true);
     expect(isContributionOpenable("detached")).toBe(false);
     expect(requireActorReason("", "x")).toEqual({ ok: false, field: "actor" });
-    expect(requireActorReason("a", "  ")).toEqual({ ok: false, field: "reason" });
+    expect(requireActorReason("a", "  ")).toEqual({
+      ok: false,
+      field: "reason",
+    });
     expect(requireActorReason("a", "r")).toEqual({ ok: true });
     expect(isPanelSessionUrl("translunar-plugin://x")).toBe(true);
     expect(isPanelSessionUrl("https://evil")).toBe(false);
-    expect(
-      sessionMatchesRevocation({ pluginId: "p1" }, null),
-    ).toBe(true);
-    expect(
-      sessionMatchesRevocation({ pluginId: "p1" }, "p2"),
-    ).toBe(false);
+    expect(sessionMatchesRevocation({ pluginId: "p1" }, null)).toBe(true);
+    expect(sessionMatchesRevocation({ pluginId: "p1" }, "p2")).toBe(false);
   });
 });

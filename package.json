@@ -23,6 +23,7 @@
     "test:e2e:desktop": "cargo build -p translunar-engine && pnpm --filter @translunar/desktop test:e2e",
     "format": "prettier --write . && cargo fmt --all",
     "format:check": "prettier --check . && cargo fmt --all -- --check",
+    "prelint": "pnpm --filter @translunar/contracts build",
     "lint": "eslint apps packages/contracts/src && cargo clippy --workspace --all-targets -- -D warnings",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm toolchain:test && pnpm -r --if-present test && cargo test --workspace",
@@ -37,9 +38,16 @@
     "release:package:gate-test": "node --test scripts/package-architecture.test.mjs scripts/release-package-check.test.mjs",
     "release:install-smoke:test": "node --test scripts/release-install-smoke.test.mjs",
     "release:install-smoke": "node scripts/release-install-smoke.mjs",
-    "docs:check": "node -e \"for (const f of ['docs/packaging.md','docs/tutorial.md','docs/contributing.md','docs/plugins/README.md','docs/plugins/external-connector-sdk.md','docs/release-signing.md','docs/accessibility-matrix.md','LICENSE','SECURITY.md','CODE_OF_CONDUCT.md']) require('fs').accessSync(f)\"",
+    "docs:check": "node -e \"for (const f of ['docs/packaging.md','docs/tutorial.md','docs/contributing.md','docs/plugins/README.md','docs/plugins/external-connector-sdk.md','docs/release-signing.md','docs/accessibility-matrix.md','docs/performance-budgets.md','docs/release-readiness.md','docs/design-conformance.md','LICENSE','SECURITY.md','CODE_OF_CONDUCT.md']) require('fs').accessSync(f)\"",
     "plugins:package": "node scripts/package-plugins.mjs",
-    "plugins:package:check": "node scripts/package-plugins.mjs --check"
+    "plugins:package:check": "node scripts/package-plugins.mjs --check",
+    "ui:audit": "node scripts/ui-audit.mjs",
+    "ui:shots": "pnpm build:desktop && node scripts/ui-shots.mjs",
+    "ui:shots:matrix": "pnpm build:desktop && node scripts/ui-shots.mjs --theme light,dark --viewport 1180x700,1250x744,1680x942,1920x1080",
+    "test:e2e:desktop:linux": "./scripts/linux-display.sh pnpm test:e2e:desktop",
+    "ui:shots:linux": "./scripts/linux-display.sh pnpm ui:shots",
+    "ui:perf": "pnpm build:desktop && node scripts/ui-perf.mjs",
+    "ui:perf:linux": "pnpm build:desktop && ./scripts/linux-display.sh node scripts/ui-perf.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

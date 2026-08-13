@@ -1,0 +1,63 @@
+/**
+ * Bundled typography. Nothing is fetched from the network.
+ *
+ * Provenance, licences, and byte sizes are recorded in
+ * `assets/fonts/manifest.json`. Roles are defined in
+ * `.trellis/spec/frontend/design-language.md` §3.
+ *
+ * `font-display: swap` everywhere: a font must never block first paint.
+ * Noto Sans SC is 7.78 MB unsubsetted, so it is scoped to CJK ranges through
+ * `unicode-range` and is never preloaded. The browser only downloads it when a
+ * glyph in one of those ranges is actually rendered, which means Latin-only
+ * sessions never pay for it.
+ */
+
+@font-face {
+  font-family: "Translunar Space Grotesk";
+  src: url("../assets/fonts/translunar-space-grotesk.woff2") format("woff2");
+  font-weight: 300 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Translunar Chivo";
+  src: url("../assets/fonts/translunar-chivo.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Translunar Space Mono";
+  src: url("../assets/fonts/translunar-space-mono-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Translunar Space Mono";
+  src: url("../assets/fonts/translunar-space-mono-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/*
+ * CJK Unified Ideographs, the common extensions, radicals, CJK punctuation,
+ * fullwidth forms, Hiragana, Katakana, and Hangul that Noto Sans SC covers.
+ * Latin stays on Chivo so mixed-script lines keep the interface voice.
+ */
+@font-face {
+  font-family: "Translunar Noto Sans SC";
+  src: url("../assets/fonts/translunar-noto-sans-sc.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+  unicode-range:
+    U+2E80-2EFF, U+2F00-2FDF, U+3000-303F, U+3040-309F, U+30A0-30FF,
+    U+3100-312F, U+3190-319F, U+31C0-31EF, U+3200-32FF, U+3300-33FF,
+    U+3400-4DBF, U+4E00-9FFF, U+AC00-D7AF, U+F900-FAFF, U+FE30-FE4F,
+    U+FF00-FFEF, U+20000-2A6DF, U+2F800-2FA1F;
+}

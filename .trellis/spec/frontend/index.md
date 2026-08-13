@@ -15,6 +15,7 @@ renderer interaction patterns currently used by Translunar CAT.
 
 | Guide                                             | Description                                                                   | Status  |
 | ------------------------------------------------- | ----------------------------------------------------------------------------- | ------- |
+| [Design Language](./design-language.md)           | **Authority** for colour, type, space, shape, motion, components, states, copy | Active  |
 | [Electron Workbench](./electron-workbench.md)     | Main/preload/renderer boundary, state ownership, packaging, and E2E contracts | Active  |
 | [Project Lifecycle](./project-lifecycle.md)       | P1 multi-doc, batch import, templates, recycle vs lifecycle, search, feature ops | Active  |
 | [Editor & Assets](./editor-assets.md)             | P2 editor ops, command registry/keyboard, Asset Hub domains, curation rollback | Active  |
@@ -37,6 +38,11 @@ the desktop package does not yet enforce.
 
 ## Pre-Development Checklist
 
+- Read [Design Language](./design-language.md) before any change that renders
+  visible UI. It is the authority for colour, typography, spacing, shape,
+  elevation, layers, motion, component shape, interaction states, information
+  density, and copy. Where another guide disagrees with it, the other guide is
+  out of date and must be corrected in the same change.
 - Read [Electron Workbench](./electron-workbench.md) before changing Electron
   main/preload, renderer RPC orchestration, workbench panels, Vite, desktop
   tests, or custom title-bar / window-chrome (BrowserWindow frame, drag
@@ -69,15 +75,21 @@ the desktop package does not yet enforce.
   use the same generation-scoped ownership pattern. See Project Lifecycle,
   Editor & Assets, and P4.
 - New renderer icons: Phosphor (`@phosphor-icons/react`). Appearance: versioned
-  `translunar.renderer.appearance.v1` (light default + advanced-brown seed
-  `#765847`, optional dark + custom seed); no glass (`backdrop-filter`); never
+  `translunar.renderer.appearance.v1` (light default + advanced-brown accent
+  seed, optional dark + custom seed); no glass (`backdrop-filter`); never
   store appearance in `ProductShellSettings`. Title-strip chrome uses the same
   solid tokens (no raw black close-active mixes).
 
 ## Quality Check
 
-- Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, and
-  `pnpm test:e2e:desktop`.
+- Run `pnpm ui:audit`, `pnpm format:check`, `pnpm lint`, `pnpm typecheck`,
+  `pnpm test`, and `pnpm test:e2e:desktop`.
+- For any change that renders visible UI, also run `pnpm ui:shots` and read the
+  captured screenshots. `pnpm ui:shots:matrix` covers both themes across the
+  four supported viewports; `node scripts/ui-shots.mjs --reduced-motion`
+  asserts computed motion durations collapse to zero.
+- Both harnesses exit non-zero on a finding, so they can gate a release. Their
+  rules are defined in [Design Language](./design-language.md) §11.
 - Confirm no renderer matches for `backdrop-filter` or new `lucide-react`.
 - Verify there are no renderer console errors and no exact-pixel assertions
   where Windows DPI can produce fractional CSS pixels.

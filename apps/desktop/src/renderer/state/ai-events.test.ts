@@ -29,7 +29,10 @@ describe("ai-events reducer", () => {
 
     state = reduceRunEvents(state, {
       lastSequence: 2,
-      items: [ev(1, "delta", { deltaText: "IGNORED" }), ev(2, "delta", { deltaText: "x" })],
+      items: [
+        ev(1, "delta", { deltaText: "IGNORED" }),
+        ev(2, "delta", { deltaText: "x" }),
+      ],
     });
     expect(state.proposalText).toBe("Hel");
 

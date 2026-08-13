@@ -259,8 +259,7 @@ const api: DesktopApi = {
   closeWindow: () => electron.ipcRenderer.invoke(IPC_CHANNELS.closeWindow),
   isWindowMaximized: () =>
     electron.ipcRenderer.invoke(IPC_CHANNELS.isWindowMaximized),
-  getWindowChromePlatform: () =>
-    resolveWindowChromePlatform(process.platform),
+  getWindowChromePlatform: () => resolveWindowChromePlatform(process.platform),
 };
 
 electron.contextBridge.exposeInMainWorld("translunar", api);

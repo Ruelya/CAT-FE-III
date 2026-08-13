@@ -1,5 +1,9 @@
 import { formatUiError } from "../lib/errors";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
+import { InlineEmpty } from "../shell/InlineState";
+import { SectionNav } from "../shell/SectionNav";
+import { useDestructiveConfirm } from "../shell/use-destructive-confirm";
+import { TableEmpty } from "../shell/TableEmpty";
 import type { PluginsSection } from "../state/app-state";
 import { projectConnectorSchema } from "../state/ai-view";
 import {
@@ -124,11 +128,19 @@ export function Plugins({
             : null,
       };
       return field.options
-        ? { ...base, options: field.options.map((o) => ({ label: o.label, value: o.value })) }
+        ? {
+            ...base,
+            options: field.options.map((o) => ({
+              label: o.label,
+              value: o.value,
+            })),
+          }
         : base;
     });
     return projectAiActionSchema(fields);
   }, [selectedAction]);
+
+  const destructive = useDestructiveConfirm();
 
   return (
     <section className="surface p4-surface" data-testid="plugins">
@@ -145,26 +157,17 @@ export function Plugins({
         </button>
       </div>
 
-      <div className="p4-tabs" role="tablist" aria-label="Plugin sections">
-        {SECTIONS.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            role="tab"
-            className={
-              section === s.id
-                ? "btn btn--secondary btn--sm"
-                : "btn btn--ghost btn--sm"
-            }
-            aria-selected={section === s.id}
-            disabled={busy}
-            onClick={() => onSectionChange(s.id)}
-            data-testid={`plugins-tab-${s.id}`}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
+      <SectionNav
+        label="Plugin sections"
+        items={SECTIONS.map((s) => ({
+          id: s.id,
+          label: s.label,
+          testId: `plugins-tab-${s.id}`,
+        }))}
+        current={section}
+        disabled={busy}
+        onSelect={onSectionChange}
+      />
 
       {state.error ? (
         <p className="status status--error" role="alert">
@@ -219,9 +222,10 @@ export function Plugins({
             </button>
           </div>
           {state.installed.length === 0 && !state.loading ? (
-            <p className="status" data-testid="plugins-installed-empty">
-              Empty
-            </p>
+            <InlineEmpty
+              label="No installed plugins"
+              testId="plugins-installed-empty"
+            />
           ) : (
             <table className="p4-table">
               <thead>
@@ -230,7 +234,7 @@ export function Plugins({
                   <th>Version</th>
                   <th>Status</th>
                   <th>Tier</th>
-                  <th />
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -294,6 +298,9 @@ export function Plugins({
                     </td>
                   </tr>
                 ))}
+                {state.installed.length === 0 ? (
+                  <TableEmpty colSpan={5} />
+                ) : null}
               </tbody>
             </table>
           )}
@@ -305,7 +312,9 @@ export function Plugins({
                   <tr>
                     <th>Version</th>
                     <th>State</th>
-                    <th />
+                    <th scope="col">
+                      <span className="sr-only">Actions</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -335,6 +344,9 @@ export function Plugins({
                       </td>
                     </tr>
                   ))}
+                  {state.versions.length === 0 ? (
+                    <TableEmpty colSpan={3} />
+                  ) : null}
                 </tbody>
               </table>
               <button
@@ -401,9 +413,10 @@ export function Plugins({
       {section === "bundled" ? (
         <div className="p4-panel" data-testid="plugins-bundled">
           {state.bundled.length === 0 ? (
-            <p className="status" data-testid="plugins-bundled-empty">
-              Empty
-            </p>
+            <InlineEmpty
+              label="No bundled plugins"
+              testId="plugins-bundled-empty"
+            />
           ) : (
             <table className="p4-table">
               <thead>
@@ -411,7 +424,7 @@ export function Plugins({
                   <th>Name</th>
                   <th>Version</th>
                   <th>State</th>
-                  <th />
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -432,6 +445,7 @@ export function Plugins({
                     </td>
                   </tr>
                 ))}
+                {state.bundled.length === 0 ? <TableEmpty colSpan={4} /> : null}
               </tbody>
             </table>
           )}
@@ -449,6 +463,7 @@ export function Plugins({
                 void plugins.selectPlugin(id);
                 if (id) void plugins.loadPermissions(id);
               }}
+              aria-label="Plugin"
               data-testid="permission-plugin"
             >
               <option value="">Plugin</option>
@@ -480,7 +495,7 @@ export function Plugins({
             </pre>
           ) : null}
           {state.permissionRequests.length === 0 ? (
-            <p className="status">Empty</p>
+            <InlineEmpty label="No permission requests" />
           ) : (
             <table className="p4-table">
               <thead>
@@ -489,7 +504,7 @@ export function Plugins({
                   <th>Decision</th>
                   <th>Risk</th>
                   <th>Required</th>
-                  <th />
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -536,6 +551,9 @@ export function Plugins({
                     </td>
                   </tr>
                 ))}
+                {state.permissionRequests.length === 0 ? (
+                  <TableEmpty colSpan={5} />
+                ) : null}
               </tbody>
             </table>
           )}
@@ -550,14 +568,14 @@ export function Plugins({
       {section === "aiActions" ? (
         <div className="p4-panel" data-testid="plugins-ai-actions">
           {state.aiActions.length === 0 ? (
-            <p className="status">Empty</p>
+            <InlineEmpty label="No AI actions" />
           ) : (
             <table className="p4-table">
               <thead>
                 <tr>
                   <th>Action</th>
                   <th>State</th>
-                  <th />
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -594,6 +612,9 @@ export function Plugins({
                     </tr>
                   );
                 })}
+                {state.aiActions.length === 0 ? (
+                  <TableEmpty colSpan={3} />
+                ) : null}
               </tbody>
             </table>
           )}
@@ -620,7 +641,10 @@ export function Plugins({
                         value={String(state.actionConfig[field.key] ?? "")}
                         disabled={busy}
                         onChange={(e) =>
-                          plugins.setActionConfigValue(field.key, e.target.value)
+                          plugins.setActionConfigValue(
+                            field.key,
+                            e.target.value,
+                          )
                         }
                       >
                         {field.options.map((o) => (
@@ -713,14 +737,14 @@ export function Plugins({
       {section === "uiPanels" ? (
         <div className="p4-panel" data-testid="plugins-ui-panels">
           {state.uiPanels.length === 0 ? (
-            <p className="status">Empty</p>
+            <InlineEmpty label="No UI panels" />
           ) : (
             <table className="p4-table">
               <thead>
                 <tr>
                   <th>Panel</th>
                   <th>State</th>
-                  <th />
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -741,13 +765,18 @@ export function Plugins({
                     </td>
                   </tr>
                 ))}
+                {state.uiPanels.length === 0 ? (
+                  <TableEmpty colSpan={3} />
+                ) : null}
               </tbody>
             </table>
           )}
           {state.panelSession ? (
             <div className="p4-panel-host" data-testid="plugin-panel-host">
               <div className="p4-toolbar">
-                <span className="p4-wrap">{state.panelSession.contributionId}</span>
+                <span className="p4-wrap">
+                  {state.panelSession.contributionId}
+                </span>
                 <button
                   type="button"
                   className="btn btn--secondary btn--sm"
@@ -772,9 +801,7 @@ export function Plugins({
         <div className="p4-panel" data-testid="plugins-connectors">
           <h2 className="p4-subtitle">Catalog</h2>
           {state.connectors.length === 0 ? (
-            <p className="status" data-testid="connectors-empty">
-              Empty
-            </p>
+            <InlineEmpty label="No connectors" testId="connectors-empty" />
           ) : (
             <table className="p4-table">
               <thead>
@@ -782,7 +809,7 @@ export function Plugins({
                   <th>Name</th>
                   <th>State</th>
                   <th>Operations</th>
-                  <th />
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -795,9 +822,7 @@ export function Plugins({
                     ? projectConnectorSchema(desc.configSchema).ok
                     : false;
                   return (
-                    <tr
-                      key={`${c.owner.pluginId}:${c.owner.contributionId}`}
-                    >
+                    <tr key={`${c.owner.pluginId}:${c.owner.contributionId}`}>
                       <td className="p4-wrap">{c.displayName}</td>
                       <td>{c.state}</td>
                       <td className="p4-wrap">{c.operations.join(", ")}</td>
@@ -805,9 +830,7 @@ export function Plugins({
                         <button
                           type="button"
                           className="btn btn--ghost btn--sm"
-                          disabled={
-                            busy || c.state !== "active" || !schemaOk
-                          }
+                          disabled={busy || c.state !== "active" || !schemaOk}
                           onClick={() => plugins.beginCreateProfile(c)}
                           data-testid="connector-profile-create"
                         >
@@ -817,6 +840,9 @@ export function Plugins({
                     </tr>
                   );
                 })}
+                {state.connectors.length === 0 ? (
+                  <TableEmpty colSpan={4} />
+                ) : null}
               </tbody>
             </table>
           )}
@@ -944,7 +970,9 @@ export function Plugins({
               <tr>
                 <th>Name</th>
                 <th>Enabled</th>
-                <th />
+                <th scope="col">
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -975,14 +1003,22 @@ export function Plugins({
                       className="btn btn--danger btn--sm"
                       disabled={busy}
                       onClick={() =>
-                        void plugins.deleteProfile(p.id, p.revision)
+                        destructive.request({
+                          title: "Delete connector profile",
+                          body: `${p.displayName} will be deleted.`,
+                          confirmLabel: "Delete",
+                          testId: "connector-profile-delete-confirm",
+                          run: () => plugins.deleteProfile(p.id, p.revision),
+                        })
                       }
+                      aria-label={`Delete connector profile ${p.displayName}`}
                     >
                       Delete
                     </button>
                   </td>
                 </tr>
               ))}
+              {state.profiles.length === 0 ? <TableEmpty colSpan={3} /> : null}
             </tbody>
           </table>
           {state.selectedProfileId ? (
@@ -1074,7 +1110,15 @@ export function Plugins({
                       type="button"
                       className="btn btn--ghost"
                       disabled={busy || !state.credentialSlot}
-                      onClick={() => void plugins.deleteCredential()}
+                      onClick={() =>
+                        destructive.request({
+                          title: "Delete credential",
+                          body: "The stored connector credential will be removed from the OS keyring.",
+                          confirmLabel: "Delete",
+                          testId: "connector-credential-delete-confirm",
+                          run: () => plugins.deleteCredential(),
+                        })
+                      }
                       data-testid="connector-credential-delete"
                     >
                       Delete credential
@@ -1165,6 +1209,7 @@ export function Plugins({
           }}
         />
       ) : null}
+      {destructive.dialog}
     </section>
   );
 }

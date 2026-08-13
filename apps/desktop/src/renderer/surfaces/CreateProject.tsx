@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 
 import type { UiError } from "../lib/errors";
 import { formatUiError } from "../lib/errors";
@@ -16,6 +16,15 @@ export interface CreateProjectProps {
   onCancel: () => void;
 }
 
+type FieldName = "name" | "domain" | "sourceLocale" | "targetLocale";
+
+const FIELDS: Array<{ name: FieldName; id: string; label: string }> = [
+  { name: "name", id: "project-name", label: "Name" },
+  { name: "domain", id: "project-domain", label: "Domain" },
+  { name: "sourceLocale", id: "project-source", label: "Source locale" },
+  { name: "targetLocale", id: "project-target", label: "Target locale" },
+];
+
 export function CreateProject({
   pending,
   error,
@@ -23,94 +32,100 @@ export function CreateProject({
   onSubmit,
   onCancel,
 }: CreateProjectProps) {
-  const [name, setName] = useState("");
-  const [domain, setDomain] = useState("general");
-  const [sourceLocale, setSourceLocale] = useState("en-US");
-  const [targetLocale, setTargetLocale] = useState("zh-CN");
-  const [localError, setLocalError] = useState<string | null>(null);
+  const [values, setValues] = useState<Record<FieldName, string>>({
+    name: "",
+    domain: "general",
+    sourceLocale: "en-US",
+    targetLocale: "zh-CN",
+  });
+  const [fieldErrors, setFieldErrors] = useState<
+    Partial<Record<FieldName, string>>
+  >({});
+  const formRef = useRef<HTMLFormElement>(null);
 
   const busy = Boolean(pending || disabled);
 
+  function setValue(field: FieldName, value: string) {
+    setValues((current) => ({ ...current, [field]: value }));
+    // Clear the error as soon as the user starts fixing it.
+    setFieldErrors((current) => {
+      if (!current[field]) return current;
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+  }
+
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!name.trim()) {
-      setLocalError("Name is required.");
+    const next: Partial<Record<FieldName, string>> = {};
+    for (const field of FIELDS) {
+      if (!values[field.name].trim()) {
+        next[field.name] = `${field.label} is required.`;
+      }
+    }
+    setFieldErrors(next);
+
+    const firstInvalid = FIELDS.find((field) => next[field.name]);
+    if (firstInvalid) {
+      // Move focus to the first problem so a keyboard user is not left
+      // guessing which control the submit rejected.
+      formRef.current
+        ?.querySelector<HTMLElement>(`#${firstInvalid.id}`)
+        ?.focus();
       return;
     }
-    if (!domain.trim() || !sourceLocale.trim() || !targetLocale.trim()) {
-      setLocalError("All fields are required.");
-      return;
-    }
-    setLocalError(null);
+
     onSubmit({
-      name: name.trim(),
-      domain: domain.trim(),
-      sourceLocale: sourceLocale.trim(),
-      targetLocale: targetLocale.trim(),
+      name: values.name.trim(),
+      domain: values.domain.trim(),
+      sourceLocale: values.sourceLocale.trim(),
+      targetLocale: values.targetLocale.trim(),
     });
   }
 
   return (
-    <section className="surface" data-testid="create-project">
-      <div className="surface__stack">
+    <section className="surface surface--narrow" data-testid="create-project">
+      <div className="surface__inner">
         <h1 className="surface__title">Create project</h1>
-        <form className="surface__stack" onSubmit={handleSubmit}>
-          <div className="field">
-            <label className="field__label" htmlFor="project-name">
-              Name
-            </label>
-            <input
-              id="project-name"
-              className="field__control"
-              value={name}
-              disabled={busy}
-              onChange={(e) => setName(e.target.value)}
-              autoComplete="off"
-            />
-          </div>
-          <div className="field">
-            <label className="field__label" htmlFor="project-domain">
-              Domain
-            </label>
-            <input
-              id="project-domain"
-              className="field__control"
-              value={domain}
-              disabled={busy}
-              onChange={(e) => setDomain(e.target.value)}
-              autoComplete="off"
-            />
-          </div>
-          <div className="field">
-            <label className="field__label" htmlFor="project-source">
-              Source locale
-            </label>
-            <input
-              id="project-source"
-              className="field__control"
-              value={sourceLocale}
-              disabled={busy}
-              onChange={(e) => setSourceLocale(e.target.value)}
-              autoComplete="off"
-            />
-          </div>
-          <div className="field">
-            <label className="field__label" htmlFor="project-target">
-              Target locale
-            </label>
-            <input
-              id="project-target"
-              className="field__control"
-              value={targetLocale}
-              disabled={busy}
-              onChange={(e) => setTargetLocale(e.target.value)}
-              autoComplete="off"
-            />
-          </div>
-          {localError ? <p className="field__error">{localError}</p> : null}
+        <form
+          ref={formRef}
+          className="surface__panel stack"
+          onSubmit={handleSubmit}
+          noValidate
+        >
+          {FIELDS.map((field) => {
+            const message = fieldErrors[field.name];
+            return (
+              <div className="field" key={field.name}>
+                <label className="field__label" htmlFor={field.id}>
+                  {field.label}
+                </label>
+                <input
+                  id={field.id}
+                  className="field__control"
+                  value={values[field.name]}
+                  disabled={busy}
+                  onChange={(event) => setValue(field.name, event.target.value)}
+                  autoComplete="off"
+                  aria-invalid={message ? true : undefined}
+                  aria-describedby={message ? `${field.id}-error` : undefined}
+                />
+                {message ? (
+                  <p className="field__error" id={`${field.id}-error`}>
+                    {message}
+                  </p>
+                ) : null}
+              </div>
+            );
+          })}
+
           {error ? (
-            <p className="field__error">{formatUiError(error)}</p>
+            <p className="error-text" role="alert">
+              {formatUiError(error)}
+            </p>
           ) : null}
+
           <div className="dialog__actions">
             <button
               type="button"
@@ -120,7 +135,12 @@ export function CreateProject({
             >
               Cancel
             </button>
-            <button type="submit" className="btn btn--primary" disabled={busy}>
+            <button
+              type="submit"
+              className="btn btn--primary"
+              disabled={busy}
+              data-pending={pending ? "true" : undefined}
+            >
               {pending ? "Creating" : "Create"}
             </button>
           </div>

@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from "react";
 import type { ProjectTemplate } from "@translunar/contracts";
 
+import { Stack } from "@phosphor-icons/react";
+
 import type { UiError } from "../lib/errors";
 import { formatUiError } from "../lib/errors";
 import {
@@ -8,6 +10,7 @@ import {
   type P1TemplateDefaults,
 } from "../state/template-definition";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
+import { RowMenu } from "../shell/RowMenu";
 
 export interface TemplatesProps {
   items: ProjectTemplate[];
@@ -109,74 +112,108 @@ export function Templates({
         </div>
       </div>
 
-      {error ? <p className="error-text">{formatUiError(error)}</p> : null}
-      {loading ? <p className="muted">Loading</p> : null}
+      {error ? (
+        <p className="error-text" role="alert">
+          {formatUiError(error)}
+        </p>
+      ) : null}
+      {loading ? (
+        <div
+          className="skeleton-stack"
+          role="status"
+          aria-label="Loading templates"
+        >
+          {[0, 1, 2].map((row) => (
+            <div key={row} className="skeleton skeleton-row" />
+          ))}
+        </div>
+      ) : null}
 
       {mode === "list" ? (
         <>
-          <ul className="project-list">
-            {items.map((template) => (
-              <li key={template.id} className="project-row">
-                <div className="project-row__meta">
-                  <p className="project-row__name">{template.name}</p>
-                  <p className="project-row__locales">
-                    {template.builtIn ? "Built-in" : "Custom"} · r
-                    {template.revision}
-                  </p>
-                </div>
-                <div className="project-row__actions">
-                  <button
-                    type="button"
-                    className="btn btn--secondary"
-                    disabled={busy}
-                    onClick={() => onUseStart(template.id, template.revision)}
-                  >
-                    Use
-                  </button>
-                  {!template.builtIn ? (
-                    <>
+          {!loading && items.length === 0 ? (
+            <div className="empty-state" data-testid="templates-empty">
+              <Stack
+                size={24}
+                weight="regular"
+                className="empty-state__icon"
+                aria-hidden="true"
+              />
+              {/* New template already sits in the masthead; repeating it here
+                  would be two controls with one intent. */}
+              <h2 className="empty-state__title">No templates</h2>
+            </div>
+          ) : (
+            <ul className="project-list">
+              {items.map((template) => (
+                <li key={template.id} className="project-list__item">
+                  <div className="project-row">
+                    <div className="project-row__meta">
+                      <p className="project-row__name">{template.name}</p>
+                      <p className="project-row__facts">
+                        <span className="chip">
+                          {template.builtIn ? "Built-in" : "Custom"}
+                        </span>
+                        <span className="mono">r{template.revision}</span>
+                      </p>
+                    </div>
+                    <div className="project-row__actions">
                       <button
                         type="button"
-                        className="btn btn--ghost btn--sm"
+                        className="btn btn--secondary"
                         disabled={busy}
                         onClick={() =>
-                          onEditStart(template.id, template.revision)
+                          onUseStart(template.id, template.revision)
                         }
+                        aria-label={`Use template ${template.name}`}
                       >
-                        Edit
+                        Use
                       </button>
-                      <button
-                        type="button"
-                        className="btn btn--ghost btn--sm"
-                        disabled={busy}
-                        onClick={() => setConfirmDelete(template)}
-                      >
-                        Delete
-                      </button>
-                    </>
-                  ) : null}
-                </div>
-              </li>
-            ))}
-          </ul>
-          <div className="dialog__actions">
+                      {!template.builtIn ? (
+                        <RowMenu
+                          label={`More actions for ${template.name}`}
+                          disabled={busy}
+                          testId={`template-menu-${template.id}`}
+                          items={[
+                            {
+                              id: "edit",
+                              label: "Edit",
+                              onSelect: () =>
+                                onEditStart(template.id, template.revision),
+                            },
+                            {
+                              id: "delete",
+                              label: "Delete",
+                              danger: true,
+                              onSelect: () => setConfirmDelete(template),
+                            },
+                          ]}
+                        />
+                      ) : null}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="pagination">
             <button
               type="button"
-              className="btn btn--ghost btn--sm"
+              className="btn btn--quiet btn--sm"
               disabled={busy || offset <= 0}
               onClick={() => onPage(Math.max(0, offset - limit))}
             >
               Previous
             </button>
-            <span className="muted">
+            <span className="pagination__count">
               {total === 0
                 ? "0"
-                : `${offset + 1}–${Math.min(offset + limit, total)}`}{" "}
+                : `${offset + 1}-${Math.min(offset + limit, total)}`}{" "}
               of {total}
             </span>
             <button
               type="button"
-              className="btn btn--ghost btn--sm"
+              className="btn btn--quiet btn--sm"
               disabled={busy || offset + limit >= total}
               onClick={() => onPage(offset + limit)}
             >

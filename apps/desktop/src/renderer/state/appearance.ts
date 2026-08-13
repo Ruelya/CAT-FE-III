@@ -25,35 +25,87 @@ export const APPEARANCE_THEME = DEFAULT_APPEARANCE.theme;
 export const APPEARANCE_ACCENT = "advanced-brown" as const;
 
 export const REQUIRED_TOKEN_VARS = [
+  "--color-sunken",
   "--color-canvas",
   "--color-surface",
-  "--color-surface-raised",
-  "--color-surface-subtle",
+  "--color-raised",
+  "--color-line",
   "--color-border",
   "--color-border-strong",
   "--color-text",
   "--color-text-muted",
+  "--color-text-subtle",
   "--color-accent",
   "--color-accent-hover",
   "--color-accent-active",
   "--color-accent-soft",
+  "--color-on-accent",
   "--color-success",
   "--color-warning",
   "--color-error",
+  "--color-info",
   "--color-focus",
-  "--color-text-on-accent",
+  "--color-scrim",
+  "--font-display",
+  "--font-ui",
+  "--font-mono",
+  "--font-cjk",
+  "--radius-sm",
+  "--radius-md",
+  "--radius-lg",
+  "--control-h-sm",
+  "--z-dialog",
+  "--motion-base",
 ] as const;
 
+/**
+ * Canonical surface ladder per theme.
+ *
+ * This is the single authority for the values that both `tokens.css` and the
+ * runtime accent derivation depend on. `appearance.test.ts` reads the CSS text
+ * and fails if the two ever disagree, so a colour can only be changed in one
+ * place and then mirrored deliberately.
+ */
+export const THEME_SURFACES = {
+  light: {
+    sunken: "#e2ded4",
+    canvas: "#eeeae1",
+    surface: "#f7f4ee",
+    raised: "#fffefb",
+    text: "#1f1d1a",
+  },
+  dark: {
+    sunken: "#121110",
+    canvas: "#1a1714",
+    surface: "#24211c",
+    raised: "#2f2b25",
+    text: "#f3efe8",
+  },
+} as const;
+
+/** Candidate colours for text drawn on top of the accent fill. */
+export const ON_ACCENT_CANDIDATES = {
+  paper: "#fffefb",
+  ink: "#1f1d1a",
+} as const;
+
+/** Body text on an accent fill must clear this ratio. */
+export const MIN_ACCENT_TEXT_CONTRAST = 4.5;
+/** Accent used as text, border, or focus ring must clear this ratio. */
+export const MIN_ACCENT_SURFACE_CONTRAST = 4.5;
+/** Focus indicator floor against every surface it can land on. */
+export const MIN_FOCUS_CONTRAST = 3;
+
 export const TOKEN_VALUES = {
-  canvas: "#f4f1ec",
+  canvas: THEME_SURFACES.light.canvas,
   accent: "#765847",
-  success: "#1f5c3c",
-  warning: "#7a4f0f",
-  error: "#a83f3f",
-  darkCanvas: "#1a1613",
-  darkSuccess: "#3d9b6a",
-  darkWarning: "#d4a017",
-  darkError: "#e07070",
+  success: "#1b5e3f",
+  warning: "#7a4a08",
+  error: "#a32f2f",
+  darkCanvas: THEME_SURFACES.dark.canvas,
+  darkSuccess: "#63c093",
+  darkWarning: "#e0ac4b",
+  darkError: "#f08a8a",
 } as const;
 
 const HEX_SEED = /^#([0-9a-fA-F]{6})$/;
@@ -83,7 +135,12 @@ export function parseAppearancePreference(
   if (record.version !== 1) {
     return { ...DEFAULT_APPEARANCE };
   }
-  const theme = record.theme === "dark" ? "dark" : record.theme === "light" ? "light" : null;
+  const theme =
+    record.theme === "dark"
+      ? "dark"
+      : record.theme === "light"
+        ? "light"
+        : null;
   const seed =
     typeof record.accentSeed === "string"
       ? normalizeAccentSeed(record.accentSeed)
@@ -95,7 +152,8 @@ export function parseAppearancePreference(
 }
 
 export function readAppearancePreference(
-  storage: Pick<Storage, "getItem"> | null | undefined = globalThis.localStorage,
+  storage:
+    Pick<Storage, "getItem"> | null | undefined = globalThis.localStorage,
 ): RendererAppearancePreferenceV1 {
   if (!storage) return { ...DEFAULT_APPEARANCE };
   try {
@@ -110,7 +168,8 @@ export function readAppearancePreference(
 export function serializeAppearancePreference(
   preference: RendererAppearancePreferenceV1,
 ): string {
-  const seed = normalizeAccentSeed(preference.accentSeed) ?? DEFAULT_APPEARANCE.accentSeed;
+  const seed =
+    normalizeAccentSeed(preference.accentSeed) ?? DEFAULT_APPEARANCE.accentSeed;
   return JSON.stringify({
     version: 1,
     theme: preference.theme === "dark" ? "dark" : "light",
@@ -120,7 +179,8 @@ export function serializeAppearancePreference(
 
 export function writeAppearancePreference(
   preference: RendererAppearancePreferenceV1,
-  storage: Pick<Storage, "setItem"> | null | undefined = globalThis.localStorage,
+  storage:
+    Pick<Storage, "setItem"> | null | undefined = globalThis.localStorage,
 ): { ok: true } | { ok: false; error: string } {
   if (!storage) {
     return { ok: false, error: "Storage unavailable" };
@@ -184,89 +244,97 @@ function mix(a: Rgb, b: Rgb, t: number): Rgb {
   };
 }
 
-function shiftToward(rgb: Rgb, target: Rgb, amount: number): Rgb {
-  return mix(rgb, target, amount);
+/** Multiplying the channels preserves hue and relative chroma; mixing does not. */
+function scaleChannels(rgb: Rgb, factor: number): Rgb {
+  return { r: rgb.r * factor, g: rgb.g * factor, b: rgb.b * factor };
 }
 
-/** Theme-solid focus tokens used when seed search cannot reach 3:1. */
-export const FALLBACK_FOCUS: Record<AppearanceTheme, string> = {
-  light: "#1d4ed8",
-  dark: "#60a5fa",
-};
+/** Round through the 8-bit hex form so a token verified here still passes. */
+function quantize(rgb: Rgb): Rgb {
+  return hexToRgb(rgbToHex(rgb)) ?? rgb;
+}
 
-const MIN_FOCUS_CONTRAST = 3;
-
-function meetsFocusContrast(
-  focus: Rgb,
-  surfaces: readonly Rgb[],
-): boolean {
-  return surfaces.every((surface) => contrastRatio(focus, surface) >= MIN_FOCUS_CONTRAST);
+function surfacesFor(theme: AppearanceTheme): Rgb[] {
+  const set = THEME_SURFACES[theme];
+  return [set.canvas, set.surface, set.raised]
+    .map((hex) => hexToRgb(hex))
+    .filter((value): value is Rgb => value !== null);
 }
 
 /**
- * Bounded binary lightness search for a focus color that keeps seed hue/chroma
- * where possible while reaching ≥3:1 against every required solid surface.
- * Candidates are verified after 8-bit hex rounding so CSS tokens still pass.
+ * Lift or deepen a colour until it clears `minimum` against every surface,
+ * keeping the seed hue.
+ *
+ * Multiplicative scaling is tried first because it preserves the channel
+ * ratios, so a brown seed stays brown in dark mode instead of washing out to
+ * grey. Scaling cannot rescue pure black in a dark theme or pure white in a
+ * light theme, so a paper/ink mix is the bounded fallback.
+ */
+export function reachContrast(
+  seed: Rgb,
+  surfaces: readonly Rgb[],
+  minimum: number,
+  brighten: boolean,
+): Rgb {
+  const meets = (candidate: Rgb): boolean => {
+    const rounded = quantize(candidate);
+    return surfaces.every((s) => contrastRatio(rounded, s) >= minimum);
+  };
+
+  if (meets(seed)) return quantize(seed);
+
+  let lo = 1;
+  let hi = brighten ? 12 : 0;
+  let scaled: Rgb | null = null;
+  for (let i = 0; i < 24; i += 1) {
+    const mid = (lo + hi) / 2;
+    const candidate = scaleChannels(seed, mid);
+    if (meets(candidate)) {
+      scaled = candidate;
+      hi = mid;
+    } else {
+      lo = mid;
+    }
+  }
+  if (scaled) {
+    // Step just past the boundary so 8-bit rounding cannot drop back under.
+    const nudged = scaleChannels(seed, brighten ? hi * 1.02 : hi * 0.98);
+    return quantize(meets(nudged) ? nudged : scaled);
+  }
+
+  const target = brighten
+    ? (hexToRgb(ON_ACCENT_CANDIDATES.paper) ?? { r: 255, g: 255, b: 255 })
+    : (hexToRgb(ON_ACCENT_CANDIDATES.ink) ?? { r: 0, g: 0, b: 0 });
+  lo = 0;
+  hi = 1;
+  let mixed: Rgb | null = null;
+  for (let i = 0; i < 22; i += 1) {
+    const mid = (lo + hi) / 2;
+    const candidate = mix(seed, target, mid);
+    if (meets(candidate)) {
+      mixed = candidate;
+      hi = mid;
+    } else {
+      lo = mid;
+    }
+  }
+  if (mixed) {
+    const nudged = mix(seed, target, Math.min(1, hi + 0.03));
+    return quantize(meets(nudged) ? nudged : mixed);
+  }
+  return quantize(target);
+}
+
+/**
+ * @deprecated Focus now reuses the accent, which already clears 4.5:1.
+ * Retained so an external caller keeps compiling; prefer `reachContrast`.
  */
 export function deriveAccessibleFocus(
   seed: Rgb,
   theme: AppearanceTheme,
   surfaces: readonly Rgb[],
 ): Rgb {
-  const meetsAfterRound = (rgb: Rgb): boolean => {
-    const rounded = hexToRgb(rgbToHex(rgb));
-    return rounded !== null && meetsFocusContrast(rounded, surfaces);
-  };
-
-  if (meetsAfterRound(seed)) return seed;
-
-  const lightTarget: Rgb = { r: 255, g: 255, b: 255 };
-  const darkTarget: Rgb = { r: 0, g: 0, b: 0 };
-  const directions: Rgb[] =
-    theme === "dark" ? [lightTarget, darkTarget] : [darkTarget, lightTarget];
-
-  let best: Rgb | null = null;
-  let bestMin = 0;
-
-  for (const target of directions) {
-    let lo = 0;
-    let hi = 1;
-    let candidate: Rgb | null = null;
-    for (let i = 0; i < 18; i += 1) {
-      const mid = (lo + hi) / 2;
-      const mixed = mix(seed, target, mid);
-      if (meetsAfterRound(mixed)) {
-        candidate = mixed;
-        hi = mid;
-      } else {
-        lo = mid;
-      }
-    }
-    // Nudge past the boundary so 8-bit rounding cannot drop below 3:1.
-    if (candidate) {
-      const t = Math.min(1, Math.max(hi, lo) + 0.04);
-      const nudged = mix(seed, target, t);
-      if (meetsAfterRound(nudged)) candidate = nudged;
-      else if (!meetsAfterRound(candidate)) candidate = null;
-    }
-    if (candidate && meetsAfterRound(candidate)) {
-      const rounded = hexToRgb(rgbToHex(candidate))!;
-      const minRatio = Math.min(
-        ...surfaces.map((surface) => contrastRatio(rounded, surface)),
-      );
-      if (minRatio >= bestMin) {
-        best = rounded;
-        bestMin = minRatio;
-      }
-    }
-  }
-
-  if (best) return best;
-
-  const fallback = hexToRgb(FALLBACK_FOCUS[theme]);
-  if (fallback && meetsAfterRound(fallback)) return fallback;
-  // Last resort: pure black/white for the theme.
-  return theme === "dark" ? lightTarget : darkTarget;
+  return reachContrast(seed, surfaces, MIN_FOCUS_CONTRAST, theme === "dark");
 }
 
 export interface DerivedAccentPalette {
@@ -278,43 +346,47 @@ export interface DerivedAccentPalette {
   textOnAccent: string;
 }
 
+/**
+ * Theme-aware accent family.
+ *
+ * The accent itself is adjusted per theme, not only its hover and active
+ * steps. A dark brown seed is unreadable on a dark canvas, so dark mode lifts
+ * it until it clears 4.5:1 against canvas, surface, and raised. Hover and
+ * active then move away from the on-accent text colour, which increases label
+ * contrast in both themes.
+ */
 export function deriveAccentPalette(
   seedHex: string,
   theme: AppearanceTheme,
 ): DerivedAccentPalette {
-  const seed =
-    hexToRgb(seedHex) ?? hexToRgb(DEFAULT_APPEARANCE.accentSeed) ?? {
-      r: 118,
-      g: 88,
-      b: 71,
-    };
-  const white: Rgb = { r: 255, g: 253, b: 249 };
-  const black: Rgb = { r: 38, g: 31, b: 26 };
+  const seed = hexToRgb(seedHex) ??
+    hexToRgb(DEFAULT_APPEARANCE.accentSeed) ?? { r: 118, g: 88, b: 71 };
+  const brighten = theme === "dark";
+  const surfaces = surfacesFor(theme);
+  const paper = hexToRgb(ON_ACCENT_CANDIDATES.paper)!;
+  const ink = hexToRgb(ON_ACCENT_CANDIDATES.ink)!;
+
+  const accent = reachContrast(
+    seed,
+    surfaces,
+    MIN_ACCENT_SURFACE_CONTRAST,
+    brighten,
+  );
   const onAccent =
-    contrastRatio(seed, white) >= contrastRatio(seed, black) ? white : black;
-  const towardText = onAccent === white ? black : white;
-  const hover = shiftToward(seed, towardText, 0.12);
-  const active = shiftToward(seed, towardText, 0.22);
-  const surface: Rgb =
-    theme === "dark"
-      ? { r: 36, g: 30, b: 26 }
-      : { r: 251, g: 250, b: 247 };
-  const raised: Rgb =
-    theme === "dark"
-      ? { r: 44, g: 37, b: 32 }
-      : { r: 255, g: 253, b: 249 };
-  const soft = mix(surface, seed, theme === "dark" ? 0.28 : 0.18);
-  const canvas: Rgb =
-    theme === "dark"
-      ? { r: 26, g: 22, b: 19 }
-      : { r: 244, g: 241, b: 236 };
-  const focus = deriveAccessibleFocus(seed, theme, [canvas, surface, raised]);
+    contrastRatio(accent, paper) >= contrastRatio(accent, ink) ? paper : ink;
+  const away = onAccent === paper ? ink : paper;
+  const surface = hexToRgb(THEME_SURFACES[theme].surface)!;
+
   return {
-    accent: rgbToHex(seed),
-    accentHover: rgbToHex(hover),
-    accentActive: rgbToHex(active),
-    accentSoft: rgbToHex(soft),
-    focus: rgbToHex(focus),
+    accent: rgbToHex(accent),
+    accentHover: rgbToHex(quantize(mix(accent, away, 0.14))),
+    accentActive: rgbToHex(quantize(mix(accent, away, 0.26))),
+    accentSoft: rgbToHex(
+      quantize(mix(surface, accent, brighten ? 0.22 : 0.14)),
+    ),
+    focus: rgbToHex(
+      reachContrast(accent, surfaces, MIN_FOCUS_CONTRAST, brighten),
+    ),
     textOnAccent: rgbToHex(onAccent),
   };
 }
@@ -335,13 +407,16 @@ export function applyAppearance(
   root.style.setProperty("--color-accent-active", palette.accentActive);
   root.style.setProperty("--color-accent-soft", palette.accentSoft);
   root.style.setProperty("--color-focus", palette.focus);
-  root.style.setProperty("--color-text-on-accent", palette.textOnAccent);
+  root.style.setProperty("--color-on-accent", palette.textOnAccent);
   root.style.setProperty("--color-scheme", theme);
   return palette;
 }
 
 export function resetAppearance(
-  storage: Pick<Storage, "setItem" | "removeItem"> | null | undefined = globalThis.localStorage,
+  storage:
+    | Pick<Storage, "setItem" | "removeItem">
+    | null
+    | undefined = globalThis.localStorage,
 ): RendererAppearancePreferenceV1 {
   const preference = { ...DEFAULT_APPEARANCE };
   if (storage) {

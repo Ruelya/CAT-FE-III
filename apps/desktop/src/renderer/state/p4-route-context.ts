@@ -19,11 +19,7 @@ export interface P4ProjectContext {
 }
 
 export type AiControlSection =
-  | "providers"
-  | "interactive"
-  | "batch"
-  | "usage"
-  | "quality";
+  "providers" | "interactive" | "batch" | "usage" | "quality";
 
 export type PluginsSection =
   | "installed"
@@ -34,18 +30,10 @@ export type PluginsSection =
   | "connectors";
 
 export type CollaborationSection =
-  | "members"
-  | "locks"
-  | "presence"
-  | "assignments"
-  | "opLog";
+  "members" | "locks" | "presence" | "assignments" | "opLog";
 
 export type SettingsSection =
-  | "locale"
-  | "appearance"
-  | "data"
-  | "updates"
-  | "tutorial";
+  "locale" | "appearance" | "data" | "updates" | "tutorial";
 
 export function resolveP4RouteContext(
   surface: AppSurface,

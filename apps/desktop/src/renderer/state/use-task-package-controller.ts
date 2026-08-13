@@ -147,10 +147,8 @@ export function useTaskPackageController(
     const gw = gatewayRef.current;
     if (!gw.mutationsEnabled) return;
     const s = stateRef.current;
-    const hasDocuments =
-      s.documentIds.length > 0 || gw.hasDocuments;
-    const hasTaskPackageRef =
-      s.hasTaskPackageRef || gw.hasTaskPackageRef;
+    const hasDocuments = s.documentIds.length > 0 || gw.hasDocuments;
+    const hasTaskPackageRef = s.hasTaskPackageRef || gw.hasTaskPackageRef;
     if (kind === "assignment") {
       if (
         !canExportAssignment({
@@ -437,8 +435,7 @@ export function useTaskPackageController(
   const s = state;
   const status = s.preview?.status ?? "open";
   const hasDocuments = s.documentIds.length > 0 || gateway.hasDocuments;
-  const hasTaskPackageRef =
-    s.hasTaskPackageRef || gateway.hasTaskPackageRef;
+  const hasTaskPackageRef = s.hasTaskPackageRef || gateway.hasTaskPackageRef;
   return {
     state,
     setActor,

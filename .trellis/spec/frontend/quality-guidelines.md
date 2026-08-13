@@ -6,11 +6,19 @@ The supported Node lanes are 22.17.x through 22.x and 24.x, with pnpm
 10.18.3. Node 23.x, 25.x, and other majors are rejected. Run:
 
 ```text
+pnpm ui:audit
+pnpm format:check
 pnpm lint
 pnpm typecheck
 pnpm test
+pnpm build:desktop
 pnpm test:e2e:desktop
 ```
+
+`rustfmt.toml` uses `newline_style = "Auto"` so `cargo fmt --check` is green on
+both the Windows development lane and the Linux validation lane. Do not pin it
+back to `"Windows"`: with LF checkouts that made every Rust file fail the
+format gate on Linux.
 
 `pnpm test` includes Vitest and the Rust workspace through the root script;
 the desktop package's unit tests collect only `src/**/*.test.ts(x)`. Playwright
@@ -22,13 +30,46 @@ the real engine and an isolated data directory.
 `pnpm build:desktop` before that focused command. The final
 `pnpm test:e2e:desktop` gate builds automatically and remains authoritative.
 
-### Static appearance / icon audit (P0–P4)
+### Static design-system audit
 
-These searches must produce no renderer matches for forbidden materials/icons:
+`pnpm ui:audit` (`scripts/ui-audit.mjs`) is the mechanical gate for the rules
+in [design-language.md](./design-language.md) that eslint and tsc cannot see.
+It must exit 0.
+
+| Rule | Enforces |
+| --- | --- |
+| R1 | No `backdrop-filter` / `-webkit-backdrop-filter` anywhere in the renderer |
+| R2 | No `lucide-react` or second icon family, in source **and** in `package.json` |
+| R3 | Every `var(--x)` is declared in a stylesheet, set at runtime by `appearance.ts`, or carries a fallback |
+| R4 | No raw colour, radius, motion duration, shadow, or `z-index` outside `tokens.css` |
+| R5 | No inline `style={{}}` outside the documented data-geometry exception |
+| R6 | Icon-only buttons carry both `title` and `aria-label` |
+| R7 | No em dash / en dash, no `不是` contrast copy, no marketing filler words |
+
+### Visual and geometry evidence
+
+`pnpm ui:shots` (`scripts/ui-shots.mjs`) launches the built Electron app
+against a real Engine, walks every route family, and writes a PNG plus a
+geometry report per state under `apps/desktop/test-results/ui-shots/`. It exits
+non-zero on any finding.
+
+Asserted per state: no document-level horizontal overflow, no control clipped
+outside the viewport, no overlapping interactive pair, no interactive target
+under 32 px, no untitled truncation, and zero renderer console or page errors.
 
 ```text
-rg -n "backdrop-filter|-webkit-backdrop-filter|lucide-react" apps/desktop/src/renderer
+pnpm ui:shots                                   # light, 1680x942
+pnpm ui:shots:matrix                            # light+dark across all four viewports
+node scripts/ui-shots.mjs --reduced-motion      # computed durations must be 0s
+node scripts/ui-shots.mjs --zoom 1.25           # 125% text scaling
+node scripts/ui-shots.mjs --only workbench      # focused re-check
 ```
+
+Electron ignores Playwright viewport emulation, so the harness resizes the real
+`BrowserWindow`. Required viewports are 1180x700 (the BrowserWindow minimum),
+1250x744, 1680x942, and 1920x1080.
+
+Screenshots are evidence, not a pass by themselves. Read them.
 
 Appearance preference is the versioned renderer key
 `translunar.renderer.appearance.v1` (`state/appearance.ts`) with theme +
@@ -135,14 +176,21 @@ the global Open example control.
 
 - Every control is keyboard reachable and has a name; icon-only controls use
   Phosphor (`@phosphor-icons/react`) plus `title`/`aria-label`.
-- Use semantic roles for dialogs, regions, lists, and live status.
+- Use semantic roles for dialogs, regions, lists, and live status. Progress is
+  `role="status"`; actionable failure is `role="alert"`. Live regions stay
+  mounted so a change is announced without stealing focus.
 - Preserve focus across panel collapse/expand and recovery open/close; keep
-  hidden content inert.
+  hidden content inert. A surface transition moves focus to the new heading.
+- Menus and tabs implement their full APG keyboard pattern or do not claim the
+  role. See [design-language.md](./design-language.md) §6.
 - Test IME composition with real composition events and keyboard 229 paths, not
   only a direct state toggle.
 - Prefer numeric geometry tolerances over exact CSS strings; Windows DPI can
   produce fractional values.
 - Check no renderer console/page errors in Playwright.
+- axe runs report **every** impact level. A finding that is not fixed in the
+  change is recorded as a named baseline with an owner, never filtered away
+  silently.
 - No filler UI copy, guiding microcopy, or “不是”-style contrast constructions.
 
 ## Review Checklist
@@ -156,6 +204,10 @@ the global Open example control.
 - Session is identity-only; no domain snapshot in `localStorage`.
 - Generated contracts, labels, aria state, and CSS transitions agree.
 - Light-first paint, advanced-brown accent, no glass CSS, Phosphor icons.
+- `pnpm ui:audit` exits 0 and `pnpm ui:shots` reports no geometry findings for
+  every surface the change touches.
+- Loading, empty, error, pending, cancellation, current, focus, and disabled
+  states all exist for the change, with no layout shift between them.
 - Production build is tested, including Vite's relative asset base and preload
   output.
 - Editor keyboard chords are renderer-owned; main does not swallow Ctrl/Cmd+F/K.

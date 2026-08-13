@@ -1,5 +1,4 @@
 import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -8,12 +7,10 @@ import { fileURLToPath } from "node:url";
 import { test, expect, type Page, type ConsoleMessage } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright";
 
+import { expectNoAxeViolations } from "./helpers/ui-checks.js";
+
 const require = createRequire(import.meta.url);
 const electronExecutable = require("electron") as string;
-const axeCorePath = require.resolve("axe-core", {
-  paths: [dirname(require.resolve("@axe-core/playwright"))],
-});
-const axeSource = readFileSync(axeCorePath, "utf8");
 const desktopRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const sourceFixture = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -69,35 +66,6 @@ function attachConsoleGuard(page: Page): {
       page.off("pageerror", onPageError);
     },
   };
-}
-
-async function expectNoCriticalAxe(page: Page, label: string): Promise<void> {
-  await page.evaluate((source: string) => {
-    const indirectEval: (code: string) => unknown = eval;
-    indirectEval(source);
-  }, axeSource);
-
-  const results = await page.evaluate(async () => {
-    const axe = (
-      globalThis as unknown as {
-        axe: {
-          run: () => Promise<{
-            violations: Array<{
-              id: string;
-              impact?: string | null;
-              help: string;
-            }>;
-          }>;
-        };
-      }
-    ).axe;
-    return axe.run();
-  });
-
-  const critical = results.violations.filter(
-    (v) => v.impact === "critical" || v.impact === "serious",
-  );
-  expect(critical, `${label}: ${JSON.stringify(critical)}`).toEqual([]);
 }
 
 async function createOpenProject(page: Page): Promise<void> {
@@ -258,7 +226,7 @@ test.describe("P4 AI plugins settings", () => {
         );
       }
 
-      await expectNoCriticalAxe(page, "p4-settings");
+      await expectNoAxeViolations(page, "p4-settings");
       expect(guard.errors, guard.errors.join("\n")).toEqual([]);
     } finally {
       guard.dispose();
@@ -269,7 +237,10 @@ test.describe("P4 AI plugins settings", () => {
 
   test("always-on: appearance survives relaunch and reset", async () => {
     const userData = await mkdtemp(join(tmpdir(), "tl-p4-appear-"));
-    let { app, page } = await launchApp({ userData, sourcePath: sourceFixture });
+    let { app, page } = await launchApp({
+      userData,
+      sourcePath: sourceFixture,
+    });
     let guard = attachConsoleGuard(page);
     try {
       await createOpenProject(page);
@@ -303,9 +274,9 @@ test.describe("P4 AI plugins settings", () => {
       await expect
         .poll(async () =>
           page.evaluate(() =>
-            getComputedStyle(document.documentElement).getPropertyValue(
-              "--color-accent-seed",
-            ).trim(),
+            getComputedStyle(document.documentElement)
+              .getPropertyValue("--color-accent-seed")
+              .trim(),
           ),
         )
         .toBe("#336699");

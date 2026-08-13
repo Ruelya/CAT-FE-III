@@ -16,6 +16,19 @@ import {
 } from "./test/fake-desktop-api";
 import { SESSION_STORAGE_KEY } from "./state/session";
 
+/**
+ * Secondary and destructive row actions live in the row overflow menu, so a
+ * test must open the menu the same way a user does.
+ */
+async function openRowAction(
+  user: ReturnType<typeof userEvent.setup>,
+  projectId: string,
+  action: string,
+): Promise<void> {
+  await user.click(await screen.findByTestId(`project-menu-${projectId}`));
+  await user.click(await screen.findByRole("menuitem", { name: action }));
+}
+
 describe("App P1 project lifecycle (fake DesktopApi)", () => {
   let state: FakeEngineState;
 
@@ -115,7 +128,7 @@ describe("App P1 project lifecycle (fake DesktopApi)", () => {
     });
     expect(await screen.findByText("Legal base")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Use" }));
+    await user.click(screen.getByRole("button", { name: /^Use template / }));
     await screen.findByTestId("use-template-form");
     await user.clear(screen.getByLabelText("Project name"));
     await user.type(screen.getByLabelText("Project name"), "From tpl");
@@ -273,8 +286,8 @@ describe("App P1 project lifecycle (fake DesktopApi)", () => {
       configuration: {},
     });
     render(<App />);
-    const home = await screen.findByTestId("project-home");
-    await user.click(within(home).getByRole("button", { name: "Archive" }));
+    await screen.findByTestId("project-home");
+    await openRowAction(user, "proj-1", "Archive");
     const confirm = await screen.findByTestId("lifecycle-confirm");
     await user.click(within(confirm).getByRole("button", { name: "Archive" }));
     await waitFor(() => {
@@ -300,7 +313,7 @@ describe("App P1 project lifecycle (fake DesktopApi)", () => {
     });
     render(<App />);
     await screen.findByTestId("project-home");
-    await user.click(screen.getByRole("button", { name: "Insights" }));
+    await openRowAction(user, "proj-1", "Insights");
     await screen.findByTestId("project-insights");
     await waitFor(() => {
       expect(
@@ -360,7 +373,7 @@ describe("App P1 project lifecycle (fake DesktopApi)", () => {
     const project = state.projects[0]!;
     project.name = "Fresh name";
     project.revision = 3;
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await openRowAction(user, "proj-1", "Edit");
     const dialog = await screen.findByTestId("edit-project-dialog");
     await waitFor(() => {
       expect(state.calls.some((c) => c.method === "project.get")).toBe(true);
@@ -526,7 +539,7 @@ describe("App P1 project lifecycle (fake DesktopApi)", () => {
     });
     render(<App />);
     await screen.findByTestId("project-home");
-    await user.click(screen.getByRole("button", { name: "Insights" }));
+    await openRowAction(user, "proj-1", "Insights");
     await screen.findByTestId("project-insights");
 
     state.failMethods.add("project.analytics.get");
@@ -579,7 +592,9 @@ describe("App P1 project lifecycle (fake DesktopApi)", () => {
     await screen.findByTestId("project-home");
     await user.click(screen.getByTestId("nav-templates"));
     await screen.findByTestId("templates");
-    await user.click(screen.getByRole("button", { name: "Delete" }));
+    // Destructive template actions live in the row overflow menu.
+    await user.click(screen.getByTestId("template-menu-tpl-1"));
+    await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
     const confirm = await screen.findByTestId("delete-template-confirm");
     state.failMethods.add("project.template.delete");
     await user.click(within(confirm).getByRole("button", { name: "Delete" }));

@@ -416,5 +416,3 @@ export function usePdfReview(gateway: PdfReviewGateway): PdfReviewApi {
     invalidate,
   };
 }
-
-

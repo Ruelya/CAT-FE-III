@@ -1,126 +1,237 @@
 /**
- * Appearance tokens — light default, advanced-brown accent seed, solid surfaces.
- * Dark theme via html[data-theme="dark"]. Semantic colors are theme-fixed.
+ * Translunar design tokens.
+ *
+ * Authority: .trellis/spec/frontend/design-language.md
+ *
+ * This is the only file in the renderer allowed to contain raw colour,
+ * radius, motion, shadow, or z-index values. `pnpm ui:audit` enforces that.
+ *
+ * Surface and accent values are mirrored by THEME_SURFACES and the accent
+ * derivation in `state/appearance.ts`, and `state/appearance.test.ts` fails if
+ * the two drift apart. The accent family below equals what the runtime derives
+ * for the default seed, so the pre-hydration paint matches the hydrated paint.
+ *
+ * Contrast, CIE L*, and surface-ladder deltas are asserted in
+ * `state/appearance.test.ts`. Do not hand-edit a colour without rerunning it.
  */
+
 :root,
 html[data-theme="light"] {
   color-scheme: light;
   --color-scheme: light;
 
-  /* Surfaces */
-  --color-canvas: #f4f1ec;
-  --color-surface: #fbfaf7;
-  --color-surface-raised: #fffdf9;
-  --color-surface-subtle: #ece6de;
+  /* Surfaces: warm paper. Adjacent steps differ by at least 2.5 CIE L*. */
+  --color-sunken: #e2ded4; /* L* 88.53 */
+  --color-canvas: #eeeae1; /* L* 92.78 */
+  --color-surface: #f7f4ee; /* L* 96.27 */
+  --color-raised: #fffefb; /* L* 99.65 */
 
-  /* Borders */
-  --color-border: #d8d0c5;
-  --color-border-strong: #b7aa9c;
+  /* Structure: cool green-grey against the warm paper. */
+  --color-line: #d5d2c8; /* decorative divider */
+  --color-border: #82857e; /* control boundary, 3.12:1 on canvas */
+  --color-border-strong: #6d716b; /* 4.14:1 on canvas */
 
-  /* Text */
-  --color-text: #261f1a;
-  --color-text-muted: #6b6158;
-  --color-text-inverse: #fffdf9;
-  --color-text-on-accent: #fffdf9;
+  /* Text: all three roles clear 4.5:1 on every surface. */
+  --color-text: #1f1d1a; /* 14.01:1 on canvas */
+  --color-text-muted: #585c57; /* 5.67:1 on canvas */
+  --color-text-subtle: #5c605c; /* 4.76:1 on sunken */
 
-  /* Advanced brown accent (overridden by derived seed at runtime) */
+  /* Accent: advanced brown. Overwritten at runtime from the stored seed. */
   --color-accent-seed: #765847;
-  --color-accent: #765847;
-  --color-accent-hover: #624638;
-  --color-accent-active: #513a2e;
-  --color-accent-soft: #ebe0d6;
-
-  /* Semantic (independent of accent; AA on surface-subtle / light QA) */
-  --color-success: #1f5c3c;
-  --color-warning: #7a4f0f;
-  --color-error: #a83f3f;
+  --color-accent: #765847; /* 5.37:1 on canvas */
+  --color-accent-hover: #6a5041;
+  --color-accent-active: #5f493b;
+  --color-accent-soft: #e5ded7; /* body text 12.62:1 */
+  --color-on-accent: #fffefb; /* 6.39:1 on accent */
   --color-focus: #765847;
 
-  /* Brand ribbon (mark only) */
+  /* Semantic: theme-fixed, never derived from the accent seed. */
+  --color-success: #1b5e3f;
+  --color-warning: #7a4a08;
+  --color-error: #a32f2f;
+  --color-info: #1f5570;
+  --color-success-soft: #dfe9e2;
+  --color-warning-soft: #f0e6d3;
+  --color-error-soft: #f4dedd;
+  --color-info-soft: #dce8ee;
+  --color-on-solid: #fffefb; /* text on a solid semantic fill */
+
+  /* Brand mark: the five-colour ribbon, fixed identity values. */
   --color-brand-burnt: #d9562b;
   --color-brand-ochre: #d29a2e;
   --color-brand-lichen: #87904a;
   --color-brand-teal: #4f8076;
   --color-brand-dusk: #526f86;
 
-  /* Spacing scale */
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
+  /* Categorical data palette derived from the brand ribbon. */
+  --color-series-ochre: #a3761a; /* L* 52.7 */
+  --color-series-lichen: #667130; /* L* 45.4 */
+  --color-series-burnt: #ad3f1d; /* L* 42.0 */
+  --color-series-teal: #356057; /* L* 37.5 */
+  --color-series-dusk: #374b5c; /* L* 30.9 */
 
-  /* Radius */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
+  /* Overlay */
+  --color-scrim: rgb(31 29 26 / 38%);
+  --color-hover-tint: rgb(31 29 26 / 5%);
+  --color-active-tint: rgb(31 29 26 / 9%);
 
-  /* Elevation */
-  --shadow-sm: 0 1px 2px rgb(38 31 26 / 6%);
-  --shadow-md: 0 4px 12px rgb(38 31 26 / 8%);
-
-  /* Type */
-  --font-sans:
-    "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --font-size-xs: 0.75rem;
-  --font-size-sm: 0.8125rem;
-  --font-size-md: 0.875rem;
-  --font-size-lg: 1.125rem;
-  --font-size-xl: 1.5rem;
-  --line-height-tight: 1.25;
-  --line-height-body: 1.45;
-
-  /* Motion */
-  --motion-fast: 120ms;
-  --motion-shell: 180ms;
-  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
-
-  /* Layout */
-  --chrome-height: 48px;
-  --tm-panel-width: 320px;
-  --tm-rail-width: 36px;
-  --focus-ring: 2px solid var(--color-focus);
-  --focus-offset: 2px;
+  /* Elevation: tinted to the surface hue, never pure black. */
+  --shadow-sm: 0 1px 2px rgb(31 29 26 / 7%);
+  --shadow-md: 0 6px 18px rgb(31 29 26 / 11%);
+  --shadow-lg: 0 18px 44px rgb(31 29 26 / 18%);
 }
 
 html[data-theme="dark"] {
   color-scheme: dark;
   --color-scheme: dark;
 
-  --color-canvas: #1a1613;
-  --color-surface: #24201a;
-  --color-surface-raised: #2e2922;
-  --color-surface-subtle: #1f1b16;
+  --color-sunken: #121110; /* L* 5.12 */
+  --color-canvas: #1a1714; /* L* 7.98 */
+  --color-surface: #24211c; /* L* 12.90 */
+  --color-raised: #2f2b25; /* L* 17.76 */
 
-  --color-border: #3f3830;
-  --color-border-strong: #5a5046;
+  --color-line: #37332c;
+  --color-border: #79756b; /* 3.06:1 on raised */
+  --color-border-strong: #8b8579; /* 3.84:1 on raised */
 
-  --color-text: #f4efe8;
-  --color-text-muted: #a89f94;
-  --color-text-inverse: #1a1613;
-  --color-text-on-accent: #fffdf9;
+  --color-text: #f3efe8; /* 15.57:1 on canvas */
+  --color-text-muted: #a5a89f; /* 7.40:1 on canvas */
+  --color-text-subtle: #96948b; /* 4.62:1 on raised */
 
   --color-accent-seed: #765847;
-  --color-accent: #9a7660;
-  --color-accent-hover: #b08974;
-  --color-accent-active: #c49d87;
-  --color-accent-soft: #3a3028;
+  --color-accent: #b98a70; /* 4.64:1 on raised */
+  --color-accent-hover: #c39a83;
+  --color-accent-active: #cba894;
+  --color-accent-soft: #45382e; /* body text 9.86:1 */
+  --color-on-accent: #1f1d1a; /* 5.55:1 on accent */
+  --color-focus: #b98a70;
 
-  --color-success: #3d9b6a;
-  --color-warning: #d4a017;
-  --color-error: #e07070;
-  --color-focus: #9a7660;
+  --color-success: #63c093;
+  --color-warning: #e0ac4b;
+  --color-error: #f08a8a;
+  --color-info: #77bcd9;
+  --color-success-soft: #1c2f26;
+  --color-warning-soft: #332a17;
+  --color-error-soft: #3a2222;
+  --color-info-soft: #1d2a33;
+  --color-on-solid: #1a1714;
 
-  --shadow-sm: 0 1px 2px rgb(0 0 0 / 35%);
-  --shadow-md: 0 4px 12px rgb(0 0 0 / 45%);
+  --color-series-ochre: #e8c063; /* L* 79.5 */
+  --color-series-lichen: #b0bb72; /* L* 73.5 */
+  --color-series-burnt: #eb8258; /* L* 65.2 */
+  --color-series-teal: #5f978c; /* L* 58.5 */
+  --color-series-dusk: #5a7d95; /* L* 50.7 */
+
+  --color-scrim: rgb(7 6 5 / 62%);
+  --color-hover-tint: rgb(243 239 232 / 6%);
+  --color-active-tint: rgb(243 239 232 / 10%);
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 40%);
+  --shadow-md: 0 6px 18px rgb(0 0 0 / 52%);
+  --shadow-lg: 0 18px 44px rgb(0 0 0 / 62%);
+}
+
+/* Theme-independent scales. */
+:root {
+  /* Space */
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 48px;
+
+  /* Shape: exactly four values exist. */
+  --radius-sm: 4px; /* inputs, chips, small controls */
+  --radius-md: 6px; /* buttons, menus, panels */
+  --radius-lg: 8px; /* dialogs, largest containers */
+  --radius-full: 999px; /* status dots and avatars only */
+
+  /* Type roles. Faces are declared in styles/fonts.css. */
+  --font-display:
+    "Translunar Space Grotesk", "Segoe UI Variable Display", system-ui,
+    sans-serif;
+  --font-ui:
+    "Translunar Chivo", "Segoe UI Variable Text", "Segoe UI", system-ui,
+    sans-serif;
+  --font-mono:
+    "Translunar Space Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --font-cjk:
+    "Translunar Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif;
+
+  --text-2xs: 0.6875rem; /* 11px */
+  --text-xs: 0.75rem; /* 12px */
+  --text-sm: 0.8125rem; /* 13px */
+  --text-md: 0.875rem; /* 14px */
+  --text-lg: 1rem; /* 16px */
+  --text-xl: 1.25rem; /* 20px */
+  --text-2xl: 1.625rem; /* 26px */
+  --text-3xl: 2.125rem; /* 34px */
+
+  --leading-tight: 1.2;
+  --leading-snug: 1.35;
+  --leading-body: 1.5;
+  --leading-cjk: 1.75;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  --tracking-tight: -0.01em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.02em;
+
+  /* Control geometry. 32px is the interactive floor. */
+  --control-h-xs: 24px; /* non-interactive chips and badges only */
+  --control-h-sm: 32px;
+  --control-h-md: 36px;
+  --control-h-lg: 40px;
+
+  /* Layers */
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-dock: 20;
+  --z-menu: 30;
+  --z-dialog: 40;
+  --z-toast: 50;
+
+  /* Motion */
+  --motion-none: 0s;
+  /* A hair above zero so animationend still fires under reduced motion. */
+  --motion-hairline: 0.01ms;
+  --motion-instant: 60ms;
+  --motion-fast: 120ms;
+  --motion-base: 160ms;
+  --motion-slow: 220ms;
+  --motion-spinner: 640ms;
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
+  --ease-accelerate: cubic-bezier(0.4, 0, 1, 1);
+  --stagger-step: 40ms;
+
+  /* Layout */
+  --chrome-height: 44px;
+  --panel-w-tm: 320px;
+  --panel-w-pdf: 288px;
+  --rail-w: 40px;
+  --measure: 68ch;
+
+  /* Focus */
+  --focus-width: 2px;
+  --focus-ring: var(--focus-width) solid var(--color-focus);
+  --focus-offset: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :root,
-  html[data-theme="light"],
-  html[data-theme="dark"] {
+  :root {
+    --motion-instant: 0ms;
     --motion-fast: 0ms;
-    --motion-shell: 0ms;
+    --motion-base: 0ms;
+    --motion-slow: 0ms;
+    --stagger-step: 0ms;
   }
 }

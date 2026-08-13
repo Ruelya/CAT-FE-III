@@ -7,11 +7,11 @@ export function canAcquireLock(input: {
 }): boolean {
   return Boolean(
     input.projectId &&
-      input.documentId &&
-      input.segmentId &&
-      input.projectId.length > 0 &&
-      input.documentId.length > 0 &&
-      input.segmentId.length > 0,
+    input.documentId &&
+    input.segmentId &&
+    input.projectId.length > 0 &&
+    input.documentId.length > 0 &&
+    input.segmentId.length > 0,
   );
 }
 
@@ -24,7 +24,10 @@ export function canCreateAssignment(input: {
 }): boolean {
   if (!input.projectId || !input.documentId) return false;
   if (input.assigneeActorId.trim().length === 0) return false;
-  if (!Number.isFinite(input.ordinalStart) || !Number.isFinite(input.ordinalEnd)) {
+  if (
+    !Number.isFinite(input.ordinalStart) ||
+    !Number.isFinite(input.ordinalEnd)
+  ) {
     return false;
   }
   return input.ordinalEnd >= input.ordinalStart;
@@ -62,14 +65,20 @@ export function nextHeartbeatDelayMs(
       ? Math.max(0, expiresAtMs - nowMs)
       : ttlMs;
   const half = Math.floor(remaining / 2);
-  return Math.min(30_000, Math.max(1000, half || Math.floor(ttlMs / 2) || 1000));
+  return Math.min(
+    30_000,
+    Math.max(1000, half || Math.floor(ttlMs / 2) || 1000),
+  );
 }
 
 export function formatLocalCollabLabel(): string {
   return "Local collaboration";
 }
 
-export function inspectOpPayload(payload: unknown, maxLen = 800): string | null {
+export function inspectOpPayload(
+  payload: unknown,
+  maxLen = 800,
+): string | null {
   if (payload === null || payload === undefined) return null;
   try {
     const text = JSON.stringify(payload);

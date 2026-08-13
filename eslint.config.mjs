@@ -59,11 +59,32 @@ export default tseslint.config(
     },
   },
   {
+    // `await act(async () => { ... })` is the React Testing Library idiom for
+    // flushing effects and microtasks, and typed gateway fakes must satisfy
+    // async signatures even when the body is synchronous. Both are awaitless
+    // by design, so `require-await` is not meaningful in test sources.
+    files: ["**/*.test.{ts,tsx}", "apps/desktop/tests/**/*.ts"],
+    rules: {
+      "@typescript-eslint/require-await": "off",
+    },
+  },
+  {
     files: ["**/*.{js,mjs,cjs}"],
     languageOptions: {
       globals: {
         console: "readonly",
         process: "readonly",
+      },
+    },
+  },
+  {
+    // Renderer public assets are classic browser scripts served verbatim.
+    files: ["apps/desktop/src/renderer/public/**/*.js"],
+    languageOptions: {
+      globals: {
+        window: "readonly",
+        document: "readonly",
+        localStorage: "readonly",
       },
     },
   },

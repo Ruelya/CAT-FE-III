@@ -83,15 +83,50 @@ pnpm lint
 pnpm typecheck
 pnpm test
 pnpm contracts:check
+pnpm ui:audit
+pnpm build:desktop
 pnpm test:e2e:engine
 pnpm test:e2e:desktop
+pnpm docs:check
 ```
 
-The desktop E2E suite creates isolated data and covers the complete DOCX flow,
-engine restart recovery, IME guards, Assistant conversations/metrics/target
-insertion, save-before-navigation, QA/TM/export views, preview resizing, and
-symmetric panel motion. It captures default, collapsed, and maximized evidence
-at 1250x744, 1680x942, and 1920x1080.
+The desktop E2E suite creates isolated data and runs against the real Rust
+Engine. It covers the complete import, edit, confirm, QA, and export flow,
+engine restart recovery, IME guards, save-before-navigation, project lifecycle,
+editor commands, Asset Hub, PDF review, interop review and table round trips,
+and the P4 AI, plugin, collaboration, and settings surfaces including appearance
+persistence across relaunch. A dedicated accessibility spec audits every
+reachable surface with axe at every impact level in both themes, drives the
+Workbench with the keyboard alone, and asserts reduced motion collapses every
+transition.
+
+### Interface quality gates
+
+```powershell
+pnpm ui:audit          # static design-system rules; exits non-zero on a finding
+pnpm ui:shots          # screenshots plus geometry report, light, 1680x942
+pnpm ui:shots:matrix   # both themes across all four supported viewports
+pnpm ui:perf           # delivery and startup budgets against a real build
+```
+
+`ui:shots` fails on document-level horizontal overflow, a clipped or occluded
+control, an overlapping interactive pair, a target under 32 px, or any renderer
+console error. Supported viewports are 1180x700 (the window minimum), 1250x744,
+1680x942, and 1920x1080.
+
+On Linux, wrap the Electron suites so a window manager is present; without one
+`BrowserWindow.maximize()` is a no-op and the title-bar assertions cannot run:
+
+```bash
+./scripts/linux-display.sh pnpm test:e2e:desktop
+./scripts/linux-display.sh node scripts/ui-shots.mjs
+```
+
+Design authority for the renderer is
+[`.trellis/spec/frontend/design-language.md`](.trellis/spec/frontend/design-language.md).
+Measured budgets are in [docs/performance-budgets.md](docs/performance-budgets.md),
+accessibility status in [docs/accessibility-matrix.md](docs/accessibility-matrix.md),
+and release gate status in [docs/release-readiness.md](docs/release-readiness.md).
 
 ## VPS Builds
 
