@@ -23,6 +23,7 @@
     "test:e2e:desktop": "cargo build -p translunar-engine && pnpm --filter @translunar/desktop test:e2e",
     "format": "prettier --write . && cargo fmt --all",
     "format:check": "prettier --check . && cargo fmt --all -- --check",
+    "prelint": "pnpm --filter @translunar/contracts build",
     "lint": "eslint apps packages/contracts/src && cargo clippy --workspace --all-targets -- -D warnings",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm toolchain:test && pnpm -r --if-present test && cargo test --workspace",
