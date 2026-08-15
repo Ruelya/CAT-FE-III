@@ -603,12 +603,21 @@ function textOffsetInNode(node: Node, offset: number): number {
   for (let index = 0; index < Math.min(offset, children.length); index += 1) {
     const child = children[index];
     if (!child) continue;
+    if (child.nodeType === Node.ELEMENT_NODE) {
+      const element = child as HTMLElement;
+      if (isAtomSpan(element)) continue;
+      if (element.tagName === "BR") {
+        count += 1;
+        continue;
+      }
+    }
     count += characterLength(child.textContent ?? "");
   }
   return count;
 }
 
 function precedingTextLength(root: HTMLElement, node: Node): number {
+  if (node === root) return 0;
   let length = 0;
   const walk = (current: Node): boolean => {
     if (current === node) return true;

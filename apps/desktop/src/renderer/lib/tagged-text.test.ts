@@ -20,6 +20,7 @@ import {
   replaceSelectionInTagged,
   serializeTaggedEditor,
   setCaretInTaggedEditor,
+  caretOffsetsInTaggedEditor,
   splitTaggedText,
   tagLabel,
   tagsEqual,
@@ -316,6 +317,27 @@ describe("tagged editor html", () => {
     ]);
     expect(html).toContain('class="tagged-run tagged-run--b"');
     expect(html).toContain("TL-900");
+  });
+
+  it("maps a full surface selection to the whole tagged document", () => {
+    const tags = [tag("1s", "start", 6, "b"), tag("1e", "end", 10, "b")];
+    const host = document.createElement("div");
+    host.contentEditable = "true";
+    host.innerHTML = buildTaggedEditorHtml("hello bold", tags);
+    document.body.append(host);
+    const range = document.createRange();
+    range.selectNodeContents(host);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    expect(caretOffsetsInTaggedEditor(host, selection)).toEqual({
+      start: 0,
+      end: 10,
+    });
+    const clip = sliceTaggedSpan("hello bold", tags, 0, 10);
+    expect(clip.text).toBe("hello bold");
+    expect(clip.tags).toHaveLength(2);
+    host.remove();
   });
 });
 
