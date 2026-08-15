@@ -21,6 +21,9 @@ export function pickRunnableAiProfile(
 /** Preferred AutoSuggest model when a matching profile exists. */
 export const PREFERRED_SUGGEST_MODEL = "gemini-3.5-flash-lite";
 
+/** Closest public Gemini lite id when 3.5-flash-lite is not on the gateway. */
+export const FALLBACK_SUGGEST_MODEL = "gemini-3.1-flash-lite";
+
 /**
  * Score a provider model for inline completion.
  *
@@ -35,6 +38,13 @@ export function suggestModelScore(model: string): number {
     value === PREFERRED_SUGGEST_MODEL
   ) {
     return 100;
+  }
+  if (
+    value.includes("3.1-flash-lite") ||
+    value.includes("3.1_flash_lite") ||
+    value === FALLBACK_SUGGEST_MODEL
+  ) {
+    return 98;
   }
   if (value.includes("flash") && value.includes("lite")) return 90;
   if (value.includes("gemini-3") && value.includes("flash")) return 80;

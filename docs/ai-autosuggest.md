@@ -128,6 +128,11 @@ next-edit jump、跨文件 portal、自研 Tab 模型、按接受率做 RL。
 **禁止**为补全新开 `editor.suggestAi` / `ai.complete`。上下文打包已经在
 `crates/engine/src/ai.rs` 的 `build_grounding` + `build_grounded_prompt`。
 
+`ai.run.start` **没有 `model` 字段**。补全只能在已有 runnable profile 里挑。
+`pickSuggestAiProfile` 给 `gemini-3.5-flash-lite` 最高分；网关上若只有
+`gemini-3.1-flash-lite` / 其它 flash+lite，就用那个。思考链 / grok 排最后。
+无 flash profile 时仍用唯一 runnable，不静默失败。
+
 `ai.run.start` 传入：
 
 ```ts

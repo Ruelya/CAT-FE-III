@@ -131,4 +131,10 @@ describe("pickSuggestAiProfile", () => {
     const only = fakeAiProfile({ id: "only", model: "grok-4.6" });
     expect(pickSuggestAiProfile([only])?.id).toBe("only");
   });
+
+  it("ranks the live 3.1-flash-lite id above a generic flash profile", () => {
+    const flash = fakeAiProfile({ id: "flash", model: "gemini-3.5-flash" });
+    const lite = fakeAiProfile({ id: "lite", model: "gemini-3.1-flash-lite" });
+    expect(pickSuggestAiProfile([flash, lite])?.id).toBe("lite");
+  });
 });
