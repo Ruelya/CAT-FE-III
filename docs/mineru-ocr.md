@@ -29,6 +29,12 @@ Provision the API key through the Engine surface (never written to SQLite):
 | `mineru.credential.status` | Presence/backend only (never the secret) |
 | `mineru.credential.delete` | Remove key |
 
+Desktop Settings → OCR calls the same three methods. The renderer never
+persists the secret; the field is write-only. Import uses last-used
+`ocrEngine` / `ocrMode` / `ocrLanguages` from
+`translunar.renderer.pdf-import-options.v1` and passes them as
+`project.batchImport.options`.
+
 In tests / CI, use the memory backend (`TRANSLUNAR_MINERU_TEST_MODE=1`) or
 `EngineService::{set,delete,mineru}_credential*`. Production uses the OS
 keyring service/account above.

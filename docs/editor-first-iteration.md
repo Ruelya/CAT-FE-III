@@ -126,6 +126,19 @@
 | Termbase Search | Terms 页搜索框：先过滤本段命中；再把查询丢给 `term.search`（引擎是「查询文本里出现了哪些术语」）。`*` 当 contains。查找结果不画到源文上，避免把查询串偏移当成源偏移。 |
 | Quick Add 自动建库 | 无可用写库时 `termbase.create` + `termbase.mount`，不再把人撵去 Assets。顺带修正原先把 `mount.writable` 误读成不存在的 `mount.mode`。 |
 
+### 2026-08-15 续作（PDF/OCR + 段内 AI 纠错）
+
+对照已有引擎：`builtin.pdf`、`pdf.page.*`、`pdf.correctOcr`、`mineru.credential.*`、`ai.run.*`。桌面侧把它们挂到导入、设置和当前 OCR 段上，不新开协议。
+
+| 能力 | 说明 |
+| --- | --- |
+| 导入 OCR 选项 | 导入页可选 `ocrEngine` / `ocrMode` / `ocrLanguages`，写入 localStorage，`project.batchImport` 原样传给每个文件。默认 Auto = 本地 Poppler/Tesseract。 |
+| MinerU 凭证 | Settings → OCR：`mineru.credential.status/set/delete`。密钥进 OS keyring / 测试内存，不进 SQLite，界面永不回显。 |
+| 点块选段 | PDF 审阅窗点块跳到对应段；Correct 仍只改 OCR 源文。 |
+| 网格 OCR 标记 | `structuralPath` 含 `;s=ocr;` 的行打 OCR 点，结构列标 `OCR`。 |
+| AI 纠错 | OCR Correct 对话框：有密钥时 `ai.run.start(action=freeform)` 建议源文；**Use suggestion** 只写入草稿。Save 仍要 reason，走 `pdf.correctOcr`。无密钥诚实提示。 |
+| AI 辅助 | 点到 OCR 段后，IntelDock AI 仍可 Translate/Improve（改译文），并说明源文纠错走 PDF → Correct。 |
+
 ### 仍未做到 Trados 同水准的部分（诚实清单）
 
 这些**没有**假装完成，下一轮应继续：
