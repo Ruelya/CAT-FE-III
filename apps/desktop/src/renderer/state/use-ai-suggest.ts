@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AiProviderProfile } from "@translunar/contracts";
 
-import { pickRunnableAiProfile } from "./use-ocr-ai";
+import { pickSuggestAiProfile } from "./use-ocr-ai";
 import { invokeEngine } from "../lib/rpc";
 import {
   AI_SUGGEST_GROUNDING,
@@ -81,7 +81,7 @@ export function useAiSuggest(input: {
           limit: 50,
         });
         if (cancelled) return;
-        const profile = pickRunnableAiProfile(page.items);
+        const profile = pickSuggestAiProfile(page.items);
         profilesReady.current = true;
         profilesRef.current = page.items;
         runnableRef.current = profile !== undefined;
@@ -138,7 +138,7 @@ export function useAiSuggest(input: {
         void (async () => {
           try {
             if (token !== generation.current) return;
-            const profile = pickRunnableAiProfile(profilesRef.current);
+            const profile = pickSuggestAiProfile(profilesRef.current);
             if (!profile) {
               runnableRef.current = false;
               setRunnable(false);

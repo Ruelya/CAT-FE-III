@@ -100,6 +100,35 @@ describe("useAiSuggest", () => {
     expect(prompt).toContain("pow⌂");
   });
 
+  it("starts the run on a flash-lite profile when one exists", async () => {
+    const engine = seedEngine([
+      fakeAiProfile({ id: "grok", name: "Grok", model: "grok-4.6" }),
+      fakeAiProfile({
+        id: "flash",
+        name: "Flash",
+        model: "gemini-3.5-flash-lite",
+      }),
+    ]);
+    window.translunar = createFakeDesktopApi(engine);
+    const { result } = renderHook(() =>
+      useAiSuggest({
+        enabled: true,
+        projectId: "proj-1",
+        segmentId: "seg-1",
+        segmentRevision: 1,
+      }),
+    );
+    await waitFor(() => expect(result.current.runnable).toBe(true));
+    await act(async () => {
+      result.current.request("pow", 3);
+    });
+    await waitFor(() => {
+      expect(result.current.suffix).toBe(" completed");
+    });
+    const start = engine.calls.find((call) => call.method === "ai.run.start");
+    expect((start?.params as { profileId?: string }).profileId).toBe("flash");
+  });
+
   it("drops a stale run after the caret moves", async () => {
     const engine = seedEngine();
     window.translunar = createFakeDesktopApi(engine);

@@ -7,7 +7,12 @@ import {
   fakeAiProfile,
   type FakeEngineState,
 } from "../test/fake-desktop-api";
-import { OCR_CORRECT_PROMPT, useOcrAi } from "./use-ocr-ai";
+import {
+  OCR_CORRECT_PROMPT,
+  pickSuggestAiProfile,
+  suggestModelScore,
+  useOcrAi,
+} from "./use-ocr-ai";
 
 function seedEngine(profiles = [fakeAiProfile()]): FakeEngineState {
   return createFakeEngineState({
@@ -103,5 +108,27 @@ describe("useOcrAi", () => {
     );
     await waitFor(() => expect(result.current.profilesLoaded).toBe(true));
     expect(result.current.runnable).toBe(false);
+  });
+});
+
+describe("pickSuggestAiProfile", () => {
+  it("prefers a flash-lite model over a reasoning profile", () => {
+    const grok = fakeAiProfile({
+      id: "grok",
+      name: "Grok",
+      model: "grok-4.6",
+    });
+    const flash = fakeAiProfile({
+      id: "flash",
+      name: "Flash",
+      model: "gemini-3.5-flash-lite",
+    });
+    expect(suggestModelScore(flash.model)).toBeGreaterThan(suggestModelScore(grok.model));
+    expect(pickSuggestAiProfile([grok, flash])?.id).toBe("flash");
+  });
+
+  it("falls back to the first runnable profile when none are fast", () => {
+    const only = fakeAiProfile({ id: "only", model: "grok-4.6" });
+    expect(pickSuggestAiProfile([only])?.id).toBe("only");
   });
 });

@@ -18,6 +18,49 @@ export function pickRunnableAiProfile(
   );
 }
 
+/** Preferred AutoSuggest model when a matching profile exists. */
+export const PREFERRED_SUGGEST_MODEL = "gemini-3.5-flash-lite";
+
+/**
+ * Score a provider model for inline completion.
+ *
+ * Ghost text needs a fast non-reasoning model. A thinking / grok profile can
+ * still translate a segment; it must not be the first choice for 400ms suggest.
+ */
+export function suggestModelScore(model: string): number {
+  const value = model.toLowerCase();
+  if (
+    value.includes("3.5-flash-lite") ||
+    value.includes("3.5_flash_lite") ||
+    value === PREFERRED_SUGGEST_MODEL
+  ) {
+    return 100;
+  }
+  if (value.includes("flash") && value.includes("lite")) return 90;
+  if (value.includes("gemini-3") && value.includes("flash")) return 80;
+  if (value.includes("flash")) return 70;
+  if (value.includes("lite") || value.includes("mini") || value.includes("haiku")) {
+    return 60;
+  }
+  if (/(grok|o1|o3|o4|r1|thinking|reason)/.test(value)) return 1;
+  return 10;
+}
+
+/** Runnable profile whose model is best for AutoSuggest. */
+export function pickSuggestAiProfile(
+  profiles: readonly AiProviderProfile[],
+): AiProviderProfile | undefined {
+  const runnable = profiles.filter(
+    (profile) => profile.enabled && profile.credentialPresent && Boolean(profile.id),
+  );
+  if (runnable.length === 0) return undefined;
+  return [...runnable].sort((left, right) => {
+    const delta = suggestModelScore(right.model) - suggestModelScore(left.model);
+    if (delta !== 0) return delta;
+    return left.name.localeCompare(right.name);
+  })[0];
+}
+
 export interface OcrAiState {
   run: AiRun | null;
   pending: boolean;
