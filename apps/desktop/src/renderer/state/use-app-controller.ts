@@ -20,6 +20,10 @@ import type {
 } from "@translunar/contracts";
 
 import { toUiError, type UiError } from "../lib/errors";
+import {
+  codePointCaretFromUtf16,
+  spliceAtCaret,
+} from "../lib/inline-completion";
 import { toBatchImportOptions } from "../lib/pdf-import-options";
 import { desktopApi, initializeEngine, invokeEngine } from "../lib/rpc";
 import {
@@ -82,6 +86,7 @@ import {
   placeSourceTagsAtCaret,
   placeSourceTagsProportional,
   replaceSelectionInTagged,
+  caretOffsetsInTaggedEditor,
   serializeTaggedEditor,
   setCaretInTaggedEditor,
   tagsEqual,
@@ -2512,25 +2517,36 @@ export function useAppController(): AppController {
         if (!stateRef.current.mutationsEnabled) return;
         const active = saveCoordinator.active;
         if (!active) return;
-        const element = targetEditorFor(active.segmentId);
         const current = active.draftTarget;
-        const caret = element?.selectionStart ?? current.length;
+        const surface = targetSurfaceFor(active.segmentId);
+        const element = targetEditorFor(active.segmentId);
+        const view = surface?.ownerDocument.defaultView ?? window;
+        const caret =
+          surface && view.document.activeElement === surface
+            ? caretOffsetsInTaggedEditor(surface, view.getSelection()).end
+            : codePointCaretFromUtf16(
+                current,
+                element?.selectionStart ?? current.length,
+              );
         // Only replace when the text really does end with the prefix the host
         // completed: a late keystroke could have moved the caret since.
-        const start =
-          prefix.length > 0 &&
-          current.slice(Math.max(0, caret - prefix.length), caret) === prefix
-            ? caret - prefix.length
-            : caret;
-        const next = `${current.slice(0, start)}${text}${current.slice(caret)}`;
-        saveCoordinator.updateDraft(next);
-        if (element) {
-          const position = start + text.length;
-          requestAnimationFrame(() => {
+        const spliced = spliceAtCaret(current, caret, text, prefix);
+        saveCoordinator.updateDraft(spliced.next);
+        requestAnimationFrame(() => {
+          const tagged = targetSurfaceFor(active.segmentId);
+          if (tagged) {
+            tagged.focus();
+            setCaretInTaggedEditor(tagged, spliced.caret);
+            return;
+          }
+          if (element) {
+            const utf16 = [...spliced.next]
+              .slice(0, spliced.caret)
+              .join("").length;
             element.focus();
-            element.setSelectionRange(position, position);
-          });
-        }
+            element.setSelectionRange(utf16, utf16);
+          }
+        });
       },
 
       toggleTmPanel: () => {
