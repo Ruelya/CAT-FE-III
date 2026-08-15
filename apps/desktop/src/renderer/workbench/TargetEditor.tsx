@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type KeyboardEvent,
+} from "react";
 import type { EditorSuggestion, InlineTag } from "@translunar/contracts";
 
 import {
@@ -6,20 +13,30 @@ import {
   formatPairForKey,
   pairSourceTags,
   pendingCloseGhosts,
+  placeableSourceSpan,
   unmatchedSourceTags,
   type Placeable,
 } from "../lib/quickplace";
 import {
   buildTaggedEditorHtml,
   caretOffsetsInTaggedEditor,
+  deleteRangeFromTagged,
+  deleteRangeKeepingTags,
   insertTextIntoTagged,
   mergeTargetTags,
+  pasteTaggedSpan,
   placeTagAtCaret,
+  replaceSelectionInTagged,
   serializeTaggedEditor,
   setCaretInTaggedEditor,
+  sliceTaggedSpan,
+  tagAtomsInSelection,
   tagsEqual,
+  TAGGED_CLIPBOARD_TYPE,
   wrapSelectionWithTagPair,
+  type TaggedClipboard,
 } from "../lib/tagged-text";
+import type { SourceHighlight } from "./TaggedText";
 import type { SegmentEditState } from "../state/save-coordinator";
 import { QuickPlacePopup } from "./QuickPlacePopup";
 import { SuggestionPopup } from "./SuggestionPopup";
@@ -53,6 +70,9 @@ export interface TargetEditorProps {
   quickPlaceOpen?: boolean;
   onQuickPlaceOpenChange?: (open: boolean) => void;
   onPlaceAllTags?: () => void;
+  onSourceHighlight?: (span: SourceHighlight | null) => void;
+  protectTags?: boolean;
+  onProtectTagsChange?: (next: boolean) => void;
 }
 
 export interface SuggestionBinding {
@@ -99,6 +119,9 @@ export function TargetEditor({
   quickPlaceOpen = false,
   onQuickPlaceOpenChange,
   onPlaceAllTags,
+  onSourceHighlight,
+  protectTags = false,
+  onProtectTagsChange,
 }: TargetEditorProps) {
   const mirrorRef = useRef<HTMLTextAreaElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -133,6 +156,15 @@ export function TargetEditor({
   useEffect(() => {
     if (quickPlaceOpen) setQuickIndex(0);
   }, [quickPlaceOpen, segmentId]);
+
+  useEffect(() => {
+    if (!onSourceHighlight) return;
+    if (!quickPlaceOpen) {
+      onSourceHighlight(null);
+      return;
+    }
+    onSourceHighlight(placeableSourceSpan(placeables[quickIndex]));
+  }, [quickPlaceOpen, quickIndex, placeables, onSourceHighlight]);
 
   useEffect(() => {
     ghostEnds.current = new Map();
@@ -369,15 +401,99 @@ export function TargetEditor({
     }
   };
 
+  const commitLive = (nextText: string, nextTags: InlineTag[], caret: number) => {
+    if (nextText !== value) onChange(nextText);
+    applyTags(nextTags);
+    setFollowCaret(caret);
+    paint(nextText, nextTags, caret);
+    const surface = surfaceRef.current;
+    if (surface) setCaretInTaggedEditor(surface, caret);
+  };
+
+  const clipFromSurface = (): TaggedClipboard | null => {
+    const live = liveDocument();
+    const caret = currentCaret();
+    const surface = surfaceRef.current;
+    const atoms = surface
+      ? tagAtomsInSelection(
+          surface,
+          surface.ownerDocument.defaultView?.getSelection() ?? null,
+        )
+      : [];
+    if (caret.start === caret.end && atoms.length === 0) return null;
+    if (caret.start === caret.end) {
+      return {
+        text: "",
+        tags: atoms.map((tag, index) => ({ ...tag, position: 0, id: `clip:${index}:${tag.id}` })),
+      };
+    }
+    return sliceTaggedSpan(live.text, live.tags, caret.start, caret.end);
+  };
+
+  const writeClip = (event: ClipboardEvent, clip: TaggedClipboard) => {
+    event.clipboardData.setData("text/plain", clip.text);
+    event.clipboardData.setData(TAGGED_CLIPBOARD_TYPE, JSON.stringify(clip));
+    event.preventDefault();
+  };
+
+  const atomBesideCaret = (side: "before" | "after"): boolean => {
+    const surface = surfaceRef.current;
+    const selection = surface?.ownerDocument.defaultView?.getSelection() ?? null;
+    if (!surface || !selection || selection.rangeCount === 0) return false;
+    const range = selection.getRangeAt(0);
+    if (side === "before") {
+      let node: Node | null = range.startContainer;
+      if (node.nodeType === Node.TEXT_NODE) {
+        if (range.startOffset > 0) return false;
+        node = node.previousSibling;
+      } else if (range.startOffset > 0) {
+        node = node.childNodes[range.startOffset - 1] ?? null;
+      }
+      return node instanceof HTMLElement && Boolean(node.dataset.tag);
+    }
+    let node: Node | null = range.endContainer;
+    if (node.nodeType === Node.TEXT_NODE) {
+      if (range.endOffset < (node.textContent ?? "").length) return false;
+      node = node.nextSibling;
+    } else {
+      node = node.childNodes[range.endOffset] ?? node.nextSibling;
+    }
+    return node instanceof HTMLElement && Boolean(node.dataset.tag);
+  };
+
   const emitFromSurface = () => {
     const surface = surfaceRef.current;
     if (!surface) return;
     const serialized = serializeTaggedEditor(surface);
+    const have = new Set(
+      serialized.tags.map(
+        (tag) => `${tag.kind}\0${tag.displayText}\0${tag.payload}`,
+      ),
+    );
+    const missing = protectTags
+      ? effectiveTags.filter(
+          (tag) => !have.has(`${tag.kind}\0${tag.displayText}\0${tag.payload}`),
+        )
+      : [];
+    const length = [...serialized.text].length;
+    const live = {
+      text: serialized.text,
+      tags:
+        missing.length === 0
+          ? serialized.tags
+          : [
+              ...serialized.tags,
+              ...missing.map((tag) => ({
+                ...tag,
+                position: Math.min(tag.position, length),
+              })),
+            ],
+    };
     skipSync.current = true;
-    onChange(serialized.text);
-    if (onTagsChange && !tagsEqual(serialized.tags, effectiveTags)) {
-      setLiveTags(serialized.tags);
-      onTagsChange(serialized.tags);
+    onChange(live.text);
+    if (onTagsChange && !tagsEqual(live.tags, effectiveTags)) {
+      setLiveTags(live.tags);
+      onTagsChange(live.tags);
     }
     const caret = caretOffsetsInTaggedEditor(
       surface,
@@ -386,31 +502,50 @@ export function TargetEditor({
     setFollowCaret(caret);
     const nextGhosts = pendingCloseGhosts(
       sourceTags,
-      serialized.tags,
+      live.tags,
       caret,
       ghostEnds.current,
-      [...serialized.text].length,
+      length,
     );
     const remembered = new Map<string, number>();
     for (const ghost of nextGhosts) remembered.set(ghost.id, ghost.position);
     ghostEnds.current = remembered;
     ghostsAtRef.current = nextGhosts;
-    const painted = buildTaggedEditorHtml(
-      serialized.text,
-      serialized.tags,
-      nextGhosts,
-    );
+    const painted = buildTaggedEditorHtml(live.text, live.tags, nextGhosts);
     if (surface.innerHTML !== painted) {
       surface.innerHTML = painted;
       setCaretInTaggedEditor(surface, caret);
     }
-    suggestions?.request(serialized.text, caret);
+    suggestions?.request(live.text, caret);
   };
 
   const handleKeys = (
     event: KeyboardEvent<HTMLElement>,
     caretFallback: number,
   ) => {
+    if (protectTags && !isImeKey(event) && (event.key === "Backspace" || event.key === "Delete")) {
+      const caret = currentCaret();
+      if (caret.start !== caret.end) {
+        event.preventDefault();
+        const live = liveDocument();
+        const next = deleteRangeKeepingTags(
+          live.text,
+          live.tags,
+          caret.start,
+          caret.end,
+        );
+        commitLive(next.text, next.tags, caret.start);
+        return;
+      }
+      if (event.key === "Backspace" && atomBesideCaret("before")) {
+        event.preventDefault();
+        return;
+      }
+      if (event.key === "Delete" && atomBesideCaret("after")) {
+        event.preventDefault();
+        return;
+      }
+    }
     if ((event.ctrlKey || event.metaKey) && !isImeKey(event)) {
       const key = event.key.toLowerCase();
       if (!event.altKey && !event.shiftKey && (key === "b" || key === "i" || key === "u")) {
@@ -564,10 +699,57 @@ export function TargetEditor({
             : [...value].length;
           handleKeys(event, caret);
         }}
+        onCopy={(event) => {
+          const clip = clipFromSurface();
+          if (clip) writeClip(event, clip);
+        }}
+        onCut={(event) => {
+          const clip = clipFromSurface();
+          if (!clip) return;
+          writeClip(event, clip);
+          const live = liveDocument();
+          const caret = currentCaret();
+          const next = protectTags
+            ? deleteRangeKeepingTags(live.text, live.tags, caret.start, caret.end)
+            : deleteRangeFromTagged(live.text, live.tags, caret.start, caret.end);
+          commitLive(next.text, next.tags, Math.min(caret.start, caret.end));
+        }}
         onPaste={(event) => {
           event.preventDefault();
+          const live = liveDocument();
+          const caret = currentCaret();
+          const raw = event.clipboardData.getData(TAGGED_CLIPBOARD_TYPE);
+          if (raw) {
+            try {
+              const clip = JSON.parse(raw) as TaggedClipboard;
+              if (clip && typeof clip.text === "string" && Array.isArray(clip.tags)) {
+                const next = pasteTaggedSpan(
+                  live.text,
+                  live.tags,
+                  caret.start,
+                  caret.end,
+                  clip,
+                );
+                commitLive(
+                  next.text,
+                  next.tags,
+                  caret.start + [...clip.text].length,
+                );
+                return;
+              }
+            } catch {
+              // Fall through to plain text.
+            }
+          }
           const pasted = event.clipboardData.getData("text/plain");
-          document.execCommand("insertText", false, pasted);
+          const next = replaceSelectionInTagged(
+            live.text,
+            live.tags,
+            caret.start,
+            caret.end,
+            pasted,
+          );
+          commitLive(next.text, next.tags, caret.start + [...pasted].length);
         }}
       />
       {ghostsAt.length > 0 ? (
@@ -629,6 +811,17 @@ export function TargetEditor({
           }}
         >
           Place
+        </button>
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          aria-pressed={protectTags}
+          data-testid={`protect-tags-${segmentId}`}
+          title="Protect Tags — tags cannot be deleted"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => onProtectTagsChange?.(!protectTags)}
+        >
+          Protect
         </button>
       </div>
       {quickPlaceOpen ? (

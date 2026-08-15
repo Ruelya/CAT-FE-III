@@ -555,6 +555,24 @@ export function appReducer(state: AppState, action: AppAction): AppState {
 }
 
 export const TM_PANEL_PREF_KEY = "translunar.renderer.tm-panel.v1";
+export const PROTECT_TAGS_PREF_KEY = "translunar.renderer.protect-tags.v1";
+
+export function readProtectTags(
+  storage: Pick<Storage, "getItem"> = localStorage,
+): boolean {
+  try {
+    return storage.getItem(PROTECT_TAGS_PREF_KEY) === "on";
+  } catch {
+    return false;
+  }
+}
+
+export function writeProtectTags(
+  on: boolean,
+  storage: Pick<Storage, "setItem"> = localStorage,
+): void {
+  storage.setItem(PROTECT_TAGS_PREF_KEY, on ? "on" : "off");
+}
 
 export function readTmCollapsed(
   storage: Pick<Storage, "getItem"> = localStorage,

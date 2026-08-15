@@ -1,6 +1,12 @@
+import type { ReactNode } from "react";
 import type { InlineTag } from "@translunar/contracts";
 
-import { splitTaggedText } from "../lib/tagged-text";
+import { encodeInlineTag, splitTaggedText } from "../lib/tagged-text";
+
+export interface SourceHighlight {
+  start: number;
+  end: number;
+}
 
 export interface TaggedTextProps {
   text: string;
@@ -8,6 +14,8 @@ export interface TaggedTextProps {
   className?: string;
   /** Ctrl/Meta+click a source tag to place it on the target (Trados). */
   onTagActivate?: (tag: InlineTag) => void;
+  /** QuickPlace active item: highlight the matching source span. */
+  highlight?: SourceHighlight | null;
 }
 
 /**
@@ -23,36 +31,67 @@ export function TaggedText({
   tags,
   className,
   onTagActivate,
+  highlight,
 }: TaggedTextProps) {
   const pieces = splitTaggedText(text, tags);
   if (pieces.length === 0) {
     return <div className={className}>{text || "\u00a0"}</div>;
   }
-  return (
-    <div className={className}>
-      {pieces.map((piece, index) =>
-        piece.kind === "text" ? (
-          <span key={`t-${index}`}>{piece.text}</span>
-        ) : (
-          <span
-            key={`g-${piece.tag?.id ?? index}`}
-            className={`inline-tag inline-tag--${piece.tag?.kind ?? "standalone"}`}
-            title={
-              onTagActivate
-                ? `Ctrl+click to place ${piece.text}`
-                : (piece.tag?.payload ?? piece.text)
-            }
-            onMouseDown={(event) => {
-              if (!onTagActivate || !piece.tag) return;
-              if (!event.ctrlKey && !event.metaKey) return;
-              event.preventDefault();
-              onTagActivate(piece.tag);
-            }}
-          >
-            {piece.text}
-          </span>
-        ),
-      )}
-    </div>
-  );
+  let offset = 0;
+  const nodes: ReactNode[] = [];
+  for (const [index, piece] of pieces.entries()) {
+    if (piece.kind === "text") {
+      const chars = [...piece.text];
+      const lo = offset;
+      const hi = offset + chars.length;
+      if (highlight && highlight.start < hi && highlight.end > lo) {
+        const from = Math.max(0, highlight.start - lo);
+        const to = Math.min(chars.length, highlight.end - lo);
+        if (from > 0) {
+          nodes.push(
+            <span key={`t-${index}-a`}>{chars.slice(0, from).join("")}</span>,
+          );
+        }
+        nodes.push(
+          <mark key={`t-${index}-h`} className="qp-source-hit" data-testid="qp-source-hit">
+            {chars.slice(from, to).join("")}
+          </mark>,
+        );
+        if (to < chars.length) {
+          nodes.push(
+            <span key={`t-${index}-c`}>{chars.slice(to).join("")}</span>,
+          );
+        }
+      } else {
+        nodes.push(<span key={`t-${index}`}>{piece.text}</span>);
+      }
+      offset = hi;
+      continue;
+    }
+    const hit =
+      highlight != null && offset >= highlight.start && offset <= highlight.end;
+    nodes.push(
+      <span
+        key={`g-${piece.tag?.id ?? index}`}
+        className={`inline-tag inline-tag--${piece.tag?.kind ?? "standalone"}${
+          hit ? " inline-tag--qp-hit" : ""
+        }`}
+        title={
+          onTagActivate
+            ? `Ctrl+click to place ${piece.text}`
+            : (piece.tag?.payload ?? piece.text)
+        }
+        {...(piece.tag ? { "data-tag": encodeInlineTag(piece.tag) } : {})}
+        onMouseDown={(event) => {
+          if (!onTagActivate || !piece.tag) return;
+          if (!event.ctrlKey && !event.metaKey) return;
+          event.preventDefault();
+          onTagActivate(piece.tag);
+        }}
+      >
+        {piece.text}
+      </span>,
+    );
+  }
+  return <div className={className}>{nodes}</div>;
 }

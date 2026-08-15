@@ -1292,6 +1292,23 @@
   text-decoration: line-through;
 }
 
+.qp-source-hit {
+  background: color-mix(in srgb, var(--color-accent) 28%, transparent);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 0.05em;
+}
+
+.inline-tag--qp-hit {
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
+  outline-offset: 1px;
+}
+
+.target-editor__actions [aria-pressed="true"] {
+  background: var(--color-accent-soft);
+  border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-line));
+}
+
 .intel-dock .muted {
   margin: var(--space-4) 0;
   text-align: center;

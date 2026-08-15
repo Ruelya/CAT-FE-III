@@ -5,10 +5,14 @@ import { segmentNumber } from "../lib/format";
 import { pairSourceTags } from "../lib/quickplace";
 import { structureLabel, structureTitle } from "../lib/structure-label";
 import {
+  caretOffsetsInTaggedEditor,
   mergeTargetTags,
   placeTagAtCaret,
+  sliceTaggedSpan,
+  TAGGED_CLIPBOARD_TYPE,
   wrapSelectionWithTagPair,
 } from "../lib/tagged-text";
+import type { SourceHighlight } from "./TaggedText";
 import { readSegmentSelection } from "../state/editor-selection";
 import type { SegmentEditState } from "../state/save-coordinator";
 import { TargetEditor, type SuggestionBinding } from "./TargetEditor";
@@ -49,6 +53,10 @@ export interface SegmentGridProps {
   quickPlaceOpen?: boolean;
   onQuickPlaceOpenChange?: (open: boolean) => void;
   onPlaceAllTags?: () => void;
+  sourceHighlight?: SourceHighlight | null;
+  onSourceHighlight?: (span: SourceHighlight | null) => void;
+  protectTags?: boolean;
+  onProtectTagsChange?: (next: boolean) => void;
   /** Per-segment comment counts, for the row marker. */
   commentCounts?: Readonly<Record<string, number>>;
   /** Per-segment QA finding counts, for the row marker. */
@@ -80,6 +88,10 @@ export function SegmentGrid({
   quickPlaceOpen,
   onQuickPlaceOpenChange,
   onPlaceAllTags,
+  sourceHighlight,
+  onSourceHighlight,
+  protectTags,
+  onProtectTagsChange,
   commentCounts,
   qaCounts,
   repeatedSources,
@@ -213,11 +225,32 @@ export function SegmentGrid({
                     {structureLabel(row.segment.structuralPath)}
                   </span>
                 </td>
-                <td>
+                <td
+                  onCopy={(event) => {
+                    const root = event.currentTarget.querySelector(".segment-source");
+                    if (!(root instanceof HTMLElement)) return;
+                    const selection = event.currentTarget.ownerDocument.defaultView?.getSelection() ?? null;
+                    const offsets = caretOffsetsInTaggedEditor(root, selection);
+                    if (offsets.start === offsets.end) return;
+                    const clip = sliceTaggedSpan(
+                      row.segment.sourceText,
+                      row.sourceTags,
+                      offsets.start,
+                      offsets.end,
+                    );
+                    event.clipboardData?.setData("text/plain", clip.text);
+                    event.clipboardData?.setData(
+                      TAGGED_CLIPBOARD_TYPE,
+                      JSON.stringify(clip),
+                    );
+                    event.preventDefault();
+                  }}
+                >
                   <TaggedText
                     className="segment-source"
                     text={row.segment.sourceText}
                     tags={row.sourceTags}
+                    {...(active && sourceHighlight ? { highlight: sourceHighlight } : {})}
                     {...(active && onTagsChange
                       ? {
                           onTagActivate: (tag: InlineTag) => {
@@ -279,6 +312,9 @@ export function SegmentGrid({
                         ? { onQuickPlaceOpenChange }
                         : {})}
                       {...(onPlaceAllTags ? { onPlaceAllTags } : {})}
+                      {...(onSourceHighlight ? { onSourceHighlight } : {})}
+                      {...(protectTags !== undefined ? { protectTags } : {})}
+                      {...(onProtectTagsChange ? { onProtectTagsChange } : {})}
                     />
                   ) : (
                     <button

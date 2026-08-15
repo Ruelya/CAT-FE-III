@@ -8,7 +8,11 @@ import type {
 
 import type { UiError } from "../lib/errors";
 import { formatUiError } from "../lib/errors";
-import type { SessionContext } from "../state/app-state";
+import {
+  readProtectTags,
+  writeProtectTags,
+  type SessionContext,
+} from "../state/app-state";
 import type { SegmentEditState } from "../state/save-coordinator";
 import {
   applyDisplayFilter,
@@ -191,8 +195,14 @@ export function Workbench({
 
   const [previewOpen, setPreviewOpen] = useState(true);
   const [quickPlaceOpen, setQuickPlaceOpen] = useState(false);
+  const [sourceHighlight, setSourceHighlight] = useState<{
+    start: number;
+    end: number;
+  } | null>(null);
+  const [protectTags, setProtectTags] = useState(readProtectTags);
   useEffect(() => {
     setQuickPlaceOpen(false);
+    setSourceHighlight(null);
   }, [activeSegmentId]);
   const [signReason, setSignReason] = useState<{
     segmentId: string;
@@ -571,6 +581,13 @@ export function Workbench({
             quickPlaceOpen={quickPlaceOpen}
             onQuickPlaceOpenChange={setQuickPlaceOpen}
             onPlaceAllTags={onPlaceTags}
+            sourceHighlight={sourceHighlight}
+            onSourceHighlight={setSourceHighlight}
+            protectTags={protectTags}
+            onProtectTagsChange={(next) => {
+              setProtectTags(next);
+              writeProtectTags(next);
+            }}
           />
           {previewOpen ? (
             <StructurePreview
