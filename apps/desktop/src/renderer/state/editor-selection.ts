@@ -1,3 +1,5 @@
+import { caretOffsetsInTaggedEditor } from "../lib/tagged-text";
+
 /**
  * What the translator currently has selected in the segment they are editing.
  *
@@ -21,7 +23,7 @@ export const EMPTY_SELECTION: SegmentSelection = {
   targetEnd: 0,
 };
 
-/** The target editor element for a segment, if it is the one being edited. */
+/** The hidden mirror textarea tests and legacy callers still address. */
 export function targetEditorFor(
   segmentId: string,
   root: Document | null = typeof document === "undefined" ? null : document,
@@ -29,6 +31,17 @@ export function targetEditorFor(
   if (!root) return null;
   return root.querySelector<HTMLTextAreaElement>(
     `[data-testid="target-editor-${segmentId}"]`,
+  );
+}
+
+/** The visible tagged target surface, when the row is active. */
+export function targetSurfaceFor(
+  segmentId: string,
+  root: Document | null = typeof document === "undefined" ? null : document,
+): HTMLElement | null {
+  if (!root) return null;
+  return root.querySelector<HTMLElement>(
+    `[data-testid="target-surface-${segmentId}"]`,
   );
 }
 
@@ -47,10 +60,20 @@ export function readSegmentSelection(
     : window,
 ): SegmentSelection {
   if (!view) return EMPTY_SELECTION;
+  const surface = targetSurfaceFor(segmentId, view.document);
   const editor = targetEditorFor(segmentId, view.document);
-  const target = editor
-    ? editor.value.slice(editor.selectionStart ?? 0, editor.selectionEnd ?? 0)
-    : "";
+  let target = "";
+  let targetStart = editor?.selectionStart ?? 0;
+  let targetEnd = editor?.selectionEnd ?? 0;
+  if (surface && view.document.activeElement === surface) {
+    const offsets = caretOffsetsInTaggedEditor(surface, view.getSelection?.() ?? null);
+    targetStart = offsets.start;
+    targetEnd = offsets.end;
+    const serialized = surface.dataset.targetText ?? "";
+    target = [...serialized].slice(targetStart, targetEnd).join("");
+  } else if (editor) {
+    target = editor.value.slice(editor.selectionStart ?? 0, editor.selectionEnd ?? 0);
+  }
 
   let source = "";
   const selection = view.getSelection?.();
@@ -67,8 +90,8 @@ export function readSegmentSelection(
   return {
     source: source.trim(),
     target: target.trim(),
-    targetStart: editor?.selectionStart ?? 0,
-    targetEnd: editor?.selectionEnd ?? 0,
+    targetStart,
+    targetEnd,
   };
 }
 

@@ -15,6 +15,10 @@ export interface EditorShortcutHandlers {
   onPretranslate: () => void;
   /** Ctrl+,: place source tags onto the target. */
   onPlaceTags: () => void;
+  /** Ctrl+F: open find on the current document. */
+  onFind?: () => void;
+  /** F4 / Ctrl+G already used; Enter-next from Find uses this. */
+  onFindNext?: () => void;
 }
 
 /**
@@ -72,6 +76,16 @@ export function useEditorShortcuts(
       if (control && event.key === ",") {
         event.preventDefault();
         handlers.onPlaceTags();
+        return;
+      }
+      if (control && !event.shiftKey && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        handlers.onFind?.();
+        return;
+      }
+      if (event.key === "F4" && !event.altKey) {
+        event.preventDefault();
+        handlers.onFindNext?.();
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -85,5 +99,7 @@ export function useEditorShortcuts(
     handlers.onGoTo,
     handlers.onPretranslate,
     handlers.onPlaceTags,
+    handlers.onFind,
+    handlers.onFindNext,
   ]);
 }

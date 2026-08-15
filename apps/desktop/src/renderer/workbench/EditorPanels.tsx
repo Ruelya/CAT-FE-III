@@ -44,6 +44,17 @@ export function EditorPanels({
               onChange={(e) => ops.setFindQuery(e.target.value)}
               disabled={busy}
               data-testid="find-query"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  if (fr.matches.length > 0) {
+                    const current = fr.matches[0];
+                    if (current) void ops.selectFindMatch(current.segmentId);
+                  } else {
+                    void ops.runFind(0);
+                  }
+                }
+              }}
             />
           </label>
           <label className="field">
@@ -148,7 +159,14 @@ export function EditorPanels({
             <p className="muted">Loading</p>
           ) : null}
           {fr.findStatus === "ready" && fr.matches.length === 0 ? (
-            <p className="muted">No matches</p>
+            <p className="muted" data-testid="find-empty">
+              No matches
+            </p>
+          ) : null}
+          {fr.findStatus === "ready" && fr.findTotal > 0 ? (
+            <p className="muted" data-testid="find-count">
+              {fr.findTotal} {fr.findTotal === 1 ? "match" : "matches"}
+            </p>
           ) : null}
           {fr.matches.length > 0 ? (
             <ul className="editor-panel__list" data-testid="find-matches">
@@ -159,7 +177,7 @@ export function EditorPanels({
                     className="btn btn--ghost btn--sm"
                     onClick={() => void ops.selectFindMatch(m.segmentId)}
                   >
-                    {m.segmentId} · {m.field} · {m.matchedText}
+                    {m.field} · {m.matchedText}
                   </button>
                 </li>
               ))}

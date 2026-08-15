@@ -12,6 +12,7 @@ import type {
   SegmentEditorRow,
   SegmentCounts,
   GlobalSearchHit,
+  EditorWorkflowState,
 } from "@translunar/contracts";
 
 import type {
@@ -38,7 +39,10 @@ function emptyCounts(): SegmentCounts {
   };
 }
 
-function rowFromSegment(segment: Segment): SegmentEditorRow {
+function rowFromSegment(
+  segment: Segment,
+  workflowState: EditorWorkflowState = "translation",
+): SegmentEditorRow {
   return {
     segment,
     comments: [],
@@ -46,7 +50,7 @@ function rowFromSegment(segment: Segment): SegmentEditorRow {
     targetTags: [],
     spellFindings: [],
     tagIssues: [],
-    workflowState: "translation",
+    workflowState,
   };
 }
 
@@ -122,6 +126,7 @@ export interface FakeEngineState {
   pdfPagesByDocument: Record<string, FakePdfPage[]>;
   journal: DraftJournalRecord[];
   calls: Array<{ method: string; params: unknown }>;
+  workflows: Record<string, EditorWorkflowState>;
   gateClear: boolean;
   exampleResult: ExampleProjectResult;
   statusListeners: Array<
@@ -161,6 +166,7 @@ export function createFakeEngineState(
     pdfPagesByDocument: {},
     journal: [],
     calls: [],
+    workflows: {},
     gateClear: true,
     exampleResult: { ok: false, message: "no example", code: "NO_EXAMPLE" },
     statusListeners: [],
@@ -714,14 +720,48 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
         }
         case "segment.editor.list": {
           const p = params as EngineParams<"segment.editor.list">;
+          const filter = p.filter ?? "all";
           const items = state.segments
             .filter((s) => s.documentId === p.documentId)
-            .map(rowFromSegment);
+            .filter((s) => (filter === "all" ? true : s.state === filter))
+            .map((s) => rowFromSegment(s, state.workflows[s.id] ?? "translation"));
           return {
             items,
-            limit: 200,
-            offset: 0,
+            limit: p.limit ?? 200,
+            offset: p.offset ?? 0,
             total: items.length,
+          } as EngineResult<Method>;
+        }
+        case "segment.workflow.set": {
+          const p = params as EngineParams<"segment.workflow.set">;
+          const seg = state.segments.find((s) => s.id === p.segmentId);
+          if (!seg) {
+            return Promise.reject({
+              code: "NOT_FOUND",
+              message: "Segment not found",
+            }) as never;
+          }
+          if (seg.revision !== p.expectedRevision) {
+            return Promise.reject({
+              code: "REVISION_CONFLICT",
+              message: "Revision conflict",
+            }) as never;
+          }
+          if (
+            (p.state === "review" || p.state === "signed") &&
+            seg.state !== "confirmed"
+          ) {
+            return Promise.reject({
+              code: "INVALID_STATE",
+              message: "review and signed workflow states require a confirmed segment",
+            }) as never;
+          }
+          state.workflows[seg.id] = p.state;
+          seg.revision += 1;
+          return {
+            rows: [rowFromSegment(seg, p.state)],
+            counts: emptyCounts(),
+            focusSegmentId: seg.id,
           } as EngineResult<Method>;
         }
         case "segment.updateTarget": {
@@ -966,7 +1006,9 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
         case "segment.chinese.convert":
         case "editor.undo":
         case "editor.redo": {
-          const rows = state.segments.map(rowFromSegment);
+          const rows = state.segments.map((s) =>
+            rowFromSegment(s, state.workflows[s.id] ?? "translation"),
+          );
           return {
             rows,
             counts: emptyCounts(),
@@ -1045,7 +1087,9 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
           } as EngineResult<Method>;
         case "review.accept":
           return {
-            rows: state.segments.map(rowFromSegment),
+            rows: state.segments.map((s) =>
+              rowFromSegment(s, state.workflows[s.id] ?? "translation"),
+            ),
             counts: emptyCounts(),
             focusSegmentId: null,
           } as EngineResult<Method>;

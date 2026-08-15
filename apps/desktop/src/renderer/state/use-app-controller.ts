@@ -8,7 +8,9 @@ import {
 } from "react";
 import type {
   Document,
+  EditorWorkflowState,
   GlobalSearchHit,
+  InlineTag,
   Project,
   Segment,
   SegmentCounts,
@@ -56,8 +58,14 @@ import {
   concordanceQueryFor,
   readSegmentSelection,
   targetEditorFor,
+  targetSurfaceFor,
   type SegmentSelection,
 } from "./editor-selection";
+import {
+  placeSourceTagsAtCaret,
+  placeSourceTagsProportional,
+  setCaretInTaggedEditor,
+} from "../lib/tagged-text";
 import { countsFromEditorRows } from "./editor-operations";
 import { EMPTY_SEGMENT_INTEL, type SegmentIntel } from "./segment-intel";
 // AppState imported for FeatureOp origin typing.
@@ -257,6 +265,12 @@ export interface AppController {
     acceptSuggestion: (text: string, prefix: string) => void;
     applyAiProposal: (text: string) => void;
     placeSourceTags: () => Promise<void>;
+    persistTargetTags: (tags: InlineTag[]) => Promise<void>;
+    setWorkflow: (
+      segmentId: string,
+      state: EditorWorkflowState,
+      reason?: string,
+    ) => Promise<void>;
     pretranslateDocument: () => Promise<void>;
     goQa: () => Promise<void>;
     runQa: () => Promise<void>;
@@ -1911,23 +1925,26 @@ export function useAppController(): AppController {
         if (surface.kind !== "workbench") return;
         const active = saveCoordinator.active;
         if (!active || active.isComposing) return;
-        const element = document.querySelector<HTMLTextAreaElement>(
-          `[data-testid="target-editor-${active.segmentId}"]`,
-        );
+        const selection = readSegmentSelection(active.segmentId);
         const current = active.draftTarget;
-        const start = element?.selectionStart ?? current.length;
-        const end = element?.selectionEnd ?? current.length;
+        const start = selection.targetStart;
+        const end = Math.max(selection.targetEnd, start);
         const next = `${current.slice(0, start)}${text}${current.slice(end)}`;
         saveCoordinator.updateDraft(next);
-        if (element) {
-          const caret = start + text.length;
-          // Restore focus and put the caret after what was inserted, so the
-          // translator keeps typing instead of hunting for their place.
-          requestAnimationFrame(() => {
+        const caret = start + text.length;
+        requestAnimationFrame(() => {
+          const surface = targetSurfaceFor(active.segmentId);
+          if (surface) {
+            surface.focus();
+            setCaretInTaggedEditor(surface, caret);
+            return;
+          }
+          const element = targetEditorFor(active.segmentId);
+          if (element) {
             element.focus();
             element.setSelectionRange(caret, caret);
-          });
-        }
+          }
+        });
       },
 
       // Concordance answers a question the translator asks, so it runs on their
@@ -2215,23 +2232,106 @@ export function useAppController(): AppController {
             [...fresh.segment.sourceText].length,
             1,
           );
-          const targetTags = fresh.sourceTags.map((tag, index) => ({
-            id: `placed-${index}:${tag.id}`,
-            side: "target" as const,
-            position: Math.min(
-              targetLength,
-              Math.round((tag.position * targetLength) / sourceLength),
-            ),
-            kind: tag.kind,
-            pairId: tag.pairId,
-            payload: tag.payload,
-            displayText: tag.displayText,
-            protected: true,
-          }));
+          const surfaceEl = targetSurfaceFor(segmentId);
+          const caret = readSegmentSelection(segmentId).targetStart;
+          const targetTags =
+            surfaceEl && document.activeElement === surfaceEl
+              ? placeSourceTagsAtCaret(fresh.sourceTags, caret)
+              : placeSourceTagsProportional(
+                  fresh.sourceTags,
+                  sourceLength,
+                  targetLength,
+                );
           const result = await invokeEngine("segment.tag.set", {
             segmentId,
             expectedRevision: fresh.segment.revision,
             targetTags,
+          });
+          const { rows } = await listAllEditorRows(current.ctx.document.id);
+          const next = stateRef.current.surface;
+          if (next.kind !== "workbench") return;
+          dispatch({
+            type: "PATCH_WORKBENCH",
+            patch: {
+              ctx: {
+                ...next.ctx,
+                rows,
+                counts: result.counts ?? countsFromRows(rows),
+              },
+            },
+          });
+        } catch (error) {
+          dispatch({
+            type: "PATCH_WORKBENCH",
+            patch: { transitionError: toUiError(error) },
+          });
+        }
+      },
+
+      persistTargetTags: async (tags) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "workbench") return;
+        const segmentId = surface.activeSegmentId;
+        if (!segmentId) return;
+        const active = saveCoordinator.active;
+        if (active?.isComposing) return;
+        if (active && active.segmentId === segmentId) {
+          await saveCoordinator.flush();
+        }
+        const current = stateRef.current.surface;
+        if (current.kind !== "workbench") return;
+        const row = current.ctx.rows.find((item) => item.segment.id === segmentId);
+        if (!row) return;
+        try {
+          const result = await invokeEngine("segment.tag.set", {
+            segmentId,
+            expectedRevision: row.segment.revision,
+            targetTags: tags,
+          });
+          const { rows } = await listAllEditorRows(current.ctx.document.id);
+          const next = stateRef.current.surface;
+          if (next.kind !== "workbench") return;
+          dispatch({
+            type: "PATCH_WORKBENCH",
+            patch: {
+              ctx: {
+                ...next.ctx,
+                rows,
+                counts: result.counts ?? countsFromRows(rows),
+              },
+            },
+          });
+        } catch (error) {
+          dispatch({
+            type: "PATCH_WORKBENCH",
+            patch: { transitionError: toUiError(error) },
+          });
+        }
+      },
+
+      setWorkflow: async (segmentId, state, reason) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "workbench") return;
+        const row = surface.ctx.rows.find((item) => item.segment.id === segmentId);
+        if (!row || row.workflowState === state) return;
+        if (saveCoordinator.active?.isComposing) return;
+        if (saveCoordinator.active?.segmentId === segmentId) {
+          const ok = await flushOrStay();
+          if (!ok) return;
+        }
+        const current = stateRef.current.surface;
+        if (current.kind !== "workbench") return;
+        const fresh = current.ctx.rows.find((item) => item.segment.id === segmentId);
+        if (!fresh) return;
+        try {
+          const result = await invokeEngine("segment.workflow.set", {
+            segmentId,
+            expectedRevision: fresh.segment.revision,
+            state,
+            actor: DESKTOP_ACTOR,
+            ...(reason ? { reason } : {}),
           });
           const { rows } = await listAllEditorRows(current.ctx.document.id);
           const next = stateRef.current.surface;

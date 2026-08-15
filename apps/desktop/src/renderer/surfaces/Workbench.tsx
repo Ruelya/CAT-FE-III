@@ -1,5 +1,10 @@
 import { useMemo, useState } from "react";
-import type { ProjectBatchImportResult, TmMatch } from "@translunar/contracts";
+import type {
+  EditorWorkflowState,
+  InlineTag,
+  ProjectBatchImportResult,
+  TmMatch,
+} from "@translunar/contracts";
 
 import type { UiError } from "../lib/errors";
 import { formatUiError } from "../lib/errors";
@@ -29,6 +34,9 @@ import { ConfirmDialog } from "../shell/ConfirmDialog";
 import { ReimportDialog } from "../insights/ReimportDialog";
 import { BatchImportSummary } from "../workbench/BatchImportSummary";
 import { DocumentSwitcher } from "../workbench/DocumentSwitcher";
+import { FileNav } from "../workbench/FileNav";
+import { StructurePreview } from "../workbench/StructurePreview";
+import { useDocumentProgress } from "../state/use-document-progress";
 import { EditorCommandBar } from "../workbench/EditorCommandBar";
 import { EditorPanels } from "../workbench/EditorPanels";
 import { PdfPageReview } from "../workbench/PdfPageReview";
@@ -59,6 +67,12 @@ export interface WorkbenchProps {
   onToggleSelect?: (segmentId: string) => void;
   onSelectSegment: (segmentId: string) => void;
   onDraftChange: (text: string) => void;
+  onTagsChange?: (tags: InlineTag[]) => void;
+  onSetWorkflow?: (
+    segmentId: string,
+    state: EditorWorkflowState,
+    reason?: string,
+  ) => void;
   onCompositionStart: () => void;
   onCompositionEnd: () => void;
   onConfirm: (event?: {
@@ -116,6 +130,8 @@ export function Workbench({
   onToggleSelect,
   onSelectSegment,
   onDraftChange,
+  onTagsChange,
+  onSetWorkflow,
   onCompositionStart,
   onCompositionEnd,
   onConfirm,
@@ -169,6 +185,17 @@ export function Workbench({
     segmentId: activeSegmentId,
   });
 
+  const [previewOpen, setPreviewOpen] = useState(true);
+  const [signReason, setSignReason] = useState<{
+    segmentId: string;
+    reason: string;
+  } | null>(null);
+  const progress = useDocumentProgress(
+    ctx.documents,
+    ctx.document.id,
+    counts ?? null,
+  );
+
   useEditorShortcuts(!disabled, {
     onConcordance: () => onConcordance(undefined, selection),
     onQuickAddTerm: () => onQuickAddTerm(selection),
@@ -177,6 +204,14 @@ export function Workbench({
     onGoTo: () => setGoToOpen(true),
     onPretranslate,
     onPlaceTags,
+    onFind: () => editorOps?.openPanel("findReplace"),
+    onFindNext: () => {
+      const matches = editorOps?.findReplace.matches ?? [];
+      if (matches.length === 0) return;
+      const current = matches.findIndex((m) => m.segmentId === activeSegmentId);
+      const next = matches[(current + 1) % matches.length];
+      if (next) void editorOps?.selectFindMatch(next.segmentId);
+    },
   });
   // Container-responsive density: dock changes resize the editor without
   // resizing the window, so this cannot be a viewport media query.
@@ -296,6 +331,16 @@ export function Workbench({
               type="button"
               className="btn btn--ghost btn--sm"
               disabled={headerBusy}
+              aria-pressed={previewOpen}
+              onClick={() => setPreviewOpen((open) => !open)}
+              data-testid="toggle-preview"
+            >
+              {previewOpen ? "Hide preview" : "Preview"}
+            </button>
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              disabled={headerBusy}
               onClick={onAddFiles}
               data-testid="add-files"
             >
@@ -401,6 +446,7 @@ export function Workbench({
       <div
         className={[
           "workbench__body",
+          "workbench__body--with-files",
           tmCollapsed ? "workbench__body--tm-collapsed" : "",
           pdfReview &&
           shouldMountPdfDock({
@@ -420,6 +466,14 @@ export function Workbench({
           .filter(Boolean)
           .join(" ")}
       >
+        <FileNav
+          documents={ctx.documents}
+          activeDocumentId={ctx.document.id}
+          progress={progress}
+          disabled={headerBusy}
+          pending={switchPending === true}
+          onSelect={onSwitchDocument}
+        />
         {pdfReview &&
         shouldMountPdfDock({
           pageCount: pdfReview.state.pages.length,
@@ -458,6 +512,26 @@ export function Workbench({
             }}
             {...(onToggleSelect ? { onToggleSelect } : {})}
             onDraftChange={onDraftChange}
+            {...(onTagsChange ? { onTagsChange } : {})}
+            {...(onSetWorkflow
+              ? {
+                  onSetWorkflow: (segmentId, state) => {
+                    if (state === "signed") {
+                      const row = ctx.rows.find((item) => item.segment.id === segmentId);
+                      if (row && row.workflowState !== "review") {
+                        setSignReason({ segmentId, reason: "" });
+                        return;
+                      }
+                    }
+                    onSetWorkflow(segmentId, state);
+                  },
+                }
+              : {})}
+            highlightedSegmentId={
+              editorOps?.findReplace.matches.find((m) => m.segmentId === activeSegmentId)
+                ? activeSegmentId
+                : (editorOps?.findReplace.matches[0]?.segmentId ?? null)
+            }
             onCompositionStart={onCompositionStart}
             onCompositionEnd={onCompositionEnd}
             onConfirm={onConfirm}
@@ -478,6 +552,15 @@ export function Workbench({
                 onAcceptSuggestion(suggestion.text, suggest.prefix),
             }}
           />
+          {previewOpen ? (
+            <StructurePreview
+              rows={visibleRows}
+              activeSegmentId={activeSegmentId}
+              onJump={(id) => {
+                void onSelectSegment(id);
+              }}
+            />
+          ) : null}
           {editorOps ? (
             <EditorPanels
               ops={editorOps}
@@ -544,6 +627,28 @@ export function Workbench({
             setGoToOpen(false);
             if (row) onSelectSegment(row.segment.id);
           }}
+        />
+      ) : null}
+
+      {signReason && onSetWorkflow ? (
+        <ConfirmDialog
+          title="Sign off segment"
+          body="Signing off locks the segment. The engine will reject further target edits until the workflow is opened again."
+          confirmLabel="Sign off"
+          reasonLabel="Reason"
+          reason={signReason.reason}
+          onReasonChange={(reason) =>
+            setSignReason((current) =>
+              current ? { ...current, reason } : current,
+            )
+          }
+          onCancel={() => setSignReason(null)}
+          onConfirm={() => {
+            if (!signReason.reason.trim()) return;
+            onSetWorkflow(signReason.segmentId, "signed", signReason.reason.trim());
+            setSignReason(null);
+          }}
+          testId="sign-off-confirm"
         />
       ) : null}
 

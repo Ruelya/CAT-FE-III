@@ -717,6 +717,12 @@ export function App() {
                 void commands.selectSegment(id);
               }}
               onDraftChange={commands.updateTargetDraft}
+              onTagsChange={(tags) => {
+                void commands.persistTargetTags(tags);
+              }}
+              onSetWorkflow={(segmentId, state, reason) => {
+                void commands.setWorkflow(segmentId, state, reason);
+              }}
               onCompositionStart={commands.compositionStart}
               onCompositionEnd={commands.compositionEnd}
               onConfirm={(ev) => {

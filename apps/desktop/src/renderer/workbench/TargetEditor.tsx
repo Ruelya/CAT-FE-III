@@ -1,16 +1,25 @@
-import { useEffect, useRef } from "react";
-import type { EditorSuggestion } from "@translunar/contracts";
+import { useEffect, useRef, type KeyboardEvent } from "react";
+import type { EditorSuggestion, InlineTag } from "@translunar/contracts";
 
+import {
+  buildTaggedEditorHtml,
+  caretOffsetsInTaggedEditor,
+  serializeTaggedEditor,
+  setCaretInTaggedEditor,
+  tagsEqual,
+} from "../lib/tagged-text";
 import type { SegmentEditState } from "../state/save-coordinator";
 import { SuggestionPopup } from "./SuggestionPopup";
 
 export interface TargetEditorProps {
   segmentId: string;
   value: string;
+  tags?: readonly InlineTag[];
   editState: SegmentEditState | null;
   disabled?: boolean;
   autoFocus?: boolean;
   onChange: (value: string) => void;
+  onTagsChange?: (tags: InlineTag[]) => void;
   onCompositionStart: () => void;
   onCompositionEnd: () => void;
   onConfirm: (event: {
@@ -40,13 +49,27 @@ export interface SuggestionBinding {
   onAccepted: (suggestion: EditorSuggestion) => void;
 }
 
+function isImeKey(event: {
+  nativeEvent: { isComposing?: boolean };
+  keyCode: number;
+  which: number;
+}): boolean {
+  return (
+    event.nativeEvent.isComposing === true ||
+    event.keyCode === 229 ||
+    event.which === 229
+  );
+}
+
 export function TargetEditor({
   segmentId,
   value,
+  tags = [],
   editState,
   disabled,
   autoFocus,
   onChange,
+  onTagsChange,
   onCompositionStart,
   onCompositionEnd,
   onConfirm,
@@ -54,14 +77,38 @@ export function TargetEditor({
   suggestions,
   confirmLabel,
 }: TargetEditorProps) {
-  const ref = useRef<HTMLTextAreaElement>(null);
+  const mirrorRef = useRef<HTMLTextAreaElement>(null);
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const skipSync = useRef(false);
+  const composing = useRef(false);
   const open = (suggestions?.items.length ?? 0) > 0;
 
   useEffect(() => {
     if (autoFocus) {
-      ref.current?.focus();
+      surfaceRef.current?.focus();
     }
   }, [autoFocus, segmentId]);
+
+  useEffect(() => {
+    const surface = surfaceRef.current;
+    if (!surface) return;
+    if (skipSync.current) {
+      skipSync.current = false;
+      return;
+    }
+    if (composing.current) return;
+    const next = buildTaggedEditorHtml(value, tags);
+    if (surface.innerHTML !== next) {
+      const caret = caretOffsetsInTaggedEditor(
+        surface,
+        surface.ownerDocument.defaultView?.getSelection() ?? null,
+      ).start;
+      surface.innerHTML = next;
+      if (document.activeElement === surface) {
+        setCaretInTaggedEditor(surface, Math.min(caret, [...value].length));
+      }
+    }
+  }, [value, tags, segmentId]);
 
   const dirty =
     editState &&
@@ -75,19 +122,135 @@ export function TargetEditor({
 
   const className = [
     "target-editor",
+    "target-editor--rich",
     dirty ? "target-editor--dirty" : "",
     errored ? "target-editor--error" : "",
   ]
     .filter(Boolean)
     .join(" ");
 
+  const emitFromSurface = () => {
+    const surface = surfaceRef.current;
+    if (!surface) return;
+    const serialized = serializeTaggedEditor(surface);
+    skipSync.current = true;
+    onChange(serialized.text);
+    if (onTagsChange && !tagsEqual(serialized.tags, tags)) {
+      onTagsChange(serialized.tags);
+    }
+    const caret = caretOffsetsInTaggedEditor(
+      surface,
+      surface.ownerDocument.defaultView?.getSelection() ?? null,
+    ).end;
+    suggestions?.request(serialized.text, caret);
+  };
+
+  const handleKeys = (
+    event: KeyboardEvent<HTMLElement>,
+    caretFallback: number,
+  ) => {
+    if (open && suggestions && !isImeKey(event)) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        suggestions.move(1);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        suggestions.move(-1);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        suggestions.dismiss();
+        return;
+      }
+      if (event.key === "Tab" || (event.key === "Enter" && !event.ctrlKey && !event.metaKey)) {
+        const chosen = suggestions.accept();
+        if (chosen) {
+          event.preventDefault();
+          suggestions.onAccepted(chosen);
+          return;
+        }
+      }
+    }
+    if (
+      onApplyMatchByIndex &&
+      (event.ctrlKey || event.metaKey) &&
+      !event.altKey &&
+      /^[1-9]$/.test(event.key)
+    ) {
+      if (isImeKey(event)) return;
+      event.preventDefault();
+      onApplyMatchByIndex(Number(event.key) - 1);
+      return;
+    }
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      if (isImeKey(event)) return;
+      event.preventDefault();
+      onConfirm({
+        isComposing: event.nativeEvent.isComposing,
+        keyCode: event.keyCode,
+        which: event.which,
+        altKey: event.altKey,
+        shiftKey: event.shiftKey,
+      });
+      return;
+    }
+    if (event.currentTarget === surfaceRef.current && event.key.length === 1) {
+      suggestions?.request(value, caretFallback);
+    }
+  };
+
   return (
     <div className="target-editor__shell">
-      <textarea
-        ref={ref}
+      <div
+        ref={surfaceRef}
         className={className}
-        data-testid={`target-editor-${segmentId}`}
+        data-testid={`target-surface-${segmentId}`}
+        data-target-text={value}
+        role="textbox"
+        aria-multiline="true"
         aria-label="Target"
+        aria-disabled={disabled === true}
+        contentEditable={disabled !== true}
+        suppressContentEditableWarning
+        onInput={() => {
+          if (composing.current) return;
+          emitFromSurface();
+        }}
+        onCompositionStart={() => {
+          composing.current = true;
+          onCompositionStart();
+        }}
+        onCompositionEnd={() => {
+          composing.current = false;
+          onCompositionEnd();
+          emitFromSurface();
+        }}
+        onBlur={() => suggestions?.dismiss()}
+        onKeyDown={(event) => {
+          const caret = surfaceRef.current
+            ? caretOffsetsInTaggedEditor(
+                surfaceRef.current,
+                event.currentTarget.ownerDocument.defaultView?.getSelection() ??
+                  null,
+              ).end
+            : [...value].length;
+          handleKeys(event, caret);
+        }}
+        onPaste={(event) => {
+          event.preventDefault();
+          const pasted = event.clipboardData.getData("text/plain");
+          document.execCommand("insertText", false, pasted);
+        }}
+      />
+      <textarea
+        ref={mirrorRef}
+        className="sr-only"
+        data-testid={`target-editor-${segmentId}`}
+        aria-hidden="true"
+        tabIndex={-1}
         value={value}
         disabled={disabled}
         onChange={(e) => {
@@ -96,85 +259,8 @@ export function TargetEditor({
         }}
         onCompositionStart={onCompositionStart}
         onCompositionEnd={onCompositionEnd}
-        onBlur={() => suggestions?.dismiss()}
         onKeyDown={(e) => {
-          // The completion list owns these keys only while it is open, and never
-          // during composition: an IME uses the same arrows and Enter to choose
-          // among its own candidates, and stealing them destroys input.
-          if (
-            open &&
-            suggestions &&
-            !e.nativeEvent.isComposing &&
-            e.keyCode !== 229
-          ) {
-            if (e.key === "ArrowDown") {
-              e.preventDefault();
-              suggestions.move(1);
-              return;
-            }
-            if (e.key === "ArrowUp") {
-              e.preventDefault();
-              suggestions.move(-1);
-              return;
-            }
-            if (e.key === "Escape") {
-              e.preventDefault();
-              suggestions.dismiss();
-              return;
-            }
-            if (
-              e.key === "Tab" ||
-              (e.key === "Enter" && !e.ctrlKey && !e.metaKey)
-            ) {
-              const chosen = suggestions.accept();
-              if (chosen) {
-                e.preventDefault();
-                suggestions.onAccepted(chosen);
-                return;
-              }
-            }
-          }
-          if (
-            onApplyMatchByIndex &&
-            (e.ctrlKey || e.metaKey) &&
-            !e.altKey &&
-            /^[1-9]$/.test(e.key)
-          ) {
-            // Digits are safe to intercept here: the target is prose, and every
-            // CAT tool this product's users come from binds them to the match
-            // list. Composition is checked because an IME candidate window uses
-            // the same digits to pick a candidate.
-            if (
-              e.nativeEvent.isComposing ||
-              e.keyCode === 229 ||
-              e.which === 229
-            ) {
-              return;
-            }
-            e.preventDefault();
-            onApplyMatchByIndex(Number(e.key) - 1);
-            return;
-          }
-          if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-            // Do not preventDefault when IME is active — check all 229 signals first.
-            if (
-              e.nativeEvent.isComposing ||
-              e.keyCode === 229 ||
-              e.which === 229
-            ) {
-              return;
-            }
-            e.preventDefault();
-            // Alt and Shift choose where the caret lands next; see
-            // state/confirm-advance.ts for the contract.
-            onConfirm({
-              isComposing: e.nativeEvent.isComposing,
-              keyCode: e.keyCode,
-              which: e.which,
-              altKey: e.altKey,
-              shiftKey: e.shiftKey,
-            });
-          }
+          handleKeys(e, e.currentTarget.selectionStart ?? [...value].length);
         }}
       />
       <div className="target-editor__actions">

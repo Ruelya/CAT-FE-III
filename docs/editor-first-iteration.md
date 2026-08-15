@@ -27,14 +27,24 @@
 
 回归：desktop 单测 413、E2E 20 passed / 4 fixture skips、Rust workspace 全绿。
 
+### 2026-08-15 续作（本轮）
+
+| 能力 | 说明 |
+| --- | --- |
+| 目标侧标签 atom | 活动行是 contenteditable；标签是不可拆的胶囊。Ctrl+, 在光标处 QuickPlace，未聚焦时仍按比例放置。 |
+| 多文件作业轨 | 左侧 FileNav：每文件剩余未确认数 + 进度条；作业合计 open/total。 |
+| 工作流 + 锁定 | Translation / Review / Signed off。Signed 由引擎拒绝改译文（`ensure_segment_not_signed`），UI 禁用目标框。直接签核要写理由。 |
+| Find | 计数、Enter 跳第一条、F4 下一条、命中行高亮。Ctrl+F 打开面板。 |
+| 结构预览 | 文档序块、当前段高亮、点击跳段。不是 Word WYSIWYG。 |
+
 ### 仍未做到 Trados 同水准的部分（诚实清单）
 
 这些**没有**假装完成，下一轮应继续：
 
-1. **目标侧富文本编辑**（标签在目标里可视化编辑、选区包标签）——现在源文可见，Ctrl+, 按比例放置，但目标仍是 textarea。
-2. **多文件作业台**（导航树、跨文件 QA/导出/传播）——仍是文档下拉切换。
-3. **实时预览**（Word/HTML 所见即所得）。
-4. **完整确认等级**（Approved / Rejected / Signed Off）与段锁定。
+1. **目标侧选区包标签 / IME 与补全在富文本上的手感打磨**——atom 已在，QuickPlace 列表与 ghost tags 还没有。
+2. **跨文件 QA / 导出 / 传播**——FileNav 能换文件并看到进度，动作仍作用在当前文件。
+3. **实时预览**（Word/HTML 所见即所得）。现在是结构块预览。
+4. **Approved / Rejected 七档**——引擎工作流是 translation/review/signed 三档，Signed = 锁定。
 5. **AI 需真实 provider 密钥**才能生成；门禁验证的是“挂在当前段 + 无配置时诚实”，不是云端生成质量。
 6. **SDLXLIFF / MQXLIFF / PDF** 尚未纳入 format-matrix 的同构往返（引擎已注册过滤器，缺同级 fixture 门禁）。
 

@@ -1,11 +1,17 @@
 import type { KeyboardEvent } from "react";
-import type { SegmentEditorRow } from "@translunar/contracts";
+import type { EditorWorkflowState, InlineTag, SegmentEditorRow } from "@translunar/contracts";
 
 import { segmentNumber } from "../lib/format";
 import { structureLabel, structureTitle } from "../lib/structure-label";
 import type { SegmentEditState } from "../state/save-coordinator";
 import { TargetEditor, type SuggestionBinding } from "./TargetEditor";
 import { TaggedText } from "./TaggedText";
+
+const WORKFLOW_LABEL: Record<EditorWorkflowState, string> = {
+  translation: "Translation",
+  review: "Review",
+  signed: "Signed off",
+};
 
 export interface SegmentGridProps {
   rows: SegmentEditorRow[];
@@ -19,6 +25,9 @@ export interface SegmentGridProps {
   /** Ctrl/Meta click toggles multi-select membership. */
   onToggleSelect?: (segmentId: string) => void;
   onDraftChange: (text: string) => void;
+  onTagsChange?: (tags: InlineTag[]) => void;
+  onSetWorkflow?: (segmentId: string, state: EditorWorkflowState) => void;
+  highlightedSegmentId?: string | null;
   onCompositionStart: () => void;
   onCompositionEnd: () => void;
   onConfirm: (event?: {
@@ -50,6 +59,9 @@ export function SegmentGrid({
   onSelect,
   onToggleSelect,
   onDraftChange,
+  onTagsChange,
+  onSetWorkflow,
+  highlightedSegmentId,
   onCompositionStart,
   onCompositionEnd,
   onConfirm,
@@ -157,16 +169,20 @@ export function SegmentGrid({
                       ? "dirty"
                       : null
                 : null;
+            const locked = row.workflowState === "signed";
+            const rowDisabled = Boolean(disabled || locked);
 
             return (
               <tr
                 key={id}
-                className={
-                  active
-                    ? "segment-row--active"
-                    : multiSelected
-                      ? "segment-row--selected"
-                      : undefined
+                className={[
+                  active ? "segment-row--active" : "",
+                  multiSelected ? "segment-row--selected" : "",
+                  highlightedSegmentId === id ? "segment-row--hit" : "",
+                  locked ? "segment-row--locked" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ") || undefined
                 }
                 data-testid={`segment-row-${id}`}
                 aria-selected={active || multiSelected}
@@ -196,11 +212,13 @@ export function SegmentGrid({
                     <TargetEditor
                       segmentId={id}
                       value={displayTarget}
+                      tags={row.targetTags}
                       editState={editState}
-                      disabled={disabled ?? false}
+                      disabled={rowDisabled}
                       autoFocus={focusSegmentId === id}
                       confirmLabel={String(segmentNumber(row.segment.ordinal))}
                       onChange={onDraftChange}
+                      {...(onTagsChange ? { onTagsChange } : {})}
                       onCompositionStart={onCompositionStart}
                       onCompositionEnd={onCompositionEnd}
                       onConfirm={(ev) => {
@@ -221,9 +239,11 @@ export function SegmentGrid({
                       onKeyDown={(event) => onRowKeyDown(event, id)}
                       aria-label={`Edit segment ${segmentNumber(row.segment.ordinal)}`}
                     >
-                      <span className="segment-source muted">
-                        {displayTarget || "-"}
-                      </span>
+                      <TaggedText
+                        className="segment-source muted"
+                        text={displayTarget || "-"}
+                        tags={row.targetTags}
+                      />
                     </button>
                   )}
                 </td>
@@ -266,6 +286,43 @@ export function SegmentGrid({
                             ? "Confirmed"
                             : row.segment.state}
                     </span>
+                    {onSetWorkflow ? (
+                      <label className="segment-workflow">
+                        <span className="sr-only">
+                          Workflow for segment {segmentNumber(row.segment.ordinal)}
+                        </span>
+                        <select
+                          className="segment-workflow__select"
+                          data-testid={`workflow-${id}`}
+                          value={row.workflowState}
+                          disabled={Boolean(disabled)}
+                          onChange={(event) =>
+                            onSetWorkflow(
+                              id,
+                              event.target.value as EditorWorkflowState,
+                            )
+                          }
+                        >
+                          <option value="translation">Translation</option>
+                          <option value="review">Review</option>
+                          <option value="signed">Signed off</option>
+                        </select>
+                      </label>
+                    ) : (
+                      <span
+                        className={`status-chip status-chip--workflow status-chip--${row.workflowState}`}
+                      >
+                        {WORKFLOW_LABEL[row.workflowState]}
+                      </span>
+                    )}
+                    {locked ? (
+                      <span
+                        className="status-chip status-chip--locked"
+                        data-testid={`mark-locked-${id}`}
+                      >
+                        Locked
+                      </span>
+                    ) : null}
                     {localLabel ? (
                       <span className="status-chip status-chip--local">
                         {localLabel}
