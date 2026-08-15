@@ -30,6 +30,7 @@ export function StructurePreview({
       aria-label="Document preview"
     >
       <h2 className="structure-preview__title">Preview</h2>
+      <p className="structure-preview__hint">Live reconstruction · click a block to jump</p>
       {blocks.length === 0 ? (
         <p className="muted">No segments to preview.</p>
       ) : (

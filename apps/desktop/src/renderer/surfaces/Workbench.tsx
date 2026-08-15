@@ -26,7 +26,26 @@ import {
 } from "../state/display-filter";
 import { useEditorDisplay } from "../state/use-editor-display";
 import { DisplayFilterBar } from "../workbench/DisplayFilterBar";
-import { canStoreTerm, type SegmentSelection } from "../state/editor-selection";
+import {
+  canStoreTerm,
+  readSegmentSelection,
+  type SegmentSelection,
+} from "../state/editor-selection";
+import { useAcpChat } from "../state/use-acp-chat";
+import {
+  readWorkbenchLayout,
+  writeWorkbenchLayout,
+} from "../state/workbench-layout";
+import { ActivityBar } from "../workbench/ActivityBar";
+import { AcpChatPanel } from "../workbench/AcpChatPanel";
+import { DockSash } from "../workbench/DockSash";
+import { EditorTabs } from "../workbench/EditorTabs";
+import { SegmentContextMenu } from "../workbench/SegmentContextMenu";
+import {
+  segmentContextActions,
+  splicePlain,
+  type ContextMenuField,
+} from "../workbench/segment-context-menu";
 import {
   nextInsertableTerm,
   termSourceHighlights,
@@ -200,7 +219,11 @@ export function Workbench({
     projectId: ctx.project.id,
     segmentId: activeSegmentId,
   });
-  const [previewOpen, setPreviewOpen] = useState(true);
+  const [layout, setLayout] = useState(readWorkbenchLayout);
+  const [previewOpen, setPreviewOpen] = useState(() => readWorkbenchLayout().previewSide);
+  const persistLayout = (next: typeof layout) => {
+    setLayout(writeWorkbenchLayout(next));
+  };
   const [quickPlaceOpen, setQuickPlaceOpen] = useState(false);
   const aiSuggest = useAiSuggest({
     enabled: autocompleteOn && !quickPlaceOpen,
@@ -278,6 +301,17 @@ export function Workbench({
   // sent them, and a filter that round-trips per keystroke stutters.
   const [filter, setFilter] = useState<DisplayFilter>(EMPTY_FILTER);
   const [goToOpen, setGoToOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    field: ContextMenuField;
+  } | null>(null);
+  const acpChat = useAcpChat({
+    enabled: layout.chatOpen && !disabled,
+    projectId: ctx.project.id,
+    segmentId: activeSegmentId,
+    segmentRevision: activeRow?.segment.revision ?? null,
+  });
   // Comment counts ride along on the rows the Engine already sent; only the
   // QA counts need their own query.
   const commentCounts = useMemo(() => {
@@ -298,6 +332,57 @@ export function Workbench({
   );
   const repeats = useMemo(() => repeatedSources(ctx.rows), [ctx.rows]);
 
+  const runContextAction = async (id: string) => {
+    const live = readSegmentSelection(activeSegmentId ?? "");
+    const draft =
+      editState?.segmentId === activeSegmentId
+        ? editState.draftTarget
+        : (activeRow?.segment.targetText ?? "");
+    if (id === "copy") {
+      const text = live.target || live.source || draft || activeRow?.segment.sourceText || "";
+      if (text) await navigator.clipboard?.writeText(text);
+      return;
+    }
+    if (id === "cut" && live.target) {
+      await navigator.clipboard?.writeText(live.target);
+      onDraftChange(splicePlain(draft, live.targetStart, live.targetEnd, ""));
+      return;
+    }
+    if (id === "paste") {
+      const clip = (await navigator.clipboard?.readText()) ?? "";
+      onDraftChange(splicePlain(draft, live.targetStart, live.targetEnd, clip));
+      return;
+    }
+    if (id === "copySource") {
+      onCopySourceToTarget();
+      return;
+    }
+    if (id === "clearTarget") {
+      onClearTarget();
+      return;
+    }
+    if (id === "confirm") {
+      onConfirm();
+      return;
+    }
+    if (id === "concordance") {
+      onConcordance(undefined, live);
+      return;
+    }
+    if (id === "insertTerm") {
+      const hit = nextInsertableTerm(intel.terms.matches, termFocusIndex);
+      if (hit) onInsertTerm(hit.translation);
+      return;
+    }
+    if (id === "addTerm") {
+      onQuickAddTerm(live);
+      return;
+    }
+    if (id === "placeTags") {
+      onPlaceTags();
+    }
+  };
+
   return (
     <section className="workbench" data-testid="workbench">
       <WorkbenchHeader
@@ -317,7 +402,10 @@ export function Workbench({
             ? editorOps.preferences.autocomplete !== false
             : null
         }
-        onPreviewOpenChange={setPreviewOpen}
+        onPreviewOpenChange={(open) => {
+          setPreviewOpen(open);
+          persistLayout({ ...layout, previewSide: open });
+        }}
         {...(editorOps
           ? {
               onAutocompleteChange: (next: boolean) => {
@@ -374,7 +462,10 @@ export function Workbench({
       <div
         className={[
           "workbench__body",
-          "workbench__body--with-files",
+          "workbench__body--ide",
+          layout.filesOpen ? "workbench__body--with-files" : "",
+          previewOpen ? "workbench__body--with-preview" : "",
+          layout.chatOpen ? "workbench__body--with-chat" : "",
           tmCollapsed ? "workbench__body--tm-collapsed" : "",
           pdfReview &&
           shouldMountPdfDock({
@@ -393,15 +484,53 @@ export function Workbench({
         ]
           .filter(Boolean)
           .join(" ")}
+        style={{
+          ["--file-nav-w" as string]: `${layout.fileNavW}px`,
+          ["--panel-w-tm" as string]: `${layout.intelW}px`,
+          ["--preview-w" as string]: `${layout.previewW}px`,
+        }}
       >
-        <FileNav
-          documents={ctx.documents}
-          activeDocumentId={ctx.document.id}
-          progress={progress}
-          disabled={headerBusy}
-          pending={switchPending === true}
-          onSelect={onSwitchDocument}
-        />
+        <div className="workbench__west">
+          <ActivityBar
+            filesOpen={layout.filesOpen}
+            previewOpen={previewOpen}
+            chatOpen={layout.chatOpen}
+            onToggle={(id) => {
+              if (id === "files") {
+                persistLayout({ ...layout, filesOpen: !layout.filesOpen });
+                return;
+              }
+              if (id === "preview") {
+                const next = !previewOpen;
+                setPreviewOpen(next);
+                persistLayout({ ...layout, previewSide: next });
+                return;
+              }
+              persistLayout({ ...layout, chatOpen: !layout.chatOpen });
+            }}
+          />
+          {layout.filesOpen ? (
+            <>
+              <FileNav
+                documents={ctx.documents}
+                activeDocumentId={ctx.document.id}
+                progress={progress}
+                disabled={headerBusy}
+                pending={switchPending === true}
+                onSelect={onSwitchDocument}
+              />
+              <DockSash
+                label="Resize file list"
+                onDelta={(delta) =>
+                  persistLayout({
+                    ...layout,
+                    fileNavW: layout.fileNavW + delta,
+                  })
+                }
+              />
+            </>
+          ) : null}
+        </div>
         {pdfReview &&
         shouldMountPdfDock({
           pageCount: pdfReview.state.pages.length,
@@ -417,6 +546,14 @@ export function Workbench({
           />
         ) : null}
         <div className="editor-region" ref={editorRegionRef}>
+          <EditorTabs
+            documents={ctx.documents}
+            activeDocumentId={ctx.document.id}
+            progress={progress}
+            disabled={headerBusy}
+            onSelect={onSwitchDocument}
+            onAddFiles={onAddFiles}
+          />
           {editorOps ? (
             <EditorCommandBar ops={editorOps} disabled={disabled === true} />
           ) : null}
@@ -540,17 +677,14 @@ export function Workbench({
               writeGroupAdjacentTags(next);
             }}
             display={editorDisplay}
+            onContextMenu={({ event, field }) => {
+              setContextMenu({
+                x: event.clientX,
+                y: event.clientY,
+                field,
+              });
+            }}
           />
-          {previewOpen ? (
-            <StructurePreview
-              rows={visibleRows}
-              filterId={ctx.document.filterId}
-              activeSegmentId={activeSegmentId}
-              onJump={(id) => {
-                void onSelectSegment(id);
-              }}
-            />
-          ) : null}
           {editorOps ? (
             <EditorPanels
               ops={editorOps}
@@ -560,7 +694,41 @@ export function Workbench({
             />
           ) : null}
         </div>
-        <IntelDock
+        {previewOpen ? (
+          <div className="preview-dock">
+            <DockSash
+              label="Resize preview"
+              onDelta={(delta) =>
+                persistLayout({
+                  ...layout,
+                  previewW: layout.previewW + delta,
+                })
+              }
+            />
+            <StructurePreview
+              rows={visibleRows}
+              filterId={ctx.document.filterId}
+              activeSegmentId={activeSegmentId}
+              onJump={(id) => {
+                void onSelectSegment(id);
+              }}
+            />
+          </div>
+        ) : null}
+        {layout.chatOpen ? (
+          <AcpChatPanel chat={acpChat} disabled={disabled === true} />
+        ) : null}
+        <div className="intel-wrap">
+          <DockSash
+            label="Resize intelligence"
+            onDelta={(delta) =>
+              persistLayout({
+                ...layout,
+                intelW: layout.intelW - delta,
+              })
+            }
+          />
+          <IntelDock
           intel={intel}
           collapsed={tmCollapsed}
           disabled={disabled === true}
@@ -581,6 +749,7 @@ export function Workbench({
           ocrSource={isOcrStructuralPath(activeRow?.segment.structuralPath ?? "")}
           onApplyAiProposal={onApplyAiProposal}
         />
+        </div>
       </div>
 
       {reimport ? (
@@ -624,6 +793,31 @@ export function Workbench({
             const row = ctx.rows[ordinal - 1];
             setGoToOpen(false);
             if (row) onSelectSegment(row.segment.id);
+          }}
+        />
+      ) : null}
+
+      {contextMenu ? (
+        <SegmentContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={segmentContextActions({
+            field: contextMenu.field,
+            hasSourceSelection: Boolean(selection.source),
+            hasTargetSelection: Boolean(selection.target),
+            canStoreTerm: canQuickAddTerm,
+            canInsertTerm: intel.terms.matches.length > 0,
+            canConfirm: Boolean(activeRow && !pendingConfirm && !disabled),
+            targetHasText: Boolean(
+              (editState?.segmentId === activeSegmentId
+                ? editState.draftTarget
+                : activeRow?.segment.targetText)?.trim(),
+            ),
+            canCopySource: Boolean(activeRow?.segment.sourceText.trim()),
+          })}
+          onClose={() => setContextMenu(null)}
+          onSelect={(id) => {
+            void runContextAction(id);
           }}
         />
       ) : null}

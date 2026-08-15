@@ -195,23 +195,24 @@ select:disabled {
 }
 
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--color-sunken);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-line);
-  border: 2px solid transparent;
+  background: color-mix(in srgb, var(--color-border) 72%, var(--color-line));
+  border: 3px solid var(--color-sunken);
   background-clip: padding-box;
   border-radius: var(--radius-full);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-border);
+  background: var(--color-border-strong);
+  border: 3px solid var(--color-sunken);
   background-clip: padding-box;
 }
 
