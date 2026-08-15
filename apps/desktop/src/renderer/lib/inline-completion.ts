@@ -80,6 +80,28 @@ function stripTrailing(text: string, tail: string): string {
   return text;
 }
 
+function startsWithIgnoreCase(value: string, prefix: string): boolean {
+  if (!prefix) return true;
+  const left = chars(value);
+  const right = chars(prefix);
+  if (left.length < right.length) return false;
+  return equalsIgnoreCase(left.slice(0, right.length), right);
+}
+
+/**
+ * A bare proposal that looks like a new sentence or a whole-segment rewrite,
+ * not the untyped tail of the word under the caret.
+ */
+export function isBareRewrite(proposal: string, before: string): boolean {
+  if (!before || startsWithIgnoreCase(proposal, before)) return false;
+  const last = chars(before).at(-1) ?? "";
+  const first = chars(proposal)[0] ?? "";
+  const midWord = /[A-Za-z0-9]/.test(last);
+  if (midWord && /[A-Z]/.test(first) && /\s/.test(proposal)) return true;
+  if (proposal.includes("\n")) return true;
+  return proposal.length >= 160;
+}
+
 /**
  * Turn a model proposal into a caret suffix, or "" if it cannot be attached.
  *
@@ -94,6 +116,7 @@ export function attachCompletion(
   const trimmed = proposal.trim();
   if (!trimmed) return "";
   if (/^AI\s+\w+:/i.test(trimmed) || /^Corrected:/i.test(trimmed)) return "";
+  if (trimmed.includes(AI_COMPLETE_MARKER)) return "";
 
   const live = chars(liveTarget);
   const at = Math.max(0, Math.min(caret, live.length));
@@ -121,10 +144,41 @@ export function attachCompletion(
     return proposalChars.slice(live.length).join("");
   }
 
-  // Bare suffix: the prompt asked for this. Reject if it repeats the live draft.
+  // Bare suffix: the prompt asked for this. Reject if it repeats the live draft
+  // or looks like a whole-sentence rewrite glued onto a partial word.
   if (before && trimmed.toLowerCase() === before.toLowerCase()) return "";
   if (liveTarget && trimmed.toLowerCase() === liveTarget.toLowerCase()) return "";
+  if (isBareRewrite(trimmed, before)) return "";
   return stripTrailing(trimmed, after);
+}
+
+/**
+ * Insert `text` at a code-point caret. When `prefix` still sits immediately
+ * before the caret, replace that prefix (dropdown accept). Word accept passes
+ * an empty prefix and inserts at the caret.
+ */
+export function spliceAtCaret(
+  current: string,
+  caret: number,
+  text: string,
+  prefix = "",
+): { next: string; caret: number } {
+  const units = chars(current);
+  const at = Math.max(0, Math.min(caret, units.length));
+  const pref = chars(prefix);
+  const start =
+    pref.length > 0 &&
+    units.slice(Math.max(0, at - pref.length), at).join("") === prefix
+      ? at - pref.length
+      : at;
+  const next = `${units.slice(0, start).join("")}${text}${units.slice(at).join("")}`;
+  return { next, caret: start + chars(text).length };
+}
+
+/** Convert a textarea UTF-16 offset into a code-point index. */
+export function codePointCaretFromUtf16(text: string, utf16: number): number {
+  const at = Math.max(0, Math.min(utf16, text.length));
+  return chars(text.slice(0, at)).length;
 }
 
 export function isCjkChar(character: string): boolean {

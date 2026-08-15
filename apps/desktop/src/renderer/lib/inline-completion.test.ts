@@ -4,10 +4,13 @@ import {
   AI_COMPLETE_MARKER,
   attachCompletion,
   buildCompletePrompt,
+  codePointCaretFromUtf16,
   completionSuffix,
   firstAcceptUnit,
+  isBareRewrite,
   isCompletePrompt,
   livePrefix,
+  spliceAtCaret,
 } from "./inline-completion";
 
 describe("completionSuffix", () => {
@@ -51,6 +54,40 @@ describe("attachCompletion", () => {
 
   it("drops a proposal that only repeats the live draft", () => {
     expect(attachCompletion("pow", "pow", 3)).toBe("");
+  });
+
+  it("drops a whole-sentence rewrite glued onto a partial word", () => {
+    expect(attachCompletion("Press the power button.", "pow", 3)).toBe("");
+    expect(isBareRewrite("Press the power button.", "pow")).toBe(true);
+  });
+
+  it("keeps a real untyped tail", () => {
+    expect(attachCompletion("er supply", "pow", 3)).toBe("er supply");
+    expect(isBareRewrite("er supply", "pow")).toBe(false);
+  });
+});
+
+describe("spliceAtCaret", () => {
+  it("inserts a word-accept unit at the caret", () => {
+    expect(spliceAtCaret("pow", 3, "er", "")).toEqual({
+      next: "power",
+      caret: 5,
+    });
+  });
+
+  it("replaces a matching prefix for dropdown accept", () => {
+    expect(spliceAtCaret("pow", 3, "power supply", "pow")).toEqual({
+      next: "power supply",
+      caret: 12,
+    });
+  });
+
+  it("counts caret in code points, not UTF-16 units", () => {
+    expect(codePointCaretFromUtf16("👍pow", 5)).toBe(4);
+    expect(spliceAtCaret("👍pow", 4, "er", "")).toEqual({
+      next: "👍power",
+      caret: 6,
+    });
   });
 });
 
