@@ -49,6 +49,9 @@ describe("TitleFileMenu", () => {
     const panel = screen.getByTestId("title-file-menu-panel");
     expect(panel).toHaveTextContent("This job");
     expect(panel).toHaveTextContent("Project");
+    expect(screen.getByRole("group", { name: "This job" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Project" })).toBeInTheDocument();
+    expect(screen.getByRole("separator")).toBeInTheDocument();
 
     await user.click(screen.getByTestId("title-file-add-files"));
     expect(add).toHaveBeenCalledTimes(1);

@@ -65,8 +65,8 @@ export function WorkbenchHeader({
     <header className="workbench-header" data-testid="workbench-header">
       <h1 className="sr-only">{documentName}</h1>
 
-      <section className="workbench-header__cluster" aria-label="File">
-        <p className="workbench-header__label">File</p>
+      <section className="workbench-header__cluster" aria-label="This file">
+        <p className="workbench-header__label">This file</p>
         <div className="workbench-header__cluster-body">
           <DocumentSwitcher
             documents={documents}

@@ -188,6 +188,7 @@ export function AppChrome({
       group: "project",
       onSelect: onAssets,
       disabled,
+      testId: "title-file-assets",
     });
   }
   if (showInsights) {
@@ -197,6 +198,7 @@ export function AppChrome({
       group: "project",
       onSelect: onInsights,
       disabled,
+      testId: "title-file-insights",
     });
   }
 

@@ -75,29 +75,39 @@ export function TitleFileMenu({ items, disabled }: TitleFileMenuProps) {
           data-testid="title-file-menu-panel"
         >
           {groups.map((entry, index) => (
-            <div key={entry.group} className="title-file-menu__group">
-              {index > 0 ? <div className="menu__separator" /> : null}
-              <p className="title-file-menu__heading">{GROUP_LABEL[entry.group]}</p>
-              {entry.items.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  role="menuitem"
-                  tabIndex={-1}
-                  className={
-                    item.danger ? "menu__item menu__item--danger" : "menu__item"
-                  }
-                  aria-disabled={item.disabled ? true : undefined}
-                  disabled={item.disabled}
-                  onClick={() => {
-                    menu.close(true);
-                    item.onSelect();
-                  }}
-                  {...(item.testId ? { "data-testid": item.testId } : {})}
-                >
-                  {item.label}
-                </button>
-              ))}
+            <div key={entry.group}>
+              {index > 0 ? (
+                <div className="menu__separator" role="separator" />
+              ) : null}
+              <div
+                className="title-file-menu__group"
+                role="group"
+                aria-label={GROUP_LABEL[entry.group]}
+              >
+                <p className="title-file-menu__heading" aria-hidden="true">
+                  {GROUP_LABEL[entry.group]}
+                </p>
+                {entry.items.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="menuitem"
+                    tabIndex={-1}
+                    className={
+                      item.danger ? "menu__item menu__item--danger" : "menu__item"
+                    }
+                    aria-disabled={item.disabled ? true : undefined}
+                    disabled={item.disabled}
+                    onClick={() => {
+                      menu.close(true);
+                      item.onSelect();
+                    }}
+                    {...(item.testId ? { "data-testid": item.testId } : {})}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
             </div>
           ))}
         </div>

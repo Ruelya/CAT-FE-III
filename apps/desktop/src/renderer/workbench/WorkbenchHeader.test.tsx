@@ -69,7 +69,7 @@ describe("WorkbenchHeader", () => {
     expect(screen.getByRole("heading", { name: "real.docx" })).toHaveClass(
       "sr-only",
     );
-    expect(screen.getByLabelText("File")).toBeInTheDocument();
+    expect(screen.getByLabelText("This file")).toBeInTheDocument();
     expect(screen.getByLabelText("Progress")).toHaveTextContent(
       "0 of 10 confirmed",
     );
