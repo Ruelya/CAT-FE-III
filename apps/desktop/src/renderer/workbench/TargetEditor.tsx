@@ -24,6 +24,8 @@ export interface TargetEditorProps {
   onApplyMatchByIndex?: (index: number) => void;
   /** As-you-type completions, rendered under the caret. */
   suggestions?: SuggestionBinding;
+  /** Segment ordinal shown on the Confirm control for a11y. */
+  confirmLabel?: string;
 }
 
 export interface SuggestionBinding {
@@ -50,6 +52,7 @@ export function TargetEditor({
   onConfirm,
   onApplyMatchByIndex,
   suggestions,
+  confirmLabel,
 }: TargetEditorProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const open = (suggestions?.items.length ?? 0) > 0;
@@ -67,6 +70,8 @@ export function TargetEditor({
       editState.draftTarget !== editState.engineTarget);
   const errored =
     editState?.segmentId === segmentId && editState.saveState === "error";
+  const confirming =
+    editState?.segmentId === segmentId && editState.saveState === "saving";
 
   const className = [
     "target-editor",
@@ -172,6 +177,26 @@ export function TargetEditor({
           }
         }}
       />
+      <div className="target-editor__actions">
+        <span className="target-editor__hint" aria-hidden="true">
+          Ctrl+Enter
+        </span>
+        <button
+          type="button"
+          className="btn btn--primary btn--sm"
+          disabled={disabled === true || confirming || editState?.isComposing}
+          onClick={() => void onConfirm({})}
+          aria-label={
+            confirmLabel
+              ? `Confirm segment ${confirmLabel}`
+              : "Confirm segment"
+          }
+          title="Confirm (Ctrl+Enter)"
+          data-testid={`confirm-segment-${segmentId}`}
+        >
+          Confirm
+        </button>
+      </div>
       {open && suggestions ? (
         <SuggestionPopup
           suggestions={suggestions.items}

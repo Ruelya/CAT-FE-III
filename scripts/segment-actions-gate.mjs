@@ -127,12 +127,38 @@ await editor.fill("请先阅读安全说明，电源站");
 // Select "power station" in the source cell.
 await page.evaluate(() => {
   const row = document.querySelector(".segment-row--active .segment-source");
-  if (!row?.firstChild) return;
-  const text = row.textContent ?? "";
-  const start = text.indexOf("power station");
+  if (!row) return;
+  const needle = "power station";
+  const full = row.textContent ?? "";
+  const start = full.indexOf(needle);
+  if (start < 0) return;
+  const end = start + needle.length;
+  const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+  let consumed = 0;
+  let startNode = null;
+  let startOffset = 0;
+  let endNode = null;
+  let endOffset = 0;
+  let node;
+  while ((node = walker.nextNode())) {
+    const len = (node.nodeValue ?? "").length;
+    const nodeStart = consumed;
+    const nodeEnd = consumed + len;
+    if (!startNode && start >= nodeStart && start <= nodeEnd) {
+      startNode = node;
+      startOffset = start - nodeStart;
+    }
+    if (end >= nodeStart && end <= nodeEnd) {
+      endNode = node;
+      endOffset = end - nodeStart;
+      break;
+    }
+    consumed = nodeEnd;
+  }
+  if (!startNode || !endNode) return;
   const range = document.createRange();
-  range.setStart(row.firstChild, start);
-  range.setEnd(row.firstChild, start + "power station".length);
+  range.setStart(startNode, startOffset);
+  range.setEnd(endNode, endOffset);
   const selection = window.getSelection();
   selection?.removeAllRanges();
   selection?.addRange(range);

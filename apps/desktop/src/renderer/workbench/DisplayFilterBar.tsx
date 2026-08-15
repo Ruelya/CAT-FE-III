@@ -47,6 +47,9 @@ export function DisplayFilterBar({
       className={`display-filter${active ? " display-filter--active" : ""}`}
       data-testid="display-filter"
     >
+      <span className="display-filter__label" aria-hidden="true">
+        Show
+      </span>
       <div className="display-filter__group" role="group" aria-label="Status">
         {STATES.map((state) => (
           <button
@@ -88,7 +91,7 @@ export function DisplayFilterBar({
             onChange({ ...filter, withComments: !filter.withComments })
           }
         >
-          With comments
+          Comments
         </button>
         <button
           type="button"
