@@ -17,9 +17,10 @@ use translunar_filter_core::{
     ValidationReport, collect_imported_document, publish_bytes_noclobber,
 };
 use translunar_filter_office_core::{
-    ByteReplacement, OfficeError, OfficePackage, XmlTextRange, apply_replacements,
-    decode_reference, decode_text, parse_relationships, rebuild_package, relationship_part,
-    resolve_relationship_target, validate_xml,
+    ByteReplacement, OfficeError, OfficePackage, RunFormat, XmlTextRange, apply_replacements,
+    decode_reference, decode_text, format_groups, parse_relationships, rebuild_package,
+    reduce_run_properties, relationship_part, resolve_relationship_target, taggable_format_groups,
+    validate_xml,
 };
 
 const ROOT_REL_TYPE: &str = "/officeDocument";
@@ -63,6 +64,8 @@ struct TextUnit {
     owner_offset: usize,
     text: String,
     ranges: Vec<XmlTextRange>,
+    /// Formatting of the `a:r` that owns each range, index aligned.
+    formats: Vec<RunFormat>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -209,7 +212,7 @@ impl PptxFilter {
                     structural_path: text_path(&part, unit.owner_offset),
                 });
                 events.push(FilterEvent::Text(unit.text.clone()));
-                append_rich_tags(&mut events, document_id, ordinal, &unit.ranges, &unit.text)?;
+                append_rich_tags(&mut events, document_id, ordinal, &unit)?;
                 events.push(FilterEvent::EndUnit);
                 ordinal = ordinal
                     .checked_add(1)
@@ -430,6 +433,10 @@ fn parse_text_units(bytes: &[u8], part: &str) -> Result<Vec<TextUnit>, PptxError
     let mut owner: Option<UnitBuilder> = None;
     let mut text: Option<(usize, String)> = None;
     let mut units = Vec::new();
+    // DrawingML keeps run formatting in `a:rPr` attributes (b="1", i="1") and
+    // in child elements such as `a:solidFill`, so both have to be collected.
+    let mut run_properties: Vec<String> = Vec::new();
+    let mut in_run_properties = false;
     loop {
         let before = usize::try_from(reader.buffer_position())
             .map_err(|_| PptxError::Invalid("PPTX XML offset overflow".to_string()))?;
@@ -440,8 +447,27 @@ fn parse_text_units(bytes: &[u8], part: &str) -> Result<Vec<TextUnit>, PptxError
                         offset: before,
                         text: String::new(),
                         ranges: Vec::new(),
+                        formats: Vec::new(),
                     });
                 }
+            }
+            Ok(Event::Start(element)) if is_run_properties(&element) => {
+                in_run_properties = true;
+                run_properties = drawingml_run_attributes(&element);
+            }
+            Ok(Event::Empty(element)) if is_run_properties(&element) => {
+                in_run_properties = false;
+                run_properties = drawingml_run_attributes(&element);
+            }
+            Ok(Event::End(element))
+                if element.name().local_name().as_ref() == b"rPr" && in_run_properties =>
+            {
+                in_run_properties = false;
+            }
+            Ok(Event::Start(element)) | Ok(Event::Empty(element)) if in_run_properties => {
+                run_properties.push(
+                    String::from_utf8_lossy(element.name().local_name().as_ref()).into_owned(),
+                );
             }
             Ok(Event::Start(element)) if is_text_element(&element) => {
                 if owner.is_none() {
@@ -449,6 +475,7 @@ fn parse_text_units(bytes: &[u8], part: &str) -> Result<Vec<TextUnit>, PptxError
                         offset: before,
                         text: String::new(),
                         ranges: Vec::new(),
+                        formats: Vec::new(),
                     });
                 }
                 text = Some((
@@ -477,6 +504,7 @@ fn parse_text_units(bytes: &[u8], part: &str) -> Result<Vec<TextUnit>, PptxError
                         end: before,
                         text: value,
                     });
+                    owner.formats.push(reduce_run_properties(&run_properties));
                 }
             }
             Ok(Event::End(element)) if is_paragraph_end(element.name().as_ref()) => {
@@ -511,6 +539,7 @@ struct UnitBuilder {
     offset: usize,
     text: String,
     ranges: Vec<XmlTextRange>,
+    formats: Vec<RunFormat>,
 }
 
 impl UnitBuilder {
@@ -519,6 +548,7 @@ impl UnitBuilder {
             owner_offset: self.offset,
             text: self.text,
             ranges: self.ranges,
+            formats: self.formats,
         }
     }
 }
@@ -535,53 +565,82 @@ fn is_text_element(element: &BytesStart<'_>) -> bool {
     element.name().local_name().as_ref() == b"t"
 }
 
+fn is_run_properties(element: &BytesStart<'_>) -> bool {
+    matches!(element.name().local_name().as_ref(), b"rPr")
+}
+
+/// DrawingML encodes the common typographic switches as attributes rather than
+/// child elements: `<a:rPr b="1" i="1" u="sng"/>`. Only a value that actually
+/// turns the property on counts.
+fn drawingml_run_attributes(element: &BytesStart<'_>) -> Vec<String> {
+    let mut names = Vec::new();
+    for attribute in element.attributes().flatten() {
+        let key = String::from_utf8_lossy(attribute.key.local_name().as_ref()).into_owned();
+        let value = String::from_utf8_lossy(attribute.value.as_ref()).into_owned();
+        let enabled = match key.as_str() {
+            "b" | "i" => matches!(value.as_str(), "1" | "true"),
+            "u" | "strike" | "baseline" => !matches!(value.as_str(), "none" | "noStrike" | "0"),
+            "sz" | "cap" => true,
+            _ => false,
+        };
+        if enabled {
+            names.push(if key == "cap" {
+                "caps".to_string()
+            } else {
+                key
+            });
+        }
+    }
+    names
+}
+
 fn is_text_end(name: &[u8]) -> bool {
     quick_xml::name::QName(name).local_name().as_ref() == b"t"
 }
 
+/// Emit protected tags for the formatting spans inside one shape paragraph.
+///
+/// Same contract as the DOCX filter: a typographically uniform paragraph
+/// produces nothing, and plain stretches between formatted ones are text, not
+/// tags. PowerPoint splits runs even more eagerly than Word does, so emitting a
+/// pair per run made every bullet a tag exercise.
 fn append_rich_tags(
     events: &mut Vec<FilterEvent>,
     document_id: &str,
     ordinal: u32,
-    ranges: &[XmlTextRange],
-    source_text: &str,
+    unit: &TextUnit,
 ) -> Result<(), PptxError> {
-    let mut position = 0_u32;
-    for (index, range) in ranges.iter().enumerate() {
-        let length = u32::try_from(range.text.chars().count())
-            .map_err(|_| PptxError::Invalid("rich text length overflow".to_string()))?;
-        if length == 0 {
-            continue;
+    let groups = format_groups(&unit.ranges, &unit.formats);
+    let source_chars = u32::try_from(unit.text.chars().count())
+        .map_err(|_| PptxError::Invalid("rich text length overflow".to_string()))?;
+    for (index, group) in taggable_format_groups(&groups) {
+        if group.end > source_chars {
+            return Err(PptxError::Invalid(
+                "rich text ranges exceed source text".to_string(),
+            ));
         }
         let pair_id = format!("{document_id}:pptx:{ordinal}:{index}");
+        let payload = format!("ooxml-rich-run:{}", group.format.signature);
         events.push(FilterEvent::InlineTag(InlineTag {
             id: format!("{pair_id}:start"),
             side: TagSide::Source,
-            position,
+            position: group.start,
             kind: TagKind::Start,
             pair_id: Some(pair_id.clone()),
-            payload: "ooxml-rich-run".to_string(),
-            display_text: "R".to_string(),
+            payload: payload.clone(),
+            display_text: group.format.label.clone(),
             protected: true,
         }));
-        position = position
-            .checked_add(length)
-            .ok_or_else(|| PptxError::Invalid("rich text position overflow".to_string()))?;
         events.push(FilterEvent::InlineTag(InlineTag {
             id: format!("{pair_id}:end"),
             side: TagSide::Source,
-            position,
+            position: group.end,
             kind: TagKind::End,
             pair_id: Some(pair_id),
-            payload: "ooxml-rich-run".to_string(),
-            display_text: "R".to_string(),
+            payload,
+            display_text: group.format.label.clone(),
             protected: true,
         }));
-    }
-    if usize::try_from(position).unwrap_or(usize::MAX) > source_text.chars().count() {
-        return Err(PptxError::Invalid(
-            "rich text ranges exceed source text".to_string(),
-        ));
     }
     Ok(())
 }
