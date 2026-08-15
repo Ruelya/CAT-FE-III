@@ -50,7 +50,7 @@
 
 | 能力 | 说明 |
 | --- | --- |
-| 正文叠位 ghost | 未携带的源标签按源文比例叠在目标正文预期位置。点击放入该位置（成对则包住预期跨度；有选区则包选区）。不进入 serialize。 |
+| 正文叠位 ghost | 未携带的源标签叠在目标正文上。成对标签优先包住目标里仍在的源短语/token（如 TL-900），否则按比例。点击放入该位置（有选区则包选区）。不进入 serialize。 |
 | 格式化预览 | Preview 用段标签重建 HTML 排版（strong/em/u），标题/段落/单元格分角色。仍不是 Word COM / 浏览器级整页 WYSIWYG。 |
 | SDLXLIFF / MQXLIFF 门禁 | `fixtures/formats/real.sdlxliff` 与 `real.mqxliff` 进入 format-matrix；确认时按比例写入目标标签。 |
 
