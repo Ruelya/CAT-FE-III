@@ -732,6 +732,10 @@ export function App() {
               onCopySourceToTarget={commands.copySourceToTarget}
               onClearTarget={commands.clearTarget}
               onAcceptSuggestion={commands.acceptSuggestion}
+              onPretranslate={() => {
+                void commands.pretranslateDocument();
+              }}
+              pretranslatePending={surface.pretranslatePending === true}
               onQa={() => {
                 void commands.goQa();
               }}

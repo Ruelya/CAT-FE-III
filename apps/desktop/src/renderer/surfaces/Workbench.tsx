@@ -33,6 +33,7 @@ import { EditorPanels } from "../workbench/EditorPanels";
 import { PdfPageReview } from "../workbench/PdfPageReview";
 import { SegmentGrid } from "../workbench/SegmentGrid";
 import { IntelDock } from "../workbench/IntelDock";
+import { GoToDialog } from "../workbench/GoToDialog";
 
 export interface WorkbenchProps {
   ctx: SessionContext;
@@ -78,6 +79,8 @@ export interface WorkbenchProps {
   onClearTarget: () => void;
   /** Replace the partially typed word with the accepted completion. */
   onAcceptSuggestion: (text: string, prefix: string) => void;
+  onPretranslate: () => void;
+  pretranslatePending?: boolean;
   onQa: () => void;
   onExport: () => void;
   onInsights: () => void;
@@ -121,6 +124,8 @@ export function Workbench({
   onCopySourceToTarget,
   onClearTarget,
   onAcceptSuggestion,
+  onPretranslate,
+  pretranslatePending,
   onQa,
   onExport,
   onInsights,
@@ -153,11 +158,13 @@ export function Workbench({
     segmentId: activeSegmentId,
   });
 
-  useEditorShortcuts(!disabled && activeSegmentId !== null, {
+  useEditorShortcuts(!disabled, {
     onConcordance: () => onConcordance(undefined, selection),
     onQuickAddTerm: () => onQuickAddTerm(selection),
     onCopySource: onCopySourceToTarget,
     onClearTarget,
+    onGoTo: () => setGoToOpen(true),
+    onPretranslate,
   });
   // Container-responsive density: dock changes resize the editor without
   // resizing the window, so this cannot be a viewport media query.
@@ -166,6 +173,7 @@ export function Workbench({
   // Review mode. Filtering is local to the loaded rows: the Engine already
   // sent them, and a filter that round-trips per keystroke stutters.
   const [filter, setFilter] = useState<DisplayFilter>(EMPTY_FILTER);
+  const [goToOpen, setGoToOpen] = useState(false);
   // Comment counts ride along on the rows the Engine already sent; only the
   // QA counts need their own query.
   const commentCounts = useMemo(() => {
@@ -309,6 +317,16 @@ export function Workbench({
             onClick={onInsights}
           >
             Insights
+          </button>
+          <button
+            type="button"
+            className="btn btn--secondary"
+            disabled={headerBusy || pretranslatePending === true}
+            onClick={onPretranslate}
+            data-testid="pretranslate"
+            title="Fill empty targets from translation memory (Ctrl+Shift+P)"
+          >
+            {pretranslatePending ? "Pretranslating" : "Pretranslate"}
           </button>
           <button
             type="button"
@@ -470,6 +488,41 @@ export function Workbench({
         <ReimportDialog
           reimport={reimport}
           {...(disabled !== undefined ? { disabled } : {})}
+        />
+      ) : null}
+
+      <div className="workbench__status" data-testid="workbench-status">
+        <span>
+          {activeSegmentId
+            ? `Segment ${
+                ctx.rows.findIndex((r) => r.segment.id === activeSegmentId) + 1
+              } of ${ctx.rows.length}`
+            : `${ctx.rows.length} segments`}
+        </span>
+        {isFilterActive(filter) ? (
+          <span data-testid="status-filter">
+            {`Filter: ${visibleRows.length} shown`}
+          </span>
+        ) : null}
+        {pretranslatePending ? (
+          <span className="inline-status" role="status">
+            Pretranslating
+          </span>
+        ) : null}
+        <span className="workbench__status-hint">
+          Ctrl+G go to · Ctrl+Shift+P pretranslate · F3 concordance
+        </span>
+      </div>
+
+      {goToOpen ? (
+        <GoToDialog
+          maxOrdinal={ctx.rows.length}
+          onClose={() => setGoToOpen(false)}
+          onGo={(ordinal) => {
+            const row = ctx.rows[ordinal - 1];
+            setGoToOpen(false);
+            if (row) onSelectSegment(row.segment.id);
+          }}
         />
       ) : null}
 

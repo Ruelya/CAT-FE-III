@@ -2,6 +2,7 @@ import type { KeyboardEvent } from "react";
 import type { SegmentEditorRow } from "@translunar/contracts";
 
 import { segmentNumber } from "../lib/format";
+import { structureLabel, structureTitle } from "../lib/structure-label";
 import type { SegmentEditState } from "../state/save-coordinator";
 import { TargetEditor, type SuggestionBinding } from "./TargetEditor";
 
@@ -118,6 +119,7 @@ export function SegmentGrid({
       <table className="segment-table">
         <colgroup>
           <col className="ordinal" />
+          <col className="structure" />
           <col className="source" />
           <col className="target" />
           <col className="status" />
@@ -126,6 +128,9 @@ export function SegmentGrid({
           <tr>
             <th scope="col" className="segment-table__ordinal">
               #
+            </th>
+            <th scope="col" className="segment-table__structure">
+              Ctx
             </th>
             <th scope="col">Source</th>
             <th scope="col">Target</th>
@@ -168,6 +173,14 @@ export function SegmentGrid({
                 <td className="segment-table__ordinal">
                   <span className="segment-index">
                     {segmentNumber(row.segment.ordinal)}
+                  </span>
+                </td>
+                <td
+                  className="segment-table__structure"
+                  title={structureTitle(row.segment.structuralPath)}
+                >
+                  <span className="segment-structure">
+                    {structureLabel(row.segment.structuralPath)}
                   </span>
                 </td>
                 <td>

@@ -1025,3 +1025,36 @@
 .segment-mark--repeat {
   background: var(--color-text-subtle);
 }
+
+/* ── Structure column ───────────────────────────────────── */
+
+.segment-table__structure {
+  width: 3.25rem;
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+  text-align: center;
+}
+
+.segment-structure {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Workbench status bar ───────────────────────────────── */
+
+.workbench__status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-3);
+  border-top: 1px solid var(--color-line);
+  background: var(--color-surface);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  min-height: var(--control-h-sm);
+}
+
+.workbench__status-hint {
+  margin-left: auto;
+  color: var(--color-text-subtle);
+}
