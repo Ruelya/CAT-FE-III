@@ -26,6 +26,7 @@ export interface SegmentGridProps {
     altKey?: boolean;
     shiftKey?: boolean;
   }) => void;
+  onApplyMatchByIndex?: (index: number) => void;
 }
 
 export function SegmentGrid({
@@ -41,6 +42,7 @@ export function SegmentGrid({
   onCompositionStart,
   onCompositionEnd,
   onConfirm,
+  onApplyMatchByIndex,
 }: SegmentGridProps) {
   if (rows.length === 0) {
     return (
@@ -164,6 +166,7 @@ export function SegmentGrid({
                       onConfirm={(ev) => {
                         void onConfirm(ev);
                       }}
+                      {...(onApplyMatchByIndex ? { onApplyMatchByIndex } : {})}
                     />
                   ) : (
                     <button

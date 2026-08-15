@@ -1,10 +1,11 @@
 import { useState } from "react";
-import type { ProjectBatchImportResult, TmEntry } from "@translunar/contracts";
+import type { ProjectBatchImportResult, TmMatch } from "@translunar/contracts";
 
 import type { UiError } from "../lib/errors";
 import { formatUiError } from "../lib/errors";
 import type { SessionContext } from "../state/app-state";
 import type { SegmentEditState } from "../state/save-coordinator";
+import { rankMatches, type SegmentIntel } from "../state/segment-intel";
 import type { EditorOperationsApi } from "../state/use-editor-operations";
 import { shouldMountPdfDock } from "../state/pdf-review";
 import type { PdfReviewApi } from "../state/use-pdf-review";
@@ -19,16 +20,14 @@ import { EditorCommandBar } from "../workbench/EditorCommandBar";
 import { EditorPanels } from "../workbench/EditorPanels";
 import { PdfPageReview } from "../workbench/PdfPageReview";
 import { SegmentGrid } from "../workbench/SegmentGrid";
-import { TmExactPanel } from "../workbench/TmExactPanel";
+import { IntelDock } from "../workbench/IntelDock";
 
 export interface WorkbenchProps {
   ctx: SessionContext;
   activeSegmentId: string | null;
   focusSegmentId: string | null;
   editState: SegmentEditState | null;
-  tmMatches: TmEntry[];
-  tmLoading: boolean;
-  tmError: UiError | null;
+  intel: SegmentIntel;
   tmCollapsed: boolean;
   transitionError: UiError | null;
   pendingConfirm: boolean;
@@ -54,6 +53,8 @@ export interface WorkbenchProps {
     shiftKey?: boolean;
   }) => void;
   onToggleTm: () => void;
+  onApplyMatch: (match: TmMatch) => void;
+  onInsertTerm: (translation: string) => void;
   onQa: () => void;
   onExport: () => void;
   onInsights: () => void;
@@ -69,9 +70,7 @@ export function Workbench({
   activeSegmentId,
   focusSegmentId,
   editState,
-  tmMatches,
-  tmLoading,
-  tmError,
+  intel,
   tmCollapsed,
   transitionError,
   pendingConfirm,
@@ -91,6 +90,8 @@ export function Workbench({
   onCompositionEnd,
   onConfirm,
   onToggleTm,
+  onApplyMatch,
+  onInsertTerm,
   onQa,
   onExport,
   onInsights,
@@ -344,6 +345,11 @@ export function Workbench({
             onCompositionStart={onCompositionStart}
             onCompositionEnd={onCompositionEnd}
             onConfirm={onConfirm}
+            onApplyMatchByIndex={(index) => {
+              const ranked = rankMatches(intel.tm.matches);
+              const match = ranked[index];
+              if (match) onApplyMatch(match);
+            }}
           />
           {editorOps ? (
             <EditorPanels
@@ -354,12 +360,13 @@ export function Workbench({
             />
           ) : null}
         </div>
-        <TmExactPanel
+        <IntelDock
+          intel={intel}
           collapsed={tmCollapsed}
-          matches={tmMatches}
-          loading={tmLoading}
-          error={tmError}
+          disabled={disabled === true}
           onToggle={onToggleTm}
+          onApplyMatch={onApplyMatch}
+          onInsertTerm={onInsertTerm}
         />
       </div>
 

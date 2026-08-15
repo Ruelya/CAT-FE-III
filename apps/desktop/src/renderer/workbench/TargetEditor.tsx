@@ -18,6 +18,8 @@ export interface TargetEditorProps {
     altKey?: boolean;
     shiftKey?: boolean;
   }) => void;
+  /** Ctrl+1..9 takes the nth memory match without leaving the target. */
+  onApplyMatchByIndex?: (index: number) => void;
 }
 
 export function TargetEditor({
@@ -30,6 +32,7 @@ export function TargetEditor({
   onCompositionStart,
   onCompositionEnd,
   onConfirm,
+  onApplyMatchByIndex,
 }: TargetEditorProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -67,6 +70,27 @@ export function TargetEditor({
       onCompositionStart={onCompositionStart}
       onCompositionEnd={onCompositionEnd}
       onKeyDown={(e) => {
+        if (
+          onApplyMatchByIndex &&
+          (e.ctrlKey || e.metaKey) &&
+          !e.altKey &&
+          /^[1-9]$/.test(e.key)
+        ) {
+          // Digits are safe to intercept here: the target is prose, and every
+          // CAT tool this product's users come from binds them to the match
+          // list. Composition is checked because an IME candidate window uses
+          // the same digits to pick a candidate.
+          if (
+            e.nativeEvent.isComposing ||
+            e.keyCode === 229 ||
+            e.which === 229
+          ) {
+            return;
+          }
+          e.preventDefault();
+          onApplyMatchByIndex(Number(e.key) - 1);
+          return;
+        }
         if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
           // Do not preventDefault when IME is active — check all 229 signals first.
           if (

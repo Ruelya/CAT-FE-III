@@ -12,11 +12,11 @@ import type {
   SegmentCounts,
   SegmentEditorRow,
   TemplateDependencyDiagnostic,
-  TmEntry,
 } from "@translunar/contracts";
 
 import type { DraftJournalRecord } from "../../shared/product-shell";
 import type { UiError } from "../lib/errors";
+import type { SegmentIntel } from "./segment-intel";
 import type { SessionIdentity } from "./session";
 import type {
   AiControlSection,
@@ -121,9 +121,8 @@ export type AppSurface =
       ctx: SessionContext;
       activeSegmentId: string | null;
       focusSegmentId: string | null;
-      tmMatches: TmEntry[];
-      tmLoading: boolean;
-      tmError: UiError | null;
+      /** Results for the segment under the caret; see state/segment-intel.ts. */
+      intel: SegmentIntel;
       tmCollapsed: boolean;
       transitionError: UiError | null;
       pendingConfirm: boolean;
@@ -262,6 +261,19 @@ export type AppAction =
       type: "PATCH_WORKBENCH";
       patch: Partial<Extract<AppSurface, { kind: "workbench" }>>;
     }
+  /**
+   * Merge one dock's results into the intelligence record.
+   *
+   * The docks answer in whatever order the Engine gets to them, so each result
+   * has to be merged against the state as it is at the moment it lands.
+   * Read-modify-write from a snapshot taken before the request went out means
+   * whichever dock answers last erases the other one.
+   */
+  | {
+      type: "PATCH_SEGMENT_INTEL";
+      segmentId: string;
+      patch: Partial<Pick<SegmentIntel, "tm" | "terms">>;
+    }
   | { type: "PATCH_QA"; patch: Partial<Extract<AppSurface, { kind: "qa" }>> }
   | {
       type: "PATCH_EXPORT";
@@ -376,6 +388,23 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         surface: { ...state.surface, ...action.patch, kind: "workbench" },
+      };
+    }
+    case "PATCH_SEGMENT_INTEL": {
+      if (state.surface.kind !== "workbench") return state;
+      // A late answer about a segment the translator has already left is not
+      // an answer, it is noise.
+      if (state.surface.activeSegmentId !== action.segmentId) return state;
+      return {
+        ...state,
+        surface: {
+          ...state.surface,
+          intel: {
+            ...state.surface.intel,
+            segmentId: action.segmentId,
+            ...action.patch,
+          },
+        },
       };
     }
     case "PATCH_QA": {

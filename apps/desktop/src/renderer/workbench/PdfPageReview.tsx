@@ -47,7 +47,8 @@ export function PdfPageReview({ pdf, disabled }: PdfPageReviewProps) {
   }
 
   return (
-    // Named region, not <aside>: see TmExactPanel for the landmark rationale.
+    // Named region, not <aside>: a complementary landmark nested inside main is
+    // a landmark-structure violation, and these docks are part of the editor.
     <section
       aria-label="PDF page review"
       className={[

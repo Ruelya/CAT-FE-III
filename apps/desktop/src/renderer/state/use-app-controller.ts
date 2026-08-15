@@ -13,6 +13,7 @@ import type {
   Segment,
   SegmentCounts,
   SegmentEditorRow,
+  TmMatch,
 } from "@translunar/contracts";
 
 import { toUiError, type UiError } from "../lib/errors";
@@ -50,6 +51,7 @@ import {
   nextSegmentAfterConfirm,
 } from "./confirm-advance";
 import { countsFromEditorRows } from "./editor-operations";
+import { EMPTY_SEGMENT_INTEL, type SegmentIntel } from "./segment-intel";
 // AppState imported for FeatureOp origin typing.
 import {
   aggregateProjectDocuments,
@@ -238,6 +240,8 @@ export interface AppController {
       shiftKey?: boolean;
     }) => Promise<void>;
     toggleTmPanel: () => void;
+    applyTmMatch: (match: TmMatch) => void;
+    insertAtCaret: (text: string) => void;
     goQa: () => Promise<void>;
     runQa: () => Promise<void>;
     jumpToIssue: (segmentId: string) => Promise<void>;
@@ -534,9 +538,7 @@ export function useAppController(): AppController {
           ctx,
           activeSegmentId,
           focusSegmentId: options?.focusSegmentId ?? null,
-          tmMatches: [],
-          tmLoading: false,
-          tmError: null,
+          intel: EMPTY_SEGMENT_INTEL,
           tmCollapsed,
           transitionError: null,
           pendingConfirm: false,
@@ -1152,6 +1154,9 @@ export function useAppController(): AppController {
   ]);
 
   // Exact TM lookup when active segment changes on workbench.
+  // Every intelligence dock answers a question about the segment under the
+  // caret, so they are all driven from one place, cancelled together, and only
+  // ever committed when the answer still belongs to the segment that asked.
   useEffect(() => {
     const surface = state.surface;
     if (surface.kind !== "workbench") return;
@@ -1161,52 +1166,74 @@ export function useAppController(): AppController {
     if (!row) return;
     let cancelled = false;
     const projectId = surface.ctx.project.id;
+    const sourceLocale = surface.ctx.project.sourceLocale;
+    const targetLocale = surface.ctx.project.targetLocale;
     const sourceText = row.segment.sourceText;
+
+    const stillCurrent = () => {
+      if (cancelled) return false;
+      const current = stateRef.current.surface;
+      return (
+        current.kind === "workbench" && current.activeSegmentId === segmentId
+      );
+    };
+
     dispatch({
       type: "PATCH_WORKBENCH",
-      patch: { tmLoading: true, tmError: null, tmMatches: [] },
+      patch: {
+        intel: {
+          segmentId,
+          tm: { matches: [], loading: true, error: null },
+          terms: { matches: [], loading: true, error: null },
+        },
+      },
     });
+
+    const patchIntel = (part: Partial<Pick<SegmentIntel, "tm" | "terms">>) => {
+      if (!stillCurrent()) return;
+      dispatch({ type: "PATCH_SEGMENT_INTEL", segmentId, patch: part });
+    };
+
     void (async () => {
       try {
-        const result = await invokeEngine("tm.lookupExact", {
+        // Fuzzy, not just exact: the whole point of a memory is the sentence
+        // that is nearly right, and this project already had the search.
+        const result = await invokeEngine("tm.search", {
           projectId,
-          sourceText,
+          sourceLocale,
+          targetLocale,
+          query: sourceText,
+          offset: 0,
+          limit: 9,
         });
-        if (cancelled) return;
-        const current = stateRef.current.surface;
-        if (
-          current.kind !== "workbench" ||
-          current.activeSegmentId !== segmentId
-        ) {
-          return;
-        }
-        dispatch({
-          type: "PATCH_WORKBENCH",
-          patch: {
-            tmMatches: result.matches,
-            tmLoading: false,
-            tmError: null,
-          },
+        patchIntel({
+          tm: { matches: result.matches, loading: false, error: null },
         });
       } catch (error) {
-        if (cancelled) return;
-        const current = stateRef.current.surface;
-        if (
-          current.kind !== "workbench" ||
-          current.activeSegmentId !== segmentId
-        ) {
-          return;
-        }
-        dispatch({
-          type: "PATCH_WORKBENCH",
-          patch: {
-            tmLoading: false,
-            tmError: toUiError(error),
-            tmMatches: [],
-          },
+        patchIntel({
+          tm: { matches: [], loading: false, error: toUiError(error) },
         });
       }
     })();
+
+    void (async () => {
+      try {
+        const result = await invokeEngine("term.search", {
+          projectId,
+          text: sourceText,
+          offset: 0,
+          limit: 40,
+        });
+        patchIntel({
+          terms: { matches: result.matches, loading: false, error: null },
+        });
+      } catch (error) {
+        patchIntel({
+          terms: { matches: [], loading: false, error: toUiError(error) },
+        });
+      }
+    })();
+
     return () => {
       cancelled = true;
     };
@@ -1792,6 +1819,44 @@ export function useAppController(): AppController {
               },
             });
           }
+        }
+      },
+
+      // A match a translator can read but not use is worse than no match: it
+      // shows the answer and then asks them to retype it.
+      applyTmMatch: (match) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "workbench") return;
+        if (!surface.activeSegmentId) return;
+        if (saveCoordinator.active?.isComposing) return;
+        saveCoordinator.updateDraft(match.unit.targetText);
+      },
+
+      // Terms and placeables go in where the caret is, not at the end. The
+      // editor owns the selection, so it is asked rather than guessed at.
+      insertAtCaret: (text) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "workbench") return;
+        const active = saveCoordinator.active;
+        if (!active || active.isComposing) return;
+        const element = document.querySelector<HTMLTextAreaElement>(
+          `[data-testid="target-editor-${active.segmentId}"]`,
+        );
+        const current = active.draftTarget;
+        const start = element?.selectionStart ?? current.length;
+        const end = element?.selectionEnd ?? current.length;
+        const next = `${current.slice(0, start)}${text}${current.slice(end)}`;
+        saveCoordinator.updateDraft(next);
+        if (element) {
+          const caret = start + text.length;
+          // Restore focus and put the caret after what was inserted, so the
+          // translator keeps typing instead of hunting for their place.
+          requestAnimationFrame(() => {
+            element.focus();
+            element.setSelectionRange(caret, caret);
+          });
         }
       },
 
