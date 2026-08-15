@@ -724,6 +724,12 @@ export function App() {
               onToggleTm={commands.toggleTmPanel}
               onApplyMatch={commands.applyTmMatch}
               onInsertTerm={commands.insertAtCaret}
+              onConcordance={commands.runConcordance}
+              onQuickAddTerm={(selection) => {
+                void commands.quickAddTerm(selection);
+              }}
+              onCopySourceToTarget={commands.copySourceToTarget}
+              onClearTarget={commands.clearTarget}
               onQa={() => {
                 void commands.goQa();
               }}

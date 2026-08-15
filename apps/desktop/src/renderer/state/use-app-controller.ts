@@ -50,6 +50,12 @@ import {
   confirmModeFromEvent,
   nextSegmentAfterConfirm,
 } from "./confirm-advance";
+import {
+  canStoreTerm,
+  concordanceQueryFor,
+  readSegmentSelection,
+  type SegmentSelection,
+} from "./editor-selection";
 import { countsFromEditorRows } from "./editor-operations";
 import { EMPTY_SEGMENT_INTEL, type SegmentIntel } from "./segment-intel";
 // AppState imported for FeatureOp origin typing.
@@ -242,6 +248,10 @@ export interface AppController {
     toggleTmPanel: () => void;
     applyTmMatch: (match: TmMatch) => void;
     insertAtCaret: (text: string) => void;
+    runConcordance: (query?: string, selection?: SegmentSelection) => void;
+    quickAddTerm: (selection: SegmentSelection) => Promise<void>;
+    copySourceToTarget: () => void;
+    clearTarget: () => void;
     goQa: () => Promise<void>;
     runQa: () => Promise<void>;
     jumpToIssue: (segmentId: string) => Promise<void>;
@@ -1185,11 +1195,17 @@ export function useAppController(): AppController {
           segmentId,
           tm: { matches: [], loading: true, error: null },
           terms: { matches: [], loading: true, error: null },
+          // Concordance is driven by the translator, so moving segment clears
+          // the previous answer rather than silently re-running it against a
+          // phrase from a sentence they have left.
+          concordance: { query: "", hits: [], loading: false, error: null },
         },
       },
     });
 
-    const patchIntel = (part: Partial<Pick<SegmentIntel, "tm" | "terms">>) => {
+    const patchIntel = (
+      part: Partial<Pick<SegmentIntel, "tm" | "terms" | "concordance">>,
+    ) => {
       if (!stillCurrent()) return;
       dispatch({ type: "PATCH_SEGMENT_INTEL", segmentId, patch: part });
     };
@@ -1858,6 +1874,176 @@ export function useAppController(): AppController {
             element.setSelectionRange(caret, caret);
           });
         }
+      },
+
+      // Concordance answers a question the translator asks, so it runs on their
+      // selection, not on whatever the caret happens to sit in.
+      runConcordance: (query, selection) => {
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "workbench") return;
+        const segmentId = surface.activeSegmentId;
+        if (!segmentId) return;
+        const row = surface.ctx.rows.find((r) => r.segment.id === segmentId);
+        if (!row) return;
+        const phrase = (
+          query ??
+          concordanceQueryFor(
+            selection ?? readSegmentSelection(segmentId),
+            row.segment.sourceText,
+          )
+        ).trim();
+        if (!phrase) return;
+        const projectId = surface.ctx.project.id;
+        dispatch({
+          type: "PATCH_SEGMENT_INTEL",
+          segmentId,
+          patch: {
+            concordance: {
+              query: phrase,
+              hits: [],
+              loading: true,
+              error: null,
+            },
+          },
+        });
+        void (async () => {
+          try {
+            const result = await invokeEngine("tm.concordance", {
+              projectId,
+              query: phrase,
+              side: "both",
+              offset: 0,
+              limit: 20,
+            });
+            dispatch({
+              type: "PATCH_SEGMENT_INTEL",
+              segmentId,
+              patch: {
+                concordance: {
+                  query: phrase,
+                  hits: result.hits,
+                  loading: false,
+                  error: null,
+                },
+              },
+            });
+          } catch (error) {
+            dispatch({
+              type: "PATCH_SEGMENT_INTEL",
+              segmentId,
+              patch: {
+                concordance: {
+                  query: phrase,
+                  hits: [],
+                  loading: false,
+                  error: toUiError(error),
+                },
+              },
+            });
+          }
+        })();
+      },
+
+      // The shortest path from deciding a translation to the termbase knowing
+      // it. Anything longer and the asset never gets built.
+      quickAddTerm: async (selection) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "workbench") return;
+        const segmentId = surface.activeSegmentId;
+        if (!segmentId) return;
+        // The selection comes from the view, which remembers each side: the
+        // source and the target can never be highlighted at the same instant.
+        if (!canStoreTerm(selection)) return;
+        const project = surface.ctx.project;
+        try {
+          const termbases = await invokeEngine("termbase.list", {
+            projectId: project.id,
+            offset: 0,
+            limit: 50,
+          });
+          const writable = termbases.mounts.find(
+            (mount) => mount.enabled && mount.mode === "write",
+          );
+          const termbaseId =
+            writable?.termbaseId ?? termbases.items[0]?.id ?? null;
+          if (!termbaseId) {
+            dispatch({
+              type: "PATCH_WORKBENCH",
+              patch: {
+                transitionError: {
+                  kind: "domain",
+                  code: "no_termbase",
+                  message:
+                    "This project has no writable termbase. Create one in Assets first.",
+                },
+              },
+            });
+            return;
+          }
+          await invokeEngine("term.upsert", {
+            termbaseId,
+            sourceLocale: project.sourceLocale,
+            sourceTerm: selection.source,
+            translations: [
+              {
+                locale: project.targetLocale,
+                term: selection.target,
+                preferred: true,
+              },
+            ],
+          });
+          // Re-ask the terminology dock so the new entry appears immediately:
+          // sedimentation the translator cannot see is indistinguishable from
+          // sedimentation that did not happen.
+          const refreshed = await invokeEngine("term.search", {
+            projectId: project.id,
+            text:
+              surface.ctx.rows.find((r) => r.segment.id === segmentId)?.segment
+                .sourceText ?? selection.source,
+            offset: 0,
+            limit: 40,
+          });
+          dispatch({
+            type: "PATCH_SEGMENT_INTEL",
+            segmentId,
+            patch: {
+              terms: {
+                matches: refreshed.matches,
+                loading: false,
+                error: null,
+              },
+            },
+          });
+        } catch (error) {
+          dispatch({
+            type: "PATCH_WORKBENCH",
+            patch: { transitionError: toUiError(error) },
+          });
+        }
+      },
+
+      // Numbers, product codes and code-like sentences are faster to edit than
+      // to retype, which is why every CAT tool binds this.
+      copySourceToTarget: () => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "workbench") return;
+        const segmentId = surface.activeSegmentId;
+        if (!segmentId) return;
+        if (saveCoordinator.active?.isComposing) return;
+        const row = surface.ctx.rows.find((r) => r.segment.id === segmentId);
+        if (!row) return;
+        saveCoordinator.updateDraft(row.segment.sourceText);
+      },
+
+      clearTarget: () => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "workbench") return;
+        if (!surface.activeSegmentId) return;
+        if (saveCoordinator.active?.isComposing) return;
+        saveCoordinator.updateDraft("");
       },
 
       toggleTmPanel: () => {

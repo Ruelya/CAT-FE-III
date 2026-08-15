@@ -784,3 +784,57 @@
   flex-shrink: 0;
   align-self: center;
 }
+
+/* ── Concordance ────────────────────────────────────────── */
+
+.concordance__form {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.concordance__field {
+  flex: 1;
+  min-width: 0;
+}
+
+.concordance-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.concordance-hit {
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-raised);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  align-items: flex-start;
+}
+
+.concordance-hit__source {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-subtle);
+  word-break: break-word;
+}
+
+.concordance-hit__target {
+  margin: 0;
+  font-family: var(--font-cjk), var(--font-ui);
+  line-height: var(--leading-cjk);
+  word-break: break-word;
+}
+
+/* Add Term sits above the hit list rather than below it: it is the action a
+   translator reaches for when the list is empty, which is exactly when the
+   list would have pushed it off the bottom. */
+.term-list__add {
+  align-self: flex-start;
+}
