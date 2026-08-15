@@ -47,7 +47,10 @@
     "test:e2e:desktop:linux": "./scripts/linux-display.sh pnpm test:e2e:desktop",
     "ui:shots:linux": "./scripts/linux-display.sh pnpm ui:shots",
     "ui:perf": "pnpm build:desktop && node scripts/ui-perf.mjs",
-    "ui:perf:linux": "pnpm build:desktop && ./scripts/linux-display.sh node scripts/ui-perf.mjs"
+    "ui:perf:linux": "pnpm build:desktop && ./scripts/linux-display.sh node scripts/ui-perf.mjs",
+    "fixtures:formats": "python3 scripts/make-format-fixtures.py",
+    "test:formats": "pnpm build:desktop && cargo build -p translunar-engine && node scripts/format-matrix.mjs",
+    "test:formats:linux": "pnpm build:desktop && cargo build -p translunar-engine && ./scripts/linux-display.sh node scripts/format-matrix.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
