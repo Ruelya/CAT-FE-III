@@ -28,6 +28,7 @@ describe("ImportDocument OCR options", () => {
       ocrEngine: "mineru",
       ocrMode: "always",
       ocrLanguages: "ch",
+      mineruBaseUrl: "https://mineru.net/api/v4",
     });
   });
 });

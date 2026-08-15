@@ -118,9 +118,23 @@ export function ImportDocument({
               data-testid="import-ocr-languages"
             />
           </label>
+          {ocr.ocrEngine === "mineru" ? (
+            <label className="field">
+              <span className="field__label">MinerU API</span>
+              <input
+                className="field__control"
+                value={ocr.mineruBaseUrl}
+                disabled={busy}
+                onChange={(e) => updateOcr({ mineruBaseUrl: e.target.value })}
+                autoComplete="off"
+                data-testid="import-ocr-mineru-base"
+              />
+            </label>
+          ) : null}
           <p className="field__hint">
-            MinerU needs a key under Settings → OCR. Auto keeps the local
-            Poppler/Tesseract path.
+            Official Precision Extract uses a Token from the MinerU API
+            console (Settings → OCR), not an Access Key pair. Auto keeps the
+            local Poppler/Tesseract path.
           </p>
         </fieldset>
 

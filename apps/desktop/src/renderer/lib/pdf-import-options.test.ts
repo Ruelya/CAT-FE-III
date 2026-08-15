@@ -29,6 +29,7 @@ describe("normalizePdfImportOptions", () => {
       ocrEngine: "auto",
       ocrMode: "auto",
       ocrLanguages: "  ",
+      mineruBaseUrl: "https://mineru.net/api/v4",
     });
   });
 
@@ -43,6 +44,7 @@ describe("normalizePdfImportOptions", () => {
       ocrEngine: "mineru",
       ocrMode: "always",
       ocrLanguages: "ch",
+      mineruBaseUrl: "https://mineru.net/api/v4",
     });
   });
 });
@@ -58,6 +60,7 @@ describe("pdf import options storage", () => {
       ocrEngine: "tesseract",
       ocrMode: "never",
       ocrLanguages: "eng+chi_sim",
+      mineruBaseUrl: "https://mineru.net/api/v4",
     });
   });
 
@@ -66,6 +69,7 @@ describe("pdf import options storage", () => {
       ocrEngine: "auto",
       ocrMode: "auto",
       ocrLanguages: "eng",
+      mineruBaseUrl: "https://mineru.net/api/v4",
     });
     expect(
       readPdfImportOptions(memoryStorage({ "translunar.renderer.pdf-import-options.v1": "{" })),
@@ -73,6 +77,7 @@ describe("pdf import options storage", () => {
       ocrEngine: "auto",
       ocrMode: "auto",
       ocrLanguages: "eng",
+      mineruBaseUrl: "https://mineru.net/api/v4",
     });
   });
 });
@@ -89,6 +94,7 @@ describe("toBatchImportOptions", () => {
       ocrEngine: "mineru",
       ocrMode: "auto",
       ocrLanguages: "ch",
+      mineruBaseUrl: "https://mineru.net/api/v4",
     });
     expect(
       toBatchImportOptions({

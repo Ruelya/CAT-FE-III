@@ -368,8 +368,14 @@ export function ProductSettings({
               Loading OCR settings
             </p>
           )}
+          <p className="field__hint">
+            Official Precision Extract needs a Token created on the MinerU API
+            management page, stored here as a Bearer secret. Access Key /
+            Secret Key pairs are not Tokens. Point the import MinerU API field
+            at https://mineru.net/api/v4.
+          </p>
           <label className="field">
-            <span>MinerU API key</span>
+            <span>MinerU API token</span>
             <input
               type="password"
               value={state.mineruSecretDraft}

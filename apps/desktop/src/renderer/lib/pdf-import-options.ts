@@ -3,10 +3,14 @@
 export type PdfOcrEngine = "auto" | "mineru" | "tesseract";
 export type PdfOcrMode = "auto" | "always" | "never";
 
+export const DEFAULT_MINERU_BASE_URL = "https://mineru.net/api/v4";
+
 export interface PdfImportOptions {
   ocrEngine: PdfOcrEngine;
   ocrMode: PdfOcrMode;
   ocrLanguages: string;
+  /** Official Precision Extract or self-hosted mineru-api root. */
+  mineruBaseUrl: string;
 }
 
 export const PDF_IMPORT_OPTIONS_KEY = "translunar.renderer.pdf-import-options.v1";
@@ -15,6 +19,7 @@ export const DEFAULT_PDF_IMPORT_OPTIONS: PdfImportOptions = {
   ocrEngine: "auto",
   ocrMode: "auto",
   ocrLanguages: "eng",
+  mineruBaseUrl: DEFAULT_MINERU_BASE_URL,
 };
 
 export function readPdfImportOptions(
@@ -31,7 +36,7 @@ export function readPdfImportOptions(
 }
 
 export function writePdfImportOptions(
-  next: PdfImportOptions,
+  next: Partial<PdfImportOptions>,
   storage: Pick<Storage, "setItem"> = localStorage,
 ): PdfImportOptions {
   const normalized = normalizePdfImportOptions(next);
@@ -53,18 +58,33 @@ export function normalizePdfImportOptions(
         : "auto",
     ocrLanguages:
       typeof raw?.ocrLanguages === "string" ? raw.ocrLanguages : "eng",
+    mineruBaseUrl: normalizeMineruBaseUrl(raw?.mineruBaseUrl),
   };
+}
+
+function normalizeMineruBaseUrl(raw: string | undefined): string {
+  if (typeof raw !== "string") return DEFAULT_MINERU_BASE_URL;
+  const trimmed = raw.trim().replace(/\/+$/, "");
+  if (!trimmed) return DEFAULT_MINERU_BASE_URL;
+  if (!/^https?:\/\//i.test(trimmed) || /\s/.test(trimmed)) {
+    return DEFAULT_MINERU_BASE_URL;
+  }
+  return trimmed;
 }
 
 /** Closed-enum import options the Engine PDF/MinerU router already understands. */
 export function toBatchImportOptions(
-  prefs: PdfImportOptions = readPdfImportOptions(),
+  prefs: Partial<PdfImportOptions> = readPdfImportOptions(),
 ): Record<string, string> {
   const normalized = normalizePdfImportOptions(prefs);
   const languages = normalized.ocrLanguages.trim();
-  return {
+  const options: Record<string, string> = {
     ocrEngine: normalized.ocrEngine,
     ocrMode: normalized.ocrMode,
     ocrLanguages: languages.length > 0 ? languages : "eng",
   };
+  if (normalized.ocrEngine === "mineru") {
+    options.mineruBaseUrl = normalized.mineruBaseUrl;
+  }
+  return options;
 }
