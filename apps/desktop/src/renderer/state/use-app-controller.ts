@@ -15,6 +15,7 @@ import type {
   Segment,
   SegmentCounts,
   SegmentEditorRow,
+  TermMatch,
   TmMatch,
 } from "@translunar/contracts";
 
@@ -73,6 +74,7 @@ import {
   type JobScope,
 } from "../lib/job-scope";
 import { pairSourceTags } from "../lib/quickplace";
+import { pickWritableTermbase } from "../lib/term-source";
 import {
   copySourceTagsToTarget,
   mergeTargetTags,
@@ -318,6 +320,7 @@ export interface AppController {
     insertAtCaret: (text: string) => void;
     runConcordance: (query?: string, selection?: SegmentSelection) => void;
     quickAddTerm: (selection: SegmentSelection) => Promise<void>;
+    searchTerms: (query: string) => Promise<TermMatch[]>;
     copySourceToTarget: () => void;
     clearTarget: () => void;
     acceptSuggestion: (text: string, prefix: string) => void;
@@ -2150,6 +2153,20 @@ export function useAppController(): AppController {
         })();
       },
 
+      searchTerms: async (query) => {
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "workbench") return [];
+        const text = query.trim();
+        if (!text) return [];
+        const result = await invokeEngine("term.search", {
+          projectId: surface.ctx.project.id,
+          text,
+          offset: 0,
+          limit: 40,
+        });
+        return result.matches;
+      },
+
       // The shortest path from deciding a translation to the termbase knowing
       // it. Anything longer and the asset never gets built.
       quickAddTerm: async (selection) => {
@@ -2168,25 +2185,31 @@ export function useAppController(): AppController {
             offset: 0,
             limit: 50,
           });
-          const writable = termbases.mounts.find(
-            (mount) => mount.enabled && mount.mode === "write",
-          );
-          const termbaseId =
-            writable?.termbaseId ?? termbases.items[0]?.id ?? null;
-          if (!termbaseId) {
-            dispatch({
-              type: "PATCH_WORKBENCH",
-              patch: {
-                transitionError: {
-                  kind: "domain",
-                  code: "no_termbase",
-                  message:
-                    "This project has no writable termbase. Create one in Assets first.",
-                },
-              },
+          let picked = pickWritableTermbase(termbases);
+          if (!picked) {
+            const created = await invokeEngine("termbase.create", {
+              name: `${project.name} terms`,
+              sourceLocale: project.sourceLocale,
+              writable: true,
             });
-            return;
+            await invokeEngine("termbase.mount", {
+              projectId: project.id,
+              termbaseId: created.id,
+              priority: 0,
+              writable: true,
+              enabled: true,
+            });
+            picked = { termbaseId: created.id, needsMount: false };
+          } else if (picked.needsMount) {
+            await invokeEngine("termbase.mount", {
+              projectId: project.id,
+              termbaseId: picked.termbaseId,
+              priority: 0,
+              writable: true,
+              enabled: true,
+            });
           }
+          const termbaseId = picked.termbaseId;
           await invokeEngine("term.upsert", {
             termbaseId,
             sourceLocale: project.sourceLocale,

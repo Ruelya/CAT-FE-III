@@ -21,6 +21,8 @@ export interface EditorShortcutHandlers {
   onFind?: () => void;
   /** F4 / Ctrl+G already used; Enter-next from Find uses this. */
   onFindNext?: () => void;
+  /** Ctrl+Shift+L: insert the focused (or first) term translation at the caret. */
+  onInsertTerm?: () => void;
 }
 
 /**
@@ -53,6 +55,11 @@ export function useEditorShortcuts(
       if (control && event.shiftKey && event.key.toLowerCase() === "t") {
         event.preventDefault();
         handlers.onQuickAddTerm();
+        return;
+      }
+      if (control && event.shiftKey && event.key.toLowerCase() === "l") {
+        event.preventDefault();
+        handlers.onInsertTerm?.();
         return;
       }
       if (control && event.key === "Insert") {
@@ -112,5 +119,6 @@ export function useEditorShortcuts(
     handlers.onQuickPlace,
     handlers.onFind,
     handlers.onFindNext,
+    handlers.onInsertTerm,
   ]);
 }

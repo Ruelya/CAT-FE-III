@@ -1,7 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ConcordanceHit, TermMatch, TmMatch } from "@translunar/contracts";
 
-import { formatUiError } from "../lib/errors";
+import { formatUiError, toUiError } from "../lib/errors";
+import {
+  filterTermMatches,
+  mergeTermMatches,
+  nextInsertableTerm,
+  preferredTranslation,
+  segmentSpanForTerm,
+} from "../lib/term-source";
 import type { SegmentIntel } from "../state/segment-intel";
 import {
   SEGMENT_AI_ACTIONS,
@@ -25,6 +32,12 @@ export interface IntelDockProps {
   onQuickAddTerm: () => void;
   /** True when a source and target selection are both available to store. */
   canQuickAddTerm: boolean;
+  /** Look a phrase up across mounted termbases (Trados Termbase Search). */
+  onSearchTerms?: (query: string) => Promise<TermMatch[]>;
+  focusedTermIndex?: number;
+  onFocusedTermIndex?: (index: number) => void;
+  /** Hover/keyboard focus paints the source span, like QuickPlace. */
+  onHighlightTerm?: (span: { start: number; end: number } | null) => void;
   ai: SegmentAiState & {
     setAction: (action: AiAction) => void;
     generate: () => void;
@@ -52,6 +65,10 @@ export function IntelDock({
   onConcordance,
   onQuickAddTerm,
   canQuickAddTerm,
+  onSearchTerms,
+  focusedTermIndex,
+  onFocusedTermIndex,
+  onHighlightTerm,
   ai,
   onApplyAiProposal,
 }: IntelDockProps) {
@@ -154,6 +171,10 @@ export function IntelDock({
             canQuickAdd={canQuickAddTerm}
             onInsert={onInsertTerm}
             onQuickAdd={onQuickAddTerm}
+            {...(onSearchTerms ? { onSearchTerms } : {})}
+            {...(focusedTermIndex !== undefined ? { focusedIndex: focusedTermIndex } : {})}
+            {...(onFocusedTermIndex ? { onFocusedIndex: onFocusedTermIndex } : {})}
+            {...(onHighlightTerm ? { onHighlight: onHighlightTerm } : {})}
           />
         ) : tab === "concordance" ? (
           <ConcordanceList
@@ -293,6 +314,10 @@ function TermList({
   canQuickAdd,
   onInsert,
   onQuickAdd,
+  onSearchTerms,
+  focusedIndex,
+  onFocusedIndex,
+  onHighlight,
 }: {
   terms: TermMatch[];
   loading: boolean;
@@ -301,17 +326,137 @@ function TermList({
   canQuickAdd: boolean;
   onInsert: (translation: string) => void;
   onQuickAdd: () => void;
+  onSearchTerms?: (query: string) => Promise<TermMatch[]>;
+  focusedIndex?: number;
+  onFocusedIndex?: (index: number) => void;
+  onHighlight?: (span: { start: number; end: number } | null) => void;
 }) {
-  if (error) {
-    return (
-      <p className="error-text" role="alert">
-        {error}
-      </p>
-    );
-  }
-  if (loading && terms.length === 0) {
-    return <p className="muted">Checking termbases</p>;
-  }
+  const [query, setQuery] = useState("");
+  const [lookup, setLookup] = useState<TermMatch[]>([]);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupError, setLookupError] = useState<string | null>(null);
+  const [internalFocus, setInternalFocus] = useState(0);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const focus = focusedIndex ?? internalFocus;
+  const setFocus = onFocusedIndex ?? setInternalFocus;
+
+  useEffect(() => {
+    setQuery("");
+    setLookup([]);
+    setLookupError(null);
+    setExpandedId(null);
+  }, [terms]);
+
+  const filtered = useMemo(
+    () => filterTermMatches(terms, query),
+    [terms, query],
+  );
+  const displayed = useMemo(
+    () => (query.trim() ? mergeTermMatches(filtered, lookup) : filtered),
+    [filtered, lookup, query],
+  );
+
+  useEffect(() => {
+    if (!onSearchTerms) return;
+    const needle = query.trim();
+    if (!needle) {
+      setLookup([]);
+      setLookupError(null);
+      setLookupLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLookupLoading(true);
+    const timer = window.setTimeout(() => {
+      void onSearchTerms(needle)
+        .then((matches) => {
+          if (cancelled) return;
+          setLookup(matches);
+          setLookupError(null);
+        })
+        .catch((caught: unknown) => {
+          if (cancelled) return;
+          setLookup([]);
+          setLookupError(formatUiError(toUiError(caught)));
+        })
+        .finally(() => {
+          if (!cancelled) setLookupLoading(false);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [onSearchTerms, query]);
+
+  useEffect(() => {
+    if (displayed.length === 0) {
+      onHighlight?.(null);
+      return;
+    }
+    if (focus >= displayed.length) setFocus(0);
+  }, [displayed, focus, onHighlight, setFocus]);
+
+  const paintFocus = (index: number) => {
+    setFocus(index);
+    const term = displayed[index];
+    if (!term) {
+      onHighlight?.(null);
+      return;
+    }
+    onHighlight?.(segmentSpanForTerm(term, terms));
+  };
+
+  const insertFocused = () => {
+    const hit = nextInsertableTerm(displayed, focus);
+    if (!hit) return;
+    onInsert(hit.translation);
+    if (displayed.length > 0) {
+      paintFocus((hit.index + 1) % displayed.length);
+    }
+  };
+
+  const search = (
+    <form
+      className="term-list__search"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const needle = query.trim();
+        if (!needle || !onSearchTerms) return;
+        setLookupLoading(true);
+        void onSearchTerms(needle)
+          .then((matches) => {
+            setLookup(matches);
+            setLookupError(null);
+          })
+          .catch((caught: unknown) => {
+            setLookup([]);
+            setLookupError(formatUiError(toUiError(caught)));
+          })
+          .finally(() => setLookupLoading(false));
+      }}
+    >
+      <label className="field term-list__field">
+        <span className="field__label">Search termbases</span>
+        <input
+          type="text"
+          value={query}
+          disabled={disabled}
+          data-testid="term-search"
+          placeholder="Filter this segment or look up a term"
+          onChange={(event) => setQuery(event.target.value)}
+        />
+      </label>
+      <button
+        type="submit"
+        className="btn btn--secondary btn--sm"
+        disabled={disabled || query.trim().length === 0 || !onSearchTerms}
+      >
+        Search
+      </button>
+    </form>
+  );
+
   const quickAdd = (
     <button
       type="button"
@@ -329,77 +474,167 @@ function TermList({
     </button>
   );
 
-  if (terms.length === 0) {
+  if (error) {
     return (
       <>
-        <p className="muted" data-testid="no-terms">
-          No termbase entries in this segment
+        {search}
+        <p className="error-text" role="alert">
+          {error}
         </p>
-        {/* The shortest path from "I just decided how to translate this" to
-            "the termbase knows" is the whole point of an asset hub that lives
-            behind the editor rather than beside it. */}
         {quickAdd}
       </>
     );
   }
+  if (loading && terms.length === 0 && !query.trim()) {
+    return (
+      <>
+        {search}
+        <p className="muted">Checking termbases</p>
+        {quickAdd}
+      </>
+    );
+  }
+
+  const emptyMessage =
+    query.trim() && displayed.length === 0
+      ? `No termbase entries match "${query.trim()}"`
+      : "No termbase entries in this segment";
+
   return (
     <>
+      {search}
       {quickAdd}
-      <ul className="term-list">
-        {terms.map((term) => (
-          <li key={term.entryId} className="term">
-            <p className="term__source">{term.sourceTerm}</p>
-            {term.translations.length === 0 ? (
-              // A source term with no translation is still worth showing: it is
-              // the termbase saying "this phrase matters", and the translator
-              // may want to add the translation as they go.
-              <p className="term__untranslated muted">No translation on file</p>
-            ) : (
-              <div className="term__translations">
-                {[...term.translations]
-                  .sort(
-                    (left, right) =>
-                      Number(right.preferred) - Number(left.preferred),
-                  )
-                  .map((translation) =>
-                    translation.forbidden ? (
-                      // A forbidden term is the termbase telling the translator
-                      // what not to write. Rendering it as one more insertable
-                      // chip would invert its meaning, so it is shown struck
-                      // through and cannot be clicked into the target.
-                      <span
-                        key={translation.id}
-                        className="term__forbidden"
-                        title="Forbidden by the termbase"
-                      >
-                        {translation.term}
-                      </span>
-                    ) : (
-                      <button
-                        key={translation.id}
-                        type="button"
-                        className={`btn btn--ghost btn--sm term__insert${
-                          translation.preferred
-                            ? " term__insert--preferred"
-                            : ""
-                        }`}
-                        disabled={disabled}
-                        title={
-                          translation.preferred
-                            ? "Preferred term. Insert at the caret"
-                            : "Insert at the caret"
-                        }
-                        onClick={() => onInsert(translation.term)}
-                      >
-                        {translation.term}
-                      </button>
-                    ),
-                  )}
-              </div>
-            )}
-          </li>
-        ))}
-      </ul>
+      {lookupError ? (
+        <p className="error-text" role="alert">
+          {lookupError}
+        </p>
+      ) : null}
+      {displayed.length === 0 ? (
+        <p className="muted" data-testid="no-terms">
+          {emptyMessage}
+        </p>
+      ) : (
+        <ul
+          className="term-list"
+          role="listbox"
+          tabIndex={0}
+          aria-label="Term recognition"
+          data-testid="term-list"
+          onMouseLeave={() => onHighlight?.(null)}
+          onKeyDown={(event) => {
+            if (event.target instanceof HTMLInputElement) return;
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              paintFocus(Math.min(displayed.length - 1, focus + 1));
+              return;
+            }
+            if (event.key === "ArrowUp") {
+              event.preventDefault();
+              paintFocus(Math.max(0, focus - 1));
+              return;
+            }
+            if (event.key === "Insert") {
+              event.preventDefault();
+              insertFocused();
+              return;
+            }
+            if (event.key === "Enter") {
+              event.preventDefault();
+              const term = displayed[focus];
+              if (term) {
+                setExpandedId((current) =>
+                  current === term.entryId ? null : term.entryId,
+                );
+              }
+            }
+          }}
+        >
+          {displayed.map((term, index) => {
+            const inSegment = segmentSpanForTerm(term, terms) != null;
+            const active = index === focus;
+            return (
+              <li
+                key={`${term.entryId}:${index}`}
+                role="option"
+                aria-selected={active}
+                data-testid={`term-hit-${index}`}
+                className={`term${active ? " term--active" : ""}`}
+                onMouseEnter={() => paintFocus(index)}
+                onClick={() => paintFocus(index)}
+              >
+                <p className="term__source">{term.sourceTerm}</p>
+                {term.translations.length === 0 ? (
+                  <p className="term__untranslated muted">No translation on file</p>
+                ) : (
+                  <div className="term__translations">
+                    {[...term.translations]
+                      .sort(
+                        (left, right) =>
+                          Number(right.preferred) - Number(left.preferred),
+                      )
+                      .map((translation) =>
+                        translation.forbidden ? (
+                          <span
+                            key={translation.id}
+                            className="term__forbidden"
+                            title="Forbidden by the termbase"
+                          >
+                            {translation.term}
+                          </span>
+                        ) : (
+                          <button
+                            key={translation.id}
+                            type="button"
+                            className={`btn btn--ghost btn--sm term__insert${
+                              translation.preferred
+                                ? " term__insert--preferred"
+                                : ""
+                            }`}
+                            disabled={disabled}
+                            title={
+                              translation.preferred
+                                ? "Preferred term. Insert at the caret"
+                                : "Insert at the caret"
+                            }
+                            onClick={() => onInsert(translation.term)}
+                          >
+                            {translation.term}
+                          </button>
+                        ),
+                      )}
+                  </div>
+                )}
+                {expandedId === term.entryId ? (
+                  <dl
+                    className="term__details"
+                    data-testid={`term-details-${index}`}
+                  >
+                    <div>
+                      <dt>Source</dt>
+                      <dd>{term.sourceTerm}</dd>
+                    </div>
+                    <div>
+                      <dt>Where</dt>
+                      <dd>
+                        {inSegment
+                          ? "Recognised in this segment"
+                          : "Termbase search"}
+                      </dd>
+                    </div>
+                    {preferredTranslation(term) ? (
+                      <div>
+                        <dt>Insert</dt>
+                        <dd>{preferredTranslation(term)}</dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {lookupLoading ? <p className="muted">Searching termbases</p> : null}
     </>
   );
 }

@@ -735,6 +735,7 @@ export function App() {
               onQuickAddTerm={(selection) => {
                 void commands.quickAddTerm(selection);
               }}
+              onSearchTerms={commands.searchTerms}
               onCopySourceToTarget={commands.copySourceToTarget}
               onClearTarget={commands.clearTarget}
               onAcceptSuggestion={commands.acceptSuggestion}

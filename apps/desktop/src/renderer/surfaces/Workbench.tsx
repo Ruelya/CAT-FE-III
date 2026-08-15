@@ -3,6 +3,7 @@ import type {
   EditorWorkflowState,
   InlineTag,
   ProjectBatchImportResult,
+  TermMatch,
   TmMatch,
 } from "@translunar/contracts";
 
@@ -26,6 +27,10 @@ import {
 import { useEditorDisplay } from "../state/use-editor-display";
 import { DisplayFilterBar } from "../workbench/DisplayFilterBar";
 import { canStoreTerm, type SegmentSelection } from "../state/editor-selection";
+import {
+  nextInsertableTerm,
+  termSourceHighlights,
+} from "../lib/term-source";
 import { rankMatches, type SegmentIntel } from "../state/segment-intel";
 import { useSegmentSelection } from "../state/use-segment-selection";
 import { useSuggestions } from "../state/use-suggestions";
@@ -101,6 +106,8 @@ export interface WorkbenchProps {
     selection: SegmentSelection,
   ) => void;
   onQuickAddTerm: (selection: SegmentSelection) => void;
+  /** Look a phrase up in mounted termbases, not just the current segment. */
+  onSearchTerms?: (query: string) => Promise<TermMatch[]>;
   onCopySourceToTarget: () => void;
   onClearTarget: () => void;
   /** Replace the partially typed word with the accepted completion. */
@@ -151,6 +158,7 @@ export function Workbench({
   onInsertTerm,
   onConcordance,
   onQuickAddTerm,
+  onSearchTerms,
   onCopySourceToTarget,
   onClearTarget,
   onAcceptSuggestion,
@@ -202,12 +210,18 @@ export function Workbench({
     start: number;
     end: number;
   } | null>(null);
+  const [termFocusIndex, setTermFocusIndex] = useState(0);
   const [protectTags, setProtectTags] = useState(readProtectTags);
   const [groupAdjacent, setGroupAdjacent] = useState(readGroupAdjacentTags);
   const [editorDisplay] = useEditorDisplay();
+  const termHighlights = useMemo(
+    () => termSourceHighlights(intel.terms.matches, onInsertTerm),
+    [intel.terms.matches, onInsertTerm],
+  );
   useEffect(() => {
     setQuickPlaceOpen(false);
     setSourceHighlight(null);
+    setTermFocusIndex(0);
   }, [activeSegmentId]);
   const [signReason, setSignReason] = useState<{
     segmentId: string;
@@ -237,6 +251,16 @@ export function Workbench({
       const current = matches.findIndex((m) => m.segmentId === activeSegmentId);
       const next = matches[(current + 1) % matches.length];
       if (next) void editorOps?.selectFindMatch(next.segmentId);
+    },
+    onInsertTerm: () => {
+      const hit = nextInsertableTerm(intel.terms.matches, termFocusIndex);
+      if (!hit) return;
+      onInsertTerm(hit.translation);
+      setTermFocusIndex(
+        intel.terms.matches.length === 0
+          ? 0
+          : (hit.index + 1) % intel.terms.matches.length,
+      );
     },
   });
   // Container-responsive density: dock changes resize the editor without
@@ -588,6 +612,7 @@ export function Workbench({
             onPlaceAllTags={onPlaceTags}
             sourceHighlight={sourceHighlight}
             onSourceHighlight={setSourceHighlight}
+            termHighlights={termHighlights}
             protectTags={protectTags}
             onProtectTagsChange={(next) => {
               setProtectTags(next);
@@ -629,6 +654,13 @@ export function Workbench({
           onConcordance={(query) => onConcordance(query, selection)}
           onQuickAddTerm={() => onQuickAddTerm(selection)}
           canQuickAddTerm={canQuickAddTerm}
+          {...(onSearchTerms ? { onSearchTerms } : {})}
+          focusedTermIndex={termFocusIndex}
+          onFocusedTermIndex={setTermFocusIndex}
+          onHighlightTerm={(span) => {
+            if (quickPlaceOpen) return;
+            setSourceHighlight(span);
+          }}
           ai={segmentAi}
           onApplyAiProposal={onApplyAiProposal}
         />
