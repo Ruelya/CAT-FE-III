@@ -87,8 +87,18 @@
 | 能力 | 说明 |
 | --- | --- |
 | QuickPlace 源高亮 | 列表当前项若对应源跨度（格式对或数字/日期/URL），源列用 mark 高亮该跨度。All tags 不高亮。 |
-| 复制/粘贴标签 | Ctrl+C / Ctrl+X / Ctrl+V 走自定义剪贴板：正文 + 相对偏移的标签。从源列复制同样带标签。纯文本粘贴也会按字符偏移改写已有标签。 |
+| 复制/粘贴标签 | Ctrl+C / Ctrl+X / Ctrl+V 走自定义剪贴板：正文 + 相对偏移的标签。从源列复制同样带标签。纯文本粘贴也会按字符偏移改写已有标签。全选目标时偏移按编辑器根节点计算，不再把胶囊字算进正文。 |
 | Protect Tags | 默认关。打开后 Backspace/Delete 不能删标签原子；选区删除只去字、标签塌到选区起点。会话级 localStorage，不改引擎偏好协议。 |
+
+### 2026-08-15 续作（相邻占位标签分组）
+
+对照 docs.rws.com File > Options > Editor：**Group adjacent tags in formatting window**。
+
+| 能力 | 说明 |
+| --- | --- |
+| QuickPlace 分组项 | 相邻（同一字符偏移、中间无正文）的 standalone 占位标签收成一项，一次放入光标处。格式对仍分开列开口/闭口。 |
+| 点选一组 | 点击组里任一胶囊，选中整组，便于一次复制。源列无选区正文时，复制仍带上选中的标签。 |
+| 开关 | QuickPlace 列表底部复选框，默认开；`localStorage`，不改引擎偏好协议。 |
 
 ### 仍未做到 Trados 同水准的部分（诚实清单）
 
@@ -99,8 +109,7 @@
 3. **Approved / Rejected 七档**——引擎工作流是 translation/review/signed 三档，Signed = 锁定。
 4. **AI 需真实 provider 密钥**才能生成；门禁验证的是“挂在当前段 + 无配置时诚实”，不是云端生成质量。
 5. **PDF** 尚未纳入 format-matrix 的同构往返（引擎已注册 `builtin.pdf`）。
-6. **标签分组选择**——官方可以把相邻标签收成一组一次选中。本轮未做。
-7. **Protect Tags 进引擎偏好**——现在只存在渲染进程 localStorage，换机器不会跟着账号走。
+6. **Protect Tags / 标签分组进引擎偏好**——现在只存在渲染进程 localStorage，换机器不会跟着账号走。
 
 主参照：SDL Trados Studio 2024 / 2024 SR1 的 Editor view（以 docs.rws.com 官方
 文档为准）；补遗参照 memoQ（docs.memoq.com）与 CafeTran。协作、派单、云协同、
