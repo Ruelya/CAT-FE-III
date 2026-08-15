@@ -3,6 +3,8 @@ import type { InlineTag } from "@translunar/contracts";
 
 import {
   buildTaggedEditorHtml,
+  copySourceTagsToTarget,
+  deleteRangeFromTagged,
   insertTextIntoTagged,
   mergeTargetTags,
   alignGhostPositions,
@@ -10,6 +12,7 @@ import {
   mapTagsToTargetPositions,
   placeSourceTagsAtCaret,
   placeSourceTagsProportional,
+  replaceSelectionInTagged,
   serializeTaggedEditor,
   splitTaggedText,
   tagLabel,
@@ -63,6 +66,17 @@ describe("splitTaggedText", () => {
       tag("1e", "end", 0, "b"),
     ]);
     expect(pieces.map((p) => p.text)).toEqual(["b", "/b"]);
+  });
+
+  it("keeps a ghost opening before a real closer at the same offset", () => {
+    const pieces = splitTaggedText("ab", [tag("1e", "end", 0, "b")], [
+      tag("1s", "start", 0, "b"),
+    ]);
+    expect(pieces.map((p) => `${p.kind}:${p.text}`)).toEqual([
+      "ghost:b",
+      "tag:/b",
+      "text:ab",
+    ]);
   });
 });
 
@@ -124,6 +138,58 @@ describe("placeSourceTags", () => {
     expect(next.text).toBe("aXXb");
     expect(next.tags.map((item) => item.position)).toEqual([1, 3]);
     expect(next.tags.map((item) => item.kind)).toEqual(["start", "end"]);
+  });
+
+  it("drops tags inside a deleted range and shifts the rest", () => {
+    const next = deleteRangeFromTagged(
+      "abcdef",
+      [
+        tag("1s", "start", 1, "b"),
+        tag("mid", "standalone", 3, "x"),
+        tag("1e", "end", 5, "b"),
+      ],
+      2,
+      4,
+    );
+    expect(next.text).toBe("abef");
+    expect(next.tags.map((item) => `${item.id}:${item.position}`)).toEqual([
+      "1s:1",
+      "1e:3",
+    ]);
+  });
+
+  it("replaces a selection without using UTF-16 indexes", () => {
+    const next = replaceSelectionInTagged(
+      "电池容量",
+      [tag("1s", "start", 0, "b"), tag("1e", "end", 2, "b")],
+      2,
+      4,
+      "XX",
+    );
+    expect(next.text).toBe("电池XX");
+    expect(next.tags.map((item) => item.position)).toEqual([0, 2]);
+  });
+
+  it("keeps replacement text inside a pair that wrapped the selection", () => {
+    const next = replaceSelectionInTagged(
+      "电池容量",
+      [tag("1s", "start", 0, "b"), tag("1e", "end", 4, "b")],
+      2,
+      4,
+      "XX",
+    );
+    expect(next.text).toBe("电池XX");
+    expect(next.tags.map((item) => item.position)).toEqual([0, 4]);
+  });
+
+  it("copies source tags onto the target at the same offsets", () => {
+    const copied = copySourceTagsToTarget([
+      tag("1s", "start", 9, "b"),
+      tag("1e", "end", 15, "b"),
+    ]);
+    expect(copied.map((item) => item.position)).toEqual([9, 15]);
+    expect(copied.every((item) => item.side === "target")).toBe(true);
+    expect(copied.every((item) => item.id.startsWith("placed-copy:"))).toBe(true);
   });
 
   it("replaces a carried tag of the same kind when merging", () => {

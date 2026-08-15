@@ -1,5 +1,6 @@
 import type { InlineTag } from "@translunar/contracts";
 
+import { formatRunClass, formatTokens } from "./preview-markup";
 import { tagFingerprint, tagLabel } from "./tagged-text";
 
 export type PlaceableKind =
@@ -17,6 +18,8 @@ export interface Placeable {
   label: string;
   text?: string;
   tags?: InlineTag[];
+  /** Trados shows formatting samples (bold/italic) instead of raw tag names. */
+  formatClass?: string;
 }
 
 export interface TagPair {
@@ -126,6 +129,7 @@ export function extractPlaceables(
 ): Placeable[] {
   const items: Placeable[] = [];
   const unmatched = unmatchedSourceTags(sourceTags, targetTags);
+  const { pairs } = pairSourceTags(sourceTags);
   if (unmatched.length > 0) {
     items.push({
       id: "all-tags",
@@ -135,11 +139,24 @@ export function extractPlaceables(
     });
   }
   for (const tag of unmatched) {
+    const pair = pairs.find(
+      (entry) => entry.start.id === tag.id || entry.end.id === tag.id,
+    );
+    const formatClass = formatRunClass(formatTokens(tag.displayText));
+    let label = tagLabel(tag);
+    if (tag.kind === "start" && pair) {
+      const span = [...sourceText]
+        .slice(pair.start.position, pair.end.position)
+        .join("")
+        .trim();
+      if (span) label = span;
+    }
     items.push({
       id: `tag:${tag.id}`,
       kind: "tag",
-      label: tagLabel(tag),
+      label,
       tags: [tag],
+      ...(formatClass ? { formatClass } : {}),
     });
   }
 
@@ -190,9 +207,12 @@ export function unmatchedSourceTags(
 }
 
 /**
- * Closing tags that Trados shows as ghosts: the start is already in the
- * target, the end is not. The closer rides at `caret` once the caret is
- * past the opening tag, otherwise it stays on the opening tag.
+ * Ghosts for an incomplete pair already on the target (Trados).
+ *
+ * Opening placed, closer missing → ghost closer follows the caret past the
+ * opening. Closer placed, opening missing (deleted half) → ghost opening
+ * sits at the caret, clamped in front of the closer. Neither placed → no
+ * overlay; those tags stay in the QuickPlace list.
  */
 export function pendingCloseGhosts(
   sourceTags: readonly InlineTag[],
@@ -206,15 +226,48 @@ export function pendingCloseGhosts(
   );
   const ghosts: InlineTag[] = [];
   for (const pair of pairSourceTags(sourceTags).pairs) {
-    if (unmatched.has(pair.start.id) || !unmatched.has(pair.end.id)) continue;
+    const startMissing = unmatched.has(pair.start.id);
+    const endMissing = unmatched.has(pair.end.id);
+    if (startMissing === endMissing) continue;
+    if (endMissing) {
+      const placed = targetTags.find(
+        (tag) => tagFingerprint(tag) === tagFingerprint(pair.start),
+      );
+      const floor = placed?.position ?? 0;
+      const held = remembered.get(pair.end.id) ?? floor;
+      const follows = caret >= floor ? Math.max(held, caret) : held;
+      const at = Math.min(Math.max(follows, floor), textLength);
+      ghosts.push({ ...pair.end, position: at });
+      continue;
+    }
     const placed = targetTags.find(
-      (tag) => tagFingerprint(tag) === tagFingerprint(pair.start),
+      (tag) => tagFingerprint(tag) === tagFingerprint(pair.end),
     );
-    const floor = placed?.position ?? 0;
-    const held = remembered.get(pair.end.id) ?? floor;
-    const follows = caret >= floor ? Math.max(held, caret) : held;
-    const at = Math.min(Math.max(follows, floor), textLength);
-    ghosts.push({ ...pair.end, position: at });
+    const ceiling = Math.min(placed?.position ?? 0, textLength);
+    const held = remembered.get(pair.start.id) ?? ceiling;
+    const follows = caret <= ceiling ? caret : held;
+    const at = Math.min(Math.max(follows, 0), ceiling);
+    ghosts.push({ ...pair.start, position: at });
   }
   return ghosts;
+}
+
+const SHORTCUT_TOKENS: Record<string, string[]> = {
+  b: ["b", "strong"],
+  i: ["i", "em"],
+  u: ["u"],
+};
+
+/** Source pair that Ctrl+B / Ctrl+I / Ctrl+U should apply (QuickInsert). */
+export function formatPairForKey(
+  sourceTags: readonly InlineTag[],
+  key: string,
+): TagPair | null {
+  const tokens = SHORTCUT_TOKENS[key.toLowerCase()];
+  if (!tokens) return null;
+  return (
+    pairSourceTags(sourceTags).pairs.find((pair) =>
+      formatTokens(pair.start.displayText).some((token) => tokens.includes(token)),
+    ) ?? null
+  );
 }

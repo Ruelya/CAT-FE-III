@@ -37,10 +37,11 @@ export function splitTaggedText(
     if (left.tag.position !== right.tag.position) {
       return left.tag.position - right.tag.position;
     }
-    // Real tags before ghosts at the same offset. Starts before ends so a
-    // collapsed pair reads <b></b>.
-    if (left.ghost !== right.ghost) return left.ghost ? 1 : -1;
-    return tagRank(left.tag) - tagRank(right.tag);
+    // Rank first so a ghost opening still sits before a real closer at the
+    // same offset (Trados: delete the start, the ghost start remains).
+    const rank = tagRank(left.tag) - tagRank(right.tag);
+    if (rank !== 0) return rank;
+    return left.ghost === right.ghost ? 0 : left.ghost ? 1 : -1;
   });
 
   const pieces: TaggedPiece[] = [];
@@ -284,6 +285,69 @@ export function insertTextIntoTagged(
       return moves ? { ...tag, position: tag.position + shift } : tag;
     }),
   };
+}
+
+/** Drop the selected character range. Tags strictly inside the range go away. */
+export function deleteRangeFromTagged(
+  text: string,
+  tags: readonly InlineTag[],
+  from: number,
+  to: number,
+): SerializedTaggedText {
+  const characters = [...text];
+  const lo = Math.max(0, Math.min(from, to, characters.length));
+  const hi = Math.max(0, Math.min(Math.max(from, to), characters.length));
+  const next = `${characters.slice(0, lo).join("")}${characters.slice(hi).join("")}`;
+  const removed = hi - lo;
+  return {
+    text: next,
+    tags: tags
+      .filter((tag) => tag.position <= lo || tag.position >= hi)
+      .map((tag) =>
+        tag.position >= hi ? { ...tag, position: tag.position - removed } : tag,
+      ),
+  };
+}
+
+/** Replace the current selection (or insert at a collapsed caret). */
+export function replaceSelectionInTagged(
+  text: string,
+  tags: readonly InlineTag[],
+  from: number,
+  to: number,
+  insert: string,
+): SerializedTaggedText {
+  const lo = Math.min(from, to);
+  const hi = Math.max(from, to);
+  if (lo === hi) return insertTextIntoTagged(text, tags, lo, insert);
+  // A closer sitting on the selection start belongs to the run before it.
+  // insertTextIntoTagged would otherwise pull the new text inside that pair.
+  const closersAtStart = new Set(
+    tags
+      .filter((tag) => tag.kind === "end" && tag.position === lo)
+      .map((tag) => tag.id),
+  );
+  const deleted = deleteRangeFromTagged(text, tags, lo, hi);
+  const inserted = insertTextIntoTagged(deleted.text, deleted.tags, lo, insert);
+  if (closersAtStart.size === 0) return inserted;
+  return {
+    text: inserted.text,
+    tags: inserted.tags.map((tag) =>
+      closersAtStart.has(tag.id) ? { ...tag, position: lo } : tag,
+    ),
+  };
+}
+
+/** Copy Source to Target: same offsets, target-side ids. */
+export function copySourceTagsToTarget(
+  sourceTags: readonly InlineTag[],
+): InlineTag[] {
+  return sourceTags.map((tag, index) => ({
+    ...tag,
+    id: `placed-copy:${index}:${tag.id}`,
+    side: "target" as const,
+    protected: true,
+  }));
 }
 
 function escapeHtml(value: string): string {

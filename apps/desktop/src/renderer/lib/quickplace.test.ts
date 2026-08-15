@@ -3,6 +3,7 @@ import type { InlineTag } from "@translunar/contracts";
 
 import {
   extractPlaceables,
+  formatPairForKey,
   pairSourceTags,
   pendingCloseGhosts,
   unmatchedSourceTags,
@@ -67,7 +68,10 @@ describe("extractPlaceables", () => {
       "number",
     ]);
     expect(items.filter((item) => item.kind === "tag").map((item) => item.label)).toEqual(
-      ["b", "/b"],
+      ["12.4", "/b"],
+    );
+    expect(items.find((item) => item.kind === "tag")?.formatClass).toContain(
+      "tagged-run--b",
     );
     expect(items.find((item) => item.kind === "number")?.label).toBe("12.4");
   });
@@ -102,5 +106,29 @@ describe("pendingCloseGhosts", () => {
       tag("1e", "end", 6, "b", "p1"),
     ];
     expect(pendingCloseGhosts(source, [], 4)).toEqual([]);
+  });
+
+  it("shows a ghost opening when only the closer remains", () => {
+    const source = [
+      tag("1s", "start", 0, "b", "p1"),
+      tag("1e", "end", 6, "b", "p1"),
+    ];
+    const target = [{ ...source[1]!, side: "target" as const, position: 8 }];
+    const ghosts = pendingCloseGhosts(source, target, 3, new Map(), 12);
+    expect(ghosts).toHaveLength(1);
+    expect(ghosts[0]?.id).toBe("1s");
+    expect(ghosts[0]?.kind).toBe("start");
+    expect(ghosts[0]?.position).toBe(3);
+  });
+});
+
+describe("formatPairForKey", () => {
+  it("finds the source bold pair for Ctrl+B", () => {
+    const pair = formatPairForKey(
+      [tag("1s", "start", 0, "b", "p1"), tag("1e", "end", 4, "b", "p1")],
+      "b",
+    );
+    expect(pair?.start.id).toBe("1s");
+    expect(formatPairForKey([], "b")).toBeNull();
   });
 });
