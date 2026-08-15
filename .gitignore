@@ -11,3 +11,4 @@
 /.playwright-cli/
 *.tmp
 *.log
+format-matrix.json
