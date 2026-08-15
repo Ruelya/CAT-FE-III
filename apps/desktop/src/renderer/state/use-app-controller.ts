@@ -74,10 +74,14 @@ import {
 } from "../lib/job-scope";
 import { pairSourceTags } from "../lib/quickplace";
 import {
+  copySourceTagsToTarget,
   mergeTargetTags,
   placeSourceTagsAtCaret,
   placeSourceTagsProportional,
+  replaceSelectionInTagged,
+  serializeTaggedEditor,
   setCaretInTaggedEditor,
+  tagsEqual,
   wrapSelectionWithTagPair,
 } from "../lib/tagged-text";
 import { countsFromEditorRows } from "./editor-operations";
@@ -263,6 +267,16 @@ function replaceRow(
 ): SegmentEditorRow[] {
   return rows.map((row) =>
     row.segment.id === segment.id ? { ...row, segment } : row,
+  );
+}
+
+function withRowTags(
+  rows: SegmentEditorRow[],
+  segmentId: string,
+  targetTags: InlineTag[],
+): SegmentEditorRow[] {
+  return rows.map((row) =>
+    row.segment.id === segmentId ? { ...row, targetTags } : row,
   );
 }
 
@@ -1423,6 +1437,48 @@ export function useAppController(): AppController {
   }, [saveCoordinator]);
 
   const commands = useMemo<AppController["commands"]>(() => {
+    const writeTargetTags = async (tags: InlineTag[]) => {
+      if (!stateRef.current.mutationsEnabled) return;
+      const surface = stateRef.current.surface;
+      if (surface.kind !== "workbench") return;
+      const segmentId = surface.activeSegmentId;
+      if (!segmentId) return;
+      const active = saveCoordinator.active;
+      if (active?.isComposing) return;
+      if (active && active.segmentId === segmentId) {
+        await saveCoordinator.flush();
+      }
+      const current = stateRef.current.surface;
+      if (current.kind !== "workbench") return;
+      const row = current.ctx.rows.find((item) => item.segment.id === segmentId);
+      if (!row) return;
+      try {
+        const result = await invokeEngine("segment.tag.set", {
+          segmentId,
+          expectedRevision: row.segment.revision,
+          targetTags: tags,
+        });
+        const { rows } = await listAllEditorRows(current.ctx.document.id);
+        const next = stateRef.current.surface;
+        if (next.kind !== "workbench") return;
+        dispatch({
+          type: "PATCH_WORKBENCH",
+          patch: {
+            ctx: {
+              ...next.ctx,
+              rows,
+              counts: result.counts ?? countsFromRows(rows),
+            },
+          },
+        });
+      } catch (error) {
+        dispatch({
+          type: "PATCH_WORKBENCH",
+          patch: { transitionError: toUiError(error) },
+        });
+      }
+    };
+
     return {
       retryBoot: () => {
         generationRef.current += 1;
@@ -1979,17 +2035,43 @@ export function useAppController(): AppController {
         const active = saveCoordinator.active;
         if (!active || active.isComposing) return;
         const selection = readSegmentSelection(active.segmentId);
-        const current = active.draftTarget;
-        const start = selection.targetStart;
-        const end = Math.max(selection.targetEnd, start);
-        const next = `${current.slice(0, start)}${text}${current.slice(end)}`;
-        saveCoordinator.updateDraft(next);
-        const caret = start + text.length;
+        const row = surface.ctx.rows.find((item) => item.segment.id === active.segmentId);
+        const surfaceEl = targetSurfaceFor(active.segmentId);
+        const live =
+          surfaceEl &&
+          typeof document !== "undefined" &&
+          document.activeElement === surfaceEl
+            ? serializeTaggedEditor(surfaceEl)
+            : {
+                text: active.draftTarget,
+                tags: row?.targetTags ?? [],
+              };
+        const next = replaceSelectionInTagged(
+          live.text,
+          live.tags,
+          selection.targetStart,
+          selection.targetEnd,
+          text,
+        );
+        saveCoordinator.updateDraft(next.text);
+        if (row && !tagsEqual(next.tags, row.targetTags)) {
+          dispatch({
+            type: "PATCH_WORKBENCH",
+            patch: {
+              ctx: {
+                ...surface.ctx,
+                rows: withRowTags(surface.ctx.rows, active.segmentId, next.tags),
+              },
+            },
+          });
+          void writeTargetTags(next.tags);
+        }
+        const caret = selection.targetStart + [...text].length;
         requestAnimationFrame(() => {
-          const surface = targetSurfaceFor(active.segmentId);
-          if (surface) {
-            surface.focus();
-            setCaretInTaggedEditor(surface, caret);
+          const tagged = targetSurfaceFor(active.segmentId);
+          if (tagged) {
+            tagged.focus();
+            setCaretInTaggedEditor(tagged, caret);
             return;
           }
           const element = targetEditorFor(active.segmentId);
@@ -2158,16 +2240,38 @@ export function useAppController(): AppController {
         if (saveCoordinator.active?.isComposing) return;
         const row = surface.ctx.rows.find((r) => r.segment.id === segmentId);
         if (!row) return;
+        const copied = copySourceTagsToTarget(row.sourceTags);
+        dispatch({
+          type: "PATCH_WORKBENCH",
+          patch: {
+            ctx: {
+              ...surface.ctx,
+              rows: withRowTags(surface.ctx.rows, segmentId, copied),
+            },
+          },
+        });
         saveCoordinator.updateDraft(row.segment.sourceText);
+        void writeTargetTags(copied);
       },
 
       clearTarget: () => {
         if (!stateRef.current.mutationsEnabled) return;
         const surface = stateRef.current.surface;
         if (surface.kind !== "workbench") return;
-        if (!surface.activeSegmentId) return;
+        const segmentId = surface.activeSegmentId;
+        if (!segmentId) return;
         if (saveCoordinator.active?.isComposing) return;
+        dispatch({
+          type: "PATCH_WORKBENCH",
+          patch: {
+            ctx: {
+              ...surface.ctx,
+              rows: withRowTags(surface.ctx.rows, segmentId, []),
+            },
+          },
+        });
         saveCoordinator.updateDraft("");
+        void writeTargetTags([]);
       },
 
       // Swap the partially typed word for the completion, leaving the caret
@@ -2333,47 +2437,7 @@ export function useAppController(): AppController {
         }
       },
 
-      persistTargetTags: async (tags) => {
-        if (!stateRef.current.mutationsEnabled) return;
-        const surface = stateRef.current.surface;
-        if (surface.kind !== "workbench") return;
-        const segmentId = surface.activeSegmentId;
-        if (!segmentId) return;
-        const active = saveCoordinator.active;
-        if (active?.isComposing) return;
-        if (active && active.segmentId === segmentId) {
-          await saveCoordinator.flush();
-        }
-        const current = stateRef.current.surface;
-        if (current.kind !== "workbench") return;
-        const row = current.ctx.rows.find((item) => item.segment.id === segmentId);
-        if (!row) return;
-        try {
-          const result = await invokeEngine("segment.tag.set", {
-            segmentId,
-            expectedRevision: row.segment.revision,
-            targetTags: tags,
-          });
-          const { rows } = await listAllEditorRows(current.ctx.document.id);
-          const next = stateRef.current.surface;
-          if (next.kind !== "workbench") return;
-          dispatch({
-            type: "PATCH_WORKBENCH",
-            patch: {
-              ctx: {
-                ...next.ctx,
-                rows,
-                counts: result.counts ?? countsFromRows(rows),
-              },
-            },
-          });
-        } catch (error) {
-          dispatch({
-            type: "PATCH_WORKBENCH",
-            patch: { transitionError: toUiError(error) },
-          });
-        }
-      },
+      persistTargetTags: (tags) => writeTargetTags(tags),
 
       setWorkflow: async (segmentId, state, reason) => {
         if (!stateRef.current.mutationsEnabled) return;
