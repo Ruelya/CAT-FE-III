@@ -1,0 +1,110 @@
+{
+  "findings": [
+    {
+      "step": "create-project-fields",
+      "verdict": "INFO",
+      "detail": "form contains: Create project Name Domain Source locale Target locale Cancel Create"
+    },
+    {
+      "step": "grid-columns",
+      "verdict": "INFO",
+      "detail": "columns: # | SOURCE | TARGET | STATUS"
+    },
+    {
+      "step": "segment-count",
+      "verdict": "INFO",
+      "detail": "10 segments imported from real.docx"
+    },
+    {
+      "step": "first-sources",
+      "verdict": "INFO",
+      "detail": "TL-900 Portable Power Station User Guide || Read all safety instructions before operating the TL-900 power station for the first time. || -"
+    },
+    {
+      "step": "command-bar",
+      "verdict": "INFO",
+      "detail": "visible commands: Find, Tags, Comments, Undo, Redo, More"
+    },
+    {
+      "step": "command-bar-overflow",
+      "verdict": "INFO",
+      "detail": "Propagate, Split, Merge, Source, Spell, CJK, History, Prefs, Review"
+    },
+    {
+      "step": "inline-tag-rendering",
+      "verdict": "INFO",
+      "detail": "segment 2 renders as: 2 Read all safety instructions before operating the TL-900 power station for the first time. - untranslated"
+    },
+    {
+      "step": "tm-dock-refresh",
+      "verdict": "INFO",
+      "detail": "seg1 dock='Exact TM No exact matches' seg3 dock='Exact TM No exact matches'"
+    },
+    {
+      "step": "term-recognition-window",
+      "verdict": "MISSING",
+      "detail": "no terminology UI anywhere in the workbench"
+    },
+    {
+      "step": "tm-writeback-and-lookup",
+      "verdict": "WORKS",
+      "detail": "dock for identical segment 6 shows: 'Exact TM 请勿将设备暴露在超过 45 C 的温度下。 exact'"
+    },
+    {
+      "step": "tm-apply-control",
+      "verdict": "MISSING",
+      "detail": "match is displayed but there is no control to apply it to the target"
+    },
+    {
+      "step": "auto-propagation-on-confirm",
+      "verdict": "MISSING",
+      "detail": "duplicate segment 6 target after confirming 4: ''"
+    },
+    {
+      "step": "autosuggest",
+      "verdict": "MISSING",
+      "detail": "typing in the target produces no suggestion UI of any kind"
+    },
+    {
+      "step": "tags-panel-content",
+      "verdict": "INFO",
+      "detail": "Find Tags Comments Undo Redo More # SOURCE TARGET STATUS 1 TL-900 Portable Power Station User Guide - untranslated 2 Read all safety instructions before operating the TL-900 power station for the first time. untranslated Confirm 3 The battery capacity is 1,024 Wh and the rated output is 1,500 W. - untranslated 4 Do not expose the device to temperatures above 45 C. 请勿将设备暴露在超过 45 C 的温度下。 confirmed 5 Press and hold the power button for 3 seconds to turn the unit on. - untranslated 6 Do not expose t"
+    },
+    {
+      "step": "propagate-ui",
+      "verdict": "INFO",
+      "detail": "Find Tags Comments Undo Redo More # SOURCE TARGET STATUS 1 TL-900 Portable Power Station User Guide - untranslated 2 Read all safety instructions before operating the TL-900 power station for the first time. - untranslated 3 The battery capacity is 1,024 Wh and the rated output is 1,500 W. - untranslated 4 Do not expose the device to temperatures above 45 C. 请勿将设备暴露在超过 45 C 的温度下。 confirmed 5 Press"
+    },
+    {
+      "step": "propagate-result",
+      "verdict": "MISSING",
+      "detail": "segment 9 (duplicate of 5) target: '-'"
+    },
+    {
+      "step": "concordance-ui",
+      "verdict": "MISSING",
+      "detail": "no concordance entry point anywhere in the workbench"
+    },
+    {
+      "step": "find-and-filter",
+      "verdict": "BROKE",
+      "detail": "TimeoutError: locator.click: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator('[data-testid=\"editor-command-bar\"]').getByRole('button', { name: /find/i })\n    - locator resolved to <button tabindex=\"0\" type=\"button\" title=\"Find (Ctrl+F)\" aria-label=\"Find (Ctrl+F)\" class=\"btn btn--ghost btn--sm\" data-testid=\"cmd-editor.findReplace\">…</button>\n  - attempting click action\n    2 × waiting f"
+    },
+    {
+      "step": "comments",
+      "verdict": "BROKE",
+      "detail": "TimeoutError: locator.click: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator('tbody tr').nth(6).locator('button.segment-target-activate')\n    - locator resolved to <button type=\"button\" aria-label=\"Edit segment 7\" class=\"segment-target-activate\" data-testid=\"segment-activate-01a004a8-0017-7b71-b8be-5659363052e6\">…</button>\n  - attempting click action\n    2 × waiting for element to be v"
+    },
+    {
+      "step": "qa-and-jump-back",
+      "verdict": "BROKE",
+      "detail": "TimeoutError: locator.click: Timeout 30000ms exceeded.\nCall log:\n  - waiting for getByTestId('workbench').getByRole('button', { name: 'QA' })\n    - locator resolved to <button type=\"button\" class=\"btn btn--secondary\">QA</button>\n  - attempting click action\n    2 × waiting for element to be visible, enabled and stable\n      - element is visible, enabled and stable\n      - scrolling into view if nee"
+    },
+    {
+      "step": "export-docx",
+      "verdict": "BROKE",
+      "detail": "TimeoutError: locator.click: Timeout 30000ms exceeded.\nCall log:\n  - waiting for getByTestId('qa-review').getByRole('button', { name: 'Export' })\n"
+    }
+  ],
+  "consoleErrors": []
+}

@@ -1,0 +1,100 @@
+{
+  "findings": [
+    {
+      "step": "tags-panel-full",
+      "verdict": "INFO",
+      "detail": "Tags Source R · start · protected R · end · protected R · start · protected R · end · protected R · start · protected R · end · protected Target None Missing protected tag R. (tag_missing) Missing protected tag R. (tag_missing) Missing protected tag R. (tag_missing) Missing protected tag R. (tag_missing) Missing protected tag R. (tag_missing) Missing protected tag R. (tag_missing) Apply tags"
+    },
+    {
+      "step": "tag-insert-into-target",
+      "verdict": "MISSING",
+      "detail": "tags are listed and tag_missing is reported, but no control inserts a tag into the target"
+    },
+    {
+      "step": "find-panel-content",
+      "verdict": "INFO",
+      "detail": "Find Query Replace Field Target Source Both Case Word Regex Find Preview Apply"
+    },
+    {
+      "step": "find-results",
+      "verdict": "INFO",
+      "detail": "Find Query Replace Field Target Source Both Case Word Regex Find Preview Apply"
+    },
+    {
+      "step": "comments-content",
+      "verdict": "INFO",
+      "detail": "Comments No comments New Add"
+    },
+    {
+      "step": "comments-panel",
+      "verdict": "BROKE",
+      "detail": "TimeoutError: locator.click: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator('.editor-region').getByRole('button', { name: /add|create|comment/i }).last()\n    - locator resolved to <button disabled type=\"button\" data-testid=\"comment-create\" class=\"btn btn--primary btn--sm\">Add</button>\n "
+    },
+    {
+      "step": "panel-review",
+      "verdict": "INFO",
+      "detail": "Review Empty"
+    },
+    {
+      "step": "panel-spell",
+      "verdict": "INFO",
+      "detail": "Spell Target Source Check Dictionary Word Add"
+    },
+    {
+      "step": "panel-history",
+      "verdict": "INFO",
+      "detail": "History Undo Redo Refresh segment.update_target · segment/01a004ac-4072-7990-bbda-e7a32a0e3c5e · desktop"
+    },
+    {
+      "step": "panel-source",
+      "verdict": "INFO",
+      "detail": "Source Source text Reason Cancel Correct"
+    },
+    {
+      "step": "panel-cjk",
+      "verdict": "INFO",
+      "detail": "Chinese Simplified → Traditional Simplified → Taiwan Simplified → Hong Kong Traditional → Simplified Taiwan → Simplified Hong Kong → Simplified"
+    },
+    {
+      "step": "panel-prefs",
+      "verdict": "INFO",
+      "detail": "Preferences Zoom Theme Nonprinting Autocomplete CJK spacing Punctuation Save"
+    },
+    {
+      "step": "row-context-menu",
+      "verdict": "MISSING",
+      "detail": "right-click on a segment row does nothing (no status change, no lock, no add-as-new)"
+    },
+    {
+      "step": "single-writer-conflict",
+      "verdict": "OK",
+      "detail": "0/3 confirm attempts produced a single-writer revision conflict"
+    },
+    {
+      "step": "qa-content",
+      "verdict": "INFO",
+      "detail": "QA real.docx Workbench Export Run QA succeeded 17 errors 3 warnings 21 errors and 8 warnings across 29 issues ERROR Target is empty. #1 qa.empty-target Jump ERROR Missing protected tag R. #1 qa.tag-tag_missing Jump ERROR Target is empty. #2 qa.empty-target Jump ERROR Missing protected tag R. #2 qa.tag-tag_missing Jump WARNING Source and target numbers do not match. #3 number-mismatch Jump WARNING Target length is outside the configured ratio. #3 qa.length-ratio Jump ERROR Source and target numbers differ. #3 qa.number-mismatch Jump ERROR Missing protected tag R. #3 qa.tag-tag_missing Jump ERRO"
+    },
+    {
+      "step": "qa-actions",
+      "verdict": "INFO",
+      "detail": "buttons: Workbench, Export, Run QA, Jump, Jump, Jump, Jump, Jump, Jump, Jump, Jump, Jump, Jump, Jump, Jump, Jump, Jump, Jump, Jump, Jump, Jump, Jump, Jump, Jump, Jump, Jump, Jump, Jump, Jump, Jump, Jump, Jump"
+    },
+    {
+      "step": "export-gate",
+      "verdict": "INFO",
+      "detail": "Export real.docx Workbench QA Export Quality gate not checked yet"
+    },
+    {
+      "step": "export-result",
+      "verdict": "BROKE",
+      "detail": "Export real.docx Workbench QA Export Quality gate blocked 17 errors 3 warnings Open QA"
+    },
+    {
+      "step": "assets-nav",
+      "verdict": "MISSING",
+      "detail": "no assets button from workbench"
+    }
+  ],
+  "consoleErrors": []
+}

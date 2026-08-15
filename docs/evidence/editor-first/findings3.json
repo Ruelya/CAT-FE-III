@@ -1,0 +1,50 @@
+{
+  "findings": [
+    {
+      "step": "apply-tags-seg2",
+      "verdict": "MISSING",
+      "detail": "before='首次操作 TL-900 电源站之前，请阅读所有安全说明。' after='首次操作 TL-900 电源站之前，请阅读所有安全说明。'"
+    },
+    {
+      "step": "apply-tags-seg7",
+      "verdict": "MISSING",
+      "detail": "before='质保期为自购买之日起 24 个月，详见 8.2 节。' after='质保期为自购买之日起 24 个月，详见 8.2 节。'"
+    },
+    {
+      "step": "all-confirmed",
+      "verdict": "BUG",
+      "detail": "8/10 confirmed"
+    },
+    {
+      "step": "duplicate-prefill",
+      "verdict": "INFO",
+      "detail": "segment 6 row after full pass: '6 Do not expose the device to temperatures above 45 C. 请勿将设备暴露在超过 45 C 的温度下。 draft'"
+    },
+    {
+      "step": "find-feedback",
+      "verdict": "MISSING",
+      "detail": "Find gives no result count, no jump, no highlight that we can detect"
+    },
+    {
+      "step": "comment-add",
+      "verdict": "BROKE",
+      "detail": "TimeoutError: locator.click: Timeout 5000ms exceeded.\nCall log:\n  - waiting for getByTestId('comment-create')\n    - locator resolved to <button disabled type=\"button\" data-testid=\"comment-create\" class=\"btn btn--primary btn--sm\">Add</button>\n  - attempting click action\n    2 × waiting for element to"
+    },
+    {
+      "step": "assets-hub-shape",
+      "verdict": "INFO",
+      "detail": "Translunar Probe3 Probe3 Back TM Termbases Alignment Corpora Catalog Curation Libraries Name Create NAME LOCALES MOUNT ACTIONS Probe3 TM en-US→zh-CN write Unmount Export 1-1 / 1 Prev Next Search Query Min score Search Concordance Concordance Assets"
+    },
+    {
+      "step": "qa-after-full-pass",
+      "verdict": "INFO",
+      "detail": "QA real.docx Workbench Export Run QA succeeded 5 errors 5 warnings 13 errors and 6 warnings across 19 issues ERROR Missing protected tag R. #1 qa.tag-tag_missing Jump WARNING Target length is outside the configured ratio. #2 qa.length-ratio Jump ERROR Missing protected tag R. #2 qa.tag-tag_missing Jump ERROR Missing protected tag R. #3 qa.tag-tag_missing Jump ERROR Missing protected tag R. #4 qa.t"
+    },
+    {
+      "step": "export-final",
+      "verdict": "BLOCKED",
+      "detail": "Export real.docx Workbench QA Export Quality gate blocked 5 errors 5 warnings Open QA"
+    }
+  ],
+  "consoleErrors": []
+}
