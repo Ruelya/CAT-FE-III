@@ -15,6 +15,7 @@ import {
   TAGGED_CLIPBOARD_TYPE,
   wrapSelectionWithTagPair,
 } from "../lib/tagged-text";
+import type { TextHighlight } from "../lib/term-source";
 import type { SourceHighlight } from "./TaggedText";
 import { readSegmentSelection } from "../state/editor-selection";
 import type { SegmentEditState } from "../state/save-coordinator";
@@ -58,6 +59,8 @@ export interface SegmentGridProps {
   onPlaceAllTags?: () => void;
   sourceHighlight?: SourceHighlight | null;
   onSourceHighlight?: (span: SourceHighlight | null) => void;
+  /** Recognised terms in the active source, painted as red underlines. */
+  termHighlights?: readonly TextHighlight[];
   protectTags?: boolean;
   onProtectTagsChange?: (next: boolean) => void;
   groupAdjacent?: boolean;
@@ -96,6 +99,7 @@ export function SegmentGrid({
   onPlaceAllTags,
   sourceHighlight,
   onSourceHighlight,
+  termHighlights,
   protectTags,
   onProtectTagsChange,
   groupAdjacent,
@@ -272,6 +276,9 @@ export function SegmentGrid({
                     text={row.segment.sourceText}
                     tags={row.sourceTags}
                     {...(active && sourceHighlight ? { highlight: sourceHighlight } : {})}
+                    {...(active && termHighlights?.length
+                      ? { highlights: termHighlights }
+                      : {})}
                     {...(groupAdjacent ? { groupAdjacent } : {})}
                     {...(display ? { display } : {})}
                     {...(active && onTagsChange

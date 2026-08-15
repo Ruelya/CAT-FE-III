@@ -9,6 +9,10 @@ import {
 import { adjacentPlaceholderGroupAt, pairSourceTags } from "../lib/quickplace";
 import { formatRunClass, formatTokens } from "../lib/preview-markup";
 import {
+  highlightSlices,
+  type TextHighlight,
+} from "../lib/term-source";
+import {
   encodeInlineTag,
   selectTagAtoms,
   splitTaggedText,
@@ -28,6 +32,8 @@ export interface TaggedTextProps {
   onTagActivate?: (tag: InlineTag) => void;
   /** QuickPlace active item: highlight the matching source span. */
   highlight?: SourceHighlight | null;
+  /** Term recognition (and any other persistent source marks). */
+  highlights?: readonly TextHighlight[];
   /** Select adjacent placeholders as one range (Trados grouping). */
   groupAdjacent?: boolean;
   display?: EditorDisplay;
@@ -36,7 +42,7 @@ export interface TaggedTextProps {
 function renderRun(
   text: string,
   key: string,
-  highlight: SourceHighlight | null | undefined,
+  marks: readonly TextHighlight[],
   lo: number,
   showWhitespace: boolean,
   formatClass: string,
@@ -70,20 +76,37 @@ function renderRun(
     );
   };
 
-  const chars = [...text];
-  const hi = lo + chars.length;
-  if (!highlight || highlight.start >= hi || highlight.end <= lo) {
+  const slices = highlightSlices(text, lo, marks);
+  if (slices.length === 1 && slices[0]?.highlights.length === 0) {
     return paint(text, "all");
   }
-  const from = Math.max(0, highlight.start - lo);
-  const to = Math.min(chars.length, highlight.end - lo);
   return (
     <span key={key} className={formatClass || undefined}>
-      {from > 0 ? paint(chars.slice(0, from).join(""), "a") : null}
-      <mark className="qp-source-hit" data-testid="qp-source-hit">
-        {paint(chars.slice(from, to).join(""), "h")}
-      </mark>
-      {to < chars.length ? paint(chars.slice(to).join(""), "c") : null}
+      {slices.map((slice, index) => {
+        let node: ReactNode = paint(slice.text, `s${index}`);
+        for (const mark of slice.highlights) {
+          const handleClick = mark.onClick;
+          node = (
+            <mark
+              className={mark.className}
+              {...(mark.testId ? { "data-testid": mark.testId } : {})}
+              title={mark.title}
+              onClick={
+                handleClick
+                  ? (event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      handleClick();
+                    }
+                  : undefined
+              }
+            >
+              {node}
+            </mark>
+          );
+        }
+        return <span key={`${key}-${index}`}>{node}</span>;
+      })}
     </span>
   );
 }
@@ -102,18 +125,28 @@ export function TaggedText({
   className,
   onTagActivate,
   highlight,
+  highlights,
   groupAdjacent = false,
   display,
 }: TaggedTextProps) {
   const formatting = display?.formatting ?? "full";
   const tagText = display?.tagText ?? "partial";
   const whitespace = display?.whitespace === true;
+  const marks: TextHighlight[] = [...(highlights ?? [])];
+  if (highlight && highlight.end > highlight.start) {
+    marks.push({
+      start: highlight.start,
+      end: highlight.end,
+      className: "qp-source-hit",
+      testId: "qp-source-hit",
+    });
+  }
   const pieces = splitTaggedText(text, tags);
   if (pieces.length === 0) {
     return (
       <div className={className}>
         {whitespace
-          ? renderRun(text || "\u00a0", "empty", null, 0, true, "")
+          ? renderRun(text || "\u00a0", "empty", marks, 0, true, "")
           : text || "\u00a0"}
       </div>
     );
@@ -129,7 +162,7 @@ export function TaggedText({
         renderRun(
           piece.text,
           `t-${index}`,
-          highlight,
+          marks,
           offset,
           whitespace,
           formatClass,
@@ -139,8 +172,12 @@ export function TaggedText({
       continue;
     }
     const tag = piece.tag;
-    const hit =
-      highlight != null && offset >= highlight.start && offset <= highlight.end;
+    const qpHit = marks.some(
+      (mark) =>
+        mark.className === "qp-source-hit" &&
+        offset >= mark.start &&
+        offset <= mark.end,
+    );
     const tokens = tag ? formatTokens(tag.displayText) : [];
     const hidden = tag
       ? hideFormattingCapsule(tag.kind, tag.displayText, formatting, false)
@@ -152,7 +189,7 @@ export function TaggedText({
         key={`g-${tag?.id ?? index}`}
         className={`inline-tag inline-tag--${tag?.kind ?? "standalone"}${
           hidden ? " inline-tag--hidden" : ""
-        }${hit ? " inline-tag--qp-hit" : ""}`}
+        }${qpHit ? " inline-tag--qp-hit" : ""}`}
         title={
           onTagActivate
             ? `Ctrl+click to place ${piece.text}`
