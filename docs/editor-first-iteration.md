@@ -113,6 +113,19 @@
 | 双击选对 | 双击开口或闭口选中整对（含中间正文）。 |
 | Smart paste | 贴到已有空格旁或标点前时收掉多余空白。 |
 
+### 2026-08-15 续作（术语识别 / 插入 / 搜索 / Quick Add）
+
+对照 docs.rws.com：Terminology recognition、Insert term（Ctrl+Shift+L）、Termbase Search、Quick Add New Term。挂在当前段上，不是去铺 Assets 中枢。
+
+| 能力 | 说明 |
+| --- | --- |
+| 源文红线 | 进段 `term.search` 的 `start`/`end` 画在源列。重叠取最长，独立 class `term-source-hit`，不和 QuickPlace 黄底抢同一套 mark。 |
+| 点线插入 | 点击红线插入 preferred（否则第一条非 forbidden）译名。悬停 Terms 列表项时，源列再用 QuickPlace 那套高亮该跨度。 |
+| Ctrl+Shift+L | 在编辑器里直接插入当前焦点术语的 preferred 译名，然后跳到下一条可插入项。 |
+| 术语窗键盘 | Terms 列表可聚焦：↑↓ 改焦点并高亮源跨度，Insert 插入，Enter 展开已有字段（源术语 / 是否本段命中 / 将插入的译名）。`TermMatch` 没有 definition，没有 `term.get`，不做假 Viewer。 |
+| Termbase Search | Terms 页搜索框：先过滤本段命中；再把查询丢给 `term.search`（引擎是「查询文本里出现了哪些术语」）。`*` 当 contains。查找结果不画到源文上，避免把查询串偏移当成源偏移。 |
+| Quick Add 自动建库 | 无可用写库时 `termbase.create` + `termbase.mount`，不再把人撵去 Assets。顺带修正原先把 `mount.writable` 误读成不存在的 `mount.mode`。 |
+
 ### 仍未做到 Trados 同水准的部分（诚实清单）
 
 这些**没有**假装完成，下一轮应继续：
@@ -123,6 +136,7 @@
 4. **PDF** 尚未纳入 format-matrix 的同构往返（引擎已注册 `builtin.pdf`）。
 5. **Protect / 分组 / View 显示进引擎偏好**——现在主要在渲染进程 localStorage；Nonprinting 会顺带写引擎字段，但未做账号级同步。
 6. **IME 候选窗与补全的像素级避让**——弹层已改到光标上方，仍不是对 IME 窗的实时避让。
+7. **术语前缀查找**——`term.search` 只在给定文本里找已有术语；输入 `pow` 找不到 `power station`，除非它已出现在当前段。没有 `term.get`，详情没有 definition / domain / example。
 
 主参照：SDL Trados Studio 2024 / 2024 SR1 的 Editor view（以 docs.rws.com 官方
 文档为准）；补遗参照 memoQ（docs.memoq.com）与 CafeTran。协作、派单、云协同、
