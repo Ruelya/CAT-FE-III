@@ -1,0 +1,117 @@
+[
+  {
+    "format": "txt",
+    "segments": 1,
+    "taggedSegments": 0,
+    "tagLabels": [],
+    "confirmed": "1/1",
+    "confirmFailures": [],
+    "gateClear": true,
+    "qaErrors": 0,
+    "qaWarnings": 0,
+    "export": "ok (417 bytes)",
+    "degradation": [],
+    "targetPresent": true
+  },
+  {
+    "format": "md",
+    "segments": 11,
+    "taggedSegments": 11,
+    "tagLabels": [
+      "<md>"
+    ],
+    "confirmed": "11/11",
+    "confirmFailures": [],
+    "gateClear": true,
+    "qaErrors": 0,
+    "qaWarnings": 12,
+    "export": "ok (481 bytes)",
+    "degradation": [],
+    "targetPresent": true
+  },
+  {
+    "format": "html",
+    "segments": 12,
+    "taggedSegments": 2,
+    "tagLabels": [
+      "</b>",
+      "</i>",
+      "<b>",
+      "<i>"
+    ],
+    "confirmed": "12/12",
+    "confirmFailures": [],
+    "gateClear": true,
+    "qaErrors": 0,
+    "qaWarnings": 1,
+    "export": "ok (615 bytes)",
+    "degradation": [],
+    "targetPresent": true
+  },
+  {
+    "format": "xliff",
+    "segments": 7,
+    "taggedSegments": 0,
+    "tagLabels": [],
+    "confirmed": "7/7",
+    "confirmFailures": [],
+    "gateClear": true,
+    "qaErrors": 0,
+    "qaWarnings": 0,
+    "export": "ok (1678 bytes)",
+    "degradation": [],
+    "targetPresent": true
+  },
+  {
+    "format": "docx",
+    "segments": 10,
+    "taggedSegments": 2,
+    "tagLabels": [
+      "b",
+      "i"
+    ],
+    "confirmed": "10/10",
+    "confirmFailures": [],
+    "gateClear": true,
+    "qaErrors": 0,
+    "qaWarnings": 2,
+    "export": "ok (1850 bytes)",
+    "degradation": [
+      "docx.inline_formatting_flattened",
+      "docx.inline_formatting_flattened"
+    ],
+    "targetPresent": true
+  },
+  {
+    "format": "xlsx",
+    "segments": 7,
+    "taggedSegments": 1,
+    "tagLabels": [
+      "b"
+    ],
+    "confirmed": "7/7",
+    "confirmFailures": [],
+    "gateClear": true,
+    "qaErrors": 0,
+    "qaWarnings": 1,
+    "export": "ok (2146 bytes)",
+    "degradation": [],
+    "targetPresent": true
+  },
+  {
+    "format": "pptx",
+    "segments": 7,
+    "taggedSegments": 1,
+    "tagLabels": [
+      "b"
+    ],
+    "confirmed": "7/7",
+    "confirmFailures": [],
+    "gateClear": true,
+    "qaErrors": 0,
+    "qaWarnings": 1,
+    "export": "ok (1775 bytes)",
+    "degradation": [],
+    "targetPresent": true
+  }
+]
