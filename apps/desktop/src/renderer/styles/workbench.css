@@ -24,104 +24,106 @@
 
 /* ── Header ────────────────────────────────────────────── */
 
-.workbench__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.workbench-header {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1.3fr) minmax(11rem, 1fr) auto auto;
+  align-items: end;
   gap: var(--space-4);
   padding: var(--space-2) var(--space-4);
   border-bottom: 1px solid var(--color-line);
   background: var(--color-surface);
-  min-height: var(--control-h-lg);
   flex-shrink: 0;
 }
 
-.workbench__header-meta {
+.workbench-header__cluster {
   min-width: 0;
   display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-/*
- * At the window minimum the counts used to wrap one per line, which tripled
- * the header height and squeezed the document name down to a few characters.
- * Below the threshold the labels drop and the numbers stay, with the progress
- * bar and the group title carrying the meaning.
- *
- * This is a viewport query on purpose, unlike the editor region. The header
- * spans the whole window, so its available width is the window width; a
- * container query here would need `container-type: inline-size`, which
- * contains the element's inline size and collapses it inside the flex row.
- */
-@media (max-width: 1320px) {
-  /* The title strip already carries the project name, so a two-character
-     truncation of it here is noise rather than context. */
-  .workbench__header-sub > .truncate {
-    display: none;
-  }
-
-  .counts-bar {
-    gap: var(--space-2);
-    flex-wrap: nowrap;
-    /* The document name yields first; the status figures must stay whole. */
-    flex-shrink: 0;
-  }
-
-  .counts-bar > span {
-    font-size: 0;
-    gap: 0;
-  }
-
-  .counts-bar__value {
-    font-size: var(--text-xs);
-  }
-
-  .counts-bar__value::after {
-    content: attr(data-abbr);
-    margin-left: 1px;
-    color: var(--color-text-muted);
-  }
-}
-
-.workbench__header-title {
-  margin: 0;
-  font-family: var(--font-display);
-  font-weight: var(--weight-semibold);
-  font-size: var(--text-md);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-
-.workbench__header-sub {
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
-  min-width: 0;
-}
-
-.workbench__header-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-shrink: 0;
-}
-
-.workbench__header-secondary,
-.workbench__header-primary {
-  display: inline-flex;
-  align-items: center;
+  flex-direction: column;
   gap: var(--space-1);
 }
 
-.workbench__header-primary {
-  padding-left: var(--space-2);
-  border-left: 1px solid var(--color-line);
+.workbench-header__cluster--job {
+  justify-self: end;
+}
+
+.workbench-header__label {
+  margin: 0;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.workbench-header__cluster-body {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.workbench-header__bar {
+  width: 5.5rem;
+  height: 6px;
+  flex-shrink: 0;
+}
+
+.workbench-header__progress-copy {
+  margin: 0;
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workbench-header__progress-figure {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+
+.workbench-header__toggle[aria-pressed="true"] {
+  background: var(--color-accent-soft);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--color-accent) 32%, var(--color-line));
+}
+
+.document-switcher--title {
+  max-width: 16rem;
+  min-width: 0;
+}
+
+.document-switcher--title .field__control {
+  font-family: var(--font-display);
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-md);
+  border-color: transparent;
+  background: transparent;
+  min-height: var(--control-h-sm);
+  padding-inline: var(--space-2);
+}
+
+.document-switcher--title .field__control:hover:not(:disabled) {
+  background: var(--color-hover-tint);
+  border-color: var(--color-border);
+}
+
+@media (max-width: 1320px) {
+  .workbench-header {
+    grid-template-columns: minmax(10rem, 1fr) minmax(9rem, 1fr) auto auto;
+    gap: var(--space-3);
+  }
+
+  .workbench-header__label {
+    display: none;
+  }
+
+  .workbench-header {
+    align-items: center;
+  }
 }
 
 /* Notices sit on their own row so they never distort the header. */

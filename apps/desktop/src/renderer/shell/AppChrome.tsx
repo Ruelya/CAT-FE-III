@@ -19,6 +19,7 @@ import {
   collaborationAvailable,
   resolveP4RouteContext,
 } from "../state/p4-route-context";
+import { TitleFileMenu, type TitleFileMenuItem } from "./TitleFileMenu";
 import { WindowControls } from "./WindowControls";
 
 export interface AppChromeProps {
@@ -35,6 +36,11 @@ export interface AppChromeProps {
   onSettings?: () => void;
   /** Opens the Ctrl/Cmd+K command palette. */
   onCommandPalette?: () => void;
+  /** Workbench file lifecycle for the title-bar File menu. */
+  onAddFiles?: () => void;
+  addFilesPending?: boolean;
+  onReimport?: () => void;
+  onRecycleDocument?: () => void;
   /** Window chrome platform branch from DesktopApi (default: custom). */
   windowChromePlatform?: WindowChromePlatform;
   windowMaximized?: boolean;
@@ -56,6 +62,10 @@ export function AppChrome({
   onCollaboration,
   onSettings,
   onCommandPalette,
+  onAddFiles,
+  addFilesPending = false,
+  onReimport,
+  onRecycleDocument,
   windowChromePlatform = "custom",
   windowMaximized = false,
   onWindowMinimize,
@@ -139,6 +149,57 @@ export function AppChrome({
     windowChromePlatform === "custom" &&
     Boolean(onWindowMinimize && onWindowToggleMaximize && onWindowClose);
 
+  const fileItems: TitleFileMenuItem[] = [];
+  if (onAddFiles) {
+    fileItems.push({
+      id: "add-files",
+      label: addFilesPending ? "Importing" : "Add files",
+      group: "job",
+      onSelect: onAddFiles,
+      disabled: disabled || addFilesPending,
+      testId: "title-file-add-files",
+    });
+  }
+  if (onReimport) {
+    fileItems.push({
+      id: "reimport",
+      label: "Reimport",
+      group: "job",
+      onSelect: onReimport,
+      disabled,
+      testId: "reimport-open",
+    });
+  }
+  if (onRecycleDocument) {
+    fileItems.push({
+      id: "recycle-document",
+      label: "Recycle document",
+      group: "job",
+      onSelect: onRecycleDocument,
+      disabled,
+      danger: true,
+      testId: "title-file-recycle",
+    });
+  }
+  if (showAssets && onAssets) {
+    fileItems.push({
+      id: "assets",
+      label: "Assets",
+      group: "project",
+      onSelect: onAssets,
+      disabled,
+    });
+  }
+  if (showInsights) {
+    fileItems.push({
+      id: "insights",
+      label: "Insights",
+      group: "project",
+      onSelect: onInsights,
+      disabled,
+    });
+  }
+
   const handleTitleDoubleClick = (
     event: ReactMouseEvent<HTMLElement>,
   ): void => {
@@ -171,6 +232,7 @@ export function AppChrome({
         </span>
         <span>Translunar</span>
       </div>
+      <TitleFileMenu items={fileItems} disabled={disabled} />
       <div className="app-chrome__identity" title={identity}>
         {identityParts.primary ? (
           <span className="app-chrome__identity-primary">

@@ -46,13 +46,12 @@ import type { EditorOperationsApi } from "../state/use-editor-operations";
 import { shouldMountPdfDock } from "../state/pdf-review";
 import type { PdfReviewApi } from "../state/use-pdf-review";
 import type { ReimportApi } from "../state/use-reimport-controller";
-import { shareStyle } from "../lib/dom";
 import { useContainerDensity } from "../state/use-container-density";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
 import { ReimportDialog } from "../insights/ReimportDialog";
 import { BatchImportSummary } from "../workbench/BatchImportSummary";
-import { DocumentSwitcher } from "../workbench/DocumentSwitcher";
 import { FileNav } from "../workbench/FileNav";
+import { WorkbenchHeader } from "../workbench/WorkbenchHeader";
 import { StructurePreview } from "../workbench/StructurePreview";
 import { useDocumentProgress } from "../state/use-document-progress";
 import { EditorCommandBar } from "../workbench/EditorCommandBar";
@@ -124,11 +123,8 @@ export interface WorkbenchProps {
   pretranslatePending?: boolean;
   onQa: () => void;
   onExport: () => void;
-  onInsights: () => void;
-  onAssets?: () => void;
   onSwitchDocument: (documentId: string) => void;
   onAddFiles: () => void;
-  onRecycleDocument: (reason: string) => Promise<boolean>;
   onDismissBatch?: () => void;
 }
 
@@ -174,18 +170,11 @@ export function Workbench({
   pretranslatePending,
   onQa,
   onExport,
-  onInsights,
-  onAssets,
   onSwitchDocument,
   onAddFiles,
-  onRecycleDocument,
   onDismissBatch,
 }: WorkbenchProps) {
   const counts = ctx.counts;
-  const [recycleOpen, setRecycleOpen] = useState(false);
-  const [recycleReason, setRecycleReason] = useState("");
-  const [recyclePending, setRecyclePending] = useState(false);
-  const [recycleError, setRecycleError] = useState<string | null>(null);
   const headerBusy = Boolean(
     disabled || switchPending || addFilesPending || pendingConfirm,
   );
@@ -311,172 +300,35 @@ export function Workbench({
 
   return (
     <section className="workbench" data-testid="workbench">
-      <div className="workbench__header">
-        <div className="workbench__header-meta">
-          <h1 className="workbench__header-title">{ctx.document.name}</h1>
-          {counts && counts.total > 0 ? (
-            // The brand ribbon doing real work: confirmed, draft, and open
-            // shares of the document, with a text equivalent beside it.
-            // data-geometry: every share below is an Engine count proportion.
-            <span
-              className="progress-bar workbench__progress"
-              role="img"
-              aria-label={`${counts.confirmed} of ${counts.total} segments confirmed`}
-              title={`${counts.confirmed} confirmed, ${counts.draft} draft, ${counts.untranslated} open`}
-            >
-              <span
-                className="progress-bar__segment progress-bar__segment--confirmed"
-                // data-geometry: Engine count proportion.
-                style={shareStyle(counts.confirmed, counts.total)}
-              />
-              <span
-                className="progress-bar__segment progress-bar__segment--draft"
-                // data-geometry: Engine count proportion.
-                style={shareStyle(counts.draft, counts.total)}
-              />
-              <span
-                className="progress-bar__segment progress-bar__segment--open"
-                // data-geometry: Engine count proportion.
-                style={shareStyle(counts.untranslated, counts.total)}
-              />
-            </span>
-          ) : null}
-          <p className="workbench__header-sub">
-            <span className="truncate">{ctx.project.name}</span>
-            {counts ? (
-              <span
-                className="counts-bar"
-                title={`${counts.confirmed} confirmed, ${counts.draft} draft, ${counts.untranslated} open, ${counts.total} total`}
-              >
-                <span>
-                  <span className="counts-bar__value" data-abbr="C">
-                    {counts.confirmed}
-                  </span>
-                  confirmed
-                </span>
-                <span>
-                  <span className="counts-bar__value" data-abbr="D">
-                    {counts.draft}
-                  </span>
-                  draft
-                </span>
-                <span>
-                  <span className="counts-bar__value" data-abbr="O">
-                    {counts.untranslated}
-                  </span>
-                  open
-                </span>
-                <span>
-                  <span className="counts-bar__value" data-abbr="T">
-                    {counts.total}
-                  </span>
-                  total
-                </span>
-              </span>
-            ) : null}
-            {pendingConfirm ? (
-              <span className="inline-status" role="status">
-                Confirming
-              </span>
-            ) : null}
-          </p>
-          <DocumentSwitcher
-            documents={ctx.documents}
-            activeDocumentId={ctx.document.id}
-            disabled={headerBusy}
-            pending={switchPending === true}
-            onSelect={onSwitchDocument}
-            onRecycle={() => {
-              setRecycleError(null);
-              setRecycleReason("");
-              setRecycleOpen(true);
-            }}
-          />
-        </div>
-        <div className="workbench__header-actions">
-          <div className="workbench__header-secondary">
-            <button
-              type="button"
-              className="btn btn--ghost btn--sm"
-              disabled={headerBusy}
-              aria-pressed={previewOpen}
-              onClick={() => setPreviewOpen((open) => !open)}
-              data-testid="toggle-preview"
-            >
-              {previewOpen ? "Hide preview" : "Preview"}
-            </button>
-            <button
-              type="button"
-              className="btn btn--ghost btn--sm"
-              disabled={headerBusy}
-              onClick={onAddFiles}
-              data-testid="add-files"
-            >
-              {addFilesPending ? "Importing" : "Add files"}
-            </button>
-            {onAssets ? (
-              <button
-                type="button"
-                className="btn btn--ghost btn--sm"
-                disabled={headerBusy}
-                onClick={onAssets}
-                data-testid="nav-assets-workbench"
-              >
-                Assets
-              </button>
-            ) : null}
-            {reimport ? (
-              <button
-                type="button"
-                className="btn btn--ghost btn--sm"
-                disabled={headerBusy}
-                onClick={() => reimport.open()}
-                data-testid="reimport-open"
-              >
-                Reimport
-              </button>
-            ) : null}
-            <button
-              type="button"
-              className="btn btn--ghost btn--sm"
-              disabled={headerBusy}
-              onClick={onInsights}
-            >
-              Insights
-            </button>
-          </div>
-          <div className="workbench__header-primary" role="group" aria-label="Job actions">
-            <button
-              type="button"
-              className="btn btn--secondary btn--sm"
-              disabled={headerBusy || pretranslatePending === true}
-              onClick={onPretranslate}
-              data-testid="pretranslate"
-              title="Fill empty targets from translation memory (Ctrl+Shift+P)"
-            >
-              {pretranslatePending ? "Pretranslating" : "Pretranslate"}
-            </button>
-            <button
-              type="button"
-              className="btn btn--secondary btn--sm"
-              disabled={headerBusy}
-              onClick={onQa}
-              data-testid="workbench-qa"
-            >
-              QA
-            </button>
-            <button
-              type="button"
-              className="btn btn--primary btn--sm"
-              disabled={headerBusy}
-              onClick={onExport}
-              data-testid="workbench-export"
-            >
-              Export
-            </button>
-          </div>
-        </div>
-      </div>
+      <WorkbenchHeader
+        documentName={ctx.document.name}
+        projectName={ctx.project.name}
+        documents={ctx.documents}
+        activeDocumentId={ctx.document.id}
+        counts={counts}
+        headerBusy={headerBusy}
+        switchPending={switchPending === true}
+        addFilesPending={addFilesPending === true}
+        pretranslatePending={pretranslatePending === true}
+        pendingConfirm={pendingConfirm}
+        previewOpen={previewOpen}
+        autocomplete={
+          editorOps ? editorOps.preferences?.autocomplete !== false : null
+        }
+        onPreviewOpenChange={setPreviewOpen}
+        {...(editorOps
+          ? {
+              onAutocompleteChange: (next: boolean) => {
+                editorOps.setPreferenceField("autocomplete", next);
+              },
+            }
+          : {})}
+        onSelectDocument={onSwitchDocument}
+        onAddFiles={onAddFiles}
+        onPretranslate={onPretranslate}
+        onQa={onQa}
+        onExport={onExport}
+      />
 
       {transitionError ||
       editState?.journalError ||
@@ -790,33 +642,6 @@ export function Workbench({
         />
       ) : null}
 
-      {recycleOpen ? (
-        <ConfirmDialog
-          title="Recycle document"
-          body={`${ctx.document.name} will move to recycle.`}
-          confirmLabel="Recycle"
-          pending={recyclePending}
-          error={recycleError}
-          reasonLabel="Reason"
-          reason={recycleReason}
-          onReasonChange={setRecycleReason}
-          onCancel={() => setRecycleOpen(false)}
-          onConfirm={() => {
-            if (recyclePending) return;
-            setRecyclePending(true);
-            setRecycleError(null);
-            void onRecycleDocument(recycleReason.trim()).then((ok) => {
-              setRecyclePending(false);
-              if (ok) {
-                setRecycleOpen(false);
-              } else {
-                setRecycleError("Recycle failed.");
-              }
-            });
-          }}
-          testId="recycle-document-confirm"
-        />
-      ) : null}
     </section>
   );
 }

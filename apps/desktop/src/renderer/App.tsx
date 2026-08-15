@@ -3,6 +3,7 @@ import type { Project, Segment } from "@translunar/contracts";
 
 import { AppChrome } from "./shell/AppChrome";
 import { BootGate } from "./shell/BootGate";
+import { ConfirmDialog } from "./shell/ConfirmDialog";
 import { CommandPalette } from "./shell/CommandPalette";
 import type { PaletteCommand } from "./shell/command-palette-model";
 import { EngineStatusBanner } from "./shell/EngineStatusBanner";
@@ -51,10 +52,18 @@ export function App() {
   const disabled = !state.mutationsEnabled;
 
   const [selectedSegmentIds, setSelectedSegmentIds] = useState<string[]>([]);
+  const [recycleDocumentOpen, setRecycleDocumentOpen] = useState(false);
+  const [recycleReason, setRecycleReason] = useState("");
+  const [recyclePending, setRecyclePending] = useState(false);
+  const [recycleError, setRecycleError] = useState<string | null>(null);
 
   /** Editor chrome and keyboard ownership is Workbench-only (not QA/Export/Home). */
   const workbenchCtx = surface.kind === "workbench" ? surface.ctx : null;
   const workbenchActive = surface.kind === "workbench";
+
+  useEffect(() => {
+    if (!workbenchActive) setRecycleDocumentOpen(false);
+  }, [workbenchActive]);
 
   const editorGateway = useMemo(
     () => ({
@@ -541,6 +550,20 @@ export function App() {
         onCollaboration={() => void commands.goCollaboration()}
         onSettings={() => void commands.goSettings()}
         {...(startupResolved ? { onCommandPalette: palette.openPalette } : {})}
+        {...(workbenchActive
+          ? {
+              onAddFiles: () => {
+                void commands.addFiles();
+              },
+              addFilesPending: surface.kind === "workbench" && surface.addFilesPending === true,
+              onReimport: () => reimport.open(),
+              onRecycleDocument: () => {
+                setRecycleError(null);
+                setRecycleReason("");
+                setRecycleDocumentOpen(true);
+              },
+            }
+          : {})}
         windowChromePlatform={windowChrome.platform}
         windowMaximized={windowChrome.maximized}
         onWindowMinimize={windowChrome.minimize}
@@ -755,19 +778,12 @@ export function App() {
               onExport={() => {
                 void commands.goExport();
               }}
-              onInsights={() => {
-                void commands.goInsights();
-              }}
-              onAssets={() => {
-                void commands.goAssets();
-              }}
               onSwitchDocument={(id) => {
                 void commands.switchDocument(id);
               }}
               onAddFiles={() => {
                 void commands.addFiles();
               }}
-              onRecycleDocument={commands.recycleActiveDocument}
               onDismissBatch={commands.dismissBatchSummary}
             />
           ) : null}
@@ -1019,6 +1035,34 @@ export function App() {
         <CommandPalette
           commands={paletteCommands}
           onClose={palette.closePalette}
+        />
+      ) : null}
+
+      {recycleDocumentOpen && workbenchCtx ? (
+        <ConfirmDialog
+          title="Recycle document"
+          body={`${workbenchCtx.document.name} will move to recycle.`}
+          confirmLabel="Recycle"
+          pending={recyclePending}
+          error={recycleError}
+          reasonLabel="Reason"
+          reason={recycleReason}
+          onReasonChange={setRecycleReason}
+          onCancel={() => setRecycleDocumentOpen(false)}
+          onConfirm={() => {
+            if (recyclePending) return;
+            setRecyclePending(true);
+            setRecycleError(null);
+            void commands.recycleActiveDocument(recycleReason.trim()).then((ok) => {
+              setRecyclePending(false);
+              if (ok) {
+                setRecycleDocumentOpen(false);
+              } else {
+                setRecycleError("Recycle failed.");
+              }
+            });
+          }}
+          testId="recycle-document-confirm"
         />
       ) : null}
     </div>
