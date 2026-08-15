@@ -5,6 +5,39 @@
 处，资产中枢是编辑器背后的沉淀**。翻译资产仍然沉淀、AI 仍然贯穿，但它们必须
 挂在当前段上，而不是替代编辑器，也不是另开一条脱离编辑器的流水线。
 
+## 0. 执行进度（2026-08-15 收口）
+
+本分支已按本文档落地并**用真实 Electron + 真实引擎门禁实测**。不是“点得动”，
+是能交活。
+
+### 已交付并门禁通过
+
+| 能力 | 提交 | 门禁 |
+| --- | --- | --- |
+| OOXML 标签模型（docx/xlsx/pptx）：只标真实格式跨度 | `880ec3a` | format-matrix 7/7 |
+| 七种格式往返门禁（txt/md/html/xliff/docx/xlsx/pptx） | `18710a8` | `pnpm test:formats:linux` |
+| 确认三走法 + 传播可见化 | `f1c63ca` | `pnpm test:job:linux` |
+| TM 模糊匹配 + Ctrl+1..9 应用；术语识别 + 插入光标 | `8d0bc73` | `pnpm test:intel:linux` |
+| Concordance / Quick Add Term / Copy·Clear Source | `0a3374f` | `pnpm test:actions:linux` |
+| AutoSuggest（补全空壳开关终于有行为） | `0548566` | `pnpm test:suggest:linux` |
+| Display Filter + 行标记 + QA 豁免 | `c3e61a3` | `pnpm test:review:linux` |
+| 结构列 / 状态栏 / Go To / TM 预翻译 | `0cff0d6` | `pnpm test:navigation` 类 |
+| 段内 AI 页签（无密钥时诚实提示） | `952d2a6` | `pnpm test:ai:linux` |
+| 源文标签胶囊可见 + Ctrl+, 放置 | `27ee700` | `pnpm test:tags:linux` |
+
+回归：desktop 单测 413、E2E 20 passed / 4 fixture skips、Rust workspace 全绿。
+
+### 仍未做到 Trados 同水准的部分（诚实清单）
+
+这些**没有**假装完成，下一轮应继续：
+
+1. **目标侧富文本编辑**（标签在目标里可视化编辑、选区包标签）——现在源文可见，Ctrl+, 按比例放置，但目标仍是 textarea。
+2. **多文件作业台**（导航树、跨文件 QA/导出/传播）——仍是文档下拉切换。
+3. **实时预览**（Word/HTML 所见即所得）。
+4. **完整确认等级**（Approved / Rejected / Signed Off）与段锁定。
+5. **AI 需真实 provider 密钥**才能生成；门禁验证的是“挂在当前段 + 无配置时诚实”，不是云端生成质量。
+6. **SDLXLIFF / MQXLIFF / PDF** 尚未纳入 format-matrix 的同构往返（引擎已注册过滤器，缺同级 fixture 门禁）。
+
 主参照：SDL Trados Studio 2024 / 2024 SR1 的 Editor view（以 docs.rws.com 官方
 文档为准）；补遗参照 memoQ（docs.memoq.com）与 CafeTran。协作、派单、云协同、
 GroupShare / Trados Team 整段排除；本文只评**一个译者独立把一单活做完**。
