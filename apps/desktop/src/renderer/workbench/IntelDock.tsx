@@ -42,6 +42,8 @@ export interface IntelDockProps {
     setAction: (action: AiAction) => void;
     generate: () => void;
   };
+  /** Current row is an OCR unit — AI here still writes the target. */
+  ocrSource?: boolean;
   onApplyAiProposal: (text: string) => void;
 }
 
@@ -70,6 +72,7 @@ export function IntelDock({
   onFocusedTermIndex,
   onHighlightTerm,
   ai,
+  ocrSource,
   onApplyAiProposal,
 }: IntelDockProps) {
   const [tab, setTab] = useState<DockTab>("matches");
@@ -187,6 +190,7 @@ export function IntelDock({
           <AiPanel
             ai={ai}
             disabled={disabled === true}
+            ocrSource={ocrSource === true}
             onApply={onApplyAiProposal}
           />
         )}
@@ -724,6 +728,7 @@ function ConcordanceList({
 function AiPanel({
   ai,
   disabled,
+  ocrSource,
   onApply,
 }: {
   ai: SegmentAiState & {
@@ -731,6 +736,7 @@ function AiPanel({
     generate: () => void;
   };
   disabled: boolean;
+  ocrSource: boolean;
   onApply: (text: string) => void;
 }) {
   const proposal = ai.run?.proposalText?.trim() ?? "";
@@ -744,6 +750,12 @@ function AiPanel({
         Suggestions for this segment only. Leaving the row clears the proposal
         from view.
       </p>
+      {ocrSource ? (
+        <p className="ai-panel__intro" data-testid="ai-ocr-source-note">
+          This row came from OCR. Use PDF → Correct to fix the source;
+          Translate / Improve here still writes the target.
+        </p>
+      ) : null}
       {!ai.profilesLoaded ? (
         <p className="muted">Loading AI profiles</p>
       ) : !runnable ? (

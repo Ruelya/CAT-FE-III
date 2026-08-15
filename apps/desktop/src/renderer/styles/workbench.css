@@ -1224,6 +1224,10 @@
   background: color-mix(in srgb, var(--color-text-muted) 70%, var(--color-warning));
 }
 
+.segment-mark--ocr {
+  background: color-mix(in srgb, var(--color-accent) 55%, var(--color-warning));
+}
+
 /* ── Structure column ───────────────────────────────────── */
 
 .segment-table__structure {

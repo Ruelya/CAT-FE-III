@@ -5,8 +5,15 @@
  * debugging; it is not what a translator needs while scanning a grid. A short
  * label that says "this row is a heading / a cell / a footnote" is.
  */
+/** Engine PDF OCR units encode origin as `;s=ocr;` on the structural path. */
+export function isOcrStructuralPath(path: string): boolean {
+  return path.includes(";s=ocr;");
+}
+
 export function structureLabel(path: string): string {
   if (!path) return "";
+  if (isOcrStructuralPath(path)) return "OCR";
+  if (path.toLowerCase().startsWith("pdf:")) return "PDF";
   const lower = path.toLowerCase();
   if (lower.includes("header")) return "Hdr";
   if (lower.includes("footer")) return "Ftr";

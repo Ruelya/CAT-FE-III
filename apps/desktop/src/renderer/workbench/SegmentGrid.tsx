@@ -4,7 +4,11 @@ import type { EditorWorkflowState, InlineTag, SegmentEditorRow } from "@translun
 import { segmentNumber } from "../lib/format";
 import type { EditorDisplay } from "../lib/editor-display";
 import { adjacentPlaceholderGroupAt, pairSourceTags } from "../lib/quickplace";
-import { structureLabel, structureTitle } from "../lib/structure-label";
+import {
+  isOcrStructuralPath,
+  structureLabel,
+  structureTitle,
+} from "../lib/structure-label";
 import {
   caretOffsetsInTaggedEditor,
   mergeTargetTags,
@@ -412,6 +416,13 @@ export function SegmentGrid({
                         className="segment-mark segment-mark--repeat"
                         title="This source text repeats in this document"
                         data-testid={`mark-repeat-${id}`}
+                      />
+                    ) : null}
+                    {isOcrStructuralPath(row.segment.structuralPath) ? (
+                      <span
+                        className="segment-mark segment-mark--ocr"
+                        title="This source came from OCR"
+                        data-testid={`mark-ocr-${id}`}
                       />
                     ) : null}
                   </div>

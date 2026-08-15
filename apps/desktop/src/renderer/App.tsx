@@ -145,6 +145,7 @@ export function App() {
       generation: featureGeneration,
       mutationsEnabled: state.mutationsEnabled,
       documentId: workbenchCtx?.document.id ?? null,
+      projectId: workbenchCtx?.project.id ?? null,
       activeSegmentId:
         surface.kind === "workbench" ? surface.activeSegmentId : null,
       flushOrStay: commands.flushOrStay,
@@ -158,6 +159,7 @@ export function App() {
       state.mutationsEnabled,
       surface,
       workbenchCtx?.document.id,
+      workbenchCtx?.project.id,
     ],
   );
   const pdfReview = usePdfReview(pdfGateway);
@@ -476,7 +478,7 @@ export function App() {
         id: "go.settings",
         label: "Open Settings",
         group: "Navigate",
-        keywords: "preferences locale appearance data updates",
+        keywords: "preferences locale appearance data updates ocr mineru",
         run: () => void commands.goSettings(),
       },
       {

@@ -34,6 +34,7 @@ import {
 import { rankMatches, type SegmentIntel } from "../state/segment-intel";
 import { useSegmentSelection } from "../state/use-segment-selection";
 import { useSuggestions } from "../state/use-suggestions";
+import { isOcrStructuralPath } from "../lib/structure-label";
 import { useSegmentAi } from "../state/use-segment-ai";
 import { useEditorShortcuts } from "../workbench/use-editor-shortcuts";
 import type { EditorOperationsApi } from "../state/use-editor-operations";
@@ -539,6 +540,9 @@ export function Workbench({
           <PdfPageReview
             pdf={pdfReview}
             {...(disabled !== undefined ? { disabled } : {})}
+            onSelectSegment={(id) => {
+              void onSelectSegment(id);
+            }}
           />
         ) : null}
         <div className="editor-region" ref={editorRegionRef}>
@@ -662,6 +666,7 @@ export function Workbench({
             setSourceHighlight(span);
           }}
           ai={segmentAi}
+          ocrSource={isOcrStructuralPath(activeRow?.segment.structuralPath ?? "")}
           onApplyAiProposal={onApplyAiProposal}
         />
       </div>
