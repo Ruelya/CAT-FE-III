@@ -11,6 +11,7 @@ import type {
   ReferenceCorpus,
   Termbase,
   TermbaseMount,
+  TermCandidate,
   TermEntry,
   TermMatch,
   TmLibrary,
@@ -89,6 +90,12 @@ export interface TermbaseSectionState {
     message: string | null;
     diagnostics: AssetDiagnostic[];
     error: UiError | null;
+  };
+  extract: {
+    documentId: string;
+    pending: boolean;
+    error: UiError | null;
+    candidates: TermCandidate[];
   };
 }
 
@@ -231,6 +238,12 @@ export function createInitialAssetState(input: {
         message: null,
         diagnostics: [],
         error: null,
+      },
+      extract: {
+        documentId: "",
+        pending: false,
+        error: null,
+        candidates: [],
       },
     },
     alignment: {

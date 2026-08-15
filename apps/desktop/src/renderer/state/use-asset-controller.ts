@@ -92,6 +92,9 @@ export interface AssetControllerApi {
     patch: Partial<AssetControllerState["termbase"]["upsert"]>,
   ) => void;
   upsertTerm: () => Promise<void>;
+  setExtractDocumentId: (documentId: string) => void;
+  extractTerms: () => Promise<void>;
+  acceptExtractedTerm: (sourceTerm: string, translation: string) => void;
   exportTermbase: (
     termbaseId: string,
     format: AssetExchangeFormat,
@@ -1145,6 +1148,105 @@ export function useAssetController(
           },
         }));
       }
+    },
+
+    setExtractDocumentId: (documentId) =>
+      setState((s) => ({
+        ...s,
+        termbase: {
+          ...s.termbase,
+          extract: { ...s.termbase.extract, documentId },
+        },
+      })),
+
+    extractTerms: async () => {
+      const projectId = projectIdRef.current;
+      const documentId =
+        stateRef.current.termbase.extract.documentId ||
+        stateRef.current.documents[0]?.id ||
+        "";
+      if (!documentId) {
+        setState((s) => ({
+          ...s,
+          termbase: {
+            ...s.termbase,
+            extract: {
+              ...s.termbase.extract,
+              error: {
+                code: "NO_DOCUMENT",
+                message: "Choose a document to extract terms from.",
+                kind: "domain",
+              },
+            },
+          },
+        }));
+        return;
+      }
+      const opId = beginMut("termbase");
+      if (opId === null) return;
+      setState((s) => ({
+        ...s,
+        termbase: {
+          ...s.termbase,
+          extract: {
+            ...s.termbase.extract,
+            documentId,
+            pending: true,
+            error: null,
+          },
+        },
+      }));
+      try {
+        const report = await invokeEngine("ai.quality.extractTerms", {
+          documentId,
+        });
+        if (!isMutCurrent("termbase", opId, projectId)) return;
+        setState((s) => ({
+          ...s,
+          termbase: {
+            ...s.termbase,
+            extract: {
+              ...s.termbase.extract,
+              pending: false,
+              candidates: report.candidates,
+            },
+          },
+        }));
+      } catch (error) {
+        if (!isMutCurrent("termbase", opId, projectId)) return;
+        setState((s) => ({
+          ...s,
+          termbase: {
+            ...s.termbase,
+            extract: {
+              ...s.termbase.extract,
+              pending: false,
+              error: toUiError(error),
+            },
+          },
+        }));
+      } finally {
+        endMut("termbase", opId, projectId);
+      }
+    },
+
+    acceptExtractedTerm: (sourceTerm, translation) => {
+      const termbaseId =
+        stateRef.current.termbase.upsert.termbaseId ||
+        stateRef.current.termbase.termbases.items[0]?.id ||
+        "";
+      setState((s) => ({
+        ...s,
+        termbase: {
+          ...s.termbase,
+          upsert: {
+            ...s.termbase.upsert,
+            termbaseId,
+            sourceTerm,
+            translation,
+          },
+        },
+      }));
     },
 
     setUpsertField: (patch) =>

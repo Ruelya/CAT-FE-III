@@ -719,6 +719,69 @@ export function AssetHub({
                 </>
               ) : null}
 
+              <h2 className="insights-heading">Extract terms</h2>
+              <div className="editor-panel__row">
+                <select
+                  value={state.termbase.extract.documentId}
+                  disabled={busy || state.termbase.extract.pending}
+                  onChange={(e) => assets.setExtractDocumentId(e.target.value)}
+                  aria-label="Extract from document"
+                  data-testid="tb-extract-document"
+                >
+                  <option value="">
+                    {state.documents[0] ? "Active / first document" : "No documents"}
+                  </option>
+                  {state.documents.map((doc) => (
+                    <option key={doc.id} value={doc.id}>
+                      {doc.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="btn btn--secondary btn--sm"
+                  disabled={busy || state.termbase.extract.pending}
+                  onClick={() => void assets.extractTerms()}
+                  data-testid="tb-extract"
+                >
+                  Extract
+                </button>
+              </div>
+              {state.termbase.extract.error ? (
+                <p className="error-text">
+                  {formatUiError(state.termbase.extract.error)}
+                </p>
+              ) : null}
+              {state.termbase.extract.candidates.length > 0 ? (
+                <ul className="p4-list" data-testid="tb-extract-results">
+                  {state.termbase.extract.candidates.map((candidate) => (
+                    <li key={`${candidate.sourceTerm}:${candidate.frequency}`}>
+                      <span>
+                        {candidate.sourceTerm}
+                        {candidate.suggestedTarget
+                          ? ` → ${candidate.suggestedTarget}`
+                          : ""}{" "}
+                        ×{candidate.frequency}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--sm"
+                        disabled={busy}
+                        onClick={() =>
+                          assets.acceptExtractedTerm(
+                            candidate.sourceTerm,
+                            candidate.suggestedTarget ?? "",
+                          )
+                        }
+                        data-testid={`tb-extract-accept-${candidate.sourceTerm}`}
+                      >
+                        Use in upsert
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+
               <h2 className="insights-heading">Upsert</h2>
               <div className="editor-panel__row">
                 <select
