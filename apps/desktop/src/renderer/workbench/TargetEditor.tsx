@@ -10,8 +10,8 @@ import {
 import {
   buildTaggedEditorHtml,
   caretOffsetsInTaggedEditor,
+  alignGhostPositions,
   insertTextIntoTagged,
-  mapTagsToTargetPositions,
   mergeTargetTags,
   serializeTaggedEditor,
   setCaretInTaggedEditor,
@@ -112,12 +112,7 @@ export function TargetEditor({
     [sourceTags, tags],
   );
   const ghostsAt = useMemo(
-    () =>
-      mapTagsToTargetPositions(
-        ghosts,
-        [...sourceText].length,
-        [...value].length,
-      ),
+    () => alignGhostPositions(sourceText, value, ghosts),
     [ghosts, sourceText, value],
   );
   const open = !quickPlaceOpen && (suggestions?.items.length ?? 0) > 0;
@@ -235,10 +230,10 @@ export function TargetEditor({
       surface.innerHTML = buildTaggedEditorHtml(
         inserted.text,
         inserted.tags,
-        mapTagsToTargetPositions(
+        alignGhostPositions(
+          sourceText,
+          inserted.text,
           unmatchedSourceTags(sourceTags, inserted.tags),
-          [...sourceText].length,
-          [...inserted.text].length,
         ),
       );
       setCaretInTaggedEditor(
@@ -246,6 +241,19 @@ export function TargetEditor({
         caret.start + [...item.text].length,
       );
     }
+  };
+
+  const paintTags = (nextTags: InlineTag[]) => {
+    applyTags(nextTags);
+    const surface = surfaceRef.current;
+    if (!surface) return;
+    skipSync.current = true;
+    const nextGhosts = alignGhostPositions(
+      sourceText,
+      value,
+      unmatchedSourceTags(sourceTags, nextTags),
+    );
+    surface.innerHTML = buildTaggedEditorHtml(value, nextTags, nextGhosts);
   };
 
   const placeGhost = (ghost: InlineTag) => {
@@ -264,7 +272,7 @@ export function TargetEditor({
         ? caret.end
         : (ghostsAt.find((item) => item.id === pair.end.id)?.position ??
           caret.end);
-      applyTags(
+      paintTags(
         mergeTargetTags(
           tags,
           wrapSelectionWithTagPair(pair.start, pair.end, from, to),
@@ -274,7 +282,7 @@ export function TargetEditor({
     }
     const at =
       ghostsAt.find((item) => item.id === ghost.id)?.position ?? caret.start;
-    applyTags(
+    paintTags(
       mergeTargetTags(tags, [
         {
           ...ghost,
@@ -426,16 +434,10 @@ export function TargetEditor({
         onMouseDown={(event) => {
           const target = event.target;
           if (!(target instanceof HTMLElement)) return;
-          if (target.closest("[data-ghost]")) {
-            event.preventDefault();
-          }
-        }}
-        onClick={(event) => {
-          if (disabled === true || composing.current) return;
-          const target = event.target;
-          if (!(target instanceof HTMLElement)) return;
           const ghostEl = target.closest("[data-ghost]");
           if (!(ghostEl instanceof HTMLElement)) return;
+          event.preventDefault();
+          if (disabled === true || composing.current) return;
           const id = ghostEl.dataset.ghost;
           const ghost = ghosts.find((item) => item.id === id);
           if (ghost) placeGhost(ghost);

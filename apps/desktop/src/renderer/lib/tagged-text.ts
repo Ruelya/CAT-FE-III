@@ -111,6 +111,79 @@ export function mapTagsToTargetPositions(
   }));
 }
 
+function characterIndexOf(haystack: string, needle: string): number {
+  if (!needle) return -1;
+  const at = haystack.indexOf(needle);
+  if (at < 0) return -1;
+  return [...haystack.slice(0, at)].length;
+}
+
+/** Locate a source span (or a distinctive token from it) inside the target. */
+export function findAlignedSpan(
+  sourceSpan: string,
+  targetText: string,
+): { start: number; end: number } | null {
+  const span = sourceSpan.trim();
+  if (!span) return null;
+  const exact = characterIndexOf(targetText, span);
+  if (exact >= 0) {
+    return { start: exact, end: exact + [...span].length };
+  }
+  const tokens = span.match(/[A-Z]+-\d+|\d+(?:[.,]\d+)?|[A-Za-z]{3,}/g) ?? [];
+  for (const token of tokens) {
+    const at = characterIndexOf(targetText, token);
+    if (at >= 0) {
+      return { start: at, end: at + [...token].length };
+    }
+  }
+  return null;
+}
+
+/**
+ * Prefer a target span that still contains the source phrase (or a token
+ * from it). Fall back to proportional offsets when the translation reordered
+ * the sentence.
+ */
+export function alignGhostPositions(
+  sourceText: string,
+  targetText: string,
+  unmatched: readonly InlineTag[],
+): InlineTag[] {
+  const proportional = mapTagsToTargetPositions(
+    unmatched,
+    [...sourceText].length,
+    [...targetText].length,
+  );
+  const byId = new Map(proportional.map((tag) => [tag.id, tag]));
+  const used = new Set<string>();
+  const aligned: InlineTag[] = [];
+
+  for (const start of unmatched) {
+    if (start.kind !== "start" || used.has(start.id)) continue;
+    const end = unmatched.find((tag) => {
+      if (tag.kind !== "end" || used.has(tag.id)) return false;
+      if (start.pairId && tag.pairId) return tag.pairId === start.pairId;
+      return tagFingerprint(start) === tagFingerprint(tag);
+    });
+    if (!end) continue;
+    const span = [...sourceText]
+      .slice(start.position, Math.max(start.position, end.position))
+      .join("");
+    const hit = findAlignedSpan(span, targetText);
+    if (!hit) continue;
+    aligned.push({ ...start, position: hit.start });
+    aligned.push({ ...end, position: hit.end });
+    used.add(start.id);
+    used.add(end.id);
+  }
+
+  for (const tag of unmatched) {
+    if (used.has(tag.id)) continue;
+    aligned.push(byId.get(tag.id) ?? tag);
+  }
+  return aligned;
+}
+
 export function placeSourceTagsProportional(
   sourceTags: readonly InlineTag[],
   sourceLength: number,

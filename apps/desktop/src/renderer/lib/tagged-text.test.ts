@@ -5,6 +5,8 @@ import {
   buildTaggedEditorHtml,
   insertTextIntoTagged,
   mergeTargetTags,
+  alignGhostPositions,
+  findAlignedSpan,
   mapTagsToTargetPositions,
   placeSourceTagsAtCaret,
   placeSourceTagsProportional,
@@ -167,5 +169,18 @@ describe("mapTagsToTargetPositions", () => {
     );
     expect(mapped.map((item) => item.id)).toEqual(["1s", "1e"]);
     expect(mapped.map((item) => item.position)).toEqual([5, 8]);
+  });
+});
+
+describe("alignGhostPositions", () => {
+  it("wraps a shared token instead of a proportional guess", () => {
+    const source = "Read the TL-900 guide.";
+    const target = "请阅读 TL-900 指南。";
+    const aligned = alignGhostPositions(source, target, [
+      { ...tag("1s", "start", 9, "b"), pairId: "p1" },
+      { ...tag("1e", "end", 15, "b"), pairId: "p1" },
+    ]);
+    expect(findAlignedSpan("TL-900", target)).toEqual({ start: 4, end: 10 });
+    expect(aligned.map((item) => item.position)).toEqual([4, 10]);
   });
 });
