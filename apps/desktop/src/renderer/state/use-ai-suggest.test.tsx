@@ -124,4 +124,68 @@ describe("useAiSuggest", () => {
     const prompt = (starts[0]?.params as { prompt?: string }).prompt ?? "";
     expect(prompt).toContain("pow⌂");
   });
+
+  it("replays the last caret after profiles become ready", async () => {
+    const engine = seedEngine();
+    const api = createFakeDesktopApi(engine);
+    const invoke = api.invoke.bind(api);
+    api.invoke = (async (method, params) => {
+      if (method === "ai.provider.list") {
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      }
+      return invoke(method, params);
+    }) as typeof api.invoke;
+    window.translunar = api;
+    const { result } = renderHook(() =>
+      useAiSuggest({
+        enabled: true,
+        projectId: "proj-1",
+        segmentId: "seg-1",
+        segmentRevision: 1,
+      }),
+    );
+
+    await act(async () => {
+      result.current.request("pow", 3);
+    });
+    expect(engine.calls.some((call) => call.method === "ai.run.start")).toBe(
+      false,
+    );
+
+    await waitFor(() => {
+      expect(result.current.suffix).toBe(" completed");
+    });
+    expect(
+      engine.calls.filter((call) => call.method === "ai.run.start"),
+    ).toHaveLength(1);
+  });
+
+  it("consumes an accepted word from the live suffix", async () => {
+    const engine = seedEngine();
+    window.translunar = createFakeDesktopApi(engine);
+    const { result } = renderHook(() =>
+      useAiSuggest({
+        enabled: true,
+        projectId: "proj-1",
+        segmentId: "seg-1",
+        segmentRevision: 1,
+      }),
+    );
+    await waitFor(() => expect(result.current.runnable).toBe(true));
+    await act(async () => {
+      result.current.request("pow", 3);
+    });
+    await waitFor(() => {
+      expect(result.current.suffix).toBe(" completed");
+    });
+
+    act(() => {
+      result.current.consume(" com");
+    });
+    expect(result.current.suffix).toBe("pleted");
+    act(() => {
+      result.current.consume("nope");
+    });
+    expect(result.current.suffix).toBe("");
+  });
 });

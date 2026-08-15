@@ -35,6 +35,8 @@ export function useSuggestions(input: {
   move: (delta: number) => void;
   accept: () => EditorSuggestion | null;
   setActiveIndex: (index: number) => void;
+  /** After Ctrl+→, the typed prefix now includes the accepted unit. */
+  extendPrefix: (unit: string) => void;
 } {
   const [state, setState] = useState<SuggestionState>(EMPTY);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -132,5 +134,23 @@ export function useSuggestions(input: {
     setState((previous) => ({ ...previous, activeIndex: index }));
   }, []);
 
-  return { ...state, request, dismiss, move, accept, setActiveIndex };
+  const extendPrefix = useCallback((unit: string) => {
+    if (!unit) return;
+    setState((previous) => {
+      if (previous.suggestions.length === 0 && !previous.prefix) {
+        return previous;
+      }
+      return { ...previous, prefix: `${previous.prefix}${unit}` };
+    });
+  }, []);
+
+  return {
+    ...state,
+    request,
+    dismiss,
+    move,
+    accept,
+    setActiveIndex,
+    extendPrefix,
+  };
 }

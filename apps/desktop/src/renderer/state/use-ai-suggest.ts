@@ -34,6 +34,7 @@ export function useAiSuggest(input: {
 }): AiSuggestState & {
   request: (targetText: string, caret: number) => void;
   dismiss: () => void;
+  consume: (unit: string) => void;
 } {
   const [suffix, setSuffix] = useState("");
   const [pending, setPending] = useState(false);
@@ -43,6 +44,7 @@ export function useAiSuggest(input: {
   const profilesReady = useRef(false);
   const profilesRef = useRef<AiProviderProfile[]>([]);
   const runnableRef = useRef(false);
+  const queued = useRef<{ text: string; caret: number } | null>(null);
 
   const clearTimer = () => {
     if (timer.current) {
@@ -59,6 +61,7 @@ export function useAiSuggest(input: {
   };
 
   useEffect(() => {
+    queued.current = null;
     bump();
   }, [input.segmentId, input.enabled]);
 
@@ -100,16 +103,29 @@ export function useAiSuggest(input: {
   useEffect(() => () => clearTimer(), []);
 
   const dismiss = useCallback(() => {
+    queued.current = null;
     bump();
+  }, []);
+
+  const consume = useCallback((unit: string) => {
+    if (!unit) return;
+    setSuffix((previous) =>
+      previous.startsWith(unit) ? previous.slice(unit.length) : "",
+    );
   }, []);
 
   const request = useCallback(
     (targetText: string, caret: number) => {
       if (!input.enabled || !input.projectId || !input.segmentId) return;
       if (input.segmentRevision === null) return;
-      if (!profilesReady.current || !runnableRef.current) return;
+      if (!profilesReady.current || !runnableRef.current) {
+        queued.current = { text: targetText, caret };
+        return;
+      }
+      queued.current = null;
       const prefix = livePrefix(targetText, caret);
       if (prefix.length < MIN_PREFIX) {
+        queued.current = null;
         bump();
         return;
       }
@@ -170,5 +186,13 @@ export function useAiSuggest(input: {
     [input.enabled, input.projectId, input.segmentId, input.segmentRevision],
   );
 
-  return { suffix, pending, runnable, request, dismiss };
+  useEffect(() => {
+    if (!runnable) return;
+    const pendingRequest = queued.current;
+    if (!pendingRequest) return;
+    queued.current = null;
+    request(pendingRequest.text, pendingRequest.caret);
+  }, [runnable, request]);
+
+  return { suffix, pending, runnable, request, dismiss, consume };
 }

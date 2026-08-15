@@ -313,13 +313,15 @@ export function Workbench({
         pendingConfirm={pendingConfirm}
         previewOpen={previewOpen}
         autocomplete={
-          editorOps ? editorOps.preferences?.autocomplete !== false : null
+          editorOps?.preferences != null
+            ? editorOps.preferences.autocomplete !== false
+            : null
         }
         onPreviewOpenChange={setPreviewOpen}
         {...(editorOps
           ? {
               onAutocompleteChange: (next: boolean) => {
-                editorOps.setPreferenceField("autocomplete", next);
+                void editorOps.persistPreferenceField("autocomplete", next);
               },
             }
           : {})}
@@ -507,6 +509,12 @@ export function Workbench({
                       const unit = firstAcceptUnit(inlineText);
                       if (!unit) return;
                       onAcceptSuggestion(unit, "");
+                      if (deterministicSuffix) {
+                        suggest.extendPrefix(unit);
+                      } else {
+                        suggest.dismiss();
+                      }
+                      aiSuggest.consume(unit);
                     },
                     onDismiss: () => {
                       suggest.dismiss();
