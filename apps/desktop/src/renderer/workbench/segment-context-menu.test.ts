@@ -34,4 +34,24 @@ describe("segmentContextActions", () => {
     const add = items.find((item) => "id" in item && item.id === "addTerm");
     expect(add && "disabled" in add && add.disabled).toBe(false);
   });
+
+  it("keeps Split and Merge visible but disabled until the editor allows them", () => {
+    const items = segmentContextActions({
+      field: "row",
+      hasSourceSelection: false,
+      hasTargetSelection: false,
+      canStoreTerm: false,
+      canInsertTerm: false,
+      canConfirm: true,
+      targetHasText: false,
+      canCopySource: true,
+      canSplit: true,
+      canMerge: false,
+      canComment: true,
+    });
+    const split = items.find((item) => "id" in item && item.id === "split");
+    const merge = items.find((item) => "id" in item && item.id === "merge");
+    expect(split && "disabled" in split && split.disabled).toBe(false);
+    expect(merge && "disabled" in merge && merge.disabled).toBe(true);
+  });
 });

@@ -39,6 +39,10 @@ export function segmentContextActions(input: {
   canConfirm: boolean;
   targetHasText: boolean;
   canCopySource: boolean;
+  canFind?: boolean;
+  canSplit?: boolean;
+  canMerge?: boolean;
+  canComment?: boolean;
 }): ContextMenuEntry[] {
   const hasSelection =
     input.field === "source"
@@ -107,6 +111,28 @@ export function segmentContextActions(input: {
       id: "placeTags",
       label: "Place tags",
       shortcut: "Ctrl+,",
+    },
+    { id: "sep-structure", separator: true },
+    {
+      id: "find",
+      label: "Find in document",
+      shortcut: "Ctrl+F",
+      disabled: input.canFind === false,
+    },
+    {
+      id: "split",
+      label: "Split segment",
+      disabled: input.canSplit !== true,
+    },
+    {
+      id: "merge",
+      label: "Merge segments",
+      disabled: input.canMerge !== true,
+    },
+    {
+      id: "comment",
+      label: "Add comment",
+      disabled: input.canComment !== true,
     },
   ];
 }

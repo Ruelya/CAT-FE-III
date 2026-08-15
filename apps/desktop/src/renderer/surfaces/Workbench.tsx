@@ -50,7 +50,7 @@ import {
   nextInsertableTerm,
   termSourceHighlights,
 } from "../lib/term-source";
-import { rankMatches, type SegmentIntel } from "../state/segment-intel";
+import { matchLabel, rankMatches, type SegmentIntel } from "../state/segment-intel";
 import { useSegmentSelection } from "../state/use-segment-selection";
 import { useSuggestions } from "../state/use-suggestions";
 import { useAiSuggest } from "../state/use-ai-suggest";
@@ -59,6 +59,7 @@ import {
   firstAcceptUnit,
 } from "../lib/inline-completion";
 import { isOcrStructuralPath } from "../lib/structure-label";
+import { countWords } from "../lib/word-count";
 import { useSegmentAi } from "../state/use-segment-ai";
 import { useEditorShortcuts } from "../workbench/use-editor-shortcuts";
 import type { EditorOperationsApi } from "../state/use-editor-operations";
@@ -331,6 +332,7 @@ export function Workbench({
     [ctx.rows, filter, filterContext],
   );
   const repeats = useMemo(() => repeatedSources(ctx.rows), [ctx.rows]);
+  const topTmMatch = rankMatches(intel.tm.matches)[0];
 
   const runContextAction = async (id: string) => {
     const live = readSegmentSelection(activeSegmentId ?? "");
@@ -380,6 +382,22 @@ export function Workbench({
     }
     if (id === "placeTags") {
       onPlaceTags();
+      return;
+    }
+    if (id === "find") {
+      editorOps?.runCommand("editor.findReplace");
+      return;
+    }
+    if (id === "split") {
+      editorOps?.runCommand("editor.split");
+      return;
+    }
+    if (id === "merge") {
+      editorOps?.runCommand("editor.merge");
+      return;
+    }
+    if (id === "comment") {
+      editorOps?.runCommand("editor.comments");
     }
   };
 
@@ -760,13 +778,32 @@ export function Workbench({
       ) : null}
 
       <div className="workbench__status" data-testid="workbench-status">
-        <span>
+        <span data-testid="status-locales">
+          {ctx.project.sourceLocale} → {ctx.project.targetLocale}
+        </span>
+        <span data-testid="status-segment">
           {activeSegmentId
             ? `Segment ${
                 ctx.rows.findIndex((r) => r.segment.id === activeSegmentId) + 1
               } of ${ctx.rows.length}`
             : `${ctx.rows.length} segments`}
         </span>
+        {counts ? (
+          <span data-testid="status-counts">
+            {counts.confirmed} confirmed · {counts.draft} draft · {counts.untranslated} empty
+          </span>
+        ) : null}
+        <span data-testid="status-words">
+          {countWords(
+            editState?.segmentId === activeSegmentId
+              ? editState.draftTarget
+              : (activeRow?.segment.targetText ?? ""),
+          )}{" "}
+          words
+        </span>
+        {topTmMatch ? (
+          <span data-testid="status-tm">TM {matchLabel(topTmMatch)}</span>
+        ) : null}
         {isFilterActive(filter) ? (
           <span data-testid="status-filter">
             {`Filter: ${visibleRows.length} shown`}
@@ -814,6 +851,10 @@ export function Workbench({
                 : activeRow?.segment.targetText)?.trim(),
             ),
             canCopySource: Boolean(activeRow?.segment.sourceText.trim()),
+            canFind: Boolean(editorOps),
+            canSplit: Boolean(editorOps?.isAvailable("editor.split")),
+            canMerge: Boolean(editorOps?.isAvailable("editor.merge")),
+            canComment: Boolean(editorOps?.isAvailable("editor.comments")),
           })}
           onClose={() => setContextMenu(null)}
           onSelect={(id) => {
