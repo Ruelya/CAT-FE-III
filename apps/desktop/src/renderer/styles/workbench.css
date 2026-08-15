@@ -1099,3 +1099,29 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ── Inline tags in the grid ────────────────────────────── */
+
+.inline-tag {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 0.15em;
+  padding: 0 0.35em;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-line);
+  background: var(--color-raised);
+  font-family: var(--font-mono);
+  font-size: 0.7em;
+  line-height: 1.4;
+  color: var(--color-accent);
+  vertical-align: baseline;
+  user-select: none;
+}
+
+.inline-tag--start {
+  border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-line));
+}
+
+.inline-tag--end {
+  color: var(--color-text-muted);
+}

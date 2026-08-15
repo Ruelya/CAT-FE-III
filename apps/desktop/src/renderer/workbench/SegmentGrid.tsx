@@ -5,6 +5,7 @@ import { segmentNumber } from "../lib/format";
 import { structureLabel, structureTitle } from "../lib/structure-label";
 import type { SegmentEditState } from "../state/save-coordinator";
 import { TargetEditor, type SuggestionBinding } from "./TargetEditor";
+import { TaggedText } from "./TaggedText";
 
 export interface SegmentGridProps {
   rows: SegmentEditorRow[];
@@ -184,7 +185,11 @@ export function SegmentGrid({
                   </span>
                 </td>
                 <td>
-                  <div className="segment-source">{row.segment.sourceText}</div>
+                  <TaggedText
+                    className="segment-source"
+                    text={row.segment.sourceText}
+                    tags={row.sourceTags}
+                  />
                 </td>
                 <td>
                   {active ? (
