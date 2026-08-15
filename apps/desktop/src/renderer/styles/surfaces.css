@@ -394,6 +394,18 @@
   color: var(--color-text-subtle);
 }
 
+.issue-row__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+.issue-row__waived {
+  color: var(--color-text-muted);
+  font-weight: var(--weight-medium);
+}
+
 .qa-summary {
   display: flex;
   align-items: center;

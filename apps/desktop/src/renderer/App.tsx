@@ -699,6 +699,7 @@ export function App() {
               addFilesPending={surface.addFilesPending === true}
               batchResult={surface.batchResult ?? null}
               propagatedFrom={surface.propagatedFrom ?? null}
+              qaCounts={surface.qaCounts ?? {}}
               disabled={disabled}
               editorOps={editorOps}
               pdfReview={pdfReview}
@@ -769,6 +770,8 @@ export function App() {
               onJump={(id) => {
                 void commands.jumpToIssue(id);
               }}
+              onWaive={commands.waiveQaIssue}
+              onRevoke={commands.revokeQaWaiver}
               onBack={() => {
                 void commands.backToWorkbench();
               }}

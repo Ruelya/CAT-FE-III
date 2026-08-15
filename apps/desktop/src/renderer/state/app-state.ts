@@ -69,6 +69,15 @@ export type SurfaceKind =
 
 export type ProjectListLifecycle = "active" | "archived";
 
+/**
+ * Who the Engine records as responsible for a desktop action.
+ *
+ * This build is single-user by design, so there is nobody else it could be,
+ * and prompting for a name on every waiver would be friction with no
+ * information behind it. The Engine's own audit trail uses the same string.
+ */
+export const DESKTOP_ACTOR = "desktop";
+
 export interface SessionContext {
   session: SessionIdentity;
   project: Project;
@@ -136,6 +145,12 @@ export type AppSurface =
        * a document that quietly filled itself in.
        */
       propagatedFrom?: { segmentId: string; count: number } | null;
+      /**
+       * Open QA findings per segment, for the row marks and the QA filter.
+       * Refreshed whenever the document changes or a run completes; a stale
+       * mark is worse than none because it sends a reviewer to a clean row.
+       */
+      qaCounts?: Readonly<Record<string, number>>;
     }
   | {
       kind: "qa";
