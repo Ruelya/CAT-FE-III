@@ -145,8 +145,9 @@
 
 已有 `editor.suggest`（词级、当前段源文）和 `ai.run`+`build_grounding`（术语/TM/前后段）。缺口是：打字续写没有用上 grounding，活草稿也还没进 prompt。
 
-实现合同见 `docs/ai-autosuggest.md`。禁止为补全新开协议。
-补全预览不得占用标签 `data-ghost`；用 `inline-completion` 叠在光标后。
+实现合同见 `docs/ai-autosuggest.md`。P1 确定性幽灵字、P2 `use-ai-suggest`
+（`ai.run.start` + 活草稿 prompt + grounding）、P3 Ctrl+→ 一词接受已挂到
+目标框。禁止为补全新开协议。补全预览不得占用标签 `data-ghost`。
 
 ### 仍未做到 Trados 同水准的部分（诚实清单）
 

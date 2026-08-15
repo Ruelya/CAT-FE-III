@@ -1,6 +1,6 @@
 # AI AutoSuggest：对照 IDE，挂在当前段上
 
-日期：2026-08-15。性质：调研 + 可开工的实现合同，不是已交付能力。
+日期：2026-08-15。性质：调研 + 实现合同。P1–P3 已挂到目标框；无密钥时 AI 车道静默。
 本文回答：Cursor / VS Code / Devin 的补全到底是什么，以及本项目应如何
 做**上下文感知**的 AI 自动补全，而不新开引擎协议、不把聊天或代理当成主入口。
 
@@ -186,28 +186,28 @@ IntelDock / Settings。补全失败同样静默。
 
 ## 6. 实现切片（按这个做，不要一次做完 Cursor）
 
-### P1 · 确定性幽灵字（无 AI，先把 IDE 手感立住）
+### P1 · 确定性幽灵字（已挂）
 
-- 挂载点：`TargetEditor` 光标后。
-- 把 `editor.suggest` 第一条里「比 prefix 长的后缀」画成灰色幽灵字。
-- Tab：有下拉时仍收下拉（现状）；下拉与幽灵字是同一条时只插入一次。
+- 挂载点：`TargetEditor` 光标后，`data-testid="inline-completion"`。
+- 把当前高亮候选里「比 prefix 长的后缀」画成灰色幽灵字。
+- Tab：有下拉时仍收下拉；下拉与幽灵字是同一条时只插入一次。
 - 单测：后缀计算、IME 不画、换段清空。
 - 不改协议。`suggest-gate` 必须仍绿。
 
-### P2 · AI 续写（本设计的核心）
+### P2 · AI 续写（已挂）
 
-- 新 hook `use-ai-suggest.ts`，对标 `use-ocr-ai` / `use-segment-ai`。
+- hook：`use-ai-suggest.ts`，对标 `use-ocr-ai` / `use-segment-ai`。
 - 条件：`autocomplete !== false`、credential 齐全、prefix≥2、非 IME、
   非 QuickPlace。
 - 防抖 400ms；同时只允许 1 个 in-flight；新请求只丢弃**视图**。
 - 提案必须能接在活目标后面（prefix / 整段 startsWith）。接不上就丢，
   避免把整段 translate 结果糊在半句上。
-- Fake API 已有 `ai.run.start`：补全 prompt 返回 `…已打前缀的续写`。
+- Fake `ai.run.start`：补全 prompt 返回 `已打前缀 + " completed"`。
 - 无密钥路径用 hook 测，不接真云。
 
-### P3 · 一词接受
+### P3 · 一词接受（已挂）
 
-- Ctrl+→ 接受幽灵字到下一个空白（CJK：下一个字或 2 字）。
+- Ctrl+→ 接受幽灵字到下一个空白（CJK：下一个字）。
 - 不占用 Confirm / QuickPlace。
 
 ### 明确不做
