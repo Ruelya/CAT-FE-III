@@ -1747,6 +1747,32 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
           }
           return { ...run } as EngineResult<Method>;
         }
+        case "ai.conversation.create": {
+          const p = params as EngineParams<"ai.conversation.create">;
+          return {
+            id: "conv-1",
+            projectId: p.projectId,
+            title: p.title,
+            archived: false,
+            revision: 1,
+            createdAtMs: 1,
+            updatedAtMs: 1,
+          } as EngineResult<Method>;
+        }
+        case "ai.quality.extractTerms": {
+          const p = params as EngineParams<"ai.quality.extractTerms">;
+          return {
+            documentId: p.documentId,
+            candidates: [
+              {
+                sourceTerm: "power station",
+                suggestedTarget: "电源站",
+                frequency: 3,
+                exampleSegmentIds: ["seg-1"],
+              },
+            ],
+          } as EngineResult<Method>;
+        }
         // P3 PDF
         case "pdf.page.list": {
           const p = params as EngineParams<"pdf.page.list">;
