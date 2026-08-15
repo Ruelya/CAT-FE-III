@@ -663,12 +663,27 @@ export function useProductSettings(
   const loadMineruStatus = useCallback(async () => {
     const op = ++opRef.current;
     try {
-      const mineruStatus = await mineruCredentialStatus();
+      const mineruStatus = await Promise.race([
+        mineruCredentialStatus(),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            reject(new Error("MinerU credential status timed out"));
+          }, 4000);
+        }),
+      ]);
       if (!isCurrent(op)) return;
-      setState((s) => ({ ...s, mineruStatus }));
+      setState((s) => ({ ...s, mineruStatus, error: null }));
     } catch (error) {
       if (!isCurrent(op)) return;
-      setState((s) => ({ ...s, error: toUiError(error) }));
+      setState((s) => ({
+        ...s,
+        mineruStatus: {
+          available: false,
+          present: false,
+          backend: "unavailable",
+        },
+        error: toUiError(error),
+      }));
     }
   }, [isCurrent]);
 

@@ -4,9 +4,16 @@
  * This wrapper is the only desktop call path — same wire names, typed by hand.
  */
 
-export const MINERU_CREDENTIAL_SET = "mineru.credential.set";
-export const MINERU_CREDENTIAL_STATUS = "mineru.credential.status";
-export const MINERU_CREDENTIAL_DELETE = "mineru.credential.delete";
+export {
+  MINERU_CREDENTIAL_DELETE,
+  MINERU_CREDENTIAL_SET,
+  MINERU_CREDENTIAL_STATUS,
+} from "../../shared/mineru-rpc";
+import {
+  MINERU_CREDENTIAL_DELETE,
+  MINERU_CREDENTIAL_SET,
+  MINERU_CREDENTIAL_STATUS,
+} from "../../shared/mineru-rpc";
 
 export interface MinerUCredentialStatus {
   available: boolean;

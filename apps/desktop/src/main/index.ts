@@ -19,6 +19,11 @@ import {
 } from "@translunar/contracts";
 
 import {
+  MINERU_CREDENTIAL_METHODS,
+  isMinerUCredentialMethod,
+} from "../shared/mineru-rpc.js";
+
+import {
   DataDirectoryManager,
   resolveBackupDestinationInput,
   resolveDataDirectory,
@@ -127,7 +132,10 @@ let dataDirectoryManager: DataDirectoryManager | null = null;
 let draftJournal: DraftJournal | null = null;
 let updateManager: UpdateManager | null = null;
 let engineExecutable = "";
-const allowedMethods = new Set<string>(ENGINE_METHODS);
+const allowedMethods = new Set<string>([
+  ...ENGINE_METHODS,
+  ...MINERU_CREDENTIAL_METHODS,
+]);
 const pluginAssetSessions = new PluginAssetSessionRegistry();
 
 let engineStoppedForQuit = false;
@@ -482,10 +490,12 @@ function registerIpc(): void {
             setTimeout(resolveDelay, Math.min(testEngineDelayMs, 10_000));
           });
         }
-        const result = await activeEngine.call(
-          method,
-          params as EngineParams<typeof method>,
-        );
+        const result = isMinerUCredentialMethod(method)
+          ? await activeEngine.callInternal(method, params)
+          : await activeEngine.call(
+              method,
+              params as EngineParams<typeof method>,
+            );
         invalidatePluginSessionsAfterMutation(method, params);
         return { ok: true, result } satisfies DesktopEngineInvokeResponse;
       } catch (error) {

@@ -364,7 +364,9 @@ export function ProductSettings({
                 : "MinerU credential storage is not available on this machine."}
             </p>
           ) : (
-            <p className="status">Loading OCR settings</p>
+            <p className="status" data-testid="settings-ocr-loading">
+              Loading OCR settings
+            </p>
           )}
           <label className="field">
             <span>MinerU API key</span>
