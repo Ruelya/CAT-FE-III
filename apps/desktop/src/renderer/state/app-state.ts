@@ -151,6 +151,7 @@ export type AppSurface =
        * mark is worse than none because it sends a reviewer to a clean row.
        */
       qaCounts?: Readonly<Record<string, number>>;
+      pretranslatePending?: boolean;
     }
   | {
       kind: "qa";

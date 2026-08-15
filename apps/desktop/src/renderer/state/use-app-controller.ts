@@ -255,6 +255,7 @@ export interface AppController {
     copySourceToTarget: () => void;
     clearTarget: () => void;
     acceptSuggestion: (text: string, prefix: string) => void;
+    pretranslateDocument: () => Promise<void>;
     goQa: () => Promise<void>;
     runQa: () => Promise<void>;
     waiveQaIssue: (issueId: string, reason: string) => Promise<boolean>;
@@ -2099,6 +2100,82 @@ export function useAppController(): AppController {
 
       // Swap the partially typed word for the completion, leaving the caret
       // after it so typing simply continues.
+      // Fill every empty target from memory. Exact and high-fuzzy hits become
+      // drafts the translator still has to confirm; confirmed rows are never
+      // overwritten. This is the start of a job, not the end of one.
+      pretranslateDocument: async () => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "workbench") return;
+        if (surface.pendingConfirm) return;
+        dispatch({
+          type: "PATCH_WORKBENCH",
+          patch: { pretranslatePending: true, transitionError: null },
+        });
+        try {
+          const project = surface.ctx.project;
+          const documentId = surface.ctx.document.id;
+          // Always start from Engine truth. The grid cache can still hold a
+          // draft the translator just cleared, and we must not skip those.
+          const { rows: freshRows } = await listAllEditorRows(documentId);
+          let filled = 0;
+          for (const row of freshRows) {
+            if (row.segment.targetText.trim().length > 0) continue;
+            if (row.segment.state === "confirmed") continue;
+            const result = await invokeEngine("tm.search", {
+              projectId: project.id,
+              sourceLocale: project.sourceLocale,
+              targetLocale: project.targetLocale,
+              query: row.segment.sourceText,
+              threshold: 70,
+              offset: 0,
+              limit: 3,
+            });
+            const match = result.matches.find(
+              (item) =>
+                item.score >= 85 ||
+                item.kind === "exact" ||
+                item.kind === "context",
+            );
+            if (!match) continue;
+            await invokeEngine("segment.updateTarget", {
+              segmentId: row.segment.id,
+              expectedRevision: row.segment.revision,
+              targetText: match.unit.targetText,
+            });
+            filled += 1;
+          }
+          const { rows } = await listAllEditorRows(documentId);
+          const current = stateRef.current.surface;
+          if (current.kind !== "workbench") return;
+          dispatch({
+            type: "PATCH_WORKBENCH",
+            patch: {
+              ctx: {
+                ...current.ctx,
+                rows,
+                counts: countsFromRows(rows),
+              },
+              pretranslatePending: false,
+              propagatedFrom:
+                filled > 0
+                  ? { segmentId: current.activeSegmentId ?? "", count: filled }
+                  : null,
+            },
+          });
+        } catch (error) {
+          if (stateRef.current.surface.kind === "workbench") {
+            dispatch({
+              type: "PATCH_WORKBENCH",
+              patch: {
+                pretranslatePending: false,
+                transitionError: toUiError(error),
+              },
+            });
+          }
+        }
+      },
+
       acceptSuggestion: (text, prefix) => {
         if (!stateRef.current.mutationsEnabled) return;
         const active = saveCoordinator.active;

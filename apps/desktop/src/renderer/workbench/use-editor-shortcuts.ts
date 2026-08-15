@@ -9,6 +9,10 @@ export interface EditorShortcutHandlers {
   onCopySource: () => void;
   /** Ctrl+Delete: empty the target. */
   onClearTarget: () => void;
+  /** Ctrl+G: jump to a segment by number. */
+  onGoTo: () => void;
+  /** Ctrl+Shift+P: pretranslate empty targets from memory. */
+  onPretranslate: () => void;
 }
 
 /**
@@ -51,6 +55,16 @@ export function useEditorShortcuts(
       if (control && event.key === "Delete") {
         event.preventDefault();
         handlers.onClearTarget();
+        return;
+      }
+      if (control && !event.shiftKey && event.key.toLowerCase() === "g") {
+        event.preventDefault();
+        handlers.onGoTo();
+        return;
+      }
+      if (control && event.shiftKey && event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        handlers.onPretranslate();
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -61,5 +75,7 @@ export function useEditorShortcuts(
     handlers.onQuickAddTerm,
     handlers.onCopySource,
     handlers.onClearTarget,
+    handlers.onGoTo,
+    handlers.onPretranslate,
   ]);
 }
