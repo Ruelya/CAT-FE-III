@@ -1,10 +1,18 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { ProjectBatchImportResult, TmMatch } from "@translunar/contracts";
 
 import type { UiError } from "../lib/errors";
 import { formatUiError } from "../lib/errors";
 import type { SessionContext } from "../state/app-state";
 import type { SegmentEditState } from "../state/save-coordinator";
+import {
+  applyDisplayFilter,
+  EMPTY_FILTER,
+  isFilterActive,
+  repeatedSources,
+  type DisplayFilter,
+} from "../state/display-filter";
+import { DisplayFilterBar } from "../workbench/DisplayFilterBar";
 import { canStoreTerm, type SegmentSelection } from "../state/editor-selection";
 import { rankMatches, type SegmentIntel } from "../state/segment-intel";
 import { useSegmentSelection } from "../state/use-segment-selection";
@@ -39,6 +47,8 @@ export interface WorkbenchProps {
   addFilesPending?: boolean;
   batchResult?: ProjectBatchImportResult | null;
   propagatedFrom?: { segmentId: string; count: number } | null;
+  /** Per-segment QA finding counts, for row marks and the QA filter. */
+  qaCounts: Readonly<Record<string, number>>;
   disabled?: boolean;
   editorOps?: EditorOperationsApi | null;
   pdfReview?: PdfReviewApi | null;
@@ -91,6 +101,7 @@ export function Workbench({
   addFilesPending,
   batchResult,
   propagatedFrom,
+  qaCounts,
   disabled,
   editorOps,
   pdfReview,
@@ -151,6 +162,29 @@ export function Workbench({
   // Container-responsive density: dock changes resize the editor without
   // resizing the window, so this cannot be a viewport media query.
   const editorRegionRef = useContainerDensity<HTMLDivElement>();
+
+  // Review mode. Filtering is local to the loaded rows: the Engine already
+  // sent them, and a filter that round-trips per keystroke stutters.
+  const [filter, setFilter] = useState<DisplayFilter>(EMPTY_FILTER);
+  // Comment counts ride along on the rows the Engine already sent; only the
+  // QA counts need their own query.
+  const commentCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const row of ctx.rows) {
+      const open = row.comments.filter((comment) => !comment.resolved).length;
+      if (open > 0) counts[row.segment.id] = open;
+    }
+    return counts;
+  }, [ctx.rows]);
+  const filterContext = useMemo(
+    () => ({ commentCounts, qaCounts }),
+    [commentCounts, qaCounts],
+  );
+  const visibleRows = useMemo(
+    () => applyDisplayFilter(ctx.rows, filter, filterContext),
+    [ctx.rows, filter, filterContext],
+  );
+  const repeats = useMemo(() => repeatedSources(ctx.rows), [ctx.rows]);
 
   return (
     <section className="workbench" data-testid="workbench">
@@ -367,8 +401,19 @@ export function Workbench({
           {editorOps ? (
             <EditorCommandBar ops={editorOps} disabled={disabled === true} />
           ) : null}
+          <DisplayFilterBar
+            filter={filter}
+            shown={visibleRows.length}
+            total={ctx.rows.length}
+            disabled={disabled === true}
+            onChange={setFilter}
+          />
           <SegmentGrid
-            rows={ctx.rows}
+            rows={visibleRows}
+            filtered={isFilterActive(filter)}
+            commentCounts={commentCounts}
+            qaCounts={qaCounts}
+            repeatedSources={repeats}
             activeSegmentId={activeSegmentId}
             focusSegmentId={focusSegmentId}
             selectedSegmentIds={selectedSegmentIds}

@@ -406,7 +406,6 @@ function ConcordanceList({
           <span className="field__label">Search memory</span>
           <input
             type="text"
-            className="input"
             value={draft}
             disabled={disabled}
             data-testid="concordance-query"

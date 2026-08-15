@@ -28,6 +28,14 @@ export interface SegmentGridProps {
   }) => void;
   onApplyMatchByIndex?: (index: number) => void;
   suggestions?: SuggestionBinding;
+  /** Per-segment comment counts, for the row marker. */
+  commentCounts?: Readonly<Record<string, number>>;
+  /** Per-segment QA finding counts, for the row marker. */
+  qaCounts?: Readonly<Record<string, number>>;
+  /** Segments whose source text repeats elsewhere in this document. */
+  repeatedSources?: ReadonlySet<string>;
+  /** Shown instead of the table when a filter hides everything. */
+  filtered?: boolean;
 }
 
 export function SegmentGrid({
@@ -45,11 +53,22 @@ export function SegmentGrid({
   onConfirm,
   onApplyMatchByIndex,
   suggestions,
+  commentCounts,
+  qaCounts,
+  repeatedSources,
+  filtered,
 }: SegmentGridProps) {
   if (rows.length === 0) {
     return (
       <div className="empty-state" data-testid="segments-empty">
-        <h2 className="empty-state__title">No segments</h2>
+        <h2 className="empty-state__title">
+          {filtered ? "No segments match the filter" : "No segments"}
+        </h2>
+        {filtered ? (
+          <p className="empty-state__body">
+            Clear the filter to see the rest of the document.
+          </p>
+        ) : null}
       </div>
     );
   }
@@ -190,6 +209,32 @@ export function SegmentGrid({
                   )}
                 </td>
                 <td>
+                  {/* Marks say why a row deserves attention before any panel
+                      is opened, which is what makes scanning a long document
+                      possible at all. */}
+                  <div className="segment-marks" aria-hidden="true">
+                    {(qaCounts?.[id] ?? 0) > 0 ? (
+                      <span
+                        className="segment-mark segment-mark--qa"
+                        title={`${qaCounts?.[id]} quality findings`}
+                        data-testid={`mark-qa-${id}`}
+                      />
+                    ) : null}
+                    {(commentCounts?.[id] ?? 0) > 0 ? (
+                      <span
+                        className="segment-mark segment-mark--comment"
+                        title={`${commentCounts?.[id]} comments`}
+                        data-testid={`mark-comment-${id}`}
+                      />
+                    ) : null}
+                    {repeatedSources?.has(row.segment.sourceText.trim()) ? (
+                      <span
+                        className="segment-mark segment-mark--repeat"
+                        title="This source text repeats in this document"
+                        data-testid={`mark-repeat-${id}`}
+                      />
+                    ) : null}
+                  </div>
                   <div className="segment-status">
                     <span
                       className={`status-chip status-chip--${row.segment.state}`}

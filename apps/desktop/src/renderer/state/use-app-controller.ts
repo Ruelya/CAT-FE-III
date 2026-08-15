@@ -39,6 +39,7 @@ import {
   type ProjectListLifecycle,
   type SessionContext,
   type SettingsSection,
+  DESKTOP_ACTOR,
 } from "./app-state";
 import {
   collaborationAvailable,
@@ -256,6 +257,8 @@ export interface AppController {
     acceptSuggestion: (text: string, prefix: string) => void;
     goQa: () => Promise<void>;
     runQa: () => Promise<void>;
+    waiveQaIssue: (issueId: string, reason: string) => Promise<boolean>;
+    revokeQaWaiver: (issueId: string) => Promise<boolean>;
     jumpToIssue: (segmentId: string) => Promise<void>;
     goExport: () => Promise<void>;
     checkGateAndExport: () => Promise<void>;
@@ -1260,6 +1263,52 @@ export function useAppController(): AppController {
     state.surface.kind === "workbench" ? state.surface.ctx.document.id : null,
   ]);
 
+  // QA marks for the grid. One document-level query rather than one per row,
+  // refreshed when the document changes or the row set does, which is when a
+  // confirmation may have cleared or created a finding.
+  useEffect(() => {
+    const surface = state.surface;
+    if (surface.kind !== "workbench") return;
+    const projectId = surface.ctx.project.id;
+    const documentId = surface.ctx.document.id;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await invokeEngine("qa.issue.list", {
+          projectId,
+          documentId,
+          offset: 0,
+          limit: 500,
+        });
+        if (cancelled) return;
+        const current = stateRef.current.surface;
+        if (
+          current.kind !== "workbench" ||
+          current.ctx.document.id !== documentId
+        ) {
+          return;
+        }
+        const counts: Record<string, number> = {};
+        for (const issue of result.items) {
+          if (issue.status !== "open") continue;
+          counts[issue.segmentId] = (counts[issue.segmentId] ?? 0) + 1;
+        }
+        dispatch({ type: "PATCH_WORKBENCH", patch: { qaCounts: counts } });
+      } catch {
+        // Marks are an aid, not a gate. Losing them must not break editing.
+        if (!cancelled) {
+          dispatch({ type: "PATCH_WORKBENCH", patch: { qaCounts: {} } });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    state.surface.kind === "workbench" ? state.surface.ctx.document.id : null,
+    state.surface.kind === "workbench" ? state.surface.ctx.rows : null,
+  ]);
+
   // Drop pending recovery once the matching segment has been saved to Engine.
   useEffect(() => {
     const active = saveCoordinator.active;
@@ -2198,6 +2247,70 @@ export function useAppController(): AppController {
             type: "PATCH_QA",
             patch: { loading: false, error: toUiError(error) },
           });
+        }
+      },
+
+      // A false positive must have an exit that is recorded rather than a
+      // workaround that is not. Waiving keeps the finding, stops it blocking
+      // export, and stores who decided and why.
+      waiveQaIssue: async (issueId, reason) => {
+        if (!stateRef.current.mutationsEnabled) return false;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "qa") return false;
+        try {
+          await invokeEngine("qa.issue.waive", {
+            issueId,
+            actor: DESKTOP_ACTOR,
+            reason,
+          });
+          await invokeEngine("qa.issue.list", {
+            projectId: surface.ctx.project.id,
+            documentId: surface.ctx.document.id,
+            limit: PAGE_LIMIT,
+            offset: 0,
+          }).then((issues) => {
+            if (stateRef.current.surface.kind !== "qa") return;
+            dispatch({
+              type: "PATCH_QA",
+              patch: { issues: issues.items, issuesLoaded: true, error: null },
+            });
+          });
+          return true;
+        } catch (error) {
+          dispatch({ type: "PATCH_QA", patch: { error: toUiError(error) } });
+          return false;
+        }
+      },
+
+      revokeQaWaiver: async (issueId) => {
+        if (!stateRef.current.mutationsEnabled) return false;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "qa") return false;
+        const waiver = surface.issues.find(
+          (issue) => issue.id === issueId,
+        )?.waiver;
+        if (!waiver) return false;
+        try {
+          await invokeEngine("qa.issue.revoke", {
+            issueId,
+            expectedRevision: waiver.revision,
+          });
+          await invokeEngine("qa.issue.list", {
+            projectId: surface.ctx.project.id,
+            documentId: surface.ctx.document.id,
+            limit: PAGE_LIMIT,
+            offset: 0,
+          }).then((issues) => {
+            if (stateRef.current.surface.kind !== "qa") return;
+            dispatch({
+              type: "PATCH_QA",
+              patch: { issues: issues.items, issuesLoaded: true, error: null },
+            });
+          });
+          return true;
+        } catch (error) {
+          dispatch({ type: "PATCH_QA", patch: { error: toUiError(error) } });
+          return false;
         }
       },
 
