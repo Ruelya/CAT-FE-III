@@ -100,16 +100,29 @@
 | 点选一组 | 点击组里任一胶囊，选中整组，便于一次复制。源列无选区正文时，复制仍带上选中的标签。 |
 | 开关 | QuickPlace 列表底部复选框，默认开；`localStorage`，不改引擎偏好协议。 |
 
+### 2026-08-15 续作（View 显示 / 补全锚点 / Smart paste）
+
+对照 docs.rws.com：Show whitespace characters、Formatting display style、Tag display mode、Smart cut and paste。
+
+| 能力 | 说明 |
+| --- | --- |
+| 空白符 | 过滤条 Spaces，以及 Prefs > Nonprinting。空格/不间断空格/制表符画成记号，序列化仍是原字符。 |
+| 格式显示 | Tags + format / Format only / Tags only。Format only 把 b/i/u 胶囊藏起来但仍留在 DOM，serialize / Protect / 复制不受影响。 |
+| 标签文字 | No / Partial / Full。默认 Partial。 |
+| 补全锚点 | AutoSuggest 弹层锚在光标上方，躲开 IME 候选窗。 |
+| 双击选对 | 双击开口或闭口选中整对（含中间正文）。 |
+| Smart paste | 贴到已有空格旁或标点前时收掉多余空白。 |
+
 ### 仍未做到 Trados 同水准的部分（诚实清单）
 
 这些**没有**假装完成，下一轮应继续：
 
-1. **IME 与补全在富文本上的手感**——QuickPlace / ghost 已按 Trados 开口→闭口模型，但补全弹层仍锚在编辑器下方，避免和 IME 抢位。
-2. **Word COM / 真 PDF 所见即所得**。现在是标签重建的 HTML 预览，不是原文件排版引擎。
-3. **Approved / Rejected 七档**——引擎工作流是 translation/review/signed 三档，Signed = 锁定。
-4. **AI 需真实 provider 密钥**才能生成；门禁验证的是“挂在当前段 + 无配置时诚实”，不是云端生成质量。
-5. **PDF** 尚未纳入 format-matrix 的同构往返（引擎已注册 `builtin.pdf`）。
-6. **Protect Tags / 标签分组进引擎偏好**——现在只存在渲染进程 localStorage，换机器不会跟着账号走。
+1. **Word COM / 真 PDF 所见即所得**。现在是标签重建的 HTML 预览，不是原文件排版引擎。
+2. **Approved / Rejected 七档**——引擎工作流是 translation/review/signed 三档，Signed = 锁定。
+3. **AI 需真实 provider 密钥**才能生成；门禁验证的是“挂在当前段 + 无配置时诚实”，不是云端生成质量。
+4. **PDF** 尚未纳入 format-matrix 的同构往返（引擎已注册 `builtin.pdf`）。
+5. **Protect / 分组 / View 显示进引擎偏好**——现在主要在渲染进程 localStorage；Nonprinting 会顺带写引擎字段，但未做账号级同步。
+6. **IME 候选窗与补全的像素级避让**——弹层已改到光标上方，仍不是对 IME 窗的实时避让。
 
 主参照：SDL Trados Studio 2024 / 2024 SR1 的 Editor view（以 docs.rws.com 官方
 文档为准）；补遗参照 memoQ（docs.memoq.com）与 CafeTran。协作、派单、云协同、
