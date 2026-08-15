@@ -201,9 +201,11 @@ function DockTabButton({
       {label}
       {/* A count of zero is information: it says the lookup ran and found
           nothing, which is different from not having looked. */}
-      <span className="intel-dock__count" aria-hidden={loading}>
-        {loading ? "\u2026" : count}
-      </span>
+      {(loading || count > 0) ? (
+        <span className="intel-dock__count" aria-hidden={loading}>
+          {loading ? "\u2026" : count}
+        </span>
+      ) : null}
     </button>
   );
 }
@@ -269,7 +271,7 @@ function MatchList({
             ) : null}
             <button
               type="button"
-              className="btn btn--secondary btn--sm match__apply"
+              className="btn btn--primary btn--sm match__apply"
               disabled={disabled}
               data-testid={`apply-match-${index}`}
               onClick={() => onApply(match)}

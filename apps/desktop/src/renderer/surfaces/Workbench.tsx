@@ -291,71 +291,75 @@ export function Workbench({
           />
         </div>
         <div className="workbench__header-actions">
-          <button
-            type="button"
-            className="btn btn--secondary"
-            disabled={headerBusy}
-            onClick={onAddFiles}
-            data-testid="add-files"
-          >
-            {addFilesPending ? "Importing" : "Add files"}
-          </button>
-          {onAssets ? (
+          <div className="workbench__header-secondary">
             <button
               type="button"
-              className="btn btn--secondary"
+              className="btn btn--ghost btn--sm"
               disabled={headerBusy}
-              onClick={onAssets}
-              data-testid="nav-assets-workbench"
+              onClick={onAddFiles}
+              data-testid="add-files"
             >
-              Assets
+              {addFilesPending ? "Importing" : "Add files"}
             </button>
-          ) : null}
-          {reimport ? (
+            {onAssets ? (
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                disabled={headerBusy}
+                onClick={onAssets}
+                data-testid="nav-assets-workbench"
+              >
+                Assets
+              </button>
+            ) : null}
+            {reimport ? (
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                disabled={headerBusy}
+                onClick={() => reimport.open()}
+                data-testid="reimport-open"
+              >
+                Reimport
+              </button>
+            ) : null}
             <button
               type="button"
-              className="btn btn--secondary"
+              className="btn btn--ghost btn--sm"
               disabled={headerBusy}
-              onClick={() => reimport.open()}
-              data-testid="reimport-open"
+              onClick={onInsights}
             >
-              Reimport
+              Insights
             </button>
-          ) : null}
-          <button
-            type="button"
-            className="btn btn--secondary"
-            disabled={headerBusy}
-            onClick={onInsights}
-          >
-            Insights
-          </button>
-          <button
-            type="button"
-            className="btn btn--secondary"
-            disabled={headerBusy || pretranslatePending === true}
-            onClick={onPretranslate}
-            data-testid="pretranslate"
-            title="Fill empty targets from translation memory (Ctrl+Shift+P)"
-          >
-            {pretranslatePending ? "Pretranslating" : "Pretranslate"}
-          </button>
-          <button
-            type="button"
-            className="btn btn--secondary"
-            disabled={headerBusy}
-            onClick={onQa}
-          >
-            QA
-          </button>
-          <button
-            type="button"
-            className="btn btn--secondary"
-            disabled={headerBusy}
-            onClick={onExport}
-          >
-            Export
-          </button>
+          </div>
+          <div className="workbench__header-primary" role="group" aria-label="Job actions">
+            <button
+              type="button"
+              className="btn btn--secondary btn--sm"
+              disabled={headerBusy || pretranslatePending === true}
+              onClick={onPretranslate}
+              data-testid="pretranslate"
+              title="Fill empty targets from translation memory (Ctrl+Shift+P)"
+            >
+              {pretranslatePending ? "Pretranslating" : "Pretranslate"}
+            </button>
+            <button
+              type="button"
+              className="btn btn--secondary btn--sm"
+              disabled={headerBusy}
+              onClick={onQa}
+            >
+              QA
+            </button>
+            <button
+              type="button"
+              className="btn btn--primary btn--sm"
+              disabled={headerBusy}
+              onClick={onExport}
+            >
+              Export
+            </button>
+          </div>
         </div>
       </div>
 
@@ -523,8 +527,11 @@ export function Workbench({
             Pretranslating
           </span>
         ) : null}
-        <span className="workbench__status-hint">
-          Ctrl+G go · Ctrl+, tags · Ctrl+Shift+P pretranslate · F3 concordance
+        <span
+          className="workbench__status-hint"
+          title="Ctrl+G go to · Ctrl+, place tags · Ctrl+Shift+P pretranslate · F3 concordance · Ctrl+1..9 apply match"
+        >
+          Shortcuts
         </span>
       </div>
 

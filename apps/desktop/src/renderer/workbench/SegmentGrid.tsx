@@ -199,6 +199,7 @@ export function SegmentGrid({
                       editState={editState}
                       disabled={disabled ?? false}
                       autoFocus={focusSegmentId === id}
+                      confirmLabel={String(segmentNumber(row.segment.ordinal))}
                       onChange={onDraftChange}
                       onCompositionStart={onCompositionStart}
                       onCompositionEnd={onCompositionEnd}
@@ -257,31 +258,18 @@ export function SegmentGrid({
                     <span
                       className={`status-chip status-chip--${row.segment.state}`}
                     >
-                      {row.segment.state}
+                      {row.segment.state === "untranslated"
+                        ? "Open"
+                        : row.segment.state === "draft"
+                          ? "Draft"
+                          : row.segment.state === "confirmed"
+                            ? "Confirmed"
+                            : row.segment.state}
                     </span>
                     {localLabel ? (
                       <span className="status-chip status-chip--local">
                         {localLabel}
                       </span>
-                    ) : null}
-                    {active ? (
-                      <button
-                        type="button"
-                        className="btn btn--primary btn--sm"
-                        disabled={
-                          disabled ||
-                          editState?.isComposing ||
-                          editState?.saveState === "saving"
-                        }
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void onConfirm();
-                        }}
-                        aria-label={`Confirm segment ${segmentNumber(row.segment.ordinal)}`}
-                        title="Confirm (Ctrl+Enter)"
-                      >
-                        Confirm
-                      </button>
                     ) : null}
                   </div>
                 </td>
