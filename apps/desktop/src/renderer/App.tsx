@@ -730,6 +730,7 @@ export function App() {
               }}
               onCopySourceToTarget={commands.copySourceToTarget}
               onClearTarget={commands.clearTarget}
+              onAcceptSuggestion={commands.acceptSuggestion}
               onQa={() => {
                 void commands.goQa();
               }}

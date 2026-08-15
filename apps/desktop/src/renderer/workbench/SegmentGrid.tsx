@@ -3,7 +3,7 @@ import type { SegmentEditorRow } from "@translunar/contracts";
 
 import { segmentNumber } from "../lib/format";
 import type { SegmentEditState } from "../state/save-coordinator";
-import { TargetEditor } from "./TargetEditor";
+import { TargetEditor, type SuggestionBinding } from "./TargetEditor";
 
 export interface SegmentGridProps {
   rows: SegmentEditorRow[];
@@ -27,6 +27,7 @@ export interface SegmentGridProps {
     shiftKey?: boolean;
   }) => void;
   onApplyMatchByIndex?: (index: number) => void;
+  suggestions?: SuggestionBinding;
 }
 
 export function SegmentGrid({
@@ -43,6 +44,7 @@ export function SegmentGrid({
   onCompositionEnd,
   onConfirm,
   onApplyMatchByIndex,
+  suggestions,
 }: SegmentGridProps) {
   if (rows.length === 0) {
     return (
@@ -167,6 +169,7 @@ export function SegmentGrid({
                         void onConfirm(ev);
                       }}
                       {...(onApplyMatchByIndex ? { onApplyMatchByIndex } : {})}
+                      {...(suggestions ? { suggestions } : {})}
                     />
                   ) : (
                     <button

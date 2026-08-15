@@ -127,6 +127,7 @@ pub mod methods {
     pub const INTEROP_REVIEW_APPLY: &str = "interop.review.apply";
     pub const INTEROP_TABLE_PREVIEW: &str = "interop.table.preview";
     pub const INTEROP_TABLE_APPLY: &str = "interop.table.apply";
+    pub const EDITOR_SUGGEST: &str = "editor.suggest";
     pub const EDITOR_PREFERENCES_GET: &str = "editor.preferences.get";
     pub const EDITOR_PREFERENCES_UPDATE: &str = "editor.preferences.update";
     pub const PDF_PAGE_LIST: &str = "pdf.page.list";
@@ -1418,6 +1419,49 @@ pub struct TermbasePage {
     pub limit: u32,
 }
 
+/// As-you-type completion request for the segment being edited.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorSuggestParams {
+    pub project_id: String,
+    pub segment_id: String,
+    /// Full target text as the editor currently holds it.
+    pub target_text: String,
+    /// Caret position in characters, not bytes.
+    pub caret: u32,
+    #[serde(default = "default_suggest_limit")]
+    pub limit: u32,
+}
+
+fn default_suggest_limit() -> u32 {
+    8
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum EditorSuggestionSource {
+    NonTranslatable,
+    Term,
+    MemoryFragment,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorSuggestion {
+    pub text: String,
+    pub source: EditorSuggestionSource,
+    pub hint: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorSuggestResult {
+    /// Word being completed. Echoed so a late response can be discarded when
+    /// the translator has typed on past it.
+    pub prefix: String,
+    pub suggestions: Vec<EditorSuggestion>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TermSearchParams {
@@ -2029,6 +2073,8 @@ pub struct RpcMethodCatalog {
     pub termbase_mount: MethodContract<TermbaseMountParams, TermbaseMount>,
     #[serde(rename = "termbase.unmount")]
     pub termbase_unmount: MethodContract<TermbaseUnmountParams, EmptyResult>,
+    #[serde(rename = "editor.suggest")]
+    pub editor_suggest: MethodContract<EditorSuggestParams, EditorSuggestResult>,
     #[serde(rename = "term.search")]
     pub term_search: MethodContract<TermSearchParams, TermSearchResult>,
     #[serde(rename = "term.upsert")]
@@ -2409,6 +2455,9 @@ pub struct ProtocolCatalog {
     pub termbase_mount_params: TermbaseMountParams,
     pub termbase_unmount_params: TermbaseUnmountParams,
     pub termbase_page: TermbasePage,
+    pub editor_suggest_params: EditorSuggestParams,
+    pub editor_suggest_result: EditorSuggestResult,
+    pub editor_suggestion: EditorSuggestion,
     pub term_search_params: TermSearchParams,
     pub term_search_result: TermSearchResult,
     pub term_translation_input: TermTranslationInput,
