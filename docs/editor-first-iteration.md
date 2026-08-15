@@ -80,6 +80,16 @@
 | QuickInsert Ctrl+B/I/U | 拦截浏览器原生加粗，改走源段格式对：有选区则包选区，无选区则开口+ghost，再按一次落下闭口。 |
 | QuickPlace 格式样本 | 开口项显示源跨度上的粗体/斜体样本，不再只写 `b`。 |
 
+### 2026-08-15 续作（QuickPlace 源高亮 / 剪贴板标签 / Protect）
+
+对照 docs.rws.com：QuickPlace 选中项高亮源跨度、Copying and pasting tags、Protect Tags。
+
+| 能力 | 说明 |
+| --- | --- |
+| QuickPlace 源高亮 | 列表当前项若对应源跨度（格式对或数字/日期/URL），源列用 mark 高亮该跨度。All tags 不高亮。 |
+| 复制/粘贴标签 | Ctrl+C / Ctrl+X / Ctrl+V 走自定义剪贴板：正文 + 相对偏移的标签。从源列复制同样带标签。纯文本粘贴也会按字符偏移改写已有标签。 |
+| Protect Tags | 默认关。打开后 Backspace/Delete 不能删标签原子；选区删除只去字、标签塌到选区起点。会话级 localStorage，不改引擎偏好协议。 |
+
 ### 仍未做到 Trados 同水准的部分（诚实清单）
 
 这些**没有**假装完成，下一轮应继续：
@@ -89,9 +99,8 @@
 3. **Approved / Rejected 七档**——引擎工作流是 translation/review/signed 三档，Signed = 锁定。
 4. **AI 需真实 provider 密钥**才能生成；门禁验证的是“挂在当前段 + 无配置时诚实”，不是云端生成质量。
 5. **PDF** 尚未纳入 format-matrix 的同构往返（引擎已注册 `builtin.pdf`）。
-6. **QuickPlace 选中项高亮源跨度**——官方：列表当前项会在源段高亮对应格式文本。本轮列表已有格式样本，源列尚未联动高亮。
-7. **复制/粘贴标签**——官方允许单独拷贝标签或连文本一起粘。当前粘贴仍是纯文本。
-8. **标签保护开关**——官方 Protect Tags 默认关；本轮未做“禁止删除标签”。
+6. **标签分组选择**——官方可以把相邻标签收成一组一次选中。本轮未做。
+7. **Protect Tags 进引擎偏好**——现在只存在渲染进程 localStorage，换机器不会跟着账号走。
 
 主参照：SDL Trados Studio 2024 / 2024 SR1 的 Editor view（以 docs.rws.com 官方
 文档为准）；补遗参照 memoQ（docs.memoq.com）与 CafeTran。协作、派单、云协同、
