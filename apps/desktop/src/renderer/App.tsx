@@ -700,6 +700,7 @@ export function App() {
               switchPending={surface.switchPending === true}
               addFilesPending={surface.addFilesPending === true}
               batchResult={surface.batchResult ?? null}
+              propagatedFrom={surface.propagatedFrom ?? null}
               disabled={disabled}
               editorOps={editorOps}
               pdfReview={pdfReview}

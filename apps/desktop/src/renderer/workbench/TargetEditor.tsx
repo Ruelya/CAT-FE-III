@@ -15,6 +15,8 @@ export interface TargetEditorProps {
     isComposing?: boolean;
     keyCode?: number;
     which?: number;
+    altKey?: boolean;
+    shiftKey?: boolean;
   }) => void;
 }
 
@@ -75,10 +77,14 @@ export function TargetEditor({
             return;
           }
           e.preventDefault();
+          // Alt and Shift choose where the caret lands next; see
+          // state/confirm-advance.ts for the contract.
           onConfirm({
             isComposing: e.nativeEvent.isComposing,
             keyCode: e.keyCode,
             which: e.which,
+            altKey: e.altKey,
+            shiftKey: e.shiftKey,
           });
         }
       }}

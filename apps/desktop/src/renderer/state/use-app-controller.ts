@@ -45,6 +45,10 @@ import {
   resolveP4ReturnTarget,
   resolveP4RouteContext,
 } from "./p4-route-context";
+import {
+  confirmModeFromEvent,
+  nextSegmentAfterConfirm,
+} from "./confirm-advance";
 import { countsFromEditorRows } from "./editor-operations";
 // AppState imported for FeatureOp origin typing.
 import {
@@ -230,6 +234,8 @@ export interface AppController {
       isComposing?: boolean;
       keyCode?: number;
       which?: number;
+      altKey?: boolean;
+      shiftKey?: boolean;
     }) => Promise<void>;
     toggleTmPanel: () => void;
     goQa: () => Promise<void>;
@@ -1614,6 +1620,7 @@ export function useAppController(): AppController {
         const surface = stateRef.current.surface;
         if (surface.kind !== "workbench") return;
         if (!stateRef.current.mutationsEnabled) return;
+        const mode = confirmModeFromEvent(event);
         if (
           shouldBlockConfirm(
             compositionRef.current,
@@ -1733,10 +1740,13 @@ export function useAppController(): AppController {
             return;
           }
 
-          const currentIndex = rows.findIndex(
-            (r) => r.segment.id === segmentId,
-          );
-          const nextRow = rows[currentIndex + 1] ?? rows[currentIndex] ?? null;
+          // Where to go next is the translator's rhythm, not document order:
+          // Ctrl+Enter skips what is already done, Alt walks strictly forward,
+          // Shift holds position.
+          const advanceTo = nextSegmentAfterConfirm(rows, segmentId, mode);
+          const nextRow = advanceTo
+            ? (rows.find((r) => r.segment.id === advanceTo) ?? null)
+            : null;
           const nextId = nextRow?.segment.id ?? segmentId;
           dispatch({
             type: "PATCH_WORKBENCH",
@@ -1749,6 +1759,16 @@ export function useAppController(): AppController {
               activeSegmentId: nextId,
               focusSegmentId: nextId,
               pendingConfirm: false,
+              // Say what the confirmation did beyond this segment. Silent
+              // propagation is how a document ends up full of drafts nobody
+              // knows arrived.
+              propagatedFrom:
+                result.propagated && result.propagated.length > 0
+                  ? {
+                      segmentId,
+                      count: result.propagated.length,
+                    }
+                  : null,
             },
           });
           // Confirmed segment is durable; drop any pending recovery for it.
