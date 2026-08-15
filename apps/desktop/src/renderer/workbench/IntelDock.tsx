@@ -3,6 +3,11 @@ import type { ConcordanceHit, TermMatch, TmMatch } from "@translunar/contracts";
 
 import { formatUiError } from "../lib/errors";
 import type { SegmentIntel } from "../state/segment-intel";
+import {
+  SEGMENT_AI_ACTIONS,
+  type SegmentAiState,
+} from "../state/use-segment-ai";
+import type { AiAction } from "@translunar/contracts";
 import { matchLabel, rankMatches } from "../state/segment-intel";
 
 export interface IntelDockProps {
@@ -20,9 +25,14 @@ export interface IntelDockProps {
   onQuickAddTerm: () => void;
   /** True when a source and target selection are both available to store. */
   canQuickAddTerm: boolean;
+  ai: SegmentAiState & {
+    setAction: (action: AiAction) => void;
+    generate: () => void;
+  };
+  onApplyAiProposal: (text: string) => void;
 }
 
-type DockTab = "matches" | "terms" | "concordance";
+type DockTab = "matches" | "terms" | "concordance" | "ai";
 
 /**
  * The panel stack that follows the caret.
@@ -42,6 +52,8 @@ export function IntelDock({
   onConcordance,
   onQuickAddTerm,
   canQuickAddTerm,
+  ai,
+  onApplyAiProposal,
 }: IntelDockProps) {
   const [tab, setTab] = useState<DockTab>("matches");
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -99,6 +111,14 @@ export function IntelDock({
             loading={intel.concordance.loading}
             onSelect={setTab}
           />
+          <DockTabButton
+            id="ai"
+            label="AI"
+            count={ai.run?.proposalText ? 1 : 0}
+            active={tab === "ai"}
+            loading={ai.pending}
+            onSelect={setTab}
+          />
         </div>
         <button
           type="button"
@@ -135,12 +155,18 @@ export function IntelDock({
             onInsert={onInsertTerm}
             onQuickAdd={onQuickAddTerm}
           />
-        ) : (
+        ) : tab === "concordance" ? (
           <ConcordanceList
             concordance={intel.concordance}
             disabled={disabled === true}
             onSearch={onConcordance}
             onInsert={onInsertTerm}
+          />
+        ) : (
+          <AiPanel
+            ai={ai}
+            disabled={disabled === true}
+            onApply={onApplyAiProposal}
           />
         )}
       </div>
@@ -455,5 +481,98 @@ function ConcordanceList({
         </ul>
       )}
     </>
+  );
+}
+
+function AiPanel({
+  ai,
+  disabled,
+  onApply,
+}: {
+  ai: SegmentAiState & {
+    setAction: (action: AiAction) => void;
+    generate: () => void;
+  };
+  disabled: boolean;
+  onApply: (text: string) => void;
+}) {
+  const proposal = ai.run?.proposalText?.trim() ?? "";
+  const runnable = ai.profiles.some(
+    (profile) => profile.enabled && profile.credentialPresent,
+  );
+
+  return (
+    <div className="ai-panel" data-testid="segment-ai">
+      <p className="ai-panel__intro">
+        Suggestions for this segment only. Leaving the row clears the proposal
+        from view.
+      </p>
+      {!ai.profilesLoaded ? (
+        <p className="muted">Loading AI profiles</p>
+      ) : !runnable ? (
+        <p className="muted" data-testid="ai-no-profile">
+          No credential-backed AI profile is enabled. Configure one under AI
+          settings, then return here.
+        </p>
+      ) : (
+        <>
+          <div
+            className="ai-panel__actions"
+            role="group"
+            aria-label="AI action"
+          >
+            {SEGMENT_AI_ACTIONS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`chip-toggle${
+                  ai.action === item.id ? " chip-toggle--on" : ""
+                }`}
+                aria-pressed={ai.action === item.id}
+                disabled={disabled || ai.pending}
+                onClick={() => ai.setAction(item.id)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="btn btn--primary btn--sm"
+            disabled={disabled || ai.pending}
+            data-testid="ai-generate"
+            onClick={() => ai.generate()}
+          >
+            {ai.pending ? "Generating" : "Generate for this segment"}
+          </button>
+        </>
+      )}
+      {ai.error ? (
+        <p className="error-text" role="alert">
+          {formatUiError(ai.error)}
+        </p>
+      ) : null}
+      {ai.run?.status === "failed" ? (
+        <p className="error-text" role="alert">
+          {ai.run.errorMessage ?? "Generation failed"}
+        </p>
+      ) : null}
+      {proposal ? (
+        <div className="ai-panel__proposal">
+          <p className="ai-panel__proposal-text">{proposal}</p>
+          <button
+            type="button"
+            className="btn btn--secondary btn--sm"
+            disabled={disabled}
+            data-testid="ai-apply"
+            onClick={() => onApply(proposal)}
+          >
+            Apply to target
+          </button>
+        </div>
+      ) : ai.pending ? (
+        <p className="muted">Waiting for the model</p>
+      ) : null}
+    </div>
   );
 }

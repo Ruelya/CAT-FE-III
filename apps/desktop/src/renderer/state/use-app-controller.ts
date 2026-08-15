@@ -255,6 +255,7 @@ export interface AppController {
     copySourceToTarget: () => void;
     clearTarget: () => void;
     acceptSuggestion: (text: string, prefix: string) => void;
+    applyAiProposal: (text: string) => void;
     pretranslateDocument: () => Promise<void>;
     goQa: () => Promise<void>;
     runQa: () => Promise<void>;
@@ -2174,6 +2175,13 @@ export function useAppController(): AppController {
             });
           }
         }
+      },
+
+      applyAiProposal: (text) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const active = saveCoordinator.active;
+        if (!active || active.isComposing) return;
+        saveCoordinator.updateDraft(text);
       },
 
       acceptSuggestion: (text, prefix) => {

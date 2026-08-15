@@ -359,7 +359,7 @@ test.describe("accessibility and keyboard", () => {
 
       await page
         .getByTestId("workbench")
-        .getByRole("button", { name: "QA" })
+        .getByRole("button", { name: "QA", exact: true })
         .click();
       await expect(page.getByTestId("qa-review")).toBeVisible();
       await expectNoAxeViolations(page, "dark-qa");

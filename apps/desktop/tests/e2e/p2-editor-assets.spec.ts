@@ -156,7 +156,9 @@ test.describe("P2 editor + assets", () => {
       });
       // Dead chrome must not appear on Assets.
       await expect(
-        page.getByTestId("app-shell").getByRole("button", { name: "QA" }),
+        page
+          .getByTestId("app-shell")
+          .getByRole("button", { name: "QA", exact: true }),
       ).toHaveCount(0);
       await expect(
         page.getByTestId("app-shell").getByRole("button", { name: "Export" }),

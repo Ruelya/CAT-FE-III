@@ -174,7 +174,7 @@ test.describe("P0 vertical slice", () => {
 
       await page
         .getByTestId("workbench")
-        .getByRole("button", { name: "QA" })
+        .getByRole("button", { name: "QA", exact: true })
         .click();
       await expect(page.getByTestId("qa-review")).toBeVisible();
       // Wait for authoritative list (loading → empty or issues), not invented empty.
