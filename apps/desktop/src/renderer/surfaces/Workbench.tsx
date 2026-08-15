@@ -8,6 +8,7 @@ import type { SegmentEditState } from "../state/save-coordinator";
 import { canStoreTerm, type SegmentSelection } from "../state/editor-selection";
 import { rankMatches, type SegmentIntel } from "../state/segment-intel";
 import { useSegmentSelection } from "../state/use-segment-selection";
+import { useSuggestions } from "../state/use-suggestions";
 import { useEditorShortcuts } from "../workbench/use-editor-shortcuts";
 import type { EditorOperationsApi } from "../state/use-editor-operations";
 import { shouldMountPdfDock } from "../state/pdf-review";
@@ -65,6 +66,8 @@ export interface WorkbenchProps {
   onQuickAddTerm: (selection: SegmentSelection) => void;
   onCopySourceToTarget: () => void;
   onClearTarget: () => void;
+  /** Replace the partially typed word with the accepted completion. */
+  onAcceptSuggestion: (text: string, prefix: string) => void;
   onQa: () => void;
   onExport: () => void;
   onInsights: () => void;
@@ -106,6 +109,7 @@ export function Workbench({
   onQuickAddTerm,
   onCopySourceToTarget,
   onClearTarget,
+  onAcceptSuggestion,
   onQa,
   onExport,
   onInsights,
@@ -129,6 +133,14 @@ export function Workbench({
   // pressed; a button that silently does nothing teaches users to distrust it.
   const selection = useSegmentSelection(activeSegmentId);
   const canQuickAddTerm = canStoreTerm(selection);
+
+  // As-you-type completion. Enabled from the editor preference that until now
+  // had a checkbox and no behaviour behind it.
+  const suggest = useSuggestions({
+    enabled: !disabled && editorOps?.preferences?.autocomplete !== false,
+    projectId: ctx.project.id,
+    segmentId: activeSegmentId,
+  });
 
   useEditorShortcuts(!disabled && activeSegmentId !== null, {
     onConcordance: () => onConcordance(undefined, selection),
@@ -374,6 +386,17 @@ export function Workbench({
               const ranked = rankMatches(intel.tm.matches);
               const match = ranked[index];
               if (match) onApplyMatch(match);
+            }}
+            suggestions={{
+              items: suggest.suggestions,
+              activeIndex: suggest.activeIndex,
+              request: suggest.request,
+              dismiss: suggest.dismiss,
+              move: suggest.move,
+              accept: suggest.accept,
+              setActiveIndex: suggest.setActiveIndex,
+              onAccepted: (suggestion) =>
+                onAcceptSuggestion(suggestion.text, suggest.prefix),
             }}
           />
           {editorOps ? (

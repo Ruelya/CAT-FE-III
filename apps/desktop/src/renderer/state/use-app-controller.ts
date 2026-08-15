@@ -54,6 +54,7 @@ import {
   canStoreTerm,
   concordanceQueryFor,
   readSegmentSelection,
+  targetEditorFor,
   type SegmentSelection,
 } from "./editor-selection";
 import { countsFromEditorRows } from "./editor-operations";
@@ -252,6 +253,7 @@ export interface AppController {
     quickAddTerm: (selection: SegmentSelection) => Promise<void>;
     copySourceToTarget: () => void;
     clearTarget: () => void;
+    acceptSuggestion: (text: string, prefix: string) => void;
     goQa: () => Promise<void>;
     runQa: () => Promise<void>;
     jumpToIssue: (segmentId: string) => Promise<void>;
@@ -2044,6 +2046,33 @@ export function useAppController(): AppController {
         if (!surface.activeSegmentId) return;
         if (saveCoordinator.active?.isComposing) return;
         saveCoordinator.updateDraft("");
+      },
+
+      // Swap the partially typed word for the completion, leaving the caret
+      // after it so typing simply continues.
+      acceptSuggestion: (text, prefix) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const active = saveCoordinator.active;
+        if (!active) return;
+        const element = targetEditorFor(active.segmentId);
+        const current = active.draftTarget;
+        const caret = element?.selectionStart ?? current.length;
+        // Only replace when the text really does end with the prefix the host
+        // completed: a late keystroke could have moved the caret since.
+        const start =
+          prefix.length > 0 &&
+          current.slice(Math.max(0, caret - prefix.length), caret) === prefix
+            ? caret - prefix.length
+            : caret;
+        const next = `${current.slice(0, start)}${text}${current.slice(caret)}`;
+        saveCoordinator.updateDraft(next);
+        if (element) {
+          const position = start + text.length;
+          requestAnimationFrame(() => {
+            element.focus();
+            element.setSelectionRange(position, position);
+          });
+        }
       },
 
       toggleTmPanel: () => {

@@ -56,7 +56,9 @@
     "test:intel": "pnpm build:desktop && cargo build -p translunar-engine && node scripts/segment-intel-gate.mjs",
     "test:intel:linux": "pnpm build:desktop && cargo build -p translunar-engine && ./scripts/linux-display.sh node scripts/segment-intel-gate.mjs",
     "test:actions": "pnpm build:desktop && cargo build -p translunar-engine && node scripts/segment-actions-gate.mjs",
-    "test:actions:linux": "pnpm build:desktop && cargo build -p translunar-engine && ./scripts/linux-display.sh node scripts/segment-actions-gate.mjs"
+    "test:actions:linux": "pnpm build:desktop && cargo build -p translunar-engine && ./scripts/linux-display.sh node scripts/segment-actions-gate.mjs",
+    "test:suggest": "pnpm build:desktop && cargo build -p translunar-engine && node scripts/suggest-gate.mjs",
+    "test:suggest:linux": "pnpm build:desktop && cargo build -p translunar-engine && ./scripts/linux-display.sh node scripts/suggest-gate.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

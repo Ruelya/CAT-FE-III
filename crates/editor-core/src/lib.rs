@@ -1,3 +1,5 @@
+pub mod suggest;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 

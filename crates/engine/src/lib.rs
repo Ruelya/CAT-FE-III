@@ -30,6 +30,10 @@ use translunar_domain::{
     DataHealthReport, Document, EditorPreferences, EditorWorkflowState, Project, ProjectLifecycle,
     Segment, SegmentEditorRow, SegmentState, SpellFinding, new_id, state_for_target,
 };
+use translunar_editor_core::suggest::{
+    SuggestionCandidate, SuggestionSource as CoreSuggestionSource, caret_prefix, memory_fragments,
+    non_translatables, rank_suggestions,
+};
 use translunar_editor_core::{
     SearchOptions, TextMatch, check_user_dictionary, cjk_assistance, normalize_dictionary_word,
     spell_word_spans,
@@ -84,6 +88,7 @@ use translunar_protocol::{
     DocumentReimportApplyParams, DocumentReimportPreviewParams, DocumentReimportPreviewResult,
     EditorHistoryParams, EditorHistoryResult, EditorMutationResult, EditorSearchField,
     EditorSegmentFilter, EditorSegmentListParams, EditorSegmentPage, EditorSegmentSort,
+    EditorSuggestParams, EditorSuggestResult, EditorSuggestion, EditorSuggestionSource,
     EditorUndoRedoParams, EmptyParams, EmptyResult, ErrorCode, ExactLookupParams,
     ExactLookupResult, ExportDocumentParams, ExportDocumentResult, ExportDocxParams,
     ExportDocxResult, FilterListResult, FindSegmentsParams, GlobalSearchHit, GlobalSearchPage,
@@ -6006,6 +6011,107 @@ impl EngineService {
         })
     }
 
+    /// Assemble as-you-type completions for the segment being edited.
+    ///
+    /// The host does the merge so that ordering, de-duplication and the casing
+    /// policy are identical wherever suggestions are shown, and so the work
+    /// stays off the thread that has to answer the next keystroke. Three
+    /// sources, in the order a translator benefits from them: placeables
+    /// lifted from the source (never a judgement call), terms the project has
+    /// already decided on, then fragments of memory units that match this
+    /// sentence.
+    pub fn suggest_for_editor(&self, params: EditorSuggestParams) -> Result<EditorSuggestResult> {
+        let limit = params.limit.clamp(1, 32) as usize;
+        let prefix = caret_prefix(&params.target_text, params.caret as usize, 24);
+        if prefix.trim().is_empty() {
+            return Ok(EditorSuggestResult {
+                prefix,
+                suggestions: Vec::new(),
+            });
+        }
+
+        let row = self.store.get_editor_row(&params.segment_id)?;
+        let source_text = row.segment.source_text.clone();
+        let mut candidates = Vec::new();
+
+        for placeable in non_translatables(&source_text) {
+            candidates.push(SuggestionCandidate {
+                hint: "in source".to_string(),
+                text: placeable,
+                source: CoreSuggestionSource::NonTranslatable,
+            });
+        }
+
+        let (term_matches, _) = self.store.search_terms(&StorageTermSearchRequest {
+            project_id: params.project_id.clone(),
+            text: source_text.clone(),
+            offset: 0,
+            limit: 40,
+            termbase_ids: Vec::new(),
+        })?;
+        for term in term_matches {
+            for translation in term.translations {
+                // A forbidden translation is the termbase saying what not to
+                // write; completing it would be the opposite of help.
+                if translation.forbidden {
+                    continue;
+                }
+                candidates.push(SuggestionCandidate {
+                    text: translation.term,
+                    source: CoreSuggestionSource::Term,
+                    hint: term.source_term.clone(),
+                });
+            }
+        }
+
+        let project = self.store.get_project(&params.project_id)?;
+        let memory = self.search_tm(TmSearchParams {
+            project_id: params.project_id,
+            source_locale: project.project.source_locale,
+            target_locale: project.project.target_locale,
+            query: source_text,
+            threshold: 60,
+            offset: 0,
+            limit: 5,
+            library_ids: Vec::new(),
+            domain: None,
+            since_ms: None,
+            origin_project_id: None,
+            origin_document_id: None,
+            context_before_hash: None,
+            context_after_hash: None,
+        })?;
+        for hit in memory.matches {
+            for fragment in memory_fragments(&hit.unit.target_text, 4) {
+                candidates.push(SuggestionCandidate {
+                    text: fragment,
+                    source: CoreSuggestionSource::MemoryFragment,
+                    hint: hit.library.name.clone(),
+                });
+            }
+        }
+
+        let suggestions = rank_suggestions(candidates, &prefix, limit)
+            .into_iter()
+            .map(|suggestion| EditorSuggestion {
+                text: suggestion.text,
+                source: match suggestion.source {
+                    CoreSuggestionSource::NonTranslatable => {
+                        EditorSuggestionSource::NonTranslatable
+                    }
+                    CoreSuggestionSource::Term => EditorSuggestionSource::Term,
+                    CoreSuggestionSource::MemoryFragment => EditorSuggestionSource::MemoryFragment,
+                },
+                hint: suggestion.hint,
+            })
+            .collect();
+
+        Ok(EditorSuggestResult {
+            prefix,
+            suggestions,
+        })
+    }
+
     pub fn upsert_term(
         &mut self,
         params: TermUpsertParams,
@@ -7720,6 +7826,10 @@ impl RpcDispatcher {
             methods::TERMBASE_UNMOUNT => serialize_result(
                 self.service
                     .unmount_termbase(parse_params(request.params)?)?,
+            ),
+            methods::EDITOR_SUGGEST => serialize_result(
+                self.service
+                    .suggest_for_editor(parse_params(request.params)?)?,
             ),
             methods::TERM_SEARCH => {
                 serialize_result(self.service.search_terms(parse_params(request.params)?)?)
