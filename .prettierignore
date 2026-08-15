@@ -27,3 +27,7 @@ fixtures/**/*.docx
 pnpm-lock.yaml
 apps/desktop/release/
 apps/desktop/.package-engine-resource/
+
+# Format-matrix source files are inputs under test: reformatting them would
+# change what the filters are being asked to parse.
+fixtures/formats/
