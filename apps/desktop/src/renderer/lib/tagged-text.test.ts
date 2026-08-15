@@ -114,6 +114,18 @@ describe("placeSourceTags", () => {
     expect(next.tags[0]?.position).toBe(4);
   });
 
+  it("keeps a start tag put when typing inside a collapsed pair", () => {
+    const next = insertTextIntoTagged(
+      "ab",
+      [tag("1s", "start", 1, "b"), tag("1e", "end", 1, "b")],
+      1,
+      "XX",
+    );
+    expect(next.text).toBe("aXXb");
+    expect(next.tags.map((item) => item.position)).toEqual([1, 3]);
+    expect(next.tags.map((item) => item.kind)).toEqual(["start", "end"]);
+  });
+
   it("replaces a carried tag of the same kind when merging", () => {
     const merged = mergeTargetTags(
       [{ ...tag("old", "start", 1, "b"), side: "target" }],
@@ -157,6 +169,15 @@ describe("tagged editor html", () => {
     const serialized = serializeTaggedEditor(root);
     expect(serialized.text).toBe("你好电源站。");
     expect(serialized.tags).toEqual([]);
+  });
+
+  it("applies formatting to text between a start and end capsule", () => {
+    const html = buildTaggedEditorHtml("Read the TL-900 guide.", [
+      tag("1s", "start", 9, "b"),
+      tag("1e", "end", 15, "b"),
+    ]);
+    expect(html).toContain('class="tagged-run tagged-run--b"');
+    expect(html).toContain("TL-900");
   });
 });
 

@@ -4,6 +4,7 @@ import type { InlineTag } from "@translunar/contracts";
 import {
   extractPlaceables,
   pairSourceTags,
+  pendingCloseGhosts,
   unmatchedSourceTags,
 } from "./quickplace";
 
@@ -59,11 +60,15 @@ describe("extractPlaceables", () => {
     );
     expect(items.map((item) => item.kind)).toEqual([
       "all-tags",
-      "tag-pair",
+      "tag",
+      "tag",
       "date",
       "url",
       "number",
     ]);
+    expect(items.filter((item) => item.kind === "tag").map((item) => item.label)).toEqual(
+      ["b", "/b"],
+    );
     expect(items.find((item) => item.kind === "number")?.label).toBe("12.4");
   });
 });
@@ -75,5 +80,27 @@ describe("unmatchedSourceTags", () => {
     expect(unmatchedSourceTags(source, target).map((tag) => tag.id)).toEqual([
       "1e",
     ]);
+  });
+});
+
+describe("pendingCloseGhosts", () => {
+  it("shows only the closer after the opening tag is placed", () => {
+    const source = [
+      tag("1s", "start", 0, "b", "p1"),
+      tag("1e", "end", 6, "b", "p1"),
+    ];
+    const target = [{ ...source[0]!, side: "target" as const, position: 3 }];
+    const ghosts = pendingCloseGhosts(source, target, 8, new Map(), 12);
+    expect(ghosts).toHaveLength(1);
+    expect(ghosts[0]?.id).toBe("1e");
+    expect(ghosts[0]?.position).toBe(8);
+  });
+
+  it("does not overlay tags that have not been opened yet", () => {
+    const source = [
+      tag("1s", "start", 0, "b", "p1"),
+      tag("1e", "end", 6, "b", "p1"),
+    ];
+    expect(pendingCloseGhosts(source, [], 4)).toEqual([]);
   });
 });

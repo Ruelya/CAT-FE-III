@@ -1276,6 +1276,22 @@
   color: var(--color-text-muted);
 }
 
+.tagged-run--b {
+  font-weight: var(--weight-semibold);
+}
+
+.tagged-run--i {
+  font-style: italic;
+}
+
+.tagged-run--u {
+  text-decoration: underline;
+}
+
+.tagged-run--s {
+  text-decoration: line-through;
+}
+
 .intel-dock .muted {
   margin: var(--space-4) 0;
   text-align: center;

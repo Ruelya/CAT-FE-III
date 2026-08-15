@@ -1,5 +1,7 @@
 import type { InlineTag } from "@translunar/contracts";
 
+import { formatRunClass, formatTokens } from "./preview-markup";
+
 export interface TaggedPiece {
   kind: "text" | "tag" | "ghost";
   text: string;
@@ -275,9 +277,12 @@ export function insertTextIntoTagged(
   const shift = [...insert].length;
   return {
     text: next,
-    tags: tags.map((tag) =>
-      tag.position >= at ? { ...tag, position: tag.position + shift } : tag,
-    ),
+    tags: tags.map((tag) => {
+      // A start sits before the caret: typing at its offset goes inside the
+      // pair. An end or placeholder at the same offset is pushed forward.
+      const moves = tag.kind === "start" ? tag.position > at : tag.position >= at;
+      return moves ? { ...tag, position: tag.position + shift } : tag;
+    }),
   };
 }
 
@@ -308,6 +313,20 @@ function isAtomSpan(element: HTMLElement): boolean {
   return Boolean(element.dataset.tag || element.dataset.ghost);
 }
 
+function capsuleHtml(tag: InlineTag, label: string, ghost: boolean): string {
+  if (ghost) {
+    const id = escapeHtml(tag.id);
+    return `<span class="inline-tag inline-tag--ghost inline-tag--${tag.kind}" contenteditable="false" data-ghost="${id}" data-testid="ghost-tag-${id}" title="Place ${escapeHtml(label)}">${escapeHtml(label)}</span>`;
+  }
+  return `<span class="inline-tag inline-tag--${tag.kind}" contenteditable="false" data-tag="${encodeTag(tag)}" title="${escapeHtml(tag.payload || label)}">${escapeHtml(label)}</span>`;
+}
+
+function wrapFormatted(textHtml: string, stack: string[]): string {
+  if (!textHtml || stack.length === 0) return textHtml;
+  const cls = formatRunClass(stack);
+  return cls ? `<span class="${cls}">${textHtml}</span>` : textHtml;
+}
+
 /** HTML for a contenteditable target that treats tags as protected atoms. */
 export function buildTaggedEditorHtml(
   text: string,
@@ -316,21 +335,41 @@ export function buildTaggedEditorHtml(
 ): string {
   const pieces = splitTaggedText(text, tags, ghosts);
   if (pieces.length === 0) return "<br>";
-  const html = pieces
-    .map((piece) => {
-      if (piece.kind === "text") {
-        return escapeHtml(piece.text).replaceAll("\n", "<br>");
+  const stack: string[] = [];
+  let html = "";
+  for (const piece of pieces) {
+    if (piece.kind === "text") {
+      html += wrapFormatted(
+        escapeHtml(piece.text).replaceAll("\n", "<br>"),
+        stack,
+      );
+      continue;
+    }
+    const tag = piece.tag;
+    if (!tag) continue;
+    const tokens = formatTokens(tag.displayText);
+    if (tag.kind === "end") {
+      html += capsuleHtml(tag, piece.text, piece.kind === "ghost");
+      for (const token of tokens) {
+        const index = stack.lastIndexOf(token);
+        if (index >= 0) stack.splice(index, 1);
       }
-      const tag = piece.tag;
-      if (!tag) return "";
-      if (piece.kind === "ghost") {
-        const id = escapeHtml(tag.id);
-        return `<span class="inline-tag inline-tag--ghost inline-tag--${tag.kind}" contenteditable="false" data-ghost="${id}" data-testid="ghost-tag-${id}" title="Place ${escapeHtml(piece.text)}">${escapeHtml(piece.text)}</span>`;
-      }
-      return `<span class="inline-tag inline-tag--${tag.kind}" contenteditable="false" data-tag="${encodeTag(tag)}" title="${escapeHtml(tag.payload || piece.text)}">${escapeHtml(piece.text)}</span>`;
-    })
-    .join("");
+      continue;
+    }
+    html += capsuleHtml(tag, piece.text, piece.kind === "ghost");
+    if (tag.kind === "start") stack.push(...tokens);
+  }
   return text.length === 0 ? `${html}<br>` : html;
+}
+
+export function placeTagAtCaret(tag: InlineTag, caret: number): InlineTag {
+  return {
+    ...tag,
+    id: `placed-g:${tag.id}`,
+    side: "target",
+    position: Math.max(0, caret),
+    protected: true,
+  };
 }
 
 function characterLength(value: string): number {

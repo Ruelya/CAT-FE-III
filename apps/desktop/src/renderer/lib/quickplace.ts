@@ -1,6 +1,6 @@
 import type { InlineTag } from "@translunar/contracts";
 
-import { tagFingerprint } from "./tagged-text";
+import { tagFingerprint, tagLabel } from "./tagged-text";
 
 export type PlaceableKind =
   | "all-tags"
@@ -115,15 +115,18 @@ function overlaps(
 /**
  * What Ctrl+, / the QuickPlace list can drop into the current target.
  *
- * Tags come first (the formatting the file will lose if they are skipped),
- * then the tokens Trados treats as placeables: dates, URLs, mail, numbers.
+ * Trados lists opening and closing tags separately, then the tokens it
+ * treats as placeables: dates, URLs, mail, numbers. Already-placed tags
+ * drop out of the list. "All tags" is Auto-Insert Tags.
  */
 export function extractPlaceables(
   sourceText: string,
   sourceTags: readonly InlineTag[],
+  targetTags: readonly InlineTag[] = [],
 ): Placeable[] {
   const items: Placeable[] = [];
-  if (sourceTags.length > 0) {
+  const unmatched = unmatchedSourceTags(sourceTags, targetTags);
+  if (unmatched.length > 0) {
     items.push({
       id: "all-tags",
       kind: "all-tags",
@@ -131,20 +134,11 @@ export function extractPlaceables(
       tags: [...sourceTags],
     });
   }
-  const { pairs, rest } = pairSourceTags(sourceTags);
-  for (const pair of pairs) {
-    items.push({
-      id: `pair:${pair.start.id}:${pair.end.id}`,
-      kind: "tag-pair",
-      label: pair.start.displayText || "tag",
-      tags: [pair.start, pair.end],
-    });
-  }
-  for (const tag of rest) {
+  for (const tag of unmatched) {
     items.push({
       id: `tag:${tag.id}`,
       kind: "tag",
-      label: tag.displayText || tag.payload || "tag",
+      label: tagLabel(tag),
       tags: [tag],
     });
   }
@@ -172,7 +166,7 @@ export function extractPlaceables(
   return items;
 }
 
-/** Source tags the target has not yet carried. Shown as ghost capsules. */
+/** Source tags the target has not yet carried. */
 export function unmatchedSourceTags(
   sourceTags: readonly InlineTag[],
   targetTags: readonly InlineTag[],
@@ -191,6 +185,36 @@ export function unmatchedSourceTags(
     } else {
       ghosts.push(tag);
     }
+  }
+  return ghosts;
+}
+
+/**
+ * Closing tags that Trados shows as ghosts: the start is already in the
+ * target, the end is not. The closer rides at `caret` once the caret is
+ * past the opening tag, otherwise it stays on the opening tag.
+ */
+export function pendingCloseGhosts(
+  sourceTags: readonly InlineTag[],
+  targetTags: readonly InlineTag[],
+  caret: number,
+  remembered: ReadonlyMap<string, number> = new Map(),
+  textLength = Number.POSITIVE_INFINITY,
+): InlineTag[] {
+  const unmatched = new Set(
+    unmatchedSourceTags(sourceTags, targetTags).map((tag) => tag.id),
+  );
+  const ghosts: InlineTag[] = [];
+  for (const pair of pairSourceTags(sourceTags).pairs) {
+    if (unmatched.has(pair.start.id) || !unmatched.has(pair.end.id)) continue;
+    const placed = targetTags.find(
+      (tag) => tagFingerprint(tag) === tagFingerprint(pair.start),
+    );
+    const floor = placed?.position ?? 0;
+    const held = remembered.get(pair.end.id) ?? floor;
+    const follows = caret >= floor ? Math.max(held, caret) : held;
+    const at = Math.min(Math.max(follows, floor), textLength);
+    ghosts.push({ ...pair.end, position: at });
   }
   return ghosts;
 }

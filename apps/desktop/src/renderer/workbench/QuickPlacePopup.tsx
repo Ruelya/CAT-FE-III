@@ -90,7 +90,7 @@ export function QuickPlacePopup({
         ))}
       </ul>
       <p className="suggestions__legend">
-        Enter to place, Esc to close. A selection wraps a tag pair.
+        Enter places at the caret. A selection wraps a tag pair.
       </p>
     </div>
   );

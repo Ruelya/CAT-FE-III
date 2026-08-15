@@ -18,6 +18,19 @@ function escapeHtml(value: string): string {
     .replaceAll('"', "&quot;");
 }
 
+export function formatRunClass(tokens: readonly string[]): string {
+  const classes = tokens
+    .map((token) => {
+      if (token === "b" || token === "strong") return "tagged-run--b";
+      if (token === "i" || token === "em") return "tagged-run--i";
+      if (token === "u") return "tagged-run--u";
+      if (token === "s" || token === "strike") return "tagged-run--s";
+      return "";
+    })
+    .filter(Boolean);
+  return classes.length > 0 ? `tagged-run ${classes.join(" ")}` : "";
+}
+
 /** Tokens a translator-facing tag label can carry (`b`, `<b>`, `b i`). */
 export function formatTokens(displayText: string): string[] {
   return displayText

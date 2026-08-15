@@ -54,11 +54,23 @@
 | 格式化预览 | Preview 用段标签重建 HTML 排版（strong/em/u），标题/段落/单元格分角色。仍不是 Word COM / 浏览器级整页 WYSIWYG。 |
 | SDLXLIFF / MQXLIFF 门禁 | `fixtures/formats/real.sdlxliff` 与 `real.mqxliff` 进入 format-matrix；确认时按比例写入目标标签。 |
 
+### 2026-08-15 续作（按 Trados 纠正放标签）
+
+对照 docs.rws.com QuickPlace / ghost tag 行为，上一轮「把未携带标签按 token 猜到目标上」是错的。
+
+| 能力 | 说明 |
+| --- | --- |
+| Ctrl+, = QuickPlace 列表 | 与 Trados 相同：打开列表，Enter/Tab 放入当前项。第一项仍是 All tags（Auto-Insert）。`tags-gate` 改为 Ctrl+, 再 Enter。 |
+| 成对标签分开列 | 开口与闭口各一项，不是一条 pair。有选区时选开口/闭口仍包选区。 |
+| Ghost 只表示未闭合的闭口 | 放入开口后，闭口以 ghost 跟在开口之后、随其后打字前移。未开口的标签不叠在正文上。点击 ghost 只落下这一只闭口。 |
+| 开口处打字进对内 | `insertTextIntoTagged`：start 在光标处不后移，end 后移。Ctrl+点击源标签 = 在光标处插入一对（有选区则包选区）。 |
+| 目标正文带格式 | 开口与闭口之间的字在编辑器里就是粗体/斜体，胶囊仍可见。 |
+
 ### 仍未做到 Trados 同水准的部分（诚实清单）
 
 这些**没有**假装完成，下一轮应继续：
 
-1. **IME 与补全在富文本上的手感**——ghost 已叠在正文上，但补全弹层仍锚在编辑器下方，避免和 IME 抢位。
+1. **IME 与补全在富文本上的手感**——QuickPlace / ghost 已按 Trados 开口→闭口模型，但补全弹层仍锚在编辑器下方，避免和 IME 抢位。
 2. **Word COM / 真 PDF 所见即所得**。现在是标签重建的 HTML 预览，不是原文件排版引擎。
 3. **Approved / Rejected 七档**——引擎工作流是 translation/review/signed 三档，Signed = 锁定。
 4. **AI 需真实 provider 密钥**才能生成；门禁验证的是“挂在当前段 + 无配置时诚实”，不是云端生成质量。

@@ -64,6 +64,8 @@ await page
   .fill("首次操作 TL-900 电源站之前，请阅读所有安全说明。");
 await page.waitForTimeout(1200);
 await page.keyboard.press("Control+,");
+await page.getByTestId("quickplace-popup").waitFor({ timeout: 5000 });
+await page.keyboard.press("Enter");
 await page.waitForTimeout(2000);
 
 const state = await page.evaluate(async () => {

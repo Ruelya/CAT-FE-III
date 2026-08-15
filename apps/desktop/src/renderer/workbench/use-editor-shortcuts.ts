@@ -82,8 +82,11 @@ export function useEditorShortcuts(
       }
       if (control && event.key === ",") {
         event.preventDefault();
+        if (handlers.onQuickPlace) {
+          handlers.onQuickPlace();
+          return;
+        }
         handlers.onPlaceTags();
-        return;
       }
       if (control && !event.shiftKey && event.key.toLowerCase() === "f") {
         event.preventDefault();

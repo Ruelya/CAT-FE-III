@@ -4,15 +4,15 @@ import type { EditorSuggestion, InlineTag } from "@translunar/contracts";
 import {
   extractPlaceables,
   pairSourceTags,
-  unmatchedSourceTags,
+  pendingCloseGhosts,
   type Placeable,
 } from "../lib/quickplace";
 import {
   buildTaggedEditorHtml,
   caretOffsetsInTaggedEditor,
-  alignGhostPositions,
   insertTextIntoTagged,
   mergeTargetTags,
+  placeTagAtCaret,
   serializeTaggedEditor,
   setCaretInTaggedEditor,
   tagsEqual,
@@ -103,23 +103,35 @@ export function TargetEditor({
   const skipSync = useRef(false);
   const composing = useRef(false);
   const [quickIndex, setQuickIndex] = useState(0);
+  const [followCaret, setFollowCaret] = useState(0);
+  const ghostEnds = useRef(new Map<string, number>());
   const placeables = useMemo(
-    () => extractPlaceables(sourceText, sourceTags),
-    [sourceText, sourceTags],
+    () => extractPlaceables(sourceText, sourceTags, tags),
+    [sourceText, sourceTags, tags],
   );
-  const ghosts = useMemo(
-    () => unmatchedSourceTags(sourceTags, tags),
-    [sourceTags, tags],
-  );
-  const ghostsAt = useMemo(
-    () => alignGhostPositions(sourceText, value, ghosts),
-    [ghosts, sourceText, value],
-  );
+  const ghostsAt = useMemo(() => {
+    const next = pendingCloseGhosts(
+      sourceTags,
+      tags,
+      followCaret,
+      ghostEnds.current,
+      [...value].length,
+    );
+    const remembered = new Map<string, number>();
+    for (const ghost of next) remembered.set(ghost.id, ghost.position);
+    ghostEnds.current = remembered;
+    return next;
+  }, [sourceTags, tags, value, followCaret]);
   const open = !quickPlaceOpen && (suggestions?.items.length ?? 0) > 0;
 
   useEffect(() => {
     if (quickPlaceOpen) setQuickIndex(0);
   }, [quickPlaceOpen, segmentId]);
+
+  useEffect(() => {
+    ghostEnds.current = new Map();
+    setFollowCaret(0);
+  }, [segmentId]);
 
   useEffect(() => {
     if (autoFocus) {
@@ -184,6 +196,23 @@ export function TargetEditor({
     onTagsChange(next);
   };
 
+  const paint = (nextText: string, nextTags: InlineTag[], caret = followCaret) => {
+    const nextGhosts = pendingCloseGhosts(
+      sourceTags,
+      nextTags,
+      caret,
+      ghostEnds.current,
+      [...nextText].length,
+    );
+    const remembered = new Map<string, number>();
+    for (const ghost of nextGhosts) remembered.set(ghost.id, ghost.position);
+    ghostEnds.current = remembered;
+    const surface = surfaceRef.current;
+    if (!surface) return;
+    skipSync.current = true;
+    surface.innerHTML = buildTaggedEditorHtml(nextText, nextTags, nextGhosts);
+  };
+
   const applyPlaceable = (item: Placeable) => {
     onQuickPlaceOpenChange?.(false);
     if (item.kind === "all-tags") {
@@ -191,33 +220,56 @@ export function TargetEditor({
       return;
     }
     const caret = currentCaret();
-    if (item.kind === "tag-pair" && item.tags?.[0] && item.tags[1]) {
-      applyTags(
-        mergeTargetTags(
+    const { pairs } = pairSourceTags(sourceTags);
+    if (
+      (item.kind === "tag-pair" || item.kind === "tag") &&
+      item.tags?.[0] &&
+      caret.start !== caret.end
+    ) {
+      const start = item.tags[0];
+      const pair =
+        item.tags[1] && item.tags[0]
+          ? { start: item.tags[0], end: item.tags[1] }
+          : pairs.find(
+              (entry) =>
+                entry.start.id === start.id || entry.end.id === start.id,
+            );
+      if (pair) {
+        const next = mergeTargetTags(
           tags,
-          wrapSelectionWithTagPair(
-            item.tags[0],
-            item.tags[1],
-            caret.start,
-            caret.end,
-          ),
+          wrapSelectionWithTagPair(pair.start, pair.end, caret.start, caret.end),
+        );
+        applyTags(next);
+        paint(value, next, caret.end);
+        return;
+      }
+    }
+    if (item.kind === "tag-pair" && item.tags?.[0] && item.tags[1]) {
+      const next = mergeTargetTags(
+        tags,
+        wrapSelectionWithTagPair(
+          item.tags[0],
+          item.tags[1],
+          caret.start,
+          caret.end,
         ),
       );
+      applyTags(next);
+      paint(value, next, caret.end);
       return;
     }
     if (item.kind === "tag" && item.tags?.[0]) {
       const tag = item.tags[0];
-      applyTags(
-        mergeTargetTags(tags, [
-          {
-            ...tag,
-            id: `placed-g:${tag.id}`,
-            side: "target",
-            position: caret.start,
-            protected: true,
-          },
-        ]),
-      );
+      const next = mergeTargetTags(tags, [placeTagAtCaret(tag, caret.start)]);
+      applyTags(next);
+      if (tag.kind === "start") {
+        ghostEnds.current.set(
+          pairs.find((entry) => entry.start.id === tag.id)?.end.id ?? tag.id,
+          caret.start,
+        );
+      }
+      paint(value, next, caret.start);
+      setFollowCaret(caret.start);
       return;
     }
     if (!item.text) return;
@@ -225,74 +277,21 @@ export function TargetEditor({
     skipSync.current = true;
     onChange(inserted.text);
     applyTags(inserted.tags);
+    const nextCaret = caret.start + [...item.text].length;
+    setFollowCaret(nextCaret);
+    paint(inserted.text, inserted.tags, nextCaret);
     const surface = surfaceRef.current;
-    if (surface) {
-      surface.innerHTML = buildTaggedEditorHtml(
-        inserted.text,
-        inserted.tags,
-        alignGhostPositions(
-          sourceText,
-          inserted.text,
-          unmatchedSourceTags(sourceTags, inserted.tags),
-        ),
-      );
-      setCaretInTaggedEditor(
-        surface,
-        caret.start + [...item.text].length,
-      );
-    }
-  };
-
-  const paintTags = (nextTags: InlineTag[]) => {
-    applyTags(nextTags);
-    const surface = surfaceRef.current;
-    if (!surface) return;
-    skipSync.current = true;
-    const nextGhosts = alignGhostPositions(
-      sourceText,
-      value,
-      unmatchedSourceTags(sourceTags, nextTags),
-    );
-    surface.innerHTML = buildTaggedEditorHtml(value, nextTags, nextGhosts);
+    if (surface) setCaretInTaggedEditor(surface, nextCaret);
   };
 
   const placeGhost = (ghost: InlineTag) => {
-    const caret = currentCaret();
-    const { pairs } = pairSourceTags(sourceTags);
-    const pair = pairs.find(
-      (item) => item.start.id === ghost.id || item.end.id === ghost.id,
-    );
-    if (pair) {
-      const selected = caret.start !== caret.end;
-      const from = selected
-        ? caret.start
-        : (ghostsAt.find((item) => item.id === pair.start.id)?.position ??
-          caret.start);
-      const to = selected
-        ? caret.end
-        : (ghostsAt.find((item) => item.id === pair.end.id)?.position ??
-          caret.end);
-      paintTags(
-        mergeTargetTags(
-          tags,
-          wrapSelectionWithTagPair(pair.start, pair.end, from, to),
-        ),
-      );
-      return;
-    }
     const at =
-      ghostsAt.find((item) => item.id === ghost.id)?.position ?? caret.start;
-    paintTags(
-      mergeTargetTags(tags, [
-        {
-          ...ghost,
-          id: `placed-g:${ghost.id}`,
-          side: "target",
-          position: at,
-          protected: true,
-        },
-      ]),
-    );
+      ghostsAt.find((item) => item.id === ghost.id)?.position ??
+      currentCaret().start;
+    const next = mergeTargetTags(tags, [placeTagAtCaret(ghost, at)]);
+    applyTags(next);
+    ghostEnds.current.delete(ghost.id);
+    paint(value, next, at);
   };
 
   const emitFromSurface = () => {
@@ -308,6 +307,26 @@ export function TargetEditor({
       surface,
       surface.ownerDocument.defaultView?.getSelection() ?? null,
     ).end;
+    setFollowCaret(caret);
+    const nextGhosts = pendingCloseGhosts(
+      sourceTags,
+      serialized.tags,
+      caret,
+      ghostEnds.current,
+      [...serialized.text].length,
+    );
+    const remembered = new Map<string, number>();
+    for (const ghost of nextGhosts) remembered.set(ghost.id, ghost.position);
+    ghostEnds.current = remembered;
+    const painted = buildTaggedEditorHtml(
+      serialized.text,
+      serialized.tags,
+      nextGhosts,
+    );
+    if (surface.innerHTML !== painted) {
+      surface.innerHTML = painted;
+      setCaretInTaggedEditor(surface, caret);
+    }
     suggestions?.request(serialized.text, caret);
   };
 
@@ -410,7 +429,7 @@ export function TargetEditor({
         className={className}
         data-testid={`target-surface-${segmentId}`}
         data-target-text={value}
-        data-ghost-count={ghosts.length}
+        data-ghost-count={ghostsAt.length}
         role="textbox"
         aria-multiline="true"
         aria-label="Target"
@@ -439,7 +458,7 @@ export function TargetEditor({
           event.preventDefault();
           if (disabled === true || composing.current) return;
           const id = ghostEl.dataset.ghost;
-          const ghost = ghosts.find((item) => item.id === id);
+          const ghost = ghostsAt.find((item) => item.id === id);
           if (ghost) placeGhost(ghost);
         }}
         onKeyDown={(event) => {
@@ -458,9 +477,9 @@ export function TargetEditor({
           document.execCommand("insertText", false, pasted);
         }}
       />
-      {ghosts.length > 0 ? (
+      {ghostsAt.length > 0 ? (
         <span className="sr-only" data-testid="target-ghosts">
-          {ghosts.length} missing tags
+          {ghostsAt.length} unclosed tags
         </span>
       ) : null}
       <textarea

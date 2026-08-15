@@ -2,7 +2,14 @@ import type { KeyboardEvent } from "react";
 import type { EditorWorkflowState, InlineTag, SegmentEditorRow } from "@translunar/contracts";
 
 import { segmentNumber } from "../lib/format";
+import { pairSourceTags } from "../lib/quickplace";
 import { structureLabel, structureTitle } from "../lib/structure-label";
+import {
+  mergeTargetTags,
+  placeTagAtCaret,
+  wrapSelectionWithTagPair,
+} from "../lib/tagged-text";
+import { readSegmentSelection } from "../state/editor-selection";
 import type { SegmentEditState } from "../state/save-coordinator";
 import { TargetEditor, type SuggestionBinding } from "./TargetEditor";
 import { TaggedText } from "./TaggedText";
@@ -211,6 +218,37 @@ export function SegmentGrid({
                     className="segment-source"
                     text={row.segment.sourceText}
                     tags={row.sourceTags}
+                    {...(active && onTagsChange
+                      ? {
+                          onTagActivate: (tag: InlineTag) => {
+                            const selection = readSegmentSelection(id);
+                            const pair = pairSourceTags(row.sourceTags).pairs.find(
+                              (item) =>
+                                item.start.id === tag.id ||
+                                item.end.id === tag.id,
+                            );
+                            if (pair) {
+                              onTagsChange(
+                                mergeTargetTags(
+                                  row.targetTags,
+                                  wrapSelectionWithTagPair(
+                                    pair.start,
+                                    pair.end,
+                                    selection.targetStart,
+                                    selection.targetEnd,
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
+                            onTagsChange(
+                              mergeTargetTags(row.targetTags, [
+                                placeTagAtCaret(tag, selection.targetStart),
+                              ]),
+                            );
+                          },
+                        }
+                      : {})}
                   />
                 </td>
                 <td>

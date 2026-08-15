@@ -6,6 +6,8 @@ export interface TaggedTextProps {
   text: string;
   tags: readonly InlineTag[];
   className?: string;
+  /** Ctrl/Meta+click a source tag to place it on the target (Trados). */
+  onTagActivate?: (tag: InlineTag) => void;
 }
 
 /**
@@ -16,7 +18,12 @@ export interface TaggedTextProps {
  * source text for concordance/term capture still works through the surrounding
  * text nodes.
  */
-export function TaggedText({ text, tags, className }: TaggedTextProps) {
+export function TaggedText({
+  text,
+  tags,
+  className,
+  onTagActivate,
+}: TaggedTextProps) {
   const pieces = splitTaggedText(text, tags);
   if (pieces.length === 0) {
     return <div className={className}>{text || "\u00a0"}</div>;
@@ -30,7 +37,17 @@ export function TaggedText({ text, tags, className }: TaggedTextProps) {
           <span
             key={`g-${piece.tag?.id ?? index}`}
             className={`inline-tag inline-tag--${piece.tag?.kind ?? "standalone"}`}
-            title={piece.tag?.payload ?? piece.text}
+            title={
+              onTagActivate
+                ? `Ctrl+click to place ${piece.text}`
+                : (piece.tag?.payload ?? piece.text)
+            }
+            onMouseDown={(event) => {
+              if (!onTagActivate || !piece.tag) return;
+              if (!event.ctrlKey && !event.metaKey) return;
+              event.preventDefault();
+              onTagActivate(piece.tag);
+            }}
           >
             {piece.text}
           </span>

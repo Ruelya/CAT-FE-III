@@ -212,7 +212,9 @@ export function Workbench({
     onGoTo: () => setGoToOpen(true),
     onPretranslate,
     onPlaceTags,
-    onQuickPlace: () => setQuickPlaceOpen(true),
+    onQuickPlace: () => {
+      setQuickPlaceOpen(true);
+    },
     onFind: () => editorOps?.openPanel("findReplace"),
     onFindNext: () => {
       const matches = editorOps?.findReplace.matches ?? [];
