@@ -1230,7 +1230,7 @@
   align-items: center;
   margin: 0 0.2em;
   padding: 0.05em 0.4em;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   border: 1px solid color-mix(in srgb, var(--color-accent) 28%, var(--color-line));
   background: color-mix(in srgb, var(--color-accent-soft) 70%, var(--color-surface));
   font-family: var(--font-mono);

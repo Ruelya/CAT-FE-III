@@ -238,6 +238,7 @@ export function SegmentGrid({
                       }
                       onKeyDown={(event) => onRowKeyDown(event, id)}
                       aria-label={`Edit segment ${segmentNumber(row.segment.ordinal)}`}
+                      title={`Edit segment ${segmentNumber(row.segment.ordinal)}`}
                     >
                       <TaggedText
                         className="segment-source muted"
