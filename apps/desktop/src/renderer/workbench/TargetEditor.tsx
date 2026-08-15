@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -69,6 +70,8 @@ export interface TargetEditorProps {
   onApplyMatchByIndex?: (index: number) => void;
   /** As-you-type completions, rendered under the caret. */
   suggestions?: SuggestionBinding;
+  /** Grey suffix after the caret. Must not enter serialize. */
+  inlineCompletion?: InlineCompletionBinding;
   /** Segment ordinal shown on the Confirm control for a11y. */
   confirmLabel?: string;
   sourceText?: string;
@@ -94,6 +97,14 @@ export interface SuggestionBinding {
   setActiveIndex: (index: number) => void;
   /** Replace the word under the caret with the accepted completion. */
   onAccepted: (suggestion: EditorSuggestion) => void;
+}
+
+export interface InlineCompletionBinding {
+  text: string;
+  source: "suggest" | "ai";
+  onAccept: () => void;
+  onAcceptWord: () => void;
+  onDismiss: () => void;
 }
 
 function isImeKey(event: {
@@ -122,6 +133,7 @@ export function TargetEditor({
   onConfirm,
   onApplyMatchByIndex,
   suggestions,
+  inlineCompletion,
   confirmLabel,
   sourceText = "",
   sourceTags = [],
@@ -139,6 +151,7 @@ export function TargetEditor({
   const surfaceRef = useRef<HTMLDivElement>(null);
   const skipSync = useRef(false);
   const composing = useRef(false);
+  const [composingUi, setComposingUi] = useState(false);
   const [quickIndex, setQuickIndex] = useState(0);
   const [followCaret, setFollowCaret] = useState(0);
   const [liveTags, setLiveTags] = useState<InlineTag[] | null>(null);
@@ -165,11 +178,21 @@ export function TargetEditor({
     const surface = surfaceRef.current;
     const host = surface?.parentElement;
     const selection = surface?.ownerDocument.defaultView?.getSelection() ?? null;
-    if (!surface || !host || !selection || selection.rangeCount === 0) return;
+    if (!surface || !host) return;
+    if (!selection || selection.rangeCount === 0) {
+      setCaretBox({ left: 8, top: 8 });
+      return;
+    }
     const range = selection.getRangeAt(0).cloneRange();
     range.collapse(true);
-    const rect = range.getBoundingClientRect();
-    const box = host.getBoundingClientRect();
+    const rect =
+      typeof range.getBoundingClientRect === "function"
+        ? range.getBoundingClientRect()
+        : { width: 0, height: 0, left: 0, top: 0 };
+    const box =
+      typeof host.getBoundingClientRect === "function"
+        ? host.getBoundingClientRect()
+        : { left: 0, top: 0 };
     if (rect.width === 0 && rect.height === 0) {
       setCaretBox({ left: 8, top: 8 });
       return;
@@ -201,6 +224,8 @@ export function TargetEditor({
     return next;
   }, [sourceTags, effectiveTags, value, followCaret]);
   const open = !quickPlaceOpen && (suggestions?.items.length ?? 0) > 0;
+  const ghostText =
+    !quickPlaceOpen && !composingUi ? (inlineCompletion?.text ?? "") : "";
 
   useEffect(() => {
     if (quickPlaceOpen) setQuickIndex(0);
@@ -225,6 +250,8 @@ export function TargetEditor({
     ghostEnds.current = new Map();
     setFollowCaret(0);
     setLiveTags(null);
+    setComposingUi(false);
+    composing.current = false;
   }, [segmentId]);
 
   useEffect(() => {
@@ -239,6 +266,11 @@ export function TargetEditor({
       surfaceRef.current?.focus();
     }
   }, [autoFocus, segmentId]);
+
+  useLayoutEffect(() => {
+    if (!open && !ghostText) return;
+    measureCaret();
+  }, [open, ghostText, value, suggestions?.activeIndex]);
 
   useEffect(() => {
     const surface = surfaceRef.current;
@@ -627,6 +659,16 @@ export function TargetEditor({
         if (ghost) placeGhost(ghost);
         return;
       }
+      if (
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key === "ArrowRight" &&
+        ghostText
+      ) {
+        event.preventDefault();
+        inlineCompletion?.onAcceptWord();
+        return;
+      }
     }
     if (quickPlaceOpen && !isImeKey(event)) {
       if (event.key === "ArrowDown") {
@@ -676,6 +718,7 @@ export function TargetEditor({
       if (event.key === "Escape") {
         event.preventDefault();
         suggestions.dismiss();
+        inlineCompletion?.onDismiss();
         return;
       }
       if (event.key === "Tab" || (event.key === "Enter" && !event.ctrlKey && !event.metaKey)) {
@@ -685,6 +728,18 @@ export function TargetEditor({
           suggestions.onAccepted(chosen);
           return;
         }
+      }
+    }
+    if (ghostText && inlineCompletion && !isImeKey(event)) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        inlineCompletion.onDismiss();
+        return;
+      }
+      if (event.key === "Tab") {
+        event.preventDefault();
+        inlineCompletion.onAccept();
+        return;
       }
     }
     if (
@@ -736,14 +791,21 @@ export function TargetEditor({
         }}
         onCompositionStart={() => {
           composing.current = true;
+          setComposingUi(true);
+          suggestions?.dismiss();
+          inlineCompletion?.onDismiss();
           onCompositionStart();
         }}
         onCompositionEnd={() => {
           composing.current = false;
+          setComposingUi(false);
           onCompositionEnd();
           emitFromSurface();
         }}
-        onBlur={() => suggestions?.dismiss()}
+        onBlur={() => {
+          suggestions?.dismiss();
+          inlineCompletion?.onDismiss();
+        }}
         onMouseDown={(event) => {
           const target = event.target;
           if (!(target instanceof HTMLElement)) return;
@@ -863,6 +925,17 @@ export function TargetEditor({
       {ghostsAt.length > 0 ? (
         <span className="sr-only" data-testid="target-ghosts">
           {ghostsAt.length} unclosed tags
+        </span>
+      ) : null}
+      {ghostText && caretBox ? (
+        <span
+          className="inline-completion"
+          data-testid="inline-completion"
+          data-inline-source={inlineCompletion?.source}
+          aria-hidden="true"
+          style={{ left: `${caretBox.left}px`, top: `${caretBox.top}px` }}
+        >
+          {ghostText}
         </span>
       ) : null}
       <textarea

@@ -34,6 +34,11 @@ import {
 import { rankMatches, type SegmentIntel } from "../state/segment-intel";
 import { useSegmentSelection } from "../state/use-segment-selection";
 import { useSuggestions } from "../state/use-suggestions";
+import { useAiSuggest } from "../state/use-ai-suggest";
+import {
+  completionSuffix,
+  firstAcceptUnit,
+} from "../lib/inline-completion";
 import { isOcrStructuralPath } from "../lib/structure-label";
 import { useSegmentAi } from "../state/use-segment-ai";
 import { useEditorShortcuts } from "../workbench/use-editor-shortcuts";
@@ -199,14 +204,26 @@ export function Workbench({
 
   // As-you-type completion. Enabled from the editor preference that until now
   // had a checkbox and no behaviour behind it.
+  const autocompleteOn =
+    !disabled && editorOps?.preferences?.autocomplete !== false;
   const suggest = useSuggestions({
-    enabled: !disabled && editorOps?.preferences?.autocomplete !== false,
+    enabled: autocompleteOn,
     projectId: ctx.project.id,
     segmentId: activeSegmentId,
   });
-
   const [previewOpen, setPreviewOpen] = useState(true);
   const [quickPlaceOpen, setQuickPlaceOpen] = useState(false);
+  const aiSuggest = useAiSuggest({
+    enabled: autocompleteOn && !quickPlaceOpen,
+    projectId: ctx.project.id,
+    segmentId: activeSegmentId,
+    segmentRevision: activeRow?.segment.revision ?? null,
+  });
+  const activeSuggestion = suggest.suggestions[suggest.activeIndex] ?? null;
+  const deterministicSuffix = activeSuggestion
+    ? completionSuffix(activeSuggestion.text, suggest.prefix)
+    : "";
+  const inlineText = deterministicSuffix || aiSuggest.suffix;
   const [sourceHighlight, setSourceHighlight] = useState<{
     start: number;
     end: number;
@@ -603,14 +620,49 @@ export function Workbench({
             suggestions={{
               items: suggest.suggestions,
               activeIndex: suggest.activeIndex,
-              request: suggest.request,
-              dismiss: suggest.dismiss,
+              request: (text, caret) => {
+                suggest.request(text, caret);
+                aiSuggest.request(text, caret);
+              },
+              dismiss: () => {
+                suggest.dismiss();
+                aiSuggest.dismiss();
+              },
               move: suggest.move,
               accept: suggest.accept,
               setActiveIndex: suggest.setActiveIndex,
               onAccepted: (suggestion) =>
                 onAcceptSuggestion(suggestion.text, suggest.prefix),
             }}
+            {...(inlineText
+              ? {
+                  inlineCompletion: {
+                    text: inlineText,
+                    source: deterministicSuffix ? ("suggest" as const) : ("ai" as const),
+                    onAccept: () => {
+                      if (deterministicSuffix && activeSuggestion) {
+                        const chosen = suggest.accept();
+                        if (chosen) {
+                          onAcceptSuggestion(chosen.text, suggest.prefix);
+                        }
+                        return;
+                      }
+                      if (!aiSuggest.suffix) return;
+                      onAcceptSuggestion(aiSuggest.suffix, "");
+                      aiSuggest.dismiss();
+                    },
+                    onAcceptWord: () => {
+                      const unit = firstAcceptUnit(inlineText);
+                      if (!unit) return;
+                      onAcceptSuggestion(unit, "");
+                    },
+                    onDismiss: () => {
+                      suggest.dismiss();
+                      aiSuggest.dismiss();
+                    },
+                  },
+                }
+              : {})}
             quickPlaceOpen={quickPlaceOpen}
             onQuickPlaceOpenChange={setQuickPlaceOpen}
             onPlaceAllTags={onPlaceTags}

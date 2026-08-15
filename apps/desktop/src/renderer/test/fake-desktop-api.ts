@@ -187,15 +187,29 @@ function emptyGrounding() {
   };
 }
 
+function liveDraftFromCompletePrompt(
+  prompt: string,
+): { before: string; after: string } | null {
+  const marked = prompt.match(/「([^」]*)」/);
+  if (!marked?.[1]?.includes("⌂")) return null;
+  const [before = "", after = ""] = marked[1].split("⌂");
+  return { before, after };
+}
+
 function fakeAiRun(
   params: EngineParams<"ai.run.start">,
   sourceText: string,
   id: string,
 ): AiRun {
-  const ocr =
-    params.action === "freeform" &&
-    typeof params.prompt === "string" &&
-    params.prompt.includes("OCR");
+  const prompt = typeof params.prompt === "string" ? params.prompt : "";
+  const ocr = params.action === "freeform" && prompt.includes("OCR");
+  const live =
+    params.action === "freeform" ? liveDraftFromCompletePrompt(prompt) : null;
+  const proposalText = live
+    ? `${live.before} completed`
+    : ocr
+      ? `Corrected: ${sourceText}`
+      : `AI ${params.action}: ${sourceText}`;
   return {
     action: params.action,
     attempt: 1,
@@ -209,12 +223,10 @@ function fakeAiRun(
     profileId: params.profileId,
     projectId: params.projectId,
     promptHash: "ph",
-    proposalText: ocr
-      ? `Corrected: ${sourceText}`
-      : `AI ${params.action}: ${sourceText}`,
+    proposalText,
     request: {
       freeformPrompt: params.prompt ?? "",
-      groundingOptions: emptyGrounding(),
+      groundingOptions: params.options ?? emptyGrounding(),
     },
     revision: 1,
     segmentId: params.segmentId,

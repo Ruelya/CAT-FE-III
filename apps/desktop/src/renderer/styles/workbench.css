@@ -977,6 +977,19 @@
   gap: var(--space-1);
 }
 
+/* Caret suffix preview. Not a tag ghost — those stay on [data-ghost]. */
+.inline-completion {
+  position: absolute;
+  pointer-events: none;
+  user-select: none;
+  z-index: 1;
+  color: color-mix(in srgb, var(--color-text) 40%, transparent);
+  font-family: var(--font-cjk), var(--font-ui);
+  font-size: var(--text-md);
+  line-height: var(--leading-cjk);
+  white-space: pre;
+}
+
 .target-editor__actions {
   display: flex;
   align-items: center;

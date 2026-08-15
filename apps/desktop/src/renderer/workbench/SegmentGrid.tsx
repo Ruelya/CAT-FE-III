@@ -23,7 +23,11 @@ import type { TextHighlight } from "../lib/term-source";
 import type { SourceHighlight } from "./TaggedText";
 import { readSegmentSelection } from "../state/editor-selection";
 import type { SegmentEditState } from "../state/save-coordinator";
-import { TargetEditor, type SuggestionBinding } from "./TargetEditor";
+import {
+  TargetEditor,
+  type InlineCompletionBinding,
+  type SuggestionBinding,
+} from "./TargetEditor";
 import { TaggedText } from "./TaggedText";
 
 const WORKFLOW_LABEL: Record<EditorWorkflowState, string> = {
@@ -58,6 +62,7 @@ export interface SegmentGridProps {
   }) => void;
   onApplyMatchByIndex?: (index: number) => void;
   suggestions?: SuggestionBinding;
+  inlineCompletion?: InlineCompletionBinding;
   quickPlaceOpen?: boolean;
   onQuickPlaceOpenChange?: (open: boolean) => void;
   onPlaceAllTags?: () => void;
@@ -98,6 +103,7 @@ export function SegmentGrid({
   onConfirm,
   onApplyMatchByIndex,
   suggestions,
+  inlineCompletion,
   quickPlaceOpen,
   onQuickPlaceOpenChange,
   onPlaceAllTags,
@@ -354,6 +360,7 @@ export function SegmentGrid({
                       }}
                       {...(onApplyMatchByIndex ? { onApplyMatchByIndex } : {})}
                       {...(suggestions ? { suggestions } : {})}
+                      {...(inlineCompletion ? { inlineCompletion } : {})}
                       sourceText={row.segment.sourceText}
                       sourceTags={row.sourceTags}
                       {...(quickPlaceOpen !== undefined
