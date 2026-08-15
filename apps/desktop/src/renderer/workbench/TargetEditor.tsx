@@ -26,6 +26,8 @@ import {
   mergeTargetTags,
   pasteTaggedSpan,
   placeTagAtCaret,
+  rememberTaggedClip,
+  rememberedTaggedClip,
   replaceSelectionInTagged,
   serializeTaggedEditor,
   setCaretInTaggedEditor,
@@ -431,6 +433,7 @@ export function TargetEditor({
   };
 
   const writeClip = (event: ClipboardEvent, clip: TaggedClipboard) => {
+    rememberTaggedClip(clip);
     event.clipboardData.setData("text/plain", clip.text);
     event.clipboardData.setData(TAGGED_CLIPBOARD_TYPE, JSON.stringify(clip));
     event.preventDefault();
@@ -718,30 +721,35 @@ export function TargetEditor({
           event.preventDefault();
           const live = liveDocument();
           const caret = currentCaret();
+          const pasted = event.clipboardData.getData("text/plain");
           const raw = event.clipboardData.getData(TAGGED_CLIPBOARD_TYPE);
+          let clip: TaggedClipboard | null = null;
           if (raw) {
             try {
-              const clip = JSON.parse(raw) as TaggedClipboard;
-              if (clip && typeof clip.text === "string" && Array.isArray(clip.tags)) {
-                const next = pasteTaggedSpan(
-                  live.text,
-                  live.tags,
-                  caret.start,
-                  caret.end,
-                  clip,
-                );
-                commitLive(
-                  next.text,
-                  next.tags,
-                  caret.start + [...clip.text].length,
-                );
-                return;
+              const parsed = JSON.parse(raw) as TaggedClipboard;
+              if (parsed && typeof parsed.text === "string" && Array.isArray(parsed.tags)) {
+                clip = parsed;
               }
             } catch {
-              // Fall through to plain text.
+              clip = null;
             }
           }
-          const pasted = event.clipboardData.getData("text/plain");
+          clip ??= rememberedTaggedClip(pasted);
+          if (clip) {
+            const next = pasteTaggedSpan(
+              live.text,
+              live.tags,
+              caret.start,
+              caret.end,
+              clip,
+            );
+            commitLive(
+              next.text,
+              next.tags,
+              caret.start + [...clip.text].length,
+            );
+            return;
+          }
           const next = replaceSelectionInTagged(
             live.text,
             live.tags,

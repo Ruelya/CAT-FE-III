@@ -7,6 +7,8 @@ import {
   deleteRangeFromTagged,
   deleteRangeKeepingTags,
   pasteTaggedSpan,
+  rememberTaggedClip,
+  rememberedTaggedClip,
   sliceTaggedSpan,
   insertTextIntoTagged,
   mergeTargetTags,
@@ -215,6 +217,13 @@ describe("placeSourceTags", () => {
       "i:end:4",
       "b:end:4",
     ]);
+  });
+
+  it("reuses an in-app tagged clip when the OS drops custom MIME", () => {
+    const clip = { text: "TL-900", tags: [tag("1s", "start", 0, "b")] };
+    rememberTaggedClip(clip);
+    expect(rememberedTaggedClip("TL-900")?.tags).toHaveLength(1);
+    expect(rememberedTaggedClip("other")).toBeNull();
   });
 
   it("keeps tags when deleting text under Protect Tags", () => {

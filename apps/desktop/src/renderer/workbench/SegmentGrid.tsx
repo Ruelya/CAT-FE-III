@@ -8,6 +8,7 @@ import {
   caretOffsetsInTaggedEditor,
   mergeTargetTags,
   placeTagAtCaret,
+  rememberTaggedClip,
   sliceTaggedSpan,
   TAGGED_CLIPBOARD_TYPE,
   wrapSelectionWithTagPair,
@@ -238,6 +239,7 @@ export function SegmentGrid({
                       offsets.start,
                       offsets.end,
                     );
+                    rememberTaggedClip(clip);
                     event.clipboardData?.setData("text/plain", clip.text);
                     event.clipboardData?.setData(
                       TAGGED_CLIPBOARD_TYPE,

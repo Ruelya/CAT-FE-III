@@ -352,6 +352,19 @@ export function copySourceTagsToTarget(
 
 export const TAGGED_CLIPBOARD_TYPE = "application/x-translunar-tagged+json";
 
+let lastTaggedClip: TaggedClipboard | null = null;
+
+export function rememberTaggedClip(clip: TaggedClipboard): void {
+  lastTaggedClip = clip;
+}
+
+/** OS clipboards often drop custom MIME; reuse the in-app copy if text matches. */
+export function rememberedTaggedClip(plain: string): TaggedClipboard | null {
+  if (!lastTaggedClip) return null;
+  if (plain && plain !== lastTaggedClip.text) return null;
+  return lastTaggedClip;
+}
+
 export interface TaggedClipboard {
   text: string;
   tags: InlineTag[];
