@@ -1,4 +1,4 @@
-import type { KeyboardEvent } from "react";
+import type { KeyboardEvent, MouseEvent } from "react";
 import type { EditorWorkflowState, InlineTag, SegmentEditorRow } from "@translunar/contracts";
 
 import { segmentNumber } from "../lib/format";
@@ -22,6 +22,7 @@ import {
 import type { TextHighlight } from "../lib/term-source";
 import type { SourceHighlight } from "./TaggedText";
 import { readSegmentSelection } from "../state/editor-selection";
+import type { ContextMenuField } from "./segment-context-menu";
 import type { SegmentEditState } from "../state/save-coordinator";
 import {
   TargetEditor,
@@ -83,6 +84,11 @@ export interface SegmentGridProps {
   repeatedSources?: ReadonlySet<string>;
   /** Shown instead of the table when a filter hides everything. */
   filtered?: boolean;
+  onContextMenu?: (info: {
+    event: MouseEvent;
+    segmentId: string;
+    field: ContextMenuField;
+  }) => void;
 }
 
 export function SegmentGrid({
@@ -119,6 +125,7 @@ export function SegmentGrid({
   qaCounts,
   repeatedSources,
   filtered,
+  onContextMenu,
 }: SegmentGridProps) {
   if (rows.length === 0) {
     return (
@@ -176,7 +183,7 @@ export function SegmentGrid({
   };
 
   return (
-    <div className="segment-grid">
+    <div className="segment-grid" id="editor-tabpanel" role="tabpanel" aria-label="Segment grid">
       <table className="segment-table">
         <colgroup>
           <col className="ordinal" />
@@ -234,6 +241,15 @@ export function SegmentGrid({
                 }
                 data-testid={`segment-row-${id}`}
                 aria-selected={active || multiSelected}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  if (!active) activateRow(id);
+                  onContextMenu?.({
+                    event,
+                    segmentId: id,
+                    field: "row",
+                  });
+                }}
               >
                 <td className="segment-table__ordinal">
                   <span className="segment-index">
@@ -249,6 +265,16 @@ export function SegmentGrid({
                   </span>
                 </td>
                 <td
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (!active) activateRow(id);
+                    onContextMenu?.({
+                      event,
+                      segmentId: id,
+                      field: "source",
+                    });
+                  }}
                   onCopy={(event) => {
                     const root = event.currentTarget.querySelector(".segment-source");
                     if (!(root instanceof HTMLElement)) return;
@@ -341,7 +367,18 @@ export function SegmentGrid({
                       : {})}
                   />
                 </td>
-                <td>
+                <td
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (!active) activateRow(id);
+                    onContextMenu?.({
+                      event,
+                      segmentId: id,
+                      field: "target",
+                    });
+                  }}
+                >
                   {active ? (
                     <TargetEditor
                       segmentId={id}
