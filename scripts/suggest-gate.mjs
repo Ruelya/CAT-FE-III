@@ -90,7 +90,7 @@ await page.evaluate(async () => {
 // Segment 10 carries an e-mail and a date: pure placeables.
 await activate(10);
 const editor = page.locator(".segment-row--active textarea");
-await editor.click();
+await editor.click({ force: true });
 await editor.pressSequentially("Please contact sup", { delay: 40 });
 await page.waitForTimeout(900);
 
@@ -140,7 +140,7 @@ note(
 // A term completion on segment 2.
 await activate(2);
 const editor2 = page.locator(".segment-row--active textarea");
-await editor2.click();
+await editor2.click({ force: true });
 await editor2.pressSequentially("Use the power", { delay: 40 });
 await page.waitForTimeout(900);
 const termPopup = (

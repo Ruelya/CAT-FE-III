@@ -301,7 +301,10 @@ export function TargetEditor({
         onQuickPlaceOpenChange?.(false);
         return;
       }
-      if (event.key === "Enter" || event.key === "Tab") {
+      if (
+        event.key === "Tab" ||
+        (event.key === "Enter" && !event.ctrlKey && !event.metaKey)
+      ) {
         const chosen = placeables[quickIndex] ?? placeables[0];
         if (chosen) {
           event.preventDefault();
@@ -349,6 +352,7 @@ export function TargetEditor({
     if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
       if (isImeKey(event)) return;
       event.preventDefault();
+      onQuickPlaceOpenChange?.(false);
       onConfirm({
         isComposing: event.nativeEvent.isComposing,
         keyCode: event.keyCode,
@@ -443,6 +447,27 @@ export function TargetEditor({
         </div>
       ) : null}
       <div className="target-editor__actions">
+        <span className="target-editor__hint" aria-hidden="true">
+          Ctrl+Enter
+        </span>
+        <button
+          type="button"
+          className="btn btn--primary btn--sm"
+          disabled={disabled === true || confirming || editState?.isComposing}
+          onClick={() => {
+            onQuickPlaceOpenChange?.(false);
+            void onConfirm({});
+          }}
+          aria-label={
+            confirmLabel
+              ? `Confirm segment ${confirmLabel}`
+              : "Confirm segment"
+          }
+          title="Confirm (Ctrl+Enter)"
+          data-testid={`confirm-segment-${segmentId}`}
+        >
+          Confirm
+        </button>
         <button
           type="button"
           className="btn btn--ghost btn--sm"
@@ -457,24 +482,6 @@ export function TargetEditor({
           }}
         >
           Place
-        </button>
-        <span className="target-editor__hint" aria-hidden="true">
-          Ctrl+Enter
-        </span>
-        <button
-          type="button"
-          className="btn btn--primary btn--sm"
-          disabled={disabled === true || confirming || editState?.isComposing}
-          onClick={() => void onConfirm({})}
-          aria-label={
-            confirmLabel
-              ? `Confirm segment ${confirmLabel}`
-              : "Confirm segment"
-          }
-          title="Confirm (Ctrl+Enter)"
-          data-testid={`confirm-segment-${segmentId}`}
-        >
-          Confirm
         </button>
       </div>
       {quickPlaceOpen ? (

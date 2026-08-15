@@ -72,7 +72,7 @@ await page.waitForTimeout(1800);
 
 // Copy source into an empty target.
 await activate(3);
-await page.locator(".segment-row--active textarea").click();
+await page.locator(".segment-row--active textarea").click({ force: true });
 await page.keyboard.press("Control+Insert");
 await page.waitForTimeout(800);
 const copied = await page.locator(".segment-row--active textarea").inputValue();

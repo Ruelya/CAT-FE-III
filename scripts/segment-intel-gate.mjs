@@ -102,7 +102,7 @@ await page.screenshot({ path: join(OUT, "intel-matches.png") });
 
 if (offersMatch) {
   // One keystroke, no retyping.
-  await page.locator(".segment-row--active textarea").click();
+  await page.locator(".segment-row--active textarea").click({ force: true });
   await page.keyboard.press("Control+1");
   await page.waitForTimeout(1200);
   const applied = await page
@@ -161,7 +161,7 @@ await page.screenshot({ path: join(OUT, "intel-terms.png") });
 if (recognised) {
   const editor = page.locator(".segment-row--active textarea");
   await editor.fill("首次操作");
-  await editor.click();
+  await editor.click({ force: true });
   await page.keyboard.press("End");
   await page.getByRole("button", { name: "电源站" }).click();
   await page.waitForTimeout(900);
