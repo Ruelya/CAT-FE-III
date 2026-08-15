@@ -66,6 +66,20 @@
 | 开口处打字进对内 | `insertTextIntoTagged`：start 在光标处不后移，end 后移。Ctrl+点击源标签 = 在光标处插入一对（有选区则包选区）。 |
 | 目标正文带格式 | 开口与闭口之间的字在编辑器里就是粗体/斜体，胶囊仍可见。 |
 
+### 2026-08-15 续作（再按 Trados 纠正编辑逻辑）
+
+对照 docs.rws.com：QuickPlace 列表、ghost tags、Restore Tag、QuickInsert、Copy Source。上一轮点 ghost 闭口经常落不下去——开口只画在 DOM 里，React 的 `tags` 还没回写，点击按空数组合并，开口被丢掉。
+
+| 能力 | 说明 |
+| --- | --- |
+| 活文档标签 | 放标签 / 点 ghost / 删半对都以 contenteditable 序列化结果为准，并用 `liveTags` 立刻覆盖 prop，不再等 `segment.tag.set` 回写。 |
+| 点 ghost = Restore | 点击或 Ctrl+Shift+G 把这一只 ghost 落成真标签（docs：Restore Tag）。 |
+| 删半对出 ghost | 开口在、闭口不在 → ghost 闭口；闭口在、开口不在 → ghost 开口。两只都没放仍不叠正文。 |
+| Copy Source 带标签 | Ctrl+Insert 复制源文**和**源标签（同偏移）。Ctrl+Delete 同时清空译文和目标标签。 |
+| 插入不拆标签 | 术语插入按字符偏移改写标签位置；选区内的标签随删区去掉。 |
+| QuickInsert Ctrl+B/I/U | 拦截浏览器原生加粗，改走源段格式对：有选区则包选区，无选区则开口+ghost，再按一次落下闭口。 |
+| QuickPlace 格式样本 | 开口项显示源跨度上的粗体/斜体样本，不再只写 `b`。 |
+
 ### 仍未做到 Trados 同水准的部分（诚实清单）
 
 这些**没有**假装完成，下一轮应继续：
@@ -75,6 +89,9 @@
 3. **Approved / Rejected 七档**——引擎工作流是 translation/review/signed 三档，Signed = 锁定。
 4. **AI 需真实 provider 密钥**才能生成；门禁验证的是“挂在当前段 + 无配置时诚实”，不是云端生成质量。
 5. **PDF** 尚未纳入 format-matrix 的同构往返（引擎已注册 `builtin.pdf`）。
+6. **QuickPlace 选中项高亮源跨度**——官方：列表当前项会在源段高亮对应格式文本。本轮列表已有格式样本，源列尚未联动高亮。
+7. **复制/粘贴标签**——官方允许单独拷贝标签或连文本一起粘。当前粘贴仍是纯文本。
+8. **标签保护开关**——官方 Protect Tags 默认关；本轮未做“禁止删除标签”。
 
 主参照：SDL Trados Studio 2024 / 2024 SR1 的 Editor view（以 docs.rws.com 官方
 文档为准）；补遗参照 memoQ（docs.memoq.com）与 CafeTran。协作、派单、云协同、
