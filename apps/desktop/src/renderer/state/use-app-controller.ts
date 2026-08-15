@@ -20,6 +20,7 @@ import type {
 } from "@translunar/contracts";
 
 import { toUiError, type UiError } from "../lib/errors";
+import { toBatchImportOptions } from "../lib/pdf-import-options";
 import { desktopApi, initializeEngine, invokeEngine } from "../lib/rpc";
 import {
   shouldBlockConfirm,
@@ -1724,6 +1725,7 @@ export function useAppController(): AppController {
             projectId: surface.projectId,
             atomicity: "bestEffort",
             items: paths.map((path) => ({ path })),
+            options: toBatchImportOptions(),
           });
           if (importOpRef.current !== opId) return;
           if (batch.succeeded <= 0) {
@@ -3119,6 +3121,7 @@ export function useAppController(): AppController {
             projectId,
             atomicity: "bestEffort",
             items: paths.map((path) => ({ path })),
+            options: toBatchImportOptions(),
           });
           if (!isOpCurrent(op, importOpRef)) return;
           let documents = surface.ctx.documents;

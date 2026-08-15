@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { FileArrowDown } from "@phosphor-icons/react";
 import type {
   ProjectBatchImportResult,
@@ -6,6 +7,13 @@ import type {
 
 import type { UiError } from "../lib/errors";
 import { formatUiError } from "../lib/errors";
+import {
+  readPdfImportOptions,
+  writePdfImportOptions,
+  type PdfImportOptions,
+  type PdfOcrEngine,
+  type PdfOcrMode,
+} from "../lib/pdf-import-options";
 import { BatchImportSummary } from "../workbench/BatchImportSummary";
 
 export interface ImportDocumentProps {
@@ -30,6 +38,12 @@ export function ImportDocument({
   onDismissBatch,
 }: ImportDocumentProps) {
   const busy = Boolean(pending || disabled);
+  const [ocr, setOcr] = useState<PdfImportOptions>(() => readPdfImportOptions());
+
+  const updateOcr = (patch: Partial<PdfImportOptions>) => {
+    setOcr(writePdfImportOptions({ ...ocr, ...patch }));
+  };
+
   return (
     <section className="welcome" data-testid="import-document">
       <div className="welcome__inner welcome__inner--first-run">
@@ -58,6 +72,57 @@ export function ImportDocument({
             {...(onDismissBatch ? { onDismiss: onDismissBatch } : {})}
           />
         ) : null}
+
+        <fieldset className="import-ocr" data-testid="import-ocr-options">
+          <legend className="welcome__section-title">PDF OCR</legend>
+          <label className="field">
+            <span className="field__label">Engine</span>
+            <select
+              className="field__control"
+              value={ocr.ocrEngine}
+              disabled={busy}
+              onChange={(e) =>
+                updateOcr({ ocrEngine: e.target.value as PdfOcrEngine })
+              }
+              data-testid="import-ocr-engine"
+            >
+              <option value="auto">Auto (local text layer / Tesseract)</option>
+              <option value="tesseract">Tesseract (local)</option>
+              <option value="mineru">MinerU</option>
+            </select>
+          </label>
+          <label className="field">
+            <span className="field__label">Mode</span>
+            <select
+              className="field__control"
+              value={ocr.ocrMode}
+              disabled={busy}
+              onChange={(e) =>
+                updateOcr({ ocrMode: e.target.value as PdfOcrMode })
+              }
+              data-testid="import-ocr-mode"
+            >
+              <option value="auto">Auto</option>
+              <option value="always">Always OCR</option>
+              <option value="never">Never OCR</option>
+            </select>
+          </label>
+          <label className="field">
+            <span className="field__label">Languages</span>
+            <input
+              className="field__control"
+              value={ocr.ocrLanguages}
+              disabled={busy}
+              onChange={(e) => updateOcr({ ocrLanguages: e.target.value })}
+              autoComplete="off"
+              data-testid="import-ocr-languages"
+            />
+          </label>
+          <p className="field__hint">
+            MinerU needs a key under Settings → OCR. Auto keeps the local
+            Poppler/Tesseract path.
+          </p>
+        </fieldset>
 
         <div className="welcome__actions">
           <button

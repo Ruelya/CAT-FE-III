@@ -63,9 +63,15 @@ describe("App P1 project lifecycle (fake DesktopApi)", () => {
     const params = batchCalls[0]!.params as {
       atomicity: string;
       items: Array<{ path: string }>;
+      options?: Record<string, string>;
     };
     expect(params.atomicity).toBe("bestEffort");
     expect(params.items.map((i) => i.path)).toEqual(state.sourcePaths);
+    expect(params.options).toMatchObject({
+      ocrEngine: expect.stringMatching(/^(auto|mineru|tesseract)$/),
+      ocrMode: expect.stringMatching(/^(auto|always|never)$/),
+      ocrLanguages: expect.any(String),
+    });
 
     const switcher = screen.getByTestId("document-switcher");
     const select = within(switcher).getByLabelText("Document");
