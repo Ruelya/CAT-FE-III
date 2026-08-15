@@ -83,7 +83,15 @@ export function QuickPlacePopup({
               onMouseEnter={() => onHover(index)}
               onClick={() => onAccept(item)}
             >
-              <span className="suggestions__text">{item.label}</span>
+              <span
+                className={
+                  item.formatClass
+                    ? `suggestions__text ${item.formatClass}`
+                    : "suggestions__text"
+                }
+              >
+                {item.label}
+              </span>
               <span className="suggestions__source">{KIND_LABEL[item.kind]}</span>
             </button>
           </li>

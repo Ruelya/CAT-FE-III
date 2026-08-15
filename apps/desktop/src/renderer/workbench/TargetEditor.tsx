@@ -3,8 +3,10 @@ import type { EditorSuggestion, InlineTag } from "@translunar/contracts";
 
 import {
   extractPlaceables,
+  formatPairForKey,
   pairSourceTags,
   pendingCloseGhosts,
+  unmatchedSourceTags,
   type Placeable,
 } from "../lib/quickplace";
 import {
@@ -104,15 +106,18 @@ export function TargetEditor({
   const composing = useRef(false);
   const [quickIndex, setQuickIndex] = useState(0);
   const [followCaret, setFollowCaret] = useState(0);
+  const [liveTags, setLiveTags] = useState<InlineTag[] | null>(null);
   const ghostEnds = useRef(new Map<string, number>());
+  const ghostsAtRef = useRef<InlineTag[]>([]);
+  const effectiveTags = liveTags ?? tags;
   const placeables = useMemo(
-    () => extractPlaceables(sourceText, sourceTags, tags),
-    [sourceText, sourceTags, tags],
+    () => extractPlaceables(sourceText, sourceTags, effectiveTags),
+    [sourceText, sourceTags, effectiveTags],
   );
   const ghostsAt = useMemo(() => {
     const next = pendingCloseGhosts(
       sourceTags,
-      tags,
+      effectiveTags,
       followCaret,
       ghostEnds.current,
       [...value].length,
@@ -120,8 +125,9 @@ export function TargetEditor({
     const remembered = new Map<string, number>();
     for (const ghost of next) remembered.set(ghost.id, ghost.position);
     ghostEnds.current = remembered;
+    ghostsAtRef.current = next;
     return next;
-  }, [sourceTags, tags, value, followCaret]);
+  }, [sourceTags, effectiveTags, value, followCaret]);
   const open = !quickPlaceOpen && (suggestions?.items.length ?? 0) > 0;
 
   useEffect(() => {
@@ -131,7 +137,15 @@ export function TargetEditor({
   useEffect(() => {
     ghostEnds.current = new Map();
     setFollowCaret(0);
+    setLiveTags(null);
   }, [segmentId]);
+
+  useEffect(() => {
+    if (liveTags) {
+      if (tagsEqual(tags, liveTags)) setLiveTags(null);
+      return;
+    }
+  }, [tags, liveTags]);
 
   useEffect(() => {
     if (autoFocus) {
@@ -147,7 +161,7 @@ export function TargetEditor({
       return;
     }
     if (composing.current) return;
-    const next = buildTaggedEditorHtml(value, tags, ghostsAt);
+    const next = buildTaggedEditorHtml(value, effectiveTags, ghostsAt);
     if (surface.innerHTML !== next) {
       const caret = caretOffsetsInTaggedEditor(
         surface,
@@ -158,7 +172,7 @@ export function TargetEditor({
         setCaretInTaggedEditor(surface, Math.min(caret, [...value].length));
       }
     }
-  }, [value, tags, ghostsAt, segmentId]);
+  }, [value, effectiveTags, ghostsAt, segmentId]);
 
   const dirty =
     editState &&
@@ -191,8 +205,15 @@ export function TargetEditor({
     );
   };
 
+  const liveDocument = () => {
+    const surface = surfaceRef.current;
+    if (surface) return serializeTaggedEditor(surface);
+    return { text: value, tags: effectiveTags };
+  };
+
   const applyTags = (next: InlineTag[]) => {
-    if (!onTagsChange || tagsEqual(next, tags)) return;
+    if (!onTagsChange || tagsEqual(next, effectiveTags)) return;
+    setLiveTags(next);
     onTagsChange(next);
   };
 
@@ -207,6 +228,7 @@ export function TargetEditor({
     const remembered = new Map<string, number>();
     for (const ghost of nextGhosts) remembered.set(ghost.id, ghost.position);
     ghostEnds.current = remembered;
+    ghostsAtRef.current = nextGhosts;
     const surface = surfaceRef.current;
     if (!surface) return;
     skipSync.current = true;
@@ -220,6 +242,7 @@ export function TargetEditor({
       return;
     }
     const caret = currentCaret();
+    const live = liveDocument();
     const { pairs } = pairSourceTags(sourceTags);
     if (
       (item.kind === "tag-pair" || item.kind === "tag") &&
@@ -236,17 +259,17 @@ export function TargetEditor({
             );
       if (pair) {
         const next = mergeTargetTags(
-          tags,
+          live.tags,
           wrapSelectionWithTagPair(pair.start, pair.end, caret.start, caret.end),
         );
         applyTags(next);
-        paint(value, next, caret.end);
+        paint(live.text, next, caret.end);
         return;
       }
     }
     if (item.kind === "tag-pair" && item.tags?.[0] && item.tags[1]) {
       const next = mergeTargetTags(
-        tags,
+        live.tags,
         wrapSelectionWithTagPair(
           item.tags[0],
           item.tags[1],
@@ -255,25 +278,40 @@ export function TargetEditor({
         ),
       );
       applyTags(next);
-      paint(value, next, caret.end);
+      paint(live.text, next, caret.end);
       return;
     }
     if (item.kind === "tag" && item.tags?.[0]) {
       const tag = item.tags[0];
-      const next = mergeTargetTags(tags, [placeTagAtCaret(tag, caret.start)]);
+      const next = mergeTargetTags(live.tags, [placeTagAtCaret(tag, caret.start)]);
       applyTags(next);
-      if (tag.kind === "start") {
-        ghostEnds.current.set(
-          pairs.find((entry) => entry.start.id === tag.id)?.end.id ?? tag.id,
-          caret.start,
-        );
+      const pair = pairs.find(
+        (entry) => entry.start.id === tag.id || entry.end.id === tag.id,
+      );
+      if (tag.kind === "start" && pair) {
+        ghostEnds.current.set(pair.end.id, caret.start);
       }
-      paint(value, next, caret.start);
+      if (tag.kind === "end" && pair) {
+        ghostEnds.current.delete(pair.end.id);
+        if (
+          unmatchedSourceTags(sourceTags, next).some(
+            (item) => item.id === pair.start.id,
+          )
+        ) {
+          ghostEnds.current.set(pair.start.id, caret.start);
+        }
+      }
+      paint(live.text, next, caret.start);
       setFollowCaret(caret.start);
       return;
     }
     if (!item.text) return;
-    const inserted = insertTextIntoTagged(value, tags, caret.start, item.text);
+    const inserted = insertTextIntoTagged(
+      live.text,
+      live.tags,
+      caret.start,
+      item.text,
+    );
     skipSync.current = true;
     onChange(inserted.text);
     applyTags(inserted.tags);
@@ -285,13 +323,47 @@ export function TargetEditor({
   };
 
   const placeGhost = (ghost: InlineTag) => {
+    const live = liveDocument();
     const at =
-      ghostsAt.find((item) => item.id === ghost.id)?.position ??
+      ghost.position ??
+      ghostsAtRef.current.find((item) => item.id === ghost.id)?.position ??
       currentCaret().start;
-    const next = mergeTargetTags(tags, [placeTagAtCaret(ghost, at)]);
+    const next = mergeTargetTags(live.tags, [placeTagAtCaret(ghost, at)]);
     applyTags(next);
     ghostEnds.current.delete(ghost.id);
-    paint(value, next, at);
+    paint(live.text, next, at);
+  };
+
+  const applyFormatShortcut = (key: string) => {
+    const pair = formatPairForKey(sourceTags, key);
+    if (!pair) return;
+    const caret = currentCaret();
+    const live = liveDocument();
+    if (caret.start !== caret.end) {
+      const next = mergeTargetTags(
+        live.tags,
+        wrapSelectionWithTagPair(pair.start, pair.end, caret.start, caret.end),
+      );
+      applyTags(next);
+      paint(live.text, next, caret.end);
+      return;
+    }
+    const unmatched = unmatchedSourceTags(sourceTags, live.tags);
+    const startPlaced = unmatched.every((tag) => tag.id !== pair.start.id);
+    const endPlaced = unmatched.every((tag) => tag.id !== pair.end.id);
+    if (startPlaced && !endPlaced) {
+      placeGhost({ ...pair.end, position: caret.start });
+      return;
+    }
+    if (!startPlaced && !endPlaced) {
+      const next = mergeTargetTags(live.tags, [
+        placeTagAtCaret(pair.start, caret.start),
+      ]);
+      applyTags(next);
+      ghostEnds.current.set(pair.end.id, caret.start);
+      paint(live.text, next, caret.start);
+      setFollowCaret(caret.start);
+    }
   };
 
   const emitFromSurface = () => {
@@ -300,7 +372,8 @@ export function TargetEditor({
     const serialized = serializeTaggedEditor(surface);
     skipSync.current = true;
     onChange(serialized.text);
-    if (onTagsChange && !tagsEqual(serialized.tags, tags)) {
+    if (onTagsChange && !tagsEqual(serialized.tags, effectiveTags)) {
+      setLiveTags(serialized.tags);
       onTagsChange(serialized.tags);
     }
     const caret = caretOffsetsInTaggedEditor(
@@ -318,6 +391,7 @@ export function TargetEditor({
     const remembered = new Map<string, number>();
     for (const ghost of nextGhosts) remembered.set(ghost.id, ghost.position);
     ghostEnds.current = remembered;
+    ghostsAtRef.current = nextGhosts;
     const painted = buildTaggedEditorHtml(
       serialized.text,
       serialized.tags,
@@ -334,6 +408,20 @@ export function TargetEditor({
     event: KeyboardEvent<HTMLElement>,
     caretFallback: number,
   ) => {
+    if ((event.ctrlKey || event.metaKey) && !isImeKey(event)) {
+      const key = event.key.toLowerCase();
+      if (!event.altKey && !event.shiftKey && (key === "b" || key === "i" || key === "u")) {
+        event.preventDefault();
+        applyFormatShortcut(key);
+        return;
+      }
+      if (event.shiftKey && key === "g") {
+        event.preventDefault();
+        const ghost = ghostsAtRef.current[0];
+        if (ghost) placeGhost(ghost);
+        return;
+      }
+    }
     if (quickPlaceOpen && !isImeKey(event)) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
@@ -458,7 +546,9 @@ export function TargetEditor({
           event.preventDefault();
           if (disabled === true || composing.current) return;
           const id = ghostEl.dataset.ghost;
-          const ghost = ghostsAt.find((item) => item.id === id);
+          const ghost =
+            ghostsAtRef.current.find((item) => item.id === id) ??
+            sourceTags.find((item) => item.id === id);
           if (ghost) placeGhost(ghost);
         }}
         onKeyDown={(event) => {
