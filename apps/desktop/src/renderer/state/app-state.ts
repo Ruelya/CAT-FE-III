@@ -272,7 +272,7 @@ export type AppAction =
   | {
       type: "PATCH_SEGMENT_INTEL";
       segmentId: string;
-      patch: Partial<Pick<SegmentIntel, "tm" | "terms">>;
+      patch: Partial<Pick<SegmentIntel, "tm" | "terms" | "concordance">>;
     }
   | { type: "PATCH_QA"; patch: Partial<Extract<AppSurface, { kind: "qa" }>> }
   | {

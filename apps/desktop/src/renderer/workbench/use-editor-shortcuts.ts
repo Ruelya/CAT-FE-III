@@ -1,0 +1,65 @@
+import { useEffect } from "react";
+
+export interface EditorShortcutHandlers {
+  /** F3: look the current selection up across the memory. */
+  onConcordance: () => void;
+  /** Ctrl+Shift+T: store the selected source and target as a term. */
+  onQuickAddTerm: () => void;
+  /** Ctrl+Insert: put the source into the target verbatim. */
+  onCopySource: () => void;
+  /** Ctrl+Delete: empty the target. */
+  onClearTarget: () => void;
+}
+
+/**
+ * Segment-level shortcuts that must work wherever the caret is in the editor.
+ *
+ * These are bound at the window because a translator uses them while typing in
+ * the target, while reading the source, and while standing in a dock, and a
+ * shortcut that only works in one of those places is a shortcut they stop
+ * trusting. The chosen chords are the ones the same users already have in
+ * their fingers from Trados and memoQ.
+ *
+ * Nothing fires during IME composition: the same keys drive candidate windows,
+ * and stealing them mid-composition destroys input rather than accelerating it.
+ */
+export function useEditorShortcuts(
+  enabled: boolean,
+  handlers: EditorShortcutHandlers,
+): void {
+  useEffect(() => {
+    if (!enabled) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing || event.keyCode === 229) return;
+      const control = event.ctrlKey || event.metaKey;
+
+      if (event.key === "F3" && !event.altKey) {
+        event.preventDefault();
+        handlers.onConcordance();
+        return;
+      }
+      if (control && event.shiftKey && event.key.toLowerCase() === "t") {
+        event.preventDefault();
+        handlers.onQuickAddTerm();
+        return;
+      }
+      if (control && event.key === "Insert") {
+        event.preventDefault();
+        handlers.onCopySource();
+        return;
+      }
+      if (control && event.key === "Delete") {
+        event.preventDefault();
+        handlers.onClearTarget();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    enabled,
+    handlers.onConcordance,
+    handlers.onQuickAddTerm,
+    handlers.onCopySource,
+    handlers.onClearTarget,
+  ]);
+}

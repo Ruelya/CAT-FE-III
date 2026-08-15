@@ -5,7 +5,10 @@ import type { UiError } from "../lib/errors";
 import { formatUiError } from "../lib/errors";
 import type { SessionContext } from "../state/app-state";
 import type { SegmentEditState } from "../state/save-coordinator";
+import { canStoreTerm, type SegmentSelection } from "../state/editor-selection";
 import { rankMatches, type SegmentIntel } from "../state/segment-intel";
+import { useSegmentSelection } from "../state/use-segment-selection";
+import { useEditorShortcuts } from "../workbench/use-editor-shortcuts";
 import type { EditorOperationsApi } from "../state/use-editor-operations";
 import { shouldMountPdfDock } from "../state/pdf-review";
 import type { PdfReviewApi } from "../state/use-pdf-review";
@@ -55,6 +58,13 @@ export interface WorkbenchProps {
   onToggleTm: () => void;
   onApplyMatch: (match: TmMatch) => void;
   onInsertTerm: (translation: string) => void;
+  onConcordance: (
+    query: string | undefined,
+    selection: SegmentSelection,
+  ) => void;
+  onQuickAddTerm: (selection: SegmentSelection) => void;
+  onCopySourceToTarget: () => void;
+  onClearTarget: () => void;
   onQa: () => void;
   onExport: () => void;
   onInsights: () => void;
@@ -92,6 +102,10 @@ export function Workbench({
   onToggleTm,
   onApplyMatch,
   onInsertTerm,
+  onConcordance,
+  onQuickAddTerm,
+  onCopySourceToTarget,
+  onClearTarget,
   onQa,
   onExport,
   onInsights,
@@ -111,6 +125,17 @@ export function Workbench({
   );
 
   const activeRow = ctx.rows.find((r) => r.segment.id === activeSegmentId);
+  // Selection-driven controls must know whether they can act before they are
+  // pressed; a button that silently does nothing teaches users to distrust it.
+  const selection = useSegmentSelection(activeSegmentId);
+  const canQuickAddTerm = canStoreTerm(selection);
+
+  useEditorShortcuts(!disabled && activeSegmentId !== null, {
+    onConcordance: () => onConcordance(undefined, selection),
+    onQuickAddTerm: () => onQuickAddTerm(selection),
+    onCopySource: onCopySourceToTarget,
+    onClearTarget,
+  });
   // Container-responsive density: dock changes resize the editor without
   // resizing the window, so this cannot be a viewport media query.
   const editorRegionRef = useContainerDensity<HTMLDivElement>();
@@ -367,6 +392,9 @@ export function Workbench({
           onToggle={onToggleTm}
           onApplyMatch={onApplyMatch}
           onInsertTerm={onInsertTerm}
+          onConcordance={(query) => onConcordance(query, selection)}
+          onQuickAddTerm={() => onQuickAddTerm(selection)}
+          canQuickAddTerm={canQuickAddTerm}
         />
       </div>
 

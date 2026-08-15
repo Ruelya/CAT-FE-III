@@ -1,4 +1,4 @@
-import type { TermMatch, TmMatch } from "@translunar/contracts";
+import type { ConcordanceHit, TermMatch, TmMatch } from "@translunar/contracts";
 
 import type { UiError } from "../lib/errors";
 
@@ -23,12 +23,24 @@ export interface SegmentIntel {
     loading: boolean;
     error: UiError | null;
   };
+  /**
+   * Concordance is the one dock a translator drives rather than receives: it
+   * answers "how did we translate this phrase before", for a phrase they
+   * chose. The query is kept so the panel can show what it answered.
+   */
+  concordance: {
+    query: string;
+    hits: ConcordanceHit[];
+    loading: boolean;
+    error: UiError | null;
+  };
 }
 
 export const EMPTY_SEGMENT_INTEL: SegmentIntel = {
   segmentId: null,
   tm: { matches: [], loading: false, error: null },
   terms: { matches: [], loading: false, error: null },
+  concordance: { query: "", hits: [], loading: false, error: null },
 };
 
 /** Percent shown next to a match, floored so 99.6 never reads as a 100. */
