@@ -233,6 +233,9 @@ export function TargetEditor({
     if (!surface) return;
     skipSync.current = true;
     surface.innerHTML = buildTaggedEditorHtml(nextText, nextTags, nextGhosts);
+    if (surface.ownerDocument.activeElement === surface) {
+      setCaretInTaggedEditor(surface, caret);
+    }
   };
 
   const applyPlaceable = (item: Placeable) => {
