@@ -256,6 +256,7 @@ export interface AppController {
     clearTarget: () => void;
     acceptSuggestion: (text: string, prefix: string) => void;
     applyAiProposal: (text: string) => void;
+    placeSourceTags: () => Promise<void>;
     pretranslateDocument: () => Promise<void>;
     goQa: () => Promise<void>;
     runQa: () => Promise<void>;
@@ -2182,6 +2183,75 @@ export function useAppController(): AppController {
         const active = saveCoordinator.active;
         if (!active || active.isComposing) return;
         saveCoordinator.updateDraft(text);
+      },
+
+      // Carry the source's protected tags onto the current target, scaled to
+      // the target length. This is QuickPlace for the common case: the
+      // formatting spans the same relative stretch of the sentence.
+      placeSourceTags: async () => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "workbench") return;
+        const segmentId = surface.activeSegmentId;
+        if (!segmentId) return;
+        const row = surface.ctx.rows.find((r) => r.segment.id === segmentId);
+        if (!row || row.sourceTags.length === 0) return;
+        const active = saveCoordinator.active;
+        if (active?.isComposing) return;
+        if (active && active.segmentId === segmentId) {
+          await saveCoordinator.flush();
+        }
+        const current = stateRef.current.surface;
+        if (current.kind !== "workbench") return;
+        try {
+          // Re-read after flush so expectedRevision matches Engine truth.
+          const { rows: freshRows } = await listAllEditorRows(
+            current.ctx.document.id,
+          );
+          const fresh = freshRows.find((r) => r.segment.id === segmentId);
+          if (!fresh || fresh.sourceTags.length === 0) return;
+          const targetLength = [...fresh.segment.targetText].length;
+          const sourceLength = Math.max(
+            [...fresh.segment.sourceText].length,
+            1,
+          );
+          const targetTags = fresh.sourceTags.map((tag, index) => ({
+            id: `placed-${index}:${tag.id}`,
+            side: "target" as const,
+            position: Math.min(
+              targetLength,
+              Math.round((tag.position * targetLength) / sourceLength),
+            ),
+            kind: tag.kind,
+            pairId: tag.pairId,
+            payload: tag.payload,
+            displayText: tag.displayText,
+            protected: true,
+          }));
+          const result = await invokeEngine("segment.tag.set", {
+            segmentId,
+            expectedRevision: fresh.segment.revision,
+            targetTags,
+          });
+          const { rows } = await listAllEditorRows(current.ctx.document.id);
+          const next = stateRef.current.surface;
+          if (next.kind !== "workbench") return;
+          dispatch({
+            type: "PATCH_WORKBENCH",
+            patch: {
+              ctx: {
+                ...next.ctx,
+                rows,
+                counts: result.counts ?? countsFromRows(rows),
+              },
+            },
+          });
+        } catch (error) {
+          dispatch({
+            type: "PATCH_WORKBENCH",
+            patch: { transitionError: toUiError(error) },
+          });
+        }
       },
 
       acceptSuggestion: (text, prefix) => {

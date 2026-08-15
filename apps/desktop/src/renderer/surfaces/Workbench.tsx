@@ -82,6 +82,7 @@ export interface WorkbenchProps {
   onAcceptSuggestion: (text: string, prefix: string) => void;
   onApplyAiProposal: (text: string) => void;
   onPretranslate: () => void;
+  onPlaceTags: () => void;
   pretranslatePending?: boolean;
   onQa: () => void;
   onExport: () => void;
@@ -128,6 +129,7 @@ export function Workbench({
   onAcceptSuggestion,
   onApplyAiProposal,
   onPretranslate,
+  onPlaceTags,
   pretranslatePending,
   onQa,
   onExport,
@@ -174,6 +176,7 @@ export function Workbench({
     onClearTarget,
     onGoTo: () => setGoToOpen(true),
     onPretranslate,
+    onPlaceTags,
   });
   // Container-responsive density: dock changes resize the editor without
   // resizing the window, so this cannot be a viewport media query.
@@ -521,7 +524,7 @@ export function Workbench({
           </span>
         ) : null}
         <span className="workbench__status-hint">
-          Ctrl+G go to · Ctrl+Shift+P pretranslate · F3 concordance
+          Ctrl+G go · Ctrl+, tags · Ctrl+Shift+P pretranslate · F3 concordance
         </span>
       </div>
 

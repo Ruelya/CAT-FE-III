@@ -13,6 +13,8 @@ export interface EditorShortcutHandlers {
   onGoTo: () => void;
   /** Ctrl+Shift+P: pretranslate empty targets from memory. */
   onPretranslate: () => void;
+  /** Ctrl+,: place source tags onto the target. */
+  onPlaceTags: () => void;
 }
 
 /**
@@ -65,6 +67,11 @@ export function useEditorShortcuts(
       if (control && event.shiftKey && event.key.toLowerCase() === "p") {
         event.preventDefault();
         handlers.onPretranslate();
+        return;
+      }
+      if (control && event.key === ",") {
+        event.preventDefault();
+        handlers.onPlaceTags();
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -77,5 +84,6 @@ export function useEditorShortcuts(
     handlers.onClearTarget,
     handlers.onGoTo,
     handlers.onPretranslate,
+    handlers.onPlaceTags,
   ]);
 }

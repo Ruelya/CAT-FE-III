@@ -736,6 +736,9 @@ export function App() {
               onPretranslate={() => {
                 void commands.pretranslateDocument();
               }}
+              onPlaceTags={() => {
+                void commands.placeSourceTags();
+              }}
               pretranslatePending={surface.pretranslatePending === true}
               onQa={() => {
                 void commands.goQa();
