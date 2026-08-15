@@ -11,10 +11,10 @@ import {
   buildTaggedEditorHtml,
   caretOffsetsInTaggedEditor,
   insertTextIntoTagged,
+  mapTagsToTargetPositions,
   mergeTargetTags,
   serializeTaggedEditor,
   setCaretInTaggedEditor,
-  tagLabel,
   tagsEqual,
   wrapSelectionWithTagPair,
 } from "../lib/tagged-text";
@@ -111,6 +111,15 @@ export function TargetEditor({
     () => unmatchedSourceTags(sourceTags, tags),
     [sourceTags, tags],
   );
+  const ghostsAt = useMemo(
+    () =>
+      mapTagsToTargetPositions(
+        ghosts,
+        [...sourceText].length,
+        [...value].length,
+      ),
+    [ghosts, sourceText, value],
+  );
   const open = !quickPlaceOpen && (suggestions?.items.length ?? 0) > 0;
 
   useEffect(() => {
@@ -131,7 +140,7 @@ export function TargetEditor({
       return;
     }
     if (composing.current) return;
-    const next = buildTaggedEditorHtml(value, tags);
+    const next = buildTaggedEditorHtml(value, tags, ghostsAt);
     if (surface.innerHTML !== next) {
       const caret = caretOffsetsInTaggedEditor(
         surface,
@@ -142,7 +151,7 @@ export function TargetEditor({
         setCaretInTaggedEditor(surface, Math.min(caret, [...value].length));
       }
     }
-  }, [value, tags, segmentId]);
+  }, [value, tags, ghostsAt, segmentId]);
 
   const dirty =
     editState &&
@@ -223,7 +232,15 @@ export function TargetEditor({
     applyTags(inserted.tags);
     const surface = surfaceRef.current;
     if (surface) {
-      surface.innerHTML = buildTaggedEditorHtml(inserted.text, inserted.tags);
+      surface.innerHTML = buildTaggedEditorHtml(
+        inserted.text,
+        inserted.tags,
+        mapTagsToTargetPositions(
+          unmatchedSourceTags(sourceTags, inserted.tags),
+          [...sourceText].length,
+          [...inserted.text].length,
+        ),
+      );
       setCaretInTaggedEditor(
         surface,
         caret.start + [...item.text].length,
@@ -238,21 +255,32 @@ export function TargetEditor({
       (item) => item.start.id === ghost.id || item.end.id === ghost.id,
     );
     if (pair) {
+      const selected = caret.start !== caret.end;
+      const from = selected
+        ? caret.start
+        : (ghostsAt.find((item) => item.id === pair.start.id)?.position ??
+          caret.start);
+      const to = selected
+        ? caret.end
+        : (ghostsAt.find((item) => item.id === pair.end.id)?.position ??
+          caret.end);
       applyTags(
         mergeTargetTags(
           tags,
-          wrapSelectionWithTagPair(pair.start, pair.end, caret.start, caret.end),
+          wrapSelectionWithTagPair(pair.start, pair.end, from, to),
         ),
       );
       return;
     }
+    const at =
+      ghostsAt.find((item) => item.id === ghost.id)?.position ?? caret.start;
     applyTags(
       mergeTargetTags(tags, [
         {
           ...ghost,
           id: `placed-g:${ghost.id}`,
           side: "target",
-          position: caret.start,
+          position: at,
           protected: true,
         },
       ]),
@@ -374,6 +402,7 @@ export function TargetEditor({
         className={className}
         data-testid={`target-surface-${segmentId}`}
         data-target-text={value}
+        data-ghost-count={ghosts.length}
         role="textbox"
         aria-multiline="true"
         aria-label="Target"
@@ -394,6 +423,23 @@ export function TargetEditor({
           emitFromSurface();
         }}
         onBlur={() => suggestions?.dismiss()}
+        onMouseDown={(event) => {
+          const target = event.target;
+          if (!(target instanceof HTMLElement)) return;
+          if (target.closest("[data-ghost]")) {
+            event.preventDefault();
+          }
+        }}
+        onClick={(event) => {
+          if (disabled === true || composing.current) return;
+          const target = event.target;
+          if (!(target instanceof HTMLElement)) return;
+          const ghostEl = target.closest("[data-ghost]");
+          if (!(ghostEl instanceof HTMLElement)) return;
+          const id = ghostEl.dataset.ghost;
+          const ghost = ghosts.find((item) => item.id === id);
+          if (ghost) placeGhost(ghost);
+        }}
         onKeyDown={(event) => {
           const caret = surfaceRef.current
             ? caretOffsetsInTaggedEditor(
@@ -410,6 +456,11 @@ export function TargetEditor({
           document.execCommand("insertText", false, pasted);
         }}
       />
+      {ghosts.length > 0 ? (
+        <span className="sr-only" data-testid="target-ghosts">
+          {ghosts.length} missing tags
+        </span>
+      ) : null}
       <textarea
         ref={mirrorRef}
         className="sr-only"
@@ -428,24 +479,6 @@ export function TargetEditor({
           handleKeys(e, e.currentTarget.selectionStart ?? [...value].length);
         }}
       />
-      {ghosts.length > 0 && disabled !== true ? (
-        <div className="target-editor__ghosts" data-testid="target-ghosts">
-          <span className="target-editor__ghosts-label">Missing</span>
-          {ghosts.map((ghost) => (
-            <button
-              key={ghost.id}
-              type="button"
-              className={`inline-tag inline-tag--ghost inline-tag--${ghost.kind}`}
-              data-testid={`ghost-tag-${ghost.id}`}
-              title={`Place ${tagLabel(ghost)}`}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => placeGhost(ghost)}
-            >
-              {tagLabel(ghost)}
-            </button>
-          ))}
-        </div>
-      ) : null}
       <div className="target-editor__actions">
         <span className="target-editor__hint" aria-hidden="true">
           Ctrl+Enter

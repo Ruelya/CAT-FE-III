@@ -1,34 +1,80 @@
 import type { SegmentEditorRow } from "@translunar/contracts";
 
+import { previewInnerHtml } from "./preview-markup";
 import { structureLabel } from "./structure-label";
+
+export type PreviewRole =
+  | "heading"
+  | "paragraph"
+  | "cell"
+  | "slide"
+  | "note"
+  | "block";
 
 export interface PreviewBlock {
   segmentId: string;
   label: string;
   path: string;
   text: string;
+  html: string;
   empty: boolean;
+  role: PreviewRole;
+}
+
+export function previewRole(
+  path: string,
+  filterId = "",
+  ordinal = 0,
+): PreviewRole {
+  const label = structureLabel(path);
+  if (label === "H") return "heading";
+  if (label === "Cell") return "cell";
+  if (label === "Sld") return "slide";
+  if (label === "Fn" || label === "En" || label === "Cmt") return "note";
+  const lower = path.toLowerCase();
+  const filter = filterId.toLowerCase();
+  if (filter.includes("html") && ordinal === 0 && !lower.includes(":attr:")) {
+    return "heading";
+  }
+  if (
+    (filter.includes("md") ||
+      filter.includes("markdown") ||
+      lower.startsWith("md:") ||
+      lower.startsWith("markdown:")) &&
+    ordinal === 0
+  ) {
+    return "heading";
+  }
+  return "paragraph";
 }
 
 /**
  * Build a document-order preview from the rows already on the grid.
  *
- * This is not Word WYSIWYG. It is the structure a translator can scan: each
- * segment as a block, labelled with the same context the grid uses, showing
- * the target if there is one and the source otherwise. Clicking a block is
- * how preview jumps back to the grid.
+ * Formatting comes from the segment's tags (target if translated, else source).
+ * This is not a Word COM preview. It is a live HTML reconstruction a translator
+ * can scan and click to jump back to the grid.
  */
 export function previewBlocks(
   rows: readonly SegmentEditorRow[],
+  filterId = "",
 ): PreviewBlock[] {
   return rows.map((row) => {
     const target = row.segment.targetText.trim();
+    const text = target || row.segment.sourceText;
+    const tags = target.length > 0 ? row.targetTags : row.sourceTags;
     return {
       segmentId: row.segment.id,
       label: structureLabel(row.segment.structuralPath) || "¶",
       path: row.segment.structuralPath,
-      text: target || row.segment.sourceText,
+      text,
+      html: previewInnerHtml(text, tags),
       empty: target.length === 0,
+      role: previewRole(
+        row.segment.structuralPath,
+        filterId,
+        row.segment.ordinal,
+      ),
     };
   });
 }

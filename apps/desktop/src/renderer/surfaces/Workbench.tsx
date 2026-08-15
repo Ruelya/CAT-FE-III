@@ -573,6 +573,7 @@ export function Workbench({
           {previewOpen ? (
             <StructurePreview
               rows={visibleRows}
+              filterId={ctx.document.filterId}
               activeSegmentId={activeSegmentId}
               onJump={(id) => {
                 void onSelectSegment(id);

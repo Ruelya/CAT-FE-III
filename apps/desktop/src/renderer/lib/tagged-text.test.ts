@@ -5,6 +5,7 @@ import {
   buildTaggedEditorHtml,
   insertTextIntoTagged,
   mergeTargetTags,
+  mapTagsToTargetPositions,
   placeSourceTagsAtCaret,
   placeSourceTagsProportional,
   serializeTaggedEditor,
@@ -137,5 +138,34 @@ describe("tagged editor html", () => {
         { ...tags[1]!, side: "target", position: 15 },
       ]),
     ).toBe(true);
+  });
+
+  it("overlays ghosts at expected offsets without serializing them", () => {
+    const ghosts = mapTagsToTargetPositions(
+      [tag("1s", "start", 9, "b"), tag("1e", "end", 15, "b")],
+      22,
+      11,
+    );
+    const root = document.createElement("div");
+    root.innerHTML = buildTaggedEditorHtml("你好电源站。", [], ghosts);
+    expect(root.querySelectorAll("[data-ghost]")).toHaveLength(2);
+    expect(root.querySelector('[data-testid="ghost-tag-1s"]')?.textContent).toBe(
+      "b",
+    );
+    const serialized = serializeTaggedEditor(root);
+    expect(serialized.text).toBe("你好电源站。");
+    expect(serialized.tags).toEqual([]);
+  });
+});
+
+describe("mapTagsToTargetPositions", () => {
+  it("keeps source ids while scaling offsets", () => {
+    const mapped = mapTagsToTargetPositions(
+      [tag("1s", "start", 9, "b"), tag("1e", "end", 15, "b")],
+      22,
+      11,
+    );
+    expect(mapped.map((item) => item.id)).toEqual(["1s", "1e"]);
+    expect(mapped.map((item) => item.position)).toEqual([5, 8]);
   });
 });

@@ -1,7 +1,7 @@
 import type { InlineTag } from "@translunar/contracts";
 
 export interface TaggedPiece {
-  kind: "text" | "tag";
+  kind: "text" | "tag" | "ghost";
   text: string;
   tag?: InlineTag;
 }
@@ -18,25 +18,33 @@ export interface SerializedTaggedText {
  * the string as characters. Tags at the same position are emitted in the order
  * they arrive (start before end for a collapsed pair).
  */
+function tagRank(tag: InlineTag): number {
+  return tag.kind === "start" ? 0 : tag.kind === "standalone" ? 1 : 2;
+}
+
 export function splitTaggedText(
   text: string,
   tags: readonly InlineTag[],
+  ghosts: readonly InlineTag[] = [],
 ): TaggedPiece[] {
   const characters = [...text];
-  const ordered = [...tags].sort((left, right) => {
-    if (left.position !== right.position) {
-      return left.position - right.position;
+  const markers = [
+    ...tags.map((tag) => ({ tag, ghost: false })),
+    ...ghosts.map((tag) => ({ tag, ghost: true })),
+  ].sort((left, right) => {
+    if (left.tag.position !== right.tag.position) {
+      return left.tag.position - right.tag.position;
     }
-    // Starts before ends at the same offset so a collapsed pair reads <b></b>.
-    const rank = (tag: InlineTag) =>
-      tag.kind === "start" ? 0 : tag.kind === "standalone" ? 1 : 2;
-    return rank(left) - rank(right);
+    // Real tags before ghosts at the same offset. Starts before ends so a
+    // collapsed pair reads <b></b>.
+    if (left.ghost !== right.ghost) return left.ghost ? 1 : -1;
+    return tagRank(left.tag) - tagRank(right.tag);
   });
 
   const pieces: TaggedPiece[] = [];
   let cursor = 0;
-  for (const tag of ordered) {
-    const at = Math.max(0, Math.min(tag.position, characters.length));
+  for (const marker of markers) {
+    const at = Math.max(0, Math.min(marker.tag.position, characters.length));
     if (at > cursor) {
       pieces.push({
         kind: "text",
@@ -45,9 +53,9 @@ export function splitTaggedText(
       cursor = at;
     }
     pieces.push({
-      kind: "tag",
-      text: tagLabel(tag),
-      tag,
+      kind: marker.ghost ? "ghost" : "tag",
+      text: tagLabel(marker.tag),
+      tag: marker.tag,
     });
   }
   if (cursor < characters.length) {
@@ -56,7 +64,7 @@ export function splitTaggedText(
       text: characters.slice(cursor).join(""),
     });
   }
-  if (pieces.length === 0 && text.length === 0 && ordered.length === 0) {
+  if (pieces.length === 0 && text.length === 0 && markers.length === 0) {
     return [];
   }
   return pieces;
@@ -87,22 +95,35 @@ export function tagsEqual(
   });
 }
 
+/** Map source tag offsets onto a target of a different length. Keeps ids. */
+export function mapTagsToTargetPositions(
+  tags: readonly InlineTag[],
+  sourceLength: number,
+  targetLength: number,
+): InlineTag[] {
+  const span = Math.max(sourceLength, 1);
+  return tags.map((tag) => ({
+    ...tag,
+    position: Math.min(
+      targetLength,
+      Math.round((tag.position * targetLength) / span),
+    ),
+  }));
+}
+
 export function placeSourceTagsProportional(
   sourceTags: readonly InlineTag[],
   sourceLength: number,
   targetLength: number,
 ): InlineTag[] {
-  const span = Math.max(sourceLength, 1);
-  return sourceTags.map((tag, index) => ({
-    ...tag,
-    id: `placed-${index}:${tag.id}`,
-    side: "target" as const,
-    position: Math.min(
-      targetLength,
-      Math.round((tag.position * targetLength) / span),
-    ),
-    protected: true,
-  }));
+  return mapTagsToTargetPositions(sourceTags, sourceLength, targetLength).map(
+    (tag, index) => ({
+      ...tag,
+      id: `placed-${index}:${tag.id}`,
+      side: "target" as const,
+      protected: true,
+    }),
+  );
 }
 
 /**
@@ -210,23 +231,33 @@ function decodeTag(value: string | null): InlineTag | null {
   }
 }
 
+function isAtomSpan(element: HTMLElement): boolean {
+  return Boolean(element.dataset.tag || element.dataset.ghost);
+}
+
 /** HTML for a contenteditable target that treats tags as protected atoms. */
 export function buildTaggedEditorHtml(
   text: string,
   tags: readonly InlineTag[],
+  ghosts: readonly InlineTag[] = [],
 ): string {
-  const pieces = splitTaggedText(text, tags);
+  const pieces = splitTaggedText(text, tags, ghosts);
   if (pieces.length === 0) return "<br>";
-  return pieces
+  const html = pieces
     .map((piece) => {
       if (piece.kind === "text") {
         return escapeHtml(piece.text).replaceAll("\n", "<br>");
       }
       const tag = piece.tag;
       if (!tag) return "";
+      if (piece.kind === "ghost") {
+        const id = escapeHtml(tag.id);
+        return `<span class="inline-tag inline-tag--ghost inline-tag--${tag.kind}" contenteditable="false" data-ghost="${id}" data-testid="ghost-tag-${id}" title="Place ${escapeHtml(piece.text)}">${escapeHtml(piece.text)}</span>`;
+      }
       return `<span class="inline-tag inline-tag--${tag.kind}" contenteditable="false" data-tag="${encodeTag(tag)}" title="${escapeHtml(tag.payload || piece.text)}">${escapeHtml(piece.text)}</span>`;
     })
     .join("");
+  return text.length === 0 ? `${html}<br>` : html;
 }
 
 function characterLength(value: string): number {
@@ -248,10 +279,12 @@ export function serializeTaggedEditor(root: HTMLElement): SerializedTaggedText {
     }
     if (node.nodeType !== Node.ELEMENT_NODE) return;
     const element = node as HTMLElement;
-    if (element.dataset.tag) {
-      const tag = decodeTag(element.dataset.tag);
-      if (tag) {
-        tags.push({ ...tag, position: characterLength(text), side: "target" });
+    if (isAtomSpan(element)) {
+      if (element.dataset.tag) {
+        const tag = decodeTag(element.dataset.tag);
+        if (tag) {
+          tags.push({ ...tag, position: characterLength(text), side: "target" });
+        }
       }
       return;
     }
@@ -302,7 +335,7 @@ function precedingTextLength(root: HTMLElement, node: Node): number {
     }
     if (current.nodeType === Node.ELEMENT_NODE) {
       const element = current as HTMLElement;
-      if (element.dataset.tag) return false;
+      if (isAtomSpan(element)) return false;
       if (element.tagName === "BR") {
         length += 1;
         return false;
@@ -365,7 +398,7 @@ export function setCaretInTaggedEditor(
     }
     if (node.nodeType === Node.ELEMENT_NODE) {
       const element = node as HTMLElement;
-      if (element.dataset.tag) return false;
+      if (isAtomSpan(element)) return false;
       if (element.tagName === "BR") {
         if (remaining === 0) {
           range.setStartBefore(element);

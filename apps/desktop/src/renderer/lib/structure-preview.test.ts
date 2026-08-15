@@ -1,25 +1,47 @@
 import { describe, expect, it } from "vitest";
-import type { SegmentEditorRow } from "@translunar/contracts";
+import type { InlineTag, SegmentEditorRow } from "@translunar/contracts";
 
-import { previewBlocks } from "./structure-preview";
+import { previewBlocks, previewRole } from "./structure-preview";
+
+function tag(
+  id: string,
+  kind: "start" | "end",
+  position: number,
+  displayText: string,
+): InlineTag {
+  return {
+    id,
+    kind,
+    position,
+    displayText,
+    side: "source",
+    payload: displayText,
+    protected: true,
+  };
+}
 
 function row(
   id: string,
   source: string,
   target: string,
   path: string,
+  extras?: {
+    ordinal?: number;
+    sourceTags?: InlineTag[];
+    targetTags?: InlineTag[];
+  },
 ): SegmentEditorRow {
   return {
     comments: [],
-    sourceTags: [],
-    targetTags: [],
+    sourceTags: extras?.sourceTags ?? [],
+    targetTags: extras?.targetTags ?? [],
     spellFindings: [],
     tagIssues: [],
     workflowState: "translation",
     segment: {
       id,
       documentId: "doc",
-      ordinal: 0,
+      ordinal: extras?.ordinal ?? 0,
       revision: 1,
       sourceText: source,
       targetText: target,
@@ -43,12 +65,30 @@ describe("previewBlocks", () => {
       text: "你好",
       empty: false,
       label: "¶",
+      role: "paragraph",
     });
     expect(blocks[1]).toMatchObject({
       segmentId: "b",
       text: "World",
       empty: true,
       label: "H",
+      role: "heading",
     });
+  });
+
+  it("applies source tags when the target is still empty", () => {
+    const blocks = previewBlocks([
+      row("a", "Read the TL-900 guide.", "", "word/document.xml#p:1", {
+        sourceTags: [tag("1s", "start", 9, "b"), tag("1e", "end", 15, "b")],
+      }),
+    ]);
+    expect(blocks[0]?.html).toBe("Read the <strong>TL-900</strong> guide.");
+  });
+});
+
+describe("previewRole", () => {
+  it("treats the first HTML unit as a heading", () => {
+    expect(previewRole("html:text:0-12", "builtin.html", 0)).toBe("heading");
+    expect(previewRole("html:text:20-40", "builtin.html", 1)).toBe("paragraph");
   });
 });

@@ -23,6 +23,8 @@ const FIXTURES = [
   { format: "md", file: join(FIXTURE_DIR, "real.md") },
   { format: "html", file: join(FIXTURE_DIR, "real.html") },
   { format: "xliff", file: join(FIXTURE_DIR, "real.xlf") },
+  { format: "sdlxliff", file: join(FIXTURE_DIR, "real.sdlxliff") },
+  { format: "mqxliff", file: join(FIXTURE_DIR, "real.mqxliff") },
   { format: "docx", file: join(FIXTURE_DIR, "real.docx") },
   { format: "xlsx", file: join(FIXTURE_DIR, "real.xlsx") },
   { format: "pptx", file: join(FIXTURE_DIR, "real.pptx") },
@@ -96,6 +98,7 @@ for (const fixture of FIXTURES) {
           id: r.segment.id,
           rev: r.segment.revision,
           src: r.segment.sourceText,
+          sourceTags: r.sourceTags ?? [],
           tags: (r.sourceTags ?? []).length,
           labels: [...new Set((r.sourceTags ?? []).map((t) => t.displayText))],
         })),
@@ -113,14 +116,37 @@ for (const fixture of FIXTURES) {
       const failures = [];
       for (const row of snapshot.rows) {
         try {
+          const targetText = `[zh] ${row.src}`;
           const saved = await api.invoke("segment.updateTarget", {
             segmentId: row.id,
             expectedRevision: row.rev,
-            targetText: `[zh] ${row.src}`,
+            targetText,
           });
+          let revision = saved.revision;
+          if (row.sourceTags.length > 0) {
+            const sourceLen = Math.max([...row.src].length, 1);
+            const targetLen = [...targetText].length;
+            const targetTags = row.sourceTags.map((tag, index) => ({
+              ...tag,
+              id: `placed-${index}:${tag.id}`,
+              side: "target",
+              position: Math.min(
+                targetLen,
+                Math.round((tag.position * targetLen) / sourceLen),
+              ),
+              protected: true,
+            }));
+            const tagged = await api.invoke("segment.tag.set", {
+              segmentId: row.id,
+              expectedRevision: revision,
+              targetTags,
+            });
+            const current = tagged.rows.find((item) => item.segment.id === row.id);
+            if (current) revision = current.segment.revision;
+          }
           await api.invoke("segment.confirm", {
             segmentId: row.id,
-            expectedRevision: saved.revision,
+            expectedRevision: revision,
           });
           confirmed += 1;
         } catch (error) {
@@ -190,7 +216,12 @@ for (const fixture of FIXTURES) {
       record.degradation = (exportResult.report?.degradation ?? []).map(
         (d) => d.code,
       );
-      if (["txt", "md", "html", "xliff"].includes(fixture.format) && info) {
+      if (
+        ["txt", "md", "html", "xliff", "sdlxliff", "mqxliff"].includes(
+          fixture.format,
+        ) &&
+        info
+      ) {
         const text = await readFile(outPath, "utf8");
         record.targetPresent = text.includes("[zh]");
       } else if (info) {
@@ -243,7 +274,7 @@ for (const r of results) {
           : "PASS";
   if (verdict !== "PASS") failed += 1;
   console.log(
-    `${verdict.padEnd(17)} ${r.format.padEnd(6)} segs=${r.segments ?? "?"} tagged=${r.taggedSegments ?? "?"} labels=${JSON.stringify(r.tagLabels ?? [])} confirmed=${r.confirmed ?? "?"} gateClear=${r.gateClear} qa=${r.qaErrors}E/${r.qaWarnings}W export=${r.export ?? r.fatal}`,
+    `${verdict.padEnd(17)} ${r.format.padEnd(8)} segs=${r.segments ?? "?"} tagged=${r.taggedSegments ?? "?"} labels=${JSON.stringify(r.tagLabels ?? [])} confirmed=${r.confirmed ?? "?"} gateClear=${r.gateClear} qa=${r.qaErrors}E/${r.qaWarnings}W export=${r.export ?? r.fatal}`,
   );
 }
 if (failed > 0) {

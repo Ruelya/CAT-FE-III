@@ -75,6 +75,46 @@ units = "".join(
     encoding="utf-8",
 )
 
+
+def tagged_units():
+    parts = []
+    for index, text in enumerate(SENTENCES):
+        source = text
+        if index == 1:
+            source = text.replace(
+                "TL-900 power station",
+                '<g id="1">TL-900 power station</g>',
+            )
+        if index == 6:
+            source = text.replace("24 months", '<g id="2">24 months</g>')
+        parts.append(f'<trans-unit id="u{index}"><source>{source}</source></trans-unit>')
+    return "".join(parts)
+
+
+# ----------------------------------------------------------- SDLXLIFF 1.2
+(OUT / "real.sdlxliff").write_text(
+    '<?xml version="1.0" encoding="UTF-8"?>'
+    '<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2" '
+    'xmlns:sdl="urn:sdl">'
+    '<file original="guide.docx" source-language="en-US" target-language="zh-CN" '
+    'datatype="x-docx"><body>'
+    f"{tagged_units()}"
+    "</body></file></xliff>\n",
+    encoding="utf-8",
+)
+
+# ------------------------------------------------------------ MQXLIFF 1.2
+(OUT / "real.mqxliff").write_text(
+    '<?xml version="1.0" encoding="UTF-8"?>'
+    '<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2" '
+    'xmlns:mq="urn:memoq">'
+    '<file original="guide.docx" source-language="en-US" target-language="zh-CN" '
+    'datatype="plaintext"><body>'
+    f"{tagged_units()}"
+    "</body></file></xliff>\n",
+    encoding="utf-8",
+)
+
 # ----------------------------------------------------------------- xlsx
 sheet_rows = "".join(
     f'<row r="{index + 1}"><c r="A{index + 1}" t="s"><v>{index}</v></c></row>'

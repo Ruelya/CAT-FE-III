@@ -46,15 +46,23 @@
 | QuickPlace 列表 | Ctrl+, 仍一次放置全部标签（门禁不变）。Ctrl+Shift+, / Place 打开列表：全部标签、成对标签、数字/日期/URL/邮箱。选区包一对标签。 |
 | Ghost tags | 目标未携带的源标签以虚线胶囊列在编辑器下，点击放入光标处（成对则包住选区）。 |
 
+### 2026-08-15 续作（叠位 ghost + 格式化预览 + 厂商 XLIFF）
+
+| 能力 | 说明 |
+| --- | --- |
+| 正文叠位 ghost | 未携带的源标签按源文比例叠在目标正文预期位置。点击放入该位置（成对则包住预期跨度；有选区则包选区）。不进入 serialize。 |
+| 格式化预览 | Preview 用段标签重建 HTML 排版（strong/em/u），标题/段落/单元格分角色。仍不是 Word COM / 浏览器级整页 WYSIWYG。 |
+| SDLXLIFF / MQXLIFF 门禁 | `fixtures/formats/real.sdlxliff` 与 `real.mqxliff` 进入 format-matrix；确认时按比例写入目标标签。 |
+
 ### 仍未做到 Trados 同水准的部分（诚实清单）
 
 这些**没有**假装完成，下一轮应继续：
 
-1. **IME 与补全在富文本上的手感打磨**——atom / QuickPlace / ghost 已在；选区包标签已接，但没有 Trados 那种 ghost 叠在正文预期位置上。
-2. **实时预览**（Word/HTML 所见即所得）。现在是结构块预览。
+1. **IME 与补全在富文本上的手感**——ghost 已叠在正文上，但补全弹层仍锚在编辑器下方，避免和 IME 抢位。
+2. **Word COM / 真 PDF 所见即所得**。现在是标签重建的 HTML 预览，不是原文件排版引擎。
 3. **Approved / Rejected 七档**——引擎工作流是 translation/review/signed 三档，Signed = 锁定。
 4. **AI 需真实 provider 密钥**才能生成；门禁验证的是“挂在当前段 + 无配置时诚实”，不是云端生成质量。
-5. **SDLXLIFF / MQXLIFF / PDF** 尚未纳入 format-matrix 的同构往返（引擎已注册过滤器，缺同级 fixture 门禁）。
+5. **PDF** 尚未纳入 format-matrix 的同构往返（引擎已注册 `builtin.pdf`）。
 
 主参照：SDL Trados Studio 2024 / 2024 SR1 的 Editor view（以 docs.rws.com 官方
 文档为准）；补遗参照 memoQ（docs.memoq.com）与 CafeTran。协作、派单、云协同、
