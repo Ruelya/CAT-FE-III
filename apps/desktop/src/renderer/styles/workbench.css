@@ -907,12 +907,15 @@
 .intel-dock__tab {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--space-1);
+  min-width: var(--control-h-sm);
+  min-height: var(--control-h-sm);
   border: 0;
   background: transparent;
   border-radius: 0;
   border-bottom: 2px solid transparent;
-  padding: var(--space-2) var(--space-2);
+  padding: 0 var(--space-2);
   font-family: var(--font-ui);
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);
@@ -1420,7 +1423,7 @@
   background: transparent;
   border-radius: var(--radius-sm);
   padding: 0 var(--space-2);
-  min-height: calc(var(--control-h-sm) - 4px);
+  min-height: var(--control-h-sm);
   font-size: var(--text-xs);
   color: var(--color-text-muted);
   cursor: pointer;
@@ -1446,7 +1449,7 @@
 .display-filter__search input,
 .display-filter__side select {
   width: 100%;
-  min-height: calc(var(--control-h-sm) - 4px);
+  min-height: var(--control-h-sm);
   font-size: var(--text-xs);
   padding-block: 0;
 }
@@ -1455,8 +1458,17 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
+  min-height: var(--control-h-sm);
   font-size: var(--text-xs);
   color: var(--color-text-muted);
+}
+
+.display-filter__regex input {
+  width: var(--control-h-sm);
+  height: var(--control-h-sm);
+  min-width: var(--control-h-sm);
+  min-height: var(--control-h-sm);
+  margin: 0;
 }
 
 .display-filter__count {
