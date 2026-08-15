@@ -5,6 +5,7 @@ import { formatUiError } from "../lib/errors";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
 import { EditorPanelShell } from "./EditorPanelShell";
 import type { EditorOperationsApi } from "../state/use-editor-operations";
+import { useEditorDisplay } from "../state/use-editor-display";
 
 export interface EditorPanelsProps {
   ops: EditorOperationsApi;
@@ -21,6 +22,7 @@ export function EditorPanels({
 }: EditorPanelsProps) {
   const busy = disabled || ops.busy;
   const panel = ops.panel;
+  const [view, setView] = useEditorDisplay();
   const [deleteComment, setDeleteComment] = useState<{
     id: string;
     revision: number;
@@ -809,11 +811,13 @@ export function EditorPanels({
               <label>
                 <input
                   type="checkbox"
-                  checked={prefs.showNonprinting}
+                  checked={view.whitespace}
                   disabled={busy || ops.preferencesPending}
-                  onChange={(e) =>
-                    ops.setPreferenceField("showNonprinting", e.target.checked)
-                  }
+                  onChange={(e) => {
+                    setView({ whitespace: e.target.checked });
+                    ops.setPreferenceField("showNonprinting", e.target.checked);
+                  }}
+                  data-testid="pref-nonprinting"
                 />{" "}
                 Nonprinting
               </label>

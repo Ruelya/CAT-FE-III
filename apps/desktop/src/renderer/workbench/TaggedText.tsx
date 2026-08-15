@@ -1,8 +1,19 @@
 import type { ReactNode } from "react";
 import type { InlineTag } from "@translunar/contracts";
 
-import { adjacentPlaceholderGroupAt } from "../lib/quickplace";
-import { encodeInlineTag, selectTagAtoms, splitTaggedText } from "../lib/tagged-text";
+import {
+  hideFormattingCapsule,
+  splitWhitespace,
+  type EditorDisplay,
+} from "../lib/editor-display";
+import { adjacentPlaceholderGroupAt, pairSourceTags } from "../lib/quickplace";
+import { formatRunClass, formatTokens } from "../lib/preview-markup";
+import {
+  encodeInlineTag,
+  selectTagAtoms,
+  splitTaggedText,
+  visibleTagLabel,
+} from "../lib/tagged-text";
 
 export interface SourceHighlight {
   start: number;
@@ -19,6 +30,62 @@ export interface TaggedTextProps {
   highlight?: SourceHighlight | null;
   /** Select adjacent placeholders as one range (Trados grouping). */
   groupAdjacent?: boolean;
+  display?: EditorDisplay;
+}
+
+function renderRun(
+  text: string,
+  key: string,
+  highlight: SourceHighlight | null | undefined,
+  lo: number,
+  showWhitespace: boolean,
+  formatClass: string,
+): ReactNode {
+  const wrap = (inner: ReactNode, suffix: string) =>
+    formatClass ? (
+      <span key={`${key}-${suffix}`} className={formatClass}>
+        {inner}
+      </span>
+    ) : (
+      <span key={`${key}-${suffix}`}>{inner}</span>
+    );
+
+  const paint = (value: string, suffix: string) => {
+    if (!showWhitespace) return wrap(value, suffix);
+    return wrap(
+      splitWhitespace(value).map((piece, index) =>
+        piece.kind === "text" ? (
+          <span key={`${suffix}-t${index}`}>{piece.text}</span>
+        ) : (
+          <span
+            key={`${suffix}-w${index}`}
+            className={`ws ws--${piece.kind}`}
+            data-ws={piece.kind}
+          >
+            {piece.text}
+          </span>
+        ),
+      ),
+      suffix,
+    );
+  };
+
+  const chars = [...text];
+  const hi = lo + chars.length;
+  if (!highlight || highlight.start >= hi || highlight.end <= lo) {
+    return paint(text, "all");
+  }
+  const from = Math.max(0, highlight.start - lo);
+  const to = Math.min(chars.length, highlight.end - lo);
+  return (
+    <span key={key} className={formatClass || undefined}>
+      {from > 0 ? paint(chars.slice(0, from).join(""), "a") : null}
+      <mark className="qp-source-hit" data-testid="qp-source-hit">
+        {paint(chars.slice(from, to).join(""), "h")}
+      </mark>
+      {to < chars.length ? paint(chars.slice(to).join(""), "c") : null}
+    </span>
+  );
 }
 
 /**
@@ -36,66 +103,72 @@ export function TaggedText({
   onTagActivate,
   highlight,
   groupAdjacent = false,
+  display,
 }: TaggedTextProps) {
+  const formatting = display?.formatting ?? "full";
+  const tagText = display?.tagText ?? "partial";
+  const whitespace = display?.whitespace === true;
   const pieces = splitTaggedText(text, tags);
   if (pieces.length === 0) {
-    return <div className={className}>{text || "\u00a0"}</div>;
+    return (
+      <div className={className}>
+        {whitespace
+          ? renderRun(text || "\u00a0", "empty", null, 0, true, "")
+          : text || "\u00a0"}
+      </div>
+    );
   }
   let offset = 0;
   const nodes: ReactNode[] = [];
+  const stack: string[] = [];
   for (const [index, piece] of pieces.entries()) {
     if (piece.kind === "text") {
-      const chars = [...piece.text];
-      const lo = offset;
-      const hi = offset + chars.length;
-      if (highlight && highlight.start < hi && highlight.end > lo) {
-        const from = Math.max(0, highlight.start - lo);
-        const to = Math.min(chars.length, highlight.end - lo);
-        if (from > 0) {
-          nodes.push(
-            <span key={`t-${index}-a`}>{chars.slice(0, from).join("")}</span>,
-          );
-        }
-        nodes.push(
-          <mark key={`t-${index}-h`} className="qp-source-hit" data-testid="qp-source-hit">
-            {chars.slice(from, to).join("")}
-          </mark>,
-        );
-        if (to < chars.length) {
-          nodes.push(
-            <span key={`t-${index}-c`}>{chars.slice(to).join("")}</span>,
-          );
-        }
-      } else {
-        nodes.push(<span key={`t-${index}`}>{piece.text}</span>);
-      }
-      offset = hi;
+      const formatClass =
+        formatting === "tags" ? "" : formatRunClass(stack);
+      nodes.push(
+        renderRun(
+          piece.text,
+          `t-${index}`,
+          highlight,
+          offset,
+          whitespace,
+          formatClass,
+        ),
+      );
+      offset += [...piece.text].length;
       continue;
     }
+    const tag = piece.tag;
     const hit =
       highlight != null && offset >= highlight.start && offset <= highlight.end;
+    const tokens = tag ? formatTokens(tag.displayText) : [];
+    const hidden = tag
+      ? hideFormattingCapsule(tag.kind, tag.displayText, formatting, false)
+      : false;
+    const label =
+      tag && tagText !== "none" ? visibleTagLabel(tag, tagText) : "";
     nodes.push(
       <span
-        key={`g-${piece.tag?.id ?? index}`}
-        className={`inline-tag inline-tag--${piece.tag?.kind ?? "standalone"}${
-          hit ? " inline-tag--qp-hit" : ""
-        }`}
+        key={`g-${tag?.id ?? index}`}
+        className={`inline-tag inline-tag--${tag?.kind ?? "standalone"}${
+          hidden ? " inline-tag--hidden" : ""
+        }${hit ? " inline-tag--qp-hit" : ""}`}
         title={
           onTagActivate
             ? `Ctrl+click to place ${piece.text}`
-            : (piece.tag?.payload ?? piece.text)
+            : (tag?.payload ?? piece.text)
         }
-        {...(piece.tag ? { "data-tag": encodeInlineTag(piece.tag) } : {})}
+        {...(tag ? { "data-tag": encodeInlineTag(tag) } : {})}
         onMouseDown={(event) => {
-          if (!piece.tag) return;
+          if (!tag) return;
           if (event.ctrlKey || event.metaKey) {
             if (!onTagActivate) return;
             event.preventDefault();
-            onTagActivate(piece.tag);
+            onTagActivate(tag);
             return;
           }
           if (!groupAdjacent) return;
-          const group = adjacentPlaceholderGroupAt(tags, piece.tag.id);
+          const group = adjacentPlaceholderGroupAt(tags, tag.id);
           if (group.length < 2) return;
           event.preventDefault();
           const root =
@@ -108,10 +181,32 @@ export function TaggedText({
             );
           }
         }}
+        onDoubleClick={(event) => {
+          if (!tag) return;
+          const pair = pairSourceTags(tags).pairs.find(
+            (item) => item.start.id === tag.id || item.end.id === tag.id,
+          );
+          if (!pair) return;
+          event.preventDefault();
+          const root =
+            event.currentTarget.closest(".segment-source") ??
+            event.currentTarget.parentElement;
+          if (root instanceof HTMLElement) {
+            selectTagAtoms(root, [pair.start.id, pair.end.id]);
+          }
+        }}
       >
-        {piece.text}
+        {hidden ? "" : label || piece.text}
       </span>,
     );
+    if (tag?.kind === "end") {
+      for (const token of tokens) {
+        const at = stack.lastIndexOf(token);
+        if (at >= 0) stack.splice(at, 1);
+      }
+    } else if (tag?.kind === "start") {
+      stack.push(...tokens);
+    }
   }
   return <div className={className}>{nodes}</div>;
 }

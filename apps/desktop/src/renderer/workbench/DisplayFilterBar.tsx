@@ -4,6 +4,8 @@ import {
   EMPTY_FILTER,
   isFilterActive,
 } from "../state/display-filter";
+import { useEditorDisplay } from "../state/use-editor-display";
+import type { FormattingDisplayStyle, TagTextMode } from "../lib/editor-display";
 
 export interface DisplayFilterBarProps {
   filter: DisplayFilter;
@@ -34,6 +36,7 @@ export function DisplayFilterBar({
   disabled,
   onChange,
 }: DisplayFilterBarProps) {
+  const [view, setView] = useEditorDisplay();
   const active = isFilterActive(filter);
   const toggleState = (id: string) => {
     const states = filter.states.includes(id)
@@ -153,6 +156,53 @@ export function DisplayFilterBar({
 
       {/* The count is the filter's honesty: it says how much of the document
           is being hidden, so nobody signs off on a file they only saw part of. */}
+      <div className="display-filter__group" role="group" aria-label="Editor view">
+        <button
+          type="button"
+          className={`chip-toggle${view.whitespace ? " chip-toggle--on" : ""}`}
+          aria-pressed={view.whitespace}
+          disabled={disabled}
+          data-testid="view-whitespace"
+          title="Show whitespace characters"
+          onClick={() => setView({ whitespace: !view.whitespace })}
+        >
+          Spaces
+        </button>
+        <label className="display-filter__side">
+          <span className="visually-hidden">Formatting display</span>
+          <select
+            value={view.formatting}
+            disabled={disabled}
+            data-testid="view-formatting"
+            title="Formatting display style"
+            onChange={(event) =>
+              setView({
+                formatting: event.target.value as FormattingDisplayStyle,
+              })
+            }
+          >
+            <option value="full">Tags + format</option>
+            <option value="formatted">Format only</option>
+            <option value="tags">Tags only</option>
+          </select>
+        </label>
+        <label className="display-filter__side">
+          <span className="visually-hidden">Tag text</span>
+          <select
+            value={view.tagText}
+            disabled={disabled}
+            data-testid="view-tag-text"
+            title="Tag text"
+            onChange={(event) =>
+              setView({ tagText: event.target.value as TagTextMode })
+            }
+          >
+            <option value="none">No tag text</option>
+            <option value="partial">Partial tags</option>
+            <option value="full">Full tags</option>
+          </select>
+        </label>
+      </div>
       <span className="display-filter__count" data-testid="filter-count">
         {describeFilter(filter, shown, total)}
       </span>

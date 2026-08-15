@@ -320,6 +320,32 @@ describe("tagged editor html", () => {
     expect(html).toContain("TL-900");
   });
 
+  it("keeps hidden formatting tags in the DOM so serialize still finds them", () => {
+    const tags = [tag("1s", "start", 9, "b"), tag("1e", "end", 15, "b")];
+    const html = buildTaggedEditorHtml("Read the TL-900 guide.", tags, [], {
+      formatting: "formatted",
+      tagText: "partial",
+      whitespace: false,
+    });
+    expect(html).toContain("inline-tag--hidden");
+    expect(html).toContain("tagged-run--b");
+    const root = document.createElement("div");
+    root.innerHTML = html;
+    expect(serializeTaggedEditor(root).tags).toHaveLength(2);
+  });
+
+  it("marks spaces without changing serialized text", () => {
+    const html = buildTaggedEditorHtml("a b", [], [], {
+      formatting: "full",
+      tagText: "partial",
+      whitespace: true,
+    });
+    expect(html).toContain("ws--space");
+    const root = document.createElement("div");
+    root.innerHTML = html;
+    expect(serializeTaggedEditor(root).text).toBe("a b");
+  });
+
   it("maps a full surface selection to the whole tagged document", () => {
     const tags = [tag("1s", "start", 6, "b"), tag("1e", "end", 10, "b")];
     const host = document.createElement("div");

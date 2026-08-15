@@ -1065,6 +1065,12 @@
   bottom: calc(100% + var(--space-1));
 }
 
+.suggestions--caret {
+  right: auto;
+  width: min(22rem, calc(100% - var(--space-2)));
+  transform: translateY(calc(-100% - 6px));
+}
+
 /* ── Display filter ─────────────────────────────────────── */
 
 .display-filter {
@@ -1311,6 +1317,67 @@
 .inline-tag--qp-hit {
   outline: 2px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
   outline-offset: 1px;
+}
+
+.inline-tag--hidden {
+  display: inline;
+  width: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  font-size: 0;
+  line-height: 0;
+  color: transparent;
+  background: transparent;
+}
+
+.ws {
+  position: relative;
+}
+
+.ws--space {
+  background-image: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--color-text-subtle) 70%, transparent) 1.1px,
+    transparent 1.25px
+  );
+  background-position: center 60%;
+  background-repeat: no-repeat;
+}
+
+.ws--nbsp {
+  background-image: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--color-accent) 55%, transparent) 1.2px,
+    transparent 1.35px
+  );
+  background-position: center 55%;
+  background-repeat: no-repeat;
+}
+
+.ws--nbsp::after {
+  content: "\00b0";
+  position: absolute;
+  left: 50%;
+  top: -0.15em;
+  transform: translateX(-50%);
+  font-size: 0.65em;
+  color: color-mix(in srgb, var(--color-accent) 70%, var(--color-text-subtle));
+  pointer-events: none;
+}
+
+.ws--tab {
+  min-width: 1.2em;
+  background-image: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-text-subtle) 45%, transparent) 0 70%,
+    transparent 70%
+  );
+  background-size: 0.7em 1px;
+  background-position: left center;
+  background-repeat: no-repeat;
 }
 
 .target-editor__actions [aria-pressed="true"] {

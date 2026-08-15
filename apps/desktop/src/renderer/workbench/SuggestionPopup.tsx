@@ -7,6 +7,8 @@ export interface SuggestionPopupProps {
   onHover: (index: number) => void;
   onAccept: (suggestion: EditorSuggestion) => void;
   onDismiss: () => void;
+  /** Caret offset inside the editor; the list sits above it so it misses the IME. */
+  anchor?: { left: number; top: number };
 }
 
 const SOURCE_LABEL: Record<EditorSuggestion["source"], string> = {
@@ -31,6 +33,7 @@ export function SuggestionPopup({
   onHover,
   onAccept,
   onDismiss,
+  anchor,
 }: SuggestionPopupProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [above, setAbove] = useState(false);
@@ -61,10 +64,15 @@ export function SuggestionPopup({
   return (
     <div
       ref={ref}
-      className={`suggestions${above ? " suggestions--above" : ""}`}
+      className={`suggestions${above ? " suggestions--above" : ""}${
+        anchor ? " suggestions--caret" : ""
+      }`}
       data-testid="suggestion-popup"
       role="status"
       aria-live="polite"
+      {...(anchor
+        ? { style: { left: `${anchor.left}px`, top: `${anchor.top}px` } }
+        : {})}
     >
       <ul className="suggestions__list">
         {suggestions.map((suggestion, index) => (

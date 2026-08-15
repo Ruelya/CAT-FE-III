@@ -23,6 +23,7 @@ import {
   repeatedSources,
   type DisplayFilter,
 } from "../state/display-filter";
+import { useEditorDisplay } from "../state/use-editor-display";
 import { DisplayFilterBar } from "../workbench/DisplayFilterBar";
 import { canStoreTerm, type SegmentSelection } from "../state/editor-selection";
 import { rankMatches, type SegmentIntel } from "../state/segment-intel";
@@ -203,6 +204,7 @@ export function Workbench({
   } | null>(null);
   const [protectTags, setProtectTags] = useState(readProtectTags);
   const [groupAdjacent, setGroupAdjacent] = useState(readGroupAdjacentTags);
+  const [editorDisplay] = useEditorDisplay();
   useEffect(() => {
     setQuickPlaceOpen(false);
     setSourceHighlight(null);
@@ -596,6 +598,7 @@ export function Workbench({
               setGroupAdjacent(next);
               writeGroupAdjacentTags(next);
             }}
+            display={editorDisplay}
           />
           {previewOpen ? (
             <StructurePreview

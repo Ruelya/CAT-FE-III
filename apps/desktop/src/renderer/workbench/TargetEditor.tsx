@@ -8,6 +8,7 @@ import {
 } from "react";
 import type { EditorSuggestion, InlineTag } from "@translunar/contracts";
 
+import { smartPastePlain, type EditorDisplay } from "../lib/editor-display";
 import {
   adjacentPlaceholderGroupAt,
   extractPlaceables,
@@ -80,6 +81,7 @@ export interface TargetEditorProps {
   onProtectTagsChange?: (next: boolean) => void;
   groupAdjacent?: boolean;
   onGroupAdjacentChange?: (next: boolean) => void;
+  display?: EditorDisplay;
 }
 
 export interface SuggestionBinding {
@@ -131,6 +133,7 @@ export function TargetEditor({
   onProtectTagsChange,
   groupAdjacent = true,
   onGroupAdjacentChange,
+  display,
 }: TargetEditorProps) {
   const mirrorRef = useRef<HTMLTextAreaElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -142,6 +145,40 @@ export function TargetEditor({
   const ghostEnds = useRef(new Map<string, number>());
   const ghostsAtRef = useRef<InlineTag[]>([]);
   const effectiveTags = liveTags ?? tags;
+  const paintDisplay = useMemo(
+    () => ({
+      formatting: display?.formatting ?? ("full" as const),
+      tagText: display?.tagText ?? ("partial" as const),
+      whitespace: display?.whitespace === true,
+    }),
+    [display?.formatting, display?.tagText, display?.whitespace],
+  );
+  const paintHtml = (
+    nextText: string,
+    nextTags: readonly InlineTag[],
+    nextGhosts: readonly InlineTag[],
+  ) => buildTaggedEditorHtml(nextText, nextTags, nextGhosts, paintDisplay);
+  const [caretBox, setCaretBox] = useState<{ left: number; top: number } | null>(
+    null,
+  );
+  const measureCaret = () => {
+    const surface = surfaceRef.current;
+    const host = surface?.parentElement;
+    const selection = surface?.ownerDocument.defaultView?.getSelection() ?? null;
+    if (!surface || !host || !selection || selection.rangeCount === 0) return;
+    const range = selection.getRangeAt(0).cloneRange();
+    range.collapse(true);
+    const rect = range.getBoundingClientRect();
+    const box = host.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) {
+      setCaretBox({ left: 8, top: 8 });
+      return;
+    }
+    setCaretBox({
+      left: Math.max(0, rect.left - box.left),
+      top: Math.max(0, rect.top - box.top),
+    });
+  };
   const placeables = useMemo(
     () =>
       extractPlaceables(sourceText, sourceTags, effectiveTags, {
@@ -211,7 +248,7 @@ export function TargetEditor({
       return;
     }
     if (composing.current) return;
-    const next = buildTaggedEditorHtml(value, effectiveTags, ghostsAt);
+    const next = paintHtml(value, effectiveTags, ghostsAt);
     if (surface.innerHTML !== next) {
       const caret = caretOffsetsInTaggedEditor(
         surface,
@@ -222,7 +259,7 @@ export function TargetEditor({
         setCaretInTaggedEditor(surface, Math.min(caret, [...value].length));
       }
     }
-  }, [value, effectiveTags, ghostsAt, segmentId]);
+  }, [value, effectiveTags, ghostsAt, segmentId, paintDisplay]);
 
   const dirty =
     editState &&
@@ -282,7 +319,7 @@ export function TargetEditor({
     const surface = surfaceRef.current;
     if (!surface) return;
     skipSync.current = true;
-    surface.innerHTML = buildTaggedEditorHtml(nextText, nextTags, nextGhosts);
+    surface.innerHTML = paintHtml(nextText, nextTags, nextGhosts);
     if (surface.ownerDocument.activeElement === surface) {
       setCaretInTaggedEditor(surface, caret);
     }
@@ -541,12 +578,13 @@ export function TargetEditor({
     for (const ghost of nextGhosts) remembered.set(ghost.id, ghost.position);
     ghostEnds.current = remembered;
     ghostsAtRef.current = nextGhosts;
-    const painted = buildTaggedEditorHtml(live.text, live.tags, nextGhosts);
+    const painted = paintHtml(live.text, live.tags, nextGhosts);
     if (surface.innerHTML !== painted) {
       surface.innerHTML = painted;
       setCaretInTaggedEditor(surface, caret);
     }
     suggestions?.request(live.text, caret);
+    measureCaret();
   };
 
   const handleKeys = (
@@ -734,6 +772,20 @@ export function TargetEditor({
             group.map((item) => item.id),
           );
         }}
+        onDoubleClick={(event) => {
+          const target = event.target;
+          if (!(target instanceof HTMLElement) || !surfaceRef.current) return;
+          const atom = target.closest("[data-tag]");
+          if (!(atom instanceof HTMLElement)) return;
+          const tag = decodeInlineTag(atom.dataset.tag ?? null);
+          if (!tag) return;
+          const pair = pairSourceTags(effectiveTags).pairs.find(
+            (item) => item.start.id === tag.id || item.end.id === tag.id,
+          );
+          if (!pair) return;
+          event.preventDefault();
+          selectTagAtoms(surfaceRef.current, [pair.start.id, pair.end.id]);
+        }}
         onKeyDown={(event) => {
           const caret = surfaceRef.current
             ? caretOffsetsInTaggedEditor(
@@ -792,14 +844,20 @@ export function TargetEditor({
             );
             return;
           }
+          const inserted = smartPastePlain(
+            live.text,
+            caret.start,
+            caret.end,
+            pasted,
+          );
           const next = replaceSelectionInTagged(
             live.text,
             live.tags,
             caret.start,
             caret.end,
-            pasted,
+            inserted,
           );
-          commitLive(next.text, next.tags, caret.start + [...pasted].length);
+          commitLive(next.text, next.tags, caret.start + [...inserted].length);
         }}
       />
       {ghostsAt.length > 0 ? (
@@ -895,6 +953,7 @@ export function TargetEditor({
             suggestions.onAccepted(suggestion);
           }}
           onDismiss={suggestions.dismiss}
+          {...(caretBox ? { anchor: caretBox } : {})}
         />
       ) : null}
     </div>

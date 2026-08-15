@@ -1,5 +1,10 @@
 import type { InlineTag } from "@translunar/contracts";
 
+import {
+  hideFormattingCapsule,
+  wrapWhitespaceHtml,
+  type EditorDisplay,
+} from "./editor-display";
 import { formatRunClass, formatTokens } from "./preview-markup";
 
 export interface TaggedPiece {
@@ -78,6 +83,15 @@ export function tagLabel(tag: InlineTag): string {
   if (tag.kind === "start") return base;
   if (tag.kind === "end") return `/${base}`;
   return base;
+}
+
+export function visibleTagLabel(
+  tag: InlineTag,
+  mode: EditorDisplay["tagText"] = "partial",
+): string {
+  if (mode === "none") return "";
+  if (mode === "full") return tag.payload || tagLabel(tag);
+  return tagLabel(tag);
 }
 
 export function tagsEqual(
@@ -512,12 +526,18 @@ function isAtomSpan(element: HTMLElement): boolean {
   return Boolean(element.dataset.tag || element.dataset.ghost);
 }
 
-function capsuleHtml(tag: InlineTag, label: string, ghost: boolean): string {
+function capsuleHtml(
+  tag: InlineTag,
+  label: string,
+  ghost: boolean,
+  hidden = false,
+): string {
+  const hiddenClass = hidden ? " inline-tag--hidden" : "";
   if (ghost) {
     const id = escapeHtml(tag.id);
-    return `<span class="inline-tag inline-tag--ghost inline-tag--${tag.kind}" contenteditable="false" data-ghost="${id}" data-testid="ghost-tag-${id}" title="Place ${escapeHtml(label)}">${escapeHtml(label)}</span>`;
+    return `<span class="inline-tag inline-tag--ghost inline-tag--${tag.kind}${hiddenClass}" contenteditable="false" data-ghost="${id}" data-testid="ghost-tag-${id}" title="Place ${escapeHtml(label)}">${escapeHtml(label)}</span>`;
   }
-  return `<span class="inline-tag inline-tag--${tag.kind}" contenteditable="false" data-tag="${encodeInlineTag(tag)}" title="${escapeHtml(tag.payload || label)}">${escapeHtml(label)}</span>`;
+  return `<span class="inline-tag inline-tag--${tag.kind}${hiddenClass}" contenteditable="false" data-tag="${encodeInlineTag(tag)}" title="${escapeHtml(tag.payload || label)}">${escapeHtml(label)}</span>`;
 }
 
 function wrapFormatted(textHtml: string, stack: string[]): string {
@@ -531,6 +551,11 @@ export function buildTaggedEditorHtml(
   text: string,
   tags: readonly InlineTag[],
   ghosts: readonly InlineTag[] = [],
+  display: Pick<EditorDisplay, "formatting" | "tagText" | "whitespace"> = {
+    formatting: "full",
+    tagText: "partial",
+    whitespace: false,
+  },
 ): string {
   const pieces = splitTaggedText(text, tags, ghosts);
   if (pieces.length === 0) return "<br>";
@@ -539,23 +564,32 @@ export function buildTaggedEditorHtml(
   for (const piece of pieces) {
     if (piece.kind === "text") {
       html += wrapFormatted(
-        escapeHtml(piece.text).replaceAll("\n", "<br>"),
-        stack,
+        wrapWhitespaceHtml(escapeHtml(piece.text), display.whitespace),
+        display.formatting === "tags" ? [] : stack,
       );
       continue;
     }
     const tag = piece.tag;
     if (!tag) continue;
     const tokens = formatTokens(tag.displayText);
+    const ghost = piece.kind === "ghost";
+    const hidden = hideFormattingCapsule(
+      tag.kind,
+      tag.displayText,
+      display.formatting,
+      ghost,
+    );
+    const label =
+      display.tagText === "none" ? "" : visibleTagLabel(tag, display.tagText) || piece.text;
     if (tag.kind === "end") {
-      html += capsuleHtml(tag, piece.text, piece.kind === "ghost");
+      html += capsuleHtml(tag, hidden ? "" : label, ghost, hidden);
       for (const token of tokens) {
         const index = stack.lastIndexOf(token);
         if (index >= 0) stack.splice(index, 1);
       }
       continue;
     }
-    html += capsuleHtml(tag, piece.text, piece.kind === "ghost");
+    html += capsuleHtml(tag, hidden ? "" : label, ghost, hidden);
     if (tag.kind === "start") stack.push(...tokens);
   }
   return text.length === 0 ? `${html}<br>` : html;

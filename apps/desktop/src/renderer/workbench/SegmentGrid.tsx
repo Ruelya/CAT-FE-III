@@ -2,6 +2,7 @@ import type { KeyboardEvent } from "react";
 import type { EditorWorkflowState, InlineTag, SegmentEditorRow } from "@translunar/contracts";
 
 import { segmentNumber } from "../lib/format";
+import type { EditorDisplay } from "../lib/editor-display";
 import { adjacentPlaceholderGroupAt, pairSourceTags } from "../lib/quickplace";
 import { structureLabel, structureTitle } from "../lib/structure-label";
 import {
@@ -61,6 +62,7 @@ export interface SegmentGridProps {
   onProtectTagsChange?: (next: boolean) => void;
   groupAdjacent?: boolean;
   onGroupAdjacentChange?: (next: boolean) => void;
+  display?: EditorDisplay;
   /** Per-segment comment counts, for the row marker. */
   commentCounts?: Readonly<Record<string, number>>;
   /** Per-segment QA finding counts, for the row marker. */
@@ -98,6 +100,7 @@ export function SegmentGrid({
   onProtectTagsChange,
   groupAdjacent,
   onGroupAdjacentChange,
+  display,
   commentCounts,
   qaCounts,
   repeatedSources,
@@ -270,6 +273,7 @@ export function SegmentGrid({
                     tags={row.sourceTags}
                     {...(active && sourceHighlight ? { highlight: sourceHighlight } : {})}
                     {...(groupAdjacent ? { groupAdjacent } : {})}
+                    {...(display ? { display } : {})}
                     {...(active && onTagsChange
                       ? {
                           onTagActivate: (tag: InlineTag) => {
@@ -353,6 +357,7 @@ export function SegmentGrid({
                       {...(onProtectTagsChange ? { onProtectTagsChange } : {})}
                       {...(groupAdjacent !== undefined ? { groupAdjacent } : {})}
                       {...(onGroupAdjacentChange ? { onGroupAdjacentChange } : {})}
+                      {...(display ? { display } : {})}
                     />
                   ) : (
                     <button
@@ -371,6 +376,7 @@ export function SegmentGrid({
                         className="segment-source muted"
                         text={displayTarget || "-"}
                         tags={row.targetTags}
+                        {...(display ? { display } : {})}
                       />
                     </button>
                   )}
