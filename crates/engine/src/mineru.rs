@@ -7,21 +7,27 @@
 use std::collections::BTreeMap;
 use std::env;
 use std::fmt;
+use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use keyring::Entry;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use thiserror::Error;
 use translunar_domain::{DegradationFinding, DegradationSeverity, DocumentNote};
 use translunar_filter_core::{DocumentMetadata, ImportedDocument, ImportedUnit};
 use translunar_filter_pdf::{PdfPath, PdfTextSegmenter, count_page_tree};
+use zip::ZipArchive;
 
 /// OS keyring service name for the MinerU API token.
 pub const MINERU_CREDENTIAL_SERVICE: &str = "translunar-cat.mineru";
 pub const MINERU_CREDENTIAL_ACCOUNT: &str = "default";
+
+/// Official Precision Extract API root (token from the MinerU API console).
+pub const OFFICIAL_MINERU_API_ROOT: &str = "https://mineru.net/api/v4";
+const OFFICIAL_POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 /// Opt-in value for the in-memory credential backend (CI/tests).
 pub const MINERU_TEST_MODE_OPT_IN: &str = "1";
@@ -318,6 +324,7 @@ impl MinerUConfig {
         Ok(config)
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn is_configured(&self) -> bool {
         self.base_url
             .as_ref()
@@ -337,6 +344,208 @@ fn validate_base_url(base: &str) -> Result<(), MinerUError> {
         ));
     }
     Ok(())
+}
+
+/// Official cloud host (Precision Extract), not a self-hosted mineru-api.
+pub fn is_official_mineru_base(base: &str) -> bool {
+    let lower = base.to_ascii_lowercase();
+    lower.contains("://mineru.net")
+        || lower.contains("://www.mineru.net")
+        || lower.contains(".mineru.net/")
+        || lower.ends_with(".mineru.net")
+        || lower.contains("mineru.openxlab.org.cn")
+}
+
+/// Normalize a user-supplied official URL to `https://host/api/v4`.
+pub fn official_api_root(base: &str) -> String {
+    let trimmed = base.trim().trim_end_matches('/');
+    let lower = trimmed.to_ascii_lowercase();
+    if let Some(idx) = lower.find("/api/v4") {
+        format!("{}{}", &trimmed[..idx], "/api/v4")
+    } else {
+        format!("{trimmed}/api/v4")
+    }
+}
+
+/// Map Tesseract / ISO codes onto MinerU official `language` values.
+pub fn map_official_language(raw: &str) -> String {
+    let token = raw
+        .split(['+', ',', ';', ' '])
+        .find(|part| !part.is_empty())
+        .unwrap_or(raw)
+        .trim()
+        .to_ascii_lowercase();
+    match token.as_str() {
+        "eng" | "en" | "english" => "en".into(),
+        "chi_sim" | "chi_tra" | "zh" | "zh-cn" | "zh-hans" | "zh-hant" | "ch" | "chinese" => {
+            "ch".into()
+        }
+        "jpn" | "ja" | "japanese" | "japan" => "japan".into(),
+        "kor" | "ko" | "korean" => "korean".into(),
+        "chi_tra_only" | "chinese_cht" => "chinese_cht".into(),
+        "ara" | "ar" | "fas" | "fa" | "urd" | "ur" => "arabic".into(),
+        "rus" | "ru" | "ukr" | "uk" | "bul" | "bg" => "cyrillic".into(),
+        "tha" | "th" => "th".into(),
+        "ell" | "el" => "el".into(),
+        "" => "ch".into(),
+        other => {
+            if matches!(
+                other,
+                "ch" | "en"
+                    | "japan"
+                    | "korean"
+                    | "chinese_cht"
+                    | "latin"
+                    | "arabic"
+                    | "cyrillic"
+                    | "ch_server"
+                    | "ta"
+                    | "te"
+                    | "ka"
+                    | "el"
+                    | "th"
+            ) {
+                other.to_string()
+            } else {
+                "latin".into()
+            }
+        }
+    }
+}
+
+fn official_api_code(value: &Value) -> Option<String> {
+    match value.get("code")? {
+        Value::String(s) => Some(s.clone()),
+        Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+/// Map official HTTP + JSON envelopes. Never includes `msg` (may echo paths).
+pub fn map_official_envelope(status: u16, body: Option<&Value>) -> Result<(), MinerUError> {
+    if status == 401 || status == 403 {
+        return Err(MinerUError::Authentication);
+    }
+    if status == 408 || status == 504 {
+        return Err(MinerUError::Timeout);
+    }
+    if let Some(value) = body {
+        if let Some(code) = official_api_code(value) {
+            if code == "A0202" || code == "A0211" {
+                return Err(MinerUError::Authentication);
+            }
+            if code != "0" {
+                return Err(MinerUError::Unavailable);
+            }
+        }
+    }
+    if !(200..300).contains(&status) {
+        return Err(MinerUError::Unavailable);
+    }
+    Ok(())
+}
+
+fn layout_blocks_from_json_value(value: &Value) -> Result<Vec<MinerULayoutBlock>, MinerUError> {
+    if let Ok(blocks) = map_content_list_from_json(value) {
+        return Ok(blocks);
+    }
+    if let Some(list) = value.get("content_list") {
+        return map_content_list_from_json(list);
+    }
+    parse_content_list_response(value)
+}
+
+/// Read `*_content_list.json` (or `full.md`) from a Precision Extract zip.
+pub fn layout_blocks_from_zip(bytes: &[u8]) -> Result<Vec<MinerULayoutBlock>, MinerUError> {
+    if bytes.len() > MAX_RESPONSE_BYTES {
+        return Err(MinerUError::ResourceLimit {
+            resource: "response_bytes",
+            limit: MAX_RESPONSE_BYTES as u64,
+            actual: bytes.len() as u64,
+        });
+    }
+    let mut archive = ZipArchive::new(Cursor::new(bytes)).map_err(|_| MinerUError::Protocol)?;
+    let mut markdown: Option<String> = None;
+    for index in 0..archive.len() {
+        let mut file = archive.by_index(index).map_err(|_| MinerUError::Protocol)?;
+        let name = file.name().replace('\\', "/");
+        let file_name = name.rsplit('/').next().unwrap_or(name.as_str());
+        if file_name.ends_with("content_list.json") {
+            let mut buf = Vec::new();
+            file.read_to_end(&mut buf)?;
+            let value: Value = serde_json::from_slice(&buf).map_err(|_| MinerUError::Protocol)?;
+            return layout_blocks_from_json_value(&value);
+        }
+        if file_name.eq_ignore_ascii_case("full.md") {
+            let mut buf = String::new();
+            file.read_to_string(&mut buf)?;
+            markdown = Some(buf);
+        }
+    }
+    if let Some(md) = markdown {
+        return blocks_from_markdown(&md);
+    }
+    Err(MinerUError::EmptyResult)
+}
+
+fn blocks_from_markdown(md: &str) -> Result<Vec<MinerULayoutBlock>, MinerUError> {
+    let mut blocks = Vec::new();
+    let mut order = 0_u32;
+    for para in md.split("\n\n") {
+        let text = para.trim();
+        if text.is_empty() {
+            continue;
+        }
+        if text.starts_with("![") && !text.contains('\n') {
+            continue;
+        }
+        let heading = text.starts_with('#');
+        let cleaned = text.trim_start_matches('#').trim();
+        if cleaned.is_empty() || !meaningful_text(cleaned) {
+            continue;
+        }
+        blocks.push(MinerULayoutBlock {
+            page: 1,
+            order,
+            kind: if heading {
+                "heading".into()
+            } else {
+                "paragraph".into()
+            },
+            text: cleaned.to_string(),
+            bbox: (0.0, 0.0, DEFAULT_PAGE_WIDTH_PTS, DEFAULT_PAGE_HEIGHT_PTS),
+            confidence: 80,
+        });
+        order = order.saturating_add(1);
+    }
+    if blocks.is_empty() {
+        Err(MinerUError::EmptyResult)
+    } else {
+        Ok(blocks)
+    }
+}
+
+fn effective_base_url(
+    config: &MinerUConfig,
+    options: &BTreeMap<String, String>,
+) -> Result<String, MinerUError> {
+    if let Some(raw) = options.get("mineruBaseUrl") {
+        let base = raw.trim().trim_end_matches('/').to_string();
+        if !base.is_empty() {
+            validate_base_url(&base)?;
+            return Ok(base);
+        }
+    }
+    config
+        .base_url
+        .as_ref()
+        .map(|value| value.trim().trim_end_matches('/').to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            MinerUError::Config(
+                "MinerU base URL is not configured (set TRANSLUNAR_MINERU_BASE_URL)".into(),
+            )
+        })
 }
 
 /// Inputs for a single MinerU parse call.
@@ -395,7 +604,7 @@ pub trait MinerUTransport: Send + Sync {
     ) -> Result<Vec<MinerULayoutBlock>, MinerUError>;
 }
 
-/// Production transport: `POST {base}/file_parse` (mineru-api compatible).
+/// Production transport: official Precision Extract on mineru.net, else mineru-api `file_parse`.
 #[derive(Debug, Default)]
 pub struct HttpMinerUTransport;
 
@@ -409,69 +618,190 @@ impl MinerUTransport for HttpMinerUTransport {
             .base_url
             .as_deref()
             .ok_or_else(|| MinerUError::Config("MinerU base URL is not configured".into()))?;
-        let endpoint = format!("{}/file_parse", base.trim_end_matches('/'));
-
-        let client = reqwest::blocking::Client::builder()
-            .connect_timeout(config.connect_timeout)
-            .timeout(config.request_timeout)
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent("Translunar-CAT/0.1 MinerU")
-            .build()
-            .map_err(|_| MinerUError::Unavailable)?;
-
-        let mut form = reqwest::blocking::multipart::Form::new()
-            .text("return_content_list", "true")
-            .text("return_md", "false")
-            .text("return_middle_json", "false")
-            .text("return_model_output", "false")
-            .text("return_images", "false")
-            .text("parse_method", request.parse_method.clone())
-            .text("lang_list", request.language.clone())
-            .text(
-                "start_page_id",
-                request.start_page.saturating_sub(1).to_string(),
-            );
-        if let Some(end) = request.end_page {
-            // mineru end_page_id is 0-based inclusive.
-            form = form.text("end_page_id", end.saturating_sub(1).to_string());
+        if is_official_mineru_base(base) {
+            return parse_official_precision(request, config, base);
         }
-        let file_bytes = std::fs::read(&request.source)?;
-        let file_part = reqwest::blocking::multipart::Part::bytes(file_bytes)
-            .file_name(request.file_name.clone())
-            .mime_str("application/pdf")
-            .map_err(|_| MinerUError::Protocol)?;
-        form = form.part("files", file_part);
+        parse_self_hosted_file_parse(request, config, base)
+    }
+}
 
-        let response = client
-            .post(&endpoint)
-            .bearer_auth(&request.api_key)
-            .multipart(form)
-            .send()
-            .map_err(map_reqwest_error)?;
+fn mineru_http_client(config: &MinerUConfig) -> Result<reqwest::blocking::Client, MinerUError> {
+    reqwest::blocking::Client::builder()
+        .connect_timeout(config.connect_timeout)
+        .timeout(config.request_timeout)
+        .redirect(reqwest::redirect::Policy::none())
+        .user_agent("Translunar-CAT/0.1 MinerU")
+        .build()
+        .map_err(|_| MinerUError::Unavailable)
+}
 
-        let status = response.status();
-        if status.as_u16() == 401 || status.as_u16() == 403 {
-            return Err(MinerUError::Authentication);
-        }
-        if status.as_u16() == 408 || status.as_u16() == 504 {
+fn parse_self_hosted_file_parse(
+    request: &MinerUParseRequest,
+    config: &MinerUConfig,
+    base: &str,
+) -> Result<Vec<MinerULayoutBlock>, MinerUError> {
+    let endpoint = format!("{}/file_parse", base.trim_end_matches('/'));
+    let client = mineru_http_client(config)?;
+
+    let mut form = reqwest::blocking::multipart::Form::new()
+        .text("return_content_list", "true")
+        .text("return_md", "false")
+        .text("return_middle_json", "false")
+        .text("return_model_output", "false")
+        .text("return_images", "false")
+        .text("parse_method", request.parse_method.clone())
+        .text("lang_list", request.language.clone())
+        .text(
+            "start_page_id",
+            request.start_page.saturating_sub(1).to_string(),
+        );
+    if let Some(end) = request.end_page {
+        // mineru end_page_id is 0-based inclusive.
+        form = form.text("end_page_id", end.saturating_sub(1).to_string());
+    }
+    let file_bytes = std::fs::read(&request.source)?;
+    let file_part = reqwest::blocking::multipart::Part::bytes(file_bytes)
+        .file_name(request.file_name.clone())
+        .mime_str("application/pdf")
+        .map_err(|_| MinerUError::Protocol)?;
+    form = form.part("files", file_part);
+
+    let response = client
+        .post(&endpoint)
+        .bearer_auth(&request.api_key)
+        .multipart(form)
+        .send()
+        .map_err(map_reqwest_error)?;
+
+    let status = response.status();
+    if status.as_u16() == 401 || status.as_u16() == 403 {
+        return Err(MinerUError::Authentication);
+    }
+    if status.as_u16() == 408 || status.as_u16() == 504 {
+        return Err(MinerUError::Timeout);
+    }
+    if !status.is_success() {
+        // Never log body: may echo paths or provider detail.
+        return Err(MinerUError::Unavailable);
+    }
+
+    let bytes = response.bytes().map_err(map_reqwest_error)?;
+    if bytes.len() > MAX_RESPONSE_BYTES {
+        return Err(MinerUError::ResourceLimit {
+            resource: "response_bytes",
+            limit: MAX_RESPONSE_BYTES as u64,
+            actual: bytes.len() as u64,
+        });
+    }
+    let value: Value = serde_json::from_slice(&bytes).map_err(|_| MinerUError::Protocol)?;
+    parse_content_list_response(&value)
+}
+
+/// Official Precision Extract: apply upload URL → PUT file → poll → unzip content_list.
+fn parse_official_precision(
+    request: &MinerUParseRequest,
+    config: &MinerUConfig,
+    base: &str,
+) -> Result<Vec<MinerULayoutBlock>, MinerUError> {
+    let root = official_api_root(base);
+    let client = mineru_http_client(config)?;
+    let language = map_official_language(&request.language);
+    let is_ocr = request.parse_method == "ocr" || request.parse_method == "auto";
+    let page_ranges = match (request.start_page, request.end_page) {
+        (start, Some(end)) if start >= 1 && end >= start => Some(format!("{start}-{end}")),
+        (start, None) if start > 1 => Some(format!("{start}-")),
+        _ => None,
+    };
+
+    let mut file_obj = json!({
+        "name": request.file_name,
+        "is_ocr": is_ocr,
+    });
+    if let Some(ranges) = page_ranges {
+        file_obj["page_ranges"] = Value::String(ranges);
+    }
+    let body = json!({
+        "files": [file_obj],
+        "model_version": "vlm",
+        "enable_formula": true,
+        "enable_table": true,
+        "language": language,
+    });
+
+    let apply = client
+        .post(format!("{root}/file-urls/batch"))
+        .bearer_auth(&request.api_key)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .json(&body)
+        .send()
+        .map_err(map_reqwest_error)?;
+    let apply_status = apply.status().as_u16();
+    let apply_bytes = apply.bytes().map_err(map_reqwest_error)?;
+    let apply_json: Value = serde_json::from_slice(&apply_bytes).unwrap_or(Value::Null);
+    map_official_envelope(apply_status, Some(&apply_json))?;
+
+    let batch_id = apply_json
+        .pointer("/data/batch_id")
+        .and_then(Value::as_str)
+        .ok_or(MinerUError::Protocol)?;
+    let upload_url = apply_json
+        .pointer("/data/file_urls/0")
+        .and_then(Value::as_str)
+        .ok_or(MinerUError::Protocol)?;
+
+    let file_bytes = std::fs::read(&request.source)?;
+    let uploaded = client
+        .put(upload_url)
+        .body(file_bytes)
+        .send()
+        .map_err(map_reqwest_error)?;
+    let upload_status = uploaded.status().as_u16();
+    if !(200..300).contains(&upload_status) {
+        return Err(MinerUError::Unavailable);
+    }
+
+    let deadline = Instant::now() + config.request_timeout;
+    let zip_url = loop {
+        if Instant::now() >= deadline {
             return Err(MinerUError::Timeout);
         }
-        if !status.is_success() {
-            // Never log body: may echo paths or provider detail.
-            return Err(MinerUError::Unavailable);
+        std::thread::sleep(OFFICIAL_POLL_INTERVAL);
+        let poll = client
+            .get(format!("{root}/extract-results/batch/{batch_id}"))
+            .bearer_auth(&request.api_key)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .send()
+            .map_err(map_reqwest_error)?;
+        let poll_status = poll.status().as_u16();
+        let poll_bytes = poll.bytes().map_err(map_reqwest_error)?;
+        let poll_json: Value = serde_json::from_slice(&poll_bytes).unwrap_or(Value::Null);
+        map_official_envelope(poll_status, Some(&poll_json))?;
+        let item = poll_json
+            .pointer("/data/extract_result/0")
+            .cloned()
+            .ok_or(MinerUError::Protocol)?;
+        let state = item.get("state").and_then(Value::as_str).unwrap_or("");
+        match state {
+            "done" => {
+                let url = item
+                    .get("full_zip_url")
+                    .and_then(Value::as_str)
+                    .ok_or(MinerUError::Protocol)?;
+                break url.to_string();
+            }
+            "failed" => return Err(MinerUError::Unavailable),
+            "waiting-file" | "pending" | "running" | "converting" | "" => {}
+            _ => return Err(MinerUError::Protocol),
         }
+    };
 
-        let bytes = response.bytes().map_err(map_reqwest_error)?;
-        if bytes.len() > MAX_RESPONSE_BYTES {
-            return Err(MinerUError::ResourceLimit {
-                resource: "response_bytes",
-                limit: MAX_RESPONSE_BYTES as u64,
-                actual: bytes.len() as u64,
-            });
-        }
-        let value: Value = serde_json::from_slice(&bytes).map_err(|_| MinerUError::Protocol)?;
-        parse_content_list_response(&value)
+    let zip_response = client.get(&zip_url).send().map_err(map_reqwest_error)?;
+    let zip_status = zip_response.status().as_u16();
+    if !(200..300).contains(&zip_status) {
+        return Err(MinerUError::Unavailable);
     }
+    let zip_bytes = zip_response.bytes().map_err(map_reqwest_error)?;
+    layout_blocks_from_zip(&zip_bytes)
 }
 
 fn map_reqwest_error(error: reqwest::Error) -> MinerUError {
@@ -761,6 +1091,7 @@ impl MinerUService {
         }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn is_configured(&self) -> bool {
         self.config.is_configured()
     }
@@ -830,11 +1161,9 @@ impl MinerUService {
         source_locale: Option<&str>,
         options: &BTreeMap<String, String>,
     ) -> Result<ImportedDocument, MinerUError> {
-        if !self.is_configured() {
-            return Err(MinerUError::Config(
-                "MinerU base URL is not configured (set TRANSLUNAR_MINERU_BASE_URL)".into(),
-            ));
-        }
+        let base_url = effective_base_url(&self.config, options)?;
+        let mut call_config = self.config.clone();
+        call_config.base_url = Some(base_url);
 
         let metadata = std::fs::metadata(source)?;
         if metadata.len() == 0 || metadata.len() > self.config.max_bytes {
@@ -910,7 +1239,7 @@ impl MinerUService {
         };
 
         // Drop the secret from the request after the call returns by moving it.
-        let blocks = self.transport.parse(&request, &self.config)?;
+        let blocks = self.transport.parse(&request, &call_config)?;
         // Ensure we never retain the key in the request beyond this point.
         drop(request);
 
@@ -1358,6 +1687,84 @@ mod tests {
         // Geometry lands on letter page points from normalized bbox.
         assert!(blocks[0].bbox.0 > 0.0);
         assert!(blocks[0].bbox.2 > 0.0);
+    }
+
+    #[test]
+    fn official_host_and_language_helpers() {
+        assert!(is_official_mineru_base("https://mineru.net/api/v4"));
+        assert!(is_official_mineru_base("https://mineru.net"));
+        assert!(!is_official_mineru_base("http://127.0.0.1:18000"));
+        assert!(!is_official_mineru_base("https://example.test/mineru"));
+        assert_eq!(
+            official_api_root("https://mineru.net"),
+            "https://mineru.net/api/v4"
+        );
+        assert_eq!(
+            official_api_root("https://mineru.net/api/v4/extract/task"),
+            "https://mineru.net/api/v4"
+        );
+        assert_eq!(map_official_language("eng"), "en");
+        assert_eq!(map_official_language("eng+chi_sim"), "en");
+        assert_eq!(map_official_language("chi_sim"), "ch");
+        assert_eq!(map_official_language("jpn"), "japan");
+        assert_eq!(map_official_language("ch"), "ch");
+    }
+
+    #[test]
+    fn official_envelope_maps_token_errors() {
+        let auth = serde_json::json!({"code": "A0202", "msg": "user authenticate failed"});
+        assert!(matches!(
+            map_official_envelope(200, Some(&auth)),
+            Err(MinerUError::Authentication)
+        ));
+        let expired = serde_json::json!({"code": "A0211"});
+        assert!(matches!(
+            map_official_envelope(200, Some(&expired)),
+            Err(MinerUError::Authentication)
+        ));
+        let ok = serde_json::json!({"code": 0, "msg": "ok"});
+        assert!(map_official_envelope(200, Some(&ok)).is_ok());
+        assert!(matches!(
+            map_official_envelope(401, None),
+            Err(MinerUError::Authentication)
+        ));
+    }
+
+    #[test]
+    fn precision_zip_content_list_maps_to_blocks() {
+        use std::io::Write;
+        use zip::write::{SimpleFileOptions, ZipWriter};
+
+        let mut cursor = Cursor::new(Vec::new());
+        {
+            let mut writer = ZipWriter::new(&mut cursor);
+            writer
+                .start_file("doc_content_list.json", SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(FIXTURE_CONTENT_LIST.as_bytes()).unwrap();
+            writer.finish().unwrap();
+        }
+        let blocks = layout_blocks_from_zip(&cursor.into_inner()).expect("zip content_list");
+        assert_eq!(blocks[0].text, "Contract Title");
+        assert_eq!(blocks[0].kind, "heading");
+    }
+
+    #[test]
+    fn mineru_base_url_option_overrides_missing_env() {
+        let dir = tempdir().unwrap();
+        let pdf = write_minimal_pdf(dir.path());
+        let transport = Arc::new(MockMinerUTransport::success());
+        let service = MinerUService::with_parts(
+            MinerUConfig::default(),
+            Arc::new(MemoryMinerUCredentialStore::with_secret(Some("k".into()))),
+            transport.clone(),
+        );
+        let mut options = mineru_options();
+        options.insert("mineruBaseUrl".into(), "https://mineru.net/api/v4".into());
+        service
+            .import_pdf(&pdf, Some("doc-1"), Some("en"), &options)
+            .expect("option base URL is enough");
+        assert_eq!(transport.call_count(), 1);
     }
 
     #[test]

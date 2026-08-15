@@ -10,7 +10,7 @@ complete.
 
 | Item | Value |
 |------|--------|
-| Base URL env | `TRANSLUNAR_MINERU_BASE_URL` (e.g. `http://127.0.0.1:8000`) |
+| Base URL env | `TRANSLUNAR_MINERU_BASE_URL` (official: `https://mineru.net/api/v4`; self-hosted mineru-api: `http://127.0.0.1:8000`) |
 | Request timeout env | `TRANSLUNAR_MINERU_TIMEOUT_MS` (default `120000`, max `600000`) |
 | Page limit env | `TRANSLUNAR_MINERU_MAX_PAGES` (default `200`) |
 | Size limit env | `TRANSLUNAR_MINERU_MAX_BYTES` (default `209715200` = 200 MiB) |
@@ -31,9 +31,19 @@ Provision the API key through the Engine surface (never written to SQLite):
 
 Desktop Settings → OCR calls the same three methods. The renderer never
 persists the secret; the field is write-only. Import uses last-used
-`ocrEngine` / `ocrMode` / `ocrLanguages` from
+`ocrEngine` / `ocrMode` / `ocrLanguages` / `mineruBaseUrl` from
 `translunar.renderer.pdf-import-options.v1` and passes them as
 `project.batchImport.options`.
+
+Official MinerU Precision Extract (https://mineru.net/apiManage/docs) uses a
+**Token created on the API management page**, sent as
+`Authorization: Bearer <token>`. That is not an Access Key / Secret Key pair.
+When the base URL host is `mineru.net`, Engine calls
+`POST /api/v4/file-urls/batch`, PUTs the PDF, polls
+`/api/v4/extract-results/batch/{batch_id}`, and reads `*_content_list.json`
+from the result zip. Self-hosted mineru-api keeps `POST {base}/file_parse`.
+`ocrLanguages` values such as `eng` / `chi_sim` are mapped to official
+`en` / `ch`. A0202 / A0211 JSON codes are typed authentication failures.
 
 In tests / CI, use the memory backend (`TRANSLUNAR_MINERU_TEST_MODE=1`) or
 `EngineService::{set,delete,mineru}_credential*`. Production uses the OS
@@ -61,8 +71,10 @@ Import options:
 
 1. PDF `document.import` selects `builtin.pdf`.
 2. When `ocrEngine=mineru` (and `ocrMode` is not `never`), Engine calls
-   `POST {base}/file_parse` (mineru-api) with `return_content_list=true` and
-   Bearer auth from the keyring. Page/byte limits are enforced preflight.
+   official Precision Extract on `mineru.net` hosts, or
+   `POST {base}/file_parse` for self-hosted mineru-api, with Bearer auth from
+   the keyring. `mineruBaseUrl` in import options overrides the env base for
+   that call. Page/byte limits are enforced preflight.
 3. `content_list` blocks map to segments with structural paths
    `pdf:p=…;b=…;k=…;x=…;y=…;w=…;h=…;s=ocr;c=…`. Table HTML keeps cell/row
    separators so adjacent cells do not collapse.
