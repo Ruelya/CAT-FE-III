@@ -29,7 +29,7 @@ feature ops), [editor-assets.md](./editor-assets.md) (P2 controller pattern),
 | Surfaces | `surfaces/Workbench.tsx` (PDF dock gate), `surfaces/ProjectInsights.tsx` (section shell) |
 | Insights UI | `insights/InteropReviewPanel.tsx`, `InteropTablePanel.tsx`, `TaskPackagePanel.tsx`, `InsightsSectionNav.tsx` (or consolidated under `insights/`) |
 | Workbench UI | `workbench/PdfPageReview.tsx`, `workbench/PdfOcrCorrectDialog.tsx` |
-| Import / OCR AI | `lib/pdf-import-options.ts`, `lib/mineru-credential.ts`, `state/use-ocr-ai.ts` |
+| Import / OCR AI | `lib/pdf-import-options.ts` (`mineruBaseUrl` for official Precision Extract), `lib/mineru-credential.ts`, `state/use-ocr-ai.ts` |
 | Pure helpers | `state/pdf-review.ts`, `interop-view.ts`, `task-package-view.ts`, `reimport-view.ts` |
 | Orchestration | `state/use-pdf-review.ts`, `use-interop-controller.ts`, `use-task-package-controller.ts`, `use-reimport-controller.ts` |
 | App gateway | `use-app-controller.ts` — `goInsights` + flush only; no full preview payloads in global reducer |

@@ -70,6 +70,10 @@ apps/desktop/src/renderer/
 |   |-- BatchImportSummary.tsx
 |   |-- EditorCommandBar.tsx  # compact P2 commands + overflow
 |   |-- EditorPanels.tsx      # find/tags/structure/comments/spell/history/prefs/review
+|   |-- ActivityBar.tsx       # files / preview / ACP chat rail
+|   |-- EditorTabs.tsx        # open-document working set
+|   |-- SegmentContextMenu.tsx
+|   |-- AcpChatPanel.tsx      # ACP session UI over ai.run / conversation
 |   |-- PdfPageReview.tsx     # P3 page list + canvas + block overlay
 |   `-- PdfOcrCorrectDialog.tsx
 |-- state/                  # cross-surface controller, session, save, recovery
