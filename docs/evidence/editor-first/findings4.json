@@ -1,0 +1,29 @@
+{
+  "findings": [
+    {
+      "step": "confirmed-count",
+      "verdict": "INFO",
+      "detail": "8/10 confirmed after first pass"
+    },
+    {
+      "step": "confirmed-after-retry",
+      "verdict": "BUG",
+      "detail": "8/10 confirmed after retry pass"
+    },
+    {
+      "step": "apply-tags-pass",
+      "verdict": "INFO",
+      "detail": "clicked Apply tags on all 10 segments"
+    },
+    {
+      "step": "qa-tag-missing-after-apply",
+      "verdict": "BUG",
+      "detail": "tag_missing occurrences after applying tags everywhere: 10; summary: QA real.docx Workbench Export Run QA succeeded 4 errors 4 warnings 12 errors and 4 warnings across 16 issues ERROR Missing protected tag R. #1 qa.tag-tag_missing Jump WARNING Target length is outside the configured ratio. #2 qa.length-ratio Jump ERRO"
+    },
+    {
+      "step": "export",
+      "verdict": "BLOCKED",
+      "detail": "Export real.docx Workbench QA Export Quality gate blocked 4 errors 4 warnings Open QA"
+    }
+  ]
+}
