@@ -76,7 +76,7 @@ export function DisplayFilterBar({
             onChange({ ...filter, withQaIssues: !filter.withQaIssues })
           }
         >
-          With QA
+          Findings
         </button>
         <button
           type="button"

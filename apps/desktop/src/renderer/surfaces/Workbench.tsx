@@ -17,6 +17,7 @@ import { canStoreTerm, type SegmentSelection } from "../state/editor-selection";
 import { rankMatches, type SegmentIntel } from "../state/segment-intel";
 import { useSegmentSelection } from "../state/use-segment-selection";
 import { useSuggestions } from "../state/use-suggestions";
+import { useSegmentAi } from "../state/use-segment-ai";
 import { useEditorShortcuts } from "../workbench/use-editor-shortcuts";
 import type { EditorOperationsApi } from "../state/use-editor-operations";
 import { shouldMountPdfDock } from "../state/pdf-review";
@@ -79,6 +80,7 @@ export interface WorkbenchProps {
   onClearTarget: () => void;
   /** Replace the partially typed word with the accepted completion. */
   onAcceptSuggestion: (text: string, prefix: string) => void;
+  onApplyAiProposal: (text: string) => void;
   onPretranslate: () => void;
   pretranslatePending?: boolean;
   onQa: () => void;
@@ -124,6 +126,7 @@ export function Workbench({
   onCopySourceToTarget,
   onClearTarget,
   onAcceptSuggestion,
+  onApplyAiProposal,
   onPretranslate,
   pretranslatePending,
   onQa,
@@ -145,6 +148,12 @@ export function Workbench({
   );
 
   const activeRow = ctx.rows.find((r) => r.segment.id === activeSegmentId);
+  const segmentAi = useSegmentAi({
+    enabled: !disabled,
+    projectId: ctx.project.id,
+    segmentId: activeSegmentId,
+    segmentRevision: activeRow?.segment.revision ?? null,
+  });
   // Selection-driven controls must know whether they can act before they are
   // pressed; a button that silently does nothing teaches users to distrust it.
   const selection = useSegmentSelection(activeSegmentId);
@@ -481,6 +490,8 @@ export function Workbench({
           onConcordance={(query) => onConcordance(query, selection)}
           onQuickAddTerm={() => onQuickAddTerm(selection)}
           canQuickAddTerm={canQuickAddTerm}
+          ai={segmentAi}
+          onApplyAiProposal={onApplyAiProposal}
         />
       </div>
 
