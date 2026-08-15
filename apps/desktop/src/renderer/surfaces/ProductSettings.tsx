@@ -18,6 +18,7 @@ const SECTIONS: Array<{ id: SettingsSection; label: string }> = [
   { id: "appearance", label: "Appearance" },
   { id: "data", label: "Data" },
   { id: "updates", label: "Updates" },
+  { id: "ocr", label: "OCR" },
   { id: "tutorial", label: "Tutorial" },
 ];
 
@@ -349,6 +350,57 @@ export function ProductSettings({
           ) : (
             <p className="status">Loading update status</p>
           )}
+        </div>
+      ) : null}
+
+      {section === "ocr" ? (
+        <div className="p4-panel" data-testid="settings-ocr">
+          {state.mineruStatus ? (
+            <p className="status" data-testid="settings-ocr-status">
+              {state.mineruStatus.available
+                ? state.mineruStatus.present
+                  ? `MinerU key stored (${state.mineruStatus.backend}). The secret is never shown here.`
+                  : "No MinerU API key is stored. The engine keeps the key in the OS keyring, not in the project."
+                : "MinerU credential storage is not available on this machine."}
+            </p>
+          ) : (
+            <p className="status">Loading OCR settings</p>
+          )}
+          <label className="field">
+            <span>MinerU API key</span>
+            <input
+              type="password"
+              value={state.mineruSecretDraft}
+              disabled={busy || state.mineruStatus?.available === false}
+              onChange={(e) => settings.setMineruSecretDraft(e.target.value)}
+              autoComplete="off"
+              data-testid="settings-ocr-secret"
+            />
+          </label>
+          <div className="dialog__actions">
+            <button
+              type="button"
+              className="btn btn--primary"
+              disabled={busy || state.mineruStatus?.available === false}
+              onClick={() => void settings.saveMineruCredential()}
+              data-testid="settings-ocr-save"
+            >
+              Save key
+            </button>
+            <button
+              type="button"
+              className="btn btn--secondary"
+              disabled={
+                busy ||
+                state.mineruStatus?.available === false ||
+                state.mineruStatus?.present !== true
+              }
+              onClick={() => void settings.deleteMineruCredential()}
+              data-testid="settings-ocr-delete"
+            >
+              Delete key
+            </button>
+          </div>
         </div>
       ) : null}
 

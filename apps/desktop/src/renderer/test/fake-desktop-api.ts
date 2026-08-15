@@ -14,6 +14,8 @@ import type {
   GlobalSearchHit,
   EditorWorkflowState,
   QaIssueView,
+  AiProviderProfile,
+  AiRun,
 } from "@translunar/contracts";
 
 import type {
@@ -125,6 +127,10 @@ export interface FakeEngineState {
   tutorial?: TutorialState;
   /** Optional PDF pages keyed by documentId. */
   pdfPagesByDocument: Record<string, FakePdfPage[]>;
+  /** In-memory MinerU key — never a real secret store. */
+  mineruSecret: string | null;
+  aiProfiles: AiProviderProfile[];
+  aiRuns: AiRun[];
   journal: DraftJournalRecord[];
   calls: Array<{ method: string; params: unknown }>;
   workflows: Record<string, EditorWorkflowState>;
@@ -143,6 +149,78 @@ export interface FakeEngineState {
   windowMaximized: boolean;
   /** Platform branch for title-strip controls (default custom). */
   windowChromePlatform: WindowChromePlatform;
+}
+
+export function fakeAiProfile(
+  overrides: Partial<AiProviderProfile> = {},
+): AiProviderProfile {
+  return {
+    availability: "available",
+    baseUrl: "https://example.test",
+    createdAtMs: 1,
+    credentialPresent: true,
+    enabled: true,
+    id: "prof-1",
+    maxResponseBytes: 8000,
+    model: "fake",
+    name: "Fake",
+    revision: 1,
+    source: { kind: "builtin", provider: "openaiCompatible" },
+    timeoutMs: 10_000,
+    updatedAtMs: 1,
+    ...overrides,
+  };
+}
+
+function emptyGrounding() {
+  return {
+    contextAfter: 0,
+    contextBefore: 0,
+    includeContext: false,
+    includeStyle: false,
+    includeTerms: false,
+    includeTm: false,
+    maxChars: 2000,
+    styleInstruction: "",
+    systemInstruction: "",
+    tmTopN: 0,
+  };
+}
+
+function fakeAiRun(
+  params: EngineParams<"ai.run.start">,
+  sourceText: string,
+  id: string,
+): AiRun {
+  const ocr =
+    params.action === "freeform" &&
+    typeof params.prompt === "string" &&
+    params.prompt.includes("OCR");
+  return {
+    action: params.action,
+    attempt: 1,
+    cancellationRequested: false,
+    createdAtMs: Date.now(),
+    errorRetryable: false,
+    id,
+    kind: "interactive",
+    maxAttempts: 1,
+    model: "fake",
+    profileId: params.profileId,
+    projectId: params.projectId,
+    promptHash: "ph",
+    proposalText: ocr
+      ? `Corrected: ${sourceText}`
+      : `AI ${params.action}: ${sourceText}`,
+    request: {
+      freeformPrompt: params.prompt ?? "",
+      groundingOptions: emptyGrounding(),
+    },
+    revision: 1,
+    segmentId: params.segmentId,
+    status: "succeeded",
+    updatedAtMs: Date.now(),
+  };
 }
 
 export function createFakeEngineState(
@@ -166,6 +244,9 @@ export function createFakeEngineState(
     pluginPackagePath: null,
     pluginPanelRevokeListeners: [],
     pdfPagesByDocument: {},
+    mineruSecret: null,
+    aiProfiles: [],
+    aiRuns: [],
     journal: [],
     calls: [],
     workflows: {},
@@ -216,6 +297,40 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
       state.calls.push({ method, params });
       const failed = rejectIfFailed(method);
       if (failed) return failed as never;
+
+      const methodName = method as string;
+      if (methodName === "mineru.credential.status") {
+        return {
+          available: true,
+          present: Boolean(state.mineruSecret),
+          backend: "memory",
+        } as EngineResult<Method>;
+      }
+      if (methodName === "mineru.credential.set") {
+        const secret = String(
+          (params as { secret?: unknown }).secret ?? "",
+        ).trim();
+        if (!secret) {
+          return Promise.reject({
+            code: "INVALID_REQUEST",
+            message: "MinerU secret is empty",
+          }) as never;
+        }
+        state.mineruSecret = secret;
+        return {
+          available: true,
+          present: true,
+          backend: "memory",
+        } as EngineResult<Method>;
+      }
+      if (methodName === "mineru.credential.delete") {
+        state.mineruSecret = null;
+        return {
+          available: true,
+          present: false,
+          backend: "memory",
+        } as EngineResult<Method>;
+      }
 
       switch (method) {
         case "engine.initialize":
@@ -1585,6 +1700,40 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
             bytesWritten: 0,
             sha256: "abc",
           } as EngineResult<Method>;
+        }
+        case "ai.provider.list": {
+          const p = params as EngineParams<"ai.provider.list">;
+          const offset = p.offset ?? 0;
+          const limit = p.limit ?? 50;
+          const items = state.aiProfiles.slice(offset, offset + limit);
+          return {
+            items,
+            limit,
+            offset,
+            total: state.aiProfiles.length,
+          } as EngineResult<Method>;
+        }
+        case "ai.run.start": {
+          const p = params as EngineParams<"ai.run.start">;
+          const segment = state.segments.find((s) => s.id === p.segmentId);
+          const run = fakeAiRun(
+            p,
+            segment?.sourceText ?? "",
+            `run-${state.aiRuns.length + 1}`,
+          );
+          state.aiRuns.push(run);
+          return run as EngineResult<Method>;
+        }
+        case "ai.run.get": {
+          const p = params as EngineParams<"ai.run.get">;
+          const run = state.aiRuns.find((item) => item.id === p.runId);
+          if (!run) {
+            return Promise.reject({
+              code: "NOT_FOUND",
+              message: "AI run not found",
+            }) as never;
+          }
+          return { ...run } as EngineResult<Method>;
         }
         // P3 PDF
         case "pdf.page.list": {

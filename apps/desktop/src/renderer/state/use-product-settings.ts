@@ -11,6 +11,12 @@ import type {
   UpdateStatusSnapshot,
 } from "../../shared/product-shell";
 import { toUiError, type UiError } from "../lib/errors";
+import {
+  mineruCredentialDelete,
+  mineruCredentialSet,
+  mineruCredentialStatus,
+  type MinerUCredentialStatus,
+} from "../lib/mineru-credential";
 import { desktopApi } from "../lib/rpc";
 import {
   applyAppearance,
@@ -58,6 +64,8 @@ export interface ProductSettingsState {
   restoreError: string | null;
   updateStatus: UpdateStatusSnapshot | null;
   tutorial: TutorialState | null;
+  mineruStatus: MinerUCredentialStatus | null;
+  mineruSecretDraft: string;
   mutationPending: boolean;
 }
 
@@ -82,6 +90,8 @@ function initialState(): ProductSettingsState {
     restoreError: null,
     updateStatus: null,
     tutorial: null,
+    mineruStatus: null,
+    mineruSecretDraft: "",
     mutationPending: false,
   };
 }
@@ -113,6 +123,10 @@ export interface ProductSettingsApi {
   resetTutorial: () => Promise<void>;
   skipTutorial: () => Promise<void>;
   completeTutorial: () => Promise<void>;
+  setMineruSecretDraft: (secret: string) => void;
+  loadMineruStatus: () => Promise<void>;
+  saveMineruCredential: () => Promise<void>;
+  deleteMineruCredential: () => Promise<void>;
 }
 
 export function useProductSettings(
@@ -646,12 +660,87 @@ export function useProductSettings(
     [beginMut, endMut, isMutCurrent],
   );
 
+  const loadMineruStatus = useCallback(async () => {
+    const op = ++opRef.current;
+    try {
+      const mineruStatus = await mineruCredentialStatus();
+      if (!isCurrent(op)) return;
+      setState((s) => ({ ...s, mineruStatus }));
+    } catch (error) {
+      if (!isCurrent(op)) return;
+      setState((s) => ({ ...s, error: toUiError(error) }));
+    }
+  }, [isCurrent]);
+
+  const saveMineruCredential = useCallback(async () => {
+    const secret = stateRef.current.mineruSecretDraft.trim();
+    if (!secret) {
+      setState((s) => ({
+        ...s,
+        error: {
+          kind: "domain",
+          code: "MINERU_SECRET_EMPTY",
+          message: "Enter a MinerU API key before saving.",
+        },
+      }));
+      return;
+    }
+    const mut = beginMut();
+    if (mut === null) return;
+    setState((s) => ({ ...s, mutationPending: true, error: null }));
+    try {
+      const mineruStatus = await mineruCredentialSet(secret);
+      endMut(mut);
+      if (!isMutCurrent(mut)) return;
+      setState((s) => ({
+        ...s,
+        mutationPending: false,
+        mineruStatus,
+        mineruSecretDraft: "",
+      }));
+    } catch (error) {
+      endMut(mut);
+      if (!isMutCurrent(mut)) return;
+      setState((s) => ({
+        ...s,
+        mutationPending: false,
+        error: toUiError(error),
+      }));
+    }
+  }, [beginMut, endMut, isMutCurrent]);
+
+  const deleteMineruCredential = useCallback(async () => {
+    const mut = beginMut();
+    if (mut === null) return;
+    setState((s) => ({ ...s, mutationPending: true, error: null }));
+    try {
+      const mineruStatus = await mineruCredentialDelete();
+      endMut(mut);
+      if (!isMutCurrent(mut)) return;
+      setState((s) => ({
+        ...s,
+        mutationPending: false,
+        mineruStatus,
+        mineruSecretDraft: "",
+      }));
+    } catch (error) {
+      endMut(mut);
+      if (!isMutCurrent(mut)) return;
+      setState((s) => ({
+        ...s,
+        mutationPending: false,
+        error: toUiError(error),
+      }));
+    }
+  }, [beginMut, endMut, isMutCurrent]);
+
   useEffect(() => {
     if (!gateway.active) return;
     void reload();
     if (gateway.section === "data") void loadDataStatus();
     if (gateway.section === "updates") void loadUpdates();
     if (gateway.section === "tutorial") void loadTutorial();
+    if (gateway.section === "ocr") void loadMineruStatus();
     if (gateway.section === "appearance") {
       const appearance = readAppearancePreference();
       setState((s) => ({
@@ -668,6 +757,7 @@ export function useProductSettings(
     loadDataStatus,
     loadUpdates,
     loadTutorial,
+    loadMineruStatus,
   ]);
 
   return {
@@ -701,5 +791,10 @@ export function useProductSettings(
     skipTutorial: () => patchTutorial({ skipped: true }),
     completeTutorial: () =>
       patchTutorial({ completed: true, step: "complete" }),
+    setMineruSecretDraft: (secret) =>
+      setState((s) => ({ ...s, mineruSecretDraft: secret })),
+    loadMineruStatus,
+    saveMineruCredential,
+    deleteMineruCredential,
   };
 }

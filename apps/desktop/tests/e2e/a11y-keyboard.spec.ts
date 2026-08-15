@@ -268,6 +268,7 @@ test.describe("accessibility and keyboard", () => {
             "settings-tab-appearance",
             "settings-tab-data",
             "settings-tab-updates",
+            "settings-tab-ocr",
             "settings-tab-tutorial",
           ],
         },
