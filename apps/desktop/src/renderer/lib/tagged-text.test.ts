@@ -3,12 +3,15 @@ import type { InlineTag } from "@translunar/contracts";
 
 import {
   buildTaggedEditorHtml,
+  insertTextIntoTagged,
+  mergeTargetTags,
   placeSourceTagsAtCaret,
   placeSourceTagsProportional,
   serializeTaggedEditor,
   splitTaggedText,
   tagLabel,
   tagsEqual,
+  wrapSelectionWithTagPair,
 } from "./tagged-text";
 
 function tag(
@@ -84,6 +87,37 @@ describe("placeSourceTags", () => {
       4,
     );
     expect(placed.map((item) => item.position)).toEqual([4, 4]);
+  });
+
+  it("wraps a selection with a start/end pair", () => {
+    const wrapped = wrapSelectionWithTagPair(
+      tag("1s", "start", 9, "b"),
+      tag("1e", "end", 15, "b"),
+      3,
+      8,
+    );
+    expect(wrapped.map((item) => item.position)).toEqual([3, 8]);
+    expect(wrapped.map((item) => item.kind)).toEqual(["start", "end"]);
+  });
+
+  it("shifts later tags when text is inserted at the caret", () => {
+    const next = insertTextIntoTagged(
+      "ab",
+      [tag("1s", "start", 2, "b")],
+      1,
+      "XX",
+    );
+    expect(next.text).toBe("aXXb");
+    expect(next.tags[0]?.position).toBe(4);
+  });
+
+  it("replaces a carried tag of the same kind when merging", () => {
+    const merged = mergeTargetTags(
+      [{ ...tag("old", "start", 1, "b"), side: "target" }],
+      [{ ...tag("new", "start", 4, "b"), side: "target" }],
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.position).toBe(4);
   });
 });
 

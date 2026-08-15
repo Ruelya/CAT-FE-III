@@ -305,7 +305,7 @@ export function EditorPanels({
     return (
       <ConfirmDialog
         title="Propagate"
-        body="Propagate the active segment target to matching sources."
+        body="Propagate the active segment target to matching unconfirmed sources in every file in this job."
         confirmLabel="Propagate"
         pending={ops.busy}
         error={ops.commandError ? formatUiError(ops.commandError) : null}

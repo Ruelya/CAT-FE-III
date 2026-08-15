@@ -16,6 +16,7 @@ import type {
 
 import type { DraftJournalRecord } from "../../shared/product-shell";
 import type { UiError } from "../lib/errors";
+import type { JobScope } from "../lib/job-scope";
 import type { SegmentIntel } from "./segment-intel";
 import type { SessionIdentity } from "./session";
 import type {
@@ -144,7 +145,11 @@ export type AppSurface =
        * repeated source text; saying so is the difference between leverage and
        * a document that quietly filled itself in.
        */
-      propagatedFrom?: { segmentId: string; count: number } | null;
+      propagatedFrom?: {
+        segmentId: string;
+        count: number;
+        otherFiles?: number;
+      } | null;
       /**
        * Open QA findings per segment, for the row marks and the QA filter.
        * Refreshed whenever the document changes or a run completes; a stale
@@ -162,6 +167,8 @@ export type AppSurface =
       run: QaRun | null;
       loading: boolean;
       error: UiError | null;
+      /** file = current document; job = every file in the project. */
+      scope: JobScope;
     }
   | {
       kind: "export";
@@ -171,6 +178,13 @@ export type AppSurface =
       exporting: boolean;
       error: UiError | null;
       resultPath: string | null;
+      scope: JobScope;
+      blockedFiles?: Array<{
+        id: string;
+        name: string;
+        errorCount: number;
+      }>;
+      resultFiles?: Array<{ name: string; path: string }>;
     }
   | {
       kind: "templates";

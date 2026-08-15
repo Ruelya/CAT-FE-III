@@ -13,6 +13,7 @@ import type {
   SegmentCounts,
   GlobalSearchHit,
   EditorWorkflowState,
+  QaIssueView,
 } from "@translunar/contracts";
 
 import type {
@@ -127,6 +128,7 @@ export interface FakeEngineState {
   journal: DraftJournalRecord[];
   calls: Array<{ method: string; params: unknown }>;
   workflows: Record<string, EditorWorkflowState>;
+  qaIssues: QaIssueView[];
   gateClear: boolean;
   exampleResult: ExampleProjectResult;
   statusListeners: Array<
@@ -167,6 +169,7 @@ export function createFakeEngineState(
     journal: [],
     calls: [],
     workflows: {},
+    qaIssues: [],
     gateClear: true,
     exampleResult: { ok: false, message: "no example", code: "NO_EXAMPLE" },
     statusListeners: [],
@@ -790,6 +793,17 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
           }
           seg.state = "confirmed";
           seg.revision += 1;
+          const propagated = [];
+          for (const other of state.segments) {
+            if (other.id === seg.id) continue;
+            if (other.sourceHash !== seg.sourceHash) continue;
+            if (other.state === "confirmed") continue;
+            other.targetText = seg.targetText;
+            other.state = "draft";
+            other.revision += 1;
+            other.updatedAtMs = Date.now();
+            propagated.push({ ...other });
+          }
           return {
             segment: { ...seg },
             counts: {
@@ -803,6 +817,7 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
               openIssues: 0,
             },
             qaIssues: [],
+            propagated,
             tmEntry: {
               id: "tm-1",
               memoryId: "m",
@@ -818,16 +833,17 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
         }
         case "tm.lookupExact":
           return { matches: [] } as EngineResult<Method>;
-        case "qa.run":
+        case "qa.run": {
+          const p = params as EngineParams<"qa.run">;
           return {
             id: "run-1",
-            projectId: (params as EngineParams<"qa.run">).projectId,
-            documentId: (params as EngineParams<"qa.run">).documentId ?? null,
+            projectId: p.projectId,
+            documentId: p.documentId ?? null,
             profileId: "default",
             profileName: "default",
             profileRevision: 1,
             profileSnapshotHash: "h",
-            scope: "document",
+            scope: p.documentId ? "document" : "project",
             status: "succeeded",
             checkedSegments: state.segments.length,
             errors: 0,
@@ -836,13 +852,21 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
             waived: 0,
             createdAtMs: Date.now(),
           } as EngineResult<Method>;
-        case "qa.issue.list":
+        }
+        case "qa.issue.list": {
+          const p = params as EngineParams<"qa.issue.list">;
+          const items = state.qaIssues.filter((issue) => {
+            if (p.documentId && issue.documentId !== p.documentId) return false;
+            if (p.segmentId && issue.segmentId !== p.segmentId) return false;
+            return true;
+          });
           return {
-            items: [],
-            limit: 200,
-            offset: 0,
-            total: 0,
+            items,
+            limit: p.limit ?? 200,
+            offset: p.offset ?? 0,
+            total: items.length,
           } as EngineResult<Method>;
+        }
         case "qa.gate.check": {
           const p = params as EngineParams<"qa.gate.check">;
           return {
@@ -993,9 +1017,26 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
               message: "Segment not found",
             }) as never;
           }
+          if (seg.targetText.trim().length === 0) {
+            return Promise.reject({
+              code: "INVALID_STATE",
+              message: "an empty target cannot be propagated",
+            }) as never;
+          }
           seg.revision += 1;
+          const rows = [rowFromSegment(seg)];
+          for (const other of state.segments) {
+            if (other.id === seg.id) continue;
+            if (other.sourceHash !== seg.sourceHash) continue;
+            if (other.state === "confirmed") continue;
+            other.targetText = seg.targetText;
+            other.state = "draft";
+            other.revision += 1;
+            other.updatedAtMs = Date.now();
+            rows.push(rowFromSegment(other));
+          }
           return {
-            rows: [rowFromSegment(seg)],
+            rows,
             counts: emptyCounts(),
             focusSegmentId: seg.id,
           } as EngineResult<Method>;

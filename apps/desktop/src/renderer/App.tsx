@@ -781,8 +781,12 @@ export function App() {
               onRun={() => {
                 void commands.runQa();
               }}
-              onJump={(id) => {
-                void commands.jumpToIssue(id);
+              scope={surface.scope}
+              onScopeChange={(scope) => {
+                void commands.setJobScope(scope);
+              }}
+              onJump={(id, documentId) => {
+                void commands.jumpToIssue(id, documentId);
               }}
               onWaive={commands.waiveQaIssue}
               onRevoke={commands.revokeQaWaiver}
@@ -804,6 +808,12 @@ export function App() {
               error={surface.error}
               resultPath={surface.resultPath}
               disabled={disabled}
+              scope={surface.scope}
+              blockedFiles={surface.blockedFiles ?? []}
+              resultFiles={surface.resultFiles ?? []}
+              onScopeChange={(scope) => {
+                void commands.setJobScope(scope);
+              }}
               onExport={() => {
                 void commands.checkGateAndExport();
               }}

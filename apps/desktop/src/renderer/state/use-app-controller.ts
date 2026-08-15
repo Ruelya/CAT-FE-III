@@ -62,9 +62,23 @@ import {
   type SegmentSelection,
 } from "./editor-selection";
 import {
+  joinExportPath,
+  splitExportPath,
+  uniqueExportFileName,
+} from "../lib/export-paths";
+import {
+  defaultJobScope,
+  documentsForScope,
+  qaDocumentFilter,
+  type JobScope,
+} from "../lib/job-scope";
+import { pairSourceTags } from "../lib/quickplace";
+import {
+  mergeTargetTags,
   placeSourceTagsAtCaret,
   placeSourceTagsProportional,
   setCaretInTaggedEditor,
+  wrapSelectionWithTagPair,
 } from "../lib/tagged-text";
 import { countsFromEditorRows } from "./editor-operations";
 import { EMPTY_SEGMENT_INTEL, type SegmentIntel } from "./segment-intel";
@@ -213,6 +227,36 @@ function countsFromRows(rows: SegmentEditorRow[]): SegmentCounts {
   };
 }
 
+function scopeFromSurface(surface: {
+  kind: string;
+  scope?: JobScope;
+  ctx?: SessionContext;
+}): JobScope {
+  if ((surface.kind === "qa" || surface.kind === "export") && surface.scope) {
+    return surface.scope;
+  }
+  return defaultJobScope(surface.ctx?.documents.length ?? 1);
+}
+
+function qaListParams(
+  projectId: string,
+  scope: JobScope,
+  documentId: string,
+): {
+  projectId: string;
+  limit: number;
+  offset: number;
+  documentId?: string;
+} {
+  const documentFilter = qaDocumentFilter(scope, documentId);
+  return {
+    projectId,
+    limit: PAGE_LIMIT,
+    offset: 0,
+    ...(documentFilter ? { documentId: documentFilter } : {}),
+  };
+}
+
 function replaceRow(
   rows: SegmentEditorRow[],
   segment: Segment,
@@ -276,7 +320,8 @@ export interface AppController {
     runQa: () => Promise<void>;
     waiveQaIssue: (issueId: string, reason: string) => Promise<boolean>;
     revokeQaWaiver: (issueId: string) => Promise<boolean>;
-    jumpToIssue: (segmentId: string) => Promise<void>;
+    jumpToIssue: (segmentId: string, documentId?: string) => Promise<void>;
+    setJobScope: (scope: JobScope) => Promise<void>;
     goExport: () => Promise<void>;
     checkGateAndExport: () => Promise<void>;
     backToWorkbench: (focusSegmentId?: string | null) => Promise<void>;
@@ -850,12 +895,11 @@ export function useAppController(): AppController {
               },
             });
             try {
-              const issues = await invokeEngine("qa.issue.list", {
-                projectId: ctx.project.id,
-                documentId: ctx.document.id,
-                limit: PAGE_LIMIT,
-                offset: 0,
-              });
+              const issues = await invokeEngine("qa.issue.list", qaListParams(
+                ctx.project.id,
+                current.scope,
+                ctx.document.id,
+              ));
               if (!isCurrent(gen)) return;
               if (stateRef.current.surface.kind !== "qa") return;
               dispatch({
@@ -1307,7 +1351,7 @@ export function useAppController(): AppController {
         }
         const counts: Record<string, number> = {};
         for (const issue of result.items) {
-          if (issue.status !== "open") continue;
+          if (issue.disposition !== "open") continue;
           counts[issue.segmentId] = (counts[issue.segmentId] ?? 0) + 1;
         }
         dispatch({ type: "PATCH_WORKBENCH", patch: { qaCounts: counts } });
@@ -1878,6 +1922,15 @@ export function useAppController(): AppController {
                   ? {
                       segmentId,
                       count: result.propagated.length,
+                      otherFiles: new Set(
+                        result.propagated
+                          .filter(
+                            (item) =>
+                              item.documentId !==
+                              nextSurface.ctx.document.id,
+                          )
+                          .map((item) => item.documentId),
+                      ).size,
                     }
                   : null,
             },
@@ -2233,15 +2286,27 @@ export function useAppController(): AppController {
             1,
           );
           const surfaceEl = targetSurfaceFor(segmentId);
-          const caret = readSegmentSelection(segmentId).targetStart;
+          const selection = readSegmentSelection(segmentId);
+          const { pairs } = pairSourceTags(fresh.sourceTags);
+          const pair = pairs[0];
           const targetTags =
-            surfaceEl && document.activeElement === surfaceEl
-              ? placeSourceTagsAtCaret(fresh.sourceTags, caret)
-              : placeSourceTagsProportional(
-                  fresh.sourceTags,
-                  sourceLength,
-                  targetLength,
-                );
+            selection.targetStart !== selection.targetEnd && pair
+              ? mergeTargetTags(
+                  fresh.targetTags,
+                  wrapSelectionWithTagPair(
+                    pair.start,
+                    pair.end,
+                    selection.targetStart,
+                    selection.targetEnd,
+                  ),
+                )
+              : surfaceEl && document.activeElement === surfaceEl
+                ? placeSourceTagsAtCaret(fresh.sourceTags, selection.targetStart)
+                : placeSourceTagsProportional(
+                    fresh.sourceTags,
+                    sourceLength,
+                    targetLength,
+                  );
           const result = await invokeEngine("segment.tag.set", {
             segmentId,
             expectedRevision: fresh.segment.revision,
@@ -2390,6 +2455,62 @@ export function useAppController(): AppController {
         });
       },
 
+      setJobScope: async (scope) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind === "qa") {
+          if (surface.scope === scope) return;
+          const loadOp = ++qaLoadOpRef.current;
+          dispatch({
+            type: "PATCH_QA",
+            patch: { scope, loading: true, error: null },
+          });
+          try {
+            const issues = await invokeEngine(
+              "qa.issue.list",
+              qaListParams(
+                surface.ctx.project.id,
+                scope,
+                surface.ctx.document.id,
+              ),
+            );
+            if (qaLoadOpRef.current !== loadOp) return;
+            if (stateRef.current.surface.kind !== "qa") return;
+            dispatch({
+              type: "PATCH_QA",
+              patch: {
+                issues: issues.items,
+                issuesLoaded: true,
+                loading: false,
+                error: null,
+              },
+            });
+          } catch (error) {
+            if (qaLoadOpRef.current !== loadOp) return;
+            if (stateRef.current.surface.kind !== "qa") return;
+            dispatch({
+              type: "PATCH_QA",
+              patch: { loading: false, error: toUiError(error) },
+            });
+          }
+          return;
+        }
+        if (surface.kind === "export") {
+          if (surface.scope === scope) return;
+          dispatch({
+            type: "PATCH_EXPORT",
+            patch: {
+              scope,
+              gate: null,
+              blockedFiles: [],
+              resultPath: null,
+              resultFiles: [],
+              error: null,
+            },
+          });
+        }
+      },
+
       goQa: async () => {
         if (!stateRef.current.mutationsEnabled) return;
         const surface = stateRef.current.surface;
@@ -2409,6 +2530,7 @@ export function useAppController(): AppController {
             ? current.ctx
             : null;
         if (!ctx) return;
+        const scope = scopeFromSurface(current);
         const priorIssues = current.kind === "qa" ? current.issues : [];
         const priorLoaded =
           current.kind === "qa" ? current.issuesLoaded : false;
@@ -2424,18 +2546,17 @@ export function useAppController(): AppController {
             run: priorRun,
             loading: true,
             error: null,
+            scope,
           },
         });
         // Always fetch authoritative list on entry/re-entry.
         // Use SET_SURFACE (not PATCH_QA) so a sync Engine response cannot
         // race the reducer before surface.kind becomes "qa".
         try {
-          const issues = await invokeEngine("qa.issue.list", {
-            projectId: ctx.project.id,
-            documentId: ctx.document.id,
-            limit: PAGE_LIMIT,
-            offset: 0,
-          });
+          const issues = await invokeEngine(
+            "qa.issue.list",
+            qaListParams(ctx.project.id, scope, ctx.document.id),
+          );
           if (qaLoadOpRef.current !== loadOp) return;
           dispatch({
             type: "SET_SURFACE",
@@ -2447,6 +2568,7 @@ export function useAppController(): AppController {
               run: priorRun,
               loading: false,
               error: null,
+              scope,
             },
           });
         } catch (error) {
@@ -2461,6 +2583,7 @@ export function useAppController(): AppController {
               run: priorRun,
               loading: false,
               error: toUiError(error),
+              scope,
             },
           });
         }
@@ -2475,16 +2598,22 @@ export function useAppController(): AppController {
           patch: { loading: true, error: null },
         });
         try {
+          const documentId = qaDocumentFilter(
+            surface.scope,
+            surface.ctx.document.id,
+          );
           const run = await invokeEngine("qa.run", {
             projectId: surface.ctx.project.id,
-            documentId: surface.ctx.document.id,
+            ...(documentId ? { documentId } : {}),
           });
-          const issues = await invokeEngine("qa.issue.list", {
-            projectId: surface.ctx.project.id,
-            documentId: surface.ctx.document.id,
-            limit: PAGE_LIMIT,
-            offset: 0,
-          });
+          const issues = await invokeEngine(
+            "qa.issue.list",
+            qaListParams(
+              surface.ctx.project.id,
+              surface.scope,
+              surface.ctx.document.id,
+            ),
+          );
           if (stateRef.current.surface.kind !== "qa") return;
           dispatch({
             type: "PATCH_QA",
@@ -2518,12 +2647,14 @@ export function useAppController(): AppController {
             actor: DESKTOP_ACTOR,
             reason,
           });
-          await invokeEngine("qa.issue.list", {
-            projectId: surface.ctx.project.id,
-            documentId: surface.ctx.document.id,
-            limit: PAGE_LIMIT,
-            offset: 0,
-          }).then((issues) => {
+          await invokeEngine(
+            "qa.issue.list",
+            qaListParams(
+              surface.ctx.project.id,
+              surface.scope,
+              surface.ctx.document.id,
+            ),
+          ).then((issues) => {
             if (stateRef.current.surface.kind !== "qa") return;
             dispatch({
               type: "PATCH_QA",
@@ -2550,12 +2681,14 @@ export function useAppController(): AppController {
             issueId,
             expectedRevision: waiver.revision,
           });
-          await invokeEngine("qa.issue.list", {
-            projectId: surface.ctx.project.id,
-            documentId: surface.ctx.document.id,
-            limit: PAGE_LIMIT,
-            offset: 0,
-          }).then((issues) => {
+          await invokeEngine(
+            "qa.issue.list",
+            qaListParams(
+              surface.ctx.project.id,
+              surface.scope,
+              surface.ctx.document.id,
+            ),
+          ).then((issues) => {
             if (stateRef.current.surface.kind !== "qa") return;
             dispatch({
               type: "PATCH_QA",
@@ -2569,17 +2702,40 @@ export function useAppController(): AppController {
         }
       },
 
-      jumpToIssue: (segmentId) => {
-        if (!stateRef.current.mutationsEnabled) return Promise.resolve();
+      jumpToIssue: async (segmentId, documentId) => {
+        if (!stateRef.current.mutationsEnabled) return;
         const surface = stateRef.current.surface;
-        if (surface.kind !== "qa") return Promise.resolve();
-        const exists = surface.ctx.rows.some((r) => r.segment.id === segmentId);
-        if (!exists) return Promise.resolve();
-        enterWorkbench(surface.ctx, {
-          focusSegmentId: segmentId,
-          persistSession: true,
-        });
-        return Promise.resolve();
+        if (surface.kind !== "qa") return;
+        const targetDoc =
+          documentId ??
+          surface.issues.find((issue) => issue.segmentId === segmentId)
+            ?.documentId ??
+          surface.ctx.document.id;
+        try {
+          if (targetDoc === surface.ctx.document.id) {
+            const exists = surface.ctx.rows.some(
+              (row) => row.segment.id === segmentId,
+            );
+            if (!exists) return;
+            enterWorkbench(surface.ctx, {
+              focusSegmentId: segmentId,
+              persistSession: true,
+            });
+            return;
+          }
+          const session = makeSession(surface.ctx.project.id, targetDoc);
+          const ctx = await hydrateSession(session);
+          enterWorkbench(ctx, {
+            focusSegmentId: segmentId,
+            persistSession: true,
+          });
+        } catch (error) {
+          if (stateRef.current.surface.kind !== "qa") return;
+          dispatch({
+            type: "PATCH_QA",
+            patch: { error: toUiError(error) },
+          });
+        }
       },
 
       goExport: async () => {
@@ -2597,6 +2753,7 @@ export function useAppController(): AppController {
         else if (current.kind === "qa") ctx = current.ctx;
         else if (current.kind === "export") ctx = current.ctx;
         if (!ctx) return;
+        const scope = scopeFromSurface(current);
         dispatch({
           type: "SET_SURFACE",
           surface: {
@@ -2607,6 +2764,9 @@ export function useAppController(): AppController {
             exporting: false,
             error: null,
             resultPath: null,
+            scope,
+            blockedFiles: [],
+            resultFiles: [],
           },
         });
       },
@@ -2618,17 +2778,59 @@ export function useAppController(): AppController {
         if (surface.exporting || surface.loading) return;
         dispatch({
           type: "PATCH_EXPORT",
-          patch: { loading: true, error: null, resultPath: null },
+          patch: {
+            loading: true,
+            error: null,
+            resultPath: null,
+            resultFiles: [],
+            blockedFiles: [],
+          },
         });
         try {
-          const gate = await invokeEngine("qa.gate.check", {
-            projectId: surface.ctx.project.id,
-            documentId: surface.ctx.document.id,
-          });
+          const docs = documentsForScope(
+            surface.scope,
+            surface.ctx.documents,
+            surface.ctx.document,
+          );
+          const gates = [];
+          for (const doc of docs) {
+            gates.push(
+              await invokeEngine("qa.gate.check", {
+                projectId: surface.ctx.project.id,
+                documentId: doc.id,
+              }),
+            );
+          }
           if (stateRef.current.surface.kind !== "export") return;
+          const blocked = gates.filter((item) => !item.clear);
+          const gate = {
+            clear: blocked.length === 0,
+            documentId: blocked[0]?.documentId ?? docs[0]!.id,
+            errorCount: gates.reduce((sum, item) => sum + item.errorCount, 0),
+            warningCount: gates.reduce(
+              (sum, item) => sum + item.warningCount,
+              0,
+            ),
+            infoCount: gates.reduce((sum, item) => sum + item.infoCount, 0),
+            waivedCount: gates.reduce((sum, item) => sum + item.waivedCount, 0),
+            blockerIssueIds: gates.flatMap((item) => item.blockerIssueIds),
+            run: (blocked[0] ?? gates[0]!).run,
+          };
+          const blockedFiles = blocked.map((item) => {
+            const doc =
+              docs.find((entry) => entry.id === item.documentId) ??
+              surface.ctx.documents.find(
+                (entry) => entry.id === item.documentId,
+              );
+            return {
+              id: item.documentId,
+              name: doc?.name ?? item.documentId,
+              errorCount: item.errorCount,
+            };
+          });
           dispatch({
             type: "PATCH_EXPORT",
-            patch: { gate, loading: false },
+            patch: { gate, loading: false, blockedFiles },
           });
           if (!gate.clear) {
             return;
@@ -2637,7 +2839,7 @@ export function useAppController(): AppController {
             type: "PATCH_EXPORT",
             patch: { exporting: true },
           });
-          const suggested = `${surface.ctx.document.name || "export"}.out`;
+          const suggested = `${docs[0]?.name || "export"}.out`;
           const path = await desktopApi().selectExportPath(suggested);
           if (!path) {
             dispatch({
@@ -2646,16 +2848,44 @@ export function useAppController(): AppController {
             });
             return;
           }
-          const result = await invokeEngine("document.export", {
-            documentId: surface.ctx.document.id,
-            outputPath: path,
-          });
+          if (docs.length === 1) {
+            const result = await invokeEngine("document.export", {
+              documentId: docs[0]!.id,
+              outputPath: path,
+            });
+            if (stateRef.current.surface.kind !== "export") return;
+            dispatch({
+              type: "PATCH_EXPORT",
+              patch: {
+                exporting: false,
+                resultPath: result.outputPath,
+                resultFiles: [
+                  { name: docs[0]!.name, path: result.outputPath },
+                ],
+                error: null,
+              },
+            });
+            return;
+          }
+          const { dir, sep } = splitExportPath(path);
+          const used = new Set<string>();
+          const resultFiles: Array<{ name: string; path: string }> = [];
+          for (const doc of docs) {
+            const fileName = uniqueExportFileName(doc.name, used, doc.id);
+            const outputPath = joinExportPath(dir, fileName, sep);
+            const result = await invokeEngine("document.export", {
+              documentId: doc.id,
+              outputPath,
+            });
+            resultFiles.push({ name: doc.name, path: result.outputPath });
+          }
           if (stateRef.current.surface.kind !== "export") return;
           dispatch({
             type: "PATCH_EXPORT",
             patch: {
               exporting: false,
-              resultPath: result.outputPath,
+              resultPath: resultFiles[0]?.path ?? path,
+              resultFiles,
               error: null,
             },
           });

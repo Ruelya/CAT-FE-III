@@ -123,6 +123,70 @@ export function placeSourceTagsAtCaret(
   }));
 }
 
+export function tagFingerprint(tag: InlineTag): string {
+  return `${tag.kind}\0${tag.displayText}\0${tag.payload}`;
+}
+
+/** Put a start/end pair around the current target selection. */
+export function wrapSelectionWithTagPair(
+  startTag: InlineTag,
+  endTag: InlineTag,
+  from: number,
+  to: number,
+): InlineTag[] {
+  const lo = Math.max(0, Math.min(from, to));
+  const hi = Math.max(from, to);
+  return [
+    {
+      ...startTag,
+      id: `placed-s:${startTag.id}`,
+      side: "target",
+      position: lo,
+      protected: true,
+    },
+    {
+      ...endTag,
+      id: `placed-e:${endTag.id}`,
+      side: "target",
+      position: hi,
+      protected: true,
+    },
+  ];
+}
+
+export function mergeTargetTags(
+  existing: readonly InlineTag[],
+  incoming: readonly InlineTag[],
+): InlineTag[] {
+  const incomingKeys = new Set(incoming.map(tagFingerprint));
+  return [...existing.filter((tag) => !incomingKeys.has(tagFingerprint(tag))), ...incoming].sort(
+    (left, right) => {
+      if (left.position !== right.position) return left.position - right.position;
+      const rank = (tag: InlineTag) =>
+        tag.kind === "start" ? 0 : tag.kind === "standalone" ? 1 : 2;
+      return rank(left) - rank(right);
+    },
+  );
+}
+
+export function insertTextIntoTagged(
+  text: string,
+  tags: readonly InlineTag[],
+  caret: number,
+  insert: string,
+): SerializedTaggedText {
+  const characters = [...text];
+  const at = Math.max(0, Math.min(caret, characters.length));
+  const next = `${characters.slice(0, at).join("")}${insert}${characters.slice(at).join("")}`;
+  const shift = [...insert].length;
+  return {
+    text: next,
+    tags: tags.map((tag) =>
+      tag.position >= at ? { ...tag, position: tag.position + shift } : tag,
+    ),
+  };
+}
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")

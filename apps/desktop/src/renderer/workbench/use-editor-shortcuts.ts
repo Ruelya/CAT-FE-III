@@ -15,6 +15,8 @@ export interface EditorShortcutHandlers {
   onPretranslate: () => void;
   /** Ctrl+,: place source tags onto the target. */
   onPlaceTags: () => void;
+  /** Ctrl+Shift+,: open the QuickPlace list. */
+  onQuickPlace?: () => void;
   /** Ctrl+F: open find on the current document. */
   onFind?: () => void;
   /** F4 / Ctrl+G already used; Enter-next from Find uses this. */
@@ -73,6 +75,11 @@ export function useEditorShortcuts(
         handlers.onPretranslate();
         return;
       }
+      if (control && event.shiftKey && event.code === "Comma") {
+        event.preventDefault();
+        handlers.onQuickPlace?.();
+        return;
+      }
       if (control && event.key === ",") {
         event.preventDefault();
         handlers.onPlaceTags();
@@ -99,6 +106,7 @@ export function useEditorShortcuts(
     handlers.onGoTo,
     handlers.onPretranslate,
     handlers.onPlaceTags,
+    handlers.onQuickPlace,
     handlers.onFind,
     handlers.onFindNext,
   ]);

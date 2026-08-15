@@ -37,16 +37,24 @@
 | Find | 计数、Enter 跳第一条、F4 下一条、命中行高亮。Ctrl+F 打开面板。 |
 | 结构预览 | 文档序块、当前段高亮、点击跳段。不是 Word WYSIWYG。 |
 
+### 2026-08-15 续作（跨文件 + QuickPlace）
+
+| 能力 | 说明 |
+| --- | --- |
+| 作业级 QA / 导出 | 多文件时默认 All files。QA 可按项目跑；Jump 会切到问题所在文件。导出先逐文件过 gate，再写到同一目录。 |
+| 跨文件传播可见 | 确认仍按 source_hash 写到其它文件的未确认段；通知写明有几条在其它文件。 |
+| QuickPlace 列表 | Ctrl+, 仍一次放置全部标签（门禁不变）。Ctrl+Shift+, / Place 打开列表：全部标签、成对标签、数字/日期/URL/邮箱。选区包一对标签。 |
+| Ghost tags | 目标未携带的源标签以虚线胶囊列在编辑器下，点击放入光标处（成对则包住选区）。 |
+
 ### 仍未做到 Trados 同水准的部分（诚实清单）
 
 这些**没有**假装完成，下一轮应继续：
 
-1. **目标侧选区包标签 / IME 与补全在富文本上的手感打磨**——atom 已在，QuickPlace 列表与 ghost tags 还没有。
-2. **跨文件 QA / 导出 / 传播**——FileNav 能换文件并看到进度，动作仍作用在当前文件。
-3. **实时预览**（Word/HTML 所见即所得）。现在是结构块预览。
-4. **Approved / Rejected 七档**——引擎工作流是 translation/review/signed 三档，Signed = 锁定。
-5. **AI 需真实 provider 密钥**才能生成；门禁验证的是“挂在当前段 + 无配置时诚实”，不是云端生成质量。
-6. **SDLXLIFF / MQXLIFF / PDF** 尚未纳入 format-matrix 的同构往返（引擎已注册过滤器，缺同级 fixture 门禁）。
+1. **IME 与补全在富文本上的手感打磨**——atom / QuickPlace / ghost 已在；选区包标签已接，但没有 Trados 那种 ghost 叠在正文预期位置上。
+2. **实时预览**（Word/HTML 所见即所得）。现在是结构块预览。
+3. **Approved / Rejected 七档**——引擎工作流是 translation/review/signed 三档，Signed = 锁定。
+4. **AI 需真实 provider 密钥**才能生成；门禁验证的是“挂在当前段 + 无配置时诚实”，不是云端生成质量。
+5. **SDLXLIFF / MQXLIFF / PDF** 尚未纳入 format-matrix 的同构往返（引擎已注册过滤器，缺同级 fixture 门禁）。
 
 主参照：SDL Trados Studio 2024 / 2024 SR1 的 Editor view（以 docs.rws.com 官方
 文档为准）；补遗参照 memoQ（docs.memoq.com）与 CafeTran。协作、派单、云协同、

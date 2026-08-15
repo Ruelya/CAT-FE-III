@@ -39,6 +39,9 @@ export interface SegmentGridProps {
   }) => void;
   onApplyMatchByIndex?: (index: number) => void;
   suggestions?: SuggestionBinding;
+  quickPlaceOpen?: boolean;
+  onQuickPlaceOpenChange?: (open: boolean) => void;
+  onPlaceAllTags?: () => void;
   /** Per-segment comment counts, for the row marker. */
   commentCounts?: Readonly<Record<string, number>>;
   /** Per-segment QA finding counts, for the row marker. */
@@ -67,6 +70,9 @@ export function SegmentGrid({
   onConfirm,
   onApplyMatchByIndex,
   suggestions,
+  quickPlaceOpen,
+  onQuickPlaceOpenChange,
+  onPlaceAllTags,
   commentCounts,
   qaCounts,
   repeatedSources,
@@ -226,6 +232,15 @@ export function SegmentGrid({
                       }}
                       {...(onApplyMatchByIndex ? { onApplyMatchByIndex } : {})}
                       {...(suggestions ? { suggestions } : {})}
+                      sourceText={row.segment.sourceText}
+                      sourceTags={row.sourceTags}
+                      {...(quickPlaceOpen !== undefined
+                        ? { quickPlaceOpen }
+                        : {})}
+                      {...(onQuickPlaceOpenChange
+                        ? { onQuickPlaceOpenChange }
+                        : {})}
+                      {...(onPlaceAllTags ? { onPlaceAllTags } : {})}
                     />
                   ) : (
                     <button

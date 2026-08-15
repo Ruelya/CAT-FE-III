@@ -77,6 +77,130 @@ describe("App P1 project lifecycle (fake DesktopApi)", () => {
     });
   });
 
+  it("runs job QA across files and jumps into the other file", async () => {
+    const user = userEvent.setup();
+    state.sourcePaths = ["C:\\tmp\\a.txt", "C:\\tmp\\b.txt"];
+    render(<App />);
+
+    await screen.findByTestId("welcome");
+    await user.click(screen.getByRole("button", { name: "Create project" }));
+    await user.clear(screen.getByLabelText("Name"));
+    await user.type(screen.getByLabelText("Name"), "JobQA");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    await screen.findByTestId("import-document");
+    await user.click(screen.getByRole("button", { name: "Choose files" }));
+    await screen.findByTestId("workbench");
+
+    const other = state.segments.find((seg) => seg.documentId === "doc-2");
+    expect(other).toBeTruthy();
+    state.qaIssues = [
+      {
+        id: "iss-other",
+        projectId: state.projects[0]!.id,
+        documentId: "doc-2",
+        documentName: "b.txt",
+        segmentId: other!.id,
+        segmentOrdinal: 1,
+        category: "tags",
+        createdAtMs: 1,
+        updatedAtMs: 1,
+        disposition: "open",
+        evidence: {},
+        fingerprint: "fp-other",
+        message: "Tag missing on the second file",
+        ruleId: "tag_missing",
+        severity: "warning",
+      },
+    ];
+
+    await user.click(screen.getByTestId("workbench-qa"));
+    await screen.findByTestId("qa-review");
+    expect(screen.getByTestId("job-scope-job")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByText("Tag missing on the second file")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Jump to segment/ }));
+    await screen.findByTestId("workbench");
+    await waitFor(() => {
+      expect(localStorage.getItem(SESSION_STORAGE_KEY)).toContain("doc-2");
+    });
+  });
+
+  it("exports every file in the job after the gate is clear", async () => {
+    const user = userEvent.setup();
+    state.sourcePaths = ["C:\\tmp\\a.txt", "C:\\tmp\\b.txt"];
+    state.exportPath = "C:\\tmp\\out.txt";
+    render(<App />);
+
+    await screen.findByTestId("welcome");
+    await user.click(screen.getByRole("button", { name: "Create project" }));
+    await user.clear(screen.getByLabelText("Name"));
+    await user.type(screen.getByLabelText("Name"), "JobExport");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    await screen.findByTestId("import-document");
+    await user.click(screen.getByRole("button", { name: "Choose files" }));
+    await screen.findByTestId("workbench");
+
+    await user.click(screen.getByTestId("workbench-export"));
+    await screen.findByTestId("export-review");
+    expect(screen.getByTestId("job-scope-job")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await user.click(
+      within(screen.getByTestId("export-review")).getByRole("button", {
+        name: "Export",
+      }),
+    );
+    await waitFor(() => {
+      const exports = state.calls.filter((call) => call.method === "document.export");
+      expect(exports).toHaveLength(2);
+    });
+    expect(screen.getByTestId("export-result-files")).toBeInTheDocument();
+  });
+
+  it("propagates a confirmation into the other file", async () => {
+    const user = userEvent.setup();
+    state.sourcePaths = ["C:\\tmp\\a.txt", "C:\\tmp\\b.txt"];
+    render(<App />);
+
+    await screen.findByTestId("welcome");
+    await user.click(screen.getByRole("button", { name: "Create project" }));
+    await user.clear(screen.getByLabelText("Name"));
+    await user.type(screen.getByLabelText("Name"), "JobProp");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    await screen.findByTestId("import-document");
+    await user.click(screen.getByRole("button", { name: "Choose files" }));
+    await screen.findByTestId("workbench");
+
+    const first = state.segments.find((seg) => seg.documentId === "doc-1");
+    const second = state.segments.find((seg) => seg.documentId === "doc-2");
+    expect(first && second).toBeTruthy();
+    second!.sourceHash = first!.sourceHash;
+    second!.sourceText = first!.sourceText;
+
+    const editor = await screen.findByTestId(`target-editor-${first!.id}`);
+    await user.clear(editor);
+    await user.type(editor, "共用译文");
+    await waitFor(
+      () => {
+        expect(
+          state.calls.some((call) => call.method === "segment.updateTarget"),
+        ).toBe(true);
+      },
+      { timeout: 2000 },
+    );
+    await user.click(screen.getByRole("button", { name: /^Confirm segment / }));
+    await waitFor(() => {
+      expect(screen.getByTestId("propagation-notice")).toHaveTextContent(
+        "other files",
+      );
+    });
+    expect(second!.targetText).toBe("共用译文");
+    expect(second!.state).toBe("draft");
+  });
+
   it("cancels multi-file picker without batchImport", async () => {
     const user = userEvent.setup();
     state.sourcePaths = [];

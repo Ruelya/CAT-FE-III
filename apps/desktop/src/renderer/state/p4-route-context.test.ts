@@ -81,6 +81,7 @@ describe("p4-route-context", () => {
       run: null,
       loading: false,
       error: null,
+      scope: "file",
     };
     expect(resolveP4RouteContext(qa)?.activeSegmentId).toBeNull();
   });

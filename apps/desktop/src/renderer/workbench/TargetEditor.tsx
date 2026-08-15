@@ -1,14 +1,25 @@
-import { useEffect, useRef, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { EditorSuggestion, InlineTag } from "@translunar/contracts";
 
 import {
+  extractPlaceables,
+  pairSourceTags,
+  unmatchedSourceTags,
+  type Placeable,
+} from "../lib/quickplace";
+import {
   buildTaggedEditorHtml,
   caretOffsetsInTaggedEditor,
+  insertTextIntoTagged,
+  mergeTargetTags,
   serializeTaggedEditor,
   setCaretInTaggedEditor,
+  tagLabel,
   tagsEqual,
+  wrapSelectionWithTagPair,
 } from "../lib/tagged-text";
 import type { SegmentEditState } from "../state/save-coordinator";
+import { QuickPlacePopup } from "./QuickPlacePopup";
 import { SuggestionPopup } from "./SuggestionPopup";
 
 export interface TargetEditorProps {
@@ -35,6 +46,11 @@ export interface TargetEditorProps {
   suggestions?: SuggestionBinding;
   /** Segment ordinal shown on the Confirm control for a11y. */
   confirmLabel?: string;
+  sourceText?: string;
+  sourceTags?: readonly InlineTag[];
+  quickPlaceOpen?: boolean;
+  onQuickPlaceOpenChange?: (open: boolean) => void;
+  onPlaceAllTags?: () => void;
 }
 
 export interface SuggestionBinding {
@@ -76,12 +92,30 @@ export function TargetEditor({
   onApplyMatchByIndex,
   suggestions,
   confirmLabel,
+  sourceText = "",
+  sourceTags = [],
+  quickPlaceOpen = false,
+  onQuickPlaceOpenChange,
+  onPlaceAllTags,
 }: TargetEditorProps) {
   const mirrorRef = useRef<HTMLTextAreaElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const skipSync = useRef(false);
   const composing = useRef(false);
-  const open = (suggestions?.items.length ?? 0) > 0;
+  const [quickIndex, setQuickIndex] = useState(0);
+  const placeables = useMemo(
+    () => extractPlaceables(sourceText, sourceTags),
+    [sourceText, sourceTags],
+  );
+  const ghosts = useMemo(
+    () => unmatchedSourceTags(sourceTags, tags),
+    [sourceTags, tags],
+  );
+  const open = !quickPlaceOpen && (suggestions?.items.length ?? 0) > 0;
+
+  useEffect(() => {
+    if (quickPlaceOpen) setQuickIndex(0);
+  }, [quickPlaceOpen, segmentId]);
 
   useEffect(() => {
     if (autoFocus) {
@@ -129,6 +163,102 @@ export function TargetEditor({
     .filter(Boolean)
     .join(" ");
 
+  const currentCaret = () => {
+    const surface = surfaceRef.current;
+    if (!surface) {
+      const end = [...value].length;
+      return { start: end, end };
+    }
+    return caretOffsetsInTaggedEditor(
+      surface,
+      surface.ownerDocument.defaultView?.getSelection() ?? null,
+    );
+  };
+
+  const applyTags = (next: InlineTag[]) => {
+    if (!onTagsChange || tagsEqual(next, tags)) return;
+    onTagsChange(next);
+  };
+
+  const applyPlaceable = (item: Placeable) => {
+    onQuickPlaceOpenChange?.(false);
+    if (item.kind === "all-tags") {
+      onPlaceAllTags?.();
+      return;
+    }
+    const caret = currentCaret();
+    if (item.kind === "tag-pair" && item.tags?.[0] && item.tags[1]) {
+      applyTags(
+        mergeTargetTags(
+          tags,
+          wrapSelectionWithTagPair(
+            item.tags[0],
+            item.tags[1],
+            caret.start,
+            caret.end,
+          ),
+        ),
+      );
+      return;
+    }
+    if (item.kind === "tag" && item.tags?.[0]) {
+      const tag = item.tags[0];
+      applyTags(
+        mergeTargetTags(tags, [
+          {
+            ...tag,
+            id: `placed-g:${tag.id}`,
+            side: "target",
+            position: caret.start,
+            protected: true,
+          },
+        ]),
+      );
+      return;
+    }
+    if (!item.text) return;
+    const inserted = insertTextIntoTagged(value, tags, caret.start, item.text);
+    skipSync.current = true;
+    onChange(inserted.text);
+    applyTags(inserted.tags);
+    const surface = surfaceRef.current;
+    if (surface) {
+      surface.innerHTML = buildTaggedEditorHtml(inserted.text, inserted.tags);
+      setCaretInTaggedEditor(
+        surface,
+        caret.start + [...item.text].length,
+      );
+    }
+  };
+
+  const placeGhost = (ghost: InlineTag) => {
+    const caret = currentCaret();
+    const { pairs } = pairSourceTags(sourceTags);
+    const pair = pairs.find(
+      (item) => item.start.id === ghost.id || item.end.id === ghost.id,
+    );
+    if (pair) {
+      applyTags(
+        mergeTargetTags(
+          tags,
+          wrapSelectionWithTagPair(pair.start, pair.end, caret.start, caret.end),
+        ),
+      );
+      return;
+    }
+    applyTags(
+      mergeTargetTags(tags, [
+        {
+          ...ghost,
+          id: `placed-g:${ghost.id}`,
+          side: "target",
+          position: caret.start,
+          protected: true,
+        },
+      ]),
+    );
+  };
+
   const emitFromSurface = () => {
     const surface = surfaceRef.current;
     if (!surface) return;
@@ -149,6 +279,37 @@ export function TargetEditor({
     event: KeyboardEvent<HTMLElement>,
     caretFallback: number,
   ) => {
+    if (quickPlaceOpen && !isImeKey(event)) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setQuickIndex((index) =>
+          placeables.length === 0 ? 0 : (index + 1) % placeables.length,
+        );
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setQuickIndex((index) =>
+          placeables.length === 0
+            ? 0
+            : (index - 1 + placeables.length) % placeables.length,
+        );
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onQuickPlaceOpenChange?.(false);
+        return;
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        const chosen = placeables[quickIndex] ?? placeables[0];
+        if (chosen) {
+          event.preventDefault();
+          applyPlaceable(chosen);
+          return;
+        }
+      }
+    }
     if (open && suggestions && !isImeKey(event)) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
@@ -263,7 +424,40 @@ export function TargetEditor({
           handleKeys(e, e.currentTarget.selectionStart ?? [...value].length);
         }}
       />
+      {ghosts.length > 0 && disabled !== true ? (
+        <div className="target-editor__ghosts" data-testid="target-ghosts">
+          <span className="target-editor__ghosts-label">Missing</span>
+          {ghosts.map((ghost) => (
+            <button
+              key={ghost.id}
+              type="button"
+              className={`inline-tag inline-tag--ghost inline-tag--${ghost.kind}`}
+              data-testid={`ghost-tag-${ghost.id}`}
+              title={`Place ${tagLabel(ghost)}`}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => placeGhost(ghost)}
+            >
+              {tagLabel(ghost)}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <div className="target-editor__actions">
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          disabled={disabled === true}
+          data-testid={`quickplace-open-${segmentId}`}
+          title="QuickPlace (Ctrl+Shift+,)"
+          aria-expanded={quickPlaceOpen}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            setQuickIndex(0);
+            onQuickPlaceOpenChange?.(!quickPlaceOpen);
+          }}
+        >
+          Place
+        </button>
         <span className="target-editor__hint" aria-hidden="true">
           Ctrl+Enter
         </span>
@@ -283,6 +477,15 @@ export function TargetEditor({
           Confirm
         </button>
       </div>
+      {quickPlaceOpen ? (
+        <QuickPlacePopup
+          items={placeables}
+          activeIndex={quickIndex}
+          onHover={setQuickIndex}
+          onAccept={applyPlaceable}
+          onDismiss={() => onQuickPlaceOpenChange?.(false)}
+        />
+      ) : null}
       {open && suggestions ? (
         <SuggestionPopup
           suggestions={suggestions.items}

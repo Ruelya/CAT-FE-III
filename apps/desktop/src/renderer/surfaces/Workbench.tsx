@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   EditorWorkflowState,
   InlineTag,
@@ -56,7 +56,11 @@ export interface WorkbenchProps {
   switchPending?: boolean;
   addFilesPending?: boolean;
   batchResult?: ProjectBatchImportResult | null;
-  propagatedFrom?: { segmentId: string; count: number } | null;
+  propagatedFrom?: {
+    segmentId: string;
+    count: number;
+    otherFiles?: number;
+  } | null;
   /** Per-segment QA finding counts, for row marks and the QA filter. */
   qaCounts: Readonly<Record<string, number>>;
   disabled?: boolean;
@@ -186,6 +190,10 @@ export function Workbench({
   });
 
   const [previewOpen, setPreviewOpen] = useState(true);
+  const [quickPlaceOpen, setQuickPlaceOpen] = useState(false);
+  useEffect(() => {
+    setQuickPlaceOpen(false);
+  }, [activeSegmentId]);
   const [signReason, setSignReason] = useState<{
     segmentId: string;
     reason: string;
@@ -204,6 +212,7 @@ export function Workbench({
     onGoTo: () => setGoToOpen(true),
     onPretranslate,
     onPlaceTags,
+    onQuickPlace: () => setQuickPlaceOpen(true),
     onFind: () => editorOps?.openPanel("findReplace"),
     onFindNext: () => {
       const matches = editorOps?.findReplace.matches ?? [];
@@ -393,6 +402,7 @@ export function Workbench({
               className="btn btn--secondary btn--sm"
               disabled={headerBusy}
               onClick={onQa}
+              data-testid="workbench-qa"
             >
               QA
             </button>
@@ -401,6 +411,7 @@ export function Workbench({
               className="btn btn--primary btn--sm"
               disabled={headerBusy}
               onClick={onExport}
+              data-testid="workbench-export"
             >
               Export
             </button>
@@ -431,6 +442,10 @@ export function Workbench({
             >
               {`Reused this translation in ${propagatedFrom.count} repeated ${
                 propagatedFrom.count === 1 ? "segment" : "segments"
+              }${
+                propagatedFrom.otherFiles
+                  ? ` (${propagatedFrom.otherFiles} in other files)`
+                  : ""
               }.`}
             </p>
           ) : null}
@@ -551,6 +566,9 @@ export function Workbench({
               onAccepted: (suggestion) =>
                 onAcceptSuggestion(suggestion.text, suggest.prefix),
             }}
+            quickPlaceOpen={quickPlaceOpen}
+            onQuickPlaceOpenChange={setQuickPlaceOpen}
+            onPlaceAllTags={onPlaceTags}
           />
           {previewOpen ? (
             <StructurePreview
@@ -612,7 +630,7 @@ export function Workbench({
         ) : null}
         <span
           className="workbench__status-hint"
-          title="Ctrl+G go to · Ctrl+, place tags · Ctrl+Shift+P pretranslate · F3 concordance · Ctrl+1..9 apply match"
+          title="Ctrl+G go to · Ctrl+, place tags · Ctrl+Shift+, QuickPlace · Ctrl+Shift+P pretranslate · F3 concordance · Ctrl+1..9 apply match"
         >
           Shortcuts
         </span>

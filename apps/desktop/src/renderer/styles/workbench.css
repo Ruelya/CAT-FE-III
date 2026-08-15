@@ -945,6 +945,42 @@
   gap: var(--space-2);
 }
 
+.target-editor__ghosts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.target-editor__ghosts-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-subtle);
+}
+
+.inline-tag--ghost {
+  border-style: dashed;
+  color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.job-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.job-scope [aria-pressed="true"] {
+  background: var(--color-accent-soft);
+  border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-line));
+}
+
+.export-blocked {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
+  font-size: var(--text-sm);
+}
+
 .target-editor__hint {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
