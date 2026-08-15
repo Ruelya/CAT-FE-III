@@ -528,9 +528,12 @@
   color: var(--color-accent);
 }
 
-/* ── Exact TM dock ─────────────────────────────────────── */
+/* ── Segment intelligence dock ─────────────────────────── */
 
-.tm-panel {
+/* Everything in this column answers a question about the segment under the
+   caret. It keeps the exact geometry of the dock it replaces so the workbench
+   grid does not reflow between builds. */
+.intel-dock {
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -541,19 +544,23 @@
     opacity var(--motion-slow) var(--ease-standard);
 }
 
-.tm-panel--collapsed {
+.intel-dock--collapsed {
   width: var(--rail-w);
 }
 
 /* The collapsed rail is exactly one 32px control wide; padding must not push
    the toggle past the window edge. */
-.tm-panel--collapsed .tm-panel__chrome {
+.intel-dock--collapsed .intel-dock__chrome {
   padding: var(--space-1);
   gap: 0;
   justify-content: center;
 }
 
-.tm-panel--collapsed .tm-panel__body {
+.intel-dock--collapsed .intel-dock__tabs {
+  display: none;
+}
+
+.intel-dock--collapsed .intel-dock__body {
   opacity: 0;
   pointer-events: none;
   overflow: hidden;
@@ -562,7 +569,7 @@
   min-width: 0;
 }
 
-.tm-panel__chrome {
+.intel-dock__chrome {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -572,14 +579,51 @@
   min-height: var(--control-h-lg);
 }
 
-.tm-panel__title {
-  margin: 0;
+.intel-dock__tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.intel-dock__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border: 0;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
   font-family: var(--font-display);
   font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.intel-dock__tab:hover {
+  background: var(--color-raised);
+  color: var(--color-text);
+}
+
+.intel-dock__tab--active {
+  background: var(--color-raised);
+  color: var(--color-text);
   font-weight: var(--weight-semibold);
 }
 
-.tm-panel__body {
+.intel-dock__count {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-text-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.intel-dock__tab--active .intel-dock__count {
+  color: var(--color-accent);
+}
+
+.intel-dock__body {
   min-height: 0;
   overflow: auto;
   padding: var(--space-3);
@@ -590,14 +634,83 @@
   transition: opacity var(--motion-slow) var(--ease-standard);
 }
 
-.tm-match {
+/* ── Memory matches ─────────────────────────────────────── */
+
+.match-list,
+.term-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.match {
   border: 1px solid var(--color-line);
   border-radius: var(--radius-md);
   padding: var(--space-2) var(--space-3);
   background: var(--color-raised);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 
-.tm-match__target {
+.match__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* The score is the first thing a translator reads, so it is the one element
+   here allowed to be loud. Context matches earn a different colour because
+   they mean something stronger than a plain 100%. */
+.match__score {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.match__score--context {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+
+.match__score--exact {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.match__library {
+  font-size: var(--text-xs);
+  color: var(--color-text-subtle);
+  min-width: 0;
+}
+
+.match__shortcut {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-text-subtle);
+  flex-shrink: 0;
+}
+
+.match__source {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-subtle);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.match__target {
   margin: 0;
   font-family: var(--font-cjk), var(--font-ui);
   line-height: var(--leading-cjk);
@@ -605,11 +718,63 @@
   word-break: break-word;
 }
 
-.tm-match__meta {
-  margin: var(--space-1) 0 0;
-  font-family: var(--font-mono);
+.match__substitutions {
+  margin: 0;
   font-size: var(--text-xs);
   color: var(--color-text-subtle);
+}
+
+.match__apply {
+  align-self: flex-start;
+}
+
+/* ── Term hits ──────────────────────────────────────────── */
+
+.term {
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-raised);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.term__source {
+  margin: 0;
+  font-weight: var(--weight-medium);
+  word-break: break-word;
+}
+
+.term__untranslated {
+  margin: 0;
+  font-size: var(--text-xs);
+}
+
+.term__translations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: center;
+}
+
+.term__insert {
+  font-family: var(--font-cjk), var(--font-ui);
+}
+
+.term__insert--preferred {
+  color: var(--color-accent);
+  font-weight: var(--weight-semibold);
+}
+
+/* Forbidden terms are the termbase saying what not to write. They are shown,
+   never offered. */
+.term__forbidden {
+  font-family: var(--font-cjk), var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--color-text-subtle);
+  text-decoration: line-through;
+  padding: 0 var(--space-1);
 }
 
 /* Document progress lives beside the identity, not as a separate band. */

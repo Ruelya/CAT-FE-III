@@ -691,9 +691,7 @@ export function App() {
               activeSegmentId={surface.activeSegmentId}
               focusSegmentId={surface.focusSegmentId}
               editState={saveCoordinator.active}
-              tmMatches={surface.tmMatches}
-              tmLoading={surface.tmLoading}
-              tmError={surface.tmError}
+              intel={surface.intel}
               tmCollapsed={surface.tmCollapsed}
               transitionError={surface.transitionError}
               pendingConfirm={surface.pendingConfirm}
@@ -724,6 +722,8 @@ export function App() {
                 void commands.confirmSegment(ev);
               }}
               onToggleTm={commands.toggleTmPanel}
+              onApplyMatch={commands.applyTmMatch}
+              onInsertTerm={commands.insertAtCaret}
               onQa={() => {
                 void commands.goQa();
               }}

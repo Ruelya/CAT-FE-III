@@ -111,21 +111,29 @@ test.describe("P0 vertical slice", () => {
       });
       await expectNoAxeViolations(page, "workbench");
 
-      // Exact TM panel: collapse/expand remains accessible and body stays mounted.
-      const tmPanel = page.getByTestId("tm-panel");
-      await expect(tmPanel).toBeVisible();
-      const collapseTm = page.getByRole("button", {
-        name: /Collapse exact TM panel/i,
+      // Segment intelligence dock: both docks are reachable, both report on
+      // the current segment, and collapse/expand keeps the body mounted so a
+      // screen reader is not handed a panel that vanishes.
+      const dock = page.getByTestId("intel-dock");
+      await expect(dock).toBeVisible();
+      await expect(dock.getByRole("tab", { name: /Matches/ })).toBeVisible();
+      await expect(dock.getByRole("tab", { name: /Terms/ })).toBeVisible();
+      await dock.getByRole("tab", { name: /Terms/ }).click();
+      await expect(page.getByTestId("no-terms")).toBeVisible();
+      await dock.getByRole("tab", { name: /Matches/ }).click();
+      await expect(page.getByTestId("no-matches")).toBeVisible();
+
+      const collapseDock = page.getByRole("button", {
+        name: /Collapse segment intelligence/i,
       });
-      if (await collapseTm.isVisible().catch(() => false)) {
-        await collapseTm.click();
+      if (await collapseDock.isVisible().catch(() => false)) {
+        await collapseDock.click();
         await expect(
-          page.getByRole("button", { name: /Expand exact TM panel/i }),
+          page.getByRole("button", { name: /Expand segment intelligence/i }),
         ).toBeVisible();
-        // Body remains in DOM (inert) when collapsed.
-        await expect(tmPanel.locator(".tm-panel__body")).toHaveCount(1);
+        await expect(dock.locator(".intel-dock__body")).toHaveCount(1);
         await page
-          .getByRole("button", { name: /Expand exact TM panel/i })
+          .getByRole("button", { name: /Expand segment intelligence/i })
           .click();
       }
 
