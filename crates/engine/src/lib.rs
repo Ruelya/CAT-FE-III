@@ -12080,11 +12080,29 @@ mod tests {
         drop(service);
         let mut service = EngineService::open(context.root.path()).expect("restart engine");
         for (document_id, output) in &exports {
+            // Only a blocked gate accepts an override, so ask first. Which of
+            // these documents blocks depends on the filters' tag models, and a
+            // filter that stops manufacturing unsatisfiable tag obligations
+            // legitimately turns a blocked gate clear.
+            let document = service
+                .get_document(document_id)
+                .expect("document for gate check");
+            let gate = service
+                .check_qa_gate(translunar_protocol::QaGateCheckParams {
+                    project_id: document.project_id.clone(),
+                    document_id: document_id.clone(),
+                    profile_id: None,
+                })
+                .expect("qa gate check after restart");
             service
                 .export_document(ExportDocumentParams {
                     document_id: document_id.clone(),
                     output_path: output.to_string_lossy().into_owned(),
-                    qa_override: Some(test_qa_override()),
+                    qa_override: if gate.clear {
+                        None
+                    } else {
+                        Some(test_qa_override())
+                    },
                 })
                 .expect("export after restart");
         }
@@ -12744,20 +12762,28 @@ mod tests {
                 protected: true,
             })
             .collect::<Vec<_>>();
-        let partial_tags = target_tags.iter().take(2).cloned().collect::<Vec<_>>();
+        // The fixture paragraph carries exactly one formatted span, so its
+        // source declares one protected pair. Leaving that pair unplaced is the
+        // partial state: the mutation is accepted and the row reports the gap
+        // rather than refusing the edit.
+        assert_eq!(
+            target_tags.len(),
+            2,
+            "one formatted span means one protected pair"
+        );
         let partial_mutation = service
             .set_segment_tags(SetSegmentTagsParams {
                 segment_id: first.id.clone(),
-                target_tags: partial_tags,
+                target_tags: Vec::new(),
                 expected_revision: redone_first.revision,
             })
-            .expect("insert one protected target tag pair");
+            .expect("accept a target that has not placed its protected tags yet");
         let partial_row = partial_mutation
             .rows
             .iter()
             .find(|row| row.segment.id == first.id)
             .expect("partially tagged row");
-        assert_eq!(partial_row.target_tags.len(), 2);
+        assert!(partial_row.target_tags.is_empty());
         assert!(
             partial_row
                 .tag_issues

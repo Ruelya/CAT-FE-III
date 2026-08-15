@@ -18,9 +18,10 @@ use translunar_filter_core::{
     ProbeResult, ValidationReport, collect_imported_document, publish_bytes_noclobber,
 };
 use translunar_filter_office_core::{
-    ByteReplacement, OfficeError, OfficePackage, XmlTextRange, apply_replacements,
-    decode_reference, decode_text, parse_relationships, rebuild_package, relationship_part,
-    resolve_relationship_target, validate_xml,
+    ByteReplacement, FormatGroup, OfficeError, OfficePackage, RunFormat, XmlTextRange,
+    apply_replacements, decode_reference, decode_text, format_groups, parse_relationships,
+    rebuild_package, reduce_run_properties, relationship_part, resolve_relationship_target,
+    taggable_format_groups, validate_xml,
 };
 use zip::result::ZipError;
 
@@ -152,6 +153,23 @@ struct ParagraphUnit {
     index: u32,
     text: String,
     ranges: Vec<XmlTextRange>,
+    /// Inline formatting signature of the run that owns each range, index
+    /// aligned with `ranges`. Empty string means the run carries no `w:rPr`.
+    formats: Vec<RunFormat>,
+}
+
+impl ParagraphUnit {
+    /// Adjacent ranges that share a formatting signature belong to one visible
+    /// span. A paragraph whose runs are all typographically identical has a
+    /// single group, and a single group is not a formatting boundary, so it
+    /// must not produce protected tags: Word splits runs for reasons that have
+    /// nothing to do with typography (spell-check state, revision ids, rsid
+    /// bookkeeping), and turning that noise into translator obligations is
+    /// what made every DOCX segment demand tag placement it could never
+    /// satisfy.
+    fn format_groups(&self) -> Vec<FormatGroup> {
+        format_groups(&self.ranges, &self.formats)
+    }
 }
 
 impl DocxFilter {
@@ -171,6 +189,60 @@ impl DocxFilter {
         }
         validate_xml(package.require(&main)?, &main)?;
         Ok(())
+    }
+
+    /// Export, reporting every paragraph whose inline formatting could not be
+    /// carried through. Target text is written into the first run of the
+    /// paragraph, so a paragraph that mixed typography in the source comes back
+    /// uniform. Saying so out loud is the difference between a known limit and
+    /// a silent corruption.
+    pub fn export_with_degradation(
+        &self,
+        source: &Path,
+        output: &Path,
+        segments: &[Segment],
+    ) -> Result<(ExportSummary, Vec<DegradationFinding>), DocxError> {
+        let flattened = self.flattened_formatting_paths(source, segments)?;
+        let summary = self.export(source, output, segments)?;
+        let degradation = flattened
+            .into_iter()
+            .map(|path| DegradationFinding {
+                code: "docx.inline_formatting_flattened".to_string(),
+                severity: DegradationSeverity::Warning,
+                message: format!(
+                    "Inline formatting in {path} was flattened to the paragraph's first run."
+                ),
+                structural_path: Some(path),
+            })
+            .collect();
+        Ok((summary, degradation))
+    }
+
+    fn flattened_formatting_paths(
+        &self,
+        source: &Path,
+        segments: &[Segment],
+    ) -> Result<Vec<String>, DocxError> {
+        let package = OfficePackage::open(source)?;
+        let parts = discover_text_parts(&package, true)?;
+        let targets = translations_by_path(segments)?;
+        let mut paths = Vec::new();
+        for part in parts {
+            let bytes = package.require(&part)?;
+            for unit in parse_paragraphs(bytes, &part)? {
+                let path = paragraph_path(&part, unit.index);
+                let Some(target) = targets.get(&path) else {
+                    continue;
+                };
+                if target.trim().is_empty() {
+                    continue;
+                }
+                if unit.format_groups().len() > 1 {
+                    paths.push(path);
+                }
+            }
+        }
+        Ok(paths)
     }
 
     pub fn export(
@@ -278,7 +350,7 @@ impl DocxFilter {
                         author: None,
                     }));
                 }
-                append_run_tags(&mut events, document_id, ordinal, &unit.ranges, &unit.text)?;
+                append_run_tags(&mut events, document_id, ordinal, &unit)?;
                 events.push(FilterEvent::EndUnit);
                 ordinal = ordinal.checked_add(1).ok_or_else(|| {
                     DocxError::InvalidPackage("DOCX unit count overflow".to_string())
@@ -342,9 +414,15 @@ impl DocumentFilter for DocxFilter {
         let package = OfficePackage::open(request.source)
             .map_err(DocxError::from)
             .map_err(map_docx_error)?;
-        let degradation = docx_degradations(&package);
-        let summary = DocxFilter::export(self, request.source, request.output, request.segments)
-            .map_err(map_docx_error)?;
+        let mut degradation = docx_degradations(&package);
+        let (summary, flattened) = DocxFilter::export_with_degradation(
+            self,
+            request.source,
+            request.output,
+            request.segments,
+        )
+        .map_err(map_docx_error)?;
+        degradation.extend(flattened);
         Ok(ExportReport {
             output_path: request.output.display().to_string(),
             translated_segments: summary.translated_segments,
@@ -594,6 +672,12 @@ fn parse_paragraphs(bytes: &[u8], part: &str) -> Result<Vec<ParagraphUnit>, Docx
     let mut revision_excluded = 0_u32;
     let mut paragraph_index = 0_u32;
     let mut paragraphs = Vec::new();
+    // Formatting of the run currently being read, and whether the reader is
+    // inside that run's `w:rPr` (run properties also appear on paragraphs and
+    // on other elements, so depth has to be tracked rather than assumed).
+    let mut run_properties: Vec<String> = Vec::new();
+    let mut in_run_properties = false;
+    let mut run_depth = 0_u32;
     loop {
         let before = usize::try_from(reader.buffer_position())
             .map_err(|_| DocxError::InvalidPackage("DOCX XML offset overflow".to_string()))?;
@@ -611,8 +695,14 @@ fn parse_paragraphs(bytes: &[u8], part: &str) -> Result<Vec<ParagraphUnit>, Docx
                             index,
                             text: String::new(),
                             ranges: Vec::new(),
+                            formats: Vec::new(),
                         });
                     }
+                    b"r" if !paragraph_stack.is_empty() => {
+                        run_depth = run_depth.saturating_add(1);
+                        run_properties.clear();
+                    }
+                    b"rPr" if run_depth > 0 => in_run_properties = true,
                     b"t" if !paragraph_stack.is_empty() && revision_excluded == 0 => {
                         text = Some((
                             usize::try_from(reader.buffer_position()).map_err(|_| {
@@ -621,14 +711,24 @@ fn parse_paragraphs(bytes: &[u8], part: &str) -> Result<Vec<ParagraphUnit>, Docx
                             String::new(),
                         ));
                     }
+                    _ if in_run_properties => {
+                        run_properties.push(String::from_utf8_lossy(local.as_ref()).into_owned());
+                    }
                     _ => {}
                 }
             }
             Ok(Event::Empty(element)) => {
+                let local = element.name().local_name();
+                // Run properties are nearly always empty elements: `<w:b/>`.
+                if in_run_properties {
+                    run_properties.push(String::from_utf8_lossy(local.as_ref()).into_owned());
+                } else if local.as_ref() == b"rPr" && run_depth > 0 {
+                    run_properties.clear();
+                }
                 if revision_excluded == 0
                     && let Some(current) = paragraph_stack.last_mut()
                 {
-                    match element.name().local_name().as_ref() {
+                    match local.as_ref() {
                         b"tab" => current.text.push('\t'),
                         b"br" | b"cr" => current.text.push('\n'),
                         _ => {}
@@ -658,6 +758,14 @@ fn parse_paragraphs(bytes: &[u8], part: &str) -> Result<Vec<ParagraphUnit>, Docx
                                 end: before,
                                 text: value,
                             });
+                            current.formats.push(reduce_run_properties(&run_properties));
+                        }
+                    }
+                    b"rPr" => in_run_properties = false,
+                    b"r" => {
+                        run_depth = run_depth.saturating_sub(1);
+                        if run_depth == 0 {
+                            run_properties.clear();
                         }
                     }
                     b"del" | b"moveFrom" => revision_excluded = revision_excluded.saturating_sub(1),
@@ -895,6 +1003,7 @@ struct ParagraphBuilder {
     index: u32,
     text: String,
     ranges: Vec<XmlTextRange>,
+    formats: Vec<RunFormat>,
 }
 
 impl ParagraphBuilder {
@@ -903,6 +1012,7 @@ impl ParagraphBuilder {
             index: self.index,
             text: self.text,
             ranges: self.ranges,
+            formats: self.formats,
         }
     }
 }
@@ -942,49 +1052,51 @@ fn translations_by_path(segments: &[Segment]) -> Result<HashMap<String, String>,
     Ok(translations)
 }
 
+/// Emit protected tags for the formatting boundaries a translator must carry.
+///
+/// A paragraph whose runs are typographically uniform produces no tags at all.
+/// Word splits runs for bookkeeping reasons that are invisible to a reader, and
+/// the previous behaviour — one protected pair per `w:t` — turned that noise
+/// into an obligation on every single segment of every DOCX, which no amount of
+/// correct translation could discharge.
 fn append_run_tags(
     events: &mut Vec<FilterEvent>,
     document_id: &str,
     ordinal: u32,
-    ranges: &[XmlTextRange],
-    source_text: &str,
+    unit: &ParagraphUnit,
 ) -> Result<(), DocxError> {
-    let mut position = 0_u32;
-    for (index, range) in ranges.iter().enumerate() {
-        let length = u32::try_from(range.text.chars().count())
-            .map_err(|_| DocxError::InvalidPackage("run text length overflow".to_string()))?;
-        if length == 0 {
-            continue;
+    let groups = unit.format_groups();
+    let source_chars = u32::try_from(unit.text.chars().count())
+        .map_err(|_| DocxError::InvalidPackage("paragraph length overflow".to_string()))?;
+    for (index, group) in taggable_format_groups(&groups) {
+        if group.end > source_chars {
+            return Err(DocxError::InvalidPackage(
+                "run tags exceed paragraph source text".to_string(),
+            ));
         }
         let pair_id = format!("{document_id}:docx:{ordinal}:{index}");
+        let display_text = group.format.label.clone();
+        let payload = format!("ooxml-run:{}", group.format.signature);
         events.push(FilterEvent::InlineTag(InlineTag {
             id: format!("{pair_id}:start"),
             side: TagSide::Source,
-            position,
+            position: group.start,
             kind: TagKind::Start,
             pair_id: Some(pair_id.clone()),
-            payload: "ooxml-run".to_string(),
-            display_text: "R".to_string(),
+            payload: payload.clone(),
+            display_text: display_text.clone(),
             protected: true,
         }));
-        position = position
-            .checked_add(length)
-            .ok_or_else(|| DocxError::InvalidPackage("run tag position overflow".to_string()))?;
         events.push(FilterEvent::InlineTag(InlineTag {
             id: format!("{pair_id}:end"),
             side: TagSide::Source,
-            position,
+            position: group.end,
             kind: TagKind::End,
             pair_id: Some(pair_id),
-            payload: "ooxml-run".to_string(),
-            display_text: "R".to_string(),
+            payload,
+            display_text,
             protected: true,
         }));
-    }
-    if usize::try_from(position).unwrap_or(usize::MAX) > source_text.chars().count() {
-        return Err(DocxError::InvalidPackage(
-            "run tags exceed paragraph source text".to_string(),
-        ));
     }
     Ok(())
 }
