@@ -552,6 +552,27 @@ export function caretOffsetsInTaggedEditor(
   return { start: Math.min(start, end), end: Math.max(start, end) };
 }
 
+/**
+ * Sit the caret after opening tags at this offset so the next keystroke
+ * goes inside the pair (Trados). Closers and ghosts stay ahead of it.
+ */
+function advanceRangePastStartTags(range: Range): void {
+  let node: Node | null = range.startContainer;
+  if (node.nodeType === Node.TEXT_NODE) {
+    if (range.startOffset < (node.textContent ?? "").length) return;
+    node = node.nextSibling;
+  }
+  while (node instanceof HTMLElement) {
+    if (node.dataset.ghost) break;
+    if (!node.dataset.tag || !node.classList.contains("inline-tag--start")) {
+      break;
+    }
+    range.setStartAfter(node);
+    range.collapse(true);
+    node = node.nextSibling;
+  }
+}
+
 export function setCaretInTaggedEditor(
   root: HTMLElement,
   offset: number,
@@ -594,6 +615,7 @@ export function setCaretInTaggedEditor(
     range.selectNodeContents(root);
     range.collapse(false);
   }
+  advanceRangePastStartTags(range);
   selection.removeAllRanges();
   selection.addRange(range);
 }

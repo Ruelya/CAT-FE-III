@@ -14,6 +14,7 @@ import {
   placeSourceTagsProportional,
   replaceSelectionInTagged,
   serializeTaggedEditor,
+  setCaretInTaggedEditor,
   splitTaggedText,
   tagLabel,
   tagsEqual,
@@ -235,6 +236,23 @@ describe("tagged editor html", () => {
     const serialized = serializeTaggedEditor(root);
     expect(serialized.text).toBe("你好电源站。");
     expect(serialized.tags).toEqual([]);
+  });
+
+  it("puts the caret after a start capsule at the same offset", () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    root.innerHTML = buildTaggedEditorHtml(
+      "hello ",
+      [tag("1s", "start", 6, "b")],
+      [tag("1e", "end", 6, "b")],
+    );
+    setCaretInTaggedEditor(root, 6);
+    const selection = root.ownerDocument.defaultView?.getSelection();
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    const start = root.querySelector(".inline-tag--start");
+    expect(start).toBeTruthy();
+    expect(range && start && range.comparePoint(start, 0) < 0).toBe(true);
+    document.body.removeChild(root);
   });
 
   it("applies formatting to text between a start and end capsule", () => {
