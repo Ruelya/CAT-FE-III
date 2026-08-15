@@ -23,6 +23,8 @@ export interface SegmentGridProps {
     isComposing?: boolean;
     keyCode?: number;
     which?: number;
+    altKey?: boolean;
+    shiftKey?: boolean;
   }) => void;
 }
 

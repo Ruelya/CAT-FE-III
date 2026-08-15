@@ -130,6 +130,13 @@ export type AppSurface =
       switchPending?: boolean;
       batchResult?: ProjectBatchImportResult | null;
       addFilesPending?: boolean;
+      /**
+       * What the last confirmation did to segments other than the one the
+       * translator was looking at. The Engine propagates a confirmed target to
+       * repeated source text; saying so is the difference between leverage and
+       * a document that quietly filled itself in.
+       */
+      propagatedFrom?: { segmentId: string; count: number } | null;
     }
   | {
       kind: "qa";

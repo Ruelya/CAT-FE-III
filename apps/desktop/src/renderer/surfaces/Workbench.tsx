@@ -35,6 +35,7 @@ export interface WorkbenchProps {
   switchPending?: boolean;
   addFilesPending?: boolean;
   batchResult?: ProjectBatchImportResult | null;
+  propagatedFrom?: { segmentId: string; count: number } | null;
   disabled?: boolean;
   editorOps?: EditorOperationsApi | null;
   pdfReview?: PdfReviewApi | null;
@@ -49,6 +50,8 @@ export interface WorkbenchProps {
     isComposing?: boolean;
     keyCode?: number;
     which?: number;
+    altKey?: boolean;
+    shiftKey?: boolean;
   }) => void;
   onToggleTm: () => void;
   onQa: () => void;
@@ -75,6 +78,7 @@ export function Workbench({
   switchPending,
   addFilesPending,
   batchResult,
+  propagatedFrom,
   disabled,
   editorOps,
   pdfReview,
@@ -253,7 +257,10 @@ export function Workbench({
         </div>
       </div>
 
-      {transitionError || editState?.journalError || batchResult ? (
+      {transitionError ||
+      editState?.journalError ||
+      batchResult ||
+      propagatedFrom ? (
         <div className="workbench__notice">
           {transitionError ? (
             <p className="error-text" role="alert">
@@ -263,6 +270,17 @@ export function Workbench({
           {editState?.journalError ? (
             <p className="error-text" role="alert" data-testid="journal-error">
               {formatUiError(editState.journalError)}
+            </p>
+          ) : null}
+          {propagatedFrom ? (
+            <p
+              className="inline-status inline-status--leverage"
+              role="status"
+              data-testid="propagation-notice"
+            >
+              {`Reused this translation in ${propagatedFrom.count} repeated ${
+                propagatedFrom.count === 1 ? "segment" : "segments"
+              }.`}
             </p>
           ) : null}
           {batchResult ? (
