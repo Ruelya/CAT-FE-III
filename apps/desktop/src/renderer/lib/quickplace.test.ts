@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { InlineTag } from "@translunar/contracts";
 
 import {
+  adjacentPlaceholderGroupAt,
+  adjacentPlaceholderGroups,
   extractPlaceables,
   formatPairForKey,
   pairSourceTags,
@@ -80,6 +82,55 @@ describe("extractPlaceables", () => {
     });
     expect(placeableSourceSpan(items.find((item) => item.kind === "all-tags"))).toBeNull();
     expect(items.find((item) => item.kind === "number")?.label).toBe("12.4");
+  });
+
+  it("groups adjacent placeholders into one QuickPlace item when asked", () => {
+    const source = [
+      tag("p1", "standalone", 4, "ph"),
+      tag("p2", "standalone", 4, "x"),
+      tag("1s", "start", 8, "b"),
+      tag("1e", "end", 12, "b"),
+    ];
+    const grouped = extractPlaceables("See  the unit.", source, [], {
+      groupAdjacent: true,
+    });
+    expect(grouped.map((item) => item.kind)).toEqual([
+      "all-tags",
+      "tag-group",
+      "tag",
+      "tag",
+    ]);
+    expect(grouped.find((item) => item.kind === "tag-group")?.tags).toHaveLength(2);
+    expect(placeableSourceSpan(grouped.find((item) => item.kind === "tag-group"))).toEqual({
+      start: 4,
+      end: 4,
+    });
+    const split = extractPlaceables("See  the unit.", source, []);
+    expect(split.filter((item) => item.kind === "tag")).toHaveLength(4);
+    expect(split.some((item) => item.kind === "tag-group")).toBe(false);
+  });
+});
+
+describe("adjacentPlaceholderGroups", () => {
+  it("keeps placeholders at different offsets apart", () => {
+    const groups = adjacentPlaceholderGroups([
+      tag("a", "standalone", 0, "ph"),
+      tag("b", "standalone", 3, "ph"),
+    ]);
+    expect(groups.map((group) => group.map((tag) => tag.id))).toEqual([["a"], ["b"]]);
+    expect(adjacentPlaceholderGroupAt(groups.flat(), "a")).toEqual([]);
+  });
+
+  it("collects placeholders that share an offset", () => {
+    const tags = [
+      tag("a", "standalone", 4, "ph"),
+      tag("b", "standalone", 4, "x"),
+      tag("c", "start", 4, "b"),
+    ];
+    expect(adjacentPlaceholderGroups(tags).map((group) => group.map((tag) => tag.id))).toEqual([
+      ["a", "b"],
+    ]);
+    expect(adjacentPlaceholderGroupAt(tags, "a").map((tag) => tag.id)).toEqual(["a", "b"]);
   });
 });
 

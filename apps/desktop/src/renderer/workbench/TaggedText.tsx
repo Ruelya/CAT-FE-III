@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import type { InlineTag } from "@translunar/contracts";
 
-import { encodeInlineTag, splitTaggedText } from "../lib/tagged-text";
+import { adjacentPlaceholderGroupAt } from "../lib/quickplace";
+import { encodeInlineTag, selectTagAtoms, splitTaggedText } from "../lib/tagged-text";
 
 export interface SourceHighlight {
   start: number;
@@ -16,6 +17,8 @@ export interface TaggedTextProps {
   onTagActivate?: (tag: InlineTag) => void;
   /** QuickPlace active item: highlight the matching source span. */
   highlight?: SourceHighlight | null;
+  /** Select adjacent placeholders as one range (Trados grouping). */
+  groupAdjacent?: boolean;
 }
 
 /**
@@ -32,6 +35,7 @@ export function TaggedText({
   className,
   onTagActivate,
   highlight,
+  groupAdjacent = false,
 }: TaggedTextProps) {
   const pieces = splitTaggedText(text, tags);
   if (pieces.length === 0) {
@@ -83,10 +87,26 @@ export function TaggedText({
         }
         {...(piece.tag ? { "data-tag": encodeInlineTag(piece.tag) } : {})}
         onMouseDown={(event) => {
-          if (!onTagActivate || !piece.tag) return;
-          if (!event.ctrlKey && !event.metaKey) return;
+          if (!piece.tag) return;
+          if (event.ctrlKey || event.metaKey) {
+            if (!onTagActivate) return;
+            event.preventDefault();
+            onTagActivate(piece.tag);
+            return;
+          }
+          if (!groupAdjacent) return;
+          const group = adjacentPlaceholderGroupAt(tags, piece.tag.id);
+          if (group.length < 2) return;
           event.preventDefault();
-          onTagActivate(piece.tag);
+          const root =
+            event.currentTarget.closest(".segment-source") ??
+            event.currentTarget.parentElement;
+          if (root instanceof HTMLElement) {
+            selectTagAtoms(
+              root,
+              group.map((item) => item.id),
+            );
+          }
         }}
       >
         {piece.text}

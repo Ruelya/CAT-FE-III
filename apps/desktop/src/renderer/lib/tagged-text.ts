@@ -445,6 +445,30 @@ export function encodeInlineTag(tag: InlineTag): string {
   return encodeURIComponent(JSON.stringify(tag));
 }
 
+/** Select every listed tag atom so a group can be copied in one gesture. */
+export function selectTagAtoms(
+  root: HTMLElement,
+  tagIds: readonly string[],
+): boolean {
+  const wanted = new Set(tagIds);
+  const atoms: HTMLElement[] = [];
+  for (const node of root.querySelectorAll("[data-tag]")) {
+    if (!(node instanceof HTMLElement)) continue;
+    const tag = decodeTag(node.dataset.tag ?? null);
+    if (!tag || !wanted.has(tag.id)) continue;
+    atoms.push(node);
+  }
+  if (atoms.length === 0) return false;
+  const selection = root.ownerDocument.defaultView?.getSelection();
+  if (!selection) return false;
+  const range = root.ownerDocument.createRange();
+  range.setStartBefore(atoms[0]!);
+  range.setEndAfter(atoms[atoms.length - 1]!);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  return true;
+}
+
 export function tagAtomsInSelection(
   root: HTMLElement,
   selection: Selection | null,
@@ -467,6 +491,10 @@ function escapeHtml(value: string): string {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+export function decodeInlineTag(value: string | null): InlineTag | null {
+  return decodeTag(value);
 }
 
 function decodeTag(value: string | null): InlineTag | null {

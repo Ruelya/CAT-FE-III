@@ -9,7 +9,9 @@ import type {
 import type { UiError } from "../lib/errors";
 import { formatUiError } from "../lib/errors";
 import {
+  readGroupAdjacentTags,
   readProtectTags,
+  writeGroupAdjacentTags,
   writeProtectTags,
   type SessionContext,
 } from "../state/app-state";
@@ -200,6 +202,7 @@ export function Workbench({
     end: number;
   } | null>(null);
   const [protectTags, setProtectTags] = useState(readProtectTags);
+  const [groupAdjacent, setGroupAdjacent] = useState(readGroupAdjacentTags);
   useEffect(() => {
     setQuickPlaceOpen(false);
     setSourceHighlight(null);
@@ -587,6 +590,11 @@ export function Workbench({
             onProtectTagsChange={(next) => {
               setProtectTags(next);
               writeProtectTags(next);
+            }}
+            groupAdjacent={groupAdjacent}
+            onGroupAdjacentChange={(next) => {
+              setGroupAdjacent(next);
+              writeGroupAdjacentTags(next);
             }}
           />
           {previewOpen ? (

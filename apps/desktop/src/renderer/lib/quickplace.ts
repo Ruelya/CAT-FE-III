@@ -7,6 +7,7 @@ export type PlaceableKind =
   | "all-tags"
   | "tag-pair"
   | "tag"
+  | "tag-group"
   | "number"
   | "date"
   | "email"
@@ -89,6 +90,47 @@ export function pairSourceTags(tags: readonly InlineTag[]): {
   return { pairs, rest };
 }
 
+/**
+ * Placeholder tags with no text between them (Trados:
+ * File > Options > Editor > Group adjacent tags in formatting window).
+ *
+ * Placeholders have zero width, so "no text between" means the same
+ * character offset.
+ */
+export function adjacentPlaceholderGroups(
+  tags: readonly InlineTag[],
+): InlineTag[][] {
+  const placeholders = tags
+    .filter((tag) => tag.kind === "standalone")
+    .slice()
+    .sort((left, right) => {
+      if (left.position !== right.position) return left.position - right.position;
+      return left.id.localeCompare(right.id);
+    });
+  const groups: InlineTag[][] = [];
+  for (const tag of placeholders) {
+    const current = groups[groups.length - 1];
+    const prev = current?.[current.length - 1];
+    if (current && prev && tag.position === prev.position) {
+      current.push(tag);
+    } else {
+      groups.push([tag]);
+    }
+  }
+  return groups;
+}
+
+/** Adjacent placeholder group of two or more that contains this tag. */
+export function adjacentPlaceholderGroupAt(
+  tags: readonly InlineTag[],
+  tagId: string,
+): InlineTag[] {
+  const group = adjacentPlaceholderGroups(tags).find((items) =>
+    items.some((tag) => tag.id === tagId),
+  );
+  return group && group.length > 1 ? group : [];
+}
+
 function collectSpans(
   source: string,
   pattern: RegExp,
@@ -129,10 +171,20 @@ export function extractPlaceables(
   sourceText: string,
   sourceTags: readonly InlineTag[],
   targetTags: readonly InlineTag[] = [],
+  options: { groupAdjacent?: boolean } = {},
 ): Placeable[] {
   const items: Placeable[] = [];
   const unmatched = unmatchedSourceTags(sourceTags, targetTags);
   const { pairs } = pairSourceTags(sourceTags);
+  const placeholderGroups = adjacentPlaceholderGroups(unmatched);
+  const groupedIds = new Set<string>();
+  const emittedGroups = new Set<string>();
+  if (options.groupAdjacent === true) {
+    for (const group of placeholderGroups) {
+      if (group.length < 2) continue;
+      for (const tag of group) groupedIds.add(tag.id);
+    }
+  }
   if (unmatched.length > 0) {
     items.push({
       id: "all-tags",
@@ -142,6 +194,25 @@ export function extractPlaceables(
     });
   }
   for (const tag of unmatched) {
+    if (groupedIds.has(tag.id)) {
+      const group = placeholderGroups.find((entry) =>
+        entry.some((item) => item.id === tag.id),
+      );
+      if (!group) continue;
+      const groupId = group.map((item) => item.id).join("+");
+      if (emittedGroups.has(groupId)) continue;
+      emittedGroups.add(groupId);
+      const at = group[0]?.position ?? tag.position;
+      items.push({
+        id: `tag-group:${groupId}`,
+        kind: "tag-group",
+        label: group.map((item) => tagLabel(item)).join(" "),
+        tags: group,
+        sourceStart: at,
+        sourceEnd: at,
+      });
+      continue;
+    }
     const pair = pairs.find(
       (entry) => entry.start.id === tag.id || entry.end.id === tag.id,
     );
@@ -270,7 +341,10 @@ export function placeableSourceSpan(
   item: Placeable | undefined,
 ): { start: number; end: number } | null {
   if (!item || item.sourceStart == null || item.sourceEnd == null) return null;
-  if (item.sourceEnd <= item.sourceStart) return null;
+  if (item.sourceEnd < item.sourceStart) return null;
+  if (item.sourceEnd === item.sourceStart && item.kind !== "tag-group") {
+    return null;
+  }
   return { start: item.sourceStart, end: item.sourceEnd };
 }
 

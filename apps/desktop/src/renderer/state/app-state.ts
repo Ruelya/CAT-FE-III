@@ -556,6 +556,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
 
 export const TM_PANEL_PREF_KEY = "translunar.renderer.tm-panel.v1";
 export const PROTECT_TAGS_PREF_KEY = "translunar.renderer.protect-tags.v1";
+export const GROUP_ADJACENT_TAGS_PREF_KEY =
+  "translunar.renderer.group-adjacent-tags.v1";
 
 export function readProtectTags(
   storage: Pick<Storage, "getItem"> = localStorage,
@@ -572,6 +574,23 @@ export function writeProtectTags(
   storage: Pick<Storage, "setItem"> = localStorage,
 ): void {
   storage.setItem(PROTECT_TAGS_PREF_KEY, on ? "on" : "off");
+}
+
+export function readGroupAdjacentTags(
+  storage: Pick<Storage, "getItem"> = localStorage,
+): boolean {
+  try {
+    return storage.getItem(GROUP_ADJACENT_TAGS_PREF_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+export function writeGroupAdjacentTags(
+  on: boolean,
+  storage: Pick<Storage, "setItem"> = localStorage,
+): void {
+  storage.setItem(GROUP_ADJACENT_TAGS_PREF_KEY, on ? "on" : "off");
 }
 
 export function readTmCollapsed(

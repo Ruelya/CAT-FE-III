@@ -21,6 +21,7 @@ import {
   serializeTaggedEditor,
   setCaretInTaggedEditor,
   caretOffsetsInTaggedEditor,
+  selectTagAtoms,
   splitTaggedText,
   tagLabel,
   tagsEqual,
@@ -337,6 +338,21 @@ describe("tagged editor html", () => {
     const clip = sliceTaggedSpan("hello bold", tags, 0, 10);
     expect(clip.text).toBe("hello bold");
     expect(clip.tags).toHaveLength(2);
+    host.remove();
+  });
+
+  it("selects every atom in an adjacent placeholder group", () => {
+    const tags = [tag("p1", "standalone", 4, "ph"), tag("p2", "standalone", 4, "x")];
+    const host = document.createElement("div");
+    host.innerHTML = buildTaggedEditorHtml("See the unit.", tags);
+    document.body.append(host);
+    expect(selectTagAtoms(host, ["p1", "p2"])).toBe(true);
+    const selection = window.getSelection();
+    expect(selection?.rangeCount).toBe(1);
+    const atoms = host.querySelectorAll("[data-tag]");
+    expect(atoms).toHaveLength(2);
+    expect(selection?.getRangeAt(0).intersectsNode(atoms[0]!)).toBe(true);
+    expect(selection?.getRangeAt(0).intersectsNode(atoms[1]!)).toBe(true);
     host.remove();
   });
 });

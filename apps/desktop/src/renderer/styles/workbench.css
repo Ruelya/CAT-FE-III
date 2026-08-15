@@ -1051,6 +1051,15 @@
   color: var(--color-text-subtle);
 }
 
+.suggestions__option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-1);
+  cursor: pointer;
+  color: var(--color-text);
+}
+
 .suggestions--above {
   top: auto;
   bottom: calc(100% + var(--space-1));

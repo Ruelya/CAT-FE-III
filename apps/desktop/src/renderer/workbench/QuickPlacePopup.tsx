@@ -8,12 +8,15 @@ export interface QuickPlacePopupProps {
   onHover: (index: number) => void;
   onAccept: (item: Placeable) => void;
   onDismiss: () => void;
+  groupAdjacent?: boolean;
+  onGroupAdjacentChange?: (next: boolean) => void;
 }
 
 const KIND_LABEL: Record<PlaceableKind, string> = {
   "all-tags": "tags",
   "tag-pair": "pair",
   tag: "tag",
+  "tag-group": "group",
   number: "number",
   date: "date",
   email: "email",
@@ -26,6 +29,8 @@ export function QuickPlacePopup({
   onHover,
   onAccept,
   onDismiss,
+  groupAdjacent = true,
+  onGroupAdjacentChange,
 }: QuickPlacePopupProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [above, setAbove] = useState(false);
@@ -98,6 +103,16 @@ export function QuickPlacePopup({
         ))}
       </ul>
       <p className="suggestions__legend">
+        <label className="suggestions__option">
+          <input
+            type="checkbox"
+            checked={groupAdjacent}
+            data-testid="group-adjacent-tags"
+            onMouseDown={(event) => event.preventDefault()}
+            onChange={(event) => onGroupAdjacentChange?.(event.target.checked)}
+          />
+          Group adjacent tags
+        </label>
         Enter places at the caret. A selection wraps a tag pair.
       </p>
     </div>

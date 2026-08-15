@@ -2,7 +2,7 @@ import type { KeyboardEvent } from "react";
 import type { EditorWorkflowState, InlineTag, SegmentEditorRow } from "@translunar/contracts";
 
 import { segmentNumber } from "../lib/format";
-import { pairSourceTags } from "../lib/quickplace";
+import { adjacentPlaceholderGroupAt, pairSourceTags } from "../lib/quickplace";
 import { structureLabel, structureTitle } from "../lib/structure-label";
 import {
   caretOffsetsInTaggedEditor,
@@ -10,6 +10,7 @@ import {
   placeTagAtCaret,
   rememberTaggedClip,
   sliceTaggedSpan,
+  tagAtomsInSelection,
   TAGGED_CLIPBOARD_TYPE,
   wrapSelectionWithTagPair,
 } from "../lib/tagged-text";
@@ -58,6 +59,8 @@ export interface SegmentGridProps {
   onSourceHighlight?: (span: SourceHighlight | null) => void;
   protectTags?: boolean;
   onProtectTagsChange?: (next: boolean) => void;
+  groupAdjacent?: boolean;
+  onGroupAdjacentChange?: (next: boolean) => void;
   /** Per-segment comment counts, for the row marker. */
   commentCounts?: Readonly<Record<string, number>>;
   /** Per-segment QA finding counts, for the row marker. */
@@ -93,6 +96,8 @@ export function SegmentGrid({
   onSourceHighlight,
   protectTags,
   onProtectTagsChange,
+  groupAdjacent,
+  onGroupAdjacentChange,
   commentCounts,
   qaCounts,
   repeatedSources,
@@ -232,13 +237,24 @@ export function SegmentGrid({
                     if (!(root instanceof HTMLElement)) return;
                     const selection = event.currentTarget.ownerDocument.defaultView?.getSelection() ?? null;
                     const offsets = caretOffsetsInTaggedEditor(root, selection);
-                    if (offsets.start === offsets.end) return;
-                    const clip = sliceTaggedSpan(
+                    let clip = sliceTaggedSpan(
                       row.segment.sourceText,
                       row.sourceTags,
                       offsets.start,
                       offsets.end,
                     );
+                    if (clip.text.length === 0 && clip.tags.length === 0) {
+                      const atoms = tagAtomsInSelection(root, selection);
+                      if (atoms.length === 0) return;
+                      clip = {
+                        text: "",
+                        tags: atoms.map((tag, index) => ({
+                          ...tag,
+                          position: 0,
+                          id: `clip:${index}:${tag.id}`,
+                        })),
+                      };
+                    }
                     rememberTaggedClip(clip);
                     event.clipboardData?.setData("text/plain", clip.text);
                     event.clipboardData?.setData(
@@ -253,10 +269,28 @@ export function SegmentGrid({
                     text={row.segment.sourceText}
                     tags={row.sourceTags}
                     {...(active && sourceHighlight ? { highlight: sourceHighlight } : {})}
+                    {...(groupAdjacent ? { groupAdjacent } : {})}
                     {...(active && onTagsChange
                       ? {
                           onTagActivate: (tag: InlineTag) => {
                             const selection = readSegmentSelection(id);
+                            if (groupAdjacent && tag.kind === "standalone") {
+                              const group = adjacentPlaceholderGroupAt(
+                                row.sourceTags,
+                                tag.id,
+                              );
+                              if (group.length > 1) {
+                                onTagsChange(
+                                  mergeTargetTags(
+                                    row.targetTags,
+                                    group.map((item) =>
+                                      placeTagAtCaret(item, selection.targetStart),
+                                    ),
+                                  ),
+                                );
+                                return;
+                              }
+                            }
                             const pair = pairSourceTags(row.sourceTags).pairs.find(
                               (item) =>
                                 item.start.id === tag.id ||
@@ -317,6 +351,8 @@ export function SegmentGrid({
                       {...(onSourceHighlight ? { onSourceHighlight } : {})}
                       {...(protectTags !== undefined ? { protectTags } : {})}
                       {...(onProtectTagsChange ? { onProtectTagsChange } : {})}
+                      {...(groupAdjacent !== undefined ? { groupAdjacent } : {})}
+                      {...(onGroupAdjacentChange ? { onGroupAdjacentChange } : {})}
                     />
                   ) : (
                     <button

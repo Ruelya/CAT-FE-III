@@ -9,6 +9,7 @@ import {
 import type { EditorSuggestion, InlineTag } from "@translunar/contracts";
 
 import {
+  adjacentPlaceholderGroupAt,
   extractPlaceables,
   formatPairForKey,
   pairSourceTags,
@@ -20,6 +21,7 @@ import {
 import {
   buildTaggedEditorHtml,
   caretOffsetsInTaggedEditor,
+  decodeInlineTag,
   deleteRangeFromTagged,
   deleteRangeKeepingTags,
   insertTextIntoTagged,
@@ -29,6 +31,7 @@ import {
   rememberTaggedClip,
   rememberedTaggedClip,
   replaceSelectionInTagged,
+  selectTagAtoms,
   serializeTaggedEditor,
   setCaretInTaggedEditor,
   sliceTaggedSpan,
@@ -75,6 +78,8 @@ export interface TargetEditorProps {
   onSourceHighlight?: (span: SourceHighlight | null) => void;
   protectTags?: boolean;
   onProtectTagsChange?: (next: boolean) => void;
+  groupAdjacent?: boolean;
+  onGroupAdjacentChange?: (next: boolean) => void;
 }
 
 export interface SuggestionBinding {
@@ -124,6 +129,8 @@ export function TargetEditor({
   onSourceHighlight,
   protectTags = false,
   onProtectTagsChange,
+  groupAdjacent = true,
+  onGroupAdjacentChange,
 }: TargetEditorProps) {
   const mirrorRef = useRef<HTMLTextAreaElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -136,8 +143,11 @@ export function TargetEditor({
   const ghostsAtRef = useRef<InlineTag[]>([]);
   const effectiveTags = liveTags ?? tags;
   const placeables = useMemo(
-    () => extractPlaceables(sourceText, sourceTags, effectiveTags),
-    [sourceText, sourceTags, effectiveTags],
+    () =>
+      extractPlaceables(sourceText, sourceTags, effectiveTags, {
+        groupAdjacent,
+      }),
+    [sourceText, sourceTags, effectiveTags, groupAdjacent],
   );
   const ghostsAt = useMemo(() => {
     const next = pendingCloseGhosts(
@@ -158,6 +168,12 @@ export function TargetEditor({
   useEffect(() => {
     if (quickPlaceOpen) setQuickIndex(0);
   }, [quickPlaceOpen, segmentId]);
+
+  useEffect(() => {
+    setQuickIndex((index) =>
+      placeables.length === 0 ? 0 : Math.min(index, placeables.length - 1),
+    );
+  }, [placeables]);
 
   useEffect(() => {
     if (!onSourceHighlight) return;
@@ -303,6 +319,17 @@ export function TargetEditor({
         paint(live.text, next, caret.end);
         return;
       }
+    }
+    if (item.kind === "tag-group" && item.tags && item.tags.length > 0) {
+      const base = item.tags[0]!.position;
+      const placed = item.tags.map((tag) =>
+        placeTagAtCaret(tag, caret.start + (tag.position - base)),
+      );
+      const next = mergeTargetTags(live.tags, placed);
+      applyTags(next);
+      paint(live.text, next, caret.start);
+      setFollowCaret(caret.start);
+      return;
     }
     if (item.kind === "tag-pair" && item.tags?.[0] && item.tags[1]) {
       const next = mergeTargetTags(
@@ -683,14 +710,29 @@ export function TargetEditor({
           const target = event.target;
           if (!(target instanceof HTMLElement)) return;
           const ghostEl = target.closest("[data-ghost]");
-          if (!(ghostEl instanceof HTMLElement)) return;
+          if (ghostEl instanceof HTMLElement) {
+            event.preventDefault();
+            if (disabled === true || composing.current) return;
+            const id = ghostEl.dataset.ghost;
+            const ghost =
+              ghostsAtRef.current.find((item) => item.id === id) ??
+              sourceTags.find((item) => item.id === id);
+            if (ghost) placeGhost(ghost);
+            return;
+          }
+          if (!groupAdjacent || disabled === true) return;
+          const atom = target.closest("[data-tag]");
+          if (!(atom instanceof HTMLElement) || !surfaceRef.current) return;
+          const tag = decodeInlineTag(atom.dataset.tag ?? null);
+          if (!tag) return;
+          const group = adjacentPlaceholderGroupAt(effectiveTags, tag.id);
+          if (group.length < 2) return;
           event.preventDefault();
-          if (disabled === true || composing.current) return;
-          const id = ghostEl.dataset.ghost;
-          const ghost =
-            ghostsAtRef.current.find((item) => item.id === id) ??
-            sourceTags.find((item) => item.id === id);
-          if (ghost) placeGhost(ghost);
+          surfaceRef.current.focus();
+          selectTagAtoms(
+            surfaceRef.current,
+            group.map((item) => item.id),
+          );
         }}
         onKeyDown={(event) => {
           const caret = surfaceRef.current
@@ -839,6 +881,8 @@ export function TargetEditor({
           onHover={setQuickIndex}
           onAccept={applyPlaceable}
           onDismiss={() => onQuickPlaceOpenChange?.(false)}
+          groupAdjacent={groupAdjacent}
+          {...(onGroupAdjacentChange ? { onGroupAdjacentChange } : {})}
         />
       ) : null}
       {open && suggestions ? (
