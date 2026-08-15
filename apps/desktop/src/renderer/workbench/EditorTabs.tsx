@@ -77,8 +77,9 @@ export function EditorTabs({
         <button
           type="button"
           className="btn btn--ghost btn--icon btn--sm"
-          aria-label="Add files"
-          title="Add files"
+          aria-label="Open another file"
+          title="Open another file"
+          data-testid="editor-tab-add"
           disabled={disabled}
           onClick={onAddFiles}
         >
