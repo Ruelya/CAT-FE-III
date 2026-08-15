@@ -22,7 +22,7 @@ const document: Document = {
   createdAtMs: 1,
   updatedAtMs: 1,
   kind: "working",
-} as Document;
+} as unknown as Document;
 
 const counts: SegmentCounts = {
   total: 10,
