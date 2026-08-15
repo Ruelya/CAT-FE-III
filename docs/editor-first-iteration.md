@@ -139,6 +139,15 @@
 | AI 纠错 | OCR Correct 对话框：有密钥时 `ai.run.start(action=freeform)` 建议源文；**Use suggestion** 只写入草稿。Save 仍要 reason，走 `pdf.correctOcr`。无密钥诚实提示。 |
 | AI 辅助 | 点到 OCR 段后，IntelDock AI 仍可 Translate/Improve（改译文），并说明源文纠错走 PDF → Correct。 |
 
+### 2026-08-15 调研（IDE 补全 → 段内 AI AutoSuggest）
+
+对照 Cursor Tab / VS Code InlineCompletions / Devin。要抄的是「下拉 + 幽灵字两条车道」，不是自研 Tab 模型，也不是代理式整单改写。
+
+已有 `editor.suggest`（词级、当前段源文）和 `ai.run`+`build_grounding`（术语/TM/前后段）。缺口是：打字续写没有用上 grounding，活草稿也还没进 prompt。
+
+实现合同见 `docs/ai-autosuggest.md`。禁止为补全新开协议。
+补全预览不得占用标签 `data-ghost`；用 `inline-completion` 叠在光标后。
+
 ### 仍未做到 Trados 同水准的部分（诚实清单）
 
 这些**没有**假装完成，下一轮应继续：
