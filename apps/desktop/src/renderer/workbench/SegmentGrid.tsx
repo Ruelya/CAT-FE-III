@@ -84,6 +84,8 @@ export interface SegmentGridProps {
   repeatedSources?: ReadonlySet<string>;
   /** Shown instead of the table when a filter hides everything. */
   filtered?: boolean;
+  /** Best TM label for the active row (CM / 100% / fuzzy). */
+  activeMatchLabel?: string;
   onContextMenu?: (info: {
     event: MouseEvent;
     segmentId: string;
@@ -125,6 +127,7 @@ export function SegmentGrid({
   qaCounts,
   repeatedSources,
   filtered,
+  activeMatchLabel,
   onContextMenu,
 }: SegmentGridProps) {
   if (rows.length === 0) {
@@ -522,6 +525,14 @@ export function SegmentGrid({
                     {localLabel ? (
                       <span className="status-chip status-chip--local">
                         {localLabel}
+                      </span>
+                    ) : null}
+                    {active && activeMatchLabel ? (
+                      <span
+                        className="status-chip status-chip--tm"
+                        data-testid={`mark-tm-${id}`}
+                      >
+                        {activeMatchLabel}
                       </span>
                     ) : null}
                   </div>

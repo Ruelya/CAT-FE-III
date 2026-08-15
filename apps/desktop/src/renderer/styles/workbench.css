@@ -833,6 +833,11 @@
   color: var(--color-accent);
 }
 
+.status-chip--tm {
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
 /* ── Segment intelligence dock ─────────────────────────── */
 
 /* Everything in this column answers a question about the segment under the
@@ -1200,6 +1205,27 @@
    list would have pushed it off the bottom. */
 .term-list__add {
   align-self: flex-start;
+}
+
+.term-extract {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.term-extract__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.term-extract__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: var(--control-h-sm);
+  font-size: var(--text-sm);
 }
 
 /* ── As-you-type completions ────────────────────────────── */

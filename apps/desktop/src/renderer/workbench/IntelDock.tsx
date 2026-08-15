@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ConcordanceHit, TermMatch, TmMatch } from "@translunar/contracts";
+import type { ConcordanceHit, TermCandidate, TermMatch, TmMatch } from "@translunar/contracts";
 
 import { formatUiError, toUiError } from "../lib/errors";
 import {
@@ -45,6 +45,14 @@ export interface IntelDockProps {
   /** Current row is an OCR unit — AI here still writes the target. */
   ocrSource?: boolean;
   onApplyAiProposal: (text: string) => void;
+  extract?: {
+    pending: boolean;
+    error: string | null;
+    candidates: TermCandidate[];
+    onExtract: () => void;
+  };
+  /** Increment to force the Terms tab open (context-menu extract). */
+  termsFocusTick?: number;
 }
 
 type DockTab = "matches" | "terms" | "concordance" | "ai";
@@ -74,8 +82,13 @@ export function IntelDock({
   ai,
   ocrSource,
   onApplyAiProposal,
+  extract,
+  termsFocusTick,
 }: IntelDockProps) {
   const [tab, setTab] = useState<DockTab>("matches");
+  useEffect(() => {
+    if (termsFocusTick && termsFocusTick > 0) setTab("terms");
+  }, [termsFocusTick]);
   const bodyRef = useRef<HTMLDivElement>(null);
   const matches = rankMatches(intel.tm.matches);
   const terms = intel.terms.matches;
@@ -178,6 +191,7 @@ export function IntelDock({
             {...(focusedTermIndex !== undefined ? { focusedIndex: focusedTermIndex } : {})}
             {...(onFocusedTermIndex ? { onFocusedIndex: onFocusedTermIndex } : {})}
             {...(onHighlightTerm ? { onHighlight: onHighlightTerm } : {})}
+            {...(extract ? { extract } : {})}
           />
         ) : tab === "concordance" ? (
           <ConcordanceList
@@ -322,6 +336,7 @@ function TermList({
   focusedIndex,
   onFocusedIndex,
   onHighlight,
+  extract,
 }: {
   terms: TermMatch[];
   loading: boolean;
@@ -334,6 +349,12 @@ function TermList({
   focusedIndex?: number;
   onFocusedIndex?: (index: number) => void;
   onHighlight?: (span: { start: number; end: number } | null) => void;
+  extract?: {
+    pending: boolean;
+    error: string | null;
+    candidates: TermCandidate[];
+    onExtract: () => void;
+  };
 }) {
   const [query, setQuery] = useState("");
   const [lookup, setLookup] = useState<TermMatch[]>([]);
@@ -478,10 +499,52 @@ function TermList({
     </button>
   );
 
+  const extractBlock = extract ? (
+    <div className="term-extract" data-testid="term-extract">
+      <button
+        type="button"
+        className="btn btn--secondary btn--sm"
+        disabled={disabled || extract.pending}
+        data-testid="term-extract-run"
+        onClick={extract.onExtract}
+      >
+        {extract.pending ? "Extracting" : "Extract terms"}
+      </button>
+      {extract.error ? (
+        <p className="error-text" role="alert">
+          {extract.error}
+        </p>
+      ) : null}
+      {extract.candidates.length > 0 ? (
+        <ul className="term-extract__list" data-testid="term-extract-results">
+          {extract.candidates.map((candidate) => (
+            <li key={candidate.sourceTerm} className="term-extract__item">
+              <span>{candidate.sourceTerm}</span>
+              {candidate.suggestedTarget ? (
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  disabled={disabled}
+                  data-testid={`term-extract-insert-${candidate.sourceTerm}`}
+                  onClick={() => onInsert(candidate.suggestedTarget ?? "")}
+                >
+                  {candidate.suggestedTarget}
+                </button>
+              ) : (
+                <span className="muted">×{candidate.frequency}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  ) : null;
+
   if (error) {
     return (
       <>
         {search}
+        {extractBlock}
         <p className="error-text" role="alert">
           {error}
         </p>
@@ -493,6 +556,7 @@ function TermList({
     return (
       <>
         {search}
+        {extractBlock}
         <p className="muted">Checking termbases</p>
         {quickAdd}
       </>
@@ -507,6 +571,7 @@ function TermList({
   return (
     <>
       {search}
+      {extractBlock}
       {quickAdd}
       {lookupError ? (
         <p className="error-text" role="alert">

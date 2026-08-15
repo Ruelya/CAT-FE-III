@@ -362,6 +362,8 @@ pub fn official_api_root(base: &str) -> String {
     let lower = trimmed.to_ascii_lowercase();
     if let Some(idx) = lower.find("/api/v4") {
         format!("{}{}", &trimmed[..idx], "/api/v4")
+    } else if is_official_mineru_base(trimmed) && lower.contains("mineru.net") {
+        OFFICIAL_MINERU_API_ROOT.to_string()
     } else {
         format!("{trimmed}/api/v4")
     }

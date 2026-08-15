@@ -134,5 +134,9 @@ export function segmentContextActions(input: {
       label: "Add comment",
       disabled: input.canComment !== true,
     },
+    {
+      id: "extractTerms",
+      label: "Extract terms",
+    },
   ];
 }

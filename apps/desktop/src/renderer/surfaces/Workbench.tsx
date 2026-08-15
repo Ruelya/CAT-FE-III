@@ -32,6 +32,7 @@ import {
   type SegmentSelection,
 } from "../state/editor-selection";
 import { useAcpChat } from "../state/use-acp-chat";
+import { useTermExtract } from "../state/use-term-extract";
 import {
   readWorkbenchLayout,
   writeWorkbenchLayout,
@@ -313,6 +314,8 @@ export function Workbench({
     segmentId: activeSegmentId,
     segmentRevision: activeRow?.segment.revision ?? null,
   });
+  const termExtract = useTermExtract(ctx.document.id);
+  const [termsFocusTick, setTermsFocusTick] = useState(0);
   // Comment counts ride along on the rows the Engine already sent; only the
   // QA counts need their own query.
   const commentCounts = useMemo(() => {
@@ -398,6 +401,11 @@ export function Workbench({
     }
     if (id === "comment") {
       editorOps?.runCommand("editor.comments");
+      return;
+    }
+    if (id === "extractTerms") {
+      setTermsFocusTick((tick) => tick + 1);
+      void termExtract.extract();
     }
   };
 
@@ -618,6 +626,7 @@ export function Workbench({
                 ? activeSegmentId
                 : (editorOps?.findReplace.matches[0]?.segmentId ?? null)
             }
+            {...(topTmMatch ? { activeMatchLabel: matchLabel(topTmMatch) } : {})}
             onCompositionStart={onCompositionStart}
             onCompositionEnd={onCompositionEnd}
             onConfirm={onConfirm}
@@ -766,6 +775,16 @@ export function Workbench({
           ai={segmentAi}
           ocrSource={isOcrStructuralPath(activeRow?.segment.structuralPath ?? "")}
           onApplyAiProposal={onApplyAiProposal}
+          extract={{
+            pending: termExtract.pending,
+            error: termExtract.error ? formatUiError(termExtract.error) : null,
+            candidates: termExtract.candidates,
+            onExtract: () => {
+              setTermsFocusTick((tick) => tick + 1);
+              void termExtract.extract();
+            },
+          }}
+          termsFocusTick={termsFocusTick}
         />
         </div>
       </div>
