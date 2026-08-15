@@ -20,6 +20,9 @@ export interface Placeable {
   tags?: InlineTag[];
   /** Trados shows formatting samples (bold/italic) instead of raw tag names. */
   formatClass?: string;
+  /** Source character span to highlight while this item is active. */
+  sourceStart?: number;
+  sourceEnd?: number;
 }
 
 export interface TagPair {
@@ -157,6 +160,8 @@ export function extractPlaceables(
       label,
       tags: [tag],
       ...(formatClass ? { formatClass } : {}),
+      sourceStart: pair?.start.position ?? tag.position,
+      sourceEnd: pair?.end.position ?? tag.position,
     });
   }
 
@@ -173,6 +178,8 @@ export function extractPlaceables(
         kind,
         label: span.text,
         text: span.text,
+        sourceStart: span.start,
+        sourceEnd: span.end,
       });
     }
   };
@@ -257,6 +264,15 @@ const SHORTCUT_TOKENS: Record<string, string[]> = {
   i: ["i", "em"],
   u: ["u"],
 };
+
+/** Span QuickPlace should highlight in the source (Trados). */
+export function placeableSourceSpan(
+  item: Placeable | undefined,
+): { start: number; end: number } | null {
+  if (!item || item.sourceStart == null || item.sourceEnd == null) return null;
+  if (item.sourceEnd <= item.sourceStart) return null;
+  return { start: item.sourceStart, end: item.sourceEnd };
+}
 
 /** Source pair that Ctrl+B / Ctrl+I / Ctrl+U should apply (QuickInsert). */
 export function formatPairForKey(

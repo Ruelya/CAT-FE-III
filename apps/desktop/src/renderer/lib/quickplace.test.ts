@@ -6,6 +6,7 @@ import {
   formatPairForKey,
   pairSourceTags,
   pendingCloseGhosts,
+  placeableSourceSpan,
   unmatchedSourceTags,
 } from "./quickplace";
 
@@ -73,6 +74,11 @@ describe("extractPlaceables", () => {
     expect(items.find((item) => item.kind === "tag")?.formatClass).toContain(
       "tagged-run--b",
     );
+    expect(placeableSourceSpan(items.find((item) => item.kind === "tag"))).toEqual({
+      start: 4,
+      end: 8,
+    });
+    expect(placeableSourceSpan(items.find((item) => item.kind === "all-tags"))).toBeNull();
     expect(items.find((item) => item.kind === "number")?.label).toBe("12.4");
   });
 });

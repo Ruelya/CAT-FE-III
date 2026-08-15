@@ -5,6 +5,9 @@ import {
   buildTaggedEditorHtml,
   copySourceTagsToTarget,
   deleteRangeFromTagged,
+  deleteRangeKeepingTags,
+  pasteTaggedSpan,
+  sliceTaggedSpan,
   insertTextIntoTagged,
   mergeTargetTags,
   alignGhostPositions,
@@ -181,6 +184,48 @@ describe("placeSourceTags", () => {
     );
     expect(next.text).toBe("电池XX");
     expect(next.tags.map((item) => item.position)).toEqual([0, 4]);
+  });
+
+  it("slices a tagged span so pasted tags stay relative to the clip", () => {
+    const clip = sliceTaggedSpan(
+      "Read the TL-900 guide.",
+      [tag("1s", "start", 9, "b"), tag("1e", "end", 15, "b")],
+      9,
+      15,
+    );
+    expect(clip.text).toBe("TL-900");
+    expect(clip.tags.map((item) => item.position)).toEqual([0, 6]);
+  });
+
+  it("pastes a tagged clip without dropping an existing other pair", () => {
+    const next = pasteTaggedSpan(
+      "ab",
+      [tag("old", "start", 0, "i"), tag("olde", "end", 2, "i")],
+      2,
+      2,
+      {
+        text: "XX",
+        tags: [tag("1s", "start", 0, "b"), tag("1e", "end", 2, "b")],
+      },
+    );
+    expect(next.text).toBe("abXX");
+    expect(next.tags.map((item) => `${item.displayText}:${item.kind}:${item.position}`)).toEqual([
+      "i:start:0",
+      "b:start:2",
+      "i:end:4",
+      "b:end:4",
+    ]);
+  });
+
+  it("keeps tags when deleting text under Protect Tags", () => {
+    const next = deleteRangeKeepingTags(
+      "abcdef",
+      [tag("1s", "start", 1, "b"), tag("1e", "end", 4, "b")],
+      2,
+      4,
+    );
+    expect(next.text).toBe("abef");
+    expect(next.tags.map((item) => item.position)).toEqual([1, 2]);
   });
 
   it("copies source tags onto the target at the same offsets", () => {

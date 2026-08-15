@@ -350,16 +350,110 @@ export function copySourceTagsToTarget(
   }));
 }
 
+export const TAGGED_CLIPBOARD_TYPE = "application/x-translunar-tagged+json";
+
+export interface TaggedClipboard {
+  text: string;
+  tags: InlineTag[];
+}
+
+/** Slice a character range so copied tags stay relative to the clip. */
+export function sliceTaggedSpan(
+  text: string,
+  tags: readonly InlineTag[],
+  from: number,
+  to: number,
+): TaggedClipboard {
+  const characters = [...text];
+  const lo = Math.max(0, Math.min(from, to, characters.length));
+  const hi = Math.max(0, Math.min(Math.max(from, to), characters.length));
+  return {
+    text: characters.slice(lo, hi).join(""),
+    tags: tags
+      .filter((tag) => tag.position >= lo && tag.position <= hi)
+      .map((tag) => ({ ...tag, position: tag.position - lo })),
+  };
+}
+
+/** Paste a tagged clip at the caret without dropping existing other tags. */
+export function pasteTaggedSpan(
+  text: string,
+  tags: readonly InlineTag[],
+  from: number,
+  to: number,
+  clip: TaggedClipboard,
+): SerializedTaggedText {
+  const lo = Math.min(from, to);
+  const replaced = replaceSelectionInTagged(text, tags, from, to, clip.text);
+  const incoming = clip.tags.map((tag, index) => ({
+    ...tag,
+    id: `placed-paste:${index}:${tag.id}`,
+    side: "target" as const,
+    position: lo + tag.position,
+    protected: true,
+  }));
+  return {
+    text: replaced.text,
+    tags: [...replaced.tags, ...incoming].sort((left, right) => {
+      if (left.position !== right.position) return left.position - right.position;
+      const rank = (tag: InlineTag) =>
+        tag.kind === "start" ? 0 : tag.kind === "standalone" ? 1 : 2;
+      return rank(left) - rank(right);
+    }),
+  };
+}
+
+/**
+ * Delete text but keep every tag (Protect Tags). Interior tags collapse
+ * onto the deletion start.
+ */
+export function deleteRangeKeepingTags(
+  text: string,
+  tags: readonly InlineTag[],
+  from: number,
+  to: number,
+): SerializedTaggedText {
+  const characters = [...text];
+  const lo = Math.max(0, Math.min(from, to, characters.length));
+  const hi = Math.max(0, Math.min(Math.max(from, to), characters.length));
+  const next = `${characters.slice(0, lo).join("")}${characters.slice(hi).join("")}`;
+  const removed = hi - lo;
+  return {
+    text: next,
+    tags: tags.map((tag) => {
+      if (tag.position <= lo) return tag;
+      if (tag.position >= hi) return { ...tag, position: tag.position - removed };
+      return { ...tag, position: lo };
+    }),
+  };
+}
+
+export function encodeInlineTag(tag: InlineTag): string {
+  return encodeURIComponent(JSON.stringify(tag));
+}
+
+export function tagAtomsInSelection(
+  root: HTMLElement,
+  selection: Selection | null,
+): InlineTag[] {
+  if (!selection || selection.rangeCount === 0) return [];
+  const range = selection.getRangeAt(0);
+  const tags: InlineTag[] = [];
+  for (const node of root.querySelectorAll("[data-tag]")) {
+    if (!(node instanceof HTMLElement)) continue;
+    if (!range.intersectsNode(node)) continue;
+    const tag = decodeTag(node.dataset.tag ?? null);
+    if (tag) tags.push(tag);
+  }
+  return tags;
+}
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
-}
-
-function encodeTag(tag: InlineTag): string {
-  return encodeURIComponent(JSON.stringify(tag));
 }
 
 function decodeTag(value: string | null): InlineTag | null {
@@ -382,7 +476,7 @@ function capsuleHtml(tag: InlineTag, label: string, ghost: boolean): string {
     const id = escapeHtml(tag.id);
     return `<span class="inline-tag inline-tag--ghost inline-tag--${tag.kind}" contenteditable="false" data-ghost="${id}" data-testid="ghost-tag-${id}" title="Place ${escapeHtml(label)}">${escapeHtml(label)}</span>`;
   }
-  return `<span class="inline-tag inline-tag--${tag.kind}" contenteditable="false" data-tag="${encodeTag(tag)}" title="${escapeHtml(tag.payload || label)}">${escapeHtml(label)}</span>`;
+  return `<span class="inline-tag inline-tag--${tag.kind}" contenteditable="false" data-tag="${encodeInlineTag(tag)}" title="${escapeHtml(tag.payload || label)}">${escapeHtml(label)}</span>`;
 }
 
 function wrapFormatted(textHtml: string, stack: string[]): string {
