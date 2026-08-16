@@ -151,12 +151,9 @@ This will not produce Trados. It will produce more screenshots.
 
 **Do Option 2. Explicitly reject Option 3. Do not do Option 1 unless the product decision is "we are no longer building our own CAT editor".**
 
-Concrete next research (if Option 2 is accepted):
+Option 2 exploration (done): [research-option2-spike.md](./research-option2-spike.md).
 
-1. Spike Swordfish's editor module: can the XLIFF grid run against Translunar `segment.editor.list` without taking the Java conversion stack?
-2. Spike Okapi as a sidecar for formats we do not own (IDML, InDesign, complex XLIFF dialects). Apache-2.0 allows this next to the Rust engine.
-3. Spike OnlyOffice Document Server **as a preview iframe only**, fed by `document.export` to a temp file. One host, no new engine method, no claim of Word COM.
-4. Freeze workbench chrome changes unless they unblock 1–3.
+Swordfish `TranslationView` cannot mount on `segment.editor.list`. Reimplement the grid; keep the engine. Okapi Tikal 1.48.0 can extract HTML to XLIFF 1.2 and merge it back, but `.sdlxliff` already has `builtin.sdlxliff` — do not send it through Tikal. Two `builtin.xliff` ingest bugs (ITS `version` shadowing, `<mrk mtype="seg">` as a tag) are fixed in this branch. Tagged Tikal units still scramble on export. OnlyOffice Docs is a later preview host, not week one.
 
 If Option 1 is accepted instead, choose Swordfish over OmegaT unless GPL and Java are acceptable. Do not choose MateCat or translate5 as the desktop spine.
 
