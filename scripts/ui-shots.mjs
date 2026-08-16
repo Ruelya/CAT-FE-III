@@ -307,11 +307,11 @@ async function seedAndCapture({ theme, viewport, zoom }) {
   }
   env.TRANSLUNAR_TEST_USER_DATA = userData;
   env.TRANSLUNAR_DATA_DIR = join(userData, "engine-data");
-  env.TRANSLUNAR_TEST_SOURCE = join(
-    desktopRoot,
-    "tests/e2e/fixtures/single-segment-source.txt",
-  );
-  env.TRANSLUNAR_TEST_SOURCE_FILES = env.TRANSLUNAR_TEST_SOURCE;
+  env.TRANSLUNAR_TEST_SOURCE =
+    process.env.TRANSLUNAR_TEST_SOURCE ||
+    join(desktopRoot, "tests/e2e/fixtures/single-segment-source.txt");
+  env.TRANSLUNAR_TEST_SOURCE_FILES =
+    process.env.TRANSLUNAR_TEST_SOURCE_FILES || env.TRANSLUNAR_TEST_SOURCE;
 
   const launchArgs = ["."];
   if (reducedMotion) launchArgs.push("--force-prefers-reduced-motion");
