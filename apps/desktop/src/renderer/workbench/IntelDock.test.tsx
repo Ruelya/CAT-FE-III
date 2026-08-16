@@ -1,7 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { TermMatch, TermTranslation } from "@translunar/contracts";
+import type { TermMatch, TermTranslation, TmMatch } from "@translunar/contracts";
 
 import { EMPTY_SEGMENT_INTEL } from "../state/segment-intel";
 import { IntelDock } from "./IntelDock";
@@ -84,6 +84,53 @@ function renderTerms(
   );
   return { onInsert };
 }
+
+function tmMatch(): TmMatch {
+  return {
+    kind: "exact",
+    score: 100,
+    mountPriority: 0,
+    library: { id: "lib", name: "Lib" },
+    substitutions: [],
+    unit: { id: "u1", targetText: "电源站", sourceText: "power station" },
+  } as unknown as TmMatch;
+}
+
+describe("IntelDock top placement", () => {
+  it("shows memory and terms side by side above the grid", () => {
+    render(
+      <IntelDock
+        placement="top"
+        intel={{
+          ...EMPTY_SEGMENT_INTEL,
+          segmentId: "seg-1",
+          tm: { matches: [tmMatch()], loading: false, error: null },
+          terms: {
+            matches: [termMatch("power station", [translation("电源站")])],
+            loading: false,
+            error: null,
+          },
+        }}
+        collapsed={false}
+        onToggle={() => undefined}
+        onApplyMatch={() => undefined}
+        onInsertTerm={() => undefined}
+        onConcordance={() => undefined}
+        onQuickAddTerm={() => undefined}
+        canQuickAddTerm={false}
+        ai={ai}
+        onApplyAiProposal={() => undefined}
+      />,
+    );
+    expect(screen.getByTestId("intel-dock")).toHaveAttribute(
+      "data-placement",
+      "top",
+    );
+    expect(screen.getByTestId("intel-dock-split")).toBeInTheDocument();
+    expect(screen.getByTestId("apply-match-0")).toBeInTheDocument();
+    expect(screen.getByTestId("term-list")).toBeInTheDocument();
+  });
+});
 
 describe("TermList", () => {
   it("keeps recognised translations insertable by their visible name", async () => {

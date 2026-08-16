@@ -141,6 +141,8 @@ export interface WorkbenchProps {
   onAcceptSuggestion: (text: string, prefix: string) => void;
   onApplyAiProposal: (text: string) => void;
   onPretranslate: () => void;
+  /** Ctrl+S / File → Save: flush the active draft now. */
+  onSave?: () => void;
   onPlaceTags: () => void;
   pretranslatePending?: boolean;
   onSwitchDocument: (documentId: string) => void;
@@ -186,6 +188,7 @@ export function Workbench({
   onAcceptSuggestion,
   onApplyAiProposal,
   onPretranslate,
+  onSave,
   onPlaceTags,
   pretranslatePending,
   onSwitchDocument,
@@ -269,6 +272,9 @@ export function Workbench({
     onClearTarget,
     onGoTo: () => setGoToOpen(true),
     onPretranslate,
+    onSave: () => {
+      onSave?.();
+    },
     onPlaceTags,
     onQuickPlace: () => {
       setQuickPlaceOpen(true);
@@ -530,6 +536,7 @@ export function Workbench({
           layout.filesOpen ? "workbench__body--with-files" : "",
           previewOpen ? "workbench__body--with-preview" : "",
           layout.chatOpen ? "workbench__body--with-chat" : "",
+          "workbench__body--results-top",
           tmCollapsed ? "workbench__body--tm-collapsed" : "",
           pdfReview &&
           shouldMountPdfDock({
@@ -550,7 +557,6 @@ export function Workbench({
           .join(" ")}
         style={{
           ["--file-nav-w" as string]: `${layout.fileNavW}px`,
-          ["--panel-w-tm" as string]: `${layout.intelW}px`,
           ["--preview-w" as string]: `${layout.previewW}px`,
         }}
       >
@@ -640,6 +646,38 @@ export function Workbench({
             total={ctx.rows.length}
             disabled={disabled === true}
             onChange={setFilter}
+          />
+          <IntelDock
+            placement="top"
+            intel={intel}
+            collapsed={tmCollapsed}
+            disabled={disabled === true}
+            onToggle={onToggleTm}
+            onApplyMatch={onApplyMatch}
+            onInsertTerm={onInsertTerm}
+            onConcordance={(query) => onConcordance(query, selection)}
+            onQuickAddTerm={() => onQuickAddTerm(selection)}
+            canQuickAddTerm={canQuickAddTerm}
+            {...(onSearchTerms ? { onSearchTerms } : {})}
+            focusedTermIndex={termFocusIndex}
+            onFocusedTermIndex={setTermFocusIndex}
+            onHighlightTerm={(span) => {
+              if (quickPlaceOpen) return;
+              setSourceHighlight(span);
+            }}
+            ai={segmentAi}
+            ocrSource={isOcrStructuralPath(activeRow?.segment.structuralPath ?? "")}
+            onApplyAiProposal={onApplyAiProposal}
+            extract={{
+              pending: termExtract.pending,
+              error: termExtract.error ? formatUiError(termExtract.error) : null,
+              candidates: termExtract.candidates,
+              onExtract: () => {
+                setTermsFocusTick((tick) => tick + 1);
+                void termExtract.extract();
+              },
+            }}
+            termsFocusTick={termsFocusTick}
           />
           <SegmentGrid
             rows={visibleRows}
@@ -796,48 +834,6 @@ export function Workbench({
         {layout.chatOpen ? (
           <AcpChatPanel chat={acpChat} disabled={disabled === true} />
         ) : null}
-        <div className="intel-wrap">
-          <DockSash
-            label="Resize intelligence"
-            onDelta={(delta) =>
-              persistLayout({
-                ...layout,
-                intelW: layout.intelW - delta,
-              })
-            }
-          />
-          <IntelDock
-          intel={intel}
-          collapsed={tmCollapsed}
-          disabled={disabled === true}
-          onToggle={onToggleTm}
-          onApplyMatch={onApplyMatch}
-          onInsertTerm={onInsertTerm}
-          onConcordance={(query) => onConcordance(query, selection)}
-          onQuickAddTerm={() => onQuickAddTerm(selection)}
-          canQuickAddTerm={canQuickAddTerm}
-          {...(onSearchTerms ? { onSearchTerms } : {})}
-          focusedTermIndex={termFocusIndex}
-          onFocusedTermIndex={setTermFocusIndex}
-          onHighlightTerm={(span) => {
-            if (quickPlaceOpen) return;
-            setSourceHighlight(span);
-          }}
-          ai={segmentAi}
-          ocrSource={isOcrStructuralPath(activeRow?.segment.structuralPath ?? "")}
-          onApplyAiProposal={onApplyAiProposal}
-          extract={{
-            pending: termExtract.pending,
-            error: termExtract.error ? formatUiError(termExtract.error) : null,
-            candidates: termExtract.candidates,
-            onExtract: () => {
-              setTermsFocusTick((tick) => tick + 1);
-              void termExtract.extract();
-            },
-          }}
-          termsFocusTick={termsFocusTick}
-        />
-        </div>
       </div>
 
       {reimport ? (
@@ -869,6 +865,9 @@ export function Workbench({
         {...(topTmMatch ? { tmLabel: matchLabel(topTmMatch) } : {})}
         {...(isFilterActive(filter)
           ? { filterLabel: `Filter: ${visibleRows.length} shown` }
+          : {})}
+        {...(editState?.saveState && editState.saveState !== "idle"
+          ? { saveState: editState.saveState }
           : {})}
         headerBusy={headerBusy}
         switchPending={switchPending === true}

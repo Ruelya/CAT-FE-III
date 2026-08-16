@@ -20,6 +20,8 @@ import { matchLabel, rankMatches } from "../state/segment-intel";
 export interface IntelDockProps {
   intel: SegmentIntel;
   collapsed: boolean;
+  /** Studio Editor puts memory and terms above the grid. */
+  placement?: "side" | "top";
   disabled?: boolean;
   onToggle: () => void;
   /** Put a translation memory hit into the target of the current segment. */
@@ -68,6 +70,7 @@ type DockTab = "matches" | "terms" | "concordance" | "ai";
 export function IntelDock({
   intel,
   collapsed,
+  placement = "side",
   disabled,
   onToggle,
   onApplyMatch,
@@ -107,14 +110,20 @@ export function IntelDock({
 
   const matchCount = matches.length;
   const termCount = terms.length;
+  const top = placement === "top";
+  const showSplit = top && (tab === "matches" || tab === "terms");
 
   return (
     <section
-      className={`intel-dock${collapsed ? " intel-dock--collapsed" : ""}`}
+      className={`intel-dock${collapsed ? " intel-dock--collapsed" : ""}${
+        top ? " intel-dock--top" : ""
+      }`}
       aria-label="Segment intelligence"
       data-testid="intel-dock"
+      data-placement={placement}
     >
       <div className="intel-dock__chrome">
+        <span className="intel-dock__collapsed-label">Memory and terms</span>
         <div
           className="intel-dock__tabs"
           role="tablist"
@@ -165,12 +174,54 @@ export function IntelDock({
           title={collapsed ? "Expand" : "Collapse"}
           onClick={onToggle}
         >
-          <span aria-hidden="true">{collapsed ? "\u203a" : "\u2039"}</span>
+          <span aria-hidden="true">
+            {top
+              ? collapsed
+                ? "\u25be"
+                : "\u25b4"
+              : collapsed
+                ? "\u203a"
+                : "\u2039"}
+          </span>
         </button>
       </div>
 
       <div ref={bodyRef} className="intel-dock__body">
-        {tab === "matches" ? (
+        {showSplit ? (
+          <div className="intel-dock__split" data-testid="intel-dock-split">
+            <div className="intel-dock__pane intel-dock__pane--matches">
+              <h3 className="intel-dock__pane-title">Translation memory</h3>
+              <MatchList
+                matches={matches}
+                loading={intel.tm.loading}
+                error={intel.tm.error ? formatUiError(intel.tm.error) : null}
+                disabled={disabled === true}
+                onApply={onApplyMatch}
+              />
+            </div>
+            <div className="intel-dock__pane intel-dock__pane--terms">
+              <h3 className="intel-dock__pane-title">Term recognition</h3>
+              <TermList
+                terms={terms}
+                loading={intel.terms.loading}
+                error={intel.terms.error ? formatUiError(intel.terms.error) : null}
+                disabled={disabled === true}
+                canQuickAdd={canQuickAddTerm}
+                onInsert={onInsertTerm}
+                onQuickAdd={onQuickAddTerm}
+                {...(onSearchTerms ? { onSearchTerms } : {})}
+                {...(focusedTermIndex !== undefined
+                  ? { focusedIndex: focusedTermIndex }
+                  : {})}
+                {...(onFocusedTermIndex
+                  ? { onFocusedIndex: onFocusedTermIndex }
+                  : {})}
+                {...(onHighlightTerm ? { onHighlight: onHighlightTerm } : {})}
+                {...(extract ? { extract } : {})}
+              />
+            </div>
+          </div>
+        ) : tab === "matches" ? (
           <MatchList
             matches={matches}
             loading={intel.tm.loading}
