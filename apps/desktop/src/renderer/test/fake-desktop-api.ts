@@ -714,14 +714,33 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
         }
         case "segment.editor.list": {
           const p = params as EngineParams<"segment.editor.list">;
-          const items = state.segments
+          const offset = p.offset ?? 0;
+          const limit = p.limit ?? 200;
+          const query = (p.query ?? "").trim().toLowerCase();
+          const filtered = state.segments
             .filter((s) => s.documentId === p.documentId)
+            .filter((s) => {
+              if (p.filter === "untranslated") return s.state === "untranslated";
+              if (p.filter === "draft") return s.state === "draft";
+              if (p.filter === "confirmed") return s.state === "confirmed";
+              return true;
+            })
+            .filter((s) => {
+              if (!query) return true;
+              const field = p.field ?? "both";
+              const source = s.sourceText.toLowerCase();
+              const target = s.targetText.toLowerCase();
+              if (field === "source") return source.includes(query);
+              if (field === "target") return target.includes(query);
+              return source.includes(query) || target.includes(query);
+            })
+            .sort((a, b) => a.ordinal - b.ordinal || a.id.localeCompare(b.id))
             .map(rowFromSegment);
           return {
-            items,
-            limit: 200,
-            offset: 0,
-            total: items.length,
+            items: filtered.slice(offset, offset + limit),
+            limit,
+            offset,
+            total: filtered.length,
           } as EngineResult<Method>;
         }
         case "segment.updateTarget": {

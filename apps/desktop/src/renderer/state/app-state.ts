@@ -16,6 +16,7 @@ import type {
 } from "@translunar/contracts";
 
 import type { DraftJournalRecord } from "../../shared/product-shell";
+import type { EditorPageState } from "../lib/bilingual-row-view";
 import type { UiError } from "../lib/errors";
 import type { SessionIdentity } from "./session";
 import type {
@@ -77,6 +78,8 @@ export interface SessionContext {
   documents: Document[];
   rows: SegmentEditorRow[];
   counts: SegmentCounts | null;
+  /** Current `segment.editor.list` window. Rows are this page, not the file. */
+  editorPage: EditorPageState;
 }
 
 export type AppSurface =

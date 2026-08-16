@@ -52,6 +52,13 @@ function workbench(activeSegmentId: string | null = "s1"): AppSurface {
       documents: [],
       rows: [],
       counts: null,
+      editorPage: {
+        offset: 0,
+        limit: 200,
+        total: 0,
+        filter: "all",
+        query: "",
+      },
     },
     activeSegmentId,
     focusSegmentId: null,

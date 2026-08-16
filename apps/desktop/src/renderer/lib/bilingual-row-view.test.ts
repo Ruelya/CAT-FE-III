@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { SegmentEditorRow } from "@translunar/contracts";
 
 import {
+  countsAfterPageLoad,
   editorListParamsFromPage,
+  pageAfterConfirm,
+  sourceRuns,
   toBilingualRowView,
 } from "./bilingual-row-view";
 
@@ -117,5 +120,97 @@ describe("editorListParamsFromPage", () => {
         showConfirmed: false,
       }).filter,
     ).toBe("draft");
+  });
+});
+
+describe("sourceRuns", () => {
+  it("interleaves tags at engine positions without inventing text", () => {
+    const runs = sourceRuns("Hello world", [
+      {
+        id: "t1",
+        kind: "start",
+        displayText: "<b>",
+        payload: "b",
+        position: 6,
+        protected: false,
+        side: "source",
+      },
+      {
+        id: "t2",
+        kind: "end",
+        displayText: "</b>",
+        payload: "b",
+        position: 11,
+        protected: false,
+        side: "source",
+      },
+    ]);
+    expect(runs).toEqual([
+      { kind: "text", text: "Hello " },
+      {
+        kind: "tag",
+        tag: expect.objectContaining({ id: "t1", displayText: "<b>" }),
+      },
+      { kind: "text", text: "world" },
+      {
+        kind: "tag",
+        tag: expect.objectContaining({ id: "t2", displayText: "</b>" }),
+      },
+    ]);
+  });
+});
+
+describe("pageAfterConfirm", () => {
+  it("advances to the next row on the same engine page", () => {
+    const next = pageAfterConfirm({
+      page: {
+        offset: 0,
+        limit: 2,
+        total: 4,
+        filter: "all",
+        query: "",
+      },
+      rows: [row({ id: "seg-1", ordinal: 0 }), row({ id: "seg-2", ordinal: 1 })],
+      confirmedSegmentId: "seg-1",
+    });
+    expect(next).toEqual({ offset: 0, focusSegmentId: "seg-2" });
+  });
+
+  it("requests the next engine page when the confirmed row is last", () => {
+    const next = pageAfterConfirm({
+      page: {
+        offset: 0,
+        limit: 2,
+        total: 4,
+        filter: "all",
+        query: "",
+      },
+      rows: [row({ id: "seg-1", ordinal: 0 }), row({ id: "seg-2", ordinal: 1 })],
+      confirmedSegmentId: "seg-2",
+    });
+    expect(next).toEqual({ offset: 2, focusSegmentId: null });
+  });
+});
+
+describe("countsAfterPageLoad", () => {
+  it("does not treat a partial page as document totals", () => {
+    const counts = countsAfterPageLoad(
+      [row({ state: "confirmed" })],
+      10,
+      {
+        confirmed: 4,
+        draft: 3,
+        untranslated: 3,
+        total: 10,
+        openIssues: 1,
+      },
+    );
+    expect(counts).toEqual({
+      confirmed: 4,
+      draft: 3,
+      untranslated: 3,
+      total: 10,
+      openIssues: 1,
+    });
   });
 });

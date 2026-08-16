@@ -55,7 +55,6 @@ export function QaReview({
   onBack,
   onExport,
 }: QaReviewProps) {
-  const segmentIds = new Set(ctx.rows.map((r) => r.segment.id));
   const errorCount = issues.filter((i) => i.severity === "error").length;
   const warningCount = issues.filter((i) => i.severity === "warning").length;
 
@@ -158,7 +157,7 @@ export function QaReview({
             </p>
             <ul className="issue-list">
               {issues.map((issue, index) => {
-                const canJump = segmentIds.has(issue.segmentId);
+                const canJump = issue.segmentId.length > 0;
                 return (
                   <li
                     key={issue.id}

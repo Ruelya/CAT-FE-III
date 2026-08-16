@@ -15,6 +15,14 @@ import type {
   SegmentEditorRow,
 } from "@translunar/contracts";
 
+import {
+  countsAfterPageLoad,
+  defaultEditorPage,
+  pageAfterConfirm,
+  resolveEditorPageRequest,
+  type EditorListFilter,
+  type EditorPageState,
+} from "../lib/bilingual-row-view";
 import { toUiError, type UiError } from "../lib/errors";
 import { desktopApi, initializeEngine, invokeEngine } from "../lib/rpc";
 import {
@@ -151,44 +159,49 @@ async function listAllDocuments(projectId: string): Promise<Document[]> {
   return result.documents;
 }
 
-async function listAllEditorRows(documentId: string): Promise<{
-  rows: SegmentEditorRow[];
-  total: number;
-}> {
-  const rows: SegmentEditorRow[] = [];
-  let offset = 0;
-  for (;;) {
-    const page = await invokeEngine("segment.editor.list", {
-      documentId,
-      limit: PAGE_LIMIT,
-      offset,
-      sort: "ordinal",
-    });
-    rows.push(...page.items);
-    if (rows.length >= page.total || page.items.length === 0) {
-      return { rows, total: page.total };
-    }
-    offset += page.items.length;
-  }
+async function listEditorPage(
+  documentId: string,
+  request: Pick<EditorPageState, "offset" | "limit" | "filter" | "query">,
+): Promise<{ rows: SegmentEditorRow[]; page: EditorPageState }> {
+  const page = await invokeEngine("segment.editor.list", {
+    documentId,
+    offset: request.offset,
+    limit: request.limit,
+    sort: "ordinal",
+    filter: request.filter,
+    ...(request.query.trim()
+      ? { query: request.query.trim(), field: "both" as const }
+      : {}),
+  });
+  return {
+    rows: page.items,
+    page: {
+      offset: page.offset,
+      limit: page.limit || request.limit,
+      total: page.total,
+      filter: request.filter,
+      query: request.query,
+    },
+  };
 }
 
-function countsFromRows(rows: SegmentEditorRow[]): SegmentCounts {
-  let confirmed = 0;
-  let draft = 0;
-  let untranslated = 0;
-  for (const row of rows) {
-    const state = row.segment.state;
-    if (state === "confirmed") confirmed += 1;
-    else if (state === "draft") draft += 1;
-    else untranslated += 1;
+async function listEditorPageContaining(
+  documentId: string,
+  request: Pick<EditorPageState, "limit" | "filter" | "query">,
+  segmentId: string,
+): Promise<{ rows: SegmentEditorRow[]; page: EditorPageState }> {
+  let offset = 0;
+  for (;;) {
+    const listed = await listEditorPage(documentId, { ...request, offset });
+    if (listed.rows.some((row) => row.segment.id === segmentId)) {
+      return listed;
+    }
+    const next = listed.page.offset + listed.page.limit;
+    if (next >= listed.page.total || listed.rows.length === 0) {
+      return listed;
+    }
+    offset = next;
   }
-  return {
-    confirmed,
-    draft,
-    untranslated,
-    total: rows.length,
-    openIssues: 0,
-  };
 }
 
 function replaceRow(
@@ -272,6 +285,10 @@ export interface AppController {
       focusSegmentId: string | null;
     }) => void;
     refreshWorkbenchRows: (focusSegmentId?: string | null) => Promise<void>;
+    loadEditorPage: (input: {
+      offset?: number;
+      filter?: EditorListFilter;
+    }) => Promise<void>;
     flushOrStay: () => Promise<boolean>;
     goTemplates: () => Promise<void>;
     templatesPage: (offset: number) => Promise<void>;
@@ -416,7 +433,13 @@ export function useAppController(): AppController {
   }, []);
 
   const hydrateSession = useCallback(
-    async (session: SessionIdentity): Promise<SessionContext> => {
+    async (
+      session: SessionIdentity,
+      options?: {
+        page?: Partial<EditorPageState>;
+        focusSegmentId?: string | null;
+      },
+    ): Promise<SessionContext> => {
       const snapshot = await invokeEngine("project.get", {
         projectId: session.projectId,
       });
@@ -436,15 +459,27 @@ export function useAppController(): AppController {
           { code: "SESSION_STALE" },
         );
       }
-      const { rows } = await listAllEditorRows(session.documentId);
-      const counts = snapshot.counts ?? countsFromRows(rows);
+      const request = resolveEditorPageRequest(defaultEditorPage(), options?.page);
+      const listed = options?.focusSegmentId
+        ? await listEditorPageContaining(
+            session.documentId,
+            request,
+            options.focusSegmentId,
+          )
+        : await listEditorPage(session.documentId, request);
+      const counts = snapshot.counts ?? countsAfterPageLoad(
+        listed.rows,
+        listed.page.total,
+        null,
+      );
       return {
         session,
         project: snapshot.project,
         document,
         documents,
-        rows,
+        rows: listed.rows,
         counts,
+        editorPage: listed.page,
       };
     },
     [],
@@ -1230,13 +1265,18 @@ export function useAppController(): AppController {
       const updated = flushResult.updatedSegment;
       if (updated && stateRef.current.surface.kind === "workbench") {
         const rows = replaceRow(stateRef.current.surface.ctx.rows, updated);
+        const ctx = stateRef.current.surface.ctx;
         dispatch({
           type: "PATCH_WORKBENCH",
           patch: {
             ctx: {
-              ...stateRef.current.surface.ctx,
+              ...ctx,
               rows,
-              counts: countsFromRows(rows),
+              counts: countsAfterPageLoad(
+                rows,
+                ctx.editorPage.total,
+                ctx.counts,
+              ),
             },
             transitionError: null,
           },
@@ -1639,13 +1679,18 @@ export function useAppController(): AppController {
                 stateRef.current.surface.ctx.rows,
                 flushResult.updatedSegment,
               );
+              const flushCtx = stateRef.current.surface.ctx;
               dispatch({
                 type: "PATCH_WORKBENCH",
                 patch: {
                   ctx: {
-                    ...stateRef.current.surface.ctx,
+                    ...flushCtx,
                     rows,
-                    counts: countsFromRows(rows),
+                    counts: countsAfterPageLoad(
+                      rows,
+                      flushCtx.editorPage.total,
+                      flushCtx.counts,
+                    ),
                   },
                 },
               });
@@ -1676,17 +1721,40 @@ export function useAppController(): AppController {
             segmentId,
             expectedRevision: revision,
           });
-          // Re-fetch authoritative editor list
+          // Re-fetch the current engine page, not the whole document.
           const documentId =
             stateRef.current.surface.kind === "workbench"
               ? stateRef.current.surface.ctx.document.id
               : surface.ctx.document.id;
-          const { rows } = await listAllEditorRows(documentId);
+          const pageRequest = resolveEditorPageRequest(
+            stateRef.current.surface.kind === "workbench"
+              ? stateRef.current.surface.ctx.editorPage
+              : surface.ctx.editorPage,
+          );
+          let listed = await listEditorPage(documentId, pageRequest);
+          const advance = pageAfterConfirm({
+            page: listed.page,
+            rows: listed.rows,
+            confirmedSegmentId: segmentId,
+          });
+          if (advance.offset !== listed.page.offset) {
+            listed = await listEditorPage(documentId, {
+              ...pageRequest,
+              offset: advance.offset,
+            });
+          }
+          const rows = listed.rows;
           const nextSurface = stateRef.current.surface;
           if (nextSurface.kind !== "workbench") {
             return;
           }
-          const counts = result.counts ?? countsFromRows(rows);
+          const counts =
+            result.counts ??
+            countsAfterPageLoad(
+              rows,
+              listed.page.total,
+              nextSurface.ctx.counts,
+            );
           const confirmedRow = rows.find((r) => r.segment.id === segmentId);
           const stillOnSegment = nextSurface.activeSegmentId === segmentId;
           const activeNow = saveCoordinator.active;
@@ -1706,6 +1774,7 @@ export function useAppController(): AppController {
                   ...nextSurface.ctx,
                   rows,
                   counts,
+                  editorPage: listed.page,
                 },
                 pendingConfirm: false,
               },
@@ -1722,6 +1791,7 @@ export function useAppController(): AppController {
                   ...nextSurface.ctx,
                   rows,
                   counts,
+                  editorPage: listed.page,
                 },
                 pendingConfirm: false,
                 transitionError: null,
@@ -1733,11 +1803,14 @@ export function useAppController(): AppController {
             return;
           }
 
-          const currentIndex = rows.findIndex(
-            (r) => r.segment.id === segmentId,
-          );
-          const nextRow = rows[currentIndex + 1] ?? rows[currentIndex] ?? null;
-          const nextId = nextRow?.segment.id ?? segmentId;
+          const nextId =
+            advance.focusSegmentId ??
+            listed.rows[0]?.segment.id ??
+            segmentId;
+          const nextRow =
+            listed.rows.find((r) => r.segment.id === nextId) ??
+            listed.rows[0] ??
+            null;
           dispatch({
             type: "PATCH_WORKBENCH",
             patch: {
@@ -1745,6 +1818,7 @@ export function useAppController(): AppController {
                 ...nextSurface.ctx,
                 rows,
                 counts,
+                editorPage: listed.page,
               },
               activeSegmentId: nextId,
               focusSegmentId: nextId,
@@ -1901,17 +1975,27 @@ export function useAppController(): AppController {
         }
       },
 
-      jumpToIssue: (segmentId) => {
-        if (!stateRef.current.mutationsEnabled) return Promise.resolve();
+      jumpToIssue: async (segmentId) => {
+        if (!stateRef.current.mutationsEnabled) return;
         const surface = stateRef.current.surface;
-        if (surface.kind !== "qa") return Promise.resolve();
-        const exists = surface.ctx.rows.some((r) => r.segment.id === segmentId);
-        if (!exists) return Promise.resolve();
-        enterWorkbench(surface.ctx, {
-          focusSegmentId: segmentId,
-          persistSession: true,
-        });
-        return Promise.resolve();
+        if (surface.kind !== "qa") return;
+        try {
+          const ctx = await hydrateSession(surface.ctx.session, {
+            page: surface.ctx.editorPage,
+            focusSegmentId: segmentId,
+          });
+          enterWorkbench(ctx, {
+            focusSegmentId: segmentId,
+            persistSession: true,
+          });
+        } catch (error) {
+          if (stateRef.current.surface.kind === "qa") {
+            dispatch({
+              type: "PATCH_QA",
+              patch: { error: toUiError(error) },
+            });
+          }
+        }
       },
 
       goExport: async () => {
@@ -2009,10 +2093,13 @@ export function useAppController(): AppController {
         const surface = stateRef.current.surface;
         if (surface.kind !== "qa" && surface.kind !== "export") return;
         try {
-          const ctx = await hydrateSession(surface.ctx.session);
+          const ctx = await hydrateSession(surface.ctx.session, {
+            page: surface.ctx.editorPage,
+            ...(focusSegmentId ? { focusSegmentId } : {}),
+          });
           enterWorkbench(ctx, {
             focusSegmentId:
-              focusSegmentId ?? surface.ctx.rows[0]?.segment.id ?? null,
+              focusSegmentId ?? ctx.rows[0]?.segment.id ?? null,
             persistSession: true,
           });
         } catch (error) {
@@ -2958,7 +3045,15 @@ export function useAppController(): AppController {
         dispatch({
           type: "PATCH_WORKBENCH",
           patch: {
-            ctx: { ...ctx, rows, counts },
+            ctx: {
+              ...ctx,
+              rows,
+              counts,
+              editorPage: {
+                ...ctx.editorPage,
+                total: counts?.total ?? ctx.editorPage.total,
+              },
+            },
             activeSegmentId: activeId,
             focusSegmentId: focusId,
             transitionError: null,
@@ -2981,12 +3076,24 @@ export function useAppController(): AppController {
         if (stateRef.current.surface.kind !== "workbench") return;
         const ctx = stateRef.current.surface.ctx;
         try {
-          const { rows } = await listAllEditorRows(ctx.document.id);
+          const request = resolveEditorPageRequest(ctx.editorPage);
+          const listed = focusSegmentId
+            ? await listEditorPageContaining(
+                ctx.document.id,
+                request,
+                focusSegmentId,
+              )
+            : await listEditorPage(ctx.document.id, request);
           if (stateRef.current.surface.kind !== "workbench") return;
           if (stateRef.current.surface.ctx.document.id !== ctx.document.id) {
             return;
           }
-          const counts = countsFromEditorRows(rows);
+          const rows = listed.rows;
+          const counts = countsAfterPageLoad(
+            rows,
+            listed.page.total,
+            ctx.counts,
+          );
           const focus =
             focusSegmentId && rows.some((r) => r.segment.id === focusSegmentId)
               ? focusSegmentId
@@ -2996,7 +3103,7 @@ export function useAppController(): AppController {
           dispatch({
             type: "PATCH_WORKBENCH",
             patch: {
-              ctx: { ...ctx, rows, counts },
+              ctx: { ...ctx, rows, counts, editorPage: listed.page },
               activeSegmentId: focus,
               focusSegmentId: focus,
               transitionError: null,
@@ -3012,6 +3119,72 @@ export function useAppController(): AppController {
                 row.segment.revision,
               );
             }
+          }
+        } catch (error) {
+          if (stateRef.current.surface.kind === "workbench") {
+            dispatch({
+              type: "PATCH_WORKBENCH",
+              patch: { transitionError: toUiError(error) },
+            });
+          }
+        }
+      },
+
+      loadEditorPage: async (input) => {
+        if (stateRef.current.surface.kind !== "workbench") return;
+        if (!stateRef.current.mutationsEnabled) return;
+        if (stateRef.current.surface.pendingConfirm) return;
+        if (saveCoordinator.active?.isComposing) return;
+        const ok = await flushOrStay();
+        if (!ok) return;
+        if (stateRef.current.surface.kind !== "workbench") return;
+        const ctx = stateRef.current.surface.ctx;
+        const filterChanged =
+          input.filter !== undefined && input.filter !== ctx.editorPage.filter;
+        const request = resolveEditorPageRequest(ctx.editorPage, {
+          ...(input.filter !== undefined ? { filter: input.filter } : {}),
+          offset: filterChanged ? 0 : (input.offset ?? ctx.editorPage.offset),
+        });
+        try {
+          const listed = await listEditorPage(ctx.document.id, request);
+          if (stateRef.current.surface.kind !== "workbench") return;
+          if (stateRef.current.surface.ctx.document.id !== ctx.document.id) {
+            return;
+          }
+          const rows = listed.rows;
+          const counts = countsAfterPageLoad(
+            rows,
+            listed.page.total,
+            ctx.counts,
+          );
+          const currentActive = stateRef.current.surface.activeSegmentId;
+          const focus =
+            (currentActive &&
+              rows.some((row) => row.segment.id === currentActive) &&
+              currentActive) ||
+            rows[0]?.segment.id ||
+            null;
+          dispatch({
+            type: "PATCH_WORKBENCH",
+            patch: {
+              ctx: { ...ctx, rows, counts, editorPage: listed.page },
+              activeSegmentId: focus,
+              focusSegmentId: focus,
+              transitionError: null,
+            },
+          });
+          if (focus) {
+            const row = rows.find((r) => r.segment.id === focus);
+            if (row) {
+              attachSegmentWithPending(
+                { ...ctx, rows, counts, editorPage: listed.page },
+                row.segment.id,
+                row.segment.targetText,
+                row.segment.revision,
+              );
+            }
+          } else {
+            saveCoordinator.clearActive();
           }
         } catch (error) {
           if (stateRef.current.surface.kind === "workbench") {

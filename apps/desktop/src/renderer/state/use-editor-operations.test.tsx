@@ -80,6 +80,13 @@ function minimalCtx(): SessionContext {
       total: 1,
       openIssues: 0,
     },
+    editorPage: {
+      offset: 0,
+      limit: 200,
+      total: 1,
+      filter: "all",
+      query: "",
+    },
   };
 }
 
