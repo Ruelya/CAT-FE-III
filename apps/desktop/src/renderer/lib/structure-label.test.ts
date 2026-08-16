@@ -20,4 +20,10 @@ describe("structureLabel", () => {
     expect(structureLabel("pdf:p=1;b=0;k=text")).toBe("PDF");
     expect(structureLabel("word/document.xml#p:12")).toBe("¶");
   });
+
+  it("keeps format fallbacks short enough for the CTX column", () => {
+    expect(structureLabel("txt:bytes:0-80")).toBe("txt");
+    expect(structureLabel("html:text:h1")).toBe("html");
+    expect(structureLabel("md:paragraph:3")).toBe("md");
+  });
 });

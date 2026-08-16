@@ -543,14 +543,17 @@
 .segment-table col.ordinal {
   width: 3.5rem;
 }
+.segment-table col.structure {
+  width: 3.75rem;
+}
 .segment-table col.source {
-  width: 36%;
+  width: 34%;
 }
 .segment-table col.target {
   width: 40%;
 }
 .segment-table col.status {
-  width: 18%;
+  width: 16%;
 }
 
 .segment-table__ordinal {
@@ -1277,13 +1280,14 @@
 
 .display-filter {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-1) var(--space-3);
   border-bottom: 1px solid var(--color-line);
   background: color-mix(in srgb, var(--color-sunken) 55%, var(--color-surface));
   min-height: calc(var(--control-h-sm) + var(--space-2));
+  overflow-x: auto;
 }
 
 .display-filter--active {
@@ -1403,13 +1407,19 @@
 /* ── Structure column ───────────────────────────────────── */
 
 .segment-table__structure {
-  width: 3.25rem;
+  width: 3.75rem;
+  max-width: 3.75rem;
+  overflow: hidden;
   color: var(--color-text-muted);
   font-size: var(--text-xs);
   text-align: center;
 }
 
 .segment-structure {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
@@ -1865,7 +1875,7 @@
 .structure-preview__page {
   max-width: 40rem;
   margin: 0 auto;
-  padding: var(--space-7) var(--space-6);
+  padding: var(--space-5) var(--space-4);
   background: var(--color-raised);
   border: 1px solid var(--color-line);
   border-radius: var(--radius-md);
@@ -1878,7 +1888,7 @@
   width: 100%;
   min-height: 0;
   margin: 0;
-  padding: 0 0 var(--space-3);
+  padding: 0 0 var(--space-2);
   border: none;
   border-radius: 0;
   background: transparent;
@@ -1944,6 +1954,8 @@
   font-family: var(--font-cjk), var(--font-ui);
   font-size: var(--text-md);
   line-height: var(--leading-cjk);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .structure-preview__text strong {

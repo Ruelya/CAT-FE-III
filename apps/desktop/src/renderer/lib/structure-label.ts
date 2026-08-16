@@ -24,6 +24,9 @@ export function structureLabel(path: string): string {
   if (/sheet|cell|![a-z]+\d+/i.test(path) || /#r\d+c\d+/i.test(path)) {
     return "Cell";
   }
+  if (/^txt:|^text:|\.txt$/i.test(path)) return "txt";
+  if (/^html:|\/html|\.html?$/i.test(path)) return "html";
+  if (/^md:|^markdown:|\.md$/i.test(path)) return "md";
   if (/#h\d|#heading|title/i.test(path)) return "H";
   if (/#p:\d+|paragraph/i.test(path)) return "¶";
   // Fall back to the last path fragment so an unknown structure is still
