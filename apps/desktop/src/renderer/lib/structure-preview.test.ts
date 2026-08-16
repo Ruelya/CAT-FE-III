@@ -5,7 +5,7 @@ import { previewBlocks, previewRole } from "./structure-preview";
 
 function tag(
   id: string,
-  kind: "start" | "end",
+  kind: "start" | "end" | "standalone",
   position: number,
   displayText: string,
 ): InlineTag {
@@ -83,6 +83,22 @@ describe("previewBlocks", () => {
       }),
     ]);
     expect(blocks[0]?.html).toBe("Read the <strong>TL-900</strong> guide.");
+  });
+
+  it("renders markdown through marked when the filter is markdown", () => {
+    const heading = tag("md", "standalone", 0, "<md>");
+    heading.payload = "# ";
+    const blocks = previewBlocks(
+      [
+        row("h", "Title", "", "markdown:byte:0-5", {
+          ordinal: 0,
+          sourceTags: [heading],
+        }),
+      ],
+      "builtin.markdown",
+      "markdown",
+    );
+    expect(blocks[0]?.html).toMatch(/<h1[^>]*>Title<\/h1>/);
   });
 });
 

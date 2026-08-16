@@ -71,6 +71,7 @@ apps/desktop/src/renderer/
 |   |-- EditorCommandBar.tsx  # compact P2 commands + overflow
 |   |-- EditorPanels.tsx      # find/tags/structure/comments/spell/history/prefs/review
 |   |-- ActivityBar.tsx       # files / preview / ACP chat rail
+|   |-- StructurePreview.tsx  # live reconstruction + optional docx-preview
 |   |-- EditorTabs.tsx        # open-document working set
 |   |-- SegmentContextMenu.tsx
 |   |-- AcpChatPanel.tsx      # ACP session UI over ai.run / conversation

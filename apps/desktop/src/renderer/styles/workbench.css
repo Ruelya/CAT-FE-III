@@ -1975,6 +1975,28 @@
   color: var(--color-text-subtle);
 }
 
+.structure-preview__docx {
+  overflow: auto;
+  max-height: 42%;
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-raised);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+}
+
+.structure-preview__docx .docx-wrapper,
+.structure-preview__docx .docx {
+  max-width: 100%;
+}
+
+.structure-preview__docx table,
+.structure-preview__docx img,
+.structure-preview__docx svg {
+  max-width: 100%;
+  height: auto;
+}
+
 .structure-preview__page {
   max-width: 40rem;
   margin: 0 auto;
@@ -1989,9 +2011,9 @@
 .structure-preview__block {
   display: block;
   width: 100%;
-  min-height: 0;
+  min-height: 32px;
   margin: 0;
-  padding: 0 0 var(--space-2);
+  padding: var(--space-1) 0 var(--space-2);
   border: none;
   border-radius: 0;
   background: transparent;
@@ -2067,6 +2089,67 @@
 
 .structure-preview__text em {
   font-style: italic;
+}
+
+.structure-preview__text u {
+  text-decoration: underline;
+}
+
+.structure-preview__text :is(h1, h2, h3, h4, h5, h6) {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-display);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-snug);
+  letter-spacing: var(--tracking-tight);
+}
+
+.structure-preview__text h1 {
+  font-size: var(--text-lg);
+}
+
+.structure-preview__text h2,
+.structure-preview__text h3 {
+  font-size: var(--text-md);
+}
+
+.structure-preview__text p,
+.structure-preview__text ul,
+.structure-preview__text ol,
+.structure-preview__text blockquote,
+.structure-preview__text pre {
+  margin: 0 0 var(--space-2);
+}
+
+.structure-preview__text ul,
+.structure-preview__text ol {
+  padding-left: var(--space-5);
+}
+
+.structure-preview__text code,
+.structure-preview__text pre {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.structure-preview__text blockquote {
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.structure-preview__text a {
+  color: var(--color-accent);
+}
+
+.structure-preview__text table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.structure-preview__text th,
+.structure-preview__text td {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-line);
 }
 
 .segment-row--hit {

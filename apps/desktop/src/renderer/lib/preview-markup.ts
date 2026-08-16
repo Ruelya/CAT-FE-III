@@ -10,7 +10,7 @@ const TOKEN_TO_TAG: Record<string, string> = {
   strike: "s",
 };
 
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")

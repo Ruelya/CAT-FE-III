@@ -824,6 +824,10 @@ export function Workbench({
             <StructurePreview
               rows={visibleRows}
               filterId={ctx.document.filterId}
+              format={ctx.document.format}
+              documentId={ctx.document.id}
+              documentName={ctx.document.name}
+              relativePath={ctx.document.relativePath}
               activeSegmentId={activeSegmentId}
               onJump={(id) => {
                 void onSelectSegment(id);

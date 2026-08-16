@@ -1,6 +1,6 @@
 import type { SegmentEditorRow } from "@translunar/contracts";
 
-import { previewInnerHtml } from "./preview-markup";
+import { renderPreviewHtml } from "./preview-render";
 import { structureLabel } from "./structure-label";
 
 export type PreviewRole =
@@ -51,13 +51,13 @@ export function previewRole(
 /**
  * Build a document-order preview from the rows already on the grid.
  *
- * Formatting comes from the segment's tags (target if translated, else source).
- * This is not a Word COM preview. It is a live HTML reconstruction a translator
- * can scan and click to jump back to the grid.
+ * Formatting comes from the segment's tags (target if translated, else source)
+ * and is rendered through marked / DOMPurify. This is not a Word COM preview.
  */
 export function previewBlocks(
   rows: readonly SegmentEditorRow[],
   filterId = "",
+  format = "",
 ): PreviewBlock[] {
   return rows.map((row) => {
     const target = row.segment.targetText.trim();
@@ -68,7 +68,7 @@ export function previewBlocks(
       label: structureLabel(row.segment.structuralPath) || "¶",
       path: row.segment.structuralPath,
       text,
-      html: previewInnerHtml(text, tags),
+      html: renderPreviewHtml(text, tags, filterId, format),
       empty: target.length === 0,
       role: previewRole(
         row.segment.structuralPath,
