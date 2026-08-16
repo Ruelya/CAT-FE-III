@@ -208,6 +208,15 @@ export function AssetHub({
                                 type="button"
                                 className="btn btn--ghost btn--sm"
                                 disabled={busy}
+                                onClick={() => void assets.importTm(lib.id)}
+                                data-testid={`tm-import-${lib.id}`}
+                              >
+                                Import
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn--ghost btn--sm"
+                                disabled={busy}
                                 onClick={() =>
                                   void assets.exportTm(lib.id, "tmx")
                                 }
@@ -603,6 +612,17 @@ export function AssetHub({
                                   Unmount
                                 </button>
                               )}
+                              <button
+                                type="button"
+                                className="btn btn--ghost btn--sm"
+                                disabled={busy}
+                                onClick={() =>
+                                  void assets.importTermbase(tb.id)
+                                }
+                                data-testid={`tb-import-${tb.id}`}
+                              >
+                                Import
+                              </button>
                               <button
                                 type="button"
                                 className="btn btn--ghost btn--sm"

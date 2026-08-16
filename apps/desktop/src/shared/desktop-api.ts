@@ -66,6 +66,8 @@ export interface DesktopApi {
   selectInteropInput(kind: "review" | "table"): Promise<string | null>;
   selectTaskPackageInput(): Promise<string | null>;
   selectCorpusInput(): Promise<string | null>;
+  /** Open a TMX/TBX/CSV/TSV exchange file for memory or termbase import. */
+  selectExchangeInput(kind: "tm" | "termbase"): Promise<string | null>;
   selectPluginPackage(): Promise<string | null>;
   issuePluginPanelSession(
     request: PluginPanelSessionRequest,

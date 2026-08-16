@@ -60,7 +60,7 @@ export interface TmSectionState {
   concordance: PagedList<ConcordanceHit>;
   corpusHits: CorpusSearchHit[];
   exchange: {
-    status: "idle" | "exporting" | "result" | "error";
+    status: "idle" | "exporting" | "importing" | "result" | "error";
     libraryId: string | null;
     message: string | null;
     diagnostics: AssetDiagnostic[];
@@ -85,7 +85,7 @@ export interface TermbaseSectionState {
     error: UiError | null;
   };
   exchange: {
-    status: "idle" | "exporting" | "result" | "error";
+    status: "idle" | "exporting" | "importing" | "result" | "error";
     termbaseId: string | null;
     message: string | null;
     diagnostics: AssetDiagnostic[];

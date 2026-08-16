@@ -118,6 +118,49 @@ describe("useAssetController current-state capture", () => {
     ).toMatchObject({ query: "corp", offset: 5 });
   });
 
+  it("imports TMX into a library after the exchange picker", async () => {
+    engine.exchangeInputPath = "/tmp/mem.tmx";
+    const { result } = renderHook(() => useAssetController(gateway()));
+
+    await act(async () => {
+      await result.current.importTm("tm-1");
+    });
+
+    await waitFor(() => {
+      expect(result.current.state.tm.exchange.status).toBe("result");
+    });
+    expect(
+      engine.calls.find((c) => c.method === "tm.import")?.params,
+    ).toMatchObject({
+      libraryId: "tm-1",
+      format: "tmx",
+      sourcePath: "/tmp/mem.tmx",
+      sourceLocale: "en",
+      targetLocale: "zh",
+    });
+    expect(result.current.state.tm.exchange.message).toContain("12 units");
+  });
+
+  it("imports TBX into a termbase after the exchange picker", async () => {
+    engine.exchangeInputPath = "/tmp/terms.tbx";
+    const { result } = renderHook(() => useAssetController(gateway()));
+
+    await act(async () => {
+      await result.current.importTermbase("tb-1");
+    });
+
+    await waitFor(() => {
+      expect(result.current.state.termbase.exchange.status).toBe("result");
+    });
+    expect(
+      engine.calls.find((c) => c.method === "termbase.import")?.params,
+    ).toMatchObject({
+      termbaseId: "tb-1",
+      format: "tbx",
+      sourcePath: "/tmp/terms.tbx",
+    });
+  });
+
   it("lists catalog with current filters and page offset", async () => {
     const { result } = renderHook(() => useAssetController(gateway()));
 

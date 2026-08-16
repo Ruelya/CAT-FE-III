@@ -84,6 +84,7 @@ const IPC_CHANNELS = {
   selectInteropInput: "translunar:dialog:interop-input",
   selectTaskPackageInput: "translunar:dialog:task-package-input",
   selectCorpusInput: "translunar:dialog:corpus-input",
+  selectExchangeInput: "translunar:dialog:exchange-input",
   selectPluginPackage: "translunar:dialog:plugin-package",
   issuePluginPanelSession: "translunar:plugin:panel:issue",
   revokePluginPanelSession: "translunar:plugin:panel:revoke",
@@ -745,6 +746,39 @@ function registerIpc(): void {
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
+  ipcMain.handle(
+    IPC_CHANNELS.selectExchangeInput,
+    async (event, kind: unknown) => {
+      assertTrustedSender(event);
+      if (kind !== "tm" && kind !== "termbase") {
+        throw new Error("Invalid exchange input type.");
+      }
+      if (process.env.TRANSLUNAR_TEST_EXCHANGE_INPUT) {
+        return process.env.TRANSLUNAR_TEST_EXCHANGE_INPUT;
+      }
+      const locale = await currentDialogLocale();
+      const result = await dialog.showOpenDialog(requireWindow(), {
+        title: dialogTitle(
+          locale,
+          kind === "tm"
+            ? "dialog.selectTmExchange"
+            : "dialog.selectTermbaseExchange",
+        ),
+        properties: ["openFile"],
+        filters: [
+          {
+            name: dialogFilterName(
+              locale,
+              kind === "tm" ? "filter.tmExchange" : "filter.termbaseExchange",
+            ),
+            extensions:
+              kind === "tm" ? ["tmx", "csv", "tsv"] : ["tbx", "csv", "tsv"],
+          },
+        ],
+      });
+      return result.canceled ? null : (result.filePaths[0] ?? null);
+    },
+  );
   ipcMain.handle(IPC_CHANNELS.selectPluginPackage, async (event) => {
     assertTrustedSender(event);
     if (process.env.TRANSLUNAR_TEST_PLUGIN_SOURCE) {
