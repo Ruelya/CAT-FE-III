@@ -172,10 +172,7 @@ test.describe("P0 vertical slice", () => {
         { timeout: 30_000 },
       );
 
-      await page
-        .getByTestId("workbench")
-        .getByRole("button", { name: "QA", exact: true })
-        .click();
+      await page.getByTestId("workbench-qa").click();
       await expect(page.getByTestId("qa-review")).toBeVisible();
       // Wait for authoritative list (loading → empty or issues), not invented empty.
       await expect(

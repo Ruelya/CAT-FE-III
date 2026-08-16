@@ -358,10 +358,7 @@ test.describe("accessibility and keyboard", () => {
       await createOpenProject(page, "Dark Project");
       await expectNoAxeViolations(page, "dark-workbench");
 
-      await page
-        .getByTestId("workbench")
-        .getByRole("button", { name: "QA", exact: true })
-        .click();
+      await page.getByTestId("workbench-qa").click();
       await expect(page.getByTestId("qa-review")).toBeVisible();
       await expectNoAxeViolations(page, "dark-qa");
     } finally {

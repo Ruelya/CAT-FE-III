@@ -117,7 +117,7 @@ note(
 );
 
 // QA then export.
-await page.getByTestId("workbench").getByRole("button", { name: "QA" }).click();
+await page.getByTestId("workbench-qa").click();
 await page.getByTestId("qa-review").waitFor();
 await page.getByRole("button", { name: "Run QA" }).click();
 await page.waitForTimeout(2500);

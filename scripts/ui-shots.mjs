@@ -270,7 +270,7 @@ function buildRoutes(page) {
         if (await expand.isVisible().catch(() => false)) await expand.click();
       },
     },
-    { name: "qa", reach: () => clickName("QA", "workbench") },
+    { name: "qa", reach: () => click("workbench-qa") },
     { name: "export", reach: () => clickName("Export", "qa-review") },
     { name: "insights", reach: () => click("nav-insights") },
     { name: "assets", reach: () => click("nav-assets") },
