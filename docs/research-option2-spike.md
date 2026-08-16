@@ -192,7 +192,7 @@ Until that sidecar exists, do not spend more time making homemade reconstruction
 
 ## 5. Next implementation order
 
-1. **React bilingual grid** consuming `BilingualRowView`, still using `TargetEditor` + `SaveCoordinator`. Page through `segment.editor.list` instead of `listAllEditorRows`. Keep `target-editor-*` / `target-surface-*` / confirm button contracts.
+1. **React bilingual grid** — done. The workbench loads one `segment.editor.list` page (`ctx.editorPage`), paints source tags as chips, and keeps `TargetEditor` / `target-editor-*` / confirm contracts. Combined Swordfish show-flags still collapse to one engine `filter`.
 2. **XLIFF export template fidelity** for tagged Tikal units (keep original target inner when tags did not move). Then one real IDML: extract → import → edit one segment → export → merge.
 3. **OnlyOffice view host** only after (1) is the daily editor. Export-to-temp is the feed.
 

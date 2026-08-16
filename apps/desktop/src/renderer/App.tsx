@@ -723,6 +723,12 @@ export function App() {
                 void commands.confirmSegment(ev);
               }}
               onToggleTm={commands.toggleTmPanel}
+              onPage={(offset) => {
+                void commands.loadEditorPage({ offset });
+              }}
+              onFilter={(filter) => {
+                void commands.loadEditorPage({ filter });
+              }}
               onQa={() => {
                 void commands.goQa();
               }}

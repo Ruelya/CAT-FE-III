@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ProjectBatchImportResult, TmEntry } from "@translunar/contracts";
 
+import type { EditorListFilter } from "../lib/bilingual-row-view";
 import type { UiError } from "../lib/errors";
 import { formatUiError } from "../lib/errors";
 import type { SessionContext } from "../state/app-state";
@@ -55,6 +56,8 @@ export interface WorkbenchProps {
   onExport: () => void;
   onInsights: () => void;
   onAssets?: () => void;
+  onPage?: (offset: number) => void;
+  onFilter?: (filter: EditorListFilter) => void;
   onSwitchDocument: (documentId: string) => void;
   onAddFiles: () => void;
   onRecycleDocument: (reason: string) => Promise<boolean>;
@@ -87,6 +90,8 @@ export function Workbench({
   onCompositionEnd,
   onConfirm,
   onToggleTm,
+  onPage,
+  onFilter,
   onQa,
   onExport,
   onInsights,
@@ -313,6 +318,7 @@ export function Workbench({
           ) : null}
           <SegmentGrid
             rows={ctx.rows}
+            page={ctx.editorPage}
             activeSegmentId={activeSegmentId}
             focusSegmentId={focusSegmentId}
             selectedSegmentIds={selectedSegmentIds}
@@ -326,6 +332,8 @@ export function Workbench({
             onCompositionStart={onCompositionStart}
             onCompositionEnd={onCompositionEnd}
             onConfirm={onConfirm}
+            {...(onPage ? { onPage } : {})}
+            {...(onFilter ? { onFilter } : {})}
           />
           {editorOps ? (
             <EditorPanels
