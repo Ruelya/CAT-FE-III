@@ -58,6 +58,7 @@ describe("App P0 vertical slice (fake DesktopApi)", () => {
     await screen.findByTestId("workbench");
     expect(screen.getByTestId("bilingual-grid")).toBeInTheDocument();
     expect(screen.getByTestId("segment-filter")).toHaveValue("all");
+    expect(screen.getByTestId("layout-preview-open")).toBeEnabled();
     expect(state.calls.some((c) => c.method === "project.batchImport")).toBe(
       true,
     );

@@ -110,6 +110,13 @@ export interface DesktopApi {
   closeWindow(): Promise<void>;
   isWindowMaximized(): Promise<boolean>;
   getWindowChromePlatform(): WindowChromePlatform; // "macos" | "custom"
+  createLayoutPreviewSink(input: { fileType: string }): Promise<LayoutPreviewSink>;
+  publishLayoutPreview(input: {
+    outputPath: string;
+    title: string;
+    fileType: string;
+  }): Promise<LayoutPreviewSession>;
+  revokeLayoutPreview(): Promise<void>;
   // … draft journal, example project, engine status listeners — see desktop-api.ts
 }
 ```

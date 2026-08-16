@@ -2202,6 +2202,25 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
     },
     isWindowMaximized: async () => state.windowMaximized,
     getWindowChromePlatform: () => state.windowChromePlatform,
+    createLayoutPreviewSink: async (input) => {
+      state.calls.push({ method: "createLayoutPreviewSink", params: input });
+      return { outputPath: `/tmp/layout-preview.${input.fileType || "bin"}` };
+    },
+    publishLayoutPreview: async (input) => {
+      state.calls.push({ method: "publishLayoutPreview", params: input });
+      return {
+        fileUrl: `http://127.0.0.1:9/preview/${input.fileType}`,
+        docsUrl: null,
+        token: null,
+        documentType: "word" as const,
+        fileType: input.fileType,
+        title: input.title,
+        key: "fake-key",
+      };
+    },
+    revokeLayoutPreview: async () => {
+      state.calls.push({ method: "revokeLayoutPreview", params: {} });
+    },
   };
 
   return api;

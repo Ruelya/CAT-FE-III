@@ -50,6 +50,22 @@ export interface PluginPanelSession {
  */
 export type WindowChromePlatform = "macos" | "custom";
 
+export type LayoutDocumentType = "word" | "cell" | "slide";
+
+export interface LayoutPreviewSink {
+  outputPath: string;
+}
+
+export interface LayoutPreviewSession {
+  fileUrl: string;
+  docsUrl: string | null;
+  token: string | null;
+  documentType: LayoutDocumentType;
+  fileType: string;
+  title: string;
+  key: string;
+}
+
 export interface DesktopApi {
   invoke<Method extends EngineMethod>(
     method: Method,
@@ -133,6 +149,13 @@ export interface DesktopApi {
   isWindowMaximized(): Promise<boolean>;
   /** Sync platform capability for native vs custom control branch. */
   getWindowChromePlatform(): WindowChromePlatform;
+  createLayoutPreviewSink(input: { fileType: string }): Promise<LayoutPreviewSink>;
+  publishLayoutPreview(input: {
+    outputPath: string;
+    title: string;
+    fileType: string;
+  }): Promise<LayoutPreviewSession>;
+  revokeLayoutPreview(): Promise<void>;
 }
 
 export type {

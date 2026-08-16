@@ -40,6 +40,7 @@ import { useInteropController } from "./state/use-interop-controller";
 import { usePdfReview } from "./state/use-pdf-review";
 import { usePluginController } from "./state/use-plugin-controller";
 import { useProductSettings } from "./state/use-product-settings";
+import { useLayoutPreview } from "./state/use-layout-preview";
 import { useReimportController } from "./state/use-reimport-controller";
 import { useTaskPackageController } from "./state/use-task-package-controller";
 
@@ -189,6 +190,30 @@ export function App() {
 
   useEffect(() => {
     reimport.invalidate();
+  }, [featureGeneration]);
+
+  const layoutPreviewGateway = useMemo(
+    () => ({
+      generation: featureGeneration,
+      mutationsEnabled: state.mutationsEnabled,
+      documentId: workbenchCtx?.document.id ?? null,
+      documentName: workbenchCtx?.document.name ?? "Document",
+      fileType: workbenchCtx?.document.format ?? "bin",
+      flushOrStay: commands.flushOrStay,
+    }),
+    [
+      commands,
+      featureGeneration,
+      state.mutationsEnabled,
+      workbenchCtx?.document.format,
+      workbenchCtx?.document.id,
+      workbenchCtx?.document.name,
+    ],
+  );
+  const layoutPreview = useLayoutPreview(layoutPreviewGateway);
+
+  useEffect(() => {
+    layoutPreview.invalidate();
   }, [featureGeneration]);
 
   const insightsProjectId =
@@ -704,6 +729,7 @@ export function App() {
               editorOps={editorOps}
               pdfReview={pdfReview}
               reimport={reimport}
+              layoutPreview={layoutPreview}
               selectedSegmentIds={selectedSegmentIds}
               onToggleSelect={(id) => {
                 setSelectedSegmentIds((prev) => {

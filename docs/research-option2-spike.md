@@ -192,8 +192,8 @@ Until that sidecar exists, do not spend more time making homemade reconstruction
 
 ## 5. Next implementation order
 
-1. **React bilingual grid** — done. The workbench loads one `segment.editor.list` page (`ctx.editorPage`), paints source tags as chips, and keeps `TargetEditor` / `target-editor-*` / confirm contracts. Combined Swordfish show-flags still collapse to one engine `filter`.
-2. **XLIFF export template fidelity** for tagged Tikal units (keep original target inner when tags did not move). Then one real IDML: extract → import → edit one segment → export → merge.
-3. **OnlyOffice view host** only after (1) is the daily editor. Export-to-temp is the feed.
+1. **React bilingual grid** — done.
+2. **XLIFF export template fidelity** — done. Unmoved tagged Tikal targets keep the original inner (`bpt`/`ept` payloads are not text slots). Real IDML (`helloworld-1.idml` from Okapi's filter tests) extract → `document.import` → edit → `document.export` → `tikal -m` is the sidecar path.
+3. **OnlyOffice view host** — done as a view-only sidecar. `document.export` writes a temp file; main serves it on `127.0.0.1`; the renderer iframe is `editorConfig.mode = "view"`. JWT is signed in main from `TRANSLUNAR_ONLYOFFICE_JWT_SECRET` and never stored. Without `TRANSLUNAR_ONLYOFFICE_DOCS_URL` the panel shows setup and the exported loopback URL.
 
 Option 2 is viable. The drop-in fantasy is not. The engine stays; the homemade grid is what we replace.

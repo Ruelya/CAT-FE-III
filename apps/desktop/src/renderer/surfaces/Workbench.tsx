@@ -9,6 +9,7 @@ import type { SegmentEditState } from "../state/save-coordinator";
 import type { EditorOperationsApi } from "../state/use-editor-operations";
 import { shouldMountPdfDock } from "../state/pdf-review";
 import type { PdfReviewApi } from "../state/use-pdf-review";
+import type { LayoutPreviewApi } from "../state/use-layout-preview";
 import type { ReimportApi } from "../state/use-reimport-controller";
 import { shareStyle } from "../lib/dom";
 import { useContainerDensity } from "../state/use-container-density";
@@ -18,6 +19,7 @@ import { BatchImportSummary } from "../workbench/BatchImportSummary";
 import { DocumentSwitcher } from "../workbench/DocumentSwitcher";
 import { EditorCommandBar } from "../workbench/EditorCommandBar";
 import { EditorPanels } from "../workbench/EditorPanels";
+import { LayoutPreview } from "../workbench/LayoutPreview";
 import { PdfPageReview } from "../workbench/PdfPageReview";
 import { SegmentGrid } from "../workbench/SegmentGrid";
 import { TmExactPanel } from "../workbench/TmExactPanel";
@@ -40,6 +42,7 @@ export interface WorkbenchProps {
   editorOps?: EditorOperationsApi | null;
   pdfReview?: PdfReviewApi | null;
   reimport?: ReimportApi | null;
+  layoutPreview?: LayoutPreviewApi | null;
   selectedSegmentIds?: string[];
   onToggleSelect?: (segmentId: string) => void;
   onSelectSegment: (segmentId: string) => void;
@@ -82,6 +85,7 @@ export function Workbench({
   editorOps,
   pdfReview,
   reimport,
+  layoutPreview,
   selectedSegmentIds = [],
   onToggleSelect,
   onSelectSegment,
@@ -231,6 +235,19 @@ export function Workbench({
               Reimport
             </button>
           ) : null}
+          {layoutPreview ? (
+            <button
+              type="button"
+              className="btn btn--secondary"
+              disabled={headerBusy || layoutPreview.loading}
+              onClick={() => {
+                void layoutPreview.show();
+              }}
+              data-testid="layout-preview-open"
+            >
+              {layoutPreview.loading ? "Previewing" : "Layout"}
+            </button>
+          ) : null}
           <button
             type="button"
             className="btn btn--secondary"
@@ -343,6 +360,7 @@ export function Workbench({
               tagIssues={activeRow?.tagIssues ?? []}
             />
           ) : null}
+          {layoutPreview ? <LayoutPreview preview={layoutPreview} /> : null}
         </div>
         <TmExactPanel
           collapsed={tmCollapsed}

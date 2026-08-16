@@ -583,6 +583,15 @@
   color: var(--color-accent);
 }
 
+.layout-preview__frame {
+  display: block;
+  width: 100%;
+  min-height: 24rem;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: var(--color-raised);
+}
+
 /* ── Exact TM dock ─────────────────────────────────────── */
 
 .tm-panel {

@@ -51,6 +51,10 @@ import {
   PLUGIN_ASSET_SCHEME,
   PluginAssetSessionRegistry,
 } from "./plugin-asset-sessions.js";
+import {
+  LayoutPreviewHost,
+  readLayoutPreviewEnv,
+} from "./layout-preview-host.js";
 import { windowChromeTitleBarOptions } from "./window-chrome.js";
 
 protocol.registerSchemesAsPrivileged([
@@ -118,6 +122,9 @@ const IPC_CHANNELS = {
   maximizeWindow: "translunar:window:maximize",
   closeWindow: "translunar:window:close",
   isWindowMaximized: "translunar:window:is-maximized",
+  createLayoutPreviewSink: "translunar:layout-preview:sink",
+  publishLayoutPreview: "translunar:layout-preview:publish",
+  revokeLayoutPreview: "translunar:layout-preview:revoke",
 } as const;
 
 let mainWindow: BrowserWindow | null = null;
@@ -129,6 +136,11 @@ let updateManager: UpdateManager | null = null;
 let engineExecutable = "";
 const allowedMethods = new Set<string>(ENGINE_METHODS);
 const pluginAssetSessions = new PluginAssetSessionRegistry();
+const layoutPreviewHost = new LayoutPreviewHost();
+
+function layoutPreviewRoot(): string {
+  return join(app.getPath("temp"), "translunar-layout-preview");
+}
 
 let engineStoppedForQuit = false;
 
@@ -1164,6 +1176,46 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.isWindowMaximized, (event) => {
     assertTrustedSender(event);
     return requireWindow().isMaximized();
+  });
+  ipcMain.handle(
+    IPC_CHANNELS.createLayoutPreviewSink,
+    async (event, input: unknown) => {
+      assertTrustedSender(event);
+      const fileType =
+        input &&
+        typeof input === "object" &&
+        "fileType" in input &&
+        typeof input.fileType === "string"
+          ? input.fileType
+          : "bin";
+      return layoutPreviewHost.createSink(layoutPreviewRoot(), fileType);
+    },
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.publishLayoutPreview,
+    async (event, input: unknown) => {
+      assertTrustedSender(event);
+      if (!input || typeof input !== "object") {
+        throw new Error("Invalid layout preview publish.");
+      }
+      const record = input as Record<string, unknown>;
+      if (typeof record.outputPath !== "string" || !record.outputPath) {
+        throw new Error("Layout preview output path is required.");
+      }
+      const env = readLayoutPreviewEnv();
+      return layoutPreviewHost.publish({
+        rootDir: layoutPreviewRoot(),
+        outputPath: record.outputPath,
+        title: typeof record.title === "string" ? record.title : "Document",
+        fileType: typeof record.fileType === "string" ? record.fileType : "bin",
+        docsUrl: env.docsUrl,
+        jwtSecret: env.jwtSecret,
+      });
+    },
+  );
+  ipcMain.handle(IPC_CHANNELS.revokeLayoutPreview, async (event) => {
+    assertTrustedSender(event);
+    await layoutPreviewHost.revoke();
   });
 
   ipcMain.handle(IPC_CHANNELS.openExampleProject, async (event) => {

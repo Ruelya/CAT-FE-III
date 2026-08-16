@@ -71,6 +71,9 @@ const IPC_CHANNELS = {
   maximizeWindow: "translunar:window:maximize",
   closeWindow: "translunar:window:close",
   isWindowMaximized: "translunar:window:is-maximized",
+  createLayoutPreviewSink: "translunar:layout-preview:sink",
+  publishLayoutPreview: "translunar:layout-preview:publish",
+  revokeLayoutPreview: "translunar:layout-preview:revoke",
 } as const;
 
 async function invokeEngine<Method extends EngineMethod>(
@@ -260,6 +263,12 @@ const api: DesktopApi = {
   isWindowMaximized: () =>
     electron.ipcRenderer.invoke(IPC_CHANNELS.isWindowMaximized),
   getWindowChromePlatform: () => resolveWindowChromePlatform(process.platform),
+  createLayoutPreviewSink: (input) =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.createLayoutPreviewSink, input),
+  publishLayoutPreview: (input) =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.publishLayoutPreview, input),
+  revokeLayoutPreview: () =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.revokeLayoutPreview),
 };
 
 electron.contextBridge.exposeInMainWorld("translunar", api);
