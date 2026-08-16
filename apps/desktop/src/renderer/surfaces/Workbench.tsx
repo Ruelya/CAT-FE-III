@@ -69,10 +69,11 @@ import type { PdfReviewApi } from "../state/use-pdf-review";
 import type { ReimportApi } from "../state/use-reimport-controller";
 import { useContainerDensity } from "../state/use-container-density";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
+import { ToastStack, type ToastItem } from "../shell/ToastStack";
 import { ReimportDialog } from "../insights/ReimportDialog";
 import { BatchImportSummary } from "../workbench/BatchImportSummary";
 import { FileNav } from "../workbench/FileNav";
-import { WorkbenchHeader } from "../workbench/WorkbenchHeader";
+import { WorkbenchStatus } from "../workbench/WorkbenchStatus";
 import { StructurePreview } from "../workbench/StructurePreview";
 import { useDocumentProgress } from "../state/use-document-progress";
 import { EditorCommandBar } from "../workbench/EditorCommandBar";
@@ -142,8 +143,6 @@ export interface WorkbenchProps {
   onPretranslate: () => void;
   onPlaceTags: () => void;
   pretranslatePending?: boolean;
-  onQa: () => void;
-  onExport: () => void;
   onSwitchDocument: (documentId: string) => void;
   onAddFiles: () => void;
   onDismissBatch?: () => void;
@@ -189,8 +188,6 @@ export function Workbench({
   onPretranslate,
   onPlaceTags,
   pretranslatePending,
-  onQa,
-  onExport,
   onSwitchDocument,
   onAddFiles,
   onDismissBatch,
@@ -294,6 +291,10 @@ export function Workbench({
           : (hit.index + 1) % intel.terms.matches.length,
       );
     },
+    onLock: () => {
+      if (!activeSegmentId || !onSetWorkflow) return;
+      setSignReason({ segmentId: activeSegmentId, reason: "" });
+    },
   });
   // Container-responsive density: dock changes resize the editor without
   // resizing the window, so this cannot be a viewport media query.
@@ -303,6 +304,9 @@ export function Workbench({
   // sent them, and a filter that round-trips per keystroke stutters.
   const [filter, setFilter] = useState<DisplayFilter>(EMPTY_FILTER);
   const [goToOpen, setGoToOpen] = useState(false);
+  const [dismissedToasts, setDismissedToasts] = useState<ReadonlySet<string>>(
+    new Set(),
+  );
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -387,6 +391,32 @@ export function Workbench({
       onPlaceTags();
       return;
     }
+    if (id === "quickPlace") {
+      setQuickPlaceOpen(true);
+      return;
+    }
+    if (id === "protectTags") {
+      const next = !protectTags;
+      setProtectTags(next);
+      writeProtectTags(next);
+      return;
+    }
+    if (id === "statusTranslation" && activeSegmentId && onSetWorkflow) {
+      onSetWorkflow(activeSegmentId, "translation");
+      return;
+    }
+    if (id === "statusReview" && activeSegmentId && onSetWorkflow) {
+      onSetWorkflow(activeSegmentId, "review");
+      return;
+    }
+    if (id === "lock" && activeSegmentId && onSetWorkflow) {
+      setSignReason({ segmentId: activeSegmentId, reason: "" });
+      return;
+    }
+    if (id === "goTo") {
+      setGoToOpen(true);
+      return;
+    }
     if (id === "find") {
       editorOps?.runCommand("editor.findReplace");
       return;
@@ -409,81 +439,89 @@ export function Workbench({
     }
   };
 
+  useEffect(() => {
+    if (!batchResult || batchResult.failed > 0 || !onDismissBatch) return;
+    const timer = window.setTimeout(() => onDismissBatch(), 8000);
+    return () => window.clearTimeout(timer);
+  }, [batchResult, onDismissBatch]);
+
+  useEffect(() => {
+    setDismissedToasts((current) => {
+      if (!current.has("transition")) return current;
+      const next = new Set(current);
+      next.delete("transition");
+      return next;
+    });
+  }, [transitionError]);
+
+  useEffect(() => {
+    setDismissedToasts((current) => {
+      if (!current.has("journal")) return current;
+      const next = new Set(current);
+      next.delete("journal");
+      return next;
+    });
+  }, [editState?.journalError]);
+
+  useEffect(() => {
+    setDismissedToasts((current) => {
+      if (!current.has("propagation")) return current;
+      const next = new Set(current);
+      next.delete("propagation");
+      return next;
+    });
+  }, [propagatedFrom]);
+
+  useEffect(() => {
+    setDismissedToasts((current) => {
+      if (!current.has("batch")) return current;
+      const next = new Set(current);
+      next.delete("batch");
+      return next;
+    });
+  }, [batchResult]);
+
+  const toasts: ToastItem[] = [];
+  const toastVisible = (id: string) => !dismissedToasts.has(id);
+  if (transitionError && toastVisible("transition")) {
+    toasts.push({
+      id: "transition",
+      tone: "danger",
+      children: formatUiError(transitionError),
+    });
+  }
+  if (editState?.journalError && toastVisible("journal")) {
+    toasts.push({
+      id: "journal",
+      tone: "danger",
+      testId: "journal-error",
+      children: formatUiError(editState.journalError),
+    });
+  }
+  if (propagatedFrom && toastVisible("propagation")) {
+    toasts.push({
+      id: "propagation",
+      tone: "info",
+      testId: "propagation-notice",
+      children: `Reused this translation in ${propagatedFrom.count} repeated ${
+        propagatedFrom.count === 1 ? "segment" : "segments"
+      }${
+        propagatedFrom.otherFiles
+          ? ` (${propagatedFrom.otherFiles} in other files)`
+          : ""
+      }.`,
+    });
+  }
+  if (batchResult && toastVisible("batch")) {
+    toasts.push({
+      id: "batch",
+      tone: batchResult.failed > 0 ? "danger" : "success",
+      children: <BatchImportSummary result={batchResult} />,
+    });
+  }
+
   return (
     <section className="workbench" data-testid="workbench">
-      <WorkbenchHeader
-        documentName={ctx.document.name}
-        projectName={ctx.project.name}
-        documents={ctx.documents}
-        activeDocumentId={ctx.document.id}
-        counts={counts}
-        headerBusy={headerBusy}
-        switchPending={switchPending === true}
-        addFilesPending={addFilesPending === true}
-        pretranslatePending={pretranslatePending === true}
-        pendingConfirm={pendingConfirm}
-        previewOpen={previewOpen}
-        autocomplete={
-          editorOps?.preferences != null
-            ? editorOps.preferences.autocomplete !== false
-            : null
-        }
-        onPreviewOpenChange={(open) => {
-          setPreviewOpen(open);
-          persistLayout({ ...layout, previewSide: open });
-        }}
-        {...(editorOps
-          ? {
-              onAutocompleteChange: (next: boolean) => {
-                void editorOps.persistPreferenceField("autocomplete", next);
-              },
-            }
-          : {})}
-        onSelectDocument={onSwitchDocument}
-        onAddFiles={onAddFiles}
-        onPretranslate={onPretranslate}
-        onQa={onQa}
-        onExport={onExport}
-      />
-
-      {transitionError ||
-      editState?.journalError ||
-      batchResult ||
-      propagatedFrom ? (
-        <div className="workbench__notice">
-          {transitionError ? (
-            <p className="error-text" role="alert">
-              {formatUiError(transitionError)}
-            </p>
-          ) : null}
-          {editState?.journalError ? (
-            <p className="error-text" role="alert" data-testid="journal-error">
-              {formatUiError(editState.journalError)}
-            </p>
-          ) : null}
-          {propagatedFrom ? (
-            <p
-              className="inline-status inline-status--leverage"
-              role="status"
-              data-testid="propagation-notice"
-            >
-              {`Reused this translation in ${propagatedFrom.count} repeated ${
-                propagatedFrom.count === 1 ? "segment" : "segments"
-              }${
-                propagatedFrom.otherFiles
-                  ? ` (${propagatedFrom.otherFiles} in other files)`
-                  : ""
-              }.`}
-            </p>
-          ) : null}
-          {batchResult ? (
-            <BatchImportSummary
-              result={batchResult}
-              {...(onDismissBatch ? { onDismiss: onDismissBatch } : {})}
-            />
-          ) : null}
-        </div>
-      ) : null}
 
       <div
         className={[
@@ -581,7 +619,20 @@ export function Workbench({
             onAddFiles={onAddFiles}
           />
           {editorOps ? (
-            <EditorCommandBar ops={editorOps} disabled={disabled === true} />
+            <EditorCommandBar
+              ops={editorOps}
+              disabled={disabled === true}
+              {...(activeRow
+                ? {
+                    confirm: {
+                      segmentId: activeRow.segment.id,
+                      ordinal: activeRow.segment.ordinal,
+                      disabled: pendingConfirm,
+                      onConfirm: () => onConfirm(),
+                    },
+                  }
+                : {})}
+            />
           ) : null}
           <DisplayFilterBar
             filter={filter}
@@ -796,50 +847,57 @@ export function Workbench({
         />
       ) : null}
 
-      <div className="workbench__status" data-testid="workbench-status">
-        <span data-testid="status-locales">
-          {ctx.project.sourceLocale} → {ctx.project.targetLocale}
-        </span>
-        <span data-testid="status-segment">
-          {activeSegmentId
+      <WorkbenchStatus
+        documentName={ctx.document.name}
+        documents={ctx.documents}
+        activeDocumentId={ctx.document.id}
+        sourceLocale={ctx.project.sourceLocale}
+        targetLocale={ctx.project.targetLocale}
+        segmentLabel={
+          activeSegmentId
             ? `Segment ${
                 ctx.rows.findIndex((r) => r.segment.id === activeSegmentId) + 1
               } of ${ctx.rows.length}`
-            : `${ctx.rows.length} segments`}
-        </span>
-        {counts ? (
-          <span data-testid="status-counts">
-            {counts.confirmed} confirmed · {counts.draft} draft · {counts.untranslated} empty
-          </span>
-        ) : null}
-        <span data-testid="status-words">
-          {countWords(
-            editState?.segmentId === activeSegmentId
-              ? editState.draftTarget
-              : (activeRow?.segment.targetText ?? ""),
-          )}{" "}
-          words
-        </span>
-        {topTmMatch ? (
-          <span data-testid="status-tm">TM {matchLabel(topTmMatch)}</span>
-        ) : null}
-        {isFilterActive(filter) ? (
-          <span data-testid="status-filter">
-            {`Filter: ${visibleRows.length} shown`}
-          </span>
-        ) : null}
-        {pretranslatePending ? (
-          <span className="inline-status" role="status">
-            Pretranslating
-          </span>
-        ) : null}
-        <span
-          className="workbench__status-hint"
-          title="Ctrl+G go to · Ctrl+, place tags · Ctrl+Shift+, QuickPlace · Ctrl+Shift+P pretranslate · F3 concordance · Ctrl+1..9 apply match"
-        >
-          Shortcuts
-        </span>
-      </div>
+            : `${ctx.rows.length} segments`
+        }
+        counts={counts}
+        wordCount={countWords(
+          editState?.segmentId === activeSegmentId
+            ? editState.draftTarget
+            : (activeRow?.segment.targetText ?? ""),
+        )}
+        {...(topTmMatch ? { tmLabel: matchLabel(topTmMatch) } : {})}
+        {...(isFilterActive(filter)
+          ? { filterLabel: `Filter: ${visibleRows.length} shown` }
+          : {})}
+        headerBusy={headerBusy}
+        switchPending={switchPending === true}
+        addFilesPending={addFilesPending === true}
+        pretranslatePending={pretranslatePending === true}
+        pendingConfirm={pendingConfirm}
+        autocomplete={
+          editorOps?.preferences != null
+            ? editorOps.preferences.autocomplete !== false
+            : null
+        }
+        onSelectDocument={onSwitchDocument}
+        onAddFiles={onAddFiles}
+        onPretranslate={onPretranslate}
+        {...(editorOps
+          ? {
+              onAutocompleteChange: (next: boolean) => {
+                void editorOps.persistPreferenceField("autocomplete", next);
+              },
+            }
+          : {})}
+      />
+      <ToastStack
+        toasts={toasts}
+        onDismiss={(id) => {
+          setDismissedToasts((current) => new Set([...current, id]));
+          if (id === "batch") onDismissBatch?.();
+        }}
+      />
 
       {goToOpen ? (
         <GoToDialog
@@ -874,6 +932,10 @@ export function Workbench({
             canSplit: Boolean(editorOps?.isAvailable("editor.split")),
             canMerge: Boolean(editorOps?.isAvailable("editor.merge")),
             canComment: Boolean(editorOps?.isAvailable("editor.comments")),
+            protectTags,
+            canLock: Boolean(activeRow && onSetWorkflow && !disabled),
+            canSetWorkflow: Boolean(activeRow && onSetWorkflow && !disabled),
+            ...(activeRow ? { workflowState: activeRow.workflowState } : {}),
           })}
           onClose={() => setContextMenu(null)}
           onSelect={(id) => {

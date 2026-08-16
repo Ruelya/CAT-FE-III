@@ -39,6 +39,8 @@ export interface AppChromeProps {
   /** Workbench file lifecycle for the title-bar File menu. */
   onAddFiles?: () => void;
   addFilesPending?: boolean;
+  onPretranslate?: () => void;
+  pretranslatePending?: boolean;
   onReimport?: () => void;
   onRecycleDocument?: () => void;
   /** Window chrome platform branch from DesktopApi (default: custom). */
@@ -64,6 +66,8 @@ export function AppChrome({
   onCommandPalette,
   onAddFiles,
   addFilesPending = false,
+  onPretranslate,
+  pretranslatePending = false,
   onReimport,
   onRecycleDocument,
   windowChromePlatform = "custom",
@@ -158,6 +162,34 @@ export function AppChrome({
       onSelect: onAddFiles,
       disabled: disabled || addFilesPending,
       testId: "title-file-add-files",
+    });
+  }
+  if (onPretranslate) {
+    fileItems.push({
+      id: "pretranslate",
+      label: pretranslatePending ? "Pretranslating" : "Pretranslate",
+      group: "job",
+      onSelect: onPretranslate,
+      disabled: disabled || pretranslatePending,
+      testId: "title-file-pretranslate",
+    });
+  }
+  if (showSessionActions) {
+    fileItems.push({
+      id: "qa",
+      label: "QA",
+      group: "job",
+      onSelect: onQa,
+      disabled,
+      testId: "title-file-qa",
+    });
+    fileItems.push({
+      id: "export",
+      label: "Export",
+      group: "job",
+      onSelect: onExport,
+      disabled,
+      testId: "title-file-export",
     });
   }
   if (onReimport) {
@@ -336,6 +368,7 @@ export function AppChrome({
                   aria-current={surface.kind === "qa" ? "page" : undefined}
                   disabled={disabled}
                   onClick={onQa}
+                  data-testid="workbench-qa"
                 >
                   <SealCheck size={18} weight="regular" />
                 </button>
@@ -347,6 +380,7 @@ export function AppChrome({
                   aria-current={surface.kind === "export" ? "page" : undefined}
                   disabled={disabled}
                   onClick={onExport}
+                  data-testid="workbench-export"
                 >
                   <Export size={18} weight="regular" />
                 </button>

@@ -54,4 +54,48 @@ describe("segmentContextActions", () => {
     expect(split && "disabled" in split && split.disabled).toBe(false);
     expect(merge && "disabled" in merge && merge.disabled).toBe(true);
   });
+
+  it("exposes QuickPlace and lock next to Confirm", () => {
+    const items = segmentContextActions({
+      field: "target",
+      hasSourceSelection: false,
+      hasTargetSelection: false,
+      canStoreTerm: false,
+      canInsertTerm: false,
+      canConfirm: true,
+      targetHasText: true,
+      canCopySource: true,
+      canLock: true,
+    });
+    const ids = items.filter((item) => "label" in item).map((item) => item.id);
+    expect(ids).toContain("quickPlace");
+    expect(ids).toContain("lock");
+    expect(ids).toContain("confirm");
+  });
+
+  it("exposes workflow status changes and Go to", () => {
+    const items = segmentContextActions({
+      field: "target",
+      hasSourceSelection: false,
+      hasTargetSelection: false,
+      canStoreTerm: false,
+      canInsertTerm: false,
+      canConfirm: true,
+      targetHasText: true,
+      canCopySource: true,
+      canLock: true,
+      canSetWorkflow: true,
+      workflowState: "translation",
+    });
+    const ids = items.filter((item) => "label" in item).map((item) => item.id);
+    expect(ids).toContain("statusTranslation");
+    expect(ids).toContain("statusReview");
+    expect(ids).toContain("goTo");
+    const translation = items.find(
+      (item) => "label" in item && item.id === "statusTranslation",
+    );
+    expect(
+      translation && "disabled" in translation && translation.disabled,
+    ).toBe(true);
+  });
 });

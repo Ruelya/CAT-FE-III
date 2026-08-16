@@ -43,6 +43,10 @@ export function segmentContextActions(input: {
   canSplit?: boolean;
   canMerge?: boolean;
   canComment?: boolean;
+  protectTags?: boolean;
+  canLock?: boolean;
+  canSetWorkflow?: boolean;
+  workflowState?: "translation" | "review" | "signed";
 }): ContextMenuEntry[] {
   const hasSelection =
     input.field === "source"
@@ -112,6 +116,15 @@ export function segmentContextActions(input: {
       label: "Place tags",
       shortcut: "Ctrl+,",
     },
+    {
+      id: "quickPlace",
+      label: "QuickPlace",
+      shortcut: "Ctrl+Shift+,",
+    },
+    {
+      id: "protectTags",
+      label: input.protectTags ? "Allow tag deletion" : "Protect tags",
+    },
     { id: "sep-structure", separator: true },
     {
       id: "find",
@@ -133,6 +146,29 @@ export function segmentContextActions(input: {
       id: "comment",
       label: "Add comment",
       disabled: input.canComment !== true,
+    },
+    { id: "sep-status", separator: true },
+    {
+      id: "statusTranslation",
+      label: "Set status: Translation",
+      disabled:
+        input.canSetWorkflow !== true || input.workflowState === "translation",
+    },
+    {
+      id: "statusReview",
+      label: "Set status: Review",
+      disabled: input.canSetWorkflow !== true || input.workflowState === "review",
+    },
+    {
+      id: "lock",
+      label: "Sign off / lock",
+      shortcut: "Ctrl+L",
+      disabled: input.canLock !== true || input.workflowState === "signed",
+    },
+    {
+      id: "goTo",
+      label: "Go to segment",
+      shortcut: "Ctrl+G",
     },
     {
       id: "extractTerms",

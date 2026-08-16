@@ -1,94 +1,16 @@
 /**
- * Workbench: header, command bar, editor region, segment grid, target editor,
- * editor panels, exact TM dock.
+ * Workbench: status line, command bar, editor region, segment grid,
+ * target editor, editor panels, exact TM dock.
  *
- * Layout note. The Workbench previously declared only two explicit grid rows
- * while rendering three or more children, so the command bar absorbed the `1fr`
- * track and the body collapsed to its intrinsic height at the bottom of the
- * viewport. The rows are now explicit and the editor region owns the grow row.
- */
-
-/*
- * Flex column rather than an explicit grid: the header, the optional notice
- * row, and future banners are all auto height, and only the body grows. A
- * fixed grid template silently mis-assigns the grow track whenever the child
- * count changes, which is exactly how the body previously collapsed to the
- * bottom of the viewport.
+ * Flex column rather than an explicit grid: chrome rows are auto height and
+ * only the body grows. A fixed grid template silently mis-assigns the grow
+ * track whenever the child count changes.
  */
 .workbench {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
-}
-
-/* ── Header ────────────────────────────────────────────── */
-
-.workbench-header {
-  display: grid;
-  grid-template-columns: minmax(12rem, 1.3fr) minmax(11rem, 1fr) auto auto;
-  align-items: end;
-  gap: var(--space-3);
-  padding: var(--space-1) var(--space-3);
-  border-bottom: 1px solid var(--color-line);
-  background: var(--color-surface);
-  flex-shrink: 0;
-}
-
-.workbench-header__cluster {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.workbench-header__cluster--job {
-  justify-self: end;
-}
-
-.workbench-header__label {
-  margin: 0;
-  font-size: var(--text-2xs);
-  font-weight: var(--weight-semibold);
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-}
-
-.workbench-header__cluster-body {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
-.workbench-header__bar {
-  width: 5.5rem;
-  height: 6px;
-  flex-shrink: 0;
-}
-
-.workbench-header__progress-copy {
-  margin: 0;
-  min-width: 0;
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.workbench-header__progress-figure {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  font-weight: var(--weight-semibold);
-  color: var(--color-text);
-}
-
-.workbench-header__toggle[aria-pressed="true"] {
-  background: var(--color-accent-soft);
-  box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--color-accent) 32%, var(--color-line));
 }
 
 .document-switcher--title {
@@ -109,35 +31,6 @@
 .document-switcher--title .field__control:hover:not(:disabled) {
   background: var(--color-hover-tint);
   border-color: var(--color-border);
-}
-
-@media (max-width: 1320px) {
-  .workbench-header {
-    grid-template-columns: minmax(10rem, 1fr) minmax(9rem, 1fr) auto auto;
-    gap: var(--space-3);
-  }
-
-  .workbench-header__label {
-    display: none;
-  }
-
-  .workbench-header {
-    align-items: center;
-  }
-}
-
-/* Notices sit on their own row so they never distort the header. */
-.workbench__notice {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  border-bottom: 1px solid var(--color-line);
-  border-left: 3px solid var(--color-accent);
-  background: color-mix(in srgb, var(--color-accent-soft) 45%, var(--color-surface));
-  flex-shrink: 0;
-  font-size: var(--text-sm);
-  color: var(--color-text);
 }
 
 /* ── Body and docks ────────────────────────────────────── */
@@ -498,7 +391,8 @@
   white-space: nowrap;
 }
 
-.editor-region[data-density="compact"] .editor-command-bar__primary .btn {
+.editor-region[data-density="compact"] .editor-command-bar__primary .btn,
+.editor-region[data-density="compact"] .editor-command-bar > .btn--primary {
   width: var(--control-h-sm);
   min-width: var(--control-h-sm);
   padding: 0;
@@ -1253,13 +1147,6 @@
   white-space: pre;
 }
 
-.target-editor__actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-2);
-}
-
 .inline-tag--ghost {
   border-style: dashed;
   color: var(--color-text-muted);
@@ -1532,7 +1419,7 @@
 .workbench__status {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: var(--space-2) var(--space-3);
   padding: 0 var(--space-3);
   border-top: 1px solid var(--color-line);
@@ -1541,13 +1428,104 @@
   font-variant-numeric: tabular-nums;
   color: var(--color-text-muted);
   min-height: var(--control-h-sm);
+  overflow: hidden;
+}
+
+.workbench__status > span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.workbench__status .document-switcher {
+  max-width: 9rem;
+  min-width: 0;
+}
+
+.workbench__status .document-switcher .field__control {
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-regular);
+  min-height: var(--control-h-sm);
+  padding-inline: var(--space-2);
+  background: transparent;
+  border-color: transparent;
+}
+
+.workbench__status-bar {
+  width: 4.5rem;
+  height: 6px;
+  flex-shrink: 0;
+}
+
+.workbench__status-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.workbench__status-toggle[aria-pressed="true"] {
+  background: var(--color-accent-soft);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--color-accent) 32%, var(--color-line));
 }
 
 .workbench__status-hint {
-  margin-left: auto;
   color: var(--color-text-subtle);
   cursor: help;
   border-bottom: 1px dotted var(--color-line);
+}
+
+.toast-stack {
+  position: fixed;
+  right: var(--space-4);
+  bottom: calc(var(--control-h-sm) + var(--space-4));
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column-reverse;
+  gap: var(--space-2);
+  width: min(26rem, calc(100vw - var(--space-8)));
+  pointer-events: none;
+}
+
+.toast-stack .toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  background: var(--color-raised);
+  box-shadow: var(--shadow-md);
+}
+
+.toast-stack .toast--info {
+  border-left: 3px solid var(--color-accent);
+}
+
+.toast-stack .toast--success {
+  border-left: 3px solid var(--color-success);
+}
+
+.toast-stack .toast--danger {
+  border-left: 3px solid var(--color-error);
+}
+
+.toast-stack .toast__body {
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: var(--text-sm);
+}
+
+.toast-stack .batch-import-summary {
+  max-width: none;
+  padding: 0;
+  border: none;
+  background: transparent;
 }
 
 .workbench__status-hint:hover {
@@ -1724,11 +1702,6 @@
   background-size: 0.7em 1px;
   background-position: left center;
   background-repeat: no-repeat;
-}
-
-.target-editor__actions [aria-pressed="true"] {
-  background: var(--color-accent-soft);
-  border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-line));
 }
 
 .intel-dock .muted {

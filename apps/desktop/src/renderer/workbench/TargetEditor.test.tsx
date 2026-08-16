@@ -126,6 +126,15 @@ describe("TargetEditor inline completion", () => {
     expect(onAcceptWord).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps Confirm, Place, and Protect out of the target cell", () => {
+    renderEditor();
+    expect(
+      screen.queryByRole("button", { name: /^Confirm segment / }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Place/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Protect/ })).toBeNull();
+  });
+
   it("keeps Ctrl+Enter as confirm", async () => {
     const user = userEvent.setup();
     const onConfirm = vi.fn();

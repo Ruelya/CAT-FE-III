@@ -390,7 +390,6 @@ export function SegmentGrid({
                       editState={editState}
                       disabled={rowDisabled}
                       autoFocus={focusSegmentId === id}
-                      confirmLabel={String(segmentNumber(row.segment.ordinal))}
                       onChange={onDraftChange}
                       {...(onTagsChange ? { onTagsChange } : {})}
                       onCompositionStart={onCompositionStart}

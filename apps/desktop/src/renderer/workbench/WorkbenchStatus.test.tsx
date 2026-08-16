@@ -6,8 +6,8 @@ import type { Document, SegmentCounts } from "@translunar/contracts";
 
 import {
   formatDocumentProgress,
-  WorkbenchHeader,
-} from "./WorkbenchHeader";
+  WorkbenchStatus,
+} from "./WorkbenchStatus";
 
 afterEach(cleanup);
 
@@ -32,26 +32,25 @@ const counts: SegmentCounts = {
   openIssues: 0,
 };
 
-function renderHeader(
-  overrides: Partial<ComponentProps<typeof WorkbenchHeader>> = {},
+function renderStatus(
+  overrides: Partial<ComponentProps<typeof WorkbenchStatus>> = {},
 ) {
   return render(
-    <WorkbenchHeader
+    <WorkbenchStatus
       documentName="real.docx"
-      projectName="Suggest"
       documents={[document]}
       activeDocumentId="doc-1"
+      sourceLocale="en-US"
+      targetLocale="zh-CN"
+      segmentLabel="Segment 1 of 10"
       counts={counts}
+      wordCount={0}
       headerBusy={false}
-      previewOpen={true}
       autocomplete={true}
-      onPreviewOpenChange={vi.fn()}
-      onAutocompleteChange={vi.fn()}
       onSelectDocument={vi.fn()}
       onAddFiles={vi.fn()}
       onPretranslate={vi.fn()}
-      onQa={vi.fn()}
-      onExport={vi.fn()}
+      onAutocompleteChange={vi.fn()}
       {...overrides}
     />,
   );
@@ -63,40 +62,27 @@ describe("formatDocumentProgress", () => {
   });
 });
 
-describe("WorkbenchHeader", () => {
-  it("groups file, progress, view, and job", () => {
-    renderHeader();
+describe("WorkbenchStatus", () => {
+  it("keeps job actions on the status line, not a second header", () => {
+    renderStatus();
     expect(screen.getByRole("heading", { name: "real.docx" })).toHaveClass(
       "sr-only",
     );
-    expect(screen.getByLabelText("This file")).toBeInTheDocument();
-    expect(screen.getByLabelText("Progress")).toHaveTextContent(
-      "0 of 10 confirmed",
+    expect(screen.getByLabelText("Document")).toBeInTheDocument();
+    expect(screen.getByTestId("status-locales")).toHaveTextContent(
+      "en-US → zh-CN",
     );
-    expect(screen.getByTestId("toggle-preview")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    expect(screen.getByTestId("toggle-autosuggest")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    expect(screen.getByTestId("workbench-export")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Insights" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Recycle" })).toBeNull();
+    expect(screen.getByTestId("add-files")).toBeInTheDocument();
+    expect(screen.getByTestId("pretranslate")).toBeInTheDocument();
+    expect(screen.queryByLabelText("This file")).toBeNull();
+    expect(screen.queryByLabelText("Job")).toBeNull();
   });
 
   it("toggles AutoSuggest through the preference callback", async () => {
     const user = userEvent.setup();
     const onAutocompleteChange = vi.fn();
-    renderHeader({ onAutocompleteChange });
+    renderStatus({ onAutocompleteChange });
     await user.click(screen.getByTestId("toggle-autosuggest"));
     expect(onAutocompleteChange).toHaveBeenCalledWith(false);
-  });
-
-  it("keeps Preview as a pressed word, not Hide preview", () => {
-    renderHeader({ previewOpen: true });
-    expect(screen.getByTestId("toggle-preview")).toHaveTextContent("Preview");
-    expect(screen.queryByText("Hide preview")).toBeNull();
   });
 });

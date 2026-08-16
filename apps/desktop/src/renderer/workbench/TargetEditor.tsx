@@ -72,8 +72,6 @@ export interface TargetEditorProps {
   suggestions?: SuggestionBinding;
   /** Grey suffix after the caret. Must not enter serialize. */
   inlineCompletion?: InlineCompletionBinding;
-  /** Segment ordinal shown on the Confirm control for a11y. */
-  confirmLabel?: string;
   sourceText?: string;
   sourceTags?: readonly InlineTag[];
   quickPlaceOpen?: boolean;
@@ -134,7 +132,6 @@ export function TargetEditor({
   onApplyMatchByIndex,
   suggestions,
   inlineCompletion,
-  confirmLabel,
   sourceText = "",
   sourceTags = [],
   quickPlaceOpen = false,
@@ -956,55 +953,8 @@ export function TargetEditor({
           handleKeys(e, e.currentTarget.selectionStart ?? [...value].length);
         }}
       />
-      <div className="target-editor__actions">
-        <span className="target-editor__hint" aria-hidden="true">
-          Ctrl+Enter
-        </span>
-        <button
-          type="button"
-          className="btn btn--primary btn--sm"
-          disabled={disabled === true || confirming || editState?.isComposing}
-          onClick={() => {
-            onQuickPlaceOpenChange?.(false);
-            void onConfirm({});
-          }}
-          aria-label={
-            confirmLabel
-              ? `Confirm segment ${confirmLabel}`
-              : "Confirm segment"
-          }
-          title="Confirm (Ctrl+Enter)"
-          data-testid={`confirm-segment-${segmentId}`}
-        >
-          Confirm
-        </button>
-        <button
-          type="button"
-          className="btn btn--ghost btn--sm"
-          disabled={disabled === true}
-          data-testid={`quickplace-open-${segmentId}`}
-          title="QuickPlace (Ctrl+Shift+,)"
-          aria-expanded={quickPlaceOpen}
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => {
-            setQuickIndex(0);
-            onQuickPlaceOpenChange?.(!quickPlaceOpen);
-          }}
-        >
-          Place
-        </button>
-        <button
-          type="button"
-          className="btn btn--ghost btn--sm"
-          aria-pressed={protectTags}
-          data-testid={`protect-tags-${segmentId}`}
-          title="Protect Tags — tags cannot be deleted"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => onProtectTagsChange?.(!protectTags)}
-        >
-          Protect
-        </button>
-      </div>
+      {/* Confirm / Place / Protect live on the command bar, status line, and
+          the row context menu. The grid cell is only the target text. */}
       {quickPlaceOpen ? (
         <QuickPlacePopup
           items={placeables}

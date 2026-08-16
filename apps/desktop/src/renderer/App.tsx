@@ -556,6 +556,11 @@ export function App() {
                 void commands.addFiles();
               },
               addFilesPending: surface.kind === "workbench" && surface.addFilesPending === true,
+              onPretranslate: () => {
+                void commands.pretranslateDocument();
+              },
+              pretranslatePending:
+                surface.kind === "workbench" && surface.pretranslatePending === true,
               onReimport: () => reimport.open(),
               onRecycleDocument: () => {
                 setRecycleError(null);
@@ -772,12 +777,6 @@ export function App() {
                 void commands.placeSourceTags();
               }}
               pretranslatePending={surface.pretranslatePending === true}
-              onQa={() => {
-                void commands.goQa();
-              }}
-              onExport={() => {
-                void commands.goExport();
-              }}
               onSwitchDocument={(id) => {
                 void commands.switchDocument(id);
               }}

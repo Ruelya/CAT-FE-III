@@ -24,6 +24,24 @@ function makeOps(overrides: Partial<EditorOperationsApi> = {}) {
   return { ...base, ...overrides } as unknown as EditorOperationsApi;
 }
 
+describe("EditorCommandBar confirm", () => {
+  it("hosts Confirm with the segment number for the grid tests", () => {
+    render(
+      <EditorCommandBar
+        ops={makeOps()}
+        confirm={{
+          segmentId: "seg-1",
+          ordinal: 0,
+          onConfirm: vi.fn(),
+        }}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "Confirm segment 1" }),
+    ).toBeInTheDocument();
+  });
+});
+
 describe("EditorCommandBar keyboard contract", () => {
   it("is a single tab stop with Arrow navigation inside", async () => {
     const user = userEvent.setup();

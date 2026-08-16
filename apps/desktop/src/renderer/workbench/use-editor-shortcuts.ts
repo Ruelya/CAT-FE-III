@@ -23,6 +23,8 @@ export interface EditorShortcutHandlers {
   onFindNext?: () => void;
   /** Ctrl+Shift+L: insert the focused (or first) term translation at the caret. */
   onInsertTerm?: () => void;
+  /** Ctrl+L: sign off / lock the active segment. */
+  onLock?: () => void;
 }
 
 /**
@@ -60,6 +62,11 @@ export function useEditorShortcuts(
       if (control && event.shiftKey && event.key.toLowerCase() === "l") {
         event.preventDefault();
         handlers.onInsertTerm?.();
+        return;
+      }
+      if (control && !event.shiftKey && event.key.toLowerCase() === "l") {
+        event.preventDefault();
+        handlers.onLock?.();
         return;
       }
       if (control && event.key === "Insert") {
@@ -120,5 +127,6 @@ export function useEditorShortcuts(
     handlers.onFind,
     handlers.onFindNext,
     handlers.onInsertTerm,
+    handlers.onLock,
   ]);
 }
