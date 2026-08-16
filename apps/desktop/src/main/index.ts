@@ -42,6 +42,8 @@ import {
   type UpdateManager,
 } from "./update-manager.js";
 import type { DesktopEngineInvokeResponse } from "../shared/desktop-api.js";
+import { parseManagedSourceRequest } from "../shared/managed-source.js";
+import { readManagedSourceFile } from "./read-managed-source.js";
 import { dialogFilterName, dialogTitle } from "../shared/dialog-messages.js";
 import type {
   ProductShellSettings,
@@ -85,6 +87,7 @@ const IPC_CHANNELS = {
   selectTaskPackageInput: "translunar:dialog:task-package-input",
   selectCorpusInput: "translunar:dialog:corpus-input",
   selectExchangeInput: "translunar:dialog:exchange-input",
+  readManagedSource: "translunar:preview:managed-source",
   selectPluginPackage: "translunar:dialog:plugin-package",
   issuePluginPanelSession: "translunar:plugin:panel:issue",
   revokePluginPanelSession: "translunar:plugin:panel:revoke",
@@ -777,6 +780,15 @@ function registerIpc(): void {
         ],
       });
       return result.canceled ? null : (result.filePaths[0] ?? null);
+    },
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.readManagedSource,
+    async (event, request: unknown) => {
+      assertTrustedSender(event);
+      const parsed = parseManagedSourceRequest(request);
+      if (!parsed) return null;
+      return readManagedSourceFile(requireEngine().dataDirectory, parsed);
     },
   );
   ipcMain.handle(IPC_CHANNELS.selectPluginPackage, async (event) => {

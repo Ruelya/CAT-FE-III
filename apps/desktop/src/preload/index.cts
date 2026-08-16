@@ -33,6 +33,7 @@ const IPC_CHANNELS = {
   selectTaskPackageInput: "translunar:dialog:task-package-input",
   selectCorpusInput: "translunar:dialog:corpus-input",
   selectExchangeInput: "translunar:dialog:exchange-input",
+  readManagedSource: "translunar:preview:managed-source",
   selectPluginPackage: "translunar:dialog:plugin-package",
   issuePluginPanelSession: "translunar:plugin:panel:issue",
   revokePluginPanelSession: "translunar:plugin:panel:revoke",
@@ -136,6 +137,8 @@ const api: DesktopApi = {
     electron.ipcRenderer.invoke(IPC_CHANNELS.selectCorpusInput),
   selectExchangeInput: (kind) =>
     electron.ipcRenderer.invoke(IPC_CHANNELS.selectExchangeInput, kind),
+  readManagedSource: (request) =>
+    electron.ipcRenderer.invoke(IPC_CHANNELS.readManagedSource, request),
   selectPluginPackage: () =>
     electron.ipcRenderer.invoke(IPC_CHANNELS.selectPluginPackage),
   issuePluginPanelSession: (request) =>

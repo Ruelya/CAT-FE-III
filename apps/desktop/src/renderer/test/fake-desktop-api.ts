@@ -22,6 +22,7 @@ import type {
   DesktopApi,
   WindowChromePlatform,
 } from "../../shared/desktop-api";
+import type { ManagedSourceBytes } from "../../shared/managed-source";
 import type {
   TutorialState,
   UpdateStatusSnapshot,
@@ -94,6 +95,7 @@ export interface FakeEngineState {
   taskPackagePath: string | null;
   pluginPackagePath: string | null;
   exchangeInputPath: string | null;
+  managedSource?: ManagedSourceBytes | null;
   pluginPanelRevokeListeners: Array<(pluginId: string | null) => void>;
   systemLocale?: string;
   shellSettings?: Partial<{
@@ -2246,6 +2248,7 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
     selectTaskPackageInput: async () => state.taskPackagePath,
     selectCorpusInput: async () => null,
     selectExchangeInput: async () => state.exchangeInputPath,
+    readManagedSource: async () => state.managedSource ?? null,
     selectPluginPackage: async () => state.pluginPackagePath ?? null,
     issuePluginPanelSession: async (request) => {
       state.calls.push({ method: "issuePluginPanelSession", params: request });
