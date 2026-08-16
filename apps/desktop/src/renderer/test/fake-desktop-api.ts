@@ -93,6 +93,7 @@ export interface FakeEngineState {
   interopTablePath: string | null;
   taskPackagePath: string | null;
   pluginPackagePath: string | null;
+  exchangeInputPath: string | null;
   pluginPanelRevokeListeners: Array<(pluginId: string | null) => void>;
   systemLocale?: string;
   shellSettings?: Partial<{
@@ -254,6 +255,7 @@ export function createFakeEngineState(
     interopTablePath: null,
     taskPackagePath: null,
     pluginPackagePath: null,
+    exchangeInputPath: null,
     pluginPanelRevokeListeners: [],
     pdfPagesByDocument: {},
     mineruSecret: null,
@@ -1350,13 +1352,15 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
             unitCount: 0,
           } as EngineResult<Method>;
         }
-        case "tm.import":
+        case "tm.import": {
+          const p = params as EngineParams<"tm.import">;
           return {
-            libraryId: "tm-1",
-            inserted: 0,
+            libraryId: p.libraryId,
+            inserted: 12,
             skipped: 0,
             diagnostics: [],
           } as EngineResult<Method>;
+        }
         case "termbase.list":
           return {
             items: [],
@@ -1423,13 +1427,15 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
             entryCount: 0,
           } as EngineResult<Method>;
         }
-        case "termbase.import":
+        case "termbase.import": {
+          const p = params as EngineParams<"termbase.import">;
           return {
-            termbaseId: "tb-1",
-            inserted: 0,
+            termbaseId: p.termbaseId,
+            inserted: 4,
             skipped: 0,
             diagnostics: [],
           } as EngineResult<Method>;
+        }
         case "alignment.session.list":
           return {
             items: [],
@@ -2169,6 +2175,55 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
           doc.updatedAtMs = Date.now();
           return { ...doc } as EngineResult<Method>;
         }
+        case "analysis.run":
+        case "analysis.run.get": {
+          const p = params as EngineParams<"analysis.run">;
+          return {
+            id: "analysis-1",
+            projectId: "projectId" in p ? p.projectId : "proj-1",
+            documentId: "documentId" in p ? (p.documentId ?? null) : null,
+            profileId: "profileId" in p ? (p.profileId ?? "default") : "default",
+            profileRevision:
+              "profileRevision" in p ? (p.profileRevision ?? 1) : 1,
+            projectRevision: 1,
+            documentRevision: null,
+            createdAtMs: Date.now(),
+            completedAtMs: Date.now(),
+            stale: false,
+            documentSummaries: {},
+            summary: {
+              segments: 10,
+              repeatedSegments: 2,
+              sourceWords: 100,
+              sourceCharacters: 500,
+              sourceCjkCharacters: 0,
+              targetWords: 80,
+              targetCharacters: 400,
+              targetCjkCharacters: 0,
+              weightedEffortMilliUnits: 0,
+              workflowReview: 0,
+              workflowSigned: 0,
+              workflowTranslation: 10,
+              matchBands: {
+                exact: 3,
+                match9599: 1,
+                match8594: 2,
+                match7584: 1,
+                match5074: 1,
+                noMatch: 2,
+                repetitions: 2,
+              },
+              aiContribution: {
+                appliedSegments: 0,
+                editDistance: 0,
+                proposalCharacters: 0,
+                replacedSegments: 0,
+                retainedCharacters: 0,
+                retainedSegments: 0,
+              },
+            },
+          } as EngineResult<Method>;
+        }
         default:
           return Promise.reject({
             code: "UNSUPPORTED",
@@ -2190,6 +2245,7 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
       kind === "review" ? state.interopReviewPath : state.interopTablePath,
     selectTaskPackageInput: async () => state.taskPackagePath,
     selectCorpusInput: async () => null,
+    selectExchangeInput: async () => state.exchangeInputPath,
     selectPluginPackage: async () => state.pluginPackagePath ?? null,
     issuePluginPanelSession: async (request) => {
       state.calls.push({ method: "issuePluginPanelSession", params: request });

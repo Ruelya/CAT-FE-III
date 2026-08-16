@@ -453,6 +453,10 @@ describe("App P1 project lifecycle (fake DesktopApi)", () => {
     expect(
       state.calls.some((c) => String(c.method).startsWith("analysis.")),
     ).toBe(false);
+    await user.click(screen.getByTestId("insights-analyze"));
+    await waitFor(() => {
+      expect(state.calls.some((c) => c.method === "analysis.run")).toBe(true);
+    });
   });
 
   it("pages project list when total exceeds page limit", async () => {
