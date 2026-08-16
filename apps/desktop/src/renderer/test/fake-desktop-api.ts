@@ -12,12 +12,17 @@ import type {
   SegmentEditorRow,
   SegmentCounts,
   GlobalSearchHit,
+  EditorWorkflowState,
+  QaIssueView,
+  AiProviderProfile,
+  AiRun,
 } from "@translunar/contracts";
 
 import type {
   DesktopApi,
   WindowChromePlatform,
 } from "../../shared/desktop-api";
+import type { ManagedSourceBytes } from "../../shared/managed-source";
 import type {
   TutorialState,
   UpdateStatusSnapshot,
@@ -38,7 +43,10 @@ function emptyCounts(): SegmentCounts {
   };
 }
 
-function rowFromSegment(segment: Segment): SegmentEditorRow {
+function rowFromSegment(
+  segment: Segment,
+  workflowState: EditorWorkflowState = "translation",
+): SegmentEditorRow {
   return {
     segment,
     comments: [],
@@ -46,7 +54,7 @@ function rowFromSegment(segment: Segment): SegmentEditorRow {
     targetTags: [],
     spellFindings: [],
     tagIssues: [],
-    workflowState: "translation",
+    workflowState,
   };
 }
 
@@ -86,6 +94,8 @@ export interface FakeEngineState {
   interopTablePath: string | null;
   taskPackagePath: string | null;
   pluginPackagePath: string | null;
+  exchangeInputPath: string | null;
+  managedSource?: ManagedSourceBytes | null;
   pluginPanelRevokeListeners: Array<(pluginId: string | null) => void>;
   systemLocale?: string;
   shellSettings?: Partial<{
@@ -120,8 +130,14 @@ export interface FakeEngineState {
   tutorial?: TutorialState;
   /** Optional PDF pages keyed by documentId. */
   pdfPagesByDocument: Record<string, FakePdfPage[]>;
+  /** In-memory MinerU key — never a real secret store. */
+  mineruSecret: string | null;
+  aiProfiles: AiProviderProfile[];
+  aiRuns: AiRun[];
   journal: DraftJournalRecord[];
   calls: Array<{ method: string; params: unknown }>;
+  workflows: Record<string, EditorWorkflowState>;
+  qaIssues: QaIssueView[];
   gateClear: boolean;
   exampleResult: ExampleProjectResult;
   statusListeners: Array<
@@ -136,6 +152,90 @@ export interface FakeEngineState {
   windowMaximized: boolean;
   /** Platform branch for title-strip controls (default custom). */
   windowChromePlatform: WindowChromePlatform;
+}
+
+export function fakeAiProfile(
+  overrides: Partial<AiProviderProfile> = {},
+): AiProviderProfile {
+  return {
+    availability: "available",
+    baseUrl: "https://example.test",
+    createdAtMs: 1,
+    credentialPresent: true,
+    enabled: true,
+    id: "prof-1",
+    maxResponseBytes: 8000,
+    model: "fake",
+    name: "Fake",
+    revision: 1,
+    source: { kind: "builtin", provider: "openaiCompatible" },
+    timeoutMs: 10_000,
+    updatedAtMs: 1,
+    ...overrides,
+  };
+}
+
+function emptyGrounding() {
+  return {
+    contextAfter: 0,
+    contextBefore: 0,
+    includeContext: false,
+    includeStyle: false,
+    includeTerms: false,
+    includeTm: false,
+    maxChars: 2000,
+    styleInstruction: "",
+    systemInstruction: "",
+    tmTopN: 0,
+  };
+}
+
+function liveDraftFromCompletePrompt(
+  prompt: string,
+): { before: string; after: string } | null {
+  const marked = prompt.match(/「([^」]*)」/);
+  if (!marked?.[1]?.includes("⌂")) return null;
+  const [before = "", after = ""] = marked[1].split("⌂");
+  return { before, after };
+}
+
+function fakeAiRun(
+  params: EngineParams<"ai.run.start">,
+  sourceText: string,
+  id: string,
+): AiRun {
+  const prompt = typeof params.prompt === "string" ? params.prompt : "";
+  const ocr = params.action === "freeform" && prompt.includes("OCR");
+  const live =
+    params.action === "freeform" ? liveDraftFromCompletePrompt(prompt) : null;
+  const proposalText = live
+    ? `${live.before} completed`
+    : ocr
+      ? `Corrected: ${sourceText}`
+      : `AI ${params.action}: ${sourceText}`;
+  return {
+    action: params.action,
+    attempt: 1,
+    cancellationRequested: false,
+    createdAtMs: Date.now(),
+    errorRetryable: false,
+    id,
+    kind: "interactive",
+    maxAttempts: 1,
+    model: "fake",
+    profileId: params.profileId,
+    projectId: params.projectId,
+    promptHash: "ph",
+    proposalText,
+    request: {
+      freeformPrompt: params.prompt ?? "",
+      groundingOptions: params.options ?? emptyGrounding(),
+    },
+    revision: 1,
+    segmentId: params.segmentId,
+    status: "succeeded",
+    updatedAtMs: Date.now(),
+  };
 }
 
 export function createFakeEngineState(
@@ -157,10 +257,16 @@ export function createFakeEngineState(
     interopTablePath: null,
     taskPackagePath: null,
     pluginPackagePath: null,
+    exchangeInputPath: null,
     pluginPanelRevokeListeners: [],
     pdfPagesByDocument: {},
+    mineruSecret: null,
+    aiProfiles: [],
+    aiRuns: [],
     journal: [],
     calls: [],
+    workflows: {},
+    qaIssues: [],
     gateClear: true,
     exampleResult: { ok: false, message: "no example", code: "NO_EXAMPLE" },
     statusListeners: [],
@@ -207,6 +313,40 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
       state.calls.push({ method, params });
       const failed = rejectIfFailed(method);
       if (failed) return failed as never;
+
+      const methodName = method as string;
+      if (methodName === "mineru.credential.status") {
+        return {
+          available: true,
+          present: Boolean(state.mineruSecret),
+          backend: "memory",
+        } as EngineResult<Method>;
+      }
+      if (methodName === "mineru.credential.set") {
+        const secret = String(
+          (params as { secret?: unknown }).secret ?? "",
+        ).trim();
+        if (!secret) {
+          return Promise.reject({
+            code: "INVALID_REQUEST",
+            message: "MinerU secret is empty",
+          }) as never;
+        }
+        state.mineruSecret = secret;
+        return {
+          available: true,
+          present: true,
+          backend: "memory",
+        } as EngineResult<Method>;
+      }
+      if (methodName === "mineru.credential.delete") {
+        state.mineruSecret = null;
+        return {
+          available: true,
+          present: false,
+          backend: "memory",
+        } as EngineResult<Method>;
+      }
 
       switch (method) {
         case "engine.initialize":
@@ -714,14 +854,48 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
         }
         case "segment.editor.list": {
           const p = params as EngineParams<"segment.editor.list">;
+          const filter = p.filter ?? "all";
           const items = state.segments
             .filter((s) => s.documentId === p.documentId)
-            .map(rowFromSegment);
+            .filter((s) => (filter === "all" ? true : s.state === filter))
+            .map((s) => rowFromSegment(s, state.workflows[s.id] ?? "translation"));
           return {
             items,
-            limit: 200,
-            offset: 0,
+            limit: p.limit ?? 200,
+            offset: p.offset ?? 0,
             total: items.length,
+          } as EngineResult<Method>;
+        }
+        case "segment.workflow.set": {
+          const p = params as EngineParams<"segment.workflow.set">;
+          const seg = state.segments.find((s) => s.id === p.segmentId);
+          if (!seg) {
+            return Promise.reject({
+              code: "NOT_FOUND",
+              message: "Segment not found",
+            }) as never;
+          }
+          if (seg.revision !== p.expectedRevision) {
+            return Promise.reject({
+              code: "REVISION_CONFLICT",
+              message: "Revision conflict",
+            }) as never;
+          }
+          if (
+            (p.state === "review" || p.state === "signed") &&
+            seg.state !== "confirmed"
+          ) {
+            return Promise.reject({
+              code: "INVALID_STATE",
+              message: "review and signed workflow states require a confirmed segment",
+            }) as never;
+          }
+          state.workflows[seg.id] = p.state;
+          seg.revision += 1;
+          return {
+            rows: [rowFromSegment(seg, p.state)],
+            counts: emptyCounts(),
+            focusSegmentId: seg.id,
           } as EngineResult<Method>;
         }
         case "segment.updateTarget": {
@@ -750,6 +924,17 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
           }
           seg.state = "confirmed";
           seg.revision += 1;
+          const propagated = [];
+          for (const other of state.segments) {
+            if (other.id === seg.id) continue;
+            if (other.sourceHash !== seg.sourceHash) continue;
+            if (other.state === "confirmed") continue;
+            other.targetText = seg.targetText;
+            other.state = "draft";
+            other.revision += 1;
+            other.updatedAtMs = Date.now();
+            propagated.push({ ...other });
+          }
           return {
             segment: { ...seg },
             counts: {
@@ -763,6 +948,7 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
               openIssues: 0,
             },
             qaIssues: [],
+            propagated,
             tmEntry: {
               id: "tm-1",
               memoryId: "m",
@@ -778,16 +964,17 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
         }
         case "tm.lookupExact":
           return { matches: [] } as EngineResult<Method>;
-        case "qa.run":
+        case "qa.run": {
+          const p = params as EngineParams<"qa.run">;
           return {
             id: "run-1",
-            projectId: (params as EngineParams<"qa.run">).projectId,
-            documentId: (params as EngineParams<"qa.run">).documentId ?? null,
+            projectId: p.projectId,
+            documentId: p.documentId ?? null,
             profileId: "default",
             profileName: "default",
             profileRevision: 1,
             profileSnapshotHash: "h",
-            scope: "document",
+            scope: p.documentId ? "document" : "project",
             status: "succeeded",
             checkedSegments: state.segments.length,
             errors: 0,
@@ -796,13 +983,21 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
             waived: 0,
             createdAtMs: Date.now(),
           } as EngineResult<Method>;
-        case "qa.issue.list":
+        }
+        case "qa.issue.list": {
+          const p = params as EngineParams<"qa.issue.list">;
+          const items = state.qaIssues.filter((issue) => {
+            if (p.documentId && issue.documentId !== p.documentId) return false;
+            if (p.segmentId && issue.segmentId !== p.segmentId) return false;
+            return true;
+          });
           return {
-            items: [],
-            limit: 200,
-            offset: 0,
-            total: 0,
+            items,
+            limit: p.limit ?? 200,
+            offset: p.offset ?? 0,
+            total: items.length,
           } as EngineResult<Method>;
+        }
         case "qa.gate.check": {
           const p = params as EngineParams<"qa.gate.check">;
           return {
@@ -953,9 +1148,26 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
               message: "Segment not found",
             }) as never;
           }
+          if (seg.targetText.trim().length === 0) {
+            return Promise.reject({
+              code: "INVALID_STATE",
+              message: "an empty target cannot be propagated",
+            }) as never;
+          }
           seg.revision += 1;
+          const rows = [rowFromSegment(seg)];
+          for (const other of state.segments) {
+            if (other.id === seg.id) continue;
+            if (other.sourceHash !== seg.sourceHash) continue;
+            if (other.state === "confirmed") continue;
+            other.targetText = seg.targetText;
+            other.state = "draft";
+            other.revision += 1;
+            other.updatedAtMs = Date.now();
+            rows.push(rowFromSegment(other));
+          }
           return {
-            rows: [rowFromSegment(seg)],
+            rows,
             counts: emptyCounts(),
             focusSegmentId: seg.id,
           } as EngineResult<Method>;
@@ -966,7 +1178,9 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
         case "segment.chinese.convert":
         case "editor.undo":
         case "editor.redo": {
-          const rows = state.segments.map(rowFromSegment);
+          const rows = state.segments.map((s) =>
+            rowFromSegment(s, state.workflows[s.id] ?? "translation"),
+          );
           return {
             rows,
             counts: emptyCounts(),
@@ -1045,7 +1259,9 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
           } as EngineResult<Method>;
         case "review.accept":
           return {
-            rows: state.segments.map(rowFromSegment),
+            rows: state.segments.map((s) =>
+              rowFromSegment(s, state.workflows[s.id] ?? "translation"),
+            ),
             counts: emptyCounts(),
             focusSegmentId: null,
           } as EngineResult<Method>;
@@ -1138,13 +1354,15 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
             unitCount: 0,
           } as EngineResult<Method>;
         }
-        case "tm.import":
+        case "tm.import": {
+          const p = params as EngineParams<"tm.import">;
           return {
-            libraryId: "tm-1",
-            inserted: 0,
+            libraryId: p.libraryId,
+            inserted: 12,
             skipped: 0,
             diagnostics: [],
           } as EngineResult<Method>;
+        }
         case "termbase.list":
           return {
             items: [],
@@ -1211,13 +1429,15 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
             entryCount: 0,
           } as EngineResult<Method>;
         }
-        case "termbase.import":
+        case "termbase.import": {
+          const p = params as EngineParams<"termbase.import">;
           return {
-            termbaseId: "tb-1",
-            inserted: 0,
+            termbaseId: p.termbaseId,
+            inserted: 4,
             skipped: 0,
             diagnostics: [],
           } as EngineResult<Method>;
+        }
         case "alignment.session.list":
           return {
             items: [],
@@ -1499,6 +1719,66 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
             rowCount: 0,
             bytesWritten: 0,
             sha256: "abc",
+          } as EngineResult<Method>;
+        }
+        case "ai.provider.list": {
+          const p = params as EngineParams<"ai.provider.list">;
+          const offset = p.offset ?? 0;
+          const limit = p.limit ?? 50;
+          const items = state.aiProfiles.slice(offset, offset + limit);
+          return {
+            items,
+            limit,
+            offset,
+            total: state.aiProfiles.length,
+          } as EngineResult<Method>;
+        }
+        case "ai.run.start": {
+          const p = params as EngineParams<"ai.run.start">;
+          const segment = state.segments.find((s) => s.id === p.segmentId);
+          const run = fakeAiRun(
+            p,
+            segment?.sourceText ?? "",
+            `run-${state.aiRuns.length + 1}`,
+          );
+          state.aiRuns.push(run);
+          return run as EngineResult<Method>;
+        }
+        case "ai.run.get": {
+          const p = params as EngineParams<"ai.run.get">;
+          const run = state.aiRuns.find((item) => item.id === p.runId);
+          if (!run) {
+            return Promise.reject({
+              code: "NOT_FOUND",
+              message: "AI run not found",
+            }) as never;
+          }
+          return { ...run } as EngineResult<Method>;
+        }
+        case "ai.conversation.create": {
+          const p = params as EngineParams<"ai.conversation.create">;
+          return {
+            id: "conv-1",
+            projectId: p.projectId,
+            title: p.title,
+            archived: false,
+            revision: 1,
+            createdAtMs: 1,
+            updatedAtMs: 1,
+          } as EngineResult<Method>;
+        }
+        case "ai.quality.extractTerms": {
+          const p = params as EngineParams<"ai.quality.extractTerms">;
+          return {
+            documentId: p.documentId,
+            candidates: [
+              {
+                sourceTerm: "power station",
+                suggestedTarget: "电源站",
+                frequency: 3,
+                exampleSegmentIds: ["seg-1"],
+              },
+            ],
           } as EngineResult<Method>;
         }
         // P3 PDF
@@ -1897,6 +2177,55 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
           doc.updatedAtMs = Date.now();
           return { ...doc } as EngineResult<Method>;
         }
+        case "analysis.run":
+        case "analysis.run.get": {
+          const p = params as EngineParams<"analysis.run">;
+          return {
+            id: "analysis-1",
+            projectId: "projectId" in p ? p.projectId : "proj-1",
+            documentId: "documentId" in p ? (p.documentId ?? null) : null,
+            profileId: "profileId" in p ? (p.profileId ?? "default") : "default",
+            profileRevision:
+              "profileRevision" in p ? (p.profileRevision ?? 1) : 1,
+            projectRevision: 1,
+            documentRevision: null,
+            createdAtMs: Date.now(),
+            completedAtMs: Date.now(),
+            stale: false,
+            documentSummaries: {},
+            summary: {
+              segments: 10,
+              repeatedSegments: 2,
+              sourceWords: 100,
+              sourceCharacters: 500,
+              sourceCjkCharacters: 0,
+              targetWords: 80,
+              targetCharacters: 400,
+              targetCjkCharacters: 0,
+              weightedEffortMilliUnits: 0,
+              workflowReview: 0,
+              workflowSigned: 0,
+              workflowTranslation: 10,
+              matchBands: {
+                exact: 3,
+                match9599: 1,
+                match8594: 2,
+                match7584: 1,
+                match5074: 1,
+                noMatch: 2,
+                repetitions: 2,
+              },
+              aiContribution: {
+                appliedSegments: 0,
+                editDistance: 0,
+                proposalCharacters: 0,
+                replacedSegments: 0,
+                retainedCharacters: 0,
+                retainedSegments: 0,
+              },
+            },
+          } as EngineResult<Method>;
+        }
         default:
           return Promise.reject({
             code: "UNSUPPORTED",
@@ -1918,6 +2247,8 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
       kind === "review" ? state.interopReviewPath : state.interopTablePath,
     selectTaskPackageInput: async () => state.taskPackagePath,
     selectCorpusInput: async () => null,
+    selectExchangeInput: async () => state.exchangeInputPath,
+    readManagedSource: async () => state.managedSource ?? null,
     selectPluginPackage: async () => state.pluginPackagePath ?? null,
     issuePluginPanelSession: async (request) => {
       state.calls.push({ method: "issuePluginPanelSession", params: request });

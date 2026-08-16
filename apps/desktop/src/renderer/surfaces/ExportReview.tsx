@@ -7,7 +7,9 @@ import type { QaGateResult } from "@translunar/contracts";
 
 import type { UiError } from "../lib/errors";
 import { formatUiError } from "../lib/errors";
+import type { JobScope } from "../lib/job-scope";
 import type { SessionContext } from "../state/app-state";
+import { JobScopeToggle } from "../workbench/JobScopeToggle";
 
 export interface ExportReviewProps {
   ctx: SessionContext;
@@ -17,6 +19,10 @@ export interface ExportReviewProps {
   error: UiError | null;
   resultPath: string | null;
   disabled?: boolean;
+  scope: JobScope;
+  blockedFiles?: Array<{ id: string; name: string; errorCount: number }>;
+  resultFiles?: Array<{ name: string; path: string }>;
+  onScopeChange: (scope: JobScope) => void;
   onExport: () => void;
   onBack: () => void;
   onQa: () => void;
@@ -30,12 +36,17 @@ export function ExportReview({
   error,
   resultPath,
   disabled,
+  scope,
+  blockedFiles = [],
+  resultFiles = [],
+  onScopeChange,
   onExport,
   onBack,
   onQa,
 }: ExportReviewProps) {
   const busy = disabled || loading || exporting;
   const pending = loading || exporting;
+  const jobWide = scope === "job" && ctx.documents.length > 1;
 
   return (
     <section className="surface" data-testid="export-review">
@@ -43,9 +54,21 @@ export function ExportReview({
         <div className="surface__masthead">
           <div className="surface__masthead-meta">
             <h1 className="surface__title">Export</h1>
-            <p className="surface__subtitle">{ctx.document.name}</p>
+            <p className="surface__subtitle">
+              Generate the translated file in the original format (Generate
+              Target Translation)
+              {jobWide
+                ? ` · ${ctx.documents.length} files in this job`
+                : ` · ${ctx.document.name}`}
+            </p>
           </div>
           <div className="surface__actions">
+            <JobScopeToggle
+              scope={scope}
+              fileCount={ctx.documents.length}
+              disabled={busy}
+              onChange={onScopeChange}
+            />
             <button
               type="button"
               className="btn btn--ghost"
@@ -99,6 +122,16 @@ export function ExportReview({
                 warnings
               </span>
             </span>
+            {blockedFiles.length > 0 ? (
+              <ul className="export-blocked" data-testid="export-blocked-files">
+                {blockedFiles.map((file) => (
+                  <li key={file.id}>
+                    {file.name}: {file.errorCount}{" "}
+                    {file.errorCount === 1 ? "error" : "errors"}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             {!gate.clear ? (
               <button
                 type="button"
@@ -141,14 +174,25 @@ export function ExportReview({
         ) : null}
 
         {resultPath ? (
-          <p
+          <div
             className="export-result settle-pulse"
             role="status"
             data-testid="export-result"
           >
-            <CheckCircle size={16} weight="bold" aria-hidden="true" />
-            Exported to <span className="mono">{resultPath}</span>
-          </p>
+            <p>
+              <CheckCircle size={16} weight="bold" aria-hidden="true" />
+              Exported to <span className="mono">{resultPath}</span>
+            </p>
+            {resultFiles.length > 1 ? (
+              <ul data-testid="export-result-files">
+                {resultFiles.map((file) => (
+                  <li key={file.path}>
+                    {file.name}: <span className="mono">{file.path}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
         ) : null}
       </div>
     </section>

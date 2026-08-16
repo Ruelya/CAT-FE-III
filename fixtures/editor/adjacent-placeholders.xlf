@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+  <file original="adjacent.txt" source-language="en-US" target-language="zh-CN" datatype="plaintext">
+    <body>
+      <trans-unit id="u0">
+        <source>See <ph id="1"/><ph id="2"/>the unit.</source>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>

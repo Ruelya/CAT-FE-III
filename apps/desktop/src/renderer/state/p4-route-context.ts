@@ -33,7 +33,7 @@ export type CollaborationSection =
   "members" | "locks" | "presence" | "assignments" | "opLog";
 
 export type SettingsSection =
-  "locale" | "appearance" | "data" | "updates" | "tutorial";
+  "locale" | "appearance" | "data" | "updates" | "tutorial" | "ocr";
 
 export function resolveP4RouteContext(
   surface: AppSurface,

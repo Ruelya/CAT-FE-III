@@ -4,6 +4,7 @@ import {
   ArrowCounterClockwise,
   CaretDown,
   ChatText,
+  Check,
   CheckSquareOffset,
   GearSix,
   MagnifyingGlass,
@@ -15,6 +16,7 @@ import {
   TreeStructure,
 } from "@phosphor-icons/react";
 
+import { segmentNumber } from "../lib/format";
 import {
   EDITOR_COMMAND_REGISTRY,
   type EditorCommandId,
@@ -25,6 +27,12 @@ import { useMenuKeyboard, useToolbarRoving } from "../shell/use-menu-keyboard";
 export interface EditorCommandBarProps {
   ops: EditorOperationsApi;
   disabled?: boolean;
+  confirm?: {
+    segmentId: string;
+    ordinal: number;
+    disabled?: boolean;
+    onConfirm: () => void;
+  };
 }
 
 const ICONS: Record<EditorCommandId, ReactNode> = {
@@ -51,7 +59,11 @@ const OVERFLOW = EDITOR_COMMAND_REGISTRY.filter(
   (c) => c.placement === "overflow",
 );
 
-export function EditorCommandBar({ ops, disabled }: EditorCommandBarProps) {
+export function EditorCommandBar({
+  ops,
+  disabled,
+  confirm,
+}: EditorCommandBarProps) {
   const busy = disabled || ops.busy;
   const [overflowOpen, setOverflowOpen] = useState(false);
   const menuId = useId();
@@ -82,6 +94,20 @@ export function EditorCommandBar({ ops, disabled }: EditorCommandBarProps) {
       aria-label="Editor"
       ref={rootRef}
     >
+      {confirm ? (
+        <button
+          type="button"
+          className="btn btn--primary btn--sm"
+          title="Confirm (Ctrl+Enter)"
+          aria-label={`Confirm segment ${segmentNumber(confirm.ordinal)}`}
+          disabled={busy || confirm.disabled === true}
+          onClick={confirm.onConfirm}
+          data-testid={`confirm-segment-${confirm.segmentId}`}
+        >
+          <Check size={16} weight="bold" />
+          <span className="editor-command-bar__label">Confirm</span>
+        </button>
+      ) : null}
       <div
         className="editor-command-bar__primary"
         ref={primaryRef}

@@ -29,6 +29,7 @@ feature ops), [editor-assets.md](./editor-assets.md) (P2 controller pattern),
 | Surfaces | `surfaces/Workbench.tsx` (PDF dock gate), `surfaces/ProjectInsights.tsx` (section shell) |
 | Insights UI | `insights/InteropReviewPanel.tsx`, `InteropTablePanel.tsx`, `TaskPackagePanel.tsx`, `InsightsSectionNav.tsx` (or consolidated under `insights/`) |
 | Workbench UI | `workbench/PdfPageReview.tsx`, `workbench/PdfOcrCorrectDialog.tsx` |
+| Import / OCR AI | `lib/pdf-import-options.ts` (`mineruBaseUrl` for official Precision Extract), `lib/mineru-credential.ts`, `state/use-ocr-ai.ts` |
 | Pure helpers | `state/pdf-review.ts`, `interop-view.ts`, `task-package-view.ts`, `reimport-view.ts` |
 | Orchestration | `state/use-pdf-review.ts`, `use-interop-controller.ts`, `use-task-package-controller.ts`, `use-reimport-controller.ts` |
 | App gateway | `use-app-controller.ts` — `goInsights` + flush only; no full preview payloads in global reducer |
@@ -167,9 +168,14 @@ Rules:
 - Collapse stops further gets; content may stay mounted inert.
 - Active segment → page via Engine `segmentIds` only; no structural-path page inventing.
 - Image is in-memory data URL from `imagePngBase64`; never show managed source path.
+- Clicking a page block selects that `segmentId` in the grid. Correct stays a
+  separate control and does not auto-select-and-submit.
 - OCR correct only for OCR-origin non-confirmed blocks; non-empty `sourceText` +
   `reason` + `expectedRevision`; stale revision → typed conflict, no optimistic
   revision bump.
+- Optional AI suggestion in the OCR dialog reuses `ai.run.start` (`freeform`)
+  and writes the proposal into the source draft only. It must not call
+  `pdf.correctOcr` until the translator supplies a reason and saves.
 - Flush dirty target via SaveCoordinator before document-affecting correct when
   Workbench document is open.
 - Feature ops: local op token + `featureGeneration` invalidate discards stale
@@ -224,6 +230,8 @@ Rules:
 | Non-PDF `pdf.page.list` InvalidRequest | Map to empty-ready; **do not mount** PDF dock |
 | Real PDF list/get failure | Thin error chrome; editor remains usable |
 | OCR reason/text empty | Disable submit; no RPC |
+| OCR AI suggestion | Draft only; Save still requires reason + `pdf.correctOcr` |
+| No AI credential | Honest empty state; no `ai.run.start` |
 | OCR stale revision | Conflict UiError; keep Engine authority |
 | Interop/table dialog cancel | No preview/export RPC |
 | Interop page change | Merge selection; retain off-page IDs |

@@ -5,6 +5,162 @@
 处，资产中枢是编辑器背后的沉淀**。翻译资产仍然沉淀、AI 仍然贯穿，但它们必须
 挂在当前段上，而不是替代编辑器，也不是另开一条脱离编辑器的流水线。
 
+## 0. 执行进度（2026-08-15 收口）
+
+本分支已按本文档落地并**用真实 Electron + 真实引擎门禁实测**。不是“点得动”，
+是能交活。
+
+### 已交付并门禁通过
+
+| 能力 | 提交 | 门禁 |
+| --- | --- | --- |
+| OOXML 标签模型（docx/xlsx/pptx）：只标真实格式跨度 | `880ec3a` | format-matrix 7/7 |
+| 七种格式往返门禁（txt/md/html/xliff/docx/xlsx/pptx） | `18710a8` | `pnpm test:formats:linux` |
+| 确认三走法 + 传播可见化 | `f1c63ca` | `pnpm test:job:linux` |
+| TM 模糊匹配 + Ctrl+1..9 应用；术语识别 + 插入光标 | `8d0bc73` | `pnpm test:intel:linux` |
+| Concordance / Quick Add Term / Copy·Clear Source | `0a3374f` | `pnpm test:actions:linux` |
+| AutoSuggest（补全空壳开关终于有行为） | `0548566` | `pnpm test:suggest:linux` |
+| Display Filter + 行标记 + QA 豁免 | `c3e61a3` | `pnpm test:review:linux` |
+| 结构列 / 状态栏 / Go To / TM 预翻译 | `0cff0d6` | `pnpm test:navigation` 类 |
+| 段内 AI 页签（无密钥时诚实提示） | `952d2a6` | `pnpm test:ai:linux` |
+| 源文标签胶囊可见 + Ctrl+, 放置 | `27ee700` | `pnpm test:tags:linux` |
+
+回归：desktop 单测 413、E2E 20 passed / 4 fixture skips、Rust workspace 全绿。
+
+### 2026-08-15 续作（本轮）
+
+| 能力 | 说明 |
+| --- | --- |
+| 目标侧标签 atom | 活动行是 contenteditable；标签是不可拆的胶囊。Ctrl+, 在光标处 QuickPlace，未聚焦时仍按比例放置。 |
+| 多文件作业轨 | 左侧 FileNav：每文件剩余未确认数 + 进度条；作业合计 open/total。 |
+| 工作流 + 锁定 | Translation / Review / Signed off。Signed 由引擎拒绝改译文（`ensure_segment_not_signed`），UI 禁用目标框。直接签核要写理由。 |
+| Find | 计数、Enter 跳第一条、F4 下一条、命中行高亮。Ctrl+F 打开面板。 |
+| 结构预览 | 文档序块、当前段高亮、点击跳段。不是 Word WYSIWYG。 |
+
+### 2026-08-15 续作（跨文件 + QuickPlace）
+
+| 能力 | 说明 |
+| --- | --- |
+| 作业级 QA / 导出 | 多文件时默认 All files。QA 可按项目跑；Jump 会切到问题所在文件。导出先逐文件过 gate，再写到同一目录。 |
+| 跨文件传播可见 | 确认仍按 source_hash 写到其它文件的未确认段；通知写明有几条在其它文件。 |
+| QuickPlace 列表 | Ctrl+, 仍一次放置全部标签（门禁不变）。Ctrl+Shift+, / Place 打开列表：全部标签、成对标签、数字/日期/URL/邮箱。选区包一对标签。 |
+| Ghost tags | 目标未携带的源标签以虚线胶囊列在编辑器下，点击放入光标处（成对则包住选区）。 |
+
+### 2026-08-15 续作（叠位 ghost + 格式化预览 + 厂商 XLIFF）
+
+| 能力 | 说明 |
+| --- | --- |
+| 正文叠位 ghost | 未携带的源标签叠在目标正文上。成对标签优先包住目标里仍在的源短语/token（如 TL-900），否则按比例。点击放入该位置（有选区则包选区）。不进入 serialize。 |
+| 格式化预览 | Preview 用段标签重建 HTML 排版（strong/em/u），标题/段落/单元格分角色。仍不是 Word COM / 浏览器级整页 WYSIWYG。 |
+| SDLXLIFF / MQXLIFF 门禁 | `fixtures/formats/real.sdlxliff` 与 `real.mqxliff` 进入 format-matrix；确认时按比例写入目标标签。 |
+
+### 2026-08-15 续作（按 Trados 纠正放标签）
+
+对照 docs.rws.com QuickPlace / ghost tag 行为，上一轮「把未携带标签按 token 猜到目标上」是错的。
+
+| 能力 | 说明 |
+| --- | --- |
+| Ctrl+, = QuickPlace 列表 | 与 Trados 相同：打开列表，Enter/Tab 放入当前项。第一项仍是 All tags（Auto-Insert）。`tags-gate` 改为 Ctrl+, 再 Enter。 |
+| 成对标签分开列 | 开口与闭口各一项，不是一条 pair。有选区时选开口/闭口仍包选区。 |
+| Ghost 只表示未闭合的闭口 | 放入开口后，闭口以 ghost 跟在开口之后、随其后打字前移。未开口的标签不叠在正文上。点击 ghost 只落下这一只闭口。 |
+| 开口处打字进对内 | `insertTextIntoTagged`：start 在光标处不后移，end 后移。Ctrl+点击源标签 = 在光标处插入一对（有选区则包选区）。 |
+| 目标正文带格式 | 开口与闭口之间的字在编辑器里就是粗体/斜体，胶囊仍可见。 |
+
+### 2026-08-15 续作（再按 Trados 纠正编辑逻辑）
+
+对照 docs.rws.com：QuickPlace 列表、ghost tags、Restore Tag、QuickInsert、Copy Source。上一轮点 ghost 闭口经常落不下去——开口只画在 DOM 里，React 的 `tags` 还没回写，点击按空数组合并，开口被丢掉。
+
+| 能力 | 说明 |
+| --- | --- |
+| 活文档标签 | 放标签 / 点 ghost / 删半对都以 contenteditable 序列化结果为准，并用 `liveTags` 立刻覆盖 prop，不再等 `segment.tag.set` 回写。 |
+| 点 ghost = Restore | 点击或 Ctrl+Shift+G 把这一只 ghost 落成真标签（docs：Restore Tag）。 |
+| 删半对出 ghost | 开口在、闭口不在 → ghost 闭口；闭口在、开口不在 → ghost 开口。两只都没放仍不叠正文。 |
+| Copy Source 带标签 | Ctrl+Insert 复制源文**和**源标签（同偏移）。Ctrl+Delete 同时清空译文和目标标签。 |
+| 插入不拆标签 | 术语插入按字符偏移改写标签位置；选区内的标签随删区去掉。 |
+| QuickInsert Ctrl+B/I/U | 拦截浏览器原生加粗，改走源段格式对：有选区则包选区，无选区则开口+ghost，再按一次落下闭口。 |
+| QuickPlace 格式样本 | 开口项显示源跨度上的粗体/斜体样本，不再只写 `b`。 |
+
+### 2026-08-15 续作（QuickPlace 源高亮 / 剪贴板标签 / Protect）
+
+对照 docs.rws.com：QuickPlace 选中项高亮源跨度、Copying and pasting tags、Protect Tags。
+
+| 能力 | 说明 |
+| --- | --- |
+| QuickPlace 源高亮 | 列表当前项若对应源跨度（格式对或数字/日期/URL），源列用 mark 高亮该跨度。All tags 不高亮。 |
+| 复制/粘贴标签 | Ctrl+C / Ctrl+X / Ctrl+V 走自定义剪贴板：正文 + 相对偏移的标签。从源列复制同样带标签。纯文本粘贴也会按字符偏移改写已有标签。全选目标时偏移按编辑器根节点计算，不再把胶囊字算进正文。 |
+| Protect Tags | 默认关。打开后 Backspace/Delete 不能删标签原子；选区删除只去字、标签塌到选区起点。会话级 localStorage，不改引擎偏好协议。 |
+
+### 2026-08-15 续作（相邻占位标签分组）
+
+对照 docs.rws.com File > Options > Editor：**Group adjacent tags in formatting window**。
+
+| 能力 | 说明 |
+| --- | --- |
+| QuickPlace 分组项 | 相邻（同一字符偏移、中间无正文）的 standalone 占位标签收成一项，一次放入光标处。格式对仍分开列开口/闭口。 |
+| 点选一组 | 点击组里任一胶囊，选中整组，便于一次复制。源列无选区正文时，复制仍带上选中的标签。 |
+| 开关 | QuickPlace 列表底部复选框，默认开；`localStorage`，不改引擎偏好协议。 |
+
+### 2026-08-15 续作（View 显示 / 补全锚点 / Smart paste）
+
+对照 docs.rws.com：Show whitespace characters、Formatting display style、Tag display mode、Smart cut and paste。
+
+| 能力 | 说明 |
+| --- | --- |
+| 空白符 | 过滤条 Spaces，以及 Prefs > Nonprinting。空格/不间断空格/制表符画成记号，序列化仍是原字符。 |
+| 格式显示 | Tags + format / Format only / Tags only。Format only 把 b/i/u 胶囊藏起来但仍留在 DOM，serialize / Protect / 复制不受影响。 |
+| 标签文字 | No / Partial / Full。默认 Partial。 |
+| 补全锚点 | AutoSuggest 弹层锚在光标上方，躲开 IME 候选窗。 |
+| 双击选对 | 双击开口或闭口选中整对（含中间正文）。 |
+| Smart paste | 贴到已有空格旁或标点前时收掉多余空白。 |
+
+### 2026-08-15 续作（术语识别 / 插入 / 搜索 / Quick Add）
+
+对照 docs.rws.com：Terminology recognition、Insert term（Ctrl+Shift+L）、Termbase Search、Quick Add New Term。挂在当前段上，不是去铺 Assets 中枢。
+
+| 能力 | 说明 |
+| --- | --- |
+| 源文红线 | 进段 `term.search` 的 `start`/`end` 画在源列。重叠取最长，独立 class `term-source-hit`，不和 QuickPlace 黄底抢同一套 mark。 |
+| 点线插入 | 点击红线插入 preferred（否则第一条非 forbidden）译名。悬停 Terms 列表项时，源列再用 QuickPlace 那套高亮该跨度。 |
+| Ctrl+Shift+L | 在编辑器里直接插入当前焦点术语的 preferred 译名，然后跳到下一条可插入项。 |
+| 术语窗键盘 | Terms 列表可聚焦：↑↓ 改焦点并高亮源跨度，Insert 插入，Enter 展开已有字段（源术语 / 是否本段命中 / 将插入的译名）。`TermMatch` 没有 definition，没有 `term.get`，不做假 Viewer。 |
+| Termbase Search | Terms 页搜索框：先过滤本段命中；再把查询丢给 `term.search`（引擎是「查询文本里出现了哪些术语」）。`*` 当 contains。查找结果不画到源文上，避免把查询串偏移当成源偏移。 |
+| Quick Add 自动建库 | 无可用写库时 `termbase.create` + `termbase.mount`，不再把人撵去 Assets。顺带修正原先把 `mount.writable` 误读成不存在的 `mount.mode`。 |
+
+### 2026-08-15 续作（PDF/OCR + 段内 AI 纠错）
+
+对照已有引擎：`builtin.pdf`、`pdf.page.*`、`pdf.correctOcr`、`mineru.credential.*`、`ai.run.*`。桌面侧把它们挂到导入、设置和当前 OCR 段上，不新开协议。
+
+| 能力 | 说明 |
+| --- | --- |
+| 导入 OCR 选项 | 导入页可选 `ocrEngine` / `ocrMode` / `ocrLanguages`，写入 localStorage，`project.batchImport` 原样传给每个文件。默认 Auto = 本地 Poppler/Tesseract。 |
+| MinerU 凭证 | Settings → OCR：`mineru.credential.status/set/delete`。密钥进 OS keyring / 测试内存，不进 SQLite，界面永不回显。 |
+| 点块选段 | PDF 审阅窗点块跳到对应段；Correct 仍只改 OCR 源文。 |
+| 网格 OCR 标记 | `structuralPath` 含 `;s=ocr;` 的行打 OCR 点，结构列标 `OCR`。 |
+| AI 纠错 | OCR Correct 对话框：有密钥时 `ai.run.start(action=freeform)` 建议源文；**Use suggestion** 只写入草稿。Save 仍要 reason，走 `pdf.correctOcr`。无密钥诚实提示。 |
+| AI 辅助 | 点到 OCR 段后，IntelDock AI 仍可 Translate/Improve（改译文），并说明源文纠错走 PDF → Correct。 |
+
+### 2026-08-15 调研（IDE 补全 → 段内 AI AutoSuggest）
+
+对照 Cursor Tab / VS Code InlineCompletions / Devin。要抄的是「下拉 + 幽灵字两条车道」，不是自研 Tab 模型，也不是代理式整单改写。
+
+已有 `editor.suggest`（词级、当前段源文）和 `ai.run`+`build_grounding`（术语/TM/前后段）。缺口是：打字续写没有用上 grounding，活草稿也还没进 prompt。
+
+实现合同见 `docs/ai-autosuggest.md`。P1 确定性幽灵字、P2 `use-ai-suggest`
+（`ai.run.start` + 活草稿 prompt + grounding）、P3 Ctrl+→ 一词接受已挂到
+目标框。禁止为补全新开协议。补全预览不得占用标签 `data-ghost`。
+
+### 仍未做到 Trados 同水准的部分（诚实清单）
+
+这些**没有**假装完成，下一轮应继续：
+
+1. **Word COM / 真 PDF 所见即所得**。现在是标签重建的 HTML 预览，不是原文件排版引擎。
+2. **Approved / Rejected 七档**——引擎工作流是 translation/review/signed 三档，Signed = 锁定。
+3. **AI 需真实 provider 密钥**才能生成；门禁验证的是“挂在当前段 + 无配置时诚实”，不是云端生成质量。
+4. **PDF** 尚未纳入 format-matrix 的同构往返（引擎已注册 `builtin.pdf`）。
+5. **Protect / 分组 / View 显示进引擎偏好**——现在主要在渲染进程 localStorage；Nonprinting 会顺带写引擎字段，但未做账号级同步。
+6. **IME 候选窗与补全的像素级避让**——弹层已改到光标上方，仍不是对 IME 窗的实时避让。
+7. **术语前缀查找**——`term.search` 只在给定文本里找已有术语；输入 `pow` 找不到 `power station`，除非它已出现在当前段。没有 `term.get`，详情没有 definition / domain / example。
+
 主参照：SDL Trados Studio 2024 / 2024 SR1 的 Editor view（以 docs.rws.com 官方
 文档为准）；补遗参照 memoQ（docs.memoq.com）与 CafeTran。协作、派单、云协同、
 GroupShare / Trados Team 整段排除；本文只评**一个译者独立把一单活做完**。

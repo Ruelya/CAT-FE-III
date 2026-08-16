@@ -104,6 +104,7 @@ type SettingsSection =
   | "appearance"
   | "data"
   | "updates"
+  | "ocr"
   | "tutorial";
 
 // AppSurface variants carry only route identity + section.

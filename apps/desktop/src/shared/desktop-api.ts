@@ -5,6 +5,10 @@ import type {
 } from "@translunar/contracts";
 
 import type {
+  ManagedSourceBytes,
+  ManagedSourceRequest,
+} from "./managed-source.js";
+import type {
   DataDirectoryMigrationResult,
   DataDirectoryStatus,
   DataDirectoryValidation,
@@ -66,6 +70,16 @@ export interface DesktopApi {
   selectInteropInput(kind: "review" | "table"): Promise<string | null>;
   selectTaskPackageInput(): Promise<string | null>;
   selectCorpusInput(): Promise<string | null>;
+  /** Open a TMX/TBX/CSV/TSV exchange file for memory or termbase import. */
+  selectExchangeInput(kind: "tm" | "termbase"): Promise<string | null>;
+  /**
+   * Read the engine-managed import copy as bytes.
+   * Main resolves `{dataDir}/sources/{documentId}.{ext}` only.
+   * The renderer never receives the filesystem path.
+   */
+  readManagedSource(
+    request: ManagedSourceRequest,
+  ): Promise<ManagedSourceBytes | null>;
   selectPluginPackage(): Promise<string | null>;
   issuePluginPanelSession(
     request: PluginPanelSessionRequest,

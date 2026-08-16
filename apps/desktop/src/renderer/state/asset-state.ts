@@ -11,6 +11,7 @@ import type {
   ReferenceCorpus,
   Termbase,
   TermbaseMount,
+  TermCandidate,
   TermEntry,
   TermMatch,
   TmLibrary,
@@ -59,7 +60,7 @@ export interface TmSectionState {
   concordance: PagedList<ConcordanceHit>;
   corpusHits: CorpusSearchHit[];
   exchange: {
-    status: "idle" | "exporting" | "result" | "error";
+    status: "idle" | "exporting" | "importing" | "result" | "error";
     libraryId: string | null;
     message: string | null;
     diagnostics: AssetDiagnostic[];
@@ -84,11 +85,17 @@ export interface TermbaseSectionState {
     error: UiError | null;
   };
   exchange: {
-    status: "idle" | "exporting" | "result" | "error";
+    status: "idle" | "exporting" | "importing" | "result" | "error";
     termbaseId: string | null;
     message: string | null;
     diagnostics: AssetDiagnostic[];
     error: UiError | null;
+  };
+  extract: {
+    documentId: string;
+    pending: boolean;
+    error: UiError | null;
+    candidates: TermCandidate[];
   };
 }
 
@@ -231,6 +238,12 @@ export function createInitialAssetState(input: {
         message: null,
         diagnostics: [],
         error: null,
+      },
+      extract: {
+        documentId: "",
+        pending: false,
+        error: null,
+        candidates: [],
       },
     },
     alignment: {

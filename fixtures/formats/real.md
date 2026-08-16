@@ -1,0 +1,13 @@
+# TL-900 Portable Power Station User Guide
+
+Read all safety instructions before operating the **TL-900 power station**.
+
+The battery capacity is 1,024 Wh and the rated output is 1,500 W.
+
+Do not expose the device to temperatures above 45 C.
+
+Press and hold the power button for 3 seconds to turn the unit on.
+
+Do not expose the device to temperatures above 45 C.
+
+The warranty period is *24 months* from the date of purchase.

@@ -108,6 +108,32 @@
   app-region: no-drag;
 }
 
+.title-file-menu {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.title-file-menu__trigger {
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wide);
+}
+
+.title-file-menu__panel {
+  top: calc(100% + var(--space-1));
+  left: 0;
+  min-width: 16rem;
+}
+
+.title-file-menu__heading {
+  margin: 0;
+  padding: var(--space-1) var(--space-2) 0;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
 .app-chrome__group {
   display: inline-flex;
   align-items: center;

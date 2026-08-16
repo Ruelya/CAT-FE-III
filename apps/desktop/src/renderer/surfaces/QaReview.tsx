@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   SealCheck,
   WarningCircle,
@@ -10,7 +11,10 @@ import type { UiError } from "../lib/errors";
 import { rowEnterProps, withListClass } from "../lib/dom";
 import { formatUiError } from "../lib/errors";
 import { segmentNumber } from "../lib/format";
+import type { JobScope } from "../lib/job-scope";
 import type { SessionContext } from "../state/app-state";
+import { ConfirmDialog } from "../shell/ConfirmDialog";
+import { JobScopeToggle } from "../workbench/JobScopeToggle";
 
 export interface QaReviewProps {
   ctx: SessionContext;
@@ -20,8 +24,14 @@ export interface QaReviewProps {
   loading: boolean;
   error: UiError | null;
   disabled?: boolean;
+  scope: JobScope;
+  onScopeChange: (scope: JobScope) => void;
   onRun: () => void;
-  onJump: (segmentId: string) => void;
+  onJump: (segmentId: string, documentId: string) => void;
+  /** Set a finding aside with a recorded reason so export can proceed. */
+  onWaive: (issueId: string, reason: string) => Promise<boolean>;
+  /** Put a waived finding back in force. */
+  onRevoke: (issueId: string) => Promise<boolean>;
   onBack: () => void;
   onExport: () => void;
 }
@@ -50,14 +60,26 @@ export function QaReview({
   loading,
   error,
   disabled,
+  scope,
+  onScopeChange,
   onRun,
   onJump,
+  onWaive,
+  onRevoke,
   onBack,
   onExport,
 }: QaReviewProps) {
-  const segmentIds = new Set(ctx.rows.map((r) => r.segment.id));
-  const errorCount = issues.filter((i) => i.severity === "error").length;
-  const warningCount = issues.filter((i) => i.severity === "warning").length;
+  const jobWide = scope === "job" && ctx.documents.length > 1;
+  // Waived findings still exist; they simply no longer block. Counting them
+  // among the errors would keep telling a reviewer to fix what they have
+  // already judged.
+  const live = issues.filter((issue) => issue.disposition !== "waived");
+  const errorCount = live.filter((i) => i.severity === "error").length;
+  const warningCount = live.filter((i) => i.severity === "warning").length;
+  const [waivingId, setWaiving] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
+  const [waivePending, setWaivePending] = useState(false);
+  const [waiveError, setWaiveError] = useState<string | null>(null);
 
   return (
     <section className="surface" data-testid="qa-review">
@@ -65,9 +87,19 @@ export function QaReview({
         <div className="surface__masthead">
           <div className="surface__masthead-meta">
             <h1 className="surface__title">QA</h1>
-            <p className="surface__subtitle">{ctx.document.name}</p>
+            <p className="surface__subtitle">
+              {jobWide
+                ? `${ctx.documents.length} files in this job`
+                : ctx.document.name}
+            </p>
           </div>
           <div className="surface__actions">
+            <JobScopeToggle
+              scope={scope}
+              fileCount={ctx.documents.length}
+              disabled={disabled || loading}
+              onChange={onScopeChange}
+            />
             <button
               type="button"
               className="btn btn--ghost"
@@ -158,7 +190,6 @@ export function QaReview({
             </p>
             <ul className="issue-list">
               {issues.map((issue, index) => {
-                const canJump = segmentIds.has(issue.segmentId);
                 return (
                   <li
                     key={issue.id}
@@ -174,20 +205,53 @@ export function QaReview({
                           <span className="mono">
                             #{segmentNumber(issue.segmentOrdinal)}
                           </span>
+                          {jobWide ? (
+                            <span className="truncate">{issue.documentName}</span>
+                          ) : null}
                           <span className="mono">{issue.ruleId}</span>
+                          {issue.disposition === "waived" ? (
+                            <span className="issue-row__waived">Waived</span>
+                          ) : null}
                         </p>
                       </div>
-                      {canJump ? (
+                      <div className="issue-row__actions">
                         <button
                           type="button"
                           className="btn btn--secondary btn--sm"
                           disabled={disabled}
-                          onClick={() => onJump(issue.segmentId)}
+                          onClick={() =>
+                            onJump(issue.segmentId, issue.documentId)
+                          }
                           aria-label={`Jump to segment ${segmentNumber(issue.segmentOrdinal)}`}
                         >
                           Jump
                         </button>
-                      ) : null}
+                        {issue.disposition === "waived" ? (
+                          <button
+                            type="button"
+                            className="btn btn--ghost btn--sm"
+                            disabled={disabled}
+                            data-testid={`revoke-${issue.id}`}
+                            onClick={() => {
+                              void onRevoke(issue.id);
+                            }}
+                            aria-label={`Reinstate finding on segment ${segmentNumber(issue.segmentOrdinal)}`}
+                          >
+                            Reinstate
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn btn--ghost btn--sm"
+                            disabled={disabled}
+                            data-testid={`waive-${issue.id}`}
+                            onClick={() => setWaiving(issue.id)}
+                            aria-label={`Waive finding on segment ${segmentNumber(issue.segmentOrdinal)}`}
+                          >
+                            Waive
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </li>
                 );
@@ -196,6 +260,43 @@ export function QaReview({
           </>
         ) : null}
       </div>
+
+      {waivingId ? (
+        <ConfirmDialog
+          title="Waive this finding"
+          body="The finding stays on the record and stops blocking export. A reason is required so the decision can be reviewed later."
+          confirmLabel="Waive"
+          pending={waivePending}
+          error={waiveError}
+          reasonLabel="Reason"
+          reason={reason}
+          onReasonChange={setReason}
+          onCancel={() => {
+            setWaiving(null);
+            setReason("");
+            setWaiveError(null);
+          }}
+          onConfirm={() => {
+            if (waivePending) return;
+            if (reason.trim().length === 0) {
+              setWaiveError("Give a reason before waiving.");
+              return;
+            }
+            setWaivePending(true);
+            setWaiveError(null);
+            void onWaive(waivingId, reason.trim()).then((ok) => {
+              setWaivePending(false);
+              if (ok) {
+                setWaiving(null);
+                setReason("");
+              } else {
+                setWaiveError("Could not waive this finding.");
+              }
+            });
+          }}
+          testId="waive-confirm"
+        />
+      ) : null}
     </section>
   );
 }

@@ -57,6 +57,135 @@ pub struct ByteReplacement {
     pub bytes: Vec<u8>,
 }
 
+/// The inline formatting of one OOXML run, reduced to what a translator needs
+/// to see and what export needs in order to rebuild it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RunFormat {
+    /// Canonical signature. Two runs with the same signature are
+    /// typographically identical and must never be split by a protected tag.
+    /// Empty means "no visible formatting".
+    pub signature: String,
+    /// Short human label such as `b`, `i`, or `b i`. Empty when `signature` is.
+    pub label: String,
+}
+
+impl RunFormat {
+    pub fn is_plain(&self) -> bool {
+        self.signature.is_empty()
+    }
+}
+
+/// One stretch of characters that shares a single formatting signature.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormatGroup {
+    pub format: RunFormat,
+    /// Character offsets into the unit's plain text.
+    pub start: u32,
+    pub end: u32,
+    /// Indexes into the unit's range list, in document order.
+    pub range_indexes: Vec<usize>,
+}
+
+/// OOXML properties that a reader can actually see.
+///
+/// Everything else a producer writes into a run — revision save ids, proofing
+/// state, language annotations — is bookkeeping. Treating bookkeeping as
+/// formatting is what makes a filter split one sentence into a dozen runs and
+/// then demand that the translator reproduce every boundary.
+const VISIBLE_RUN_PROPERTIES: &[(&str, &str)] = &[
+    ("b", "b"),
+    ("bCs", "b"),
+    ("i", "i"),
+    ("iCs", "i"),
+    ("u", "u"),
+    ("strike", "s"),
+    ("dstrike", "s"),
+    ("smallCaps", "sc"),
+    ("caps", "caps"),
+    ("vertAlign", "va"),
+    ("baseline", "va"),
+    ("color", "color"),
+    ("solidFill", "color"),
+    ("highlight", "hl"),
+    ("rStyle", "style"),
+    ("sz", "sz"),
+    ("szCs", "sz"),
+    ("rFonts", "font"),
+    ("latin", "font"),
+    ("hlinkClick", "link"),
+];
+
+/// Reduce a run's property element names to a signature and a short label.
+pub fn reduce_run_properties<S: AsRef<str>>(properties: &[S]) -> RunFormat {
+    let mut labels = BTreeSet::new();
+    for property in properties {
+        if let Some((_, label)) = VISIBLE_RUN_PROPERTIES
+            .iter()
+            .find(|(name, _)| *name == property.as_ref())
+        {
+            labels.insert((*label).to_string());
+        }
+    }
+    if labels.is_empty() {
+        return RunFormat::default();
+    }
+    RunFormat {
+        signature: labels.iter().cloned().collect::<Vec<_>>().join("+"),
+        label: labels.iter().cloned().collect::<Vec<_>>().join(" "),
+    }
+}
+
+/// Collapse adjacent ranges that share a formatting signature into groups.
+///
+/// `formats` is index-aligned with `ranges`; a missing entry counts as plain.
+pub fn format_groups(ranges: &[XmlTextRange], formats: &[RunFormat]) -> Vec<FormatGroup> {
+    let mut groups: Vec<FormatGroup> = Vec::new();
+    let mut position = 0_u32;
+    for (index, range) in ranges.iter().enumerate() {
+        let length = u32::try_from(range.text.chars().count()).unwrap_or(u32::MAX);
+        if length == 0 {
+            // A zero-length run cannot be pointed at, but export still has to
+            // account for it, so keep it attached to the current group.
+            if let Some(last) = groups.last_mut() {
+                last.range_indexes.push(index);
+            }
+            continue;
+        }
+        let format = formats.get(index).cloned().unwrap_or_default();
+        match groups.last_mut() {
+            Some(last) if last.format == format => {
+                last.end = position.saturating_add(length);
+                last.range_indexes.push(index);
+            }
+            _ => groups.push(FormatGroup {
+                format,
+                start: position,
+                end: position.saturating_add(length),
+                range_indexes: vec![index],
+            }),
+        }
+        position = position.saturating_add(length);
+    }
+    groups
+}
+
+/// The formatting spans a translator has to carry, as `(group index, group)`.
+///
+/// Empty when the unit is typographically uniform: uniform formatting belongs
+/// to the paragraph or cell and rides along with it, so there is nothing to
+/// place. Plain stretches between formatted ones are not returned either —
+/// asking someone to bracket the text where the font is normal is not a task.
+pub fn taggable_format_groups(groups: &[FormatGroup]) -> Vec<(usize, &FormatGroup)> {
+    if groups.len() < 2 {
+        return Vec::new();
+    }
+    groups
+        .iter()
+        .enumerate()
+        .filter(|(_, group)| !group.format.is_plain())
+        .collect()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct XmlTextRange {
     pub start: usize,

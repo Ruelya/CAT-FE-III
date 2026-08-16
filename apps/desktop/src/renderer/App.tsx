@@ -3,6 +3,7 @@ import type { Project, Segment } from "@translunar/contracts";
 
 import { AppChrome } from "./shell/AppChrome";
 import { BootGate } from "./shell/BootGate";
+import { ConfirmDialog } from "./shell/ConfirmDialog";
 import { CommandPalette } from "./shell/CommandPalette";
 import type { PaletteCommand } from "./shell/command-palette-model";
 import { EngineStatusBanner } from "./shell/EngineStatusBanner";
@@ -51,10 +52,18 @@ export function App() {
   const disabled = !state.mutationsEnabled;
 
   const [selectedSegmentIds, setSelectedSegmentIds] = useState<string[]>([]);
+  const [recycleDocumentOpen, setRecycleDocumentOpen] = useState(false);
+  const [recycleReason, setRecycleReason] = useState("");
+  const [recyclePending, setRecyclePending] = useState(false);
+  const [recycleError, setRecycleError] = useState<string | null>(null);
 
   /** Editor chrome and keyboard ownership is Workbench-only (not QA/Export/Home). */
   const workbenchCtx = surface.kind === "workbench" ? surface.ctx : null;
   const workbenchActive = surface.kind === "workbench";
+
+  useEffect(() => {
+    if (!workbenchActive) setRecycleDocumentOpen(false);
+  }, [workbenchActive]);
 
   const editorGateway = useMemo(
     () => ({
@@ -145,6 +154,7 @@ export function App() {
       generation: featureGeneration,
       mutationsEnabled: state.mutationsEnabled,
       documentId: workbenchCtx?.document.id ?? null,
+      projectId: workbenchCtx?.project.id ?? null,
       activeSegmentId:
         surface.kind === "workbench" ? surface.activeSegmentId : null,
       flushOrStay: commands.flushOrStay,
@@ -158,6 +168,7 @@ export function App() {
       state.mutationsEnabled,
       surface,
       workbenchCtx?.document.id,
+      workbenchCtx?.project.id,
     ],
   );
   const pdfReview = usePdfReview(pdfGateway);
@@ -476,7 +487,7 @@ export function App() {
         id: "go.settings",
         label: "Open Settings",
         group: "Navigate",
-        keywords: "preferences locale appearance data updates",
+        keywords: "preferences locale appearance data updates ocr mineru",
         run: () => void commands.goSettings(),
       },
       {
@@ -539,6 +550,28 @@ export function App() {
         onCollaboration={() => void commands.goCollaboration()}
         onSettings={() => void commands.goSettings()}
         {...(startupResolved ? { onCommandPalette: palette.openPalette } : {})}
+        {...(workbenchActive
+          ? {
+              onAddFiles: () => {
+                void commands.addFiles();
+              },
+              addFilesPending: surface.kind === "workbench" && surface.addFilesPending === true,
+              onSave: () => {
+                void commands.flushOrStay();
+              },
+              onPretranslate: () => {
+                void commands.pretranslateDocument();
+              },
+              pretranslatePending:
+                surface.kind === "workbench" && surface.pretranslatePending === true,
+              onReimport: () => reimport.open(),
+              onRecycleDocument: () => {
+                setRecycleError(null);
+                setRecycleReason("");
+                setRecycleDocumentOpen(true);
+              },
+            }
+          : {})}
         windowChromePlatform={windowChrome.platform}
         windowMaximized={windowChrome.maximized}
         onWindowMinimize={windowChrome.minimize}
@@ -691,15 +724,15 @@ export function App() {
               activeSegmentId={surface.activeSegmentId}
               focusSegmentId={surface.focusSegmentId}
               editState={saveCoordinator.active}
-              tmMatches={surface.tmMatches}
-              tmLoading={surface.tmLoading}
-              tmError={surface.tmError}
+              intel={surface.intel}
               tmCollapsed={surface.tmCollapsed}
               transitionError={surface.transitionError}
               pendingConfirm={surface.pendingConfirm}
               switchPending={surface.switchPending === true}
               addFilesPending={surface.addFilesPending === true}
               batchResult={surface.batchResult ?? null}
+              propagatedFrom={surface.propagatedFrom ?? null}
+              qaCounts={surface.qaCounts ?? {}}
               disabled={disabled}
               editorOps={editorOps}
               pdfReview={pdfReview}
@@ -717,31 +750,45 @@ export function App() {
                 void commands.selectSegment(id);
               }}
               onDraftChange={commands.updateTargetDraft}
+              onTagsChange={(tags) => {
+                void commands.persistTargetTags(tags);
+              }}
+              onSetWorkflow={(segmentId, state, reason) => {
+                void commands.setWorkflow(segmentId, state, reason);
+              }}
               onCompositionStart={commands.compositionStart}
               onCompositionEnd={commands.compositionEnd}
               onConfirm={(ev) => {
                 void commands.confirmSegment(ev);
               }}
               onToggleTm={commands.toggleTmPanel}
-              onQa={() => {
-                void commands.goQa();
+              onApplyMatch={commands.applyTmMatch}
+              onInsertTerm={commands.insertAtCaret}
+              onConcordance={commands.runConcordance}
+              onQuickAddTerm={(selection) => {
+                void commands.quickAddTerm(selection);
               }}
-              onExport={() => {
-                void commands.goExport();
+              onSearchTerms={commands.searchTerms}
+              onCopySourceToTarget={commands.copySourceToTarget}
+              onClearTarget={commands.clearTarget}
+              onAcceptSuggestion={commands.acceptSuggestion}
+              onApplyAiProposal={commands.applyAiProposal}
+              onPretranslate={() => {
+                void commands.pretranslateDocument();
               }}
-              onInsights={() => {
-                void commands.goInsights();
+              onSave={() => {
+                void commands.flushOrStay();
               }}
-              onAssets={() => {
-                void commands.goAssets();
+              onPlaceTags={() => {
+                void commands.placeSourceTags();
               }}
+              pretranslatePending={surface.pretranslatePending === true}
               onSwitchDocument={(id) => {
                 void commands.switchDocument(id);
               }}
               onAddFiles={() => {
                 void commands.addFiles();
               }}
-              onRecycleDocument={commands.recycleActiveDocument}
               onDismissBatch={commands.dismissBatchSummary}
             />
           ) : null}
@@ -758,9 +805,15 @@ export function App() {
               onRun={() => {
                 void commands.runQa();
               }}
-              onJump={(id) => {
-                void commands.jumpToIssue(id);
+              scope={surface.scope}
+              onScopeChange={(scope) => {
+                void commands.setJobScope(scope);
               }}
+              onJump={(id, documentId) => {
+                void commands.jumpToIssue(id, documentId);
+              }}
+              onWaive={commands.waiveQaIssue}
+              onRevoke={commands.revokeQaWaiver}
               onBack={() => {
                 void commands.backToWorkbench();
               }}
@@ -779,6 +832,12 @@ export function App() {
               error={surface.error}
               resultPath={surface.resultPath}
               disabled={disabled}
+              scope={surface.scope}
+              blockedFiles={surface.blockedFiles ?? []}
+              resultFiles={surface.resultFiles ?? []}
+              onScopeChange={(scope) => {
+                void commands.setJobScope(scope);
+              }}
               onExport={() => {
                 void commands.checkGateAndExport();
               }}
@@ -877,6 +936,7 @@ export function App() {
 
           {surface.kind === "insights" ? (
             <ProjectInsights
+              projectId={surface.projectId}
               projectName={surface.projectName}
               analytics={surface.analytics}
               documents={surface.documents}
@@ -981,6 +1041,34 @@ export function App() {
         <CommandPalette
           commands={paletteCommands}
           onClose={palette.closePalette}
+        />
+      ) : null}
+
+      {recycleDocumentOpen && workbenchCtx ? (
+        <ConfirmDialog
+          title="Recycle document"
+          body={`${workbenchCtx.document.name} will move to recycle.`}
+          confirmLabel="Recycle"
+          pending={recyclePending}
+          error={recycleError}
+          reasonLabel="Reason"
+          reason={recycleReason}
+          onReasonChange={setRecycleReason}
+          onCancel={() => setRecycleDocumentOpen(false)}
+          onConfirm={() => {
+            if (recyclePending) return;
+            setRecyclePending(true);
+            setRecycleError(null);
+            void commands.recycleActiveDocument(recycleReason.trim()).then((ok) => {
+              setRecyclePending(false);
+              if (ok) {
+                setRecycleDocumentOpen(false);
+              } else {
+                setRecycleError("Recycle failed.");
+              }
+            });
+          }}
+          testId="recycle-document-confirm"
         />
       ) : null}
     </div>

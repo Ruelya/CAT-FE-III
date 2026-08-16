@@ -17,9 +17,10 @@ use translunar_filter_core::{
     ValidationReport, collect_imported_document, publish_bytes_noclobber,
 };
 use translunar_filter_office_core::{
-    OfficeError, OfficePackage, XmlTextRange, apply_replacements, decode_reference, decode_text,
-    parse_relationships, rebuild_package, relationship_part, replace_text_ranges,
-    resolve_relationship_target, validate_xml,
+    OfficeError, OfficePackage, RunFormat, XmlTextRange, apply_replacements, decode_reference,
+    decode_text, format_groups, parse_relationships, rebuild_package, reduce_run_properties,
+    relationship_part, replace_text_ranges, resolve_relationship_target, taggable_format_groups,
+    validate_xml,
 };
 
 const ROOT_REL_TYPE: &str = "/officeDocument";
@@ -82,6 +83,7 @@ struct SharedString {
     end: usize,
     text: String,
     ranges: Vec<XmlTextRange>,
+    formats: Vec<RunFormat>,
 }
 
 #[derive(Debug, Clone)]
@@ -98,6 +100,7 @@ struct CellInfo {
     kind: CellKind,
     text: String,
     ranges: Vec<XmlTextRange>,
+    formats: Vec<RunFormat>,
     value_range: Option<(usize, usize)>,
 }
 
@@ -353,8 +356,10 @@ impl XlsxFilter {
                     continue;
                 }
                 let path = cell_path(&sheet.part, &cell.reference);
-                let (source_text, ranges) = match &cell.kind {
-                    CellKind::Inline => (cell.text.clone(), cell.ranges.clone()),
+                let (source_text, ranges, formats) = match &cell.kind {
+                    CellKind::Inline => {
+                        (cell.text.clone(), cell.ranges.clone(), cell.formats.clone())
+                    }
                     CellKind::Shared { index } => {
                         let item = shared
                             .as_ref()
@@ -362,7 +367,7 @@ impl XlsxFilter {
                             .ok_or_else(|| {
                                 XlsxError::Invalid(format!("missing shared string for {path}"))
                             })?;
-                        (item.text.clone(), item.ranges.clone())
+                        (item.text.clone(), item.ranges.clone(), item.formats.clone())
                     }
                 };
                 if source_text.trim().is_empty() {
@@ -373,7 +378,14 @@ impl XlsxFilter {
                     structural_path: path.clone(),
                 });
                 events.push(FilterEvent::Text(source_text.clone()));
-                append_rich_tags(&mut events, document_id, ordinal, &ranges, &source_text)?;
+                append_rich_tags(
+                    &mut events,
+                    document_id,
+                    ordinal,
+                    &ranges,
+                    &formats,
+                    &source_text,
+                )?;
                 events.push(FilterEvent::EndUnit);
                 ordinal = ordinal
                     .checked_add(1)
@@ -845,6 +857,10 @@ fn parse_shared_strings(bytes: &[u8], part: &str) -> Result<Vec<SharedString>, X
     let mut current: Option<(usize, String, Vec<XmlTextRange>)> = None;
     let mut current_text: Option<(usize, String)> = None;
     let mut strings = Vec::new();
+    // Rich shared strings wrap each formatted stretch in `<r><rPr>…</rPr><t>`.
+    let mut run_properties: Vec<String> = Vec::new();
+    let mut in_run_properties = false;
+    let mut shared_formats: Vec<RunFormat> = Vec::new();
     loop {
         let before = usize::try_from(reader.buffer_position())
             .map_err(|_| XlsxError::Invalid("shared string offset overflow".to_string()))?;
@@ -854,6 +870,21 @@ fn parse_shared_strings(bytes: &[u8], part: &str) -> Result<Vec<SharedString>, X
                     return Err(XlsxError::Invalid("nested shared string item".to_string()));
                 }
                 current = Some((before, String::new(), Vec::new()));
+            }
+            Ok(Event::Start(element)) if element.name().local_name().as_ref() == b"rPr" => {
+                in_run_properties = true;
+                run_properties.clear();
+            }
+            Ok(Event::End(element)) if element.name().local_name().as_ref() == b"rPr" => {
+                in_run_properties = false;
+            }
+            Ok(Event::Start(element)) | Ok(Event::Empty(element)) if in_run_properties => {
+                run_properties.push(
+                    String::from_utf8_lossy(element.name().local_name().as_ref()).into_owned(),
+                );
+            }
+            Ok(Event::Start(element)) if element.name().local_name().as_ref() == b"r" => {
+                run_properties.clear();
             }
             Ok(Event::Start(element)) if element.name().local_name().as_ref() == b"t" => {
                 if current.is_some() {
@@ -888,6 +919,7 @@ fn parse_shared_strings(bytes: &[u8], part: &str) -> Result<Vec<SharedString>, X
                     let end = before;
                     if let Some((_, _, ranges)) = current.as_mut() {
                         ranges.push(XmlTextRange { start, end, text });
+                        shared_formats.push(reduce_run_properties(&run_properties));
                     }
                 }
             }
@@ -902,6 +934,7 @@ fn parse_shared_strings(bytes: &[u8], part: &str) -> Result<Vec<SharedString>, X
                     })?,
                     text,
                     ranges,
+                    formats: std::mem::take(&mut shared_formats),
                 });
             }
             Ok(Event::Eof) => break,
@@ -926,6 +959,9 @@ fn parse_sheet_cell_entries(bytes: &[u8], part: &str) -> Result<Vec<SheetCellEnt
     reader.config_mut().trim_text(false);
     let mut buffer = Vec::new();
     let mut current: Option<CellBuilder> = None;
+    // Inline rich strings use the same `<r><rPr>` shape as the shared table.
+    let mut run_properties: Vec<String> = Vec::new();
+    let mut in_run_properties = false;
     let mut current_text: Option<TextBuilder> = None;
     let mut cells = Vec::new();
     let mut references = BTreeSet::new();
@@ -953,6 +989,7 @@ fn parse_sheet_cell_entries(bytes: &[u8], part: &str) -> Result<Vec<SheetCellEnt
                     value_range: None,
                     formula: false,
                     in_value: false,
+                    formats: Vec::new(),
                     in_inline: false,
                 });
             }
@@ -990,6 +1027,21 @@ fn parse_sheet_cell_entries(bytes: &[u8], part: &str) -> Result<Vec<SheetCellEnt
                 if let Some(cell) = current.as_mut() {
                     cell.in_inline = true;
                 }
+            }
+            Ok(Event::Start(element)) if element.name().local_name().as_ref() == b"rPr" => {
+                in_run_properties = true;
+                run_properties.clear();
+            }
+            Ok(Event::End(element)) if element.name().local_name().as_ref() == b"rPr" => {
+                in_run_properties = false;
+            }
+            Ok(Event::Start(element)) | Ok(Event::Empty(element)) if in_run_properties => {
+                run_properties.push(
+                    String::from_utf8_lossy(element.name().local_name().as_ref()).into_owned(),
+                );
+            }
+            Ok(Event::Start(element)) if element.name().local_name().as_ref() == b"r" => {
+                run_properties.clear();
             }
             Ok(Event::Start(element)) if element.name().local_name().as_ref() == b"t" => {
                 if current.as_ref().is_some_and(|cell| cell.in_inline) {
@@ -1036,6 +1088,7 @@ fn parse_sheet_cell_entries(bytes: &[u8], part: &str) -> Result<Vec<SheetCellEnt
                     if let Some(cell) = current.as_mut() {
                         cell.text.push_str(&text);
                         cell.ranges.push(XmlTextRange { start, end, text });
+                        cell.formats.push(reduce_run_properties(&run_properties));
                     }
                 }
             }
@@ -1078,6 +1131,7 @@ fn parse_sheet_cell_entries(bytes: &[u8], part: &str) -> Result<Vec<SheetCellEnt
                                     kind: CellKind::Shared { index },
                                     text: builder.text.clone(),
                                     ranges: builder.ranges.clone(),
+                                    formats: builder.formats.clone(),
                                     value_range: builder.value_range,
                                 }),
                                 None,
@@ -1091,6 +1145,7 @@ fn parse_sheet_cell_entries(bytes: &[u8], part: &str) -> Result<Vec<SheetCellEnt
                                 kind: CellKind::Inline,
                                 text: builder.text.clone(),
                                 ranges: builder.ranges.clone(),
+                                formats: builder.formats.clone(),
                                 value_range: builder.value_range,
                             }),
                             None,
@@ -1126,6 +1181,7 @@ struct CellBuilder {
     cell_type: Option<String>,
     text: String,
     ranges: Vec<XmlTextRange>,
+    formats: Vec<RunFormat>,
     value_range: Option<(usize, usize)>,
     formula: bool,
     in_value: bool,
@@ -1134,50 +1190,49 @@ struct CellBuilder {
 
 type TextBuilder = (usize, String);
 
+/// Emit protected tags for the formatting spans inside one cell.
+///
+/// Same contract as the other OOXML filters: a cell whose rich-text runs are
+/// typographically identical produces nothing to place.
 fn append_rich_tags(
     events: &mut Vec<FilterEvent>,
     document_id: &str,
     ordinal: u32,
     ranges: &[XmlTextRange],
+    formats: &[RunFormat],
     source_text: &str,
 ) -> Result<(), XlsxError> {
-    let mut position = 0_u32;
-    for (index, range) in ranges.iter().enumerate() {
-        let length = u32::try_from(range.text.chars().count())
-            .map_err(|_| XlsxError::Invalid("rich text length overflow".to_string()))?;
-        if length == 0 {
-            continue;
+    let groups = format_groups(ranges, formats);
+    let source_chars = u32::try_from(source_text.chars().count())
+        .map_err(|_| XlsxError::Invalid("rich text length overflow".to_string()))?;
+    for (index, group) in taggable_format_groups(&groups) {
+        if group.end > source_chars {
+            return Err(XlsxError::Invalid(
+                "rich text ranges exceed source text".to_string(),
+            ));
         }
         let pair_id = format!("{document_id}:xlsx:{ordinal}:{index}");
+        let payload = format!("ooxml-rich-run:{}", group.format.signature);
         events.push(FilterEvent::InlineTag(InlineTag {
             id: format!("{pair_id}:start"),
             side: TagSide::Source,
-            position,
+            position: group.start,
             kind: TagKind::Start,
             pair_id: Some(pair_id.clone()),
-            payload: "ooxml-rich-run".to_string(),
-            display_text: "R".to_string(),
+            payload: payload.clone(),
+            display_text: group.format.label.clone(),
             protected: true,
         }));
-        position = position
-            .checked_add(length)
-            .ok_or_else(|| XlsxError::Invalid("rich text position overflow".to_string()))?;
         events.push(FilterEvent::InlineTag(InlineTag {
             id: format!("{pair_id}:end"),
             side: TagSide::Source,
-            position,
+            position: group.end,
             kind: TagKind::End,
             pair_id: Some(pair_id),
-            payload: "ooxml-rich-run".to_string(),
-            display_text: "R".to_string(),
+            payload,
+            display_text: group.format.label.clone(),
             protected: true,
         }));
-    }
-    let actual = source_text.chars().count();
-    if usize::try_from(position).unwrap_or(usize::MAX) > actual {
-        return Err(XlsxError::Invalid(
-            "rich text ranges exceed source text".to_string(),
-        ));
     }
     Ok(())
 }

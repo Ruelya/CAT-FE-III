@@ -9,19 +9,31 @@ import type { PdfPageBlock } from "@translunar/contracts";
 
 import { formatUiError } from "../lib/errors";
 import { isOcrCorrectable, shouldMountPdfDock } from "../state/pdf-review";
+import { OCR_AI_REASON, useOcrAi } from "../state/use-ocr-ai";
 import type { PdfReviewApi } from "../state/use-pdf-review";
 import { PdfOcrCorrectDialog } from "./PdfOcrCorrectDialog";
 
 export interface PdfPageReviewProps {
   pdf: PdfReviewApi;
   disabled?: boolean;
+  onSelectSegment?: (segmentId: string) => void;
 }
 
-export function PdfPageReview({ pdf, disabled }: PdfPageReviewProps) {
+export function PdfPageReview({
+  pdf,
+  disabled,
+  onSelectSegment,
+}: PdfPageReviewProps) {
   const { state } = pdf;
   const bodyRef = useRef<HTMLDivElement>(null);
   const collapsed = state.dockMode === "collapsed";
   const maximized = state.dockMode === "maximized";
+  const ocrAi = useOcrAi({
+    enabled: state.correctOpen && disabled !== true,
+    projectId: pdf.projectId,
+    segmentId: state.correctBlock?.segmentId ?? null,
+    segmentRevision: state.correctBlock?.revision ?? null,
+  });
 
   useEffect(() => {
     const body = bodyRef.current;
@@ -47,7 +59,8 @@ export function PdfPageReview({ pdf, disabled }: PdfPageReviewProps) {
   }
 
   return (
-    // Named region, not <aside>: see TmExactPanel for the landmark rationale.
+    // Named region, not <aside>: a complementary landmark nested inside main is
+    // a landmark-structure violation, and these docks are part of the editor.
     <section
       aria-label="PDF page review"
       className={[
@@ -159,6 +172,7 @@ export function PdfPageReview({ pdf, disabled }: PdfPageReviewProps) {
                       pageHeight={state.pageDetail!.height}
                       active={pdf.activeBlock?.segmentId === block.segmentId}
                       disabled={disabled === true}
+                      onSelect={() => onSelectSegment?.(block.segmentId)}
                       onCorrect={() => pdf.openCorrect(block)}
                     />
                   ))}
@@ -177,6 +191,23 @@ export function PdfPageReview({ pdf, disabled }: PdfPageReviewProps) {
           error={state.correctError}
           canSubmit={pdf.canSubmitCorrect}
           disabled={disabled === true}
+          ai={{
+            pending: ocrAi.pending,
+            error: ocrAi.error,
+            proposal: ocrAi.proposal,
+            profilesLoaded: ocrAi.profilesLoaded,
+            runnable: ocrAi.runnable,
+          }}
+          onSuggestAi={() => {
+            void ocrAi.generate();
+          }}
+          onUseAiSuggestion={() => {
+            if (!ocrAi.proposal) return;
+            pdf.setCorrectSourceText(ocrAi.proposal);
+            if (!state.correctReason.trim()) {
+              pdf.setCorrectReason(OCR_AI_REASON);
+            }
+          }}
           onSourceTextChange={pdf.setCorrectSourceText}
           onReasonChange={pdf.setCorrectReason}
           onSubmit={() => {
@@ -195,6 +226,7 @@ function BlockOverlay({
   pageHeight,
   active,
   disabled,
+  onSelect,
   onCorrect,
 }: {
   block: PdfPageBlock;
@@ -202,6 +234,7 @@ function BlockOverlay({
   pageHeight: number;
   active: boolean;
   disabled: boolean;
+  onSelect: () => void;
   onCorrect: () => void;
 }) {
   const left = pageWidth > 0 ? (block.bbox.x / pageWidth) * 100 : 0;
@@ -220,15 +253,25 @@ function BlockOverlay({
         width: `${width}%`,
         height: `${height}%`,
       }}
-      data-testid={`pdf-block-${block.segmentId}`}
     >
+      <button
+        type="button"
+        className="pdf-block__hit"
+        disabled={disabled}
+        onClick={onSelect}
+        aria-label="Select this segment"
+        data-testid={`pdf-block-${block.segmentId}`}
+      />
       {correctable ? (
         <button
           type="button"
           className="btn btn--ghost btn--sm pdf-block__correct"
           data-hit-area="extended"
           disabled={disabled}
-          onClick={onCorrect}
+          onClick={(event) => {
+            event.stopPropagation();
+            onCorrect();
+          }}
           data-testid={`pdf-correct-${block.segmentId}`}
         >
           Correct

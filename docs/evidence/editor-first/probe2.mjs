@@ -314,7 +314,11 @@ await step("export-roundtrip", async () => {
 
 // I. assets hub: TM/concordance live far from the segment
 await step("assets-disconnection", async () => {
-  const assets = page.getByTestId("nav-assets-workbench");
+  const fileMenu = page.getByTestId("title-file-menu");
+  if (await fileMenu.count()) {
+    await fileMenu.click();
+  }
+  const assets = page.getByTestId("title-file-assets");
   if (await assets.count()) {
     await assets.click();
     await page.waitForTimeout(1000);

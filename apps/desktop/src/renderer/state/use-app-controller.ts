@@ -8,14 +8,23 @@ import {
 } from "react";
 import type {
   Document,
+  EditorWorkflowState,
   GlobalSearchHit,
+  InlineTag,
   Project,
   Segment,
   SegmentCounts,
   SegmentEditorRow,
+  TermMatch,
+  TmMatch,
 } from "@translunar/contracts";
 
 import { toUiError, type UiError } from "../lib/errors";
+import {
+  codePointCaretFromUtf16,
+  spliceAtCaret,
+} from "../lib/inline-completion";
+import { toBatchImportOptions } from "../lib/pdf-import-options";
 import { desktopApi, initializeEngine, invokeEngine } from "../lib/rpc";
 import {
   shouldBlockConfirm,
@@ -38,6 +47,7 @@ import {
   type ProjectListLifecycle,
   type SessionContext,
   type SettingsSection,
+  DESKTOP_ACTOR,
 } from "./app-state";
 import {
   collaborationAvailable,
@@ -45,7 +55,45 @@ import {
   resolveP4ReturnTarget,
   resolveP4RouteContext,
 } from "./p4-route-context";
+import {
+  confirmModeFromEvent,
+  nextSegmentAfterConfirm,
+} from "./confirm-advance";
+import {
+  canStoreTerm,
+  concordanceQueryFor,
+  readSegmentSelection,
+  targetEditorFor,
+  targetSurfaceFor,
+  type SegmentSelection,
+} from "./editor-selection";
+import {
+  joinExportPath,
+  splitExportPath,
+  uniqueExportFileName,
+} from "../lib/export-paths";
+import {
+  defaultJobScope,
+  documentsForScope,
+  qaDocumentFilter,
+  type JobScope,
+} from "../lib/job-scope";
+import { pairSourceTags } from "../lib/quickplace";
+import { pickWritableTermbase } from "../lib/term-source";
+import {
+  copySourceTagsToTarget,
+  mergeTargetTags,
+  placeSourceTagsAtCaret,
+  placeSourceTagsProportional,
+  replaceSelectionInTagged,
+  caretOffsetsInTaggedEditor,
+  serializeTaggedEditor,
+  setCaretInTaggedEditor,
+  tagsEqual,
+  wrapSelectionWithTagPair,
+} from "../lib/tagged-text";
 import { countsFromEditorRows } from "./editor-operations";
+import { EMPTY_SEGMENT_INTEL, type SegmentIntel } from "./segment-intel";
 // AppState imported for FeatureOp origin typing.
 import {
   aggregateProjectDocuments,
@@ -191,12 +239,52 @@ function countsFromRows(rows: SegmentEditorRow[]): SegmentCounts {
   };
 }
 
+function scopeFromSurface(surface: {
+  kind: string;
+  scope?: JobScope;
+  ctx?: SessionContext;
+}): JobScope {
+  if ((surface.kind === "qa" || surface.kind === "export") && surface.scope) {
+    return surface.scope;
+  }
+  return defaultJobScope(surface.ctx?.documents.length ?? 1);
+}
+
+function qaListParams(
+  projectId: string,
+  scope: JobScope,
+  documentId: string,
+): {
+  projectId: string;
+  limit: number;
+  offset: number;
+  documentId?: string;
+} {
+  const documentFilter = qaDocumentFilter(scope, documentId);
+  return {
+    projectId,
+    limit: PAGE_LIMIT,
+    offset: 0,
+    ...(documentFilter ? { documentId: documentFilter } : {}),
+  };
+}
+
 function replaceRow(
   rows: SegmentEditorRow[],
   segment: Segment,
 ): SegmentEditorRow[] {
   return rows.map((row) =>
     row.segment.id === segment.id ? { ...row, segment } : row,
+  );
+}
+
+function withRowTags(
+  rows: SegmentEditorRow[],
+  segmentId: string,
+  targetTags: InlineTag[],
+): SegmentEditorRow[] {
+  return rows.map((row) =>
+    row.segment.id === segmentId ? { ...row, targetTags } : row,
   );
 }
 
@@ -230,11 +318,33 @@ export interface AppController {
       isComposing?: boolean;
       keyCode?: number;
       which?: number;
+      altKey?: boolean;
+      shiftKey?: boolean;
     }) => Promise<void>;
     toggleTmPanel: () => void;
+    applyTmMatch: (match: TmMatch) => void;
+    insertAtCaret: (text: string) => void;
+    runConcordance: (query?: string, selection?: SegmentSelection) => void;
+    quickAddTerm: (selection: SegmentSelection) => Promise<void>;
+    searchTerms: (query: string) => Promise<TermMatch[]>;
+    copySourceToTarget: () => void;
+    clearTarget: () => void;
+    acceptSuggestion: (text: string, prefix: string) => void;
+    applyAiProposal: (text: string) => void;
+    placeSourceTags: () => Promise<void>;
+    persistTargetTags: (tags: InlineTag[]) => Promise<void>;
+    setWorkflow: (
+      segmentId: string,
+      state: EditorWorkflowState,
+      reason?: string,
+    ) => Promise<void>;
+    pretranslateDocument: () => Promise<void>;
     goQa: () => Promise<void>;
     runQa: () => Promise<void>;
-    jumpToIssue: (segmentId: string) => Promise<void>;
+    waiveQaIssue: (issueId: string, reason: string) => Promise<boolean>;
+    revokeQaWaiver: (issueId: string) => Promise<boolean>;
+    jumpToIssue: (segmentId: string, documentId?: string) => Promise<void>;
+    setJobScope: (scope: JobScope) => Promise<void>;
     goExport: () => Promise<void>;
     checkGateAndExport: () => Promise<void>;
     backToWorkbench: (focusSegmentId?: string | null) => Promise<void>;
@@ -528,9 +638,7 @@ export function useAppController(): AppController {
           ctx,
           activeSegmentId,
           focusSegmentId: options?.focusSegmentId ?? null,
-          tmMatches: [],
-          tmLoading: false,
-          tmError: null,
+          intel: EMPTY_SEGMENT_INTEL,
           tmCollapsed,
           transitionError: null,
           pendingConfirm: false,
@@ -810,12 +918,11 @@ export function useAppController(): AppController {
               },
             });
             try {
-              const issues = await invokeEngine("qa.issue.list", {
-                projectId: ctx.project.id,
-                documentId: ctx.document.id,
-                limit: PAGE_LIMIT,
-                offset: 0,
-              });
+              const issues = await invokeEngine("qa.issue.list", qaListParams(
+                ctx.project.id,
+                current.scope,
+                ctx.document.id,
+              ));
               if (!isCurrent(gen)) return;
               if (stateRef.current.surface.kind !== "qa") return;
               dispatch({
@@ -1146,6 +1253,9 @@ export function useAppController(): AppController {
   ]);
 
   // Exact TM lookup when active segment changes on workbench.
+  // Every intelligence dock answers a question about the segment under the
+  // caret, so they are all driven from one place, cancelled together, and only
+  // ever committed when the answer still belongs to the segment that asked.
   useEffect(() => {
     const surface = state.surface;
     if (surface.kind !== "workbench") return;
@@ -1155,58 +1265,132 @@ export function useAppController(): AppController {
     if (!row) return;
     let cancelled = false;
     const projectId = surface.ctx.project.id;
+    const sourceLocale = surface.ctx.project.sourceLocale;
+    const targetLocale = surface.ctx.project.targetLocale;
     const sourceText = row.segment.sourceText;
+
+    const stillCurrent = () => {
+      if (cancelled) return false;
+      const current = stateRef.current.surface;
+      return (
+        current.kind === "workbench" && current.activeSegmentId === segmentId
+      );
+    };
+
     dispatch({
       type: "PATCH_WORKBENCH",
-      patch: { tmLoading: true, tmError: null, tmMatches: [] },
+      patch: {
+        intel: {
+          segmentId,
+          tm: { matches: [], loading: true, error: null },
+          terms: { matches: [], loading: true, error: null },
+          // Concordance is driven by the translator, so moving segment clears
+          // the previous answer rather than silently re-running it against a
+          // phrase from a sentence they have left.
+          concordance: { query: "", hits: [], loading: false, error: null },
+        },
+      },
     });
+
+    const patchIntel = (
+      part: Partial<Pick<SegmentIntel, "tm" | "terms" | "concordance">>,
+    ) => {
+      if (!stillCurrent()) return;
+      dispatch({ type: "PATCH_SEGMENT_INTEL", segmentId, patch: part });
+    };
+
     void (async () => {
       try {
-        const result = await invokeEngine("tm.lookupExact", {
+        // Fuzzy, not just exact: the whole point of a memory is the sentence
+        // that is nearly right, and this project already had the search.
+        const result = await invokeEngine("tm.search", {
           projectId,
-          sourceText,
+          sourceLocale,
+          targetLocale,
+          query: sourceText,
+          offset: 0,
+          limit: 9,
         });
-        if (cancelled) return;
-        const current = stateRef.current.surface;
-        if (
-          current.kind !== "workbench" ||
-          current.activeSegmentId !== segmentId
-        ) {
-          return;
-        }
-        dispatch({
-          type: "PATCH_WORKBENCH",
-          patch: {
-            tmMatches: result.matches,
-            tmLoading: false,
-            tmError: null,
-          },
+        patchIntel({
+          tm: { matches: result.matches, loading: false, error: null },
         });
       } catch (error) {
-        if (cancelled) return;
-        const current = stateRef.current.surface;
-        if (
-          current.kind !== "workbench" ||
-          current.activeSegmentId !== segmentId
-        ) {
-          return;
-        }
-        dispatch({
-          type: "PATCH_WORKBENCH",
-          patch: {
-            tmLoading: false,
-            tmError: toUiError(error),
-            tmMatches: [],
-          },
+        patchIntel({
+          tm: { matches: [], loading: false, error: toUiError(error) },
         });
       }
     })();
+
+    void (async () => {
+      try {
+        const result = await invokeEngine("term.search", {
+          projectId,
+          text: sourceText,
+          offset: 0,
+          limit: 40,
+        });
+        patchIntel({
+          terms: { matches: result.matches, loading: false, error: null },
+        });
+      } catch (error) {
+        patchIntel({
+          terms: { matches: [], loading: false, error: toUiError(error) },
+        });
+      }
+    })();
+
     return () => {
       cancelled = true;
     };
   }, [
     state.surface.kind === "workbench" ? state.surface.activeSegmentId : null,
     state.surface.kind === "workbench" ? state.surface.ctx.document.id : null,
+  ]);
+
+  // QA marks for the grid. One document-level query rather than one per row,
+  // refreshed when the document changes or the row set does, which is when a
+  // confirmation may have cleared or created a finding.
+  useEffect(() => {
+    const surface = state.surface;
+    if (surface.kind !== "workbench") return;
+    const projectId = surface.ctx.project.id;
+    const documentId = surface.ctx.document.id;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await invokeEngine("qa.issue.list", {
+          projectId,
+          documentId,
+          offset: 0,
+          limit: 500,
+        });
+        if (cancelled) return;
+        const current = stateRef.current.surface;
+        if (
+          current.kind !== "workbench" ||
+          current.ctx.document.id !== documentId
+        ) {
+          return;
+        }
+        const counts: Record<string, number> = {};
+        for (const issue of result.items) {
+          if (issue.disposition !== "open") continue;
+          counts[issue.segmentId] = (counts[issue.segmentId] ?? 0) + 1;
+        }
+        dispatch({ type: "PATCH_WORKBENCH", patch: { qaCounts: counts } });
+      } catch {
+        // Marks are an aid, not a gate. Losing them must not break editing.
+        if (!cancelled) {
+          dispatch({ type: "PATCH_WORKBENCH", patch: { qaCounts: {} } });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    state.surface.kind === "workbench" ? state.surface.ctx.document.id : null,
+    state.surface.kind === "workbench" ? state.surface.ctx.rows : null,
   ]);
 
   // Drop pending recovery once the matching segment has been saved to Engine.
@@ -1262,6 +1446,48 @@ export function useAppController(): AppController {
   }, [saveCoordinator]);
 
   const commands = useMemo<AppController["commands"]>(() => {
+    const writeTargetTags = async (tags: InlineTag[]) => {
+      if (!stateRef.current.mutationsEnabled) return;
+      const surface = stateRef.current.surface;
+      if (surface.kind !== "workbench") return;
+      const segmentId = surface.activeSegmentId;
+      if (!segmentId) return;
+      const active = saveCoordinator.active;
+      if (active?.isComposing) return;
+      if (active && active.segmentId === segmentId) {
+        await saveCoordinator.flush();
+      }
+      const current = stateRef.current.surface;
+      if (current.kind !== "workbench") return;
+      const row = current.ctx.rows.find((item) => item.segment.id === segmentId);
+      if (!row) return;
+      try {
+        const result = await invokeEngine("segment.tag.set", {
+          segmentId,
+          expectedRevision: row.segment.revision,
+          targetTags: tags,
+        });
+        const { rows } = await listAllEditorRows(current.ctx.document.id);
+        const next = stateRef.current.surface;
+        if (next.kind !== "workbench") return;
+        dispatch({
+          type: "PATCH_WORKBENCH",
+          patch: {
+            ctx: {
+              ...next.ctx,
+              rows,
+              counts: result.counts ?? countsFromRows(rows),
+            },
+          },
+        });
+      } catch (error) {
+        dispatch({
+          type: "PATCH_WORKBENCH",
+          patch: { transitionError: toUiError(error) },
+        });
+      }
+    };
+
     return {
       retryBoot: () => {
         generationRef.current += 1;
@@ -1504,6 +1730,7 @@ export function useAppController(): AppController {
             projectId: surface.projectId,
             atomicity: "bestEffort",
             items: paths.map((path) => ({ path })),
+            options: toBatchImportOptions(),
           });
           if (importOpRef.current !== opId) return;
           if (batch.succeeded <= 0) {
@@ -1614,6 +1841,7 @@ export function useAppController(): AppController {
         const surface = stateRef.current.surface;
         if (surface.kind !== "workbench") return;
         if (!stateRef.current.mutationsEnabled) return;
+        const mode = confirmModeFromEvent(event);
         if (
           shouldBlockConfirm(
             compositionRef.current,
@@ -1733,10 +1961,13 @@ export function useAppController(): AppController {
             return;
           }
 
-          const currentIndex = rows.findIndex(
-            (r) => r.segment.id === segmentId,
-          );
-          const nextRow = rows[currentIndex + 1] ?? rows[currentIndex] ?? null;
+          // Where to go next is the translator's rhythm, not document order:
+          // Ctrl+Enter skips what is already done, Alt walks strictly forward,
+          // Shift holds position.
+          const advanceTo = nextSegmentAfterConfirm(rows, segmentId, mode);
+          const nextRow = advanceTo
+            ? (rows.find((r) => r.segment.id === advanceTo) ?? null)
+            : null;
           const nextId = nextRow?.segment.id ?? segmentId;
           dispatch({
             type: "PATCH_WORKBENCH",
@@ -1749,6 +1980,25 @@ export function useAppController(): AppController {
               activeSegmentId: nextId,
               focusSegmentId: nextId,
               pendingConfirm: false,
+              // Say what the confirmation did beyond this segment. Silent
+              // propagation is how a document ends up full of drafts nobody
+              // knows arrived.
+              propagatedFrom:
+                result.propagated && result.propagated.length > 0
+                  ? {
+                      segmentId,
+                      count: result.propagated.length,
+                      otherFiles: new Set(
+                        result.propagated
+                          .filter(
+                            (item) =>
+                              item.documentId !==
+                              nextSurface.ctx.document.id,
+                          )
+                          .map((item) => item.documentId),
+                      ).size,
+                    }
+                  : null,
             },
           });
           // Confirmed segment is durable; drop any pending recovery for it.
@@ -1775,6 +2025,530 @@ export function useAppController(): AppController {
         }
       },
 
+      // A match a translator can read but not use is worse than no match: it
+      // shows the answer and then asks them to retype it.
+      applyTmMatch: (match) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "workbench") return;
+        if (!surface.activeSegmentId) return;
+        if (saveCoordinator.active?.isComposing) return;
+        saveCoordinator.updateDraft(match.unit.targetText);
+      },
+
+      // Terms and placeables go in where the caret is, not at the end. The
+      // editor owns the selection, so it is asked rather than guessed at.
+      insertAtCaret: (text) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "workbench") return;
+        const active = saveCoordinator.active;
+        if (!active || active.isComposing) return;
+        const selection = readSegmentSelection(active.segmentId);
+        const row = surface.ctx.rows.find((item) => item.segment.id === active.segmentId);
+        const surfaceEl = targetSurfaceFor(active.segmentId);
+        const live =
+          surfaceEl &&
+          typeof document !== "undefined" &&
+          document.activeElement === surfaceEl
+            ? serializeTaggedEditor(surfaceEl)
+            : {
+                text: active.draftTarget,
+                tags: row?.targetTags ?? [],
+              };
+        const next = replaceSelectionInTagged(
+          live.text,
+          live.tags,
+          selection.targetStart,
+          selection.targetEnd,
+          text,
+        );
+        saveCoordinator.updateDraft(next.text);
+        if (row && !tagsEqual(next.tags, row.targetTags)) {
+          dispatch({
+            type: "PATCH_WORKBENCH",
+            patch: {
+              ctx: {
+                ...surface.ctx,
+                rows: withRowTags(surface.ctx.rows, active.segmentId, next.tags),
+              },
+            },
+          });
+          void writeTargetTags(next.tags);
+        }
+        const caret = selection.targetStart + [...text].length;
+        requestAnimationFrame(() => {
+          const tagged = targetSurfaceFor(active.segmentId);
+          if (tagged) {
+            tagged.focus();
+            setCaretInTaggedEditor(tagged, caret);
+            return;
+          }
+          const element = targetEditorFor(active.segmentId);
+          if (element) {
+            element.focus();
+            element.setSelectionRange(caret, caret);
+          }
+        });
+      },
+
+      // Concordance answers a question the translator asks, so it runs on their
+      // selection, not on whatever the caret happens to sit in.
+      runConcordance: (query, selection) => {
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "workbench") return;
+        const segmentId = surface.activeSegmentId;
+        if (!segmentId) return;
+        const row = surface.ctx.rows.find((r) => r.segment.id === segmentId);
+        if (!row) return;
+        const phrase = (
+          query ??
+          concordanceQueryFor(
+            selection ?? readSegmentSelection(segmentId),
+            row.segment.sourceText,
+          )
+        ).trim();
+        if (!phrase) return;
+        const projectId = surface.ctx.project.id;
+        dispatch({
+          type: "PATCH_SEGMENT_INTEL",
+          segmentId,
+          patch: {
+            concordance: {
+              query: phrase,
+              hits: [],
+              loading: true,
+              error: null,
+            },
+          },
+        });
+        void (async () => {
+          try {
+            const result = await invokeEngine("tm.concordance", {
+              projectId,
+              query: phrase,
+              side: "both",
+              offset: 0,
+              limit: 20,
+            });
+            dispatch({
+              type: "PATCH_SEGMENT_INTEL",
+              segmentId,
+              patch: {
+                concordance: {
+                  query: phrase,
+                  hits: result.hits,
+                  loading: false,
+                  error: null,
+                },
+              },
+            });
+          } catch (error) {
+            dispatch({
+              type: "PATCH_SEGMENT_INTEL",
+              segmentId,
+              patch: {
+                concordance: {
+                  query: phrase,
+                  hits: [],
+                  loading: false,
+                  error: toUiError(error),
+                },
+              },
+            });
+          }
+        })();
+      },
+
+      searchTerms: async (query) => {
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "workbench") return [];
+        const text = query.trim();
+        if (!text) return [];
+        const result = await invokeEngine("term.search", {
+          projectId: surface.ctx.project.id,
+          text,
+          offset: 0,
+          limit: 40,
+        });
+        return result.matches;
+      },
+
+      // The shortest path from deciding a translation to the termbase knowing
+      // it. Anything longer and the asset never gets built.
+      quickAddTerm: async (selection) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "workbench") return;
+        const segmentId = surface.activeSegmentId;
+        if (!segmentId) return;
+        // The selection comes from the view, which remembers each side: the
+        // source and the target can never be highlighted at the same instant.
+        if (!canStoreTerm(selection)) return;
+        const project = surface.ctx.project;
+        try {
+          const termbases = await invokeEngine("termbase.list", {
+            projectId: project.id,
+            offset: 0,
+            limit: 50,
+          });
+          let picked = pickWritableTermbase(termbases);
+          if (!picked) {
+            const created = await invokeEngine("termbase.create", {
+              name: `${project.name} terms`,
+              sourceLocale: project.sourceLocale,
+              writable: true,
+            });
+            await invokeEngine("termbase.mount", {
+              projectId: project.id,
+              termbaseId: created.id,
+              priority: 0,
+              writable: true,
+              enabled: true,
+            });
+            picked = { termbaseId: created.id, needsMount: false };
+          } else if (picked.needsMount) {
+            await invokeEngine("termbase.mount", {
+              projectId: project.id,
+              termbaseId: picked.termbaseId,
+              priority: 0,
+              writable: true,
+              enabled: true,
+            });
+          }
+          const termbaseId = picked.termbaseId;
+          await invokeEngine("term.upsert", {
+            termbaseId,
+            sourceLocale: project.sourceLocale,
+            sourceTerm: selection.source,
+            translations: [
+              {
+                locale: project.targetLocale,
+                term: selection.target,
+                preferred: true,
+              },
+            ],
+          });
+          // Re-ask the terminology dock so the new entry appears immediately:
+          // sedimentation the translator cannot see is indistinguishable from
+          // sedimentation that did not happen.
+          const refreshed = await invokeEngine("term.search", {
+            projectId: project.id,
+            text:
+              surface.ctx.rows.find((r) => r.segment.id === segmentId)?.segment
+                .sourceText ?? selection.source,
+            offset: 0,
+            limit: 40,
+          });
+          dispatch({
+            type: "PATCH_SEGMENT_INTEL",
+            segmentId,
+            patch: {
+              terms: {
+                matches: refreshed.matches,
+                loading: false,
+                error: null,
+              },
+            },
+          });
+        } catch (error) {
+          dispatch({
+            type: "PATCH_WORKBENCH",
+            patch: { transitionError: toUiError(error) },
+          });
+        }
+      },
+
+      // Numbers, product codes and code-like sentences are faster to edit than
+      // to retype, which is why every CAT tool binds this.
+      copySourceToTarget: () => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "workbench") return;
+        const segmentId = surface.activeSegmentId;
+        if (!segmentId) return;
+        if (saveCoordinator.active?.isComposing) return;
+        const row = surface.ctx.rows.find((r) => r.segment.id === segmentId);
+        if (!row) return;
+        const copied = copySourceTagsToTarget(row.sourceTags);
+        dispatch({
+          type: "PATCH_WORKBENCH",
+          patch: {
+            ctx: {
+              ...surface.ctx,
+              rows: withRowTags(surface.ctx.rows, segmentId, copied),
+            },
+          },
+        });
+        saveCoordinator.updateDraft(row.segment.sourceText);
+        void writeTargetTags(copied);
+      },
+
+      clearTarget: () => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "workbench") return;
+        const segmentId = surface.activeSegmentId;
+        if (!segmentId) return;
+        if (saveCoordinator.active?.isComposing) return;
+        dispatch({
+          type: "PATCH_WORKBENCH",
+          patch: {
+            ctx: {
+              ...surface.ctx,
+              rows: withRowTags(surface.ctx.rows, segmentId, []),
+            },
+          },
+        });
+        saveCoordinator.updateDraft("");
+        void writeTargetTags([]);
+      },
+
+      // Swap the partially typed word for the completion, leaving the caret
+      // after it so typing simply continues.
+      // Fill every empty target from memory. Exact and high-fuzzy hits become
+      // drafts the translator still has to confirm; confirmed rows are never
+      // overwritten. This is the start of a job, not the end of one.
+      pretranslateDocument: async () => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "workbench") return;
+        if (surface.pendingConfirm) return;
+        dispatch({
+          type: "PATCH_WORKBENCH",
+          patch: { pretranslatePending: true, transitionError: null },
+        });
+        try {
+          const project = surface.ctx.project;
+          const documentId = surface.ctx.document.id;
+          // Always start from Engine truth. The grid cache can still hold a
+          // draft the translator just cleared, and we must not skip those.
+          const { rows: freshRows } = await listAllEditorRows(documentId);
+          let filled = 0;
+          for (const row of freshRows) {
+            if (row.segment.targetText.trim().length > 0) continue;
+            if (row.segment.state === "confirmed") continue;
+            const result = await invokeEngine("tm.search", {
+              projectId: project.id,
+              sourceLocale: project.sourceLocale,
+              targetLocale: project.targetLocale,
+              query: row.segment.sourceText,
+              threshold: 70,
+              offset: 0,
+              limit: 3,
+            });
+            const match = result.matches.find(
+              (item) =>
+                item.score >= 85 ||
+                item.kind === "exact" ||
+                item.kind === "context",
+            );
+            if (!match) continue;
+            await invokeEngine("segment.updateTarget", {
+              segmentId: row.segment.id,
+              expectedRevision: row.segment.revision,
+              targetText: match.unit.targetText,
+            });
+            filled += 1;
+          }
+          const { rows } = await listAllEditorRows(documentId);
+          const current = stateRef.current.surface;
+          if (current.kind !== "workbench") return;
+          dispatch({
+            type: "PATCH_WORKBENCH",
+            patch: {
+              ctx: {
+                ...current.ctx,
+                rows,
+                counts: countsFromRows(rows),
+              },
+              pretranslatePending: false,
+              propagatedFrom:
+                filled > 0
+                  ? { segmentId: current.activeSegmentId ?? "", count: filled }
+                  : null,
+            },
+          });
+        } catch (error) {
+          if (stateRef.current.surface.kind === "workbench") {
+            dispatch({
+              type: "PATCH_WORKBENCH",
+              patch: {
+                pretranslatePending: false,
+                transitionError: toUiError(error),
+              },
+            });
+          }
+        }
+      },
+
+      applyAiProposal: (text) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const active = saveCoordinator.active;
+        if (!active || active.isComposing) return;
+        saveCoordinator.updateDraft(text);
+      },
+
+      // Carry the source's protected tags onto the current target, scaled to
+      // the target length. This is QuickPlace for the common case: the
+      // formatting spans the same relative stretch of the sentence.
+      placeSourceTags: async () => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "workbench") return;
+        const segmentId = surface.activeSegmentId;
+        if (!segmentId) return;
+        const row = surface.ctx.rows.find((r) => r.segment.id === segmentId);
+        if (!row || row.sourceTags.length === 0) return;
+        const active = saveCoordinator.active;
+        if (active?.isComposing) return;
+        if (active && active.segmentId === segmentId) {
+          await saveCoordinator.flush();
+        }
+        const current = stateRef.current.surface;
+        if (current.kind !== "workbench") return;
+        try {
+          // Re-read after flush so expectedRevision matches Engine truth.
+          const { rows: freshRows } = await listAllEditorRows(
+            current.ctx.document.id,
+          );
+          const fresh = freshRows.find((r) => r.segment.id === segmentId);
+          if (!fresh || fresh.sourceTags.length === 0) return;
+          const targetLength = [...fresh.segment.targetText].length;
+          const sourceLength = Math.max(
+            [...fresh.segment.sourceText].length,
+            1,
+          );
+          const surfaceEl = targetSurfaceFor(segmentId);
+          const selection = readSegmentSelection(segmentId);
+          const { pairs } = pairSourceTags(fresh.sourceTags);
+          const pair = pairs[0];
+          const targetTags =
+            selection.targetStart !== selection.targetEnd && pair
+              ? mergeTargetTags(
+                  fresh.targetTags,
+                  wrapSelectionWithTagPair(
+                    pair.start,
+                    pair.end,
+                    selection.targetStart,
+                    selection.targetEnd,
+                  ),
+                )
+              : surfaceEl && document.activeElement === surfaceEl
+                ? placeSourceTagsAtCaret(fresh.sourceTags, selection.targetStart)
+                : placeSourceTagsProportional(
+                    fresh.sourceTags,
+                    sourceLength,
+                    targetLength,
+                  );
+          const result = await invokeEngine("segment.tag.set", {
+            segmentId,
+            expectedRevision: fresh.segment.revision,
+            targetTags,
+          });
+          const { rows } = await listAllEditorRows(current.ctx.document.id);
+          const next = stateRef.current.surface;
+          if (next.kind !== "workbench") return;
+          dispatch({
+            type: "PATCH_WORKBENCH",
+            patch: {
+              ctx: {
+                ...next.ctx,
+                rows,
+                counts: result.counts ?? countsFromRows(rows),
+              },
+            },
+          });
+        } catch (error) {
+          dispatch({
+            type: "PATCH_WORKBENCH",
+            patch: { transitionError: toUiError(error) },
+          });
+        }
+      },
+
+      persistTargetTags: (tags) => writeTargetTags(tags),
+
+      setWorkflow: async (segmentId, state, reason) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "workbench") return;
+        const row = surface.ctx.rows.find((item) => item.segment.id === segmentId);
+        if (!row || row.workflowState === state) return;
+        if (saveCoordinator.active?.isComposing) return;
+        if (saveCoordinator.active?.segmentId === segmentId) {
+          const ok = await flushOrStay();
+          if (!ok) return;
+        }
+        const current = stateRef.current.surface;
+        if (current.kind !== "workbench") return;
+        const fresh = current.ctx.rows.find((item) => item.segment.id === segmentId);
+        if (!fresh) return;
+        try {
+          const result = await invokeEngine("segment.workflow.set", {
+            segmentId,
+            expectedRevision: fresh.segment.revision,
+            state,
+            actor: DESKTOP_ACTOR,
+            ...(reason ? { reason } : {}),
+          });
+          const { rows } = await listAllEditorRows(current.ctx.document.id);
+          const next = stateRef.current.surface;
+          if (next.kind !== "workbench") return;
+          dispatch({
+            type: "PATCH_WORKBENCH",
+            patch: {
+              ctx: {
+                ...next.ctx,
+                rows,
+                counts: result.counts ?? countsFromRows(rows),
+              },
+            },
+          });
+        } catch (error) {
+          dispatch({
+            type: "PATCH_WORKBENCH",
+            patch: { transitionError: toUiError(error) },
+          });
+        }
+      },
+
+      acceptSuggestion: (text, prefix) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const active = saveCoordinator.active;
+        if (!active) return;
+        const current = active.draftTarget;
+        const surface = targetSurfaceFor(active.segmentId);
+        const element = targetEditorFor(active.segmentId);
+        const view = surface?.ownerDocument.defaultView ?? window;
+        const caret =
+          surface && view.document.activeElement === surface
+            ? caretOffsetsInTaggedEditor(surface, view.getSelection()).end
+            : codePointCaretFromUtf16(
+                current,
+                element?.selectionStart ?? current.length,
+              );
+        // Only replace when the text really does end with the prefix the host
+        // completed: a late keystroke could have moved the caret since.
+        const spliced = spliceAtCaret(current, caret, text, prefix);
+        saveCoordinator.updateDraft(spliced.next);
+        requestAnimationFrame(() => {
+          const tagged = targetSurfaceFor(active.segmentId);
+          if (tagged) {
+            tagged.focus();
+            setCaretInTaggedEditor(tagged, spliced.caret);
+            return;
+          }
+          if (element) {
+            const utf16 = [...spliced.next]
+              .slice(0, spliced.caret)
+              .join("").length;
+            element.focus();
+            element.setSelectionRange(utf16, utf16);
+          }
+        });
+      },
+
       toggleTmPanel: () => {
         const surface = stateRef.current.surface;
         if (surface.kind !== "workbench") return;
@@ -1784,6 +2558,62 @@ export function useAppController(): AppController {
           type: "PATCH_WORKBENCH",
           patch: { tmCollapsed: next },
         });
+      },
+
+      setJobScope: async (scope) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind === "qa") {
+          if (surface.scope === scope) return;
+          const loadOp = ++qaLoadOpRef.current;
+          dispatch({
+            type: "PATCH_QA",
+            patch: { scope, loading: true, error: null },
+          });
+          try {
+            const issues = await invokeEngine(
+              "qa.issue.list",
+              qaListParams(
+                surface.ctx.project.id,
+                scope,
+                surface.ctx.document.id,
+              ),
+            );
+            if (qaLoadOpRef.current !== loadOp) return;
+            if (stateRef.current.surface.kind !== "qa") return;
+            dispatch({
+              type: "PATCH_QA",
+              patch: {
+                issues: issues.items,
+                issuesLoaded: true,
+                loading: false,
+                error: null,
+              },
+            });
+          } catch (error) {
+            if (qaLoadOpRef.current !== loadOp) return;
+            if (stateRef.current.surface.kind !== "qa") return;
+            dispatch({
+              type: "PATCH_QA",
+              patch: { loading: false, error: toUiError(error) },
+            });
+          }
+          return;
+        }
+        if (surface.kind === "export") {
+          if (surface.scope === scope) return;
+          dispatch({
+            type: "PATCH_EXPORT",
+            patch: {
+              scope,
+              gate: null,
+              blockedFiles: [],
+              resultPath: null,
+              resultFiles: [],
+              error: null,
+            },
+          });
+        }
       },
 
       goQa: async () => {
@@ -1805,6 +2635,7 @@ export function useAppController(): AppController {
             ? current.ctx
             : null;
         if (!ctx) return;
+        const scope = scopeFromSurface(current);
         const priorIssues = current.kind === "qa" ? current.issues : [];
         const priorLoaded =
           current.kind === "qa" ? current.issuesLoaded : false;
@@ -1820,18 +2651,17 @@ export function useAppController(): AppController {
             run: priorRun,
             loading: true,
             error: null,
+            scope,
           },
         });
         // Always fetch authoritative list on entry/re-entry.
         // Use SET_SURFACE (not PATCH_QA) so a sync Engine response cannot
         // race the reducer before surface.kind becomes "qa".
         try {
-          const issues = await invokeEngine("qa.issue.list", {
-            projectId: ctx.project.id,
-            documentId: ctx.document.id,
-            limit: PAGE_LIMIT,
-            offset: 0,
-          });
+          const issues = await invokeEngine(
+            "qa.issue.list",
+            qaListParams(ctx.project.id, scope, ctx.document.id),
+          );
           if (qaLoadOpRef.current !== loadOp) return;
           dispatch({
             type: "SET_SURFACE",
@@ -1843,6 +2673,7 @@ export function useAppController(): AppController {
               run: priorRun,
               loading: false,
               error: null,
+              scope,
             },
           });
         } catch (error) {
@@ -1857,6 +2688,7 @@ export function useAppController(): AppController {
               run: priorRun,
               loading: false,
               error: toUiError(error),
+              scope,
             },
           });
         }
@@ -1871,16 +2703,22 @@ export function useAppController(): AppController {
           patch: { loading: true, error: null },
         });
         try {
+          const documentId = qaDocumentFilter(
+            surface.scope,
+            surface.ctx.document.id,
+          );
           const run = await invokeEngine("qa.run", {
             projectId: surface.ctx.project.id,
-            documentId: surface.ctx.document.id,
+            ...(documentId ? { documentId } : {}),
           });
-          const issues = await invokeEngine("qa.issue.list", {
-            projectId: surface.ctx.project.id,
-            documentId: surface.ctx.document.id,
-            limit: PAGE_LIMIT,
-            offset: 0,
-          });
+          const issues = await invokeEngine(
+            "qa.issue.list",
+            qaListParams(
+              surface.ctx.project.id,
+              surface.scope,
+              surface.ctx.document.id,
+            ),
+          );
           if (stateRef.current.surface.kind !== "qa") return;
           dispatch({
             type: "PATCH_QA",
@@ -1901,17 +2739,108 @@ export function useAppController(): AppController {
         }
       },
 
-      jumpToIssue: (segmentId) => {
-        if (!stateRef.current.mutationsEnabled) return Promise.resolve();
+      // A false positive must have an exit that is recorded rather than a
+      // workaround that is not. Waiving keeps the finding, stops it blocking
+      // export, and stores who decided and why.
+      waiveQaIssue: async (issueId, reason) => {
+        if (!stateRef.current.mutationsEnabled) return false;
         const surface = stateRef.current.surface;
-        if (surface.kind !== "qa") return Promise.resolve();
-        const exists = surface.ctx.rows.some((r) => r.segment.id === segmentId);
-        if (!exists) return Promise.resolve();
-        enterWorkbench(surface.ctx, {
-          focusSegmentId: segmentId,
-          persistSession: true,
-        });
-        return Promise.resolve();
+        if (surface.kind !== "qa") return false;
+        try {
+          await invokeEngine("qa.issue.waive", {
+            issueId,
+            actor: DESKTOP_ACTOR,
+            reason,
+          });
+          await invokeEngine(
+            "qa.issue.list",
+            qaListParams(
+              surface.ctx.project.id,
+              surface.scope,
+              surface.ctx.document.id,
+            ),
+          ).then((issues) => {
+            if (stateRef.current.surface.kind !== "qa") return;
+            dispatch({
+              type: "PATCH_QA",
+              patch: { issues: issues.items, issuesLoaded: true, error: null },
+            });
+          });
+          return true;
+        } catch (error) {
+          dispatch({ type: "PATCH_QA", patch: { error: toUiError(error) } });
+          return false;
+        }
+      },
+
+      revokeQaWaiver: async (issueId) => {
+        if (!stateRef.current.mutationsEnabled) return false;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "qa") return false;
+        const waiver = surface.issues.find(
+          (issue) => issue.id === issueId,
+        )?.waiver;
+        if (!waiver) return false;
+        try {
+          await invokeEngine("qa.issue.revoke", {
+            issueId,
+            expectedRevision: waiver.revision,
+          });
+          await invokeEngine(
+            "qa.issue.list",
+            qaListParams(
+              surface.ctx.project.id,
+              surface.scope,
+              surface.ctx.document.id,
+            ),
+          ).then((issues) => {
+            if (stateRef.current.surface.kind !== "qa") return;
+            dispatch({
+              type: "PATCH_QA",
+              patch: { issues: issues.items, issuesLoaded: true, error: null },
+            });
+          });
+          return true;
+        } catch (error) {
+          dispatch({ type: "PATCH_QA", patch: { error: toUiError(error) } });
+          return false;
+        }
+      },
+
+      jumpToIssue: async (segmentId, documentId) => {
+        if (!stateRef.current.mutationsEnabled) return;
+        const surface = stateRef.current.surface;
+        if (surface.kind !== "qa") return;
+        const targetDoc =
+          documentId ??
+          surface.issues.find((issue) => issue.segmentId === segmentId)
+            ?.documentId ??
+          surface.ctx.document.id;
+        try {
+          if (targetDoc === surface.ctx.document.id) {
+            const exists = surface.ctx.rows.some(
+              (row) => row.segment.id === segmentId,
+            );
+            if (!exists) return;
+            enterWorkbench(surface.ctx, {
+              focusSegmentId: segmentId,
+              persistSession: true,
+            });
+            return;
+          }
+          const session = makeSession(surface.ctx.project.id, targetDoc);
+          const ctx = await hydrateSession(session);
+          enterWorkbench(ctx, {
+            focusSegmentId: segmentId,
+            persistSession: true,
+          });
+        } catch (error) {
+          if (stateRef.current.surface.kind !== "qa") return;
+          dispatch({
+            type: "PATCH_QA",
+            patch: { error: toUiError(error) },
+          });
+        }
       },
 
       goExport: async () => {
@@ -1929,6 +2858,7 @@ export function useAppController(): AppController {
         else if (current.kind === "qa") ctx = current.ctx;
         else if (current.kind === "export") ctx = current.ctx;
         if (!ctx) return;
+        const scope = scopeFromSurface(current);
         dispatch({
           type: "SET_SURFACE",
           surface: {
@@ -1939,6 +2869,9 @@ export function useAppController(): AppController {
             exporting: false,
             error: null,
             resultPath: null,
+            scope,
+            blockedFiles: [],
+            resultFiles: [],
           },
         });
       },
@@ -1950,17 +2883,59 @@ export function useAppController(): AppController {
         if (surface.exporting || surface.loading) return;
         dispatch({
           type: "PATCH_EXPORT",
-          patch: { loading: true, error: null, resultPath: null },
+          patch: {
+            loading: true,
+            error: null,
+            resultPath: null,
+            resultFiles: [],
+            blockedFiles: [],
+          },
         });
         try {
-          const gate = await invokeEngine("qa.gate.check", {
-            projectId: surface.ctx.project.id,
-            documentId: surface.ctx.document.id,
-          });
+          const docs = documentsForScope(
+            surface.scope,
+            surface.ctx.documents,
+            surface.ctx.document,
+          );
+          const gates = [];
+          for (const doc of docs) {
+            gates.push(
+              await invokeEngine("qa.gate.check", {
+                projectId: surface.ctx.project.id,
+                documentId: doc.id,
+              }),
+            );
+          }
           if (stateRef.current.surface.kind !== "export") return;
+          const blocked = gates.filter((item) => !item.clear);
+          const gate = {
+            clear: blocked.length === 0,
+            documentId: blocked[0]?.documentId ?? docs[0]!.id,
+            errorCount: gates.reduce((sum, item) => sum + item.errorCount, 0),
+            warningCount: gates.reduce(
+              (sum, item) => sum + item.warningCount,
+              0,
+            ),
+            infoCount: gates.reduce((sum, item) => sum + item.infoCount, 0),
+            waivedCount: gates.reduce((sum, item) => sum + item.waivedCount, 0),
+            blockerIssueIds: gates.flatMap((item) => item.blockerIssueIds),
+            run: (blocked[0] ?? gates[0]!).run,
+          };
+          const blockedFiles = blocked.map((item) => {
+            const doc =
+              docs.find((entry) => entry.id === item.documentId) ??
+              surface.ctx.documents.find(
+                (entry) => entry.id === item.documentId,
+              );
+            return {
+              id: item.documentId,
+              name: doc?.name ?? item.documentId,
+              errorCount: item.errorCount,
+            };
+          });
           dispatch({
             type: "PATCH_EXPORT",
-            patch: { gate, loading: false },
+            patch: { gate, loading: false, blockedFiles },
           });
           if (!gate.clear) {
             return;
@@ -1969,7 +2944,7 @@ export function useAppController(): AppController {
             type: "PATCH_EXPORT",
             patch: { exporting: true },
           });
-          const suggested = `${surface.ctx.document.name || "export"}.out`;
+          const suggested = `${docs[0]?.name || "export"}.out`;
           const path = await desktopApi().selectExportPath(suggested);
           if (!path) {
             dispatch({
@@ -1978,16 +2953,44 @@ export function useAppController(): AppController {
             });
             return;
           }
-          const result = await invokeEngine("document.export", {
-            documentId: surface.ctx.document.id,
-            outputPath: path,
-          });
+          if (docs.length === 1) {
+            const result = await invokeEngine("document.export", {
+              documentId: docs[0]!.id,
+              outputPath: path,
+            });
+            if (stateRef.current.surface.kind !== "export") return;
+            dispatch({
+              type: "PATCH_EXPORT",
+              patch: {
+                exporting: false,
+                resultPath: result.outputPath,
+                resultFiles: [
+                  { name: docs[0]!.name, path: result.outputPath },
+                ],
+                error: null,
+              },
+            });
+            return;
+          }
+          const { dir, sep } = splitExportPath(path);
+          const used = new Set<string>();
+          const resultFiles: Array<{ name: string; path: string }> = [];
+          for (const doc of docs) {
+            const fileName = uniqueExportFileName(doc.name, used, doc.id);
+            const outputPath = joinExportPath(dir, fileName, sep);
+            const result = await invokeEngine("document.export", {
+              documentId: doc.id,
+              outputPath,
+            });
+            resultFiles.push({ name: doc.name, path: result.outputPath });
+          }
           if (stateRef.current.surface.kind !== "export") return;
           dispatch({
             type: "PATCH_EXPORT",
             patch: {
               exporting: false,
-              resultPath: result.outputPath,
+              resultPath: resultFiles[0]?.path ?? path,
+              resultFiles,
               error: null,
             },
           });
@@ -2134,6 +3137,7 @@ export function useAppController(): AppController {
             projectId,
             atomicity: "bestEffort",
             items: paths.map((path) => ({ path })),
+            options: toBatchImportOptions(),
           });
           if (!isOpCurrent(op, importOpRef)) return;
           let documents = surface.ctx.documents;

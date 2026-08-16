@@ -5,6 +5,7 @@ import type {
   CurationPolicy,
 } from "@translunar/contracts";
 
+import { exchangeFormatFromPath } from "../lib/exchange-format";
 import { toUiError } from "../lib/errors";
 import { desktopApi, invokeEngine } from "../lib/rpc";
 import {
@@ -78,6 +79,7 @@ export interface AssetControllerApi {
   setConcordanceQuery: (q: string) => void;
   runConcordance: (offset?: number) => Promise<void>;
   exportTm: (libraryId: string, format: AssetExchangeFormat) => Promise<void>;
+  importTm: (libraryId: string) => Promise<void>;
   // Termbase
   setTbCreateName: (name: string) => void;
   createTermbase: () => Promise<void>;
@@ -92,10 +94,14 @@ export interface AssetControllerApi {
     patch: Partial<AssetControllerState["termbase"]["upsert"]>,
   ) => void;
   upsertTerm: () => Promise<void>;
+  setExtractDocumentId: (documentId: string) => void;
+  extractTerms: () => Promise<void>;
+  acceptExtractedTerm: (sourceTerm: string, translation: string) => void;
   exportTermbase: (
     termbaseId: string,
     format: AssetExchangeFormat,
   ) => Promise<void>;
+  importTermbase: (termbaseId: string) => Promise<void>;
   // Alignment
   setAlignmentCreate: (
     patch: Partial<AssetControllerState["alignment"]["create"]>,
@@ -962,6 +968,85 @@ export function useAssetController(
       }
     },
 
+    importTm: async (libraryId) => {
+      const projectId = projectIdRef.current;
+      const g = gatewayRef.current;
+      if (!g.mutationsEnabled) return;
+      const opId = beginMut("tm");
+      if (opId === null) return;
+      setState((s) => ({
+        ...s,
+        tm: {
+          ...s.tm,
+          exchange: {
+            status: "importing",
+            libraryId,
+            message: null,
+            diagnostics: [],
+            error: null,
+          },
+        },
+      }));
+      try {
+        const path = await desktopApi().selectExchangeInput("tm");
+        if (!path) {
+          if (!isMutCurrent("tm", opId, projectId)) return;
+          setState((s) => ({
+            ...s,
+            tm: {
+              ...s.tm,
+              exchange: {
+                status: "idle",
+                libraryId: null,
+                message: null,
+                diagnostics: [],
+                error: null,
+              },
+            },
+          }));
+          return;
+        }
+        const result = await invokeEngine("tm.import", {
+          libraryId,
+          format: exchangeFormatFromPath(path, "tm"),
+          sourcePath: path,
+          sourceLocale: g.sourceLocale,
+          targetLocale: g.targetLocale,
+        });
+        if (!isMutCurrent("tm", opId, projectId)) return;
+        setState((s) => ({
+          ...s,
+          tm: {
+            ...s.tm,
+            exchange: {
+              status: "result",
+              libraryId,
+              message: `${result.inserted} units imported (${result.skipped} skipped)`,
+              diagnostics: result.diagnostics,
+              error: null,
+            },
+          },
+        }));
+      } catch (error) {
+        if (!isMutCurrent("tm", opId, projectId)) return;
+        setState((s) => ({
+          ...s,
+          tm: {
+            ...s.tm,
+            exchange: {
+              status: "error",
+              libraryId,
+              message: null,
+              diagnostics: [],
+              error: toUiError(error),
+            },
+          },
+        }));
+      } finally {
+        endMut("tm", opId, projectId);
+      }
+    },
+
     setTbCreateName: (name) =>
       setState((s) => ({
         ...s,
@@ -1147,6 +1232,105 @@ export function useAssetController(
       }
     },
 
+    setExtractDocumentId: (documentId) =>
+      setState((s) => ({
+        ...s,
+        termbase: {
+          ...s.termbase,
+          extract: { ...s.termbase.extract, documentId },
+        },
+      })),
+
+    extractTerms: async () => {
+      const projectId = projectIdRef.current;
+      const documentId =
+        stateRef.current.termbase.extract.documentId ||
+        stateRef.current.documents[0]?.id ||
+        "";
+      if (!documentId) {
+        setState((s) => ({
+          ...s,
+          termbase: {
+            ...s.termbase,
+            extract: {
+              ...s.termbase.extract,
+              error: {
+                code: "NO_DOCUMENT",
+                message: "Choose a document to extract terms from.",
+                kind: "domain",
+              },
+            },
+          },
+        }));
+        return;
+      }
+      const opId = beginMut("termbase");
+      if (opId === null) return;
+      setState((s) => ({
+        ...s,
+        termbase: {
+          ...s.termbase,
+          extract: {
+            ...s.termbase.extract,
+            documentId,
+            pending: true,
+            error: null,
+          },
+        },
+      }));
+      try {
+        const report = await invokeEngine("ai.quality.extractTerms", {
+          documentId,
+        });
+        if (!isMutCurrent("termbase", opId, projectId)) return;
+        setState((s) => ({
+          ...s,
+          termbase: {
+            ...s.termbase,
+            extract: {
+              ...s.termbase.extract,
+              pending: false,
+              candidates: report.candidates,
+            },
+          },
+        }));
+      } catch (error) {
+        if (!isMutCurrent("termbase", opId, projectId)) return;
+        setState((s) => ({
+          ...s,
+          termbase: {
+            ...s.termbase,
+            extract: {
+              ...s.termbase.extract,
+              pending: false,
+              error: toUiError(error),
+            },
+          },
+        }));
+      } finally {
+        endMut("termbase", opId, projectId);
+      }
+    },
+
+    acceptExtractedTerm: (sourceTerm, translation) => {
+      const termbaseId =
+        stateRef.current.termbase.upsert.termbaseId ||
+        stateRef.current.termbase.termbases.items[0]?.id ||
+        "";
+      setState((s) => ({
+        ...s,
+        termbase: {
+          ...s.termbase,
+          upsert: {
+            ...s.termbase.upsert,
+            termbaseId,
+            sourceTerm,
+            translation,
+          },
+        },
+      }));
+    },
+
     setUpsertField: (patch) =>
       setState((s) => ({
         ...s,
@@ -1282,6 +1466,85 @@ export function useAssetController(
               termbaseId,
               message: `${result.entryCount} entries → ${result.outputPath}`,
               diagnostics: [],
+              error: null,
+            },
+          },
+        }));
+      } catch (error) {
+        if (!isMutCurrent("termbase", opId, projectId)) return;
+        setState((s) => ({
+          ...s,
+          termbase: {
+            ...s.termbase,
+            exchange: {
+              status: "error",
+              termbaseId,
+              message: null,
+              diagnostics: [],
+              error: toUiError(error),
+            },
+          },
+        }));
+      } finally {
+        endMut("termbase", opId, projectId);
+      }
+    },
+
+    importTermbase: async (termbaseId) => {
+      const projectId = projectIdRef.current;
+      const g = gatewayRef.current;
+      if (!g.mutationsEnabled) return;
+      const opId = beginMut("termbase");
+      if (opId === null) return;
+      setState((s) => ({
+        ...s,
+        termbase: {
+          ...s.termbase,
+          exchange: {
+            status: "importing",
+            termbaseId,
+            message: null,
+            diagnostics: [],
+            error: null,
+          },
+        },
+      }));
+      try {
+        const path = await desktopApi().selectExchangeInput("termbase");
+        if (!path) {
+          if (!isMutCurrent("termbase", opId, projectId)) return;
+          setState((s) => ({
+            ...s,
+            termbase: {
+              ...s.termbase,
+              exchange: {
+                status: "idle",
+                termbaseId: null,
+                message: null,
+                diagnostics: [],
+                error: null,
+              },
+            },
+          }));
+          return;
+        }
+        const result = await invokeEngine("termbase.import", {
+          termbaseId,
+          format: exchangeFormatFromPath(path, "termbase"),
+          sourcePath: path,
+          sourceLocale: g.sourceLocale,
+          targetLocale: g.targetLocale,
+        });
+        if (!isMutCurrent("termbase", opId, projectId)) return;
+        setState((s) => ({
+          ...s,
+          termbase: {
+            ...s.termbase,
+            exchange: {
+              status: "result",
+              termbaseId,
+              message: `${result.inserted} entries imported (${result.skipped} skipped)`,
+              diagnostics: result.diagnostics,
               error: null,
             },
           },

@@ -4259,7 +4259,10 @@ impl Store {
                 "DELETE FROM inline_tags WHERE segment_id = ?1 AND side = 'target'",
                 [&candidate.id],
             )?;
-            insert_target_tags(&transaction, &candidate.id, &source_tags)?;
+            let candidate_source_tags =
+                list_inline_tags(&transaction, &candidate.id, TagSide::Source)?;
+            let candidate_tags = retarget_tags_for_segment(&source_tags, &candidate_source_tags);
+            insert_target_tags(&transaction, &candidate.id, &candidate_tags)?;
             let updated = find_segment(&transaction, &candidate.id)?;
             let operation = append_operation(
                 &transaction,
@@ -5854,7 +5857,22 @@ impl Store {
         let source_history_before = capture_structural_history(&transaction, [segment_id])?;
         let source_tags = list_inline_tags(&transaction, segment_id, TagSide::Source)?;
         let mut target_tags = list_inline_tags(&transaction, segment_id, TagSide::Target)?;
-        if target_tags.is_empty() && !source_tags.is_empty() {
+        // Carry the source tags into an untagged target only when doing so
+        // cannot invent a formatting decision: that is the case when the source
+        // is a single pair spanning the whole sentence, where the only faithful
+        // placement is "the whole target". Spreading an arbitrary tag set
+        // evenly across the target, as this used to do, silently turns "one
+        // bold phrase" into "the entire sentence is bold". Anything else is
+        // left for the translator to place, and QA reports what is missing.
+        let carryable = source_tags.len() == 2
+            && source_tags.iter().any(|tag| tag.kind == TagKind::Start)
+            && source_tags.iter().any(|tag| tag.kind == TagKind::End)
+            && source_tags.iter().all(|tag| {
+                tag.position == 0
+                    || usize::try_from(tag.position).unwrap_or(usize::MAX)
+                        >= segment.source_text.chars().count()
+            });
+        if target_tags.is_empty() && carryable {
             let target_length =
                 u32::try_from(segment.target_text.chars().count()).unwrap_or(u32::MAX);
             let mut ordered_source_tags = source_tags.clone();
@@ -5881,10 +5899,20 @@ impl Store {
                 .collect();
             insert_target_tags(&transaction, segment_id, &target_tags)?;
         }
+        // A tag the translator has not placed yet is a quality finding, not a
+        // reason to refuse the confirmation: `set_target_tags` has always taken
+        // that view and confirm must agree with it, otherwise a segment can be
+        // saved but never confirmed. Structural damage — a tag on the wrong
+        // side, out of range, crossed pairs, or a tag the source never had —
+        // still blocks, because those states cannot be exported at all.
         let tag_issues = validate_target_tags(&source_tags, &target_tags, &segment.target_text);
-        if !tag_issues.is_empty() {
+        let blocking_issues = tag_issues
+            .iter()
+            .filter(|issue| issue.code != "tag_missing")
+            .collect::<Vec<_>>();
+        if !blocking_issues.is_empty() {
             return Err(StorageError::InvalidState(
-                serde_json::to_string(&tag_issues)
+                serde_json::to_string(&blocking_issues)
                     .unwrap_or_else(|_| "target protected tags are invalid".to_string()),
             ));
         }
@@ -5976,7 +6004,11 @@ impl Store {
                 "DELETE FROM inline_tags WHERE segment_id = ?1 AND side = 'target'",
                 [&candidate.id],
             )?;
-            insert_target_tags(&transaction, &candidate.id, &propagation_tags)?;
+            let candidate_source_tags =
+                list_inline_tags(&transaction, &candidate.id, TagSide::Source)?;
+            let candidate_tags =
+                retarget_tags_for_segment(&propagation_tags, &candidate_source_tags);
+            insert_target_tags(&transaction, &candidate.id, &candidate_tags)?;
             let updated = find_segment(&transaction, &candidate.id)?;
             let _ = reconcile_number_qa(&transaction, &updated, now)?;
             qa::reconcile_segment_local_qa(&transaction, &candidate.id, now)?;
@@ -6912,6 +6944,53 @@ fn row_to_inline_tag(row: &Row<'_>) -> rusqlite::Result<InlineTag> {
         display_text: row.get(6)?,
         protected: row.get(7)?,
     })
+}
+
+/// Rewrite one segment's target tags so they belong to another segment.
+///
+/// Propagation copies a confirmed target onto its twins. Copying the tags
+/// verbatim copies the origin's tag identity too, and tag identity is derived
+/// from the owning paragraph, so the twin ends up holding tags its own source
+/// never declared: the validator reports the twin's real tags as missing and
+/// the borrowed ones as extra, and the segment can then never be confirmed.
+/// Keep the translator's placement, adopt the destination's identity, and give
+/// up (returning no tags, which lets confirm re-derive them) when the two tag
+/// sets do not correspond one to one.
+fn retarget_tags_for_segment(
+    origin_target_tags: &[InlineTag],
+    destination_source_tags: &[InlineTag],
+) -> Vec<InlineTag> {
+    if origin_target_tags.is_empty() || destination_source_tags.is_empty() {
+        return Vec::new();
+    }
+    if origin_target_tags.len() != destination_source_tags.len() {
+        return Vec::new();
+    }
+    let mut origin = origin_target_tags.to_vec();
+    origin.sort_by_key(|tag| (tag.position, tag_kind_text(tag.kind), tag.id.clone()));
+    let mut destination = destination_source_tags.to_vec();
+    destination.sort_by_key(|tag| (tag.position, tag_kind_text(tag.kind), tag.id.clone()));
+    if origin
+        .iter()
+        .zip(destination.iter())
+        .any(|(from, to)| from.kind != to.kind)
+    {
+        return Vec::new();
+    }
+    origin
+        .into_iter()
+        .zip(destination)
+        .map(|(placed, owner)| InlineTag {
+            id: owner.id.clone(),
+            side: TagSide::Target,
+            position: placed.position,
+            kind: owner.kind,
+            pair_id: owner.pair_id.clone(),
+            payload: owner.payload.clone(),
+            display_text: owner.display_text.clone(),
+            protected: owner.protected,
+        })
+        .collect()
 }
 
 fn insert_target_tags(
