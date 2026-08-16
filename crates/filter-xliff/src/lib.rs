@@ -468,6 +468,10 @@ fn inline_content(bytes: &[u8], range: Range<usize>) -> Result<InlineContent, Xl
             }
             TokenKind::Start { node } => {
                 let element = &parsed.nodes[*node];
+                if is_segmentation_mrk(element) {
+                    index += 1;
+                    continue;
+                }
                 if ATOMIC_INLINE.contains(&element.name.as_str()) {
                     let end = element
                         .end_tag
@@ -501,6 +505,10 @@ fn inline_content(bytes: &[u8], range: Range<usize>) -> Result<InlineContent, Xl
             }
             TokenKind::End { node } => {
                 let element = &parsed.nodes[*node];
+                if is_segmentation_mrk(element) {
+                    index += 1;
+                    continue;
+                }
                 let pair_id = pair_ids.get(node).cloned();
                 tags.push(RawTag {
                     position: u32::try_from(text.chars().count())
@@ -514,6 +522,10 @@ fn inline_content(bytes: &[u8], range: Range<usize>) -> Result<InlineContent, Xl
             }
             TokenKind::Empty { node } => {
                 let element = &parsed.nodes[*node];
+                if is_segmentation_mrk(element) {
+                    index += 1;
+                    continue;
+                }
                 tags.push(RawTag {
                     position: u32::try_from(text.chars().count())
                         .map_err(|_| XliffError::Range("inline text exceeds u32".to_string()))?,
@@ -527,6 +539,14 @@ fn inline_content(bytes: &[u8], range: Range<usize>) -> Result<InlineContent, Xl
         }
     }
     Ok(InlineContent { text, tags })
+}
+
+fn is_segmentation_mrk(element: &Node) -> bool {
+    element.name == "mrk"
+        && element
+            .attrs
+            .get("mtype")
+            .is_some_and(|value| value.eq_ignore_ascii_case("seg"))
 }
 
 fn render_template(template: &str, target: &str) -> String {
@@ -821,7 +841,11 @@ fn parse_attributes(raw: &str, mut cursor: usize) -> Result<BTreeMap<String, Str
                 "attribute {key} is unterminated"
             )));
         }
-        result.insert(local_name(&key), decode_xml_text(&raw[value_start..cursor]));
+        // Keep the prefixed name. Okapi Tikal writes both `version="1.2"` and
+        // `its:version="2.0"` on the same <xliff> element; collapsing to the
+        // local name made the parser treat a 1.2 file as 2.x and drop every
+        // trans-unit.
+        result.insert(key, decode_xml_text(&raw[value_start..cursor]));
         cursor += 1;
     }
     Ok(result)
@@ -1159,6 +1183,46 @@ mod tests {
         assert!(result.contains("<target>"));
         assert!(result.contains("<ph id=\"p\"/>"));
         assert!(result.contains("id=\"s\""));
+    }
+
+    #[test]
+    fn okapi_tikal_xliff12_keeps_trans_units_when_its_version_is_present() {
+        let directory = tempfile::tempdir().expect("temp");
+        let source = directory.path().join("sample.html.xlf");
+        fs::write(
+            &source,
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2" xmlns:okp="okapi-framework:xliff-extensions" xmlns:its="http://www.w3.org/2005/11/its" xmlns:itsxlf="http://www.w3.org/ns/its-xliff/" its:version="2.0">
+<file original="sample.html" source-language="en-US" target-language="zh-CN" datatype="html" okp:inputEncoding="utf-8">
+<body>
+<trans-unit id="tu2" restype="x-h1">
+<source xml:lang="en-US">Welcome to <bpt id="1">&lt;em></bpt>Aurora<ept id="1">&lt;/em></ept></source>
+<seg-source><mrk mid="0" mtype="seg">Welcome to <bpt id="1">&lt;em></bpt>Aurora<ept id="1">&lt;/em></ept></mrk></seg-source>
+<target xml:lang="zh-CN"><mrk mid="0" mtype="seg">Welcome to <bpt id="1">&lt;em></bpt>Aurora<ept id="1">&lt;/em></ept></mrk></target>
+</trans-unit>
+</body>
+</file>
+</xliff>"#,
+        )
+        .expect("write Tikal-shaped XLIFF");
+        let units = load(&source);
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].source_text, "Welcome to Aurora");
+        assert_eq!(units[0].target_text.as_deref(), Some("Welcome to Aurora"));
+        assert!(
+            units[0]
+                .inline_tags
+                .iter()
+                .any(|tag| tag.payload.contains("<bpt")),
+            "Tikal bpt/ept inline tags must survive import"
+        );
+        assert!(
+            units[0]
+                .inline_tags
+                .iter()
+                .all(|tag| !tag.payload.contains("<mrk")),
+            "XLIFF 1.2 seg-source mrk wrappers are not inline tags"
+        );
     }
 
     #[test]
