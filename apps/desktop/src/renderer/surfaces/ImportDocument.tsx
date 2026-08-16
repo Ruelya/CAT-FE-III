@@ -14,6 +14,7 @@ import {
   type PdfOcrEngine,
   type PdfOcrMode,
 } from "../lib/pdf-import-options";
+import { JobWizardSteps } from "../shell/JobWizardSteps";
 import { BatchImportSummary } from "../workbench/BatchImportSummary";
 
 export interface ImportDocumentProps {
@@ -48,6 +49,11 @@ export function ImportDocument({
     <section className="welcome" data-testid="import-document">
       <div className="welcome__inner welcome__inner--first-run">
         <h1 className="welcome__title">{projectName}</h1>
+        <JobWizardSteps current="files" />
+        <p className="surface__subtitle">
+          Add source files. Memory, terms, and Prepare run from the workbench
+          and Asset Hub after import — this screen does not insert extra gates.
+        </p>
 
         {error ? (
           <p className="error-text" role="alert">

@@ -2,6 +2,7 @@ import { useRef, useState, type FormEvent } from "react";
 
 import type { UiError } from "../lib/errors";
 import { formatUiError } from "../lib/errors";
+import { JobWizardSteps } from "../shell/JobWizardSteps";
 
 export interface CreateProjectProps {
   pending?: boolean;
@@ -88,6 +89,10 @@ export function CreateProject({
     <section className="surface surface--narrow" data-testid="create-project">
       <div className="surface__inner">
         <h1 className="surface__title">Create project</h1>
+        <JobWizardSteps current="general" />
+        <p className="surface__subtitle">
+          Name the job and set the language pair. Source files come next.
+        </p>
         <form
           ref={formRef}
           className="surface__panel stack"
