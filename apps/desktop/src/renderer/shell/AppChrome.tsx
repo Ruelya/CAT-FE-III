@@ -39,6 +39,7 @@ export interface AppChromeProps {
   /** Workbench file lifecycle for the title-bar File menu. */
   onAddFiles?: () => void;
   addFilesPending?: boolean;
+  onSave?: () => void;
   onPretranslate?: () => void;
   pretranslatePending?: boolean;
   onReimport?: () => void;
@@ -66,6 +67,7 @@ export function AppChrome({
   onCommandPalette,
   onAddFiles,
   addFilesPending = false,
+  onSave,
   onPretranslate,
   pretranslatePending = false,
   onReimport,
@@ -154,6 +156,16 @@ export function AppChrome({
     Boolean(onWindowMinimize && onWindowToggleMaximize && onWindowClose);
 
   const fileItems: TitleFileMenuItem[] = [];
+  if (onSave) {
+    fileItems.push({
+      id: "save",
+      label: "Save",
+      group: "job",
+      onSelect: onSave,
+      disabled,
+      testId: "title-file-save",
+    });
+  }
   if (onAddFiles) {
     fileItems.push({
       id: "add-files",

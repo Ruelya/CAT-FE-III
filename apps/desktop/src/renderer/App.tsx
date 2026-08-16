@@ -556,6 +556,9 @@ export function App() {
                 void commands.addFiles();
               },
               addFilesPending: surface.kind === "workbench" && surface.addFilesPending === true,
+              onSave: () => {
+                void commands.flushOrStay();
+              },
               onPretranslate: () => {
                 void commands.pretranslateDocument();
               },
@@ -773,6 +776,9 @@ export function App() {
               onPretranslate={() => {
                 void commands.pretranslateDocument();
               }}
+              onSave={() => {
+                void commands.flushOrStay();
+              }}
               onPlaceTags={() => {
                 void commands.placeSourceTags();
               }}
@@ -930,6 +936,7 @@ export function App() {
 
           {surface.kind === "insights" ? (
             <ProjectInsights
+              projectId={surface.projectId}
               projectName={surface.projectName}
               analytics={surface.analytics}
               documents={surface.documents}

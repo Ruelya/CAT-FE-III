@@ -13,6 +13,8 @@ export interface EditorShortcutHandlers {
   onGoTo: () => void;
   /** Ctrl+Shift+P: pretranslate empty targets from memory. */
   onPretranslate: () => void;
+  /** Ctrl+S: flush the active draft now. */
+  onSave?: () => void;
   /** Ctrl+,: place source tags onto the target. */
   onPlaceTags: () => void;
   /** Ctrl+Shift+,: open the QuickPlace list. */
@@ -89,6 +91,11 @@ export function useEditorShortcuts(
         handlers.onPretranslate();
         return;
       }
+      if (control && !event.shiftKey && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        handlers.onSave?.();
+        return;
+      }
       if (control && event.shiftKey && event.code === "Comma") {
         event.preventDefault();
         handlers.onQuickPlace?.();
@@ -122,6 +129,7 @@ export function useEditorShortcuts(
     handlers.onClearTarget,
     handlers.onGoTo,
     handlers.onPretranslate,
+    handlers.onSave,
     handlers.onPlaceTags,
     handlers.onQuickPlace,
     handlers.onFind,

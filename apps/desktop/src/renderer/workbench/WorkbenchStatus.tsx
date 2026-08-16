@@ -15,6 +15,7 @@ export interface WorkbenchStatusProps {
   wordCount: number;
   tmLabel?: string;
   filterLabel?: string;
+  saveState?: "scheduled" | "saving" | "error";
   headerBusy: boolean;
   switchPending?: boolean;
   addFilesPending?: boolean;
@@ -46,6 +47,7 @@ export function WorkbenchStatus({
   wordCount,
   tmLabel,
   filterLabel,
+  saveState,
   headerBusy,
   switchPending,
   addFilesPending,
@@ -107,6 +109,11 @@ export function WorkbenchStatus({
       {filterLabel ? (
         <span data-testid="status-filter">{filterLabel}</span>
       ) : null}
+      {saveState === "saving" || saveState === "scheduled" ? (
+        <span className="inline-status" role="status" data-testid="status-save">
+          Saving
+        </span>
+      ) : null}
       {pendingConfirm ? (
         <span className="inline-status" role="status">
           Confirming
@@ -153,7 +160,7 @@ export function WorkbenchStatus({
         ) : null}
         <span
           className="workbench__status-hint"
-          title="Ctrl+Enter confirm · Ctrl+G go to · Ctrl+, place tags · Ctrl+Shift+, QuickPlace · Ctrl+Shift+P pretranslate · F3 concordance · Ctrl+1..9 apply match"
+          title="Ctrl+Enter confirm · Ctrl+S save · Ctrl+G go to · Ctrl+, place tags · Ctrl+Shift+, QuickPlace · Ctrl+Shift+P pretranslate · F3 concordance · Ctrl+1..9 apply match"
         >
           Shortcuts
         </span>
