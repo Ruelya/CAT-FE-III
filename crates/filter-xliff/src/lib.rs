@@ -549,34 +549,72 @@ fn is_segmentation_mrk(element: &Node) -> bool {
             .is_some_and(|value| value.eq_ignore_ascii_case("seg"))
 }
 
+/// Text slots a translator can edit: skip `bpt`/`ept`/`ph` payloads and
+/// transparent `<mrk mtype="seg">` wrappers. Those code-data characters are
+/// not part of `source_text` / `target_text` on import, so they must not
+/// steal proportional slots on export.
+fn translatable_text_slots(parsed: &XmlDocument, template: &str) -> Vec<(usize, usize, usize)> {
+    let mut slots = Vec::<(usize, usize, usize)>::new();
+    let mut total = 0usize;
+    let mut index = 0;
+    while index < parsed.tokens.len() {
+        match &parsed.tokens[index].kind {
+            TokenKind::Text => {
+                let value = decode_xml_text(&template[parsed.tokens[index].range.clone()]);
+                let count = value.chars().count();
+                slots.push((index, total, count));
+                total += count;
+                index += 1;
+            }
+            TokenKind::Start { node } => {
+                let element = &parsed.nodes[*node];
+                if is_segmentation_mrk(element) {
+                    index += 1;
+                    continue;
+                }
+                if ATOMIC_INLINE.contains(&element.name.as_str()) {
+                    index = element.end_token.map_or(index + 1, |value| value + 1);
+                    continue;
+                }
+                index += 1;
+            }
+            _ => index += 1,
+        }
+    }
+    slots
+}
+
 fn render_template(template: &str, target: &str) -> String {
     let Ok(parsed) = parse_fragment(template) else {
         return escape_xml_text(target);
     };
-    let mut text_slots = Vec::<(usize, usize, usize)>::new();
-    let mut total = 0usize;
-    for (index, token) in parsed.tokens.iter().enumerate() {
-        if !matches!(token.kind, TokenKind::Text) {
-            continue;
-        }
-        let value = decode_xml_text(&template[token.range.clone()]);
-        let count = value.chars().count();
-        text_slots.push((index, total, count));
-        total += count;
+    let text_slots = translatable_text_slots(&parsed, template);
+    let template_text: String = text_slots
+        .iter()
+        .map(|(index, _, _)| decode_xml_text(&template[parsed.tokens[*index].range.clone()]))
+        .collect();
+    // Tags did not move and the translator did not change the text: keep the
+    // original target inner, including Okapi `<mrk mtype="seg">` wrappers.
+    if template_text == target {
+        return template.to_string();
     }
+    let total = text_slots
+        .last()
+        .map(|(_, start, count)| start + count)
+        .unwrap_or(0);
     let target_chars: Vec<char> = target.chars().collect();
     let mut output = String::new();
     let mut target_cursor = 0;
     let mut slot_by_index = HashMap::new();
-    for (slot, (index, start, count)) in text_slots.iter().enumerate() {
-        slot_by_index.insert(*index, (slot, *start, *count));
+    for (index, start, count) in &text_slots {
+        slot_by_index.insert(*index, (*start, *count));
     }
     let mut index = 0;
     while index < parsed.tokens.len() {
         let token = &parsed.tokens[index];
         match &token.kind {
             TokenKind::Text => {
-                let Some((_, start, count)) = slot_by_index.get(&index).copied() else {
+                let Some((start, count)) = slot_by_index.get(&index).copied() else {
                     index += 1;
                     continue;
                 };
@@ -1223,6 +1261,95 @@ mod tests {
                 .all(|tag| !tag.payload.contains("<mrk")),
             "XLIFF 1.2 seg-source mrk wrappers are not inline tags"
         );
+    }
+
+    fn tikal_tagged_unit() -> &'static str {
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2" xmlns:okp="okapi-framework:xliff-extensions" xmlns:its="http://www.w3.org/2005/11/its" its:version="2.0">
+<file original="sample.html" source-language="en-US" target-language="zh-CN" datatype="html">
+<body>
+<trans-unit id="tu2" restype="x-h1">
+<source xml:lang="en-US">Welcome to <bpt id="1">&lt;em></bpt>Aurora<ept id="1">&lt;/em></ept></source>
+<seg-source><mrk mid="0" mtype="seg">Welcome to <bpt id="1">&lt;em></bpt>Aurora<ept id="1">&lt;/em></ept></mrk></seg-source>
+<target xml:lang="zh-CN"><mrk mid="0" mtype="seg">Welcome to <bpt id="1">&lt;em></bpt>Aurora<ept id="1">&lt;/em></ept></mrk></target>
+</trans-unit>
+</body>
+</file>
+</xliff>"#
+    }
+
+    #[test]
+    fn okapi_tikal_export_keeps_unmoved_tagged_target_inner() {
+        let directory = tempfile::tempdir().expect("temp");
+        let source = directory.path().join("sample.html.xlf");
+        let output = directory.path().join("exported.xlf");
+        fs::write(&source, tikal_tagged_unit()).expect("write Tikal-shaped XLIFF");
+        let units = load(&source);
+        let segment = Segment {
+            id: "s1".to_string(),
+            document_id: "d1".to_string(),
+            ordinal: 0,
+            structural_path: units[0].structural_path.clone(),
+            source_text: units[0].source_text.clone(),
+            target_text: "Welcome to Aurora".to_string(),
+            state: SegmentState::Confirmed,
+            revision: 1,
+            source_hash: String::new(),
+            context_hash: String::new(),
+            updated_at_ms: 0,
+        };
+        XliffFilter
+            .export(ExportRequest {
+                source: &source,
+                output: &output,
+                segments: std::slice::from_ref(&segment),
+            })
+            .expect("export");
+        let result = fs::read_to_string(&output).expect("read");
+        assert!(
+            result.contains(
+                "<mrk mid=\"0\" mtype=\"seg\">Welcome to <bpt id=\"1\">&lt;em></bpt>Aurora<ept id=\"1\">&lt;/em></ept></mrk>"
+            ),
+            "unedited tagged target must keep original inner, got {result}"
+        );
+        assert!(
+            !result.contains("Welcome<em>") && !result.contains("to Aur"),
+            "must not reflow unmoved tags: {result}"
+        );
+    }
+
+    #[test]
+    fn okapi_tikal_export_keeps_codes_when_text_changes() {
+        let directory = tempfile::tempdir().expect("temp");
+        let source = directory.path().join("sample.html.xlf");
+        let output = directory.path().join("exported.xlf");
+        fs::write(&source, tikal_tagged_unit()).expect("write Tikal-shaped XLIFF");
+        let units = load(&source);
+        let segment = Segment {
+            id: "s1".to_string(),
+            document_id: "d1".to_string(),
+            ordinal: 0,
+            structural_path: units[0].structural_path.clone(),
+            source_text: units[0].source_text.clone(),
+            target_text: "欢迎来到极光".to_string(),
+            state: SegmentState::Confirmed,
+            revision: 1,
+            source_hash: String::new(),
+            context_hash: String::new(),
+            updated_at_ms: 0,
+        };
+        XliffFilter
+            .export(ExportRequest {
+                source: &source,
+                output: &output,
+                segments: std::slice::from_ref(&segment),
+            })
+            .expect("export");
+        let result = fs::read_to_string(&output).expect("read");
+        assert!(result.contains("<bpt id=\"1\">&lt;em></bpt>"), "{result}");
+        assert!(result.contains("<ept id=\"1\">&lt;/em></ept>"), "{result}");
+        let exported = load(&output);
+        assert_eq!(exported[0].target_text.as_deref(), Some("欢迎来到极光"));
     }
 
     #[test]
