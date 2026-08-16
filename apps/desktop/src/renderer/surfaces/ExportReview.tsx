@@ -55,9 +55,11 @@ export function ExportReview({
           <div className="surface__masthead-meta">
             <h1 className="surface__title">Export</h1>
             <p className="surface__subtitle">
+              Generate the translated file in the original format (Generate
+              Target Translation)
               {jobWide
-                ? `${ctx.documents.length} files in this job`
-                : ctx.document.name}
+                ? ` · ${ctx.documents.length} files in this job`
+                : ` · ${ctx.document.name}`}
             </p>
           </div>
           <div className="surface__actions">
