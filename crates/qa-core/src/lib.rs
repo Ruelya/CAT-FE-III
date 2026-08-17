@@ -861,11 +861,21 @@ impl CompiledQaProfile {
 
     fn evaluate_tags(&self, input: &QaSegmentInput, findings: &mut Vec<QaFindingCandidate>) {
         for tag in &input.tag_findings {
+            // A tag the translator has not placed yet degrades the export
+            // (inline formatting flattens to the paragraph) but still produces
+            // a correct, complete document, and the export reports the
+            // flattening itself. Structural tag damage is different: it
+            // describes a target that cannot be reconstructed at all.
+            let severity = if tag.code == "tag_missing" {
+                QaSeverity::Warning
+            } else {
+                QaSeverity::Error
+            };
             self.push(
                 findings,
                 input,
                 &format!("qa.tag-{}", tag.code),
-                (QaCategory::Tags, QaSeverity::Error),
+                (QaCategory::Tags, severity),
                 &tag.message,
                 QaCandidateEvidence {
                     target_values: vec![tag.code.clone()],

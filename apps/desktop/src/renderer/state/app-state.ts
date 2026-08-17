@@ -12,11 +12,13 @@ import type {
   SegmentCounts,
   SegmentEditorRow,
   TemplateDependencyDiagnostic,
-  TmEntry,
 } from "@translunar/contracts";
 
 import type { DraftJournalRecord } from "../../shared/product-shell";
+import type { EditorPageState } from "../lib/bilingual-row-view";
 import type { UiError } from "../lib/errors";
+import type { JobScope } from "../lib/job-scope";
+import type { SegmentIntel } from "./segment-intel";
 import type { SessionIdentity } from "./session";
 import type {
   AiControlSection,
@@ -69,6 +71,15 @@ export type SurfaceKind =
 
 export type ProjectListLifecycle = "active" | "archived";
 
+/**
+ * Who the Engine records as responsible for a desktop action.
+ *
+ * This build is single-user by design, so there is nobody else it could be,
+ * and prompting for a name on every waiver would be friction with no
+ * information behind it. The Engine's own audit trail uses the same string.
+ */
+export const DESKTOP_ACTOR = "desktop";
+
 export interface SessionContext {
   session: SessionIdentity;
   project: Project;
@@ -77,6 +88,8 @@ export interface SessionContext {
   documents: Document[];
   rows: SegmentEditorRow[];
   counts: SegmentCounts | null;
+  /** Current `segment.editor.list` window. Rows are this page, not the file. */
+  editorPage: EditorPageState;
 }
 
 export type AppSurface =
@@ -121,15 +134,32 @@ export type AppSurface =
       ctx: SessionContext;
       activeSegmentId: string | null;
       focusSegmentId: string | null;
-      tmMatches: TmEntry[];
-      tmLoading: boolean;
-      tmError: UiError | null;
+      /** Results for the segment under the caret; see state/segment-intel.ts. */
+      intel: SegmentIntel;
       tmCollapsed: boolean;
       transitionError: UiError | null;
       pendingConfirm: boolean;
       switchPending?: boolean;
       batchResult?: ProjectBatchImportResult | null;
       addFilesPending?: boolean;
+      /**
+       * What the last confirmation did to segments other than the one the
+       * translator was looking at. The Engine propagates a confirmed target to
+       * repeated source text; saying so is the difference between leverage and
+       * a document that quietly filled itself in.
+       */
+      propagatedFrom?: {
+        segmentId: string;
+        count: number;
+        otherFiles?: number;
+      } | null;
+      /**
+       * Open QA findings per segment, for the row marks and the QA filter.
+       * Refreshed whenever the document changes or a run completes; a stale
+       * mark is worse than none because it sends a reviewer to a clean row.
+       */
+      qaCounts?: Readonly<Record<string, number>>;
+      pretranslatePending?: boolean;
     }
   | {
       kind: "qa";
@@ -140,6 +170,8 @@ export type AppSurface =
       run: QaRun | null;
       loading: boolean;
       error: UiError | null;
+      /** file = current document; job = every file in the project. */
+      scope: JobScope;
     }
   | {
       kind: "export";
@@ -149,6 +181,13 @@ export type AppSurface =
       exporting: boolean;
       error: UiError | null;
       resultPath: string | null;
+      scope: JobScope;
+      blockedFiles?: Array<{
+        id: string;
+        name: string;
+        errorCount: number;
+      }>;
+      resultFiles?: Array<{ name: string; path: string }>;
     }
   | {
       kind: "templates";
@@ -254,6 +293,19 @@ export type AppAction =
   | {
       type: "PATCH_WORKBENCH";
       patch: Partial<Extract<AppSurface, { kind: "workbench" }>>;
+    }
+  /**
+   * Merge one dock's results into the intelligence record.
+   *
+   * The docks answer in whatever order the Engine gets to them, so each result
+   * has to be merged against the state as it is at the moment it lands.
+   * Read-modify-write from a snapshot taken before the request went out means
+   * whichever dock answers last erases the other one.
+   */
+  | {
+      type: "PATCH_SEGMENT_INTEL";
+      segmentId: string;
+      patch: Partial<Pick<SegmentIntel, "tm" | "terms" | "concordance">>;
     }
   | { type: "PATCH_QA"; patch: Partial<Extract<AppSurface, { kind: "qa" }>> }
   | {
@@ -369,6 +421,23 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         surface: { ...state.surface, ...action.patch, kind: "workbench" },
+      };
+    }
+    case "PATCH_SEGMENT_INTEL": {
+      if (state.surface.kind !== "workbench") return state;
+      // A late answer about a segment the translator has already left is not
+      // an answer, it is noise.
+      if (state.surface.activeSegmentId !== action.segmentId) return state;
+      return {
+        ...state,
+        surface: {
+          ...state.surface,
+          intel: {
+            ...state.surface.intel,
+            segmentId: action.segmentId,
+            ...action.patch,
+          },
+        },
       };
     }
     case "PATCH_QA": {
@@ -489,6 +558,43 @@ export function appReducer(state: AppState, action: AppAction): AppState {
 }
 
 export const TM_PANEL_PREF_KEY = "translunar.renderer.tm-panel.v1";
+export const PROTECT_TAGS_PREF_KEY = "translunar.renderer.protect-tags.v1";
+export const GROUP_ADJACENT_TAGS_PREF_KEY =
+  "translunar.renderer.group-adjacent-tags.v1";
+
+export function readProtectTags(
+  storage: Pick<Storage, "getItem"> = localStorage,
+): boolean {
+  try {
+    return storage.getItem(PROTECT_TAGS_PREF_KEY) === "on";
+  } catch {
+    return false;
+  }
+}
+
+export function writeProtectTags(
+  on: boolean,
+  storage: Pick<Storage, "setItem"> = localStorage,
+): void {
+  storage.setItem(PROTECT_TAGS_PREF_KEY, on ? "on" : "off");
+}
+
+export function readGroupAdjacentTags(
+  storage: Pick<Storage, "getItem"> = localStorage,
+): boolean {
+  try {
+    return storage.getItem(GROUP_ADJACENT_TAGS_PREF_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+export function writeGroupAdjacentTags(
+  on: boolean,
+  storage: Pick<Storage, "setItem"> = localStorage,
+): void {
+  storage.setItem(GROUP_ADJACENT_TAGS_PREF_KEY, on ? "on" : "off");
+}
 
 export function readTmCollapsed(
   storage: Pick<Storage, "getItem"> = localStorage,

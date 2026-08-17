@@ -534,6 +534,24 @@ textarea.field__control {
   color: var(--color-text-muted);
 }
 
+/* Work the product did on the translator's behalf. Reported in the accent that
+   means "your asset paid off", never in the error or warning channel: reuse is
+   the point of the tool, not an exception to it. */
+.inline-status--leverage {
+  margin: 0;
+  color: var(--color-accent);
+  font-weight: var(--weight-medium);
+}
+
+.inline-status--leverage::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  flex-shrink: 0;
+}
+
 .error-text {
   display: flex;
   align-items: flex-start;

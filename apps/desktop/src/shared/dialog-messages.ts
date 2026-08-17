@@ -17,6 +17,8 @@ export type DialogMessageKey =
   | "dialog.selectInteropTable"
   | "dialog.selectTaskPackageInput"
   | "dialog.selectCorpusInput"
+  | "dialog.selectTmExchange"
+  | "dialog.selectTermbaseExchange"
   | "dialog.selectPluginPackage"
   | "dialog.selectDataDirectory"
   | "dialog.selectBackupDestination"
@@ -35,7 +37,9 @@ export type DialogFilterKey =
   | "filter.taskPackages"
   | "filter.sourceFormat"
   | "filter.reviewDocx"
-  | "filter.bilingualTables";
+  | "filter.bilingualTables"
+  | "filter.tmExchange"
+  | "filter.termbaseExchange";
 
 type DialogCatalog = Record<DialogMessageKey, string>;
 
@@ -53,6 +57,8 @@ const enUs: DialogCatalog = {
   "dialog.selectInteropTable": "Open bilingual table",
   "dialog.selectTaskPackageInput": "Open offline task package",
   "dialog.selectCorpusInput": "Import reference corpus",
+  "dialog.selectTmExchange": "Import translation memory",
+  "dialog.selectTermbaseExchange": "Import termbase",
   "dialog.selectPluginPackage":
     "Select plugin package directory or .tlplugin file",
   "dialog.selectDataDirectory": "Choose data directory",
@@ -72,6 +78,8 @@ const zhCn: DialogCatalog = {
   "dialog.selectInteropTable": "打开双语对照表",
   "dialog.selectTaskPackageInput": "打开离线任务包",
   "dialog.selectCorpusInput": "导入参考语料",
+  "dialog.selectTmExchange": "导入翻译记忆库",
+  "dialog.selectTermbaseExchange": "导入术语库",
   "dialog.selectPluginPackage": "选择插件包目录或 .tlplugin 文件",
   "dialog.selectDataDirectory": "选择数据目录",
   "dialog.selectBackupDestination": "选择备份目标父文件夹",
@@ -87,6 +95,8 @@ const enUsFilters: DialogFilterCatalog = {
   "filter.sourceFormat": "Source format",
   "filter.reviewDocx": "Review DOCX",
   "filter.bilingualTables": "Bilingual tables",
+  "filter.tmExchange": "Translation memory (TMX, CSV, TSV)",
+  "filter.termbaseExchange": "Termbase (TBX, CSV, TSV)",
 };
 
 const zhCnFilters: DialogFilterCatalog = {
@@ -98,6 +108,8 @@ const zhCnFilters: DialogFilterCatalog = {
   "filter.sourceFormat": "源格式",
   "filter.reviewDocx": "审阅 DOCX",
   "filter.bilingualTables": "双语对照表",
+  "filter.tmExchange": "翻译记忆库（TMX、CSV、TSV）",
+  "filter.termbaseExchange": "术语库（TBX、CSV、TSV）",
 };
 
 const catalogs: Record<DialogLocale, DialogCatalog> = {

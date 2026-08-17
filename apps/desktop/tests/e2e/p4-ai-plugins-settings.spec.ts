@@ -148,10 +148,13 @@ test.describe("P4 AI plugins settings", () => {
         "appearance",
         "data",
         "updates",
+        "ocr",
         "tutorial",
       ]) {
         await page.getByTestId(`settings-tab-${tab}`).click();
       }
+      await page.getByTestId("settings-tab-ocr").click();
+      await expect(page.getByTestId("settings-ocr")).toBeVisible();
 
       await page.getByTestId("settings-tab-appearance").click();
       await page.getByTestId("settings-theme").selectOption("dark");

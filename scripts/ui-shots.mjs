@@ -105,6 +105,9 @@ const geometryProbe = `(() => {
         // Documented exception: an overlay chip whose visible box must stay
         // small but whose hit area is extended by a pseudo-element.
         el.getAttribute('data-hit-area') !== 'extended' &&
+        // Hidden target textarea stays in the a11y tree (sr-only) so Playwright
+        // can type; the visible hit target is target-surface.
+        !el.classList.contains('sr-only') &&
         (rect.width < ${MIN_TARGET} - 0.5 || rect.height < ${MIN_TARGET} - 0.5),
     )
     .map(({ el, rect }) => ({
@@ -267,7 +270,7 @@ function buildRoutes(page) {
         if (await expand.isVisible().catch(() => false)) await expand.click();
       },
     },
-    { name: "qa", reach: () => clickName("QA", "workbench") },
+    { name: "qa", reach: () => click("workbench-qa") },
     { name: "export", reach: () => clickName("Export", "qa-review") },
     { name: "insights", reach: () => click("nav-insights") },
     { name: "assets", reach: () => click("nav-assets") },
@@ -304,11 +307,11 @@ async function seedAndCapture({ theme, viewport, zoom }) {
   }
   env.TRANSLUNAR_TEST_USER_DATA = userData;
   env.TRANSLUNAR_DATA_DIR = join(userData, "engine-data");
-  env.TRANSLUNAR_TEST_SOURCE = join(
-    desktopRoot,
-    "tests/e2e/fixtures/single-segment-source.txt",
-  );
-  env.TRANSLUNAR_TEST_SOURCE_FILES = env.TRANSLUNAR_TEST_SOURCE;
+  env.TRANSLUNAR_TEST_SOURCE =
+    process.env.TRANSLUNAR_TEST_SOURCE ||
+    join(desktopRoot, "tests/e2e/fixtures/single-segment-source.txt");
+  env.TRANSLUNAR_TEST_SOURCE_FILES =
+    process.env.TRANSLUNAR_TEST_SOURCE_FILES || env.TRANSLUNAR_TEST_SOURCE;
 
   const launchArgs = ["."];
   if (reducedMotion) launchArgs.push("--force-prefers-reduced-motion");

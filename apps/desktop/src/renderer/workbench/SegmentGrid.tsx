@@ -1,12 +1,43 @@
-import type { KeyboardEvent } from "react";
-import type { SegmentEditorRow } from "@translunar/contracts";
+import type { KeyboardEvent, MouseEvent } from "react";
+import type { InlineTag, SegmentEditorRow } from "@translunar/contracts";
 
+import {
+  defaultEditorPage,
+  type EditorPageState,
+} from "../lib/bilingual-row-view";
 import { segmentNumber } from "../lib/format";
+import type { EditorDisplay } from "../lib/editor-display";
+import { adjacentPlaceholderGroupAt, pairSourceTags } from "../lib/quickplace";
+import {
+  isOcrStructuralPath,
+  structureLabel,
+  structureTitle,
+} from "../lib/structure-label";
+import {
+  caretOffsetsInTaggedEditor,
+  mergeTargetTags,
+  placeTagAtCaret,
+  rememberTaggedClip,
+  sliceTaggedSpan,
+  tagAtomsInSelection,
+  TAGGED_CLIPBOARD_TYPE,
+  wrapSelectionWithTagPair,
+} from "../lib/tagged-text";
+import type { TextHighlight } from "../lib/term-source";
+import type { SourceHighlight } from "./TaggedText";
+import { readSegmentSelection } from "../state/editor-selection";
+import type { ContextMenuField } from "./segment-context-menu";
 import type { SegmentEditState } from "../state/save-coordinator";
-import { TargetEditor } from "./TargetEditor";
+import {
+  TargetEditor,
+  type InlineCompletionBinding,
+  type SuggestionBinding,
+} from "./TargetEditor";
+import { TaggedText } from "./TaggedText";
 
 export interface SegmentGridProps {
   rows: SegmentEditorRow[];
+  page?: EditorPageState;
   activeSegmentId: string | null;
   focusSegmentId: string | null;
   /** Additional explicit selection for multi-segment ops (merge). */
@@ -17,17 +48,53 @@ export interface SegmentGridProps {
   /** Ctrl/Meta click toggles multi-select membership. */
   onToggleSelect?: (segmentId: string) => void;
   onDraftChange: (text: string) => void;
+  onTagsChange?: (tags: InlineTag[]) => void;
+  highlightedSegmentId?: string | null;
   onCompositionStart: () => void;
   onCompositionEnd: () => void;
   onConfirm: (event?: {
     isComposing?: boolean;
     keyCode?: number;
     which?: number;
+    altKey?: boolean;
+    shiftKey?: boolean;
   }) => void;
+  onApplyMatchByIndex?: (index: number) => void;
+  suggestions?: SuggestionBinding;
+  inlineCompletion?: InlineCompletionBinding;
+  quickPlaceOpen?: boolean;
+  onQuickPlaceOpenChange?: (open: boolean) => void;
+  onPlaceAllTags?: () => void;
+  sourceHighlight?: SourceHighlight | null;
+  onSourceHighlight?: (span: SourceHighlight | null) => void;
+  /** Recognised terms in the active source, painted as red underlines. */
+  termHighlights?: readonly TextHighlight[];
+  protectTags?: boolean;
+  onProtectTagsChange?: (next: boolean) => void;
+  groupAdjacent?: boolean;
+  onGroupAdjacentChange?: (next: boolean) => void;
+  display?: EditorDisplay;
+  /** Per-segment comment counts, for the row marker. */
+  commentCounts?: Readonly<Record<string, number>>;
+  /** Per-segment QA finding counts, for the row marker. */
+  qaCounts?: Readonly<Record<string, number>>;
+  /** Segments whose source text repeats elsewhere in this document. */
+  repeatedSources?: ReadonlySet<string>;
+  /** Shown instead of the table when a filter hides everything. */
+  filtered?: boolean;
+  /** Best TM label for the active row (CM / 100% / fuzzy). */
+  activeMatchLabel?: string;
+  onContextMenu?: (info: {
+    event: MouseEvent;
+    segmentId: string;
+    field: ContextMenuField;
+  }) => void;
+  onPage?: (offset: number) => void;
 }
 
 export function SegmentGrid({
   rows,
+  page,
   activeSegmentId,
   focusSegmentId,
   selectedSegmentIds = [],
@@ -36,14 +103,47 @@ export function SegmentGrid({
   onSelect,
   onToggleSelect,
   onDraftChange,
+  onTagsChange,
+  highlightedSegmentId,
   onCompositionStart,
   onCompositionEnd,
   onConfirm,
+  onApplyMatchByIndex,
+  suggestions,
+  inlineCompletion,
+  quickPlaceOpen,
+  onQuickPlaceOpenChange,
+  onPlaceAllTags,
+  sourceHighlight,
+  onSourceHighlight,
+  termHighlights,
+  protectTags,
+  onProtectTagsChange,
+  groupAdjacent,
+  onGroupAdjacentChange,
+  display,
+  commentCounts,
+  qaCounts,
+  repeatedSources,
+  filtered,
+  activeMatchLabel,
+  onContextMenu,
+  onPage,
 }: SegmentGridProps) {
+  const editorPage = page ?? defaultEditorPage(rows.length);
+  const { offset, limit, total } = editorPage;
+
   if (rows.length === 0) {
     return (
       <div className="empty-state" data-testid="segments-empty">
-        <h2 className="empty-state__title">No segments</h2>
+        <h2 className="empty-state__title">
+          {filtered ? "No segments match the filter" : "No segments"}
+        </h2>
+        {filtered ? (
+          <p className="empty-state__body">
+            Clear the filter to see the rest of the document.
+          </p>
+        ) : null}
       </div>
     );
   }
@@ -89,13 +189,44 @@ export function SegmentGrid({
   };
 
   return (
-    <div className="segment-grid">
+    <div
+      className="segment-grid"
+      id="editor-tabpanel"
+      role="tabpanel"
+      aria-label="Segment grid"
+      data-testid="bilingual-grid"
+    >
+      <div className="pagination" data-testid="segment-paging">
+        <button
+          type="button"
+          className="btn btn--quiet btn--sm"
+          disabled={disabled || !onPage || offset <= 0}
+          onClick={() => onPage?.(Math.max(0, offset - limit))}
+        >
+          Previous
+        </button>
+        <span className="pagination__count">
+          {total === 0
+            ? "0"
+            : `${offset + 1}-${Math.min(offset + rows.length, total)}`}{" "}
+          of {total}
+        </span>
+        <button
+          type="button"
+          className="btn btn--quiet btn--sm"
+          disabled={disabled || !onPage || offset + limit >= total}
+          onClick={() => onPage?.(offset + limit)}
+        >
+          Next
+        </button>
+      </div>
       <table className="segment-table">
         <colgroup>
           <col className="ordinal" />
           <col className="source" />
           <col className="target" />
           <col className="status" />
+          <col className="structure" />
         </colgroup>
         <thead>
           <tr>
@@ -105,6 +236,9 @@ export function SegmentGrid({
             <th scope="col">Source</th>
             <th scope="col">Target</th>
             <th scope="col">Status</th>
+            <th scope="col" className="segment-table__structure">
+              Ctx
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -126,42 +260,186 @@ export function SegmentGrid({
                       ? "dirty"
                       : null
                 : null;
+            const locked = row.workflowState === "signed";
+            const rowDisabled = Boolean(disabled || locked);
 
             return (
               <tr
                 key={id}
-                className={
-                  active
-                    ? "segment-row--active"
-                    : multiSelected
-                      ? "segment-row--selected"
-                      : undefined
+                className={[
+                  active ? "segment-row--active" : "",
+                  multiSelected ? "segment-row--selected" : "",
+                  highlightedSegmentId === id ? "segment-row--hit" : "",
+                  locked ? "segment-row--locked" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ") || undefined
                 }
                 data-testid={`segment-row-${id}`}
                 aria-selected={active || multiSelected}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  if (!active) activateRow(id);
+                  onContextMenu?.({
+                    event,
+                    segmentId: id,
+                    field: "row",
+                  });
+                }}
               >
                 <td className="segment-table__ordinal">
                   <span className="segment-index">
                     {segmentNumber(row.segment.ordinal)}
                   </span>
                 </td>
-                <td>
-                  <div className="segment-source">{row.segment.sourceText}</div>
+                <td
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (!active) activateRow(id);
+                    onContextMenu?.({
+                      event,
+                      segmentId: id,
+                      field: "source",
+                    });
+                  }}
+                  onCopy={(event) => {
+                    const root = event.currentTarget.querySelector(".segment-source");
+                    if (!(root instanceof HTMLElement)) return;
+                    const selection = event.currentTarget.ownerDocument.defaultView?.getSelection() ?? null;
+                    const offsets = caretOffsetsInTaggedEditor(root, selection);
+                    let clip = sliceTaggedSpan(
+                      row.segment.sourceText,
+                      row.sourceTags,
+                      offsets.start,
+                      offsets.end,
+                    );
+                    if (clip.text.length === 0 && clip.tags.length === 0) {
+                      const atoms = tagAtomsInSelection(root, selection);
+                      if (atoms.length === 0) return;
+                      clip = {
+                        text: "",
+                        tags: atoms.map((tag, index) => ({
+                          ...tag,
+                          position: 0,
+                          id: `clip:${index}:${tag.id}`,
+                        })),
+                      };
+                    }
+                    rememberTaggedClip(clip);
+                    event.clipboardData?.setData("text/plain", clip.text);
+                    event.clipboardData?.setData(
+                      TAGGED_CLIPBOARD_TYPE,
+                      JSON.stringify(clip),
+                    );
+                    event.preventDefault();
+                  }}
+                >
+                  <TaggedText
+                    className="segment-source"
+                    text={row.segment.sourceText}
+                    tags={row.sourceTags}
+                    {...(active && sourceHighlight ? { highlight: sourceHighlight } : {})}
+                    {...(active && termHighlights?.length
+                      ? { highlights: termHighlights }
+                      : {})}
+                    {...(groupAdjacent ? { groupAdjacent } : {})}
+                    {...(display ? { display } : {})}
+                    {...(active && onTagsChange
+                      ? {
+                          onTagActivate: (tag: InlineTag) => {
+                            const selection = readSegmentSelection(id);
+                            if (groupAdjacent && tag.kind === "standalone") {
+                              const group = adjacentPlaceholderGroupAt(
+                                row.sourceTags,
+                                tag.id,
+                              );
+                              if (group.length > 1) {
+                                onTagsChange(
+                                  mergeTargetTags(
+                                    row.targetTags,
+                                    group.map((item) =>
+                                      placeTagAtCaret(item, selection.targetStart),
+                                    ),
+                                  ),
+                                );
+                                return;
+                              }
+                            }
+                            const pair = pairSourceTags(row.sourceTags).pairs.find(
+                              (item) =>
+                                item.start.id === tag.id ||
+                                item.end.id === tag.id,
+                            );
+                            if (pair) {
+                              onTagsChange(
+                                mergeTargetTags(
+                                  row.targetTags,
+                                  wrapSelectionWithTagPair(
+                                    pair.start,
+                                    pair.end,
+                                    selection.targetStart,
+                                    selection.targetEnd,
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
+                            onTagsChange(
+                              mergeTargetTags(row.targetTags, [
+                                placeTagAtCaret(tag, selection.targetStart),
+                              ]),
+                            );
+                          },
+                        }
+                      : {})}
+                  />
                 </td>
-                <td>
+                <td
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (!active) activateRow(id);
+                    onContextMenu?.({
+                      event,
+                      segmentId: id,
+                      field: "target",
+                    });
+                  }}
+                >
                   {active ? (
                     <TargetEditor
                       segmentId={id}
                       value={displayTarget}
+                      tags={row.targetTags}
                       editState={editState}
-                      disabled={disabled ?? false}
+                      disabled={rowDisabled}
                       autoFocus={focusSegmentId === id}
                       onChange={onDraftChange}
+                      {...(onTagsChange ? { onTagsChange } : {})}
                       onCompositionStart={onCompositionStart}
                       onCompositionEnd={onCompositionEnd}
                       onConfirm={(ev) => {
                         void onConfirm(ev);
                       }}
+                      {...(onApplyMatchByIndex ? { onApplyMatchByIndex } : {})}
+                      {...(suggestions ? { suggestions } : {})}
+                      {...(inlineCompletion ? { inlineCompletion } : {})}
+                      sourceText={row.segment.sourceText}
+                      sourceTags={row.sourceTags}
+                      {...(quickPlaceOpen !== undefined
+                        ? { quickPlaceOpen }
+                        : {})}
+                      {...(onQuickPlaceOpenChange
+                        ? { onQuickPlaceOpenChange }
+                        : {})}
+                      {...(onPlaceAllTags ? { onPlaceAllTags } : {})}
+                      {...(onSourceHighlight ? { onSourceHighlight } : {})}
+                      {...(protectTags !== undefined ? { protectTags } : {})}
+                      {...(onProtectTagsChange ? { onProtectTagsChange } : {})}
+                      {...(groupAdjacent !== undefined ? { groupAdjacent } : {})}
+                      {...(onGroupAdjacentChange ? { onGroupAdjacentChange } : {})}
+                      {...(display ? { display } : {})}
                     />
                   ) : (
                     <button
@@ -174,45 +452,94 @@ export function SegmentGrid({
                       }
                       onKeyDown={(event) => onRowKeyDown(event, id)}
                       aria-label={`Edit segment ${segmentNumber(row.segment.ordinal)}`}
+                      title={`Edit segment ${segmentNumber(row.segment.ordinal)}`}
                     >
-                      <span className="segment-source muted">
-                        {displayTarget || "-"}
-                      </span>
+                      <TaggedText
+                        className="segment-source muted"
+                        text={displayTarget || "-"}
+                        tags={row.targetTags}
+                        {...(display ? { display } : {})}
+                      />
                     </button>
                   )}
                 </td>
                 <td>
+                  {/* Marks say why a row deserves attention before any panel
+                      is opened, which is what makes scanning a long document
+                      possible at all. */}
+                  <div className="segment-marks" aria-hidden="true">
+                    {(qaCounts?.[id] ?? 0) > 0 ? (
+                      <span
+                        className="segment-mark segment-mark--qa"
+                        title={`${qaCounts?.[id]} quality findings`}
+                        data-testid={`mark-qa-${id}`}
+                      />
+                    ) : null}
+                    {(commentCounts?.[id] ?? 0) > 0 ? (
+                      <span
+                        className="segment-mark segment-mark--comment"
+                        title={`${commentCounts?.[id]} comments`}
+                        data-testid={`mark-comment-${id}`}
+                      />
+                    ) : null}
+                    {repeatedSources?.has(row.segment.sourceText.trim()) ? (
+                      <span
+                        className="segment-mark segment-mark--repeat"
+                        title="This source text repeats in this document"
+                        data-testid={`mark-repeat-${id}`}
+                      />
+                    ) : null}
+                    {isOcrStructuralPath(row.segment.structuralPath) ? (
+                      <span
+                        className="segment-mark segment-mark--ocr"
+                        title="This source came from OCR"
+                        data-testid={`mark-ocr-${id}`}
+                      />
+                    ) : null}
+                  </div>
                   <div className="segment-status">
                     <span
                       className={`status-chip status-chip--${row.segment.state}`}
                     >
-                      {row.segment.state}
+                      {row.segment.state === "untranslated"
+                        ? "Open"
+                        : row.segment.state === "draft"
+                          ? "Draft"
+                          : row.segment.state === "confirmed"
+                            ? "Confirmed"
+                            : row.segment.state}
                     </span>
+                    {locked ? (
+                      <span
+                        className="status-chip status-chip--locked"
+                        data-testid={`mark-locked-${id}`}
+                      >
+                        Locked
+                      </span>
+                    ) : null}
                     {localLabel ? (
                       <span className="status-chip status-chip--local">
                         {localLabel}
                       </span>
                     ) : null}
-                    {active ? (
-                      <button
-                        type="button"
-                        className="btn btn--primary btn--sm"
-                        disabled={
-                          disabled ||
-                          editState?.isComposing ||
-                          editState?.saveState === "saving"
-                        }
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void onConfirm();
-                        }}
-                        aria-label={`Confirm segment ${segmentNumber(row.segment.ordinal)}`}
-                        title="Confirm (Ctrl+Enter)"
+                    {active && activeMatchLabel ? (
+                      <span
+                        className="status-chip status-chip--tm"
+                        data-testid={`mark-tm-${id}`}
                       >
-                        Confirm
-                      </button>
+                        {activeMatchLabel}
+                      </span>
                     ) : null}
                   </div>
+                </td>
+                <td
+                  className="segment-table__structure"
+                  title={structureTitle(row.segment.structuralPath)}
+                  data-testid={`segment-ctx-${id}`}
+                >
+                  <span className="segment-structure">
+                    {structureLabel(row.segment.structuralPath)}
+                  </span>
                 </td>
               </tr>
             );

@@ -268,6 +268,7 @@ test.describe("accessibility and keyboard", () => {
             "settings-tab-appearance",
             "settings-tab-data",
             "settings-tab-updates",
+            "settings-tab-ocr",
             "settings-tab-tutorial",
           ],
         },
@@ -357,10 +358,7 @@ test.describe("accessibility and keyboard", () => {
       await createOpenProject(page, "Dark Project");
       await expectNoAxeViolations(page, "dark-workbench");
 
-      await page
-        .getByTestId("workbench")
-        .getByRole("button", { name: "QA" })
-        .click();
+      await page.getByTestId("workbench-qa").click();
       await expect(page.getByTestId("qa-review")).toBeVisible();
       await expectNoAxeViolations(page, "dark-qa");
     } finally {

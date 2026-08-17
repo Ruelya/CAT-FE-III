@@ -24,6 +24,24 @@ function makeOps(overrides: Partial<EditorOperationsApi> = {}) {
   return { ...base, ...overrides } as unknown as EditorOperationsApi;
 }
 
+describe("EditorCommandBar confirm", () => {
+  it("hosts Confirm with the segment number for the grid tests", () => {
+    render(
+      <EditorCommandBar
+        ops={makeOps()}
+        confirm={{
+          segmentId: "seg-1",
+          ordinal: 0,
+          onConfirm: vi.fn(),
+        }}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "Confirm segment 1" }),
+    ).toBeInTheDocument();
+  });
+});
+
 describe("EditorCommandBar keyboard contract", () => {
   it("is a single tab stop with Arrow navigation inside", async () => {
     const user = userEvent.setup();
@@ -42,7 +60,7 @@ describe("EditorCommandBar keyboard contract", () => {
     expect(find).toHaveFocus();
 
     await user.keyboard("{End}");
-    expect(screen.getByTestId("cmd-editor.redo")).toHaveFocus();
+    expect(screen.getByTestId("cmd-editor.propagate")).toHaveFocus();
 
     await user.keyboard("{Home}");
     expect(find).toHaveFocus();
@@ -53,7 +71,7 @@ describe("EditorCommandBar keyboard contract", () => {
     render(<EditorCommandBar ops={makeOps()} />);
     screen.getByTestId("cmd-editor.findReplace").focus();
     await user.keyboard("{ArrowLeft}");
-    expect(screen.getByTestId("cmd-editor.redo")).toHaveFocus();
+    expect(screen.getByTestId("cmd-editor.propagate")).toHaveFocus();
   });
 
   it("skips unavailable commands when navigating", async () => {
@@ -111,15 +129,61 @@ describe("EditorCommandBar keyboard contract", () => {
     render(<EditorCommandBar ops={makeOps({ runCommand })} />);
     const trigger = screen.getByTestId("cmd-overflow");
     await user.click(trigger);
-    await user.click(screen.getByTestId("cmd-editor.propagate"));
-    expect(runCommand).toHaveBeenCalledWith("editor.propagate");
+    await user.click(screen.getByTestId("cmd-editor.correctSource"));
+    expect(runCommand).toHaveBeenCalledWith("editor.correctSource");
     expect(trigger).toHaveFocus();
+  });
+
+  it("hosts the segment workflow on the ribbon, not in the grid", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <EditorCommandBar
+        ops={makeOps()}
+        workflow={{
+          state: "translation",
+          onChange,
+        }}
+      />,
+    );
+    expect(screen.getByText("Workflow")).toBeInTheDocument();
+    const control = screen.getByTestId("cmd-workflow");
+    expect(control).toHaveValue("translation");
+    await user.selectOptions(control, "review");
+    expect(onChange).toHaveBeenCalledWith("review");
+  });
+
+  it("exposes extra ribbon actions as icon buttons with hover names", () => {
+    render(
+      <EditorCommandBar
+        ops={makeOps()}
+        extras={{
+          onCopySource: vi.fn(),
+          onPlaceTags: vi.fn(),
+          onSave: vi.fn(),
+          onPretranslate: vi.fn(),
+          canCopySource: true,
+          canPlaceTags: true,
+          canSave: true,
+        }}
+      />,
+    );
+    expect(screen.getByTestId("cmd-ribbon.copySource")).toHaveAttribute(
+      "title",
+      "Copy source to target (Ctrl+Insert)",
+    );
+    expect(screen.getByTestId("cmd-ribbon.placeTags")).toHaveAttribute(
+      "aria-label",
+      "Place source tags (Ctrl+,)",
+    );
+    expect(screen.getByTestId("cmd-ribbon.save")).toBeInTheDocument();
+    expect(screen.getByTestId("cmd-ribbon.pretranslate")).toBeInTheDocument();
   });
 
   it("marks unavailable menu items as disabled rather than hiding them", () => {
     render(
       <EditorCommandBar
-        ops={makeOps({ isAvailable: (id) => id !== "editor.propagate" })}
+        ops={makeOps({ isAvailable: (id) => id !== "editor.correctSource" })}
       />,
     );
     // The menu is closed, so open state is not required for this assertion:

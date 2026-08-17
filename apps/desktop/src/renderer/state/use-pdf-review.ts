@@ -24,6 +24,7 @@ export interface PdfReviewGateway {
   generation: number;
   mutationsEnabled: boolean;
   documentId: string | null;
+  projectId: string | null;
   activeSegmentId: string | null;
   flushOrStay: () => Promise<boolean>;
   onSegmentCorrected: (segment: Segment) => Promise<void>;
@@ -59,6 +60,7 @@ export interface PdfReviewApi {
   activeBlock: PdfPageBlock | null;
   canSubmitCorrect: boolean;
   hasPages: boolean;
+  projectId: string | null;
   invalidate: () => void;
 }
 
@@ -413,6 +415,7 @@ export function usePdfReview(gateway: PdfReviewGateway): PdfReviewApi {
     activeBlock,
     canSubmitCorrect,
     hasPages: state.pages.length > 0,
+    projectId: gateway.projectId,
     invalidate,
   };
 }

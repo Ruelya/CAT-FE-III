@@ -5,6 +5,10 @@ import type {
 } from "@translunar/contracts";
 
 import type {
+  ManagedSourceBytes,
+  ManagedSourceRequest,
+} from "./managed-source.js";
+import type {
   DataDirectoryMigrationResult,
   DataDirectoryStatus,
   DataDirectoryValidation,
@@ -50,6 +54,22 @@ export interface PluginPanelSession {
  */
 export type WindowChromePlatform = "macos" | "custom";
 
+export type LayoutDocumentType = "word" | "cell" | "slide";
+
+export interface LayoutPreviewSink {
+  outputPath: string;
+}
+
+export interface LayoutPreviewSession {
+  fileUrl: string;
+  docsUrl: string | null;
+  token: string | null;
+  documentType: LayoutDocumentType;
+  fileType: string;
+  title: string;
+  key: string;
+}
+
 export interface DesktopApi {
   invoke<Method extends EngineMethod>(
     method: Method,
@@ -66,6 +86,16 @@ export interface DesktopApi {
   selectInteropInput(kind: "review" | "table"): Promise<string | null>;
   selectTaskPackageInput(): Promise<string | null>;
   selectCorpusInput(): Promise<string | null>;
+  /** Open a TMX/TBX/CSV/TSV exchange file for memory or termbase import. */
+  selectExchangeInput(kind: "tm" | "termbase"): Promise<string | null>;
+  /**
+   * Read the engine-managed import copy as bytes.
+   * Main resolves `{dataDir}/sources/{documentId}.{ext}` only.
+   * The renderer never receives the filesystem path.
+   */
+  readManagedSource(
+    request: ManagedSourceRequest,
+  ): Promise<ManagedSourceBytes | null>;
   selectPluginPackage(): Promise<string | null>;
   issuePluginPanelSession(
     request: PluginPanelSessionRequest,
@@ -133,6 +163,13 @@ export interface DesktopApi {
   isWindowMaximized(): Promise<boolean>;
   /** Sync platform capability for native vs custom control branch. */
   getWindowChromePlatform(): WindowChromePlatform;
+  createLayoutPreviewSink(input: { fileType: string }): Promise<LayoutPreviewSink>;
+  publishLayoutPreview(input: {
+    outputPath: string;
+    title: string;
+    fileType: string;
+  }): Promise<LayoutPreviewSession>;
+  revokeLayoutPreview(): Promise<void>;
 }
 
 export type {

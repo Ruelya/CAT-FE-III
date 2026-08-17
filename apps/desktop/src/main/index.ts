@@ -19,6 +19,11 @@ import {
 } from "@translunar/contracts";
 
 import {
+  MINERU_CREDENTIAL_METHODS,
+  isMinerUCredentialMethod,
+} from "../shared/mineru-rpc.js";
+
+import {
   DataDirectoryManager,
   resolveBackupDestinationInput,
   resolveDataDirectory,
@@ -37,6 +42,8 @@ import {
   type UpdateManager,
 } from "./update-manager.js";
 import type { DesktopEngineInvokeResponse } from "../shared/desktop-api.js";
+import { parseManagedSourceRequest } from "../shared/managed-source.js";
+import { readManagedSourceFile } from "./read-managed-source.js";
 import { dialogFilterName, dialogTitle } from "../shared/dialog-messages.js";
 import type {
   ProductShellSettings,
@@ -51,6 +58,10 @@ import {
   PLUGIN_ASSET_SCHEME,
   PluginAssetSessionRegistry,
 } from "./plugin-asset-sessions.js";
+import {
+  LayoutPreviewHost,
+  readLayoutPreviewEnv,
+} from "./layout-preview-host.js";
 import { windowChromeTitleBarOptions } from "./window-chrome.js";
 
 protocol.registerSchemesAsPrivileged([
@@ -79,6 +90,8 @@ const IPC_CHANNELS = {
   selectInteropInput: "translunar:dialog:interop-input",
   selectTaskPackageInput: "translunar:dialog:task-package-input",
   selectCorpusInput: "translunar:dialog:corpus-input",
+  selectExchangeInput: "translunar:dialog:exchange-input",
+  readManagedSource: "translunar:preview:managed-source",
   selectPluginPackage: "translunar:dialog:plugin-package",
   issuePluginPanelSession: "translunar:plugin:panel:issue",
   revokePluginPanelSession: "translunar:plugin:panel:revoke",
@@ -118,6 +131,9 @@ const IPC_CHANNELS = {
   maximizeWindow: "translunar:window:maximize",
   closeWindow: "translunar:window:close",
   isWindowMaximized: "translunar:window:is-maximized",
+  createLayoutPreviewSink: "translunar:layout-preview:sink",
+  publishLayoutPreview: "translunar:layout-preview:publish",
+  revokeLayoutPreview: "translunar:layout-preview:revoke",
 } as const;
 
 let mainWindow: BrowserWindow | null = null;
@@ -127,8 +143,16 @@ let dataDirectoryManager: DataDirectoryManager | null = null;
 let draftJournal: DraftJournal | null = null;
 let updateManager: UpdateManager | null = null;
 let engineExecutable = "";
-const allowedMethods = new Set<string>(ENGINE_METHODS);
+const allowedMethods = new Set<string>([
+  ...ENGINE_METHODS,
+  ...MINERU_CREDENTIAL_METHODS,
+]);
 const pluginAssetSessions = new PluginAssetSessionRegistry();
+const layoutPreviewHost = new LayoutPreviewHost();
+
+function layoutPreviewRoot(): string {
+  return join(app.getPath("temp"), "translunar-layout-preview");
+}
 
 let engineStoppedForQuit = false;
 
@@ -482,10 +506,12 @@ function registerIpc(): void {
             setTimeout(resolveDelay, Math.min(testEngineDelayMs, 10_000));
           });
         }
-        const result = await activeEngine.call(
-          method,
-          params as EngineParams<typeof method>,
-        );
+        const result = isMinerUCredentialMethod(method)
+          ? await activeEngine.callInternal(method, params)
+          : await activeEngine.call(
+              method,
+              params as EngineParams<typeof method>,
+            );
         invalidatePluginSessionsAfterMutation(method, params);
         return { ok: true, result } satisfies DesktopEngineInvokeResponse;
       } catch (error) {
@@ -735,6 +761,48 @@ function registerIpc(): void {
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
+  ipcMain.handle(
+    IPC_CHANNELS.selectExchangeInput,
+    async (event, kind: unknown) => {
+      assertTrustedSender(event);
+      if (kind !== "tm" && kind !== "termbase") {
+        throw new Error("Invalid exchange input type.");
+      }
+      if (process.env.TRANSLUNAR_TEST_EXCHANGE_INPUT) {
+        return process.env.TRANSLUNAR_TEST_EXCHANGE_INPUT;
+      }
+      const locale = await currentDialogLocale();
+      const result = await dialog.showOpenDialog(requireWindow(), {
+        title: dialogTitle(
+          locale,
+          kind === "tm"
+            ? "dialog.selectTmExchange"
+            : "dialog.selectTermbaseExchange",
+        ),
+        properties: ["openFile"],
+        filters: [
+          {
+            name: dialogFilterName(
+              locale,
+              kind === "tm" ? "filter.tmExchange" : "filter.termbaseExchange",
+            ),
+            extensions:
+              kind === "tm" ? ["tmx", "csv", "tsv"] : ["tbx", "csv", "tsv"],
+          },
+        ],
+      });
+      return result.canceled ? null : (result.filePaths[0] ?? null);
+    },
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.readManagedSource,
+    async (event, request: unknown) => {
+      assertTrustedSender(event);
+      const parsed = parseManagedSourceRequest(request);
+      if (!parsed) return null;
+      return readManagedSourceFile(requireEngine().dataDirectory, parsed);
+    },
+  );
   ipcMain.handle(IPC_CHANNELS.selectPluginPackage, async (event) => {
     assertTrustedSender(event);
     if (process.env.TRANSLUNAR_TEST_PLUGIN_SOURCE) {
@@ -1164,6 +1232,46 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.isWindowMaximized, (event) => {
     assertTrustedSender(event);
     return requireWindow().isMaximized();
+  });
+  ipcMain.handle(
+    IPC_CHANNELS.createLayoutPreviewSink,
+    async (event, input: unknown) => {
+      assertTrustedSender(event);
+      const fileType =
+        input &&
+        typeof input === "object" &&
+        "fileType" in input &&
+        typeof input.fileType === "string"
+          ? input.fileType
+          : "bin";
+      return layoutPreviewHost.createSink(layoutPreviewRoot(), fileType);
+    },
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.publishLayoutPreview,
+    async (event, input: unknown) => {
+      assertTrustedSender(event);
+      if (!input || typeof input !== "object") {
+        throw new Error("Invalid layout preview publish.");
+      }
+      const record = input as Record<string, unknown>;
+      if (typeof record.outputPath !== "string" || !record.outputPath) {
+        throw new Error("Layout preview output path is required.");
+      }
+      const env = readLayoutPreviewEnv();
+      return layoutPreviewHost.publish({
+        rootDir: layoutPreviewRoot(),
+        outputPath: record.outputPath,
+        title: typeof record.title === "string" ? record.title : "Document",
+        fileType: typeof record.fileType === "string" ? record.fileType : "bin",
+        docsUrl: env.docsUrl,
+        jwtSecret: env.jwtSecret,
+      });
+    },
+  );
+  ipcMain.handle(IPC_CHANNELS.revokeLayoutPreview, async (event) => {
+    assertTrustedSender(event);
+    await layoutPreviewHost.revoke();
   });
 
   ipcMain.handle(IPC_CHANNELS.openExampleProject, async (event) => {

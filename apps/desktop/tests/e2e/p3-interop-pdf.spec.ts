@@ -128,7 +128,8 @@ test.describe("P3 interop / PDF / task package", () => {
       });
       await expect(page.getByTestId("pdf-page-review")).toHaveCount(0);
 
-      // Reimport entry present on Workbench
+      // Reimport lives in the title-bar File menu.
+      await page.getByTestId("title-file-menu").click();
       await expect(page.getByTestId("reimport-open")).toBeVisible();
       await page.getByTestId("reimport-open").click();
       await expect(page.getByTestId("reimport-dialog")).toBeVisible();

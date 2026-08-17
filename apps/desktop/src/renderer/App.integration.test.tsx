@@ -56,6 +56,13 @@ describe("App P0 vertical slice (fake DesktopApi)", () => {
     await user.click(screen.getByRole("button", { name: "Choose files" }));
 
     await screen.findByTestId("workbench");
+    expect(screen.getByTestId("bilingual-grid")).toBeInTheDocument();
+    expect(screen.getByTestId("display-filter")).toBeInTheDocument();
+    expect(screen.getByTestId("intel-dock")).toBeInTheDocument();
+    expect(screen.queryByTestId("structure-preview")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("status-preview"));
+    expect(screen.getByTestId("structure-preview")).toBeInTheDocument();
+    expect(screen.getByTestId("segment-paging")).toBeInTheDocument();
     expect(state.calls.some((c) => c.method === "project.batchImport")).toBe(
       true,
     );
@@ -81,16 +88,7 @@ describe("App P0 vertical slice (fake DesktopApi)", () => {
       );
     });
 
-    // Use workbench header QA button
-    const workbench = screen.getByTestId("workbench");
-    await user.click(
-      workbench.querySelector("button.btn--secondary") ??
-        screen.getByRole("button", { name: "QA" }),
-    );
-    // Prefer explicit workbench QA text button
-    if (!screen.queryByTestId("qa-review")) {
-      await user.click(screen.getAllByRole("button", { name: "QA" }).at(-1)!);
-    }
+    await user.click(screen.getByTestId("workbench-qa"));
     await screen.findByTestId("qa-review");
     // Entry loads authoritative list before claiming empty.
     await waitFor(() => {
@@ -138,11 +136,7 @@ describe("App P0 vertical slice (fake DesktopApi)", () => {
     await user.click(screen.getByRole("button", { name: "Choose files" }));
     await screen.findByTestId("workbench");
 
-    await user.click(
-      within(screen.getByTestId("workbench")).getByRole("button", {
-        name: "Export",
-      }),
-    );
+    await user.click(screen.getByTestId("workbench-export"));
     await screen.findByTestId("export-review");
     await user.click(
       within(screen.getByTestId("export-review")).getByRole("button", {
@@ -226,11 +220,7 @@ describe("App P0 vertical slice (fake DesktopApi)", () => {
     await screen.findByTestId("import-document");
     await user.click(screen.getByRole("button", { name: "Choose files" }));
     await screen.findByTestId("workbench");
-    await user.click(
-      within(screen.getByTestId("workbench")).getByRole("button", {
-        name: "QA",
-      }),
-    );
+    await user.click(screen.getByTestId("workbench-qa"));
     await screen.findByTestId("qa-review");
     expect(screen.queryByText("No issues")).not.toBeInTheDocument();
     expect(screen.getByTestId("qa-loading")).toBeInTheDocument();
@@ -254,11 +244,7 @@ describe("App P0 vertical slice (fake DesktopApi)", () => {
     const editor = await screen.findByTestId("target-editor-seg-1");
     await user.clear(editor);
     await user.type(editor, "keep-me");
-    await user.click(
-      within(screen.getByTestId("workbench")).getByRole("button", {
-        name: "QA",
-      }),
-    );
+    await user.click(screen.getByTestId("workbench-qa"));
     await waitFor(() => {
       expect(screen.getByTestId("workbench")).toBeInTheDocument();
     });

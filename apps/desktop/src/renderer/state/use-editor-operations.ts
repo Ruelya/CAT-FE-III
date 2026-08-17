@@ -175,6 +175,10 @@ export interface EditorOperationsApi {
     key: K,
     value: EditorPreferences[K],
   ) => void;
+  persistPreferenceField: <K extends keyof EditorPreferences>(
+    key: K,
+    value: EditorPreferences[K],
+  ) => Promise<void>;
   loadPreferences: () => Promise<void>;
   savePreferences: () => Promise<void>;
   // review
@@ -256,6 +260,11 @@ export function useEditorOperations(
     null,
   );
   const [preferencesPending, setPreferencesPending] = useState(false);
+  const preferencesRef = useRef<EditorPreferences | null>(null);
+  const preferencesBaseRef = useRef<EditorPreferences | null>(null);
+  const prefOpRef = useRef(0);
+  preferencesRef.current = preferences;
+  preferencesBaseRef.current = preferencesBase;
   const [reviewItems, setReviewItems] = useState<ReviewQueueItem[]>([]);
   const [reviewTotal, setReviewTotal] = useState(0);
   const [reviewOffset, setReviewOffset] = useState(0);
@@ -1305,22 +1314,26 @@ export function useEditorOperations(
   );
 
   const loadPreferences = useCallback(async () => {
-    const op = beginOp();
+    const op = beginReadOp();
     setPreferencesLoading(true);
     setPreferencesError(null);
     try {
       const result = await invokeEngine("editor.preferences.get", {});
-      if (!isOpCurrent(op)) return;
+      if (!isReadCurrent(op)) return;
       setPreferencesBase(result);
       setPreferences({ ...result, shortcuts: { ...result.shortcuts } });
       setPreferencesLoading(false);
     } catch (error) {
-      if (isOpCurrent(op)) {
+      if (isReadCurrent(op)) {
         setPreferencesError(toUiError(error));
         setPreferencesLoading(false);
       }
     }
-  }, [beginOp, isOpCurrent]);
+  }, [beginReadOp, isReadCurrent]);
+
+  useEffect(() => {
+    void loadPreferences();
+  }, [loadPreferences]);
 
   useEffect(() => {
     if (panel === "preferences") void loadPreferences();
@@ -1332,6 +1345,59 @@ export function useEditorOperations(
       value: EditorPreferences[K],
     ) => {
       setPreferences((prev) => (prev ? { ...prev, [key]: value } : prev));
+    },
+    [],
+  );
+
+  const persistPreferenceField = useCallback(
+    async <K extends keyof EditorPreferences>(
+      key: K,
+      value: EditorPreferences[K],
+    ) => {
+      const op = ++prefOpRef.current;
+      let current = preferencesRef.current;
+      let base = preferencesBaseRef.current;
+      if (!current || !base) {
+        try {
+          const result = await invokeEngine("editor.preferences.get", {});
+          if (op !== prefOpRef.current) return;
+          current = { ...result, shortcuts: { ...result.shortcuts } };
+          base = result;
+          setPreferencesBase(result);
+          setPreferences(current);
+        } catch (error) {
+          if (op === prefOpRef.current) {
+            setPreferencesError(toUiError(error));
+          }
+          return;
+        }
+      }
+      const complete: EditorPreferences = {
+        ...base,
+        ...current,
+        [key]: value,
+        shortcuts: {
+          ...base.shortcuts,
+          ...current.shortcuts,
+        },
+      };
+      setPreferences((prev) =>
+        prev ? { ...prev, [key]: value } : { ...complete },
+      );
+      try {
+        const result = await invokeEngine("editor.preferences.update", {
+          preferences: complete,
+        });
+        if (op !== prefOpRef.current) return;
+        setPreferencesBase(result);
+        setPreferences({ ...result, shortcuts: { ...result.shortcuts } });
+        setPreferencesError(null);
+      } catch (error) {
+        if (op === prefOpRef.current) {
+          setPreferencesError(toUiError(error));
+          setPreferences(current);
+        }
+      }
     },
     [],
   );
@@ -1548,6 +1614,7 @@ export function useEditorOperations(
     preferencesError,
     preferencesPending,
     setPreferenceField,
+    persistPreferenceField,
     loadPreferences,
     savePreferences,
     reviewItems,

@@ -19,6 +19,7 @@ import {
   collaborationAvailable,
   resolveP4RouteContext,
 } from "../state/p4-route-context";
+import { TitleFileMenu, type TitleFileMenuItem } from "./TitleFileMenu";
 import { WindowControls } from "./WindowControls";
 
 export interface AppChromeProps {
@@ -35,6 +36,17 @@ export interface AppChromeProps {
   onSettings?: () => void;
   /** Opens the Ctrl/Cmd+K command palette. */
   onCommandPalette?: () => void;
+  /** Workbench file lifecycle for the title-bar File menu. */
+  onAddFiles?: () => void;
+  addFilesPending?: boolean;
+  onSave?: () => void;
+  onPretranslate?: () => void;
+  pretranslatePending?: boolean;
+  onReimport?: () => void;
+  onRecycleDocument?: () => void;
+  onWorkflowTranslation?: () => void;
+  onWorkflowReview?: () => void;
+  onWorkflowSignOff?: () => void;
   /** Window chrome platform branch from DesktopApi (default: custom). */
   windowChromePlatform?: WindowChromePlatform;
   windowMaximized?: boolean;
@@ -56,6 +68,16 @@ export function AppChrome({
   onCollaboration,
   onSettings,
   onCommandPalette,
+  onAddFiles,
+  addFilesPending = false,
+  onSave,
+  onPretranslate,
+  pretranslatePending = false,
+  onReimport,
+  onRecycleDocument,
+  onWorkflowTranslation,
+  onWorkflowReview,
+  onWorkflowSignOff,
   windowChromePlatform = "custom",
   windowMaximized = false,
   onWindowMinimize,
@@ -139,6 +161,127 @@ export function AppChrome({
     windowChromePlatform === "custom" &&
     Boolean(onWindowMinimize && onWindowToggleMaximize && onWindowClose);
 
+  const fileItems: TitleFileMenuItem[] = [];
+  if (onSave) {
+    fileItems.push({
+      id: "save",
+      label: "Save",
+      group: "job",
+      onSelect: onSave,
+      disabled,
+      testId: "title-file-save",
+    });
+  }
+  if (onAddFiles) {
+    fileItems.push({
+      id: "add-files",
+      label: addFilesPending ? "Importing" : "Add files",
+      group: "job",
+      onSelect: onAddFiles,
+      disabled: disabled || addFilesPending,
+      testId: "title-file-add-files",
+    });
+  }
+  if (onPretranslate) {
+    fileItems.push({
+      id: "pretranslate",
+      label: pretranslatePending ? "Pretranslating" : "Pretranslate",
+      group: "job",
+      onSelect: onPretranslate,
+      disabled: disabled || pretranslatePending,
+      testId: "title-file-pretranslate",
+    });
+  }
+  if (showSessionActions) {
+    fileItems.push({
+      id: "qa",
+      label: "QA",
+      group: "job",
+      onSelect: onQa,
+      disabled,
+      testId: "title-file-qa",
+    });
+    fileItems.push({
+      id: "export",
+      label: "Export",
+      group: "job",
+      onSelect: onExport,
+      disabled,
+      testId: "title-file-export",
+    });
+  }
+  if (onReimport) {
+    fileItems.push({
+      id: "reimport",
+      label: "Reimport",
+      group: "job",
+      onSelect: onReimport,
+      disabled,
+      testId: "reimport-open",
+    });
+  }
+  if (onRecycleDocument) {
+    fileItems.push({
+      id: "recycle-document",
+      label: "Recycle document",
+      group: "job",
+      onSelect: onRecycleDocument,
+      disabled,
+      danger: true,
+      testId: "title-file-recycle",
+    });
+  }
+  if (onWorkflowTranslation) {
+    fileItems.push({
+      id: "workflow-translation",
+      label: "Translation (Ctrl+Alt+T)",
+      group: "segment",
+      onSelect: onWorkflowTranslation,
+      disabled,
+      testId: "title-file-workflow-translation",
+    });
+  }
+  if (onWorkflowReview) {
+    fileItems.push({
+      id: "workflow-review",
+      label: "Review (Ctrl+Alt+R)",
+      group: "segment",
+      onSelect: onWorkflowReview,
+      disabled,
+      testId: "title-file-workflow-review",
+    });
+  }
+  if (onWorkflowSignOff) {
+    fileItems.push({
+      id: "workflow-sign-off",
+      label: "Sign off (Ctrl+L)",
+      group: "segment",
+      onSelect: onWorkflowSignOff,
+      disabled,
+      testId: "title-file-workflow-sign-off",
+    });
+  }
+  if (showAssets && onAssets) {
+    fileItems.push({
+      id: "assets",
+      label: "Assets",
+      group: "project",
+      onSelect: onAssets,
+      disabled,
+      testId: "title-file-assets",
+    });
+  }
+  if (showInsights) {
+    fileItems.push({
+      id: "insights",
+      label: "Insights",
+      group: "project",
+      onSelect: onInsights,
+      disabled,
+      testId: "title-file-insights",
+    });
+  }
+
   const handleTitleDoubleClick = (
     event: ReactMouseEvent<HTMLElement>,
   ): void => {
@@ -171,6 +314,7 @@ export function AppChrome({
         </span>
         <span>Translunar</span>
       </div>
+      <TitleFileMenu items={fileItems} disabled={disabled} />
       <div className="app-chrome__identity" title={identity}>
         {identityParts.primary ? (
           <span className="app-chrome__identity-primary">
@@ -272,6 +416,7 @@ export function AppChrome({
                   aria-current={surface.kind === "qa" ? "page" : undefined}
                   disabled={disabled}
                   onClick={onQa}
+                  data-testid="workbench-qa"
                 >
                   <SealCheck size={18} weight="regular" />
                 </button>
@@ -283,6 +428,7 @@ export function AppChrome({
                   aria-current={surface.kind === "export" ? "page" : undefined}
                   disabled={disabled}
                   onClick={onExport}
+                  data-testid="workbench-export"
                 >
                   <Export size={18} weight="regular" />
                 </button>
