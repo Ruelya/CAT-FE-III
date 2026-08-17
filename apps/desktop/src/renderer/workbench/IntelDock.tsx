@@ -20,8 +20,10 @@ import { matchLabel, rankMatches } from "../state/segment-intel";
 export interface IntelDockProps {
   intel: SegmentIntel;
   collapsed: boolean;
-  /** Studio Editor puts memory and terms above the grid. */
-  placement?: "side" | "top";
+  /** Side rail, historic top strip, or stacked TM + termbase panes. */
+  placement?: "side" | "top" | "stack";
+  /** Open the Asset Hub so the translator can mount memories and termbases. */
+  onAssets?: () => void;
   disabled?: boolean;
   onToggle: () => void;
   /** Put a translation memory hit into the target of the current segment. */
@@ -87,6 +89,7 @@ export function IntelDock({
   onApplyAiProposal,
   extract,
   termsFocusTick,
+  onAssets,
 }: IntelDockProps) {
   const [tab, setTab] = useState<DockTab>("matches");
   useEffect(() => {
@@ -111,13 +114,16 @@ export function IntelDock({
   const matchCount = matches.length;
   const termCount = terms.length;
   const top = placement === "top";
-  const showSplit = top && (tab === "matches" || tab === "terms");
+  const stack = placement === "stack";
+  const showSplit = stack || (top && (tab === "matches" || tab === "terms"));
+  const libraries = uniqueLibraries(matches);
+  const termbases = uniqueTermbases(terms);
 
   return (
     <section
       className={`intel-dock${collapsed ? " intel-dock--collapsed" : ""}${
         top ? " intel-dock--top" : ""
-      }`}
+      }${stack ? " intel-dock--stack" : ""}`}
       aria-label="Segment intelligence"
       data-testid="intel-dock"
       data-placement={placement}
@@ -190,17 +196,69 @@ export function IntelDock({
         {showSplit ? (
           <div className="intel-dock__split" data-testid="intel-dock-split">
             <div className="intel-dock__pane intel-dock__pane--matches">
-              <h3 className="intel-dock__pane-title">Translation memory</h3>
-              <MatchList
-                matches={matches}
-                loading={intel.tm.loading}
-                error={intel.tm.error ? formatUiError(intel.tm.error) : null}
-                disabled={disabled === true}
-                onApply={onApplyMatch}
-              />
+              <div className="intel-dock__pane-head">
+                <h3 className="intel-dock__pane-title">Translation memory</h3>
+                {onAssets ? (
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    data-testid="intel-open-tm"
+                    title="Open mounted translation memories"
+                    onClick={onAssets}
+                  >
+                    Open memories
+                  </button>
+                ) : null}
+              </div>
+              <p className="intel-dock__link" data-testid="intel-tm-libraries">
+                {libraries.length > 0
+                  ? libraries.map((library) => library.name).join(" · ")
+                  : "No memory hit this segment"}
+              </p>
+              {stack && tab === "concordance" ? (
+                <ConcordanceList
+                  concordance={intel.concordance}
+                  disabled={disabled === true}
+                  onSearch={onConcordance}
+                  onInsert={onInsertTerm}
+                />
+              ) : stack && tab === "ai" ? (
+                <AiPanel
+                  ai={ai}
+                  disabled={disabled === true}
+                  ocrSource={ocrSource === true}
+                  onApply={onApplyAiProposal}
+                />
+              ) : (
+                <MatchList
+                  matches={matches}
+                  loading={intel.tm.loading}
+                  error={intel.tm.error ? formatUiError(intel.tm.error) : null}
+                  disabled={disabled === true}
+                  onApply={onApplyMatch}
+                />
+              )}
             </div>
             <div className="intel-dock__pane intel-dock__pane--terms">
-              <h3 className="intel-dock__pane-title">Term recognition</h3>
+              <div className="intel-dock__pane-head">
+                <h3 className="intel-dock__pane-title">Term recognition</h3>
+                {onAssets ? (
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    data-testid="intel-open-tb"
+                    title="Open mounted termbases"
+                    onClick={onAssets}
+                  >
+                    Open termbases
+                  </button>
+                ) : null}
+              </div>
+              <p className="intel-dock__link" data-testid="intel-tb-libraries">
+                {termbases.length > 0
+                  ? termbases.join(" · ")
+                  : "No term hit this segment"}
+              </p>
               <TermList
                 terms={terms}
                 loading={intel.terms.loading}
@@ -262,6 +320,26 @@ export function IntelDock({
       </div>
     </section>
   );
+}
+
+function uniqueLibraries(
+  matches: readonly TmMatch[],
+): { id: string; name: string }[] {
+  const seen = new Map<string, string>();
+  for (const match of matches) {
+    if (!seen.has(match.library.id)) {
+      seen.set(match.library.id, match.library.name);
+    }
+  }
+  return [...seen].map(([id, name]) => ({ id, name }));
+}
+
+function uniqueTermbases(terms: readonly TermMatch[]): string[] {
+  const seen = new Set<string>();
+  for (const term of terms) {
+    if (term.termbaseId) seen.add(term.termbaseId);
+  }
+  return [...seen];
 }
 
 function DockTabButton({
@@ -683,6 +761,9 @@ function TermList({
                 onClick={() => paintFocus(index)}
               >
                 <p className="term__source">{term.sourceTerm}</p>
+                {term.termbaseId ? (
+                  <p className="term__termbase muted">{term.termbaseId}</p>
+                ) : null}
                 {term.translations.length === 0 ? (
                   <p className="term__untranslated muted">No translation on file</p>
                 ) : (

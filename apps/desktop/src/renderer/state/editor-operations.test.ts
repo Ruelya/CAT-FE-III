@@ -171,7 +171,7 @@ describe("editor-operations", () => {
     );
     expect(
       EDITOR_COMMAND_REGISTRY.some(
-        (c) => c.id === "editor.merge" && c.placement === "overflow",
+        (c) => c.id === "editor.merge" && c.placement === "primary",
       ),
     ).toBe(true);
     expect(isEditorCommandId("editor.findReplace")).toBe(true);

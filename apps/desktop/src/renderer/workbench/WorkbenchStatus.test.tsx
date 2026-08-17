@@ -48,7 +48,7 @@ function renderStatus(
       headerBusy={false}
       autocomplete={true}
       onSelectDocument={vi.fn()}
-      onAddFiles={vi.fn()}
+      onTogglePreview={vi.fn()}
       onPretranslate={vi.fn()}
       onAutocompleteChange={vi.fn()}
       {...overrides}
@@ -72,10 +72,18 @@ describe("WorkbenchStatus", () => {
     expect(screen.getByTestId("status-locales")).toHaveTextContent(
       "en-US → zh-CN",
     );
-    expect(screen.getByTestId("add-files")).toBeInTheDocument();
+    expect(screen.getByTestId("status-preview")).toBeInTheDocument();
     expect(screen.getByTestId("pretranslate")).toBeInTheDocument();
     expect(screen.queryByLabelText("This file")).toBeNull();
     expect(screen.queryByLabelText("Job")).toBeNull();
+  });
+
+  it("toggles the bottom preview drawer from the status line", async () => {
+    const user = userEvent.setup();
+    const onTogglePreview = vi.fn();
+    renderStatus({ onTogglePreview, previewOpen: false });
+    await user.click(screen.getByTestId("status-preview"));
+    expect(onTogglePreview).toHaveBeenCalledOnce();
   });
 
   it("toggles AutoSuggest through the preference callback", async () => {

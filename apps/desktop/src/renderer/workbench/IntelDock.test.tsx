@@ -96,11 +96,13 @@ function tmMatch(): TmMatch {
   } as unknown as TmMatch;
 }
 
-describe("IntelDock top placement", () => {
-  it("shows memory and terms side by side above the grid", () => {
+describe("IntelDock stack placement", () => {
+  it("shows memory and terms in stacked panes linked to their libraries", () => {
+    const onAssets = vi.fn();
     render(
       <IntelDock
-        placement="top"
+        placement="stack"
+        onAssets={onAssets}
         intel={{
           ...EMPTY_SEGMENT_INTEL,
           segmentId: "seg-1",
@@ -124,11 +126,48 @@ describe("IntelDock top placement", () => {
     );
     expect(screen.getByTestId("intel-dock")).toHaveAttribute(
       "data-placement",
-      "top",
+      "stack",
     );
     expect(screen.getByTestId("intel-dock-split")).toBeInTheDocument();
     expect(screen.getByTestId("apply-match-0")).toBeInTheDocument();
     expect(screen.getByTestId("term-list")).toBeInTheDocument();
+    expect(screen.getByTestId("intel-tm-libraries")).toHaveTextContent("Lib");
+    expect(screen.getByTestId("intel-tb-libraries")).toHaveTextContent("tb");
+    expect(screen.getByTestId("intel-open-tm")).toBeInTheDocument();
+    expect(screen.getByTestId("intel-open-tb")).toBeInTheDocument();
+  });
+
+  it("opens the asset hub from either stacked pane", async () => {
+    const user = userEvent.setup();
+    const onAssets = vi.fn();
+    render(
+      <IntelDock
+        placement="stack"
+        onAssets={onAssets}
+        intel={{
+          ...EMPTY_SEGMENT_INTEL,
+          segmentId: "seg-1",
+          tm: { matches: [tmMatch()], loading: false, error: null },
+          terms: {
+            matches: [termMatch("power station", [translation("电源站")])],
+            loading: false,
+            error: null,
+          },
+        }}
+        collapsed={false}
+        onToggle={() => undefined}
+        onApplyMatch={() => undefined}
+        onInsertTerm={() => undefined}
+        onConcordance={() => undefined}
+        onQuickAddTerm={() => undefined}
+        canQuickAddTerm={false}
+        ai={ai}
+        onApplyAiProposal={() => undefined}
+      />,
+    );
+    await user.click(screen.getByTestId("intel-open-tm"));
+    await user.click(screen.getByTestId("intel-open-tb"));
+    expect(onAssets).toHaveBeenCalledTimes(2);
   });
 });
 

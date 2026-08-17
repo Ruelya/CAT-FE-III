@@ -40,7 +40,6 @@ import {
 import { ActivityBar } from "../workbench/ActivityBar";
 import { AcpChatPanel } from "../workbench/AcpChatPanel";
 import { DockSash } from "../workbench/DockSash";
-import { EditorTabs } from "../workbench/EditorTabs";
 import { SegmentContextMenu } from "../workbench/SegmentContextMenu";
 import {
   segmentContextActions,
@@ -148,6 +147,7 @@ export interface WorkbenchProps {
   onPage?: (offset: number) => void;
   onSwitchDocument: (documentId: string) => void;
   onAddFiles: () => void;
+  onAssets?: () => void;
   onDismissBatch?: () => void;
 }
 
@@ -195,6 +195,7 @@ export function Workbench({
   onPage,
   onSwitchDocument,
   onAddFiles,
+  onAssets,
   onDismissBatch,
 }: WorkbenchProps) {
   const counts = ctx.counts;
@@ -224,10 +225,10 @@ export function Workbench({
     segmentId: activeSegmentId,
   });
   const [layout, setLayout] = useState(readWorkbenchLayout);
-  const [previewOpen, setPreviewOpen] = useState(() => readWorkbenchLayout().previewSide);
   const persistLayout = (next: typeof layout) => {
     setLayout(writeWorkbenchLayout(next));
   };
+  const previewOpen = layout.previewOpen;
   const [quickPlaceOpen, setQuickPlaceOpen] = useState(false);
   const aiSuggest = useAiSuggest({
     enabled: autocompleteOn && !quickPlaceOpen,
@@ -530,15 +531,39 @@ export function Workbench({
 
   return (
     <section className="workbench" data-testid="workbench">
+      {editorOps ? (
+        <EditorCommandBar
+          ops={editorOps}
+          disabled={disabled === true}
+          extras={{
+            onCopySource: onCopySourceToTarget,
+            onPlaceTags,
+            ...(onSave ? { onSave } : {}),
+            onPretranslate,
+            pretranslatePending: pretranslatePending === true,
+            canCopySource: Boolean(activeRow?.segment.sourceText.trim()),
+            canPlaceTags: Boolean(activeRow),
+            canSave: Boolean(onSave),
+          }}
+          {...(activeRow
+            ? {
+                confirm: {
+                  segmentId: activeRow.segment.id,
+                  ordinal: activeRow.segment.ordinal,
+                  disabled: pendingConfirm,
+                  onConfirm: () => onConfirm(),
+                },
+              }
+            : {})}
+        />
+      ) : null}
 
       <div
         className={[
           "workbench__body",
           "workbench__body--ide",
           layout.filesOpen ? "workbench__body--with-files" : "",
-          previewOpen ? "workbench__body--with-preview" : "",
           layout.chatOpen ? "workbench__body--with-chat" : "",
-          "workbench__body--results-top",
           tmCollapsed ? "workbench__body--tm-collapsed" : "",
           pdfReview &&
           shouldMountPdfDock({
@@ -559,23 +584,16 @@ export function Workbench({
           .join(" ")}
         style={{
           ["--file-nav-w" as string]: `${layout.fileNavW}px`,
-          ["--preview-w" as string]: `${layout.previewW}px`,
+          ["--panel-w-tm" as string]: `${layout.intelW}px`,
         }}
       >
         <div className="workbench__west">
           <ActivityBar
             filesOpen={layout.filesOpen}
-            previewOpen={previewOpen}
             chatOpen={layout.chatOpen}
             onToggle={(id) => {
               if (id === "files") {
                 persistLayout({ ...layout, filesOpen: !layout.filesOpen });
-                return;
-              }
-              if (id === "preview") {
-                const next = !previewOpen;
-                setPreviewOpen(next);
-                persistLayout({ ...layout, previewSide: next });
                 return;
               }
               persistLayout({ ...layout, chatOpen: !layout.chatOpen });
@@ -589,7 +607,12 @@ export function Workbench({
                 progress={progress}
                 disabled={headerBusy}
                 pending={switchPending === true}
+                addFilesPending={addFilesPending === true}
                 onSelect={onSwitchDocument}
+                onAddFiles={onAddFiles}
+                onCollapse={() =>
+                  persistLayout({ ...layout, filesOpen: false })
+                }
               />
               <DockSash
                 label="Resize file list"
@@ -618,68 +641,12 @@ export function Workbench({
           />
         ) : null}
         <div className="editor-region" ref={editorRegionRef}>
-          <EditorTabs
-            documents={ctx.documents}
-            activeDocumentId={ctx.document.id}
-            progress={progress}
-            disabled={headerBusy}
-            onSelect={onSwitchDocument}
-            onAddFiles={onAddFiles}
-          />
-          {editorOps ? (
-            <EditorCommandBar
-              ops={editorOps}
-              disabled={disabled === true}
-              {...(activeRow
-                ? {
-                    confirm: {
-                      segmentId: activeRow.segment.id,
-                      ordinal: activeRow.segment.ordinal,
-                      disabled: pendingConfirm,
-                      onConfirm: () => onConfirm(),
-                    },
-                  }
-                : {})}
-            />
-          ) : null}
           <DisplayFilterBar
             filter={filter}
             shown={visibleRows.length}
             total={ctx.editorPage.total}
             disabled={disabled === true}
             onChange={setFilter}
-          />
-          <IntelDock
-            placement="top"
-            intel={intel}
-            collapsed={tmCollapsed}
-            disabled={disabled === true}
-            onToggle={onToggleTm}
-            onApplyMatch={onApplyMatch}
-            onInsertTerm={onInsertTerm}
-            onConcordance={(query) => onConcordance(query, selection)}
-            onQuickAddTerm={() => onQuickAddTerm(selection)}
-            canQuickAddTerm={canQuickAddTerm}
-            {...(onSearchTerms ? { onSearchTerms } : {})}
-            focusedTermIndex={termFocusIndex}
-            onFocusedTermIndex={setTermFocusIndex}
-            onHighlightTerm={(span) => {
-              if (quickPlaceOpen) return;
-              setSourceHighlight(span);
-            }}
-            ai={segmentAi}
-            ocrSource={isOcrStructuralPath(activeRow?.segment.structuralPath ?? "")}
-            onApplyAiProposal={onApplyAiProposal}
-            extract={{
-              pending: termExtract.pending,
-              error: termExtract.error ? formatUiError(termExtract.error) : null,
-              candidates: termExtract.candidates,
-              onExtract: () => {
-                setTermsFocusTick((tick) => tick + 1);
-                void termExtract.extract();
-              },
-            }}
-            termsFocusTick={termsFocusTick}
           />
           <SegmentGrid
             rows={visibleRows}
@@ -814,35 +781,84 @@ export function Workbench({
             />
           ) : null}
         </div>
-        {previewOpen ? (
-          <div className="preview-dock">
-            <DockSash
-              label="Resize preview"
-              onDelta={(delta) =>
-                persistLayout({
-                  ...layout,
-                  previewW: layout.previewW + delta,
-                })
-              }
-            />
-            <StructurePreview
-              rows={visibleRows}
-              filterId={ctx.document.filterId}
-              format={ctx.document.format}
-              documentId={ctx.document.id}
-              documentName={ctx.document.name}
-              relativePath={ctx.document.relativePath}
-              activeSegmentId={activeSegmentId}
-              onJump={(id) => {
-                void onSelectSegment(id);
-              }}
-            />
-          </div>
-        ) : null}
+        <div className="intel-wrap">
+          <DockSash
+            label="Resize translation memory"
+            onDelta={(delta) =>
+              persistLayout({
+                ...layout,
+                intelW: layout.intelW + delta,
+              })
+            }
+          />
+          <IntelDock
+            placement="stack"
+            intel={intel}
+            collapsed={tmCollapsed}
+            disabled={disabled === true}
+            onToggle={onToggleTm}
+            onApplyMatch={onApplyMatch}
+            onInsertTerm={onInsertTerm}
+            onConcordance={(query) => onConcordance(query, selection)}
+            onQuickAddTerm={() => onQuickAddTerm(selection)}
+            canQuickAddTerm={canQuickAddTerm}
+            {...(onSearchTerms ? { onSearchTerms } : {})}
+            {...(onAssets ? { onAssets } : {})}
+            focusedTermIndex={termFocusIndex}
+            onFocusedTermIndex={setTermFocusIndex}
+            onHighlightTerm={(span) => {
+              if (quickPlaceOpen) return;
+              setSourceHighlight(span);
+            }}
+            ai={segmentAi}
+            ocrSource={isOcrStructuralPath(activeRow?.segment.structuralPath ?? "")}
+            onApplyAiProposal={onApplyAiProposal}
+            extract={{
+              pending: termExtract.pending,
+              error: termExtract.error ? formatUiError(termExtract.error) : null,
+              candidates: termExtract.candidates,
+              onExtract: () => {
+                setTermsFocusTick((tick) => tick + 1);
+                void termExtract.extract();
+              },
+            }}
+            termsFocusTick={termsFocusTick}
+          />
+        </div>
         {layout.chatOpen ? (
           <AcpChatPanel chat={acpChat} disabled={disabled === true} />
         ) : null}
       </div>
+
+      {previewOpen ? (
+        <div
+          className="preview-drawer"
+          style={{ ["--preview-h" as string]: `${layout.previewH}px` }}
+        >
+          <DockSash
+            orientation="horizontal"
+            label="Resize preview"
+            onDelta={(delta) =>
+              persistLayout({
+                ...layout,
+                previewH: layout.previewH - delta,
+              })
+            }
+          />
+          <StructurePreview
+            rows={visibleRows}
+            filterId={ctx.document.filterId}
+            format={ctx.document.format}
+            documentId={ctx.document.id}
+            documentName={ctx.document.name}
+            relativePath={ctx.document.relativePath}
+            activeSegmentId={activeSegmentId}
+            onJump={(id) => {
+              void onSelectSegment(id);
+            }}
+          />
+        </div>
+      ) : null}
 
       {reimport ? (
         <ReimportDialog
@@ -879,7 +895,6 @@ export function Workbench({
           : {})}
         headerBusy={headerBusy}
         switchPending={switchPending === true}
-        addFilesPending={addFilesPending === true}
         pretranslatePending={pretranslatePending === true}
         pendingConfirm={pendingConfirm}
         autocomplete={
@@ -887,8 +902,11 @@ export function Workbench({
             ? editorOps.preferences.autocomplete !== false
             : null
         }
+        previewOpen={previewOpen}
         onSelectDocument={onSwitchDocument}
-        onAddFiles={onAddFiles}
+        onTogglePreview={() =>
+          persistLayout({ ...layout, previewOpen: !previewOpen })
+        }
         onPretranslate={onPretranslate}
         {...(editorOps
           ? {

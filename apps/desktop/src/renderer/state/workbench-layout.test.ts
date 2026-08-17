@@ -17,7 +17,7 @@ describe("workbench layout", () => {
       fileNavW: 140,
       intelW: 480,
       filesOpen: true,
-      previewSide: true,
+      previewOpen: false,
     });
   });
 
@@ -33,9 +33,9 @@ describe("workbench layout", () => {
       {
         fileNavW: 180,
         intelW: 260,
-        previewW: 240,
+        previewH: 240,
         filesOpen: false,
-        previewSide: true,
+        previewOpen: true,
         chatOpen: true,
       },
       storage,

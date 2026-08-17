@@ -1,20 +1,20 @@
-export const WORKBENCH_LAYOUT_KEY = "translunar.renderer.workbench-layout.v1";
+export const WORKBENCH_LAYOUT_KEY = "translunar.renderer.workbench-layout.v2";
 
 export interface WorkbenchLayout {
   fileNavW: number;
   intelW: number;
-  previewW: number;
+  previewH: number;
   filesOpen: boolean;
-  previewSide: boolean;
+  previewOpen: boolean;
   chatOpen: boolean;
 }
 
 export const DEFAULT_WORKBENCH_LAYOUT: WorkbenchLayout = {
   fileNavW: 200,
   intelW: 300,
-  previewW: 280,
+  previewH: 220,
   filesOpen: true,
-  previewSide: true,
+  previewOpen: false,
   chatOpen: false,
 };
 
@@ -22,8 +22,8 @@ const MIN_FILE = 140;
 const MAX_FILE = 360;
 const MIN_INTEL = 220;
 const MAX_INTEL = 480;
-const MIN_PREVIEW = 200;
-const MAX_PREVIEW = 520;
+const MIN_PREVIEW = 140;
+const MAX_PREVIEW = 480;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -35,13 +35,13 @@ export function normalizeWorkbenchLayout(
   return {
     fileNavW: clamp(Number(raw?.fileNavW) || DEFAULT_WORKBENCH_LAYOUT.fileNavW, MIN_FILE, MAX_FILE),
     intelW: clamp(Number(raw?.intelW) || DEFAULT_WORKBENCH_LAYOUT.intelW, MIN_INTEL, MAX_INTEL),
-    previewW: clamp(
-      Number(raw?.previewW) || DEFAULT_WORKBENCH_LAYOUT.previewW,
+    previewH: clamp(
+      Number(raw?.previewH) || DEFAULT_WORKBENCH_LAYOUT.previewH,
       MIN_PREVIEW,
       MAX_PREVIEW,
     ),
     filesOpen: raw?.filesOpen !== false,
-    previewSide: raw?.previewSide !== false,
+    previewOpen: raw?.previewOpen === true,
     chatOpen: raw?.chatOpen === true,
   };
 }

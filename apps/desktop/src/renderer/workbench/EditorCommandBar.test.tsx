@@ -60,7 +60,7 @@ describe("EditorCommandBar keyboard contract", () => {
     expect(find).toHaveFocus();
 
     await user.keyboard("{End}");
-    expect(screen.getByTestId("cmd-editor.redo")).toHaveFocus();
+    expect(screen.getByTestId("cmd-editor.propagate")).toHaveFocus();
 
     await user.keyboard("{Home}");
     expect(find).toHaveFocus();
@@ -71,7 +71,7 @@ describe("EditorCommandBar keyboard contract", () => {
     render(<EditorCommandBar ops={makeOps()} />);
     screen.getByTestId("cmd-editor.findReplace").focus();
     await user.keyboard("{ArrowLeft}");
-    expect(screen.getByTestId("cmd-editor.redo")).toHaveFocus();
+    expect(screen.getByTestId("cmd-editor.propagate")).toHaveFocus();
   });
 
   it("skips unavailable commands when navigating", async () => {
@@ -129,15 +129,42 @@ describe("EditorCommandBar keyboard contract", () => {
     render(<EditorCommandBar ops={makeOps({ runCommand })} />);
     const trigger = screen.getByTestId("cmd-overflow");
     await user.click(trigger);
-    await user.click(screen.getByTestId("cmd-editor.propagate"));
-    expect(runCommand).toHaveBeenCalledWith("editor.propagate");
+    await user.click(screen.getByTestId("cmd-editor.correctSource"));
+    expect(runCommand).toHaveBeenCalledWith("editor.correctSource");
     expect(trigger).toHaveFocus();
+  });
+
+  it("exposes extra ribbon actions as icon buttons with hover names", () => {
+    render(
+      <EditorCommandBar
+        ops={makeOps()}
+        extras={{
+          onCopySource: vi.fn(),
+          onPlaceTags: vi.fn(),
+          onSave: vi.fn(),
+          onPretranslate: vi.fn(),
+          canCopySource: true,
+          canPlaceTags: true,
+          canSave: true,
+        }}
+      />,
+    );
+    expect(screen.getByTestId("cmd-ribbon.copySource")).toHaveAttribute(
+      "title",
+      "Copy source to target (Ctrl+Insert)",
+    );
+    expect(screen.getByTestId("cmd-ribbon.placeTags")).toHaveAttribute(
+      "aria-label",
+      "Place source tags (Ctrl+,)",
+    );
+    expect(screen.getByTestId("cmd-ribbon.save")).toBeInTheDocument();
+    expect(screen.getByTestId("cmd-ribbon.pretranslate")).toBeInTheDocument();
   });
 
   it("marks unavailable menu items as disabled rather than hiding them", () => {
     render(
       <EditorCommandBar
-        ops={makeOps({ isAvailable: (id) => id !== "editor.propagate" })}
+        ops={makeOps({ isAvailable: (id) => id !== "editor.correctSource" })}
       />,
     );
     // The menu is closed, so open state is not required for this assertion:

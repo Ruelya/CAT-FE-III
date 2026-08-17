@@ -59,6 +59,8 @@ describe("App P0 vertical slice (fake DesktopApi)", () => {
     expect(screen.getByTestId("bilingual-grid")).toBeInTheDocument();
     expect(screen.getByTestId("display-filter")).toBeInTheDocument();
     expect(screen.getByTestId("intel-dock")).toBeInTheDocument();
+    expect(screen.queryByTestId("structure-preview")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("status-preview"));
     expect(screen.getByTestId("structure-preview")).toBeInTheDocument();
     expect(screen.getByTestId("segment-paging")).toBeInTheDocument();
     expect(state.calls.some((c) => c.method === "project.batchImport")).toBe(

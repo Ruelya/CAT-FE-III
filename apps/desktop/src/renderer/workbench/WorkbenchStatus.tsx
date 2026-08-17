@@ -18,12 +18,12 @@ export interface WorkbenchStatusProps {
   saveState?: "scheduled" | "saving" | "error";
   headerBusy: boolean;
   switchPending?: boolean;
-  addFilesPending?: boolean;
   pretranslatePending?: boolean;
   pendingConfirm?: boolean;
   autocomplete: boolean | null;
+  previewOpen?: boolean;
   onSelectDocument: (documentId: string) => void;
-  onAddFiles: () => void;
+  onTogglePreview?: () => void;
   onPretranslate: () => void;
   onAutocompleteChange?: (next: boolean) => void;
 }
@@ -50,12 +50,12 @@ export function WorkbenchStatus({
   saveState,
   headerBusy,
   switchPending,
-  addFilesPending,
   pretranslatePending,
   pendingConfirm,
   autocomplete,
+  previewOpen,
   onSelectDocument,
-  onAddFiles,
+  onTogglePreview,
   onPretranslate,
   onAutocompleteChange,
 }: WorkbenchStatusProps) {
@@ -126,15 +126,19 @@ export function WorkbenchStatus({
       ) : null}
 
       <div className="workbench__status-actions">
-        <button
-          type="button"
-          className="btn btn--ghost btn--sm"
-          disabled={headerBusy}
-          onClick={onAddFiles}
-          data-testid="add-files"
-        >
-          {addFilesPending ? "Importing" : "Add files"}
-        </button>
+        {onTogglePreview ? (
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            disabled={headerBusy}
+            aria-pressed={previewOpen === true}
+            onClick={onTogglePreview}
+            data-testid="status-preview"
+            title={previewOpen ? "Hide preview" : "Show preview"}
+          >
+            Preview
+          </button>
+        ) : null}
         <button
           type="button"
           className="btn btn--ghost btn--sm"

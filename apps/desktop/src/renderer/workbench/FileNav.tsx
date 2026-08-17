@@ -1,4 +1,5 @@
 import type { Document, SegmentCounts } from "@translunar/contracts";
+import { CaretLeft, Plus } from "@phosphor-icons/react";
 
 import { shareStyle } from "../lib/dom";
 import type { DocumentProgressMap } from "../state/use-document-progress";
@@ -9,7 +10,10 @@ export interface FileNavProps {
   progress: DocumentProgressMap;
   disabled?: boolean;
   pending?: boolean;
+  addFilesPending?: boolean;
   onSelect: (documentId: string) => void;
+  onAddFiles?: () => void;
+  onCollapse?: () => void;
 }
 
 function remaining(counts: SegmentCounts | undefined, fallback: number): number {
@@ -23,7 +27,10 @@ export function FileNav({
   progress,
   disabled,
   pending,
+  addFilesPending,
   onSelect,
+  onAddFiles,
+  onCollapse,
 }: FileNavProps) {
   const busy = Boolean(disabled || pending);
   const jobTotal = documents.reduce((sum, doc) => {
@@ -37,7 +44,36 @@ export function FileNav({
   return (
     <nav className="file-nav" data-testid="file-nav" aria-label="Files in this job">
       <div className="file-nav__head">
-        <h2 className="file-nav__title">Files</h2>
+        <div className="file-nav__head-row">
+          <h2 className="file-nav__title">Files</h2>
+          <div className="file-nav__head-actions">
+            {onAddFiles ? (
+              <button
+                type="button"
+                className="btn btn--ghost btn--icon btn--sm"
+                disabled={busy}
+                onClick={onAddFiles}
+                data-testid="add-files"
+                aria-label={addFilesPending ? "Importing files" : "Add files"}
+                title={addFilesPending ? "Importing" : "Add files"}
+              >
+                <Plus size={16} weight="bold" />
+              </button>
+            ) : null}
+            {onCollapse ? (
+              <button
+                type="button"
+                className="btn btn--ghost btn--icon btn--sm"
+                onClick={onCollapse}
+                data-testid="file-nav-collapse"
+                aria-label="Collapse file list"
+                title="Collapse file list"
+              >
+                <CaretLeft size={16} weight="bold" />
+              </button>
+            ) : null}
+          </div>
+        </div>
         <p className="file-nav__job" data-testid="file-nav-job">
           {documents.length} · {jobOpen} open
           {jobTotal > 0 ? ` / ${jobTotal}` : ""}

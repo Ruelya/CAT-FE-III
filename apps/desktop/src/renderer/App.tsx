@@ -792,6 +792,9 @@ export function App() {
               onAddFiles={() => {
                 void commands.addFiles();
               }}
+              onAssets={() => {
+                void commands.goAssets();
+              }}
               onDismissBatch={commands.dismissBatchSummary}
             />
           ) : null}

@@ -57,4 +57,26 @@ describe("FileNav", () => {
     await user.click(screen.getByTestId("file-nav-item-b"));
     expect(onSelect).toHaveBeenCalledWith("b");
   });
+
+  it("hosts Add files and collapse on the file rail", async () => {
+    const user = userEvent.setup();
+    const onAddFiles = vi.fn();
+    const onCollapse = vi.fn();
+    render(
+      <FileNav
+        documents={[doc("a", "one.docx", 10)]}
+        activeDocumentId="a"
+        progress={{
+          a: counts({ total: 10, confirmed: 7, draft: 1, untranslated: 2 }),
+        }}
+        onSelect={vi.fn()}
+        onAddFiles={onAddFiles}
+        onCollapse={onCollapse}
+      />,
+    );
+    await user.click(screen.getByTestId("add-files"));
+    expect(onAddFiles).toHaveBeenCalledOnce();
+    await user.click(screen.getByTestId("file-nav-collapse"));
+    expect(onCollapse).toHaveBeenCalledOnce();
+  });
 });
