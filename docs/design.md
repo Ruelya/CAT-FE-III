@@ -1,329 +1,415 @@
-# Translunar 前端设计
+# Design
 
-| 项 | 值 |
+| Item | Value |
 | --- | --- |
-| 日期 | 2026-08-17 |
-| 范围 | Electron 渲染进程里已经落地的界面，不是愿望清单 |
-| 视觉权威 | `.trellis/spec/frontend/design-language.md` + `apps/desktop/src/renderer/tokens.css` |
-| 交互权威 | `.trellis/spec/frontend/electron-workbench.md` |
-| 实现锚点 | `apps/desktop/src/renderer/`（合并课件向工作台 + Option 2 分页之后） |
+| Date | 2026-08-17 |
+| Product | Translunar CAT desktop (Electron + React) |
+| Source of truth | This file is the portable design system. Runtime numbers live in `apps/desktop/src/renderer/tokens.css`. Enforcement lives in `.trellis/spec/frontend/design-language.md`. |
+| Scope | What the renderer already ships after the courseware workbench + Option 2 paging merge. Not a wishlist. |
 
-本文提取**当前产品**的前端设计。颜色、圆角、运动、z-index 只允许出现在 `tokens.css`。另一份文档和这份打架时，以 `design-language.md` 和 `tokens.css` 为准，并在同一次改动里修正过期文档。
+Use this document to design or review any new surface. If another note disagrees with `tokens.css`, fix the note in the same change.
 
 ---
 
-## 1. 设计读法
+## 1. Design read
 
-这是给职业译者和本地化工程师用的**本机优先 CAT 工作台**。人从 Trados / memoQ / Phrase 过来，在同一窗口里坐几个小时。评判标准是密度、键盘可达、工具是否让路。
+A **local-first professional translation workbench** for career translators and localization engineers. They arrive from Trados, memoQ, or Phrase, sit in one window for hours, and judge the tool on density, keyboard reach, and whether it gets out of the way.
 
-不是营销站，不是消费 App，不是分析看板。
+Not a marketing site. Not a consumer app. Not an analytics dashboard.
 
-一句话：**安静的校样结构，暖纸冷墨，工业控件，高信息密度，品牌色带只做数据而不是装饰。**
+**One line:** quiet editorial structure, warm paper and cool ink, industrial controls, high information density, brand ribbon as data not decoration.
 
-| 旋钮 | 值 | 含义 |
+| Dial | Value | Meaning |
 | --- | ---: | --- |
-| 变化 | 6/10 | 工作流可预期，层次可以不对称。禁止营销构图。 |
-| 运动 | 5/10 | 覆盖面广、幅度小、必有因果。禁止环境动画。 |
-| 密度 | 8/10 | 专业密度。可点目标不低于 32 px。 |
+| Variance | 6/10 | Predictable workflows. Hierarchy may be asymmetric. No marketing composition. |
+| Motion | 5/10 | Wide coverage, small amplitude, always causal. No ambient motion. |
+| Density | 8/10 | Professional density. Interactive targets never under 32 px. |
 
-`.agents/skills/design-taste-frontend` 和 `ui-ux-pro-max` 面向落地页和移动端。本产品的主体是密表、段网格、多步表单，那两份技能的默认审美**不采用**。
+External taste skills (`design-taste-frontend`, `ui-ux-pro-max`) target landing pages and mobile. This product is dense tables, a segment grid, and multi-step forms. Do not adopt their default palette, Inter, glass, or hero/bento layouts.
 
-前端只做展示和交互。分段、TM、QA、计数、导出门都在 Rust 引擎。渲染进程不直连 SQLite。
+The renderer is presentation and interaction only. Segmentation, TM, QA, counts, and export gates belong to the Rust engine. The renderer never talks to SQLite.
 
 ---
 
-## 2. 信息架构
+## 2. Principles (reusable)
 
-`App.tsx` 同时只挂一个 surface。没有 URL 路由。去向由 `routes/resolveSurface.ts` 和 `use-app-controller.ts` 决定。
+These apply to every surface, not just the editor.
 
-### 2.1 产品壳
+1. **Warm paper, cool structure.** Surfaces are warm. Lines, muted text, borders, and disabled states are cool green-grey. That tension is what stops the UI from reading as a beige wash.
+2. **One accent.** Advanced brown is the only interactive accent on every surface and both themes. Semantic colours (success / warning / error / info) are theme-fixed and never derived from a custom accent seed.
+3. **The brand ribbon does work.** Five brand colours are a categorical data series (progress, QA severity, document type, charts). They never colour a button.
+4. **Type carries quality.** Colour is structure. Type is voice.
+5. **Never colour-only.** Status is colour + text, and a Phosphor glyph when space allows.
+6. **Solid material.** No `backdrop-filter`, frosted glass, or translucent panels. Depth comes from the surface ladder plus a 1 px border. Shadows are rare and tinted.
+7. **32 px floor.** Anything clickable is at least 32×32. Visually smaller chips extend the hit area.
+8. **One primary per surface.** Secondary and danger stay reachable but visually subordinate.
+9. **Empty states do not duplicate the masthead.** If the primary action is already on the surface, the empty state states the fact and stops.
+10. **Counts are engine-owned.** A visible page must not pretend to be the whole document.
 
-`shell/AppChrome.tsx` 是唯一的标题条：
+---
 
-- 左：品牌五色带 + 产品名 + 当前项目 / 文件
-- 中：File 菜单（工作台时：Add files / Save / Pretranslate / Reimport / Recycle）
-- 右：Home、Search、Command palette、AI、Assets、Settings，以及 QA / Export / Insights；Windows/Linux 上还有自定义最小化 / 最大化 / 关闭
-- macOS 用系统红绿灯（`hiddenInset`）；其他平台用渲染进程控件（`hidden`）
+## 3. Colour
 
-外观存在 `localStorage` 键 `translunar.renderer.appearance.v1`（theme + accentSeed）。不进 `ProductShellSettings`，不进 git。
+Raw colour, radius, motion, shadow, and z-index exist only in `tokens.css`. `pnpm ui:audit` enforces that.
 
-### 2.2 Surface 清单
+### 3.1 Surface ladder
 
-| Surface | 角色 |
+Adjacent steps differ by at least 2.5 CIE L\*. Structure must be readable without a border.
+
+| Token | Light | Dark | Use |
+| --- | --- | --- | --- |
+| `--color-sunken` | `#e2ded4` | `#121110` | Recessed wells |
+| `--color-canvas` | `#eeeae1` | `#1a1714` | App background |
+| `--color-surface` | `#f7f4ee` | `#24211c` | Panels, docks, grid |
+| `--color-raised` | `#fffefb` | `#2f2b25` | Inputs, menus, raised rows |
+| `--color-line` | `#d5d2c8` | `#37332c` | Decorative divider only |
+| `--color-border` | `#82857e` | `#79756b` | Control boundary (≥ 3:1) |
+| `--color-border-strong` | `#6d716b` | `#8b8579` | Stronger control edge |
+| `--color-text` | `#1f1d1a` | `#f3efe8` | Body |
+| `--color-text-muted` | `#585c57` | `#a5a89f` | Secondary, cool |
+| `--color-text-subtle` | `#5c605c` | `#96948b` | Tertiary |
+
+### 3.2 Accent
+
+Default seed: `#765847` (`appearance-v1`). Runtime overwrites the accent family from the stored seed. Light default paint uses the seed as `--color-accent`. Dark default paint lightens it (about `#b98a70`).
+
+| Token | Role |
 | --- | --- |
-| Welcome | 零项目时的第一屏。Create project / Open example。列出真实支持的导入格式。 |
-| Project Home | 活动 / 归档项目列表。 |
-| Create / Import | 建项与选文件。导入后进工作台，不在向导里再插 Memory / Terms 门。 |
-| **Workbench** | 视觉和交互的中心。段网格 + 情报 + 预览。 |
-| QA / Export | 质检与交活。豁免要记人、记理由。 |
-| Asset Hub | 项目内 TM / TB / 对齐 / 语料 / 目录 / 策展。 |
-| Insights | 分析、interop、任务包。 |
-| Templates / Recycle / Search | 模板、回收站、全局搜索。 |
-| AI Control / Plugins / Collaboration / Settings | P4 壳。协作在本产品范围里整段排除，入口按能力隐藏。 |
+| `--color-accent` | Primary buttons, focus, selected emphasis |
+| `--color-accent-hover` / `--color-accent-active` | Press ladder |
+| `--color-accent-soft` | Selected row, soft chips |
+| `--color-on-accent` | Text on a solid accent fill |
+| `--color-focus` | 2 px focus ring |
 
-次级 surface 用紧凑列表和表单，不要 bento、不要等权功能卡。
+A custom seed must still reach 4.5:1 for on-accent body text and 3:1 for the focus ring on canvas, surface, and raised. Reject seeds that cannot, with a visible reason.
 
-### 2.3 工作台（当前布局）
+### 3.3 Semantic (theme-fixed)
 
-工作台是 IDE 形 CAT 编辑器，不是四列表格加右侧 Exact TM。
+| Token | Light | Dark |
+| --- | --- | --- |
+| `--color-success` | `#1b5e3f` | `#63c093` |
+| `--color-warning` | `#7a4a08` | `#e0ac4b` |
+| `--color-error` | `#a32f2f` | `#f08a8a` |
+| `--color-info` | `#1f5570` | `#77bcd9` |
+
+Each has a `*-soft` fill. Never derive these from the accent seed.
+
+### 3.4 Brand ribbon and data series
+
+Identity order is fixed. Do not swap. Do not put these on interactive controls.
+
+| Order | Name | Mark | Series (light) | Series (dark) |
+| --- | --- | --- | --- | --- |
+| 1 | Burnt | `#d9562b` | `#ad3f1d` | `#eb8258` |
+| 2 | Ochre | `#d29a2e` | `#a3761a` | `#e8c063` |
+| 3 | Lichen | `#87904a` | `#667130` | `#b0bb72` |
+| 4 | Teal | `#4f8076` | `#356057` | `#5f978c` |
+| 5 | Dusk | `#526f86` | `#374b5c` | `#5a7d95` |
+
+Stacked bars leave a 1 px gap in the parent surface colour between segments. Every series also has a text label or legend.
+
+### 3.5 Contrast floors
+
+| Element | Floor |
+| --- | ---: |
+| Body and label text | 4.5:1 |
+| Large text (18.66 px bold or 24 px regular) | 3:1 |
+| Focus ring on every surface it can land on | 3:1 |
+| Form control boundary, toggle, chart axis | 3:1 |
+| Decorative divider | none |
+
+---
+
+## 4. Typography
+
+Four bundled faces. No web fonts at runtime. `font-display: swap` on every face.
+
+| Token | Face | Role |
+| --- | --- | --- |
+| `--font-display` | Space Grotesk | Surface titles, brand, empty-state headlines |
+| `--font-ui` | Chivo | All chrome and body |
+| `--font-mono` | Space Mono | Numbers, IDs, locales, paths, shortcuts |
+| `--font-cjk` | Noto Sans SC | Source, target, and any CJK. Never preloaded. |
+
+| Token | Size | Use |
+| --- | ---: | --- |
+| `--text-2xs` | 11 px | Keyboard hints, dense sub-labels |
+| `--text-xs` | 12 px | Metadata, captions, chips |
+| `--text-sm` | 13 px | Secondary body, table cells |
+| `--text-md` | 14 px | Default body and controls |
+| `--text-lg` | 16 px | Section headings, target editor |
+| `--text-xl` | 20 px | Panel titles |
+| `--text-2xl` | 26 px | Surface titles |
+| `--text-3xl` | 34 px | Welcome only |
+
+Weights: 400 / 500 / 600 / 700. Leading: tight 1.2, snug 1.35, body 1.5, CJK 1.75.
+
+Rules:
+
+- Every number, count, percentage, and duration uses `tabular-nums`.
+- Italic is only for real emphasis in prose, never for labels.
+- Prose measure is capped at `--measure` (68 ch). Table cells are not prose.
+- Technical values (IDs, revisions, ISO times) are demoted: mono, muted, and if verbose, inside a collapsed disclosure. Raw JSON is not a UI.
+
+---
+
+## 5. Space, shape, elevation, layers
+
+**Space** (`--space-*`): 2 / 4 / 8 / 12 / 16 / 20 / 24 / 32 / 48. Nothing else.
+
+**Radius:** 4 px inputs and chips, 6 px buttons and panels, 8 px dialogs, 999 px dots and avatars only.
+
+**Control height:** 24 px non-interactive chips only; 32 / 36 / 40 px for controls. 32 px is the interactive floor.
+
+**Elevation:** `--shadow-sm` sticky headers and raised rows; `--shadow-md` menus; `--shadow-lg` dialogs. All tinted to the paper hue. Panels do not use shadow for depth.
+
+**Layers:** `--z-base` 0, `sticky` 10, `dock` 20, `menu` 30, `dialog` 40, `toast` 50. Raw `z-index` integers are forbidden.
+
+**Scrim:** `--color-scrim`, tokenised, only behind modal dialogs.
+
+**Chrome geometry (current product):**
+
+| Token | Default |
+| --- | ---: |
+| `--chrome-height` | 44 px |
+| `--rail-w` | 40 px |
+| `--file-nav-w` | 200 px (clamp 140–360) |
+| Intel dock | 300 px (clamp 220–480) |
+| `--preview-w` | 280 px (clamp 200–520) |
+| `--panel-w-pdf` | 288 px |
+| `--panel-w-tm` | 320 px (legacy rail; intel now sits above the grid) |
+
+---
+
+## 6. Motion
+
+Wide coverage, small amplitude, causal. Animate **only** `transform` and `opacity`, except the measured grid-track width when a dock opens or closes.
+
+| Token | Value | Use |
+| --- | --- | --- |
+| `--motion-instant` | 60 ms | Press |
+| `--motion-fast` | 120 ms | Colour and state |
+| `--motion-base` | 160 ms | Surface swap |
+| `--motion-slow` | 220 ms | Dock resize |
+| `--ease-standard` | `cubic-bezier(0.2, 0.8, 0.2, 1)` | Default |
+| `--stagger-step` | 40 ms | First 8 list rows |
+
+| Class | Trigger | Spec |
+| --- | --- | --- |
+| M1 | Surface change | View Transition or 8 px `translateY` cross-fade, 160 ms |
+| M2 | Dock open / collapse | Track width + opacity, 220 ms. Content stays mounted, becomes `inert` |
+| M3 | Active row | Left emphasis bar + accent-soft fill |
+| M4 | Async | Skeleton matches settled geometry. Buttons keep their label |
+| M5 | Confirm / save success | Chip hue + one `scale(1.04 → 1)` pulse |
+| M6 | List first paint | First 8 rows, 6 px up. No overshoot on dense tables |
+| M7 | `:active` | `translateY(1px)` or `scale(0.985)`, 60 ms |
+
+`prefers-reduced-motion: reduce` collapses every motion token to 0. No ambient loops, parallax, scroll hijack, marquees, custom cursors, or spinners that replace a button label.
+
+---
+
+## 7. Components
+
+Class names live in `styles/primitives.css`. Do not invent a second button or field language.
+
+### Buttons
+
+| Class | Intent |
+| --- | --- |
+| `.btn--primary` | One per surface |
+| `.btn--secondary` | Raised, bordered |
+| `.btn--ghost` | Transparent, hover tint |
+| `.btn--quiet` | Text-only row actions |
+| `.btn--danger` | Destructive |
+
+Sizes: `--sm` 32, `--md` 36, `--lg` 40. `.btn--icon` stays a 32 px square and needs both `title` and `aria-label`.
+
+Labels never wrap. Primary labels are at most three words. A button never stretches to fill a container. Form submit rows are right-aligned at content width. Pending keeps the label and blocks a second click.
+
+### Fields
+
+Label above, control, hint below, error below the hint. Placeholder is not a label. Invalid controls set `aria-invalid` and `aria-describedby`. On submit, focus the first invalid control.
+
+### Chips and progress
+
+`.chip` plus `--success` / `--warning` / `--error` / `--info` / `--accent`. Progress uses `.progress-bar` with `--confirmed` / `--draft` / `--open` segments from the brand series.
+
+### Tables and lists
+
+Sticky header. 1 px `--color-line` row rules. Hover tint. Selected = `--color-accent-soft` plus a left emphasis bar. Numeric columns right-aligned and tabular. Scroll stays inside the panel. No document-level horizontal overflow.
+
+### Tabs versus navigation
+
+Route-like section switching is `<nav>` + `aria-current`. A real tab widget must implement the full APG pattern (roving tabindex, Arrow / Home / End, `aria-controls`, named `tabpanel`). Half a tab pattern is worse than a link list.
+
+### Panels and dialogs
+
+Collapsed dock content stays mounted, `inert` + `aria-hidden`. Dialogs trap focus, restore the opener, treat Escape as non-destructive, and stay mounted through async work.
+
+Inside a modal, show the focus ring on `:focus`, not only `:focus-visible`. Initial focus is the safest action: Cancel in a confirm; Recover (not Discard) in draft recovery.
+
+### Empty, loading, error
+
+- Loading: skeleton whose geometry matches the settled layout.
+- Empty: bounded, titled, no bare header row. No lone string `Loading` or `Empty`.
+- Error: typed, next to the control, input preserved, retry when useful.
+- Transient results go to the toast region (`--z-toast`). Persistent results stay next to the control that produced them.
+
+### Icons
+
+`@phosphor-icons/react` only. 16 px dense chrome, 18 px title strip, 20 px empty states. `regular` by default, `bold` for window controls and toggles. No second family, no hand-authored icon paths, no emoji as structure.
+
+---
+
+## 8. Layout patterns
+
+### 8.1 Product chrome
+
+One title strip (`AppChrome`, 44 px). Left: five-colour brand mark, product name, current project / file. Center: contextual File menu. Right: destinations that are valid in this context (Home, Search, Command, AI, Assets, Settings, QA, Export, Insights) plus platform window controls.
+
+macOS uses system traffic lights (`hiddenInset`). Windows and Linux use in-renderer min / max / close (`hidden`).
+
+Appearance lives in `localStorage` key `translunar.renderer.appearance.v1` (`theme` + `accentSeed`). It does not go into engine settings or git.
+
+`App.tsx` mounts exactly one surface. There is no URL router.
+
+### 8.2 List / form surface
+
+Welcome, Project Home, Create, Import, QA, Export, Assets, Settings.
+
+- Content is width-constrained and top-anchored.
+- A form does not float in an empty viewport. Either the surface has more real content, or the form sits in a bounded card.
+- No bento grids, no equal-weight feature cards, no nested decorative cards.
+- Wizard steps only describe real gates. Do not invent extra steps.
+
+### 8.3 IDE workbench (current editor)
+
+This is the densest and visually dominant surface. Other surfaces stay subordinate.
 
 ```text
-+-- AppChrome: brand ribbon, title, File, nav, window controls --------+
-| Act | Files   | EditorTabs                                           | Preview      |
-| bar | FileNav | CommandBar  Confirm / Find / Tags / Comments         | Live recon   |
-| F/P |         | FilterBar   Open Draft Confirmed Findings ...        | DOMPurify    |
-| /C  |         | IntelDock   Matches / Terms / Concordance / AI       | click to jump|
-|     |         | SegmentGrid # | Ctx | Source | Target | Status       |              |
-|     |         | paging      Previous   n-m of N   Next               |              |
-+-----+---------+------------------------------------------------------+--------------+
-| Status: file, locales, progress, counts          Add files / Pretranslate          |
-+-----------------------------------------------------------------------------------+
++-- AppChrome ----------------------------------------------------------+
+| Act | Files    | Tabs                                                 | Preview     |
+| bar | FileNav  | CommandBar  Confirm / Find / Tags / Comments         | Live recon  |
+| F/P |          | FilterBar   Open Draft Confirmed Findings ...        | DOMPurify   |
+| /C  |          | IntelDock   Matches / Terms / Concordance / AI       | click jump  |
+|     |          | Grid        # | Ctx | Source | Target | Status       |             |
+|     |          | Paging      Previous   n–m of N   Next               |             |
++-----+----------+------------------------------------------------------+-------------+
+| Status: file, locales, progress, counts     Add files / Pretranslate                |
++-------------------------------------------------------------------------------------+
 ```
 
-默认几何（`workbench-layout.v1`）：
+Defaults (`workbench-layout.v1`): files open, preview open, chat closed.
 
-| 坞 | 默认 | 夹紧 |
-| --- | ---: | --- |
-| 文件列表 | 200 px | 140–360 |
-| 情报窗 | 300 px | 220–480 |
-| 右侧预览 | 280 px | 200–520 |
+Grid columns: `#` · `Ctx` · Source · Target · Status.
 
-默认：文件列表开、预览开、ACP 聊天关。活动条只开关这三块坞，不另开一套导航。
+- Ctx is a short structure label (`html`, `p`, …).
+- Source is tagged text: inline tags render as `inline-tag` chips. Ctrl/Meta-click places a source tag on the target.
+- Only the active row mounts the target editor. The hidden `textarea` test id stays `target-editor-${id}`; the visible layer is `target-surface-${id}`.
+- Status shows Open / Draft / Confirmed plus Translation / Review / Signed.
 
-**网格列**：`#` · `Ctx` · Source · Target · Status。
+**Two filter layers. Do not merge them into one control.**
 
-- Ctx 用 `structureLabel(structuralPath)`，例如 `html`。
-- Source 用 `TaggedText`：行内标签是 `inline-tag` 芯片，不是纯文本。Ctrl/Meta+点击源标签可放到译文（QuickPlace）。
-- 只有活动行挂 `TargetEditor`（隐藏 `textarea` 的 testid 仍是 `target-editor-${id}`，可见层 `target-surface-${id}`）。
-- Status：Open / Draft / Confirmed，外加 Translation / Review / Signed 工作流。
+1. Client display filter on the current page: Open / Draft / Confirmed / Findings / Comments / Repeats, plus text / regex / whitespace / tag display.
+2. Engine page window: `segment.editor.list` offset / limit. Document totals come from engine `counts`.
 
-**过滤有两层，不要合成一个控件：**
+Intelligence sits **above** the grid (Matches / Terms / Concordance / AI), not as a lone Exact TM rail.
 
-1. `DisplayFilterBar`：当前页上的客户端组合（Open / Draft / Confirmed / Findings / Comments / Repeats + 文本 / 正则 / 空白 / 标签显示）。testid：`display-filter`。
-2. 引擎分页：`segment.editor.list` 的一页窗口。testid：`bilingual-grid`、`segment-paging`。文档计数用引擎 `counts`，禁止用当前页冒充全文。
+Preview sits on the **right**: live reconstruction. Markdown goes through `marked` then `DOMPurify`. HTML and other filters reconstruct typography then use the same sanitizer. When managed DOCX bytes exist, `docx-preview` paints the original file above the clickable live blocks. This is not Word COM, not the PDF page dock, and not OnlyOffice.
 
-**情报窗**在网格**上方**（`IntelDock placement="top"`）：Matches / Terms / Concordance / AI。这是课件向工作台，不是右侧 Exact TM 单栏。
+OnlyOffice view-host code may exist in the repo. It is **not** mounted in the workbench by default, so it cannot displace live preview.
 
-**预览**在右侧，是 `StructurePreview`：
-
-- Markdown：`marked` → `DOMPurify`
-- HTML：按标签重铺 → `DOMPurify`
-- 其他：标签到排版 → 同一消毒器
-- 有托管 DOCX 字节时，`docx-preview` 画原文件，**在**可点击的 live 块上面
-- testid：`structure-preview`、`preview-block-${segmentId}`
-- 这不是 Word COM，不是 PDF 页坞，也不是 OnlyOffice
-
-OnlyOffice 只读宿主（`LayoutPreview`）还在仓库里，**默认不挂进工作台**，以免把 live preview 挤掉。
-
-PDF 文件另开 `PdfPageReview` 坞，规则见 `interop-pdf.md`。
+PDF documents open a separate page-review dock.
 
 ---
 
-## 3. 颜色
+## 9. Interaction contracts
 
-暖纸面 + 冷绿灰结构 + 唯一交互强调色（高级棕）。语义色（成功 / 警告 / 错误 / 信息）主题固定，不从强调色种子派生。
-
-### 3.1 浅色（默认）
-
-运行时默认种子是 `#765847`（`tokens.css` / appearance-v1）。下面是浅色主题的表面和结构。
-
-| Token | Hex | 用途 |
-| --- | --- | --- |
-| `--color-sunken` | `#e2ded4` | 凹陷 |
-| `--color-canvas` | `#eeeae1` | 画布 |
-| `--color-surface` | `#f7f4ee` | 面板 |
-| `--color-raised` | `#fffefb` | 抬起 / 输入 |
-| `--color-line` | `#d5d2c8` | 装饰分割线 |
-| `--color-border` | `#82857e` | 控件边 |
-| `--color-text` | `#1f1d1a` | 正文 |
-| `--color-text-muted` | `#585c57` | 次要（冷绿灰） |
-| `--color-accent` | 由种子派生 | 唯一交互强调 |
-| `--color-success` | `#1b5e3f` | 成功 |
-| `--color-warning` | `#7a4a08` | 警告 |
-| `--color-error` | `#a32f2f` | 错误 |
-| `--color-info` | `#1f5570` | 信息 |
-
-相邻表面 CIE L\* 差 ≥ 2.5，结构不靠描边也能分开。
-
-### 3.2 深色
-
-画布 `#1a1714`，表面 `#24211c`，正文 `#f3efe8`。强调色变亮（默认派生约 `#b98a70`），语义色同样主题固定。
-
-### 3.3 品牌色带（只做标识和数据）
-
-顺序固定，不可调换。不给按钮上色。
-
-| 顺序 | 名 | 标识 Hex |
-| --- | --- | --- |
-| 1 | Burnt | `#d9562b` |
-| 2 | Ochre | `#d29a2e` |
-| 3 | Lichen | `#87904a` |
-| 4 | Teal | `#4f8076` |
-| 5 | Dusk | `#526f86` |
-
-进度条、QA 严重度、文档类型、图表序列用派生的 `--color-series-*`。段与段之间留 1 px 父表面缝。状态永远是颜色 + 文字，有空再加 Phosphor 图标。
-
-### 3.4 硬规则
-
-- 每个 surface 只有一个强调色。
-- 禁止 `backdrop-filter`、毛玻璃、半透明面板。遮罩和状态染色必须走 token。
-- 禁止在 `tokens.css` 外写裸色值。`pnpm ui:audit` 检查。
-- 自定义种子必须让 on-accent 正文 ≥ 4.5:1、焦点环对画布 / 表面 / 抬起 ≥ 3:1，否则拒绝并说明原因。
-
----
-
-## 4. 字体与尺度
-
-四套打包字体，运行时不拉网字。
-
-| Token | 字体 | 用途 |
-| --- | --- | --- |
-| `--font-display` | Space Grotesk | 标题、品牌、空态标题 |
-| `--font-ui` | Chivo | 全部界面正文 |
-| `--font-mono` | Space Mono | 数字、ID、语对、路径、快捷键 |
-| `--font-cjk` | Noto Sans SC | 源/译文和任何 CJK。不预加载。 |
-
-数字列用 `tabular-nums`。斜体只用于真正的强调，不用在标签上。
-
-字号：11 / 12 / 13 / 14 / 16 / 20 / 26 / 34（`--text-2xs` … `--text-3xl`）。34 只给 Welcome。正文行宽 ≤ 68 字符；表格格不是正文。
-
-间距只允许 2 / 4 / 8 / 12 / 16 / 20 / 24 / 32 / 48。
-
-圆角只允许 4 / 6 / 8 / 999（点、头像）。
-
-控件高度 32 / 36 / 40。**可点目标地板 32 px**。看起来更小的东西用 padding 或伪元素扩热区。
-
-阴影只有三级，而且带纸色，不用纯黑：行 / 菜单 / 对话框。面板深度靠表面阶梯 + 1 px 边，不靠阴影。
-
-z-index 只走 `--z-base|sticky|dock|menu|dialog|toast`。
-
----
-
-## 5. 运动
-
-宽覆盖、小幅度、有因果。只动画 `transform` 和 `opacity`（坞轨道宽度是唯一例外）。
-
-| 类 | 触发 | 做法 |
-| --- | --- | --- |
-| M1 | 换 surface | View Transition 或 8 px 上移交叉淡入，160 ms |
-| M2 | 坞开合 | 轨道宽 + 透明度，220 ms。内容保持挂载，`inert` |
-| M3 | 活动行 | 左强调条 + 浅棕底 |
-| M4 | 异步 | 骨架几何对齐结果；按钮保留文案 |
-| M5 | 确认 / 保存成功 | 状态芯片变色 + 一次 `scale(1.04→1)` |
-| M6 | 列表首屏 | 前 8 行 6 px 上移。密表禁止过冲缓动 |
-| M7 | `:active` | `translateY(1px)` 或 `scale(0.985)`，60 ms |
-
-`prefers-reduced-motion: reduce` 时所有运动 token 归零。
-
----
-
-## 6. 交互合同（工作台）
-
-这些是译者手感，不是装饰。
-
-| 动作 | 合同 |
+| Action | Contract |
 | --- | --- |
-| 确认 | Ctrl+Enter 跳到下一未确认；Ctrl+Alt+Enter 严格下一段；Ctrl+Shift+Enter 停在本段。本页走完且后面还有，再拉下一页。 |
-| 保存 | Ctrl+S / File → Save 走 `SaveCoordinator.flush`。IME 合成中不确认、不保存。 |
-| 行间移动 | 上下箭头在网格里走，不离开网格。 |
-| 源标签 | 芯片。Ctrl/Meta+点击放到译文。相邻占位可成组。 |
-| 过滤条 | 多条件组合，不是单选替换。计数必须说清「当前看见多少 / 文档一共多少」。 |
-| 分页 | 引擎窗口。`Previous` / `1–n of N` / `Next`。 |
-| QA Jump | 按 `focusSegmentId` 翻页找段，段不在当前页也不能直接 return。 |
-| 预览跳段 | 点 preview 块或 Enter/Space。 |
-| 空态 | 主按钮已经在桅杆上时，空态只陈述事实，不再重复同一个动作。 |
-| 破坏性确认 | 初始焦点在最安全的动作（通常是 Cancel；恢复草稿时是 Recover）。 |
+| Confirm | Ctrl+Enter next unconfirmed; Ctrl+Alt+Enter next in order; Ctrl+Shift+Enter stay. If this page is done and the document has more, load the next engine page. |
+| Save | Ctrl+S / File → Save flushes the active draft. IME composition never confirms or saves. |
+| Row move | Up / Down stay inside the grid. |
+| Source tags | Chips. Ctrl/Meta-click places. Adjacent placeholders may group. |
+| Filter count | Always “shown of document total”, never “shown of this page” pretending to be the file. |
+| QA jump | Find the segment by id, paging if needed. Do not no-op because it is off the current page. |
+| Preview jump | Click a block, or Enter / Space. |
+| Destructive confirm | Initial focus on the safest action. |
 
-隐藏的 `textarea.sr-only` 仍是自动化锚。对它 `click` 必须 `{ force: true }`。
+Clicking the hidden `textarea.sr-only` in tests requires `{ force: true }`.
 
-红线 testid（不要改名）：`workbench`、`bilingual-grid`、`display-filter`、`intel-dock`、`structure-preview`、`segment-paging`、`target-editor-*`、`target-surface-*`、`add-files`、`file-nav`。
+Stable test ids (do not rename): `workbench`, `bilingual-grid`, `display-filter`, `intel-dock`, `structure-preview`, `segment-paging`, `target-editor-*`, `target-surface-*`, `add-files`, `file-nav`.
 
 ---
 
-## 7. 组件形状
+## 10. Copy
 
-**按钮**五种：primary（每个 surface 一个）、secondary、ghost、quiet、danger。文案不换行，主按钮最多三词。不要为了填满容器而拉满宽。Pending 时保留文案、禁止连点。纯图标必须同时有 `title` 和 `aria-label`。
+Concise, functional, domain-accurate. State the fact and the recovery action.
 
-**字段**：标签在上，控件，提示在下，错误在提示下。Placeholder 不是标签。
+Forbidden: descriptive subtitles, guiding microcopy, feature narration, future-feature copy, contrast sentences built on “不是”, marketing filler (`Elevate`, `Seamless`, `Unleash`, `Next-Gen`), invented precise numbers, em dash or en dash in visible copy, decorative status dots, scroll cues, version stamps in chrome.
 
-**表**：粘性表头，1 px `--color-line` 行线，悬停浅底，选中 = accent-soft + 左强调条。数字右对齐、等宽。滚动关在面板里，禁止文档级横向溢出。
-
-**坞 / 对话框**：收起的坞内容保持挂载，`inert` + `aria-hidden`。对话框锁焦、Esc 非破坏、异步完成前不卸掉。
-
-**图标**：只用 `@phosphor-icons/react`。密条 16、标题条 18、空态 20。默认 `regular`，窗控和开关用 `bold`。
-
-**状态**：语义芯片 = 颜色 + 字 + 图标。短暂结果进 toast；持久结果留在产生它的控件旁边。
+Sentence case for labels and headings. Title case only for proper nouns.
 
 ---
 
-## 8. 文案
+## 11. Accessibility
 
-短、能执行、用行业词。说事实和可恢复动作。
+WCAG 2.2 AA in both themes.
 
-禁止：说明性副标题、导游式微文案、功能旁白、未来功能、`不是` 对照句、营销词（Elevate / Seamless / Unleash / Next-Gen）、编造精确数字、可见文案里的 em dash / en dash、装饰状态点、滚动提示、产品壳上的版本戳。
-
-标签和标题用 sentence case。专有名词才 Title Case。
-
----
-
-## 9. 可达性地板
-
-两个主题都要 WCAG 2.2 AA。
-
-- 全部工作流键盘可走完，焦点环永不摘掉
-- 重复行操作的名字里带上行身份
-- `role="status"` 报状态，`role="alert"` 报可处理失败，不抢焦
-- 阅读顺序等于视觉顺序；换 surface 后焦点落到新标题
-- CJK IME 合成不被确认 / 保存打断
-- 可用视口：1180×700、1250×744、1680×942、1920×1080，以及 125% 字号。禁止文档级横溢、重叠、裁切、藏起主操作
+- Every workflow is completable from the keyboard. The focus ring is never removed.
+- Repeated row actions include item identity in the accessible name.
+- `role="status"` for status, `role="alert"` for actionable failure, without stealing focus.
+- Reading order matches visual order. After a surface change, focus lands on the new heading.
+- CJK IME composition is never interrupted.
+- Supported viewports: 1180×700, 1250×744, 1680×942, 1920×1080, and 125% text zoom. No document-level overflow, overlap, clipping, or hidden primary action.
 
 ---
 
-## 10. 这不是什么
+## 12. What this is not
 
-写 UI 时不要滑回这些错误名词：
-
-| 不是 | 为什么 |
+| Wrong noun | Why |
 | --- | --- |
-| VS Code / Zed / Monaco 当产品 | 那是代码编辑器。脊梁是段对 + 标签 + TM。 |
-| OnlyOffice / Word 当编辑器 | 文档套件只能当预览宿主。默认预览是 live reconstruction。 |
-| 自称已经达到 Trados | 没有 Word COM、没有七档审校、没有 `.sdltm/.sdltb`、没有云协作。做到接近，不要宣称已达。 |
-| 自制四列表格冒充 Studio | 课件向布局（情报在上、预览在右、底栏）才是当前译者表面。 |
-| 当前页计数冒充全文 | 计数来自引擎 `counts`。 |
+| VS Code / Zed / Monaco as the product | Those are code editors. The spine is a segment pair + tags + TM. |
+| OnlyOffice / Word as the editor | Document suites are preview hosts at most. Default preview is live reconstruction. |
+| Claiming Trados parity | No Word COM, no seven-tier review, no `.sdltm` / `.sdltb`, no cloud collaboration. Close is the goal. Parity is not. |
+| A homemade four-column table as Studio | The current translator surface is intel on top, preview on the right, status on the bottom. |
+| Current-page counts as file counts | Counts come from the engine. |
 
 ---
 
-## 11. 文件地图
+## 13. File map
 
-| 路径 | 职责 |
+| Path | Role |
 | --- | --- |
-| `apps/desktop/src/renderer/tokens.css` | 唯一允许写裸色 / 圆角 / 运动 / z 的文件 |
-| `apps/desktop/src/renderer/styles/` | 重置、壳、工作台、surface |
-| `apps/desktop/src/renderer/surfaces/Workbench.tsx` | 工作台编排 |
-| `apps/desktop/src/renderer/workbench/SegmentGrid.tsx` | 段网格 + 分页 |
-| `apps/desktop/src/renderer/workbench/IntelDock.tsx` | 记忆 / 术语 / 语境 / 段 AI |
-| `apps/desktop/src/renderer/workbench/StructurePreview.tsx` | 右侧 live preview |
-| `apps/desktop/src/renderer/workbench/DisplayFilterBar.tsx` | 客户端过滤条 |
-| `apps/desktop/src/renderer/workbench/TaggedText.tsx` | 源文标签芯片 |
+| `apps/desktop/src/renderer/tokens.css` | Only file allowed to hold raw colour / radius / motion / z |
+| `apps/desktop/src/renderer/styles/primitives.css` | Buttons, fields, chips, empty states |
+| `apps/desktop/src/renderer/styles/workbench.css` | Workbench grid and docks |
+| `apps/desktop/src/renderer/surfaces/Workbench.tsx` | Workbench composition |
+| `apps/desktop/src/renderer/workbench/SegmentGrid.tsx` | Segment grid + engine paging |
+| `apps/desktop/src/renderer/workbench/IntelDock.tsx` | Memory / terms / concordance / segment AI |
+| `apps/desktop/src/renderer/workbench/StructurePreview.tsx` | Right-side live preview |
+| `apps/desktop/src/renderer/workbench/DisplayFilterBar.tsx` | Client filter strip |
+| `apps/desktop/src/renderer/workbench/TaggedText.tsx` | Source tag chips |
 | `apps/desktop/src/renderer/state/appearance.ts` | appearance-v1 |
-| `apps/desktop/src/renderer/state/workbench-layout.ts` | 坞宽和开关 |
+| `apps/desktop/src/renderer/state/workbench-layout.ts` | Dock widths and toggles |
+| `.trellis/spec/frontend/design-language.md` | Enforceable contract (English) |
 
 ---
 
-## 12. 验收
+## 14. Verification
 
-| 门 | 命令 |
+| Gate | Command |
 | --- | --- |
-| 设计系统静态审计 | `pnpm ui:audit` |
-| 视觉 + 几何 | `pnpm ui:shots` / `pnpm ui:shots:matrix` |
-| 减弱运动 | `node scripts/ui-shots.mjs --reduced-motion` |
-| 对比度与 token | `apps/desktop/src/renderer/state/appearance.test.ts` |
-| 行为 | `pnpm --filter @translunar/desktop test` |
+| Static design audit | `pnpm ui:audit` |
+| Visual + geometry | `pnpm ui:shots` / `pnpm ui:shots:matrix` |
+| Reduced motion | `node scripts/ui-shots.mjs --reduced-motion` |
+| Contrast and tokens | `apps/desktop/src/renderer/state/appearance.test.ts` |
+| Behaviour | `pnpm --filter @translunar/desktop test` |
 
-机械查不了的规则，对着 `ui-shots` 的 PNG 看。
+A rule that cannot be checked mechanically is checked by reading the captured PNGs.
 
 ---
 
-## 13. 禁止清单
+## 15. Forbidden
 
-毛玻璃 · 第二强调色 · 从强调色派生语义色 · `tokens.css` 外的裸色 · 4/6/8/full 以外的圆角 · 裸 `z-index` · 裸运动时长 · 第二套图标 · 手绘图标路径 · 用 emoji 当结构图标 · 用 placeholder 当标签 · 可点目标小于 32 px · 用 `display: none` 做坞动画 · 动画宽高 top left（M2 除外） · 环境运动 · 密表过冲 · 转圈替换按钮文案 · 光秃的 `Loading` / `Empty` · 没有空态的空表 · 把 JSON 当界面 · 半套 `role="tab"` · 破坏性操作没有 Cancel-first · 可见文案里的 em/en dash · 营销词 · 非数据驱动的 inline layout style。
+Glass · a second accent · semantic colours derived from the accent · raw colour outside `tokens.css` · radius outside 4 / 6 / 8 / full · raw `z-index` · raw motion durations · a second icon family · hand-drawn icon paths · emoji as structure · placeholder as label · hit targets under 32 px · `display: none` to animate a dock · animating width / height / top / left except M2 · ambient motion · overshoot on dense tables · spinners replacing button labels · bare `Loading` / `Empty` · empty tables without an empty state · JSON as UI · half a `role="tab"` · destructive actions without a safest-first confirm · em / en dashes in visible copy · marketing filler · inline layout styles that are not data-derived geometry.
