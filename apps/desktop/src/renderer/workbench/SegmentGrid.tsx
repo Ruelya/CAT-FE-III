@@ -8,7 +8,11 @@ import {
 import { segmentNumber } from "../lib/format";
 import type { EditorDisplay } from "../lib/editor-display";
 import { adjacentPlaceholderGroupAt, pairSourceTags } from "../lib/quickplace";
-import { isOcrStructuralPath } from "../lib/structure-label";
+import {
+  isOcrStructuralPath,
+  structureLabel,
+  structureTitle,
+} from "../lib/structure-label";
 import {
   caretOffsetsInTaggedEditor,
   mergeTargetTags,
@@ -222,6 +226,7 @@ export function SegmentGrid({
           <col className="source" />
           <col className="target" />
           <col className="status" />
+          <col className="structure" />
         </colgroup>
         <thead>
           <tr>
@@ -231,6 +236,9 @@ export function SegmentGrid({
             <th scope="col">Source</th>
             <th scope="col">Target</th>
             <th scope="col">Status</th>
+            <th scope="col" className="segment-table__structure">
+              Ctx
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -523,6 +531,15 @@ export function SegmentGrid({
                       </span>
                     ) : null}
                   </div>
+                </td>
+                <td
+                  className="segment-table__structure"
+                  title={structureTitle(row.segment.structuralPath)}
+                  data-testid={`segment-ctx-${id}`}
+                >
+                  <span className="segment-structure">
+                    {structureLabel(row.segment.structuralPath)}
+                  </span>
                 </td>
               </tr>
             );

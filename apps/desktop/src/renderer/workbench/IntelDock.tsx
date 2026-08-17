@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Books, HardDrives } from "@phosphor-icons/react";
 import type { ConcordanceHit, TermCandidate, TermMatch, TmMatch } from "@translunar/contracts";
 
 import { formatUiError, toUiError } from "../lib/errors";
@@ -201,26 +202,37 @@ export function IntelDock({
           <div className="intel-dock__split" data-testid="intel-dock-split">
             <div className="intel-dock__pane intel-dock__pane--matches">
               <div className="intel-dock__pane-head">
-                <h3 className="intel-dock__pane-title">Translation memory</h3>
+                <div
+                  className="intel-dock__pane-tab"
+                  data-testid="intel-pane-tm"
+                >
+                  <span className="intel-dock__pane-tab-label">
+                    Translation memory
+                  </span>
+                  <span className="intel-dock__count">
+                    {intel.tm.loading ? "\u2026" : matchCount}
+                  </span>
+                </div>
                 {onAssets ? (
                   <button
                     type="button"
-                    className="btn btn--quiet btn--sm intel-dock__asset"
+                    className="btn btn--secondary btn--sm"
                     data-testid="intel-open-tm"
                     title="Open mounted translation memories"
                     onClick={onAssets}
                   >
+                    <HardDrives size={16} weight="regular" />
                     Open memories
                   </button>
                 ) : null}
               </div>
               {stack ? (
                 <div
-                  className="intel-dock__tools"
-                  role="tablist"
+                  className="segmented intel-dock__tools"
+                  role="group"
                   aria-label="Memory tools"
                 >
-                  <DockTabButton
+                  <ToolChip
                     id="matches"
                     label="Matches"
                     count={matchCount}
@@ -228,7 +240,7 @@ export function IntelDock({
                     loading={intel.tm.loading}
                     onSelect={setTab}
                   />
-                  <DockTabButton
+                  <ToolChip
                     id="concordance"
                     label="Concordance"
                     count={intel.concordance.hits.length}
@@ -236,7 +248,7 @@ export function IntelDock({
                     loading={intel.concordance.loading}
                     onSelect={setTab}
                   />
-                  <DockTabButton
+                  <ToolChip
                     id="ai"
                     label="AI"
                     count={ai.run?.proposalText ? 1 : 0}
@@ -281,15 +293,26 @@ export function IntelDock({
             </div>
             <div className="intel-dock__pane intel-dock__pane--terms">
               <div className="intel-dock__pane-head">
-                <h3 className="intel-dock__pane-title">Term recognition</h3>
+                <div
+                  className="intel-dock__pane-tab"
+                  data-testid="intel-pane-tb"
+                >
+                  <span className="intel-dock__pane-tab-label">
+                    Term recognition
+                  </span>
+                  <span className="intel-dock__count">
+                    {intel.terms.loading ? "\u2026" : termCount}
+                  </span>
+                </div>
                 {onAssets ? (
                   <button
                     type="button"
-                    className="btn btn--quiet btn--sm intel-dock__asset"
+                    className="btn btn--secondary btn--sm"
                     data-testid="intel-open-tb"
                     title="Open mounted termbases"
                     onClick={onAssets}
                   >
+                    <Books size={16} weight="regular" />
                     Open termbases
                   </button>
                 ) : null}
@@ -384,6 +407,40 @@ function uniqueTermbases(terms: readonly TermMatch[]): string[] {
     if (term.termbaseId) seen.add(term.termbaseId);
   }
   return [...seen];
+}
+
+function ToolChip({
+  id,
+  label,
+  count,
+  active,
+  loading,
+  onSelect,
+}: {
+  id: DockTab;
+  label: string;
+  count: number;
+  active: boolean;
+  loading: boolean;
+  onSelect: (tab: DockTab) => void;
+}) {
+  return (
+    <button
+      type="button"
+      id={`intel-tab-${id}`}
+      className="segmented__item"
+      aria-pressed={active}
+      data-selected={active ? "true" : undefined}
+      onClick={() => onSelect(id)}
+    >
+      {label}
+      {loading || count > 0 ? (
+        <span className="intel-dock__count" aria-hidden={loading}>
+          {loading ? "\u2026" : count}
+        </span>
+      ) : null}
+    </button>
+  );
 }
 
 function DockTabButton({

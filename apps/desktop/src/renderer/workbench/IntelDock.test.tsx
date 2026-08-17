@@ -133,8 +133,18 @@ describe("IntelDock stack placement", () => {
     expect(screen.getByTestId("term-list")).toBeInTheDocument();
     expect(screen.getByTestId("intel-tm-libraries")).toHaveTextContent("Lib");
     expect(screen.getByTestId("intel-tb-libraries")).toHaveTextContent("tb");
-    expect(screen.getByTestId("intel-open-tm")).toBeInTheDocument();
-    expect(screen.getByTestId("intel-open-tb")).toBeInTheDocument();
+    expect(screen.getByTestId("intel-pane-tm")).toHaveTextContent(
+      "Translation memory",
+    );
+    expect(screen.getByTestId("intel-pane-tb")).toHaveTextContent(
+      "Term recognition",
+    );
+    expect(screen.getByTestId("intel-open-tm")).toHaveClass("btn--secondary");
+    expect(screen.getByTestId("intel-open-tb")).toHaveClass("btn--secondary");
+    expect(screen.getByRole("button", { name: /Matches/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 
   it("opens the asset hub from either stacked pane", async () => {

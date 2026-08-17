@@ -146,6 +146,7 @@ describe("EditorCommandBar keyboard contract", () => {
         }}
       />,
     );
+    expect(screen.getByText("Workflow")).toBeInTheDocument();
     const control = screen.getByTestId("cmd-workflow");
     expect(control).toHaveValue("translation");
     await user.selectOptions(control, "review");

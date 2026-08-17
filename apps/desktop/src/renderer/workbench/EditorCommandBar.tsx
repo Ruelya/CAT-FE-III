@@ -239,7 +239,7 @@ export function EditorCommandBar({
       </div>
       {workflow ? (
         <label className="editor-command-bar__workflow">
-          <span className="sr-only">Segment workflow</span>
+          <span className="editor-command-bar__workflow-label">Workflow</span>
           <select
             className="editor-command-bar__workflow-select"
             data-testid="cmd-workflow"

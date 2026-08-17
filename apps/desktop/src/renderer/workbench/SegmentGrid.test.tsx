@@ -76,7 +76,10 @@ describe("SegmentGrid bilingual surface", () => {
     );
 
     expect(screen.getByTestId("bilingual-grid")).toBeInTheDocument();
-    expect(screen.queryByRole("columnheader", { name: "Ctx" })).toBeNull();
+    expect(
+      screen.getAllByRole("columnheader").map((header) => header.textContent),
+    ).toEqual(["#", "Source", "Target", "Status", "Ctx"]);
+    expect(screen.getByTestId("segment-ctx-seg-1")).toBeInTheDocument();
     expect(screen.queryByTestId("workflow-seg-1")).toBeNull();
     expect(screen.getByText("<br/>")).toHaveClass("inline-tag");
     expect(screen.getByTestId("segment-paging")).toHaveTextContent("1-1 of 3");
