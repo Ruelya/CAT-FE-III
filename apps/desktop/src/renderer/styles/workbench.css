@@ -60,7 +60,10 @@
 }
 
 .workbench__body--with-files.workbench__body--with-pdf {
-  grid-template-columns: var(--file-nav-w) var(--panel-w-pdf) minmax(0, 1fr) var(--panel-w-tm);
+  grid-template-columns: var(--file-nav-w) var(--panel-w-pdf) minmax(
+      0,
+      1fr
+    ) var(--panel-w-tm);
 }
 
 .workbench__body--with-pdf.workbench__body--tm-collapsed {
@@ -68,7 +71,10 @@
 }
 
 .workbench__body--with-files.workbench__body--with-pdf.workbench__body--tm-collapsed {
-  grid-template-columns: var(--file-nav-w) var(--panel-w-pdf) minmax(0, 1fr) var(--rail-w);
+  grid-template-columns: var(--file-nav-w) var(--panel-w-pdf) minmax(
+      0,
+      1fr
+    ) var(--rail-w);
 }
 
 .workbench__body--with-pdf.workbench__body--pdf-collapsed {
@@ -76,7 +82,9 @@
 }
 
 .workbench__body--with-files.workbench__body--with-pdf.workbench__body--pdf-collapsed {
-  grid-template-columns: var(--file-nav-w) var(--rail-w) minmax(0, 1fr) var(--panel-w-tm);
+  grid-template-columns: var(--file-nav-w) var(--rail-w) minmax(0, 1fr) var(
+      --panel-w-tm
+    );
 }
 
 .workbench__body--with-pdf.workbench__body--pdf-collapsed.workbench__body--tm-collapsed {
@@ -84,7 +92,9 @@
 }
 
 .workbench__body--with-files.workbench__body--with-pdf.workbench__body--pdf-collapsed.workbench__body--tm-collapsed {
-  grid-template-columns: var(--file-nav-w) var(--rail-w) minmax(0, 1fr) var(--rail-w);
+  grid-template-columns: var(--file-nav-w) var(--rail-w) minmax(0, 1fr) var(
+      --rail-w
+    );
 }
 
 .workbench__body--with-pdf.workbench__body--pdf-maximized {
@@ -92,7 +102,9 @@
 }
 
 .workbench__body--with-files.workbench__body--with-pdf.workbench__body--pdf-maximized {
-  grid-template-columns: var(--file-nav-w) minmax(0, 1fr) minmax(0, 0.45fr) var(--rail-w);
+  grid-template-columns: var(--file-nav-w) minmax(0, 1fr) minmax(0, 0.45fr) var(
+      --rail-w
+    );
 }
 
 .workbench__body--ide {
@@ -100,7 +112,10 @@
 }
 
 .workbench__body--ide.workbench__body--with-chat {
-  grid-template-columns: auto minmax(0, 1fr) var(--panel-w-tm) minmax(16rem, 22rem);
+  grid-template-columns: auto minmax(0, 1fr) var(--panel-w-tm) minmax(
+      16rem,
+      22rem
+    );
 }
 
 .workbench__body--ide.workbench__body--tm-collapsed {
@@ -112,7 +127,9 @@
 }
 
 .workbench__body--ide.workbench__body--with-pdf {
-  grid-template-columns: auto var(--panel-w-pdf) minmax(0, 1fr) var(--panel-w-tm);
+  grid-template-columns: auto var(--panel-w-pdf) minmax(0, 1fr) var(
+      --panel-w-tm
+    );
 }
 
 .workbench__body--ide.workbench__body--with-pdf.workbench__body--tm-collapsed {
@@ -120,7 +137,9 @@
 }
 
 .workbench__body--ide.workbench__body--with-pdf.workbench__body--with-chat {
-  grid-template-columns: auto var(--panel-w-pdf) minmax(0, 1fr) var(--panel-w-tm) minmax(16rem, 20rem);
+  grid-template-columns: auto var(--panel-w-pdf) minmax(0, 1fr) var(
+      --panel-w-tm
+    ) minmax(16rem, 20rem);
 }
 
 /* Studio Editor: memory and terms sit above the grid, not in a right rail. */
@@ -141,7 +160,10 @@
 }
 
 .workbench__body--ide.workbench__body--results-top.workbench__body--with-preview.workbench__body--with-chat {
-  grid-template-columns: auto minmax(0, 1fr) var(--preview-w) minmax(16rem, 20rem);
+  grid-template-columns: auto minmax(0, 1fr) var(--preview-w) minmax(
+      16rem,
+      20rem
+    );
 }
 
 .workbench__body--ide.workbench__body--results-top.workbench__body--with-pdf {
@@ -716,7 +738,11 @@
 
 /* M3: the active row grows a left emphasis bar rather than only tinting. */
 .segment-row--active {
-  background: color-mix(in srgb, var(--color-accent-soft) 55%, var(--color-surface));
+  background: color-mix(
+    in srgb,
+    var(--color-accent-soft) 55%,
+    var(--color-surface)
+  );
 }
 
 .segment-row--active td:first-child {
@@ -1194,7 +1220,8 @@
 }
 
 .match:hover {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 35%, var(--color-line));
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--color-accent) 35%, var(--color-line));
 }
 
 .match__head {
@@ -1321,7 +1348,8 @@
 }
 
 .term--active {
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--color-accent) 55%, var(--color-line));
+  box-shadow: inset 0 0 0 2px
+    color-mix(in srgb, var(--color-accent) 55%, var(--color-line));
 }
 
 .term-list__tools {
@@ -1447,12 +1475,20 @@
 }
 
 .term-extract__item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: baseline;
   gap: var(--space-2);
   min-height: var(--control-h-sm);
   font-size: var(--text-sm);
+}
+
+.term-extract__source {
+  font-weight: var(--weight-medium);
+}
+
+.term-extract__target {
+  color: var(--color-text-muted);
 }
 
 /* ── As-you-type completions ────────────────────────────── */
@@ -1518,7 +1554,8 @@
   right: 0;
   z-index: var(--z-menu);
   background: var(--color-raised);
-  border: 1px solid color-mix(in srgb, var(--color-accent) 35%, var(--color-line));
+  border: 1px solid
+    color-mix(in srgb, var(--color-accent) 35%, var(--color-line));
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
   overflow: hidden;
@@ -1617,7 +1654,11 @@
 }
 
 .display-filter--active {
-  background: color-mix(in srgb, var(--color-accent-soft) 35%, var(--color-surface));
+  background: color-mix(
+    in srgb,
+    var(--color-accent-soft) 35%,
+    var(--color-surface)
+  );
 }
 
 .display-filter__label {
@@ -1712,7 +1753,8 @@
   height: 0.5rem;
   border-radius: var(--radius-full);
   flex-shrink: 0;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-surface) 80%, transparent);
+  box-shadow: 0 0 0 1px
+    color-mix(in srgb, var(--color-surface) 80%, transparent);
 }
 
 .segment-mark--qa {
@@ -1724,7 +1766,11 @@
 }
 
 .segment-mark--repeat {
-  background: color-mix(in srgb, var(--color-text-muted) 70%, var(--color-warning));
+  background: color-mix(
+    in srgb,
+    var(--color-text-muted) 70%,
+    var(--color-warning)
+  );
 }
 
 .segment-mark--ocr {
@@ -1916,8 +1962,13 @@
   margin: 0 0.2em;
   padding: 0.05em 0.4em;
   border-radius: var(--radius-sm);
-  border: 1px solid color-mix(in srgb, var(--color-accent) 28%, var(--color-line));
-  background: color-mix(in srgb, var(--color-accent-soft) 70%, var(--color-surface));
+  border: 1px solid
+    color-mix(in srgb, var(--color-accent) 28%, var(--color-line));
+  background: color-mix(
+    in srgb,
+    var(--color-accent-soft) 70%,
+    var(--color-surface)
+  );
   font-family: var(--font-mono);
   font-size: 0.68em;
   font-weight: var(--weight-medium);

@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Books, HardDrives } from "@phosphor-icons/react";
-import type { ConcordanceHit, TermCandidate, TermMatch, TmMatch } from "@translunar/contracts";
+import type {
+  ConcordanceHit,
+  TermCandidate,
+  TermMatch,
+  TmMatch,
+} from "@translunar/contracts";
 
 import { formatUiError, toUiError } from "../lib/errors";
 import {
@@ -259,11 +264,17 @@ export function IntelDock({
                 </div>
               ) : null}
               {libraries.length > 0 ? (
-                <p className="intel-dock__link" data-testid="intel-tm-libraries">
+                <p
+                  className="intel-dock__link"
+                  data-testid="intel-tm-libraries"
+                >
                   {libraries.map((library) => library.name).join(" · ")}
                 </p>
               ) : (
-                <p className="intel-dock__link" data-testid="intel-tm-libraries">
+                <p
+                  className="intel-dock__link"
+                  data-testid="intel-tm-libraries"
+                >
                   No memory linked to this segment
                 </p>
               )}
@@ -318,18 +329,26 @@ export function IntelDock({
                 ) : null}
               </div>
               {termbases.length > 0 ? (
-                <p className="intel-dock__link" data-testid="intel-tb-libraries">
+                <p
+                  className="intel-dock__link"
+                  data-testid="intel-tb-libraries"
+                >
                   {termbases.join(" · ")}
                 </p>
               ) : (
-                <p className="intel-dock__link" data-testid="intel-tb-libraries">
+                <p
+                  className="intel-dock__link"
+                  data-testid="intel-tb-libraries"
+                >
                   No termbase linked to this segment
                 </p>
               )}
               <TermList
                 terms={terms}
                 loading={intel.terms.loading}
-                error={intel.terms.error ? formatUiError(intel.terms.error) : null}
+                error={
+                  intel.terms.error ? formatUiError(intel.terms.error) : null
+                }
                 disabled={disabled === true}
                 canQuickAdd={canQuickAddTerm}
                 onInsert={onInsertTerm}
@@ -364,8 +383,12 @@ export function IntelDock({
             onInsert={onInsertTerm}
             onQuickAdd={onQuickAddTerm}
             {...(onSearchTerms ? { onSearchTerms } : {})}
-            {...(focusedTermIndex !== undefined ? { focusedIndex: focusedTermIndex } : {})}
-            {...(onFocusedTermIndex ? { onFocusedIndex: onFocusedTermIndex } : {})}
+            {...(focusedTermIndex !== undefined
+              ? { focusedIndex: focusedTermIndex }
+              : {})}
+            {...(onFocusedTermIndex
+              ? { onFocusedIndex: onFocusedTermIndex }
+              : {})}
             {...(onHighlightTerm ? { onHighlight: onHighlightTerm } : {})}
             {...(extract ? { extract } : {})}
           />
@@ -470,7 +493,7 @@ function DockTabButton({
       {label}
       {/* A count of zero is information: it says the lookup ran and found
           nothing, which is different from not having looked. */}
-      {(loading || count > 0) ? (
+      {loading || count > 0 ? (
         <span className="intel-dock__count" aria-hidden={loading}>
           {loading ? "\u2026" : count}
         </span>
@@ -746,23 +769,23 @@ function TermList({
             </p>
           ) : null}
           {extract.candidates.length > 0 ? (
-            <ul className="term-extract__list" data-testid="term-extract-results">
+            <ul
+              className="term-extract__list"
+              data-testid="term-extract-results"
+            >
               {extract.candidates.map((candidate) => (
                 <li key={candidate.sourceTerm} className="term-extract__item">
-                  <span>{candidate.sourceTerm}</span>
+                  <span className="term-extract__source">
+                    {candidate.sourceTerm}
+                  </span>
                   {candidate.suggestedTarget ? (
-                    <button
-                      type="button"
-                      className="btn btn--ghost btn--sm"
-                      disabled={disabled}
-                      data-testid={`term-extract-insert-${candidate.sourceTerm}`}
-                      onClick={() => onInsert(candidate.suggestedTarget ?? "")}
-                    >
+                    <span className="term-extract__target">
                       {candidate.suggestedTarget}
-                    </button>
+                    </span>
                   ) : (
-                    <span className="muted">×{candidate.frequency}</span>
+                    <span className="muted">No aligned translation</span>
                   )}
+                  <span className="muted">×{candidate.frequency}</span>
                 </li>
               ))}
             </ul>
@@ -862,7 +885,9 @@ function TermList({
                   <p className="term__termbase muted">{term.termbaseId}</p>
                 ) : null}
                 {term.translations.length === 0 ? (
-                  <p className="term__untranslated muted">No translation on file</p>
+                  <p className="term__untranslated muted">
+                    No translation on file
+                  </p>
                 ) : (
                   <div className="term__translations">
                     {[...term.translations]
@@ -1046,8 +1071,8 @@ function AiPanel({
       </p>
       {ocrSource ? (
         <p className="ai-panel__intro" data-testid="ai-ocr-source-note">
-          This row came from OCR. Use PDF → Correct to fix the source;
-          Translate / Improve here still writes the target.
+          This row came from OCR. Use PDF → Correct to fix the source; Translate
+          / Improve here still writes the target.
         </p>
       ) : null}
       {!ai.profilesLoaded ? (

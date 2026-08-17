@@ -179,30 +179,44 @@ pub fn extract_terms(
     }
     let mut counts: BTreeMap<String, u32> = BTreeMap::new();
     let mut examples: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    let mut targets: BTreeMap<String, BTreeMap<String, u32>> = BTreeMap::new();
+    let mut exact_targets: BTreeMap<String, BTreeMap<String, u32>> = BTreeMap::new();
+    let mut named: BTreeMap<String, bool> = BTreeMap::new();
     for segment in segments {
-        for term in candidate_terms(&segment.source_text) {
-            *counts.entry(term.clone()).or_default() += 1;
-            let list = examples.entry(term.clone()).or_default();
+        for item in harvest_candidates(&segment.source_text) {
+            *counts.entry(item.term.clone()).or_default() += 1;
+            if item.named {
+                *named.entry(item.term.clone()).or_insert(false) = true;
+            }
+            let list = examples.entry(item.term.clone()).or_default();
             if list.len() < 5 {
                 list.push(segment.segment_id.clone());
             }
-            let target = normalize_space(&segment.target_text);
-            if !target.is_empty() {
-                *targets.entry(term).or_default().entry(target).or_default() += 1;
+            if source_matches_term(&segment.source_text, &item.term) {
+                let target = normalize_space(&segment.target_text);
+                if is_term_sized_target(&item.term, &target) {
+                    *exact_targets
+                        .entry(item.term)
+                        .or_default()
+                        .entry(target)
+                        .or_default() += 1;
+                }
             }
         }
     }
     let mut candidates = counts
         .into_iter()
-        .filter(|(_, frequency)| *frequency >= options.minimum_frequency)
+        .filter(|(term, frequency)| {
+            let words = term.split_whitespace().count();
+            *frequency >= options.minimum_frequency
+                || (*named.get(term).unwrap_or(&false) && words >= 2)
+        })
         .map(|(source_term, frequency)| {
-            let suggested_target = targets.get(&source_term).and_then(|map| {
+            let suggested_target = exact_targets.get(&source_term).and_then(|map| {
+                let exact_total: u32 = map.values().copied().sum();
                 let mut ranked = map.iter().collect::<Vec<_>>();
                 ranked.sort_by(|left, right| right.1.cmp(left.1).then_with(|| left.0.cmp(right.0)));
                 ranked.first().and_then(|(term, count)| {
-                    // Strict majority only: ties / exact half leave suggested_target empty.
-                    if **count * 2 > frequency {
+                    if **count * 2 > exact_total {
                         Some((*term).clone())
                     } else {
                         None
@@ -217,6 +231,7 @@ pub fn extract_terms(
             }
         })
         .collect::<Vec<_>>();
+    drop_unigrams_covered_by_phrases(&mut candidates);
     candidates.sort_by(|left, right| {
         right
             .frequency
@@ -516,22 +531,144 @@ fn has_negation(text: &str) -> bool {
     })
 }
 
-fn candidate_terms(source: &str) -> Vec<String> {
+struct HarvestedTerm {
+    term: String,
+    named: bool,
+}
+
+fn harvest_candidates(source: &str) -> Vec<HarvestedTerm> {
+    let tokens = tokenize_terms(source);
+    if tokens.is_empty() {
+        return Vec::new();
+    }
+    let mut harvested = Vec::new();
+    for n in 2..=3 {
+        if tokens.len() < n {
+            continue;
+        }
+        for window in tokens.windows(n) {
+            let first = &window[0];
+            let last = &window[n - 1];
+            if first.is_stop || last.is_stop {
+                continue;
+            }
+            if LIGHT_VERBS.contains(&first.norm.as_str())
+                || LIGHT_VERBS.contains(&last.norm.as_str())
+            {
+                continue;
+            }
+            let term = window
+                .iter()
+                .map(|token| token.norm.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let named = window.iter().all(|token| token.capitalized);
+            harvested.push(HarvestedTerm { term, named });
+        }
+    }
+    for (index, token) in tokens.iter().enumerate() {
+        if token.is_stop || LIGHT_VERBS.contains(&token.norm.as_str()) {
+            continue;
+        }
+        let named = token.capitalized && index > 0;
+        if token.norm.len() < 6 && !named {
+            continue;
+        }
+        harvested.push(HarvestedTerm {
+            term: token.norm.clone(),
+            named,
+        });
+    }
+    harvested.sort_by(|left, right| left.term.cmp(&right.term));
+    harvested.dedup_by(|later, earlier| {
+        if later.term != earlier.term {
+            return false;
+        }
+        earlier.named |= later.named;
+        true
+    });
+    harvested
+}
+
+struct TermToken {
+    norm: String,
+    capitalized: bool,
+    is_stop: bool,
+}
+
+fn tokenize_terms(source: &str) -> Vec<TermToken> {
     static RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-    let re = RE.get_or_init(|| Regex::new(r"[A-Za-z][A-Za-z0-9_-]{2,}").expect("term regex"));
-    let mut terms = re
-        .find_iter(source)
-        .map(|item| item.as_str().to_lowercase())
-        .filter(|term| !STOPWORDS.contains(&term.as_str()))
-        .collect::<Vec<_>>();
-    terms.sort();
-    terms.dedup();
-    terms
+    let re = RE.get_or_init(|| Regex::new(r"[A-Za-z][A-Za-z0-9_-]*").expect("term regex"));
+    re.find_iter(source)
+        .map(|item| {
+            let raw = item.as_str();
+            let norm = raw.to_lowercase();
+            TermToken {
+                capitalized: raw.chars().next().is_some_and(|ch| ch.is_uppercase()),
+                is_stop: STOPWORDS.contains(&norm.as_str()),
+                norm,
+            }
+        })
+        .collect()
+}
+
+fn source_matches_term(source: &str, term: &str) -> bool {
+    let tokens = tokenize_terms(source);
+    if tokens.is_empty() {
+        return false;
+    }
+    let normalized = tokens
+        .iter()
+        .map(|token| token.norm.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    normalized == term
+}
+
+fn is_term_sized_target(term: &str, target: &str) -> bool {
+    if target.is_empty() {
+        return false;
+    }
+    if target.contains(". ") || target.contains("! ") || target.contains("? ") {
+        return false;
+    }
+    let words = term.split_whitespace().count().max(1);
+    if target.split_whitespace().count() > words + 2 {
+        return false;
+    }
+    target.chars().count() <= words * 8
+}
+
+fn drop_unigrams_covered_by_phrases(candidates: &mut Vec<TermCandidate>) {
+    let phrases: Vec<(String, u32)> = candidates
+        .iter()
+        .filter(|item| item.source_term.contains(' '))
+        .map(|item| (item.source_term.clone(), item.frequency))
+        .collect();
+    candidates.retain(|item| {
+        if item.source_term.contains(' ') {
+            return true;
+        }
+        !phrases.iter().any(|(phrase, frequency)| {
+            phrase
+                .split_whitespace()
+                .any(|word| word == item.source_term)
+                && *frequency >= item.frequency
+        })
+    });
 }
 
 const STOPWORDS: &[&str] = &[
     "the", "and", "for", "with", "from", "that", "this", "are", "was", "were", "have", "has",
-    "been", "will", "can", "into", "your", "their", "about",
+    "been", "will", "can", "into", "your", "their", "about", "before", "after", "only", "just",
+    "also", "over", "under", "than", "then", "when", "what", "which", "while", "where", "there",
+    "here", "them", "they", "you", "our", "its", "not", "but", "any", "all", "each", "per",
+];
+
+const LIGHT_VERBS: &[&str] = &[
+    "inspect", "replace", "clean", "check", "click", "open", "close", "start", "starts", "started",
+    "use", "used", "make", "take", "give", "get", "set", "show", "see", "keep", "remain",
+    "remains", "welcome", "require", "requires", "need", "needs",
 ];
 
 fn normalize_space(value: &str) -> String {
@@ -597,7 +734,7 @@ mod tests {
     }
 
     #[test]
-    fn extracts_repeated_terms_without_writing_termbase() {
+    fn extracts_repeated_phrases_without_writing_termbase() {
         let report = extract_terms(
             "doc",
             &[
@@ -615,12 +752,25 @@ mod tests {
             report
                 .candidates
                 .iter()
-                .any(|item| item.source_term == "actuator" && item.frequency >= 2)
+                .any(|item| item.source_term == "actuator housing" && item.frequency >= 2)
+        );
+        assert!(
+            report
+                .candidates
+                .iter()
+                .all(|item| item.suggested_target.is_none()),
+            "sentence targets must not become term translations"
+        );
+        assert!(
+            !report
+                .candidates
+                .iter()
+                .any(|item| item.source_term == "inspect" || item.source_term == "before")
         );
     }
 
     #[test]
-    fn suggested_target_uses_strict_majority_not_tie() {
+    fn suggested_target_only_from_term_sized_exact_source() {
         let options = TermExtractOptions {
             minimum_frequency: 2,
             maximum_candidates: 10,
@@ -629,43 +779,91 @@ mod tests {
         let stable = extract_terms(
             "doc",
             &[
-                seg("1", 0, "Replace the actuator housing", "更换执行器外壳"),
-                seg("2", 1, "Clean the actuator housing", "更换执行器外壳"),
+                seg("1", 0, "actuator housing", "执行器外壳"),
+                seg("2", 1, "actuator housing", "执行器外壳"),
             ],
             options.clone(),
         )
         .unwrap();
-        let actuator = stable
+        let phrase = stable
             .candidates
             .iter()
-            .find(|item| item.source_term == "actuator")
-            .expect("actuator candidate");
-        assert_eq!(actuator.frequency, 2);
-        assert_eq!(
-            actuator.suggested_target.as_deref(),
-            Some("更换执行器外壳"),
-            "repeated identical target is a strict majority"
-        );
+            .find(|item| item.source_term == "actuator housing")
+            .expect("actuator housing candidate");
+        assert_eq!(phrase.frequency, 2);
+        assert_eq!(phrase.suggested_target.as_deref(), Some("执行器外壳"));
 
         let conflicting = extract_terms(
             "doc",
             &[
-                seg("1", 0, "Replace the actuator housing", "更换执行器外壳"),
-                seg("2", 1, "Clean the actuator housing", "清洁执行器外壳"),
+                seg("1", 0, "actuator housing", "执行器外壳"),
+                seg("2", 1, "actuator housing", "液压壳体"),
             ],
             options,
         )
         .unwrap();
-        let actuator = conflicting
+        let phrase = conflicting
             .candidates
             .iter()
-            .find(|item| item.source_term == "actuator")
-            .expect("actuator candidate");
-        assert_eq!(actuator.frequency, 2);
+            .find(|item| item.source_term == "actuator housing")
+            .expect("actuator housing candidate");
+        assert_eq!(phrase.frequency, 2);
         assert_eq!(
-            actuator.suggested_target, None,
+            phrase.suggested_target, None,
             "50/50 split must leave suggested_target empty"
         );
+    }
+
+    #[test]
+    fn harvests_named_phrases_and_skips_function_words() {
+        let report = extract_terms(
+            "doc",
+            &[
+                seg("1", 0, "Aurora Field Guide", "极光实地指南"),
+                seg("2", 1, "Welcome to Aurora.", "欢迎来到极光"),
+                seg(
+                    "3",
+                    2,
+                    "Inspect the power station before the shift starts.",
+                    "开工前检查发电站。",
+                ),
+                seg(
+                    "4",
+                    3,
+                    "Inspect the power station before the shift starts.",
+                    "开工前检查发电站。",
+                ),
+            ],
+            TermExtractOptions::default(),
+        )
+        .unwrap();
+        let terms: Vec<&str> = report
+            .candidates
+            .iter()
+            .map(|item| item.source_term.as_str())
+            .collect();
+        assert!(terms.contains(&"power station"));
+        assert!(terms.contains(&"aurora field guide") || terms.contains(&"aurora"));
+        assert!(
+            !terms
+                .iter()
+                .any(|term| { ["before", "inspect", "starts", "welcome", "the"].contains(term) })
+        );
+        assert!(
+            report
+                .candidates
+                .iter()
+                .find(|item| item.source_term == "power station")
+                .and_then(|item| item.suggested_target.as_deref())
+                .is_none()
+        );
+        let title = report
+            .candidates
+            .iter()
+            .find(|item| item.source_term == "aurora field guide");
+        if let Some(title) = title {
+            assert_eq!(title.suggested_target.as_deref(), Some("极光实地指南"));
+        }
     }
 
     #[test]
