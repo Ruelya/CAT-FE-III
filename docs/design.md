@@ -5,7 +5,7 @@
 | Date | 2026-08-17 |
 | Product | Translunar CAT desktop (Electron + React) |
 | Source of truth | This file is the portable design system. Runtime numbers live in `apps/desktop/src/renderer/tokens.css`. Enforcement lives in `.trellis/spec/frontend/design-language.md`. |
-| Scope | What the renderer already ships after the courseware workbench + Option 2 paging merge. Not a wishlist. |
+| Scope | What the renderer already ships after the courseware workbench, Option 2 paging, and the 2026-08-17 chrome reshape. Not a wishlist. |
 
 Use this document to design or review any new surface. If another note disagrees with `tokens.css`, fix the note in the same change.
 
@@ -173,11 +173,11 @@ Rules:
 | --- | ---: |
 | `--chrome-height` | 44 px |
 | `--rail-w` | 40 px |
-| `--file-nav-w` | 200 px (clamp 140–360) |
-| Intel dock | 300 px (clamp 220–480) |
-| `--preview-w` | 280 px (clamp 200–520) |
+| `--file-nav-w` | 200 px (clamp 140–360, stored as `fileNavW`) |
+| Intel dock | 300 px (clamp 220–480, stored as `intelW`, applied as `--panel-w-tm`) |
+| Preview drawer | 220 px tall (clamp 140–480, stored as `previewH` → `--preview-h`). Default closed |
 | `--panel-w-pdf` | 288 px |
-| `--panel-w-tm` | 320 px (legacy rail; intel now sits above the grid) |
+| `--preview-w` / `--panel-w-tm` in `tokens.css` | Leftover CSS fallbacks (280 / 320). Runtime geometry comes from `workbench-layout.v2` |
 
 ---
 
@@ -284,22 +284,37 @@ Welcome, Project Home, Create, Import, QA, Export, Assets, Settings.
 
 ### 8.3 IDE workbench (current editor)
 
-This is the densest and visually dominant surface. Other surfaces stay subordinate.
+This is the densest and visually dominant surface. Other surfaces stay subordinate. The command bar is a full-width icon ribbon. There is no second document-tab strip. Intelligence stacks on the right of the grid. Preview is a bottom drawer, closed by default, opened from the status line.
 
 ```text
 +-- AppChrome ----------------------------------------------------------+
-| Act | Files    | Tabs                                                 | Preview     |
-| bar | FileNav  | CommandBar  Confirm / Find / Tags / Comments         | Live recon  |
-| F/P |          | FilterBar   Open Draft Confirmed Findings ...        | DOMPurify   |
-| /C  |          | IntelDock   Matches / Terms / Concordance / AI       | click jump  |
-|     |          | Grid        # | Ctx | Source | Target | Status       |             |
-|     |          | Paging      Previous   n–m of N   Next               |             |
-+-----+----------+------------------------------------------------------+-------------+
-| Status: file, locales, progress, counts     Add files / Pretranslate                |
-+-------------------------------------------------------------------------------------+
+| EditorCommandBar  icon ribbon  Find Tags Comments Undo Redo Split    |
+|                   Merge Spell Propagate  Copy Source  Place Tags     |
+|                   Save  Pretranslate  Confirm  overflow              |
++-- ActivityBar | FileNav | Filter + Grid + paging | IntelDock --------+
+|   F / Chat    | tree    | DisplayFilterBar       | stack placement   |
+|               | + Add   | SegmentGrid            | TM pane           |
+|               |   files | # Ctx Source Target    | Term pane         |
+|               |         | Status                 | Concordance / AI  |
+|               |         | engine page limit 200  | can take TM pane  |
++---------------+---------+------------------------+-------------------+
+| StructurePreview  default closed; status Preview opens; height previewH
++----------------------------------------------------------------------+
+| WorkbenchStatus  file · locales · progress · engine counts           |
+|                  Preview | Pretranslate | Autosuggest                |
++----------------------------------------------------------------------+
 ```
 
-Defaults (`workbench-layout.v1`): files open, preview open, chat closed.
+Defaults (`translunar.renderer.workbench-layout.v2`):
+
+| Field | Default | Clamp | Behaviour |
+| --- | --- | --- | --- |
+| `fileNavW` / `filesOpen` | 200 / open | 140–360 | ActivityBar toggles the tree. Add files lives on the tree. |
+| `intelW` | 300 | 220–480 | Right stack. TM and term recognition sit one above the other. |
+| `previewH` / `previewOpen` | 220 / **closed** | 140–480 | Open from `status-preview`. Drawer sits under the body. |
+| `chatOpen` | closed | — | ActivityBar Chat. |
+
+`IntelDock` `placement` is `"side" | "top" | "stack"`. The workbench mounts `"stack"`.
 
 Grid columns: `#` · `Ctx` · Source · Target · Status.
 
@@ -313,13 +328,13 @@ Grid columns: `#` · `Ctx` · Source · Target · Status.
 1. Client display filter on the current page: Open / Draft / Confirmed / Findings / Comments / Repeats, plus text / regex / whitespace / tag display.
 2. Engine page window: `segment.editor.list` offset / limit. Document totals come from engine `counts`.
 
-Intelligence sits **above** the grid (Matches / Terms / Concordance / AI), not as a lone Exact TM rail.
+Intelligence sits on the **right** of the grid (`placement="stack"`), not as a top Matches / Terms / Concordance / AI strip and not as a lone Exact TM rail.
 
-Preview sits on the **right**: live reconstruction. Markdown goes through `marked` then `DOMPurify`. HTML and other filters reconstruct typography then use the same sanitizer. When managed DOCX bytes exist, `docx-preview` paints the original file above the clickable live blocks. This is not Word COM, not the PDF page dock, and not OnlyOffice.
+Preview is a **bottom drawer**, not a right column. Markdown goes through `marked` then `DOMPurify`. HTML and other filters reconstruct typography then use the same sanitizer. When managed DOCX bytes exist, `docx-preview` paints the original file above the clickable live blocks. This is not Word COM, not the PDF page dock, and not OnlyOffice.
 
 OnlyOffice view-host code may exist in the repo. It is **not** mounted in the workbench by default, so it cannot displace live preview.
 
-PDF documents open a separate page-review dock.
+PDF documents open a separate page-review dock. `EditorTabs` still exists as a file; the workbench does not mount it.
 
 ---
 
@@ -338,7 +353,7 @@ PDF documents open a separate page-review dock.
 
 Clicking the hidden `textarea.sr-only` in tests requires `{ force: true }`.
 
-Stable test ids (do not rename): `workbench`, `bilingual-grid`, `display-filter`, `intel-dock`, `structure-preview`, `segment-paging`, `target-editor-*`, `target-surface-*`, `add-files`, `file-nav`.
+Stable test ids (do not rename): `workbench`, `bilingual-grid`, `display-filter`, `intel-dock`, `structure-preview`, `segment-paging`, `target-editor-*`, `target-surface-*`, `add-files`, `file-nav`, `workbench-status`, `status-preview`.
 
 ---
 
@@ -372,7 +387,7 @@ WCAG 2.2 AA in both themes.
 | VS Code / Zed / Monaco as the product | Those are code editors. The spine is a segment pair + tags + TM. |
 | OnlyOffice / Word as the editor | Document suites are preview hosts at most. Default preview is live reconstruction. |
 | Claiming Trados parity | No Word COM, no seven-tier review, no `.sdltm` / `.sdltb`, no cloud collaboration. Close is the goal. Parity is not. |
-| A homemade four-column table as Studio | The current translator surface is intel on top, preview on the right, status on the bottom. |
+| A homemade four-column table as Studio | The current translator surface is a full-width ribbon, intel stacked on the right, preview as a bottom drawer, status on the bottom. |
 | Current-page counts as file counts | Counts come from the engine. |
 
 ---
@@ -385,13 +400,17 @@ WCAG 2.2 AA in both themes.
 | `apps/desktop/src/renderer/styles/primitives.css` | Buttons, fields, chips, empty states |
 | `apps/desktop/src/renderer/styles/workbench.css` | Workbench grid and docks |
 | `apps/desktop/src/renderer/surfaces/Workbench.tsx` | Workbench composition |
+| `apps/desktop/src/renderer/workbench/EditorCommandBar.tsx` | Full-width icon ribbon + Confirm |
+| `apps/desktop/src/renderer/workbench/ActivityBar.tsx` | Files / Chat rail |
+| `apps/desktop/src/renderer/workbench/FileNav.tsx` | Document tree + Add files |
 | `apps/desktop/src/renderer/workbench/SegmentGrid.tsx` | Segment grid + engine paging |
-| `apps/desktop/src/renderer/workbench/IntelDock.tsx` | Memory / terms / concordance / segment AI |
-| `apps/desktop/src/renderer/workbench/StructurePreview.tsx` | Right-side live preview |
+| `apps/desktop/src/renderer/workbench/IntelDock.tsx` | Right stack: memory / terms / concordance / segment AI |
+| `apps/desktop/src/renderer/workbench/StructurePreview.tsx` | Bottom-drawer live preview |
+| `apps/desktop/src/renderer/workbench/WorkbenchStatus.tsx` | Status line + Preview / Pretranslate / Autosuggest |
 | `apps/desktop/src/renderer/workbench/DisplayFilterBar.tsx` | Client filter strip |
 | `apps/desktop/src/renderer/workbench/TaggedText.tsx` | Source tag chips |
 | `apps/desktop/src/renderer/state/appearance.ts` | appearance-v1 |
-| `apps/desktop/src/renderer/state/workbench-layout.ts` | Dock widths and toggles |
+| `apps/desktop/src/renderer/state/workbench-layout.ts` | `workbench-layout.v2` dock widths and toggles |
 | `.trellis/spec/frontend/design-language.md` | Enforceable contract (English) |
 
 ---
