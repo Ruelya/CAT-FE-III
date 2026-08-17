@@ -27,6 +27,10 @@ export interface EditorShortcutHandlers {
   onInsertTerm?: () => void;
   /** Ctrl+L: sign off / lock the active segment. */
   onLock?: () => void;
+  /** Ctrl+Alt+T: set the active segment to Translation. */
+  onWorkflowTranslation?: () => void;
+  /** Ctrl+Alt+R: set the active segment to Review. */
+  onWorkflowReview?: () => void;
 }
 
 /**
@@ -69,6 +73,16 @@ export function useEditorShortcuts(
       if (control && !event.shiftKey && event.key.toLowerCase() === "l") {
         event.preventDefault();
         handlers.onLock?.();
+        return;
+      }
+      if (control && event.altKey && !event.shiftKey && event.key.toLowerCase() === "t") {
+        event.preventDefault();
+        handlers.onWorkflowTranslation?.();
+        return;
+      }
+      if (control && event.altKey && !event.shiftKey && event.key.toLowerCase() === "r") {
+        event.preventDefault();
+        handlers.onWorkflowReview?.();
         return;
       }
       if (control && event.key === "Insert") {
@@ -136,5 +150,7 @@ export function useEditorShortcuts(
     handlers.onFindNext,
     handlers.onInsertTerm,
     handlers.onLock,
+    handlers.onWorkflowTranslation,
+    handlers.onWorkflowReview,
   ]);
 }

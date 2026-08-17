@@ -56,13 +56,20 @@ export function App() {
   const [recycleReason, setRecycleReason] = useState("");
   const [recyclePending, setRecyclePending] = useState(false);
   const [recycleError, setRecycleError] = useState<string | null>(null);
+  const [fileSignOff, setFileSignOff] = useState<{
+    segmentId: string;
+    reason: string;
+  } | null>(null);
 
   /** Editor chrome and keyboard ownership is Workbench-only (not QA/Export/Home). */
   const workbenchCtx = surface.kind === "workbench" ? surface.ctx : null;
   const workbenchActive = surface.kind === "workbench";
 
   useEffect(() => {
-    if (!workbenchActive) setRecycleDocumentOpen(false);
+    if (!workbenchActive) {
+      setRecycleDocumentOpen(false);
+      setFileSignOff(null);
+    }
   }, [workbenchActive]);
 
   const editorGateway = useMemo(
@@ -532,7 +539,55 @@ export function App() {
           }))
         : [];
 
-    return [...navigation, ...editorCommands];
+    const workflowCommands: PaletteCommand[] =
+      surface.kind === "workbench" && surface.activeSegmentId
+        ? [
+            {
+              id: "editor.workflow.translation",
+              label: "Set workflow: Translation",
+              group: "Editor",
+              hint: "Ctrl+Alt+T",
+              keywords: "status translation",
+              run: () => {
+                if (surface.kind !== "workbench" || !surface.activeSegmentId) {
+                  return;
+                }
+                void commands.setWorkflow(surface.activeSegmentId, "translation");
+              },
+            },
+            {
+              id: "editor.workflow.review",
+              label: "Set workflow: Review",
+              group: "Editor",
+              hint: "Ctrl+Alt+R",
+              keywords: "status review",
+              run: () => {
+                if (surface.kind !== "workbench" || !surface.activeSegmentId) {
+                  return;
+                }
+                void commands.setWorkflow(surface.activeSegmentId, "review");
+              },
+            },
+            {
+              id: "editor.workflow.signOff",
+              label: "Sign off segment",
+              group: "Editor",
+              hint: "Ctrl+L",
+              keywords: "lock signed",
+              run: () => {
+                if (surface.kind !== "workbench" || !surface.activeSegmentId) {
+                  return;
+                }
+                setFileSignOff({
+                  segmentId: surface.activeSegmentId,
+                  reason: "",
+                });
+              },
+            },
+          ]
+        : [];
+
+    return [...navigation, ...editorCommands, ...workflowCommands];
   }, [commands, editorOps, startupResolved, surface]);
 
   return (
@@ -569,6 +624,21 @@ export function App() {
                 setRecycleError(null);
                 setRecycleReason("");
                 setRecycleDocumentOpen(true);
+              },
+              onWorkflowTranslation: () => {
+                if (surface.kind !== "workbench" || !surface.activeSegmentId) return;
+                void commands.setWorkflow(surface.activeSegmentId, "translation");
+              },
+              onWorkflowReview: () => {
+                if (surface.kind !== "workbench" || !surface.activeSegmentId) return;
+                void commands.setWorkflow(surface.activeSegmentId, "review");
+              },
+              onWorkflowSignOff: () => {
+                if (surface.kind !== "workbench" || !surface.activeSegmentId) return;
+                setFileSignOff({
+                  segmentId: surface.activeSegmentId,
+                  reason: "",
+                });
               },
             }
           : {})}
@@ -1047,6 +1117,32 @@ export function App() {
         <CommandPalette
           commands={paletteCommands}
           onClose={palette.closePalette}
+        />
+      ) : null}
+
+      {fileSignOff ? (
+        <ConfirmDialog
+          title="Sign off segment"
+          body="Signing off locks the segment. The engine will reject further target edits until the workflow is opened again."
+          confirmLabel="Sign off"
+          reasonLabel="Reason"
+          reason={fileSignOff.reason}
+          onReasonChange={(reason) =>
+            setFileSignOff((current) =>
+              current ? { ...current, reason } : current,
+            )
+          }
+          onCancel={() => setFileSignOff(null)}
+          onConfirm={() => {
+            if (!fileSignOff.reason.trim()) return;
+            void commands.setWorkflow(
+              fileSignOff.segmentId,
+              "signed",
+              fileSignOff.reason.trim(),
+            );
+            setFileSignOff(null);
+          }}
+          testId="title-file-sign-off-confirm"
         />
       ) : null}
 

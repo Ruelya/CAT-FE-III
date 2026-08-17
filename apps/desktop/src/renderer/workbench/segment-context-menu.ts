@@ -151,12 +151,14 @@ export function segmentContextActions(input: {
     {
       id: "statusTranslation",
       label: "Set status: Translation",
+      shortcut: "Ctrl+Alt+T",
       disabled:
         input.canSetWorkflow !== true || input.workflowState === "translation",
     },
     {
       id: "statusReview",
       label: "Set status: Review",
+      shortcut: "Ctrl+Alt+R",
       disabled: input.canSetWorkflow !== true || input.workflowState === "review",
     },
     {

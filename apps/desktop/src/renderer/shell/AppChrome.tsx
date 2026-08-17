@@ -44,6 +44,9 @@ export interface AppChromeProps {
   pretranslatePending?: boolean;
   onReimport?: () => void;
   onRecycleDocument?: () => void;
+  onWorkflowTranslation?: () => void;
+  onWorkflowReview?: () => void;
+  onWorkflowSignOff?: () => void;
   /** Window chrome platform branch from DesktopApi (default: custom). */
   windowChromePlatform?: WindowChromePlatform;
   windowMaximized?: boolean;
@@ -72,6 +75,9 @@ export function AppChrome({
   pretranslatePending = false,
   onReimport,
   onRecycleDocument,
+  onWorkflowTranslation,
+  onWorkflowReview,
+  onWorkflowSignOff,
   windowChromePlatform = "custom",
   windowMaximized = false,
   onWindowMinimize,
@@ -223,6 +229,36 @@ export function AppChrome({
       disabled,
       danger: true,
       testId: "title-file-recycle",
+    });
+  }
+  if (onWorkflowTranslation) {
+    fileItems.push({
+      id: "workflow-translation",
+      label: "Translation (Ctrl+Alt+T)",
+      group: "segment",
+      onSelect: onWorkflowTranslation,
+      disabled,
+      testId: "title-file-workflow-translation",
+    });
+  }
+  if (onWorkflowReview) {
+    fileItems.push({
+      id: "workflow-review",
+      label: "Review (Ctrl+Alt+R)",
+      group: "segment",
+      onSelect: onWorkflowReview,
+      disabled,
+      testId: "title-file-workflow-review",
+    });
+  }
+  if (onWorkflowSignOff) {
+    fileItems.push({
+      id: "workflow-sign-off",
+      label: "Sign off (Ctrl+L)",
+      group: "segment",
+      onSelect: onWorkflowSignOff,
+      disabled,
+      testId: "title-file-workflow-sign-off",
     });
   }
   if (showAssets && onAssets) {

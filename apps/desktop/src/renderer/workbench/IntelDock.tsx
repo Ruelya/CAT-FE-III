@@ -130,44 +130,48 @@ export function IntelDock({
     >
       <div className="intel-dock__chrome">
         <span className="intel-dock__collapsed-label">Memory and terms</span>
-        <div
-          className="intel-dock__tabs"
-          role="tablist"
-          aria-label="Segment intelligence"
-        >
-          <DockTabButton
-            id="matches"
-            label="Matches"
-            count={matchCount}
-            active={tab === "matches"}
-            loading={intel.tm.loading}
-            onSelect={setTab}
-          />
-          <DockTabButton
-            id="terms"
-            label="Terms"
-            count={termCount}
-            active={tab === "terms"}
-            loading={intel.terms.loading}
-            onSelect={setTab}
-          />
-          <DockTabButton
-            id="concordance"
-            label="Concordance"
-            count={intel.concordance.hits.length}
-            active={tab === "concordance"}
-            loading={intel.concordance.loading}
-            onSelect={setTab}
-          />
-          <DockTabButton
-            id="ai"
-            label="AI"
-            count={ai.run?.proposalText ? 1 : 0}
-            active={tab === "ai"}
-            loading={ai.pending}
-            onSelect={setTab}
-          />
-        </div>
+        {stack ? (
+          <h2 className="intel-dock__title">Resources</h2>
+        ) : (
+          <div
+            className="intel-dock__tabs"
+            role="tablist"
+            aria-label="Segment intelligence"
+          >
+            <DockTabButton
+              id="matches"
+              label="Matches"
+              count={matchCount}
+              active={tab === "matches"}
+              loading={intel.tm.loading}
+              onSelect={setTab}
+            />
+            <DockTabButton
+              id="terms"
+              label="Terms"
+              count={termCount}
+              active={tab === "terms"}
+              loading={intel.terms.loading}
+              onSelect={setTab}
+            />
+            <DockTabButton
+              id="concordance"
+              label="Concordance"
+              count={intel.concordance.hits.length}
+              active={tab === "concordance"}
+              loading={intel.concordance.loading}
+              onSelect={setTab}
+            />
+            <DockTabButton
+              id="ai"
+              label="AI"
+              count={ai.run?.proposalText ? 1 : 0}
+              active={tab === "ai"}
+              loading={ai.pending}
+              onSelect={setTab}
+            />
+          </div>
+        )}
         <button
           type="button"
           className="btn btn--ghost btn--icon btn--sm"
@@ -201,7 +205,7 @@ export function IntelDock({
                 {onAssets ? (
                   <button
                     type="button"
-                    className="btn btn--ghost btn--sm"
+                    className="btn btn--quiet btn--sm intel-dock__asset"
                     data-testid="intel-open-tm"
                     title="Open mounted translation memories"
                     onClick={onAssets}
@@ -210,11 +214,47 @@ export function IntelDock({
                   </button>
                 ) : null}
               </div>
-              <p className="intel-dock__link" data-testid="intel-tm-libraries">
-                {libraries.length > 0
-                  ? libraries.map((library) => library.name).join(" · ")
-                  : "No memory hit this segment"}
-              </p>
+              {stack ? (
+                <div
+                  className="intel-dock__tools"
+                  role="tablist"
+                  aria-label="Memory tools"
+                >
+                  <DockTabButton
+                    id="matches"
+                    label="Matches"
+                    count={matchCount}
+                    active={tab === "matches" || tab === "terms"}
+                    loading={intel.tm.loading}
+                    onSelect={setTab}
+                  />
+                  <DockTabButton
+                    id="concordance"
+                    label="Concordance"
+                    count={intel.concordance.hits.length}
+                    active={tab === "concordance"}
+                    loading={intel.concordance.loading}
+                    onSelect={setTab}
+                  />
+                  <DockTabButton
+                    id="ai"
+                    label="AI"
+                    count={ai.run?.proposalText ? 1 : 0}
+                    active={tab === "ai"}
+                    loading={ai.pending}
+                    onSelect={setTab}
+                  />
+                </div>
+              ) : null}
+              {libraries.length > 0 ? (
+                <p className="intel-dock__link" data-testid="intel-tm-libraries">
+                  {libraries.map((library) => library.name).join(" · ")}
+                </p>
+              ) : (
+                <p className="intel-dock__link" data-testid="intel-tm-libraries">
+                  No memory linked to this segment
+                </p>
+              )}
               {stack && tab === "concordance" ? (
                 <ConcordanceList
                   concordance={intel.concordance}
@@ -245,7 +285,7 @@ export function IntelDock({
                 {onAssets ? (
                   <button
                     type="button"
-                    className="btn btn--ghost btn--sm"
+                    className="btn btn--quiet btn--sm intel-dock__asset"
                     data-testid="intel-open-tb"
                     title="Open mounted termbases"
                     onClick={onAssets}
@@ -254,11 +294,15 @@ export function IntelDock({
                   </button>
                 ) : null}
               </div>
-              <p className="intel-dock__link" data-testid="intel-tb-libraries">
-                {termbases.length > 0
-                  ? termbases.join(" · ")
-                  : "No term hit this segment"}
-              </p>
+              {termbases.length > 0 ? (
+                <p className="intel-dock__link" data-testid="intel-tb-libraries">
+                  {termbases.join(" · ")}
+                </p>
+              ) : (
+                <p className="intel-dock__link" data-testid="intel-tb-libraries">
+                  No termbase linked to this segment
+                </p>
+              )}
               <TermList
                 terms={terms}
                 loading={intel.terms.loading}
@@ -570,124 +614,122 @@ function TermList({
     }
   };
 
-  const search = (
-    <form
-      className="term-list__search"
-      onSubmit={(event) => {
-        event.preventDefault();
-        const needle = query.trim();
-        if (!needle || !onSearchTerms) return;
-        setLookupLoading(true);
-        void onSearchTerms(needle)
-          .then((matches) => {
-            setLookup(matches);
-            setLookupError(null);
-          })
-          .catch((caught: unknown) => {
-            setLookup([]);
-            setLookupError(formatUiError(toUiError(caught)));
-          })
-          .finally(() => setLookupLoading(false));
-      }}
-    >
-      <label className="field term-list__field">
-        <span className="field__label">Search termbases</span>
-        <input
-          type="text"
-          value={query}
-          disabled={disabled}
-          data-testid="term-search"
-          placeholder="Filter this segment or look up a term"
-          onChange={(event) => setQuery(event.target.value)}
-        />
-      </label>
-      <button
-        type="submit"
-        className="btn btn--secondary btn--sm"
-        disabled={disabled || query.trim().length === 0 || !onSearchTerms}
+  const tools = (
+    <div className="term-list__tools">
+      <form
+        className="term-list__search"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const needle = query.trim();
+          if (!needle || !onSearchTerms) return;
+          setLookupLoading(true);
+          void onSearchTerms(needle)
+            .then((matches) => {
+              setLookup(matches);
+              setLookupError(null);
+            })
+            .catch((caught: unknown) => {
+              setLookup([]);
+              setLookupError(formatUiError(toUiError(caught)));
+            })
+            .finally(() => setLookupLoading(false));
+        }}
       >
-        Search
-      </button>
-    </form>
-  );
-
-  const quickAdd = (
-    <button
-      type="button"
-      className="btn btn--secondary btn--sm term-list__add"
-      disabled={disabled || !canQuickAdd}
-      data-testid="quick-add-term"
-      title={
-        canQuickAdd
-          ? "Store the selected source and target as a term (Ctrl+Shift+T)"
-          : "Select a phrase in the source and its translation in the target"
-      }
-      onClick={onQuickAdd}
-    >
-      Add term
-    </button>
-  );
-
-  const extractBlock = extract ? (
-    <div className="term-extract" data-testid="term-extract">
-      <button
-        type="button"
-        className="btn btn--secondary btn--sm"
-        disabled={disabled || extract.pending}
-        data-testid="term-extract-run"
-        onClick={extract.onExtract}
-      >
-        {extract.pending ? "Extracting" : "Extract terms"}
-      </button>
-      {extract.error ? (
-        <p className="error-text" role="alert">
-          {extract.error}
-        </p>
-      ) : null}
-      {extract.candidates.length > 0 ? (
-        <ul className="term-extract__list" data-testid="term-extract-results">
-          {extract.candidates.map((candidate) => (
-            <li key={candidate.sourceTerm} className="term-extract__item">
-              <span>{candidate.sourceTerm}</span>
-              {candidate.suggestedTarget ? (
-                <button
-                  type="button"
-                  className="btn btn--ghost btn--sm"
-                  disabled={disabled}
-                  data-testid={`term-extract-insert-${candidate.sourceTerm}`}
-                  onClick={() => onInsert(candidate.suggestedTarget ?? "")}
-                >
-                  {candidate.suggestedTarget}
-                </button>
-              ) : (
-                <span className="muted">×{candidate.frequency}</span>
-              )}
-            </li>
-          ))}
-        </ul>
+        <label className="field term-list__field">
+          <span className="field__label">Look up a term</span>
+          <input
+            type="text"
+            value={query}
+            disabled={disabled}
+            data-testid="term-search"
+            placeholder="Filter this segment or search termbases"
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </label>
+        <button
+          type="submit"
+          className="btn btn--secondary btn--sm"
+          disabled={disabled || query.trim().length === 0 || !onSearchTerms}
+        >
+          Search
+        </button>
+      </form>
+      <div className="term-list__actions">
+        {extract ? (
+          <button
+            type="button"
+            className="btn btn--secondary btn--sm"
+            disabled={disabled || extract.pending}
+            data-testid="term-extract-run"
+            onClick={extract.onExtract}
+          >
+            {extract.pending ? "Extracting" : "Extract terms"}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="btn btn--primary btn--sm term-list__add"
+          disabled={disabled || !canQuickAdd}
+          data-testid="quick-add-term"
+          title={
+            canQuickAdd
+              ? "Store the selected source and target as a term (Ctrl+Shift+T)"
+              : "Select a phrase in the source and its translation in the target"
+          }
+          onClick={onQuickAdd}
+        >
+          Add term
+        </button>
+      </div>
+      {extract ? (
+        <div className="term-extract" data-testid="term-extract">
+          {extract.error ? (
+            <p className="error-text" role="alert">
+              {extract.error}
+            </p>
+          ) : null}
+          {extract.candidates.length > 0 ? (
+            <ul className="term-extract__list" data-testid="term-extract-results">
+              {extract.candidates.map((candidate) => (
+                <li key={candidate.sourceTerm} className="term-extract__item">
+                  <span>{candidate.sourceTerm}</span>
+                  {candidate.suggestedTarget ? (
+                    <button
+                      type="button"
+                      className="btn btn--ghost btn--sm"
+                      disabled={disabled}
+                      data-testid={`term-extract-insert-${candidate.sourceTerm}`}
+                      onClick={() => onInsert(candidate.suggestedTarget ?? "")}
+                    >
+                      {candidate.suggestedTarget}
+                    </button>
+                  ) : (
+                    <span className="muted">×{candidate.frequency}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
       ) : null}
     </div>
-  ) : null;
+  );
 
   if (error) {
     return (
       <>
-        {search}
-        {extractBlock}
+        {tools}
         <p className="error-text" role="alert">
           {error}
         </p>
-        {quickAdd}
       </>
     );
   }
   if (loading && terms.length === 0 && !query.trim()) {
     return (
       <>
-        {search}
-        {extractBlock}
+        {tools}
         <p className="muted">Checking termbases</p>
-        {quickAdd}
       </>
     );
   }
@@ -699,9 +741,7 @@ function TermList({
 
   return (
     <>
-      {search}
-      {extractBlock}
-      {quickAdd}
+      {tools}
       {lookupError ? (
         <p className="error-text" role="alert">
           {lookupError}

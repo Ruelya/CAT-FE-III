@@ -164,7 +164,7 @@ export function WorkbenchStatus({
         ) : null}
         <span
           className="workbench__status-hint"
-          title="Ctrl+Enter confirm · Ctrl+S save · Ctrl+G go to · Ctrl+, place tags · Ctrl+Shift+, QuickPlace · Ctrl+Shift+P pretranslate · F3 concordance · Ctrl+1..9 apply match"
+          title="Ctrl+Enter confirm · Ctrl+S save · Ctrl+G go to · Ctrl+Alt+T translation · Ctrl+Alt+R review · Ctrl+L sign off · Ctrl+, place tags · Ctrl+Shift+P pretranslate · F3 concordance · Ctrl+1..9 apply match"
         >
           Shortcuts
         </span>

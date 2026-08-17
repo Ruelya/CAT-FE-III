@@ -20,6 +20,8 @@ import {
   TreeStructure,
 } from "@phosphor-icons/react";
 
+import type { EditorWorkflowState } from "@translunar/contracts";
+
 import { segmentNumber } from "../lib/format";
 import {
   EDITOR_COMMAND_REGISTRY,
@@ -49,6 +51,11 @@ export interface EditorCommandBarProps {
     onConfirm: () => void;
   };
   extras?: EditorCommandBarExtras;
+  workflow?: {
+    state: EditorWorkflowState;
+    disabled?: boolean;
+    onChange: (state: EditorWorkflowState) => void;
+  };
 }
 
 const ICONS: Record<EditorCommandId, ReactNode> = {
@@ -87,6 +94,7 @@ export function EditorCommandBar({
   disabled,
   confirm,
   extras,
+  workflow,
 }: EditorCommandBarProps) {
   const busy = disabled || ops.busy;
   const [overflowOpen, setOverflowOpen] = useState(false);
@@ -229,6 +237,26 @@ export function EditorCommandBar({
           />
         ) : null}
       </div>
+      {workflow ? (
+        <label className="editor-command-bar__workflow">
+          <span className="sr-only">Segment workflow</span>
+          <select
+            className="editor-command-bar__workflow-select"
+            data-testid="cmd-workflow"
+            title="Segment workflow. Ctrl+Alt+T translation, Ctrl+Alt+R review, Ctrl+L sign off"
+            aria-label="Segment workflow"
+            value={workflow.state}
+            disabled={busy || workflow.disabled === true}
+            onChange={(event) =>
+              workflow.onChange(event.target.value as EditorWorkflowState)
+            }
+          >
+            <option value="translation">Translation</option>
+            <option value="review">Review</option>
+            <option value="signed">Signed off</option>
+          </select>
+        </label>
+      ) : null}
       <div className="editor-command-bar__overflow">
         <button
           ref={triggerRef}

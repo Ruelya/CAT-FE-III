@@ -6,7 +6,7 @@ import { useMenuKeyboard } from "./use-menu-keyboard";
 export interface TitleFileMenuItem {
   id: string;
   label: string;
-  group: "job" | "project";
+  group: "job" | "segment" | "project";
   onSelect: () => void;
   disabled?: boolean;
   danger?: boolean;
@@ -20,10 +20,11 @@ export interface TitleFileMenuProps {
 
 const GROUP_LABEL: Record<TitleFileMenuItem["group"], string> = {
   job: "This job",
+  segment: "Segment",
   project: "Project",
 };
 
-const GROUP_ORDER: Array<TitleFileMenuItem["group"]> = ["job", "project"];
+const GROUP_ORDER: Array<TitleFileMenuItem["group"]> = ["job", "segment", "project"];
 
 /**
  * Word / Trados File menu, hung from the title strip.

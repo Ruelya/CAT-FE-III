@@ -25,6 +25,13 @@ function items(
       danger: true,
     },
     {
+      id: "workflow-translation",
+      label: "Translation (Ctrl+Alt+T)",
+      group: "segment",
+      onSelect: vi.fn(),
+      testId: "title-file-workflow-translation",
+    },
+    {
       id: "assets",
       label: "Assets",
       group: "project",
@@ -48,10 +55,12 @@ describe("TitleFileMenu", () => {
     await user.click(screen.getByTestId("title-file-menu"));
     const panel = screen.getByTestId("title-file-menu-panel");
     expect(panel).toHaveTextContent("This job");
+    expect(panel).toHaveTextContent("Segment");
     expect(panel).toHaveTextContent("Project");
     expect(screen.getByRole("group", { name: "This job" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Segment" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Project" })).toBeInTheDocument();
-    expect(screen.getByRole("separator")).toBeInTheDocument();
+    expect(screen.getAllByRole("separator")).toHaveLength(2);
 
     await user.click(screen.getByTestId("title-file-add-files"));
     expect(add).toHaveBeenCalledTimes(1);

@@ -1,5 +1,5 @@
 import type { KeyboardEvent, MouseEvent } from "react";
-import type { EditorWorkflowState, InlineTag, SegmentEditorRow } from "@translunar/contracts";
+import type { InlineTag, SegmentEditorRow } from "@translunar/contracts";
 
 import {
   defaultEditorPage,
@@ -8,11 +8,7 @@ import {
 import { segmentNumber } from "../lib/format";
 import type { EditorDisplay } from "../lib/editor-display";
 import { adjacentPlaceholderGroupAt, pairSourceTags } from "../lib/quickplace";
-import {
-  isOcrStructuralPath,
-  structureLabel,
-  structureTitle,
-} from "../lib/structure-label";
+import { isOcrStructuralPath } from "../lib/structure-label";
 import {
   caretOffsetsInTaggedEditor,
   mergeTargetTags,
@@ -35,12 +31,6 @@ import {
 } from "./TargetEditor";
 import { TaggedText } from "./TaggedText";
 
-const WORKFLOW_LABEL: Record<EditorWorkflowState, string> = {
-  translation: "Translation",
-  review: "Review",
-  signed: "Signed off",
-};
-
 export interface SegmentGridProps {
   rows: SegmentEditorRow[];
   page?: EditorPageState;
@@ -55,7 +45,6 @@ export interface SegmentGridProps {
   onToggleSelect?: (segmentId: string) => void;
   onDraftChange: (text: string) => void;
   onTagsChange?: (tags: InlineTag[]) => void;
-  onSetWorkflow?: (segmentId: string, state: EditorWorkflowState) => void;
   highlightedSegmentId?: string | null;
   onCompositionStart: () => void;
   onCompositionEnd: () => void;
@@ -111,7 +100,6 @@ export function SegmentGrid({
   onToggleSelect,
   onDraftChange,
   onTagsChange,
-  onSetWorkflow,
   highlightedSegmentId,
   onCompositionStart,
   onCompositionEnd,
@@ -231,7 +219,6 @@ export function SegmentGrid({
       <table className="segment-table">
         <colgroup>
           <col className="ordinal" />
-          <col className="structure" />
           <col className="source" />
           <col className="target" />
           <col className="status" />
@@ -240,9 +227,6 @@ export function SegmentGrid({
           <tr>
             <th scope="col" className="segment-table__ordinal">
               #
-            </th>
-            <th scope="col" className="segment-table__structure">
-              Ctx
             </th>
             <th scope="col">Source</th>
             <th scope="col">Target</th>
@@ -298,14 +282,6 @@ export function SegmentGrid({
                 <td className="segment-table__ordinal">
                   <span className="segment-index">
                     {segmentNumber(row.segment.ordinal)}
-                  </span>
-                </td>
-                <td
-                  className="segment-table__structure"
-                  title={structureTitle(row.segment.structuralPath)}
-                >
-                  <span className="segment-structure">
-                    {structureLabel(row.segment.structuralPath)}
                   </span>
                 </td>
                 <td
@@ -525,35 +501,6 @@ export function SegmentGrid({
                             ? "Confirmed"
                             : row.segment.state}
                     </span>
-                    {onSetWorkflow ? (
-                      <label className="segment-workflow">
-                        <span className="sr-only">
-                          Workflow for segment {segmentNumber(row.segment.ordinal)}
-                        </span>
-                        <select
-                          className="segment-workflow__select"
-                          data-testid={`workflow-${id}`}
-                          value={row.workflowState}
-                          disabled={Boolean(disabled)}
-                          onChange={(event) =>
-                            onSetWorkflow(
-                              id,
-                              event.target.value as EditorWorkflowState,
-                            )
-                          }
-                        >
-                          <option value="translation">Translation</option>
-                          <option value="review">Review</option>
-                          <option value="signed">Signed off</option>
-                        </select>
-                      </label>
-                    ) : (
-                      <span
-                        className={`status-chip status-chip--workflow status-chip--${row.workflowState}`}
-                      >
-                        {WORKFLOW_LABEL[row.workflowState]}
-                      </span>
-                    )}
                     {locked ? (
                       <span
                         className="status-chip status-chip--locked"

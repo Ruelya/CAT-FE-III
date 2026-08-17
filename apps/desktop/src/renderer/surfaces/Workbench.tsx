@@ -268,6 +268,15 @@ export function Workbench({
     counts ?? null,
   );
 
+  const requestWorkflow = (state: "translation" | "review" | "signed") => {
+    if (!activeSegmentId || !onSetWorkflow) return;
+    if (state === "signed") {
+      setSignReason({ segmentId: activeSegmentId, reason: "" });
+      return;
+    }
+    onSetWorkflow(activeSegmentId, state);
+  };
+
   useEditorShortcuts(!disabled, {
     onConcordance: () => onConcordance(undefined, selection),
     onQuickAddTerm: () => onQuickAddTerm(selection),
@@ -279,6 +288,8 @@ export function Workbench({
       onSave?.();
     },
     onPlaceTags,
+    onWorkflowTranslation: () => requestWorkflow("translation"),
+    onWorkflowReview: () => requestWorkflow("review"),
     onQuickPlace: () => {
       setQuickPlaceOpen(true);
     },
@@ -300,10 +311,7 @@ export function Workbench({
           : (hit.index + 1) % intel.terms.matches.length,
       );
     },
-    onLock: () => {
-      if (!activeSegmentId || !onSetWorkflow) return;
-      setSignReason({ segmentId: activeSegmentId, reason: "" });
-    },
+    onLock: () => requestWorkflow("signed"),
   });
   // Container-responsive density: dock changes resize the editor without
   // resizing the window, so this cannot be a viewport media query.
@@ -545,6 +553,15 @@ export function Workbench({
             canPlaceTags: Boolean(activeRow),
             canSave: Boolean(onSave),
           }}
+          {...(activeRow && onSetWorkflow
+            ? {
+                workflow: {
+                  state: activeRow.workflowState,
+                  disabled: pendingConfirm,
+                  onChange: requestWorkflow,
+                },
+              }
+            : {})}
           {...(activeRow
             ? {
                 confirm: {
@@ -666,20 +683,6 @@ export function Workbench({
             {...(onToggleSelect ? { onToggleSelect } : {})}
             onDraftChange={onDraftChange}
             {...(onTagsChange ? { onTagsChange } : {})}
-            {...(onSetWorkflow
-              ? {
-                  onSetWorkflow: (segmentId, state) => {
-                    if (state === "signed") {
-                      const row = ctx.rows.find((item) => item.segment.id === segmentId);
-                      if (row && row.workflowState !== "review") {
-                        setSignReason({ segmentId, reason: "" });
-                        return;
-                      }
-                    }
-                    onSetWorkflow(segmentId, state);
-                  },
-                }
-              : {})}
             highlightedSegmentId={
               editorOps?.findReplace.matches.find((m) => m.segmentId === activeSegmentId)
                 ? activeSegmentId

@@ -134,6 +134,24 @@ describe("EditorCommandBar keyboard contract", () => {
     expect(trigger).toHaveFocus();
   });
 
+  it("hosts the segment workflow on the ribbon, not in the grid", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <EditorCommandBar
+        ops={makeOps()}
+        workflow={{
+          state: "translation",
+          onChange,
+        }}
+      />,
+    );
+    const control = screen.getByTestId("cmd-workflow");
+    expect(control).toHaveValue("translation");
+    await user.selectOptions(control, "review");
+    expect(onChange).toHaveBeenCalledWith("review");
+  });
+
   it("exposes extra ribbon actions as icon buttons with hover names", () => {
     render(
       <EditorCommandBar
