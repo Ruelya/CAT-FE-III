@@ -6,6 +6,7 @@
 | Product | Translunar CAT desktop (Electron + React) |
 | Source of truth | This file is the portable design system. Runtime numbers live in `apps/desktop/src/renderer/tokens.css`. Enforcement lives in `.trellis/spec/frontend/design-language.md`. |
 | Scope | What the renderer already ships after the courseware workbench, Option 2 paging, and the 2026-08-17 chrome reshape. Not a wishlist. |
+| Portable extract | Chinese, project-agnostic copy: [`docs/design-philosophy-portable.md`](./design-philosophy-portable.md). Take that file when moving the look to another product. |
 
 Use this document to design or review any new surface. If another note disagrees with `tokens.css`, fix the note in the same change.
 
@@ -290,13 +291,12 @@ This is the densest and visually dominant surface. Other surfaces stay subordina
 +-- AppChrome ----------------------------------------------------------+
 | EditorCommandBar  icon ribbon  Find Tags Comments Undo Redo Split    |
 |                   Merge Spell Propagate  Copy Source  Place Tags     |
-|                   Save  Pretranslate  Confirm  overflow              |
+|                   Save  Pretranslate  Confirm  workflow  overflow    |
 +-- ActivityBar | FileNav | Filter + Grid + paging | IntelDock --------+
 |   F / Chat    | tree    | DisplayFilterBar       | stack placement   |
 |               | + Add   | SegmentGrid            | TM pane           |
-|               |   files | # Ctx Source Target    | Term pane         |
-|               |         | Status                 | Concordance / AI  |
-|               |         | engine page limit 200  | can take TM pane  |
+|               |   files | # Source Target Status | Term pane         |
+|               |         | engine page limit 200  | Concordance / AI  |
 +---------------+---------+------------------------+-------------------+
 | StructurePreview  default closed; status Preview opens; height previewH
 +----------------------------------------------------------------------+
@@ -316,12 +316,12 @@ Defaults (`translunar.renderer.workbench-layout.v2`):
 
 `IntelDock` `placement` is `"side" | "top" | "stack"`. The workbench mounts `"stack"`.
 
-Grid columns: `#` · `Ctx` · Source · Target · Status.
+Grid columns: `#` · Source · Target · Status.
 
-- Ctx is a short structure label (`html`, `p`, …).
+- Structure labels and segment workflow are not columns. Workflow lives on the command bar, File menu, context menu, and Ctrl+Alt shortcuts.
 - Source is tagged text: inline tags render as `inline-tag` chips. Ctrl/Meta-click places a source tag on the target.
 - Only the active row mounts the target editor. The hidden `textarea` test id stays `target-editor-${id}`; the visible layer is `target-surface-${id}`.
-- Status shows Open / Draft / Confirmed plus Translation / Review / Signed.
+- Status shows Open / Draft / Confirmed. Translation / Review / Signed is chrome, not an in-row select.
 
 **Two filter layers. Do not merge them into one control.**
 
@@ -412,6 +412,7 @@ WCAG 2.2 AA in both themes.
 | `apps/desktop/src/renderer/state/appearance.ts` | appearance-v1 |
 | `apps/desktop/src/renderer/state/workbench-layout.ts` | `workbench-layout.v2` dock widths and toggles |
 | `.trellis/spec/frontend/design-language.md` | Enforceable contract (English) |
+| `docs/design-philosophy-portable.md` | Chinese portable extract for other products |
 
 ---
 
