@@ -5,6 +5,8 @@ export interface DocumentSwitcherProps {
   activeDocumentId: string;
   disabled?: boolean;
   pending?: boolean;
+  /** Title: the select is the file name. Field: labelled form control. */
+  variant?: "field" | "title";
   onSelect: (documentId: string) => void;
   onRecycle?: () => void;
 }
@@ -14,13 +16,22 @@ export function DocumentSwitcher({
   activeDocumentId,
   disabled,
   pending,
+  variant = "field",
   onSelect,
   onRecycle,
 }: DocumentSwitcherProps) {
   const busy = Boolean(disabled || pending);
   return (
-    <div className="document-switcher" data-testid="document-switcher">
-      <label className="field__label" htmlFor="document-switcher-select">
+    <div
+      className={`document-switcher${
+        variant === "title" ? " document-switcher--title" : ""
+      }`}
+      data-testid="document-switcher"
+    >
+      <label
+        className={variant === "title" ? "sr-only" : "field__label"}
+        htmlFor="document-switcher-select"
+      >
         Document
       </label>
       <div className="document-switcher__row">

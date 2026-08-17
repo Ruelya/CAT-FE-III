@@ -1,8 +1,13 @@
 import { useState } from "react";
-import type { Document, ProjectAnalyticsSummary } from "@translunar/contracts";
+import type {
+  AnalysisRunResult,
+  Document,
+  ProjectAnalyticsSummary,
+} from "@translunar/contracts";
 
 import type { UiError } from "../lib/errors";
-import { formatUiError } from "../lib/errors";
+import { formatUiError, toUiError } from "../lib/errors";
+import { invokeEngine } from "../lib/rpc";
 import { InlineLoading } from "../shell/InlineState";
 import { SectionNav } from "../shell/SectionNav";
 import {
@@ -23,6 +28,7 @@ import type { InteropControllerApi } from "../state/use-interop-controller";
 import type { TaskPackageApi } from "../state/use-task-package-controller";
 
 export interface ProjectInsightsProps {
+  projectId: string;
   projectName: string;
   analytics: ProjectAnalyticsSummary | null;
   documents: Document[];
@@ -37,6 +43,7 @@ export interface ProjectInsightsProps {
 }
 
 export function ProjectInsights({
+  projectId,
   projectName,
   analytics,
   documents,
@@ -50,6 +57,9 @@ export function ProjectInsights({
   hasDocument = false,
 }: ProjectInsightsProps) {
   const [section, setSection] = useState<InsightsSection>("analytics");
+  const [analysis, setAnalysis] = useState<AnalysisRunResult | null>(null);
+  const [analysisPending, setAnalysisPending] = useState(false);
+  const [analysisError, setAnalysisError] = useState<UiError | null>(null);
   const progress = analytics ? progressRows(analytics.progress) : [];
   const trends = analytics ? trendRows(analytics.trends) : [];
   const productivity = analytics?.productivity;
@@ -69,14 +79,37 @@ export function ProjectInsights({
               Back
             </button>
             {section === "analytics" ? (
-              <button
-                type="button"
-                className="btn btn--ghost"
-                disabled={disabled || loading}
-                onClick={onRetry}
-              >
-                Retry
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  disabled={disabled || analysisPending}
+                  data-testid="insights-analyze"
+                  onClick={() => {
+                    setAnalysisPending(true);
+                    setAnalysisError(null);
+                    void invokeEngine("analysis.run", { projectId })
+                      .then((result) => {
+                        setAnalysis(result);
+                      })
+                      .catch((caught: unknown) => {
+                        setAnalysis(null);
+                        setAnalysisError(toUiError(caught));
+                      })
+                      .finally(() => setAnalysisPending(false));
+                  }}
+                >
+                  {analysisPending ? "Analyzing" : "Analyze files"}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  disabled={disabled || loading}
+                  onClick={onRetry}
+                >
+                  Retry
+                </button>
+              </>
             ) : null}
           </div>
         </div>
@@ -93,6 +126,69 @@ export function ProjectInsights({
               <p className="error-text">{formatUiError(error)}</p>
             ) : null}
             {loading ? <InlineLoading label="Loading content" /> : null}
+
+            {analysisError ? (
+              <p className="error-text" role="alert">
+                {formatUiError(analysisError)}
+              </p>
+            ) : null}
+
+            {analysis ? (
+              <section
+                className="insights-stack"
+                aria-labelledby="insights-analysis"
+                data-testid="insights-analysis"
+              >
+                <h2 id="insights-analysis" className="insights-heading">
+                  File analysis
+                </h2>
+                <table className="data-table">
+                  <tbody>
+                    <tr>
+                      <th scope="row">Source words</th>
+                      <td>{analysis.summary.sourceWords}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Repeated segments</th>
+                      <td>{analysis.summary.repeatedSegments}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Exact</th>
+                      <td>{analysis.summary.matchBands.exact}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">95–99%</th>
+                      <td>{analysis.summary.matchBands.match9599}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">85–94%</th>
+                      <td>{analysis.summary.matchBands.match8594}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">75–84%</th>
+                      <td>{analysis.summary.matchBands.match7584}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">50–74%</th>
+                      <td>{analysis.summary.matchBands.match5074}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">No match</th>
+                      <td>{analysis.summary.matchBands.noMatch}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Repetitions</th>
+                      <td>{analysis.summary.matchBands.repetitions}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </section>
+            ) : section === "analytics" && !analysisPending ? (
+              <p className="muted">
+                Run Analyze files to see word counts and match bands. Insights
+                load does not start an analysis.
+              </p>
+            ) : null}
 
             {analytics ? (
               <div className="insights-stack">

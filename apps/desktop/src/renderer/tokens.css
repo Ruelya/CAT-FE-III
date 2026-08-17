@@ -218,6 +218,8 @@ html[data-theme="dark"] {
   --panel-w-tm: 320px;
   --panel-w-pdf: 288px;
   --rail-w: 40px;
+  --file-nav-w: 200px;
+  --preview-w: 280px;
   --measure: 68ch;
 
   /* Focus */

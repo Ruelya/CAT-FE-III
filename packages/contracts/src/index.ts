@@ -156,6 +156,7 @@ export const ENGINE_METHODS = [
   "termbase.create",
   "termbase.mount",
   "termbase.unmount",
+  "editor.suggest",
   "term.search",
   "term.upsert",
   "termbase.import",

@@ -74,6 +74,8 @@ export interface DesktopApi {
   selectInteropInput(kind: "review" | "table"): Promise<string | null>;
   selectTaskPackageInput(): Promise<string | null>;
   selectCorpusInput(): Promise<string | null>;
+  selectExchangeInput(kind: "tm" | "termbase"): Promise<string | null>;
+  readManagedSource(request: ManagedSourceRequest): Promise<ManagedSourceBytes | null>;
   selectPluginPackage(): Promise<string | null>;
   issuePluginPanelSession(request: PluginPanelSessionRequest): Promise<PluginPanelSession>;
   revokePluginPanelSession(sessionId: string): Promise<boolean>;
@@ -159,6 +161,21 @@ The main-process E2E delay seam uses three process-only environment keys:
   controls). See **Desktop custom title bar chrome**.
 - Main owns file dialogs and the engine child process. Renderer receives paths
   selected by main and never imports Node filesystem APIs.
+- Document structure preview (`workbench/StructurePreview.tsx`) is a live
+  reconstruction from grid rows. Markdown goes through `marked` then
+  `DOMPurify`. HTML reconstructs tag payloads then `DOMPurify`. Other filters
+  keep tag-to-typography HTML, then the same sanitizer. The pane must keep
+  `data-testid="structure-preview"` and `preview-block-${segmentId}`; a click
+  or Enter/Space on a block calls the Workbench jump callback. It must not
+  invent headings, tables, or page numbers the Engine did not encode in text
+  or tag payloads.
+- `readManagedSource` is a desktop-only read of
+  `{dataDir}/sources/{documentId}.{ext}`. Main sanitizes the id and extension,
+  stays inside the sources directory, and returns bytes (never the path).
+  When those bytes are a DOCX, `docx-preview` may render the original imported
+  file above the live jump blocks. That canvas is the source copy, not a live
+  target merge, not Word COM, and not the PDF page dock. Do not add an Engine
+  method for this read.
 - Startup must use a non-blocking `void bootstrap()` call. Do not top-level
   await `app.whenReady()`; Playwright's Electron loader temporarily controls
   that promise and top-level await deadlocks launch before Chromium DevTools.
@@ -849,7 +866,9 @@ and generic document.export method contracts.
   a pdf” must **not** mount dock or error chrome (`isNonPdfDocumentListError`).
   Real list failures may show thin error chrome without fake pages.
 - Original page bytes are rendered as an in-memory data URL. Renderer code
-  never receives or opens the managed source path.
+  never receives the managed source filesystem path. PDF pages stay on
+  `pdf.page.get`. DOCX original-layout preview may receive file bytes only
+  through `readManagedSource`.
 - OCR correction is available only for active OCR, non-confirmed blocks. The
   controlled form requires source text and reason, sends expected revision, and
   replaces grid and preview state with the returned Segment.

@@ -235,3 +235,40 @@ describe("useEditorOperations keyboard ownership", () => {
     expect(result.current.panel).toBeNull();
   });
 });
+
+describe("useEditorOperations preferences", () => {
+  let engine: FakeEngineState;
+
+  beforeEach(() => {
+    engine = createFakeEngineState();
+    window.translunar = createFakeDesktopApi(engine);
+    document.body.innerHTML = `<div data-testid="workbench"><button id="focus">x</button></div>`;
+  });
+
+  afterEach(() => {
+    // @ts-expect-error test cleanup
+    delete window.translunar;
+    document.body.innerHTML = "";
+  });
+
+  it("loads preferences on mount and persists a single field", async () => {
+    const gw = makeGateway();
+    const { result } = renderHook(() => useEditorOperations(gw));
+
+    await waitFor(() => {
+      expect(result.current.preferences?.autocomplete).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.persistPreferenceField("autocomplete", false);
+    });
+
+    expect(result.current.preferences?.autocomplete).toBe(false);
+    const update = engine.calls.find(
+      (call) => call.method === "editor.preferences.update",
+    );
+    expect(update?.params).toMatchObject({
+      preferences: { autocomplete: false },
+    });
+  });
+});

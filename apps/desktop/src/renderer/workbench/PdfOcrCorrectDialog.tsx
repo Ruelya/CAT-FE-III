@@ -2,6 +2,14 @@ import type { UiError } from "../lib/errors";
 import { formatUiError } from "../lib/errors";
 import { ModalDialog } from "../shell/ModalDialog";
 
+export interface PdfOcrAiView {
+  pending: boolean;
+  error: UiError | null;
+  proposal: string;
+  profilesLoaded: boolean;
+  runnable: boolean;
+}
+
 export interface PdfOcrCorrectDialogProps {
   sourceText: string;
   reason: string;
@@ -9,6 +17,9 @@ export interface PdfOcrCorrectDialogProps {
   error: UiError | null;
   canSubmit: boolean;
   disabled?: boolean;
+  ai?: PdfOcrAiView;
+  onSuggestAi?: () => void;
+  onUseAiSuggestion?: () => void;
   onSourceTextChange: (value: string) => void;
   onReasonChange: (value: string) => void;
   onSubmit: () => void;
@@ -22,6 +33,9 @@ export function PdfOcrCorrectDialog({
   error,
   canSubmit,
   disabled,
+  ai,
+  onSuggestAi,
+  onUseAiSuggestion,
   onSourceTextChange,
   onReasonChange,
   onSubmit,
@@ -62,6 +76,52 @@ export function PdfOcrCorrectDialog({
           data-testid="pdf-ocr-source"
         />
       </div>
+      {ai ? (
+        <div className="pdf-ocr-ai" data-testid="pdf-ocr-ai">
+          {!ai.profilesLoaded ? (
+            <p className="muted">Loading AI profiles</p>
+          ) : !ai.runnable ? (
+            <p className="muted" data-testid="pdf-ocr-ai-no-profile">
+              No credential-backed AI profile is enabled. Configure one under
+              AI settings, then return here.
+            </p>
+          ) : (
+            <button
+              type="button"
+              className="btn btn--secondary btn--sm"
+              disabled={busy || ai.pending}
+              onClick={onSuggestAi}
+              data-testid="pdf-ocr-ai-suggest"
+            >
+              {ai.pending ? "Suggesting" : "Suggest correction"}
+            </button>
+          )}
+          {ai.error ? (
+            <p className="field__error" data-testid="pdf-ocr-ai-error">
+              {formatUiError(ai.error)}
+            </p>
+          ) : null}
+          {ai.proposal ? (
+            <div className="pdf-ocr-ai__proposal">
+              <p
+                className="pdf-ocr-ai__proposal-text"
+                data-testid="pdf-ocr-ai-proposal"
+              >
+                {ai.proposal}
+              </p>
+              <button
+                type="button"
+                className="btn btn--secondary btn--sm"
+                disabled={busy}
+                onClick={onUseAiSuggestion}
+                data-testid="pdf-ocr-ai-use"
+              >
+                Use suggestion
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <div className="field">
         <label className="field__label" htmlFor="ocr-reason">
           Reason

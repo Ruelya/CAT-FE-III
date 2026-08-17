@@ -20,6 +20,7 @@ function gateway(
     generation: overrides.generation ?? 1,
     mutationsEnabled: true,
     documentId: overrides.documentId ?? "doc-1",
+    projectId: "proj-1",
     activeSegmentId: overrides.activeSegmentId ?? "seg-1",
     flushOrStay: async () => true,
     onSegmentCorrected: async () => {

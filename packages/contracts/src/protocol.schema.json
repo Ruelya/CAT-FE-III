@@ -198,6 +198,15 @@
     "document_page": {
       "$ref": "#/$defs/DocumentPage"
     },
+    "editor_suggest_params": {
+      "$ref": "#/$defs/EditorSuggestParams"
+    },
+    "editor_suggest_result": {
+      "$ref": "#/$defs/EditorSuggestResult"
+    },
+    "editor_suggestion": {
+      "$ref": "#/$defs/EditorSuggestion"
+    },
     "empty_params": {
       "$ref": "#/$defs/EmptyParams"
     },
@@ -680,6 +689,9 @@
     "termbase_mount_params",
     "termbase_unmount_params",
     "termbase_page",
+    "editor_suggest_params",
+    "editor_suggest_result",
+    "editor_suggestion",
     "term_search_params",
     "term_search_result",
     "term_translation_input",
@@ -9288,6 +9300,86 @@
         "state"
       ]
     },
+    "EditorSuggestParams": {
+      "description": "As-you-type completion request for the segment being edited.",
+      "type": "object",
+      "properties": {
+        "caret": {
+          "description": "Caret position in characters, not bytes.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 8,
+          "minimum": 0
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "segmentId": {
+          "type": "string"
+        },
+        "targetText": {
+          "description": "Full target text as the editor currently holds it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId",
+        "segmentId",
+        "targetText",
+        "caret"
+      ]
+    },
+    "EditorSuggestResult": {
+      "type": "object",
+      "properties": {
+        "prefix": {
+          "description": "Word being completed. Echoed so a late response can be discarded when\nthe translator has typed on past it.",
+          "type": "string"
+        },
+        "suggestions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EditorSuggestion"
+          }
+        }
+      },
+      "required": [
+        "prefix",
+        "suggestions"
+      ]
+    },
+    "EditorSuggestion": {
+      "type": "object",
+      "properties": {
+        "hint": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/EditorSuggestionSource"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "source",
+        "hint"
+      ]
+    },
+    "EditorSuggestionSource": {
+      "type": "string",
+      "enum": [
+        "nonTranslatable",
+        "term",
+        "memoryFragment"
+      ]
+    },
     "EditorTagIssue": {
       "type": "object",
       "properties": {
@@ -11746,10 +11838,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TermSearchParams"
+          "$ref": "#/$defs/EditorSuggestParams"
         },
         "result": {
-          "$ref": "#/$defs/TermSearchResult"
+          "$ref": "#/$defs/EditorSuggestResult"
         }
       },
       "required": [
@@ -11761,10 +11853,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TermUpsertParams"
+          "$ref": "#/$defs/TermSearchParams"
         },
         "result": {
-          "$ref": "#/$defs/TermEntry"
+          "$ref": "#/$defs/TermSearchResult"
         }
       },
       "required": [
@@ -11791,6 +11883,21 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/TermUpsertParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermEntry"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract121": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/TermbaseImportParams"
         },
         "result": {
@@ -11802,7 +11909,7 @@
         "result"
       ]
     },
-    "MethodContract121": {
+    "MethodContract122": {
       "type": "object",
       "properties": {
         "params": {
@@ -11817,7 +11924,7 @@
         "result"
       ]
     },
-    "MethodContract122": {
+    "MethodContract123": {
       "type": "object",
       "properties": {
         "params": {
@@ -11832,7 +11939,7 @@
         "result"
       ]
     },
-    "MethodContract123": {
+    "MethodContract124": {
       "type": "object",
       "properties": {
         "params": {
@@ -11847,7 +11954,7 @@
         "result"
       ]
     },
-    "MethodContract124": {
+    "MethodContract125": {
       "type": "object",
       "properties": {
         "params": {
@@ -11862,7 +11969,7 @@
         "result"
       ]
     },
-    "MethodContract125": {
+    "MethodContract126": {
       "type": "object",
       "properties": {
         "params": {
@@ -11877,7 +11984,7 @@
         "result"
       ]
     },
-    "MethodContract126": {
+    "MethodContract127": {
       "type": "object",
       "properties": {
         "params": {
@@ -11892,7 +11999,7 @@
         "result"
       ]
     },
-    "MethodContract127": {
+    "MethodContract128": {
       "type": "object",
       "properties": {
         "params": {
@@ -11907,7 +12014,7 @@
         "result"
       ]
     },
-    "MethodContract128": {
+    "MethodContract129": {
       "type": "object",
       "properties": {
         "params": {
@@ -11915,21 +12022,6 @@
         },
         "result": {
           "$ref": "#/$defs/EmptyResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract129": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/QaRunParams"
-        },
-        "result": {
-          "$ref": "#/$defs/QaRun"
         }
       },
       "required": [
@@ -11956,6 +12048,21 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/QaRunParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaRun"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract131": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/QaRunListParams"
         },
         "result": {
@@ -11967,7 +12074,7 @@
         "result"
       ]
     },
-    "MethodContract131": {
+    "MethodContract132": {
       "type": "object",
       "properties": {
         "params": {
@@ -11982,7 +12089,7 @@
         "result"
       ]
     },
-    "MethodContract132": {
+    "MethodContract133": {
       "type": "object",
       "properties": {
         "params": {
@@ -11997,7 +12104,7 @@
         "result"
       ]
     },
-    "MethodContract133": {
+    "MethodContract134": {
       "type": "object",
       "properties": {
         "params": {
@@ -12012,7 +12119,7 @@
         "result"
       ]
     },
-    "MethodContract134": {
+    "MethodContract135": {
       "type": "object",
       "properties": {
         "params": {
@@ -12027,7 +12134,7 @@
         "result"
       ]
     },
-    "MethodContract135": {
+    "MethodContract136": {
       "type": "object",
       "properties": {
         "params": {
@@ -12042,7 +12149,7 @@
         "result"
       ]
     },
-    "MethodContract136": {
+    "MethodContract137": {
       "type": "object",
       "properties": {
         "params": {
@@ -12057,7 +12164,7 @@
         "result"
       ]
     },
-    "MethodContract137": {
+    "MethodContract138": {
       "type": "object",
       "properties": {
         "params": {
@@ -12072,7 +12179,7 @@
         "result"
       ]
     },
-    "MethodContract138": {
+    "MethodContract139": {
       "type": "object",
       "properties": {
         "params": {
@@ -12080,21 +12187,6 @@
         },
         "result": {
           "$ref": "#/$defs/ExportDocxResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract139": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/ExportDocumentParams"
-        },
-        "result": {
-          "$ref": "#/$defs/ExportDocumentResult"
         }
       },
       "required": [
@@ -12121,6 +12213,21 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/ExportDocumentParams"
+        },
+        "result": {
+          "$ref": "#/$defs/ExportDocumentResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract141": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/EmptyParams"
         },
         "result": {
@@ -12132,7 +12239,7 @@
         "result"
       ]
     },
-    "MethodContract141": {
+    "MethodContract142": {
       "type": "object",
       "properties": {
         "params": {
@@ -12147,7 +12254,7 @@
         "result"
       ]
     },
-    "MethodContract142": {
+    "MethodContract143": {
       "type": "object",
       "properties": {
         "params": {
@@ -12162,7 +12269,7 @@
         "result"
       ]
     },
-    "MethodContract143": {
+    "MethodContract144": {
       "type": "object",
       "properties": {
         "params": {
@@ -12177,7 +12284,7 @@
         "result"
       ]
     },
-    "MethodContract144": {
+    "MethodContract145": {
       "type": "object",
       "properties": {
         "params": {
@@ -12192,7 +12299,7 @@
         "result"
       ]
     },
-    "MethodContract145": {
+    "MethodContract146": {
       "type": "object",
       "properties": {
         "params": {
@@ -12207,7 +12314,7 @@
         "result"
       ]
     },
-    "MethodContract146": {
+    "MethodContract147": {
       "type": "object",
       "properties": {
         "params": {
@@ -12222,7 +12329,7 @@
         "result"
       ]
     },
-    "MethodContract147": {
+    "MethodContract148": {
       "type": "object",
       "properties": {
         "params": {
@@ -12237,7 +12344,7 @@
         "result"
       ]
     },
-    "MethodContract148": {
+    "MethodContract149": {
       "type": "object",
       "properties": {
         "params": {
@@ -12245,21 +12352,6 @@
         },
         "result": {
           "$ref": "#/$defs/PluginLifecycleResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract149": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/PluginBundledListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PluginBundledPage"
         }
       },
       "required": [
@@ -12286,6 +12378,21 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/PluginBundledListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PluginBundledPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract151": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/PluginBundledApplyParams"
         },
         "result": {
@@ -12297,7 +12404,7 @@
         "result"
       ]
     },
-    "MethodContract151": {
+    "MethodContract152": {
       "type": "object",
       "properties": {
         "params": {
@@ -12312,7 +12419,7 @@
         "result"
       ]
     },
-    "MethodContract152": {
+    "MethodContract153": {
       "type": "object",
       "properties": {
         "params": {
@@ -12327,7 +12434,7 @@
         "result"
       ]
     },
-    "MethodContract153": {
+    "MethodContract154": {
       "type": "object",
       "properties": {
         "params": {
@@ -12342,7 +12449,7 @@
         "result"
       ]
     },
-    "MethodContract154": {
+    "MethodContract155": {
       "type": "object",
       "properties": {
         "params": {
@@ -12357,7 +12464,7 @@
         "result"
       ]
     },
-    "MethodContract155": {
+    "MethodContract156": {
       "type": "object",
       "properties": {
         "params": {
@@ -12372,7 +12479,7 @@
         "result"
       ]
     },
-    "MethodContract156": {
+    "MethodContract157": {
       "type": "object",
       "properties": {
         "params": {
@@ -12387,7 +12494,7 @@
         "result"
       ]
     },
-    "MethodContract157": {
+    "MethodContract158": {
       "type": "object",
       "properties": {
         "params": {
@@ -12402,7 +12509,7 @@
         "result"
       ]
     },
-    "MethodContract158": {
+    "MethodContract159": {
       "type": "object",
       "properties": {
         "params": {
@@ -12410,21 +12517,6 @@
         },
         "result": {
           "$ref": "#/$defs/PluginAiActionCancelResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract159": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/PluginAiActionHistoryListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PluginAiActionHistoryPage"
         }
       },
       "required": [
@@ -12451,6 +12543,21 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/PluginAiActionHistoryListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PluginAiActionHistoryPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract161": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/EmptyParams"
         },
         "result": {
@@ -12462,7 +12569,7 @@
         "result"
       ]
     },
-    "MethodContract161": {
+    "MethodContract162": {
       "type": "object",
       "properties": {
         "params": {
@@ -12477,7 +12584,7 @@
         "result"
       ]
     },
-    "MethodContract162": {
+    "MethodContract163": {
       "type": "object",
       "properties": {
         "params": {
@@ -12492,7 +12599,7 @@
         "result"
       ]
     },
-    "MethodContract163": {
+    "MethodContract164": {
       "type": "object",
       "properties": {
         "params": {
@@ -12507,7 +12614,7 @@
         "result"
       ]
     },
-    "MethodContract164": {
+    "MethodContract165": {
       "type": "object",
       "properties": {
         "params": {
@@ -12522,7 +12629,7 @@
         "result"
       ]
     },
-    "MethodContract165": {
+    "MethodContract166": {
       "type": "object",
       "properties": {
         "params": {
@@ -12537,7 +12644,7 @@
         "result"
       ]
     },
-    "MethodContract166": {
+    "MethodContract167": {
       "type": "object",
       "properties": {
         "params": {
@@ -12552,7 +12659,7 @@
         "result"
       ]
     },
-    "MethodContract167": {
+    "MethodContract168": {
       "type": "object",
       "properties": {
         "params": {
@@ -12567,26 +12674,11 @@
         "result"
       ]
     },
-    "MethodContract168": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/ExternalConnectorCredentialDeleteParams"
-        },
-        "result": {
-          "$ref": "#/$defs/ExternalConnectorCredentialStatus"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
     "MethodContract169": {
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/ExternalConnectorCredentialStatusParams"
+          "$ref": "#/$defs/ExternalConnectorCredentialDeleteParams"
         },
         "result": {
           "$ref": "#/$defs/ExternalConnectorCredentialStatus"
@@ -12616,6 +12708,21 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/ExternalConnectorCredentialStatusParams"
+        },
+        "result": {
+          "$ref": "#/$defs/ExternalConnectorCredentialStatus"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract171": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/ExternalConnectorInvokeParams"
         },
         "result": {
@@ -12627,7 +12734,7 @@
         "result"
       ]
     },
-    "MethodContract171": {
+    "MethodContract172": {
       "type": "object",
       "properties": {
         "params": {
@@ -12642,7 +12749,7 @@
         "result"
       ]
     },
-    "MethodContract172": {
+    "MethodContract173": {
       "type": "object",
       "properties": {
         "params": {
@@ -12657,7 +12764,7 @@
         "result"
       ]
     },
-    "MethodContract173": {
+    "MethodContract174": {
       "type": "object",
       "properties": {
         "params": {
@@ -12672,7 +12779,7 @@
         "result"
       ]
     },
-    "MethodContract174": {
+    "MethodContract175": {
       "type": "object",
       "properties": {
         "params": {
@@ -12687,7 +12794,7 @@
         "result"
       ]
     },
-    "MethodContract175": {
+    "MethodContract176": {
       "type": "object",
       "properties": {
         "params": {
@@ -12702,7 +12809,7 @@
         "result"
       ]
     },
-    "MethodContract176": {
+    "MethodContract177": {
       "type": "object",
       "properties": {
         "params": {
@@ -12717,7 +12824,7 @@
         "result"
       ]
     },
-    "MethodContract177": {
+    "MethodContract178": {
       "type": "object",
       "properties": {
         "params": {
@@ -12732,7 +12839,7 @@
         "result"
       ]
     },
-    "MethodContract178": {
+    "MethodContract179": {
       "type": "object",
       "properties": {
         "params": {
@@ -12740,21 +12847,6 @@
         },
         "result": {
           "$ref": "#/$defs/CollabLockListResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract179": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/CollabPresenceHeartbeatParams"
-        },
-        "result": {
-          "$ref": "#/$defs/CollabPresence"
         }
       },
       "required": [
@@ -12781,10 +12873,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/CollabProjectParams"
+          "$ref": "#/$defs/CollabPresenceHeartbeatParams"
         },
         "result": {
-          "$ref": "#/$defs/CollabPresenceListResult"
+          "$ref": "#/$defs/CollabPresence"
         }
       },
       "required": [
@@ -12799,7 +12891,7 @@
           "$ref": "#/$defs/CollabProjectParams"
         },
         "result": {
-          "$ref": "#/$defs/CollabAssignmentListResult"
+          "$ref": "#/$defs/CollabPresenceListResult"
         }
       },
       "required": [
@@ -12808,6 +12900,21 @@
       ]
     },
     "MethodContract182": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/CollabProjectParams"
+        },
+        "result": {
+          "$ref": "#/$defs/CollabAssignmentListResult"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract183": {
       "type": "object",
       "properties": {
         "params": {
@@ -12822,7 +12929,7 @@
         "result"
       ]
     },
-    "MethodContract183": {
+    "MethodContract184": {
       "type": "object",
       "properties": {
         "params": {
@@ -12837,7 +12944,7 @@
         "result"
       ]
     },
-    "MethodContract184": {
+    "MethodContract185": {
       "type": "object",
       "properties": {
         "params": {
@@ -12852,7 +12959,7 @@
         "result"
       ]
     },
-    "MethodContract185": {
+    "MethodContract186": {
       "type": "object",
       "properties": {
         "params": {
@@ -12867,7 +12974,7 @@
         "result"
       ]
     },
-    "MethodContract186": {
+    "MethodContract187": {
       "type": "object",
       "properties": {
         "params": {
@@ -12882,7 +12989,7 @@
         "result"
       ]
     },
-    "MethodContract187": {
+    "MethodContract188": {
       "type": "object",
       "properties": {
         "params": {
@@ -12897,7 +13004,7 @@
         "result"
       ]
     },
-    "MethodContract188": {
+    "MethodContract189": {
       "type": "object",
       "properties": {
         "params": {
@@ -12905,21 +13012,6 @@
         },
         "result": {
           "$ref": "#/$defs/PipelineCapabilityResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract189": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/CreatePipelineParams"
-        },
-        "result": {
-          "$ref": "#/$defs/PipelineDefinition"
         }
       },
       "required": [
@@ -12946,6 +13038,21 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/CreatePipelineParams"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineDefinition"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract191": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/PipelineListParams"
         },
         "result": {
@@ -12957,7 +13064,7 @@
         "result"
       ]
     },
-    "MethodContract191": {
+    "MethodContract192": {
       "type": "object",
       "properties": {
         "params": {
@@ -12972,7 +13079,7 @@
         "result"
       ]
     },
-    "MethodContract192": {
+    "MethodContract193": {
       "type": "object",
       "properties": {
         "params": {
@@ -12987,7 +13094,7 @@
         "result"
       ]
     },
-    "MethodContract193": {
+    "MethodContract194": {
       "type": "object",
       "properties": {
         "params": {
@@ -13002,7 +13109,7 @@
         "result"
       ]
     },
-    "MethodContract194": {
+    "MethodContract195": {
       "type": "object",
       "properties": {
         "params": {
@@ -13017,7 +13124,7 @@
         "result"
       ]
     },
-    "MethodContract195": {
+    "MethodContract196": {
       "type": "object",
       "properties": {
         "params": {
@@ -13032,7 +13139,7 @@
         "result"
       ]
     },
-    "MethodContract196": {
+    "MethodContract197": {
       "type": "object",
       "properties": {
         "params": {
@@ -13047,7 +13154,7 @@
         "result"
       ]
     },
-    "MethodContract197": {
+    "MethodContract198": {
       "type": "object",
       "properties": {
         "params": {
@@ -13062,7 +13169,7 @@
         "result"
       ]
     },
-    "MethodContract198": {
+    "MethodContract199": {
       "type": "object",
       "properties": {
         "params": {
@@ -13070,21 +13177,6 @@
         },
         "result": {
           "$ref": "#/$defs/AiProviderPage"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract199": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiProviderCreateParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiProviderProfile"
         }
       },
       "required": [
@@ -13126,7 +13218,7 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiProviderUpdateParams"
+          "$ref": "#/$defs/AiProviderCreateParams"
         },
         "result": {
           "$ref": "#/$defs/AiProviderProfile"
@@ -13141,10 +13233,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiProfileRevisionParams"
+          "$ref": "#/$defs/AiProviderUpdateParams"
         },
         "result": {
-          "$ref": "#/$defs/EmptyResult"
+          "$ref": "#/$defs/AiProviderProfile"
         }
       },
       "required": [
@@ -13156,10 +13248,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiProfileIdParams"
+          "$ref": "#/$defs/AiProfileRevisionParams"
         },
         "result": {
-          "$ref": "#/$defs/AiProviderTestResult"
+          "$ref": "#/$defs/EmptyResult"
         }
       },
       "required": [
@@ -13174,7 +13266,7 @@
           "$ref": "#/$defs/AiProfileIdParams"
         },
         "result": {
-          "$ref": "#/$defs/AiCredentialStatus"
+          "$ref": "#/$defs/AiProviderTestResult"
         }
       },
       "required": [
@@ -13183,6 +13275,21 @@
       ]
     },
     "MethodContract204": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiProfileIdParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiCredentialStatus"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract205": {
       "type": "object",
       "properties": {
         "params": {
@@ -13197,7 +13304,7 @@
         "result"
       ]
     },
-    "MethodContract205": {
+    "MethodContract206": {
       "type": "object",
       "properties": {
         "params": {
@@ -13212,7 +13319,7 @@
         "result"
       ]
     },
-    "MethodContract206": {
+    "MethodContract207": {
       "type": "object",
       "properties": {
         "params": {
@@ -13227,7 +13334,7 @@
         "result"
       ]
     },
-    "MethodContract207": {
+    "MethodContract208": {
       "type": "object",
       "properties": {
         "params": {
@@ -13242,7 +13349,7 @@
         "result"
       ]
     },
-    "MethodContract208": {
+    "MethodContract209": {
       "type": "object",
       "properties": {
         "params": {
@@ -13250,21 +13357,6 @@
         },
         "result": {
           "$ref": "#/$defs/AiRun"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract209": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiRunListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiRunPage"
         }
       },
       "required": [
@@ -13291,6 +13383,21 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/AiRunListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiRunPage"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract211": {
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/AiRunEventsParams"
         },
         "result": {
@@ -13302,7 +13409,7 @@
         "result"
       ]
     },
-    "MethodContract211": {
+    "MethodContract212": {
       "type": "object",
       "properties": {
         "params": {
@@ -13317,7 +13424,7 @@
         "result"
       ]
     },
-    "MethodContract212": {
+    "MethodContract213": {
       "type": "object",
       "properties": {
         "params": {
@@ -13332,7 +13439,7 @@
         "result"
       ]
     },
-    "MethodContract213": {
+    "MethodContract214": {
       "type": "object",
       "properties": {
         "params": {
@@ -13347,7 +13454,7 @@
         "result"
       ]
     },
-    "MethodContract214": {
+    "MethodContract215": {
       "type": "object",
       "properties": {
         "params": {
@@ -13362,7 +13469,7 @@
         "result"
       ]
     },
-    "MethodContract215": {
+    "MethodContract216": {
       "type": "object",
       "properties": {
         "params": {
@@ -13377,7 +13484,7 @@
         "result"
       ]
     },
-    "MethodContract216": {
+    "MethodContract217": {
       "type": "object",
       "properties": {
         "params": {
@@ -13392,7 +13499,7 @@
         "result"
       ]
     },
-    "MethodContract217": {
+    "MethodContract218": {
       "type": "object",
       "properties": {
         "params": {
@@ -13407,7 +13514,7 @@
         "result"
       ]
     },
-    "MethodContract218": {
+    "MethodContract219": {
       "type": "object",
       "properties": {
         "params": {
@@ -13415,21 +13522,6 @@
         },
         "result": {
           "$ref": "#/$defs/AiUsageQueryResult"
-        }
-      },
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract219": {
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiQualityDocumentParams"
-        },
-        "result": {
-          "$ref": "#/$defs/QualityScoreReport"
         }
       },
       "required": [
@@ -13459,7 +13551,7 @@
           "$ref": "#/$defs/AiQualityDocumentParams"
         },
         "result": {
-          "$ref": "#/$defs/SemanticQaReport"
+          "$ref": "#/$defs/QualityScoreReport"
         }
       },
       "required": [
@@ -13468,6 +13560,21 @@
       ]
     },
     "MethodContract221": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiQualityDocumentParams"
+        },
+        "result": {
+          "$ref": "#/$defs/SemanticQaReport"
+        }
+      },
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract222": {
       "type": "object",
       "properties": {
         "params": {
@@ -13482,7 +13589,7 @@
         "result"
       ]
     },
-    "MethodContract222": {
+    "MethodContract223": {
       "type": "object",
       "properties": {
         "params": {
@@ -13497,7 +13604,7 @@
         "result"
       ]
     },
-    "MethodContract223": {
+    "MethodContract224": {
       "type": "object",
       "properties": {
         "params": {
@@ -13512,7 +13619,7 @@
         "result"
       ]
     },
-    "MethodContract224": {
+    "MethodContract225": {
       "type": "object",
       "properties": {
         "params": {
@@ -13527,7 +13634,7 @@
         "result"
       ]
     },
-    "MethodContract225": {
+    "MethodContract226": {
       "type": "object",
       "properties": {
         "params": {
@@ -23021,100 +23128,100 @@
       "type": "object",
       "properties": {
         "ai.batch.cancel": {
-          "$ref": "#/$defs/MethodContract217"
+          "$ref": "#/$defs/MethodContract218"
         },
         "ai.batch.get": {
-          "$ref": "#/$defs/MethodContract214"
-        },
-        "ai.batch.items": {
-          "$ref": "#/$defs/MethodContract216"
-        },
-        "ai.batch.list": {
           "$ref": "#/$defs/MethodContract215"
         },
-        "ai.batch.resume": {
+        "ai.batch.items": {
           "$ref": "#/$defs/MethodContract217"
         },
+        "ai.batch.list": {
+          "$ref": "#/$defs/MethodContract216"
+        },
+        "ai.batch.resume": {
+          "$ref": "#/$defs/MethodContract218"
+        },
         "ai.batch.start": {
-          "$ref": "#/$defs/MethodContract213"
+          "$ref": "#/$defs/MethodContract214"
         },
         "ai.conversation.create": {
-          "$ref": "#/$defs/MethodContract223"
-        },
-        "ai.conversation.list": {
-          "$ref": "#/$defs/MethodContract222"
-        },
-        "ai.conversation.messages": {
-          "$ref": "#/$defs/MethodContract225"
-        },
-        "ai.conversation.update": {
           "$ref": "#/$defs/MethodContract224"
         },
+        "ai.conversation.list": {
+          "$ref": "#/$defs/MethodContract223"
+        },
+        "ai.conversation.messages": {
+          "$ref": "#/$defs/MethodContract226"
+        },
+        "ai.conversation.update": {
+          "$ref": "#/$defs/MethodContract225"
+        },
         "ai.credential.delete": {
-          "$ref": "#/$defs/MethodContract203"
-        },
-        "ai.credential.status": {
-          "$ref": "#/$defs/MethodContract203"
-        },
-        "ai.grounding.preview": {
-          "$ref": "#/$defs/MethodContract206"
-        },
-        "ai.provider.catalog": {
-          "$ref": "#/$defs/MethodContract197"
-        },
-        "ai.provider.create": {
-          "$ref": "#/$defs/MethodContract199"
-        },
-        "ai.provider.delete": {
-          "$ref": "#/$defs/MethodContract201"
-        },
-        "ai.provider.list": {
-          "$ref": "#/$defs/MethodContract198"
-        },
-        "ai.provider.test": {
-          "$ref": "#/$defs/MethodContract202"
-        },
-        "ai.provider.update": {
-          "$ref": "#/$defs/MethodContract200"
-        },
-        "ai.quality.extractTerms": {
-          "$ref": "#/$defs/MethodContract221"
-        },
-        "ai.quality.scoreDocument": {
-          "$ref": "#/$defs/MethodContract219"
-        },
-        "ai.quality.semanticQa": {
-          "$ref": "#/$defs/MethodContract220"
-        },
-        "ai.result.apply": {
-          "$ref": "#/$defs/MethodContract212"
-        },
-        "ai.run.cancel": {
-          "$ref": "#/$defs/MethodContract211"
-        },
-        "ai.run.events": {
-          "$ref": "#/$defs/MethodContract210"
-        },
-        "ai.run.get": {
-          "$ref": "#/$defs/MethodContract208"
-        },
-        "ai.run.list": {
-          "$ref": "#/$defs/MethodContract209"
-        },
-        "ai.run.resume": {
-          "$ref": "#/$defs/MethodContract211"
-        },
-        "ai.run.start": {
-          "$ref": "#/$defs/MethodContract207"
-        },
-        "ai.settings.get": {
           "$ref": "#/$defs/MethodContract204"
         },
-        "ai.settings.update": {
+        "ai.credential.status": {
+          "$ref": "#/$defs/MethodContract204"
+        },
+        "ai.grounding.preview": {
+          "$ref": "#/$defs/MethodContract207"
+        },
+        "ai.provider.catalog": {
+          "$ref": "#/$defs/MethodContract198"
+        },
+        "ai.provider.create": {
+          "$ref": "#/$defs/MethodContract200"
+        },
+        "ai.provider.delete": {
+          "$ref": "#/$defs/MethodContract202"
+        },
+        "ai.provider.list": {
+          "$ref": "#/$defs/MethodContract199"
+        },
+        "ai.provider.test": {
+          "$ref": "#/$defs/MethodContract203"
+        },
+        "ai.provider.update": {
+          "$ref": "#/$defs/MethodContract201"
+        },
+        "ai.quality.extractTerms": {
+          "$ref": "#/$defs/MethodContract222"
+        },
+        "ai.quality.scoreDocument": {
+          "$ref": "#/$defs/MethodContract220"
+        },
+        "ai.quality.semanticQa": {
+          "$ref": "#/$defs/MethodContract221"
+        },
+        "ai.result.apply": {
+          "$ref": "#/$defs/MethodContract213"
+        },
+        "ai.run.cancel": {
+          "$ref": "#/$defs/MethodContract212"
+        },
+        "ai.run.events": {
+          "$ref": "#/$defs/MethodContract211"
+        },
+        "ai.run.get": {
+          "$ref": "#/$defs/MethodContract209"
+        },
+        "ai.run.list": {
+          "$ref": "#/$defs/MethodContract210"
+        },
+        "ai.run.resume": {
+          "$ref": "#/$defs/MethodContract212"
+        },
+        "ai.run.start": {
+          "$ref": "#/$defs/MethodContract208"
+        },
+        "ai.settings.get": {
           "$ref": "#/$defs/MethodContract205"
         },
+        "ai.settings.update": {
+          "$ref": "#/$defs/MethodContract206"
+        },
         "ai.usage.query": {
-          "$ref": "#/$defs/MethodContract218"
+          "$ref": "#/$defs/MethodContract219"
         },
         "alignment.session.apply": {
           "$ref": "#/$defs/MethodContract92"
@@ -23147,43 +23254,43 @@
           "$ref": "#/$defs/MethodContract98"
         },
         "collab.assignment.complete": {
-          "$ref": "#/$defs/MethodContract183"
-        },
-        "collab.assignment.create": {
-          "$ref": "#/$defs/MethodContract182"
-        },
-        "collab.assignment.list": {
-          "$ref": "#/$defs/MethodContract181"
-        },
-        "collab.lock.acquire": {
-          "$ref": "#/$defs/MethodContract175"
-        },
-        "collab.lock.heartbeat": {
-          "$ref": "#/$defs/MethodContract177"
-        },
-        "collab.lock.list": {
-          "$ref": "#/$defs/MethodContract178"
-        },
-        "collab.lock.release": {
-          "$ref": "#/$defs/MethodContract176"
-        },
-        "collab.member.add": {
-          "$ref": "#/$defs/MethodContract173"
-        },
-        "collab.member.list": {
-          "$ref": "#/$defs/MethodContract172"
-        },
-        "collab.member.remove": {
-          "$ref": "#/$defs/MethodContract174"
-        },
-        "collab.opLog.list": {
           "$ref": "#/$defs/MethodContract184"
         },
-        "collab.presence.heartbeat": {
+        "collab.assignment.create": {
+          "$ref": "#/$defs/MethodContract183"
+        },
+        "collab.assignment.list": {
+          "$ref": "#/$defs/MethodContract182"
+        },
+        "collab.lock.acquire": {
+          "$ref": "#/$defs/MethodContract176"
+        },
+        "collab.lock.heartbeat": {
+          "$ref": "#/$defs/MethodContract178"
+        },
+        "collab.lock.list": {
           "$ref": "#/$defs/MethodContract179"
         },
-        "collab.presence.list": {
+        "collab.lock.release": {
+          "$ref": "#/$defs/MethodContract177"
+        },
+        "collab.member.add": {
+          "$ref": "#/$defs/MethodContract174"
+        },
+        "collab.member.list": {
+          "$ref": "#/$defs/MethodContract173"
+        },
+        "collab.member.remove": {
+          "$ref": "#/$defs/MethodContract175"
+        },
+        "collab.opLog.list": {
+          "$ref": "#/$defs/MethodContract185"
+        },
+        "collab.presence.heartbeat": {
           "$ref": "#/$defs/MethodContract180"
+        },
+        "collab.presence.list": {
+          "$ref": "#/$defs/MethodContract181"
         },
         "corpus.fromAlignment": {
           "$ref": "#/$defs/MethodContract95"
@@ -23222,10 +23329,10 @@
           "$ref": "#/$defs/MethodContract100"
         },
         "data.checkHealth": {
-          "$ref": "#/$defs/MethodContract186"
+          "$ref": "#/$defs/MethodContract187"
         },
         "data.createBackup": {
-          "$ref": "#/$defs/MethodContract187"
+          "$ref": "#/$defs/MethodContract188"
         },
         "dictionary.add": {
           "$ref": "#/$defs/MethodContract68"
@@ -23258,10 +23365,10 @@
           "$ref": "#/$defs/MethodContract18"
         },
         "document.export": {
-          "$ref": "#/$defs/MethodContract139"
+          "$ref": "#/$defs/MethodContract140"
         },
         "document.exportDocx": {
-          "$ref": "#/$defs/MethodContract138"
+          "$ref": "#/$defs/MethodContract139"
         },
         "document.get": {
           "$ref": "#/$defs/MethodContract34"
@@ -23293,6 +23400,9 @@
         "editor.redo": {
           "$ref": "#/$defs/MethodContract69"
         },
+        "editor.suggest": {
+          "$ref": "#/$defs/MethodContract118"
+        },
         "editor.undo": {
           "$ref": "#/$defs/MethodContract69"
         },
@@ -23300,40 +23410,40 @@
           "$ref": "#/$defs/MethodContract"
         },
         "externalConnector.catalog": {
-          "$ref": "#/$defs/MethodContract162"
-        },
-        "externalConnector.checkpoint.get": {
-          "$ref": "#/$defs/MethodContract171"
-        },
-        "externalConnector.credential.delete": {
-          "$ref": "#/$defs/MethodContract168"
-        },
-        "externalConnector.credential.set": {
-          "$ref": "#/$defs/MethodContract167"
-        },
-        "externalConnector.credential.status": {
-          "$ref": "#/$defs/MethodContract169"
-        },
-        "externalConnector.invoke": {
-          "$ref": "#/$defs/MethodContract170"
-        },
-        "externalConnector.profile.create": {
-          "$ref": "#/$defs/MethodContract164"
-        },
-        "externalConnector.profile.delete": {
-          "$ref": "#/$defs/MethodContract166"
-        },
-        "externalConnector.profile.list": {
           "$ref": "#/$defs/MethodContract163"
         },
-        "externalConnector.profile.update": {
+        "externalConnector.checkpoint.get": {
+          "$ref": "#/$defs/MethodContract172"
+        },
+        "externalConnector.credential.delete": {
+          "$ref": "#/$defs/MethodContract169"
+        },
+        "externalConnector.credential.set": {
+          "$ref": "#/$defs/MethodContract168"
+        },
+        "externalConnector.credential.status": {
+          "$ref": "#/$defs/MethodContract170"
+        },
+        "externalConnector.invoke": {
+          "$ref": "#/$defs/MethodContract171"
+        },
+        "externalConnector.profile.create": {
           "$ref": "#/$defs/MethodContract165"
         },
+        "externalConnector.profile.delete": {
+          "$ref": "#/$defs/MethodContract167"
+        },
+        "externalConnector.profile.list": {
+          "$ref": "#/$defs/MethodContract164"
+        },
+        "externalConnector.profile.update": {
+          "$ref": "#/$defs/MethodContract166"
+        },
         "filter.list": {
-          "$ref": "#/$defs/MethodContract140"
+          "$ref": "#/$defs/MethodContract141"
         },
         "history.list": {
-          "$ref": "#/$defs/MethodContract185"
+          "$ref": "#/$defs/MethodContract186"
         },
         "interop.review.apply": {
           "$ref": "#/$defs/MethodContract79"
@@ -23360,106 +23470,106 @@
           "$ref": "#/$defs/MethodContract84"
         },
         "pipeline.create": {
-          "$ref": "#/$defs/MethodContract189"
-        },
-        "pipeline.get": {
-          "$ref": "#/$defs/MethodContract191"
-        },
-        "pipeline.list": {
           "$ref": "#/$defs/MethodContract190"
         },
-        "pipeline.run": {
-          "$ref": "#/$defs/MethodContract193"
-        },
-        "pipeline.run.cancel": {
-          "$ref": "#/$defs/MethodContract196"
-        },
-        "pipeline.run.get": {
-          "$ref": "#/$defs/MethodContract195"
-        },
-        "pipeline.run.list": {
-          "$ref": "#/$defs/MethodContract194"
-        },
-        "pipeline.run.resume": {
-          "$ref": "#/$defs/MethodContract196"
-        },
-        "pipeline.step.list": {
-          "$ref": "#/$defs/MethodContract188"
-        },
-        "pipeline.validate": {
+        "pipeline.get": {
           "$ref": "#/$defs/MethodContract192"
         },
-        "plugin.aiAction.cancel": {
-          "$ref": "#/$defs/MethodContract158"
+        "pipeline.list": {
+          "$ref": "#/$defs/MethodContract191"
         },
-        "plugin.aiAction.history.list": {
+        "pipeline.run": {
+          "$ref": "#/$defs/MethodContract194"
+        },
+        "pipeline.run.cancel": {
+          "$ref": "#/$defs/MethodContract197"
+        },
+        "pipeline.run.get": {
+          "$ref": "#/$defs/MethodContract196"
+        },
+        "pipeline.run.list": {
+          "$ref": "#/$defs/MethodContract195"
+        },
+        "pipeline.run.resume": {
+          "$ref": "#/$defs/MethodContract197"
+        },
+        "pipeline.step.list": {
+          "$ref": "#/$defs/MethodContract189"
+        },
+        "pipeline.validate": {
+          "$ref": "#/$defs/MethodContract193"
+        },
+        "plugin.aiAction.cancel": {
           "$ref": "#/$defs/MethodContract159"
         },
-        "plugin.aiAction.invoke": {
-          "$ref": "#/$defs/MethodContract157"
-        },
-        "plugin.aiAction.list": {
-          "$ref": "#/$defs/MethodContract156"
-        },
-        "plugin.bundled.apply": {
-          "$ref": "#/$defs/MethodContract150"
-        },
-        "plugin.bundled.list": {
-          "$ref": "#/$defs/MethodContract149"
-        },
-        "plugin.disable": {
-          "$ref": "#/$defs/MethodContract144"
-        },
-        "plugin.enable": {
-          "$ref": "#/$defs/MethodContract144"
-        },
-        "plugin.get": {
-          "$ref": "#/$defs/MethodContract142"
-        },
-        "plugin.inspect": {
-          "$ref": "#/$defs/MethodContract145"
-        },
-        "plugin.install": {
-          "$ref": "#/$defs/MethodContract143"
-        },
-        "plugin.list": {
-          "$ref": "#/$defs/MethodContract141"
-        },
-        "plugin.permission.audit.list": {
-          "$ref": "#/$defs/MethodContract155"
-        },
-        "plugin.permission.deny": {
-          "$ref": "#/$defs/MethodContract154"
-        },
-        "plugin.permission.grant": {
-          "$ref": "#/$defs/MethodContract153"
-        },
-        "plugin.permission.request.list": {
-          "$ref": "#/$defs/MethodContract151"
-        },
-        "plugin.permission.review": {
-          "$ref": "#/$defs/MethodContract152"
-        },
-        "plugin.permission.revoke": {
-          "$ref": "#/$defs/MethodContract154"
-        },
-        "plugin.rollback": {
-          "$ref": "#/$defs/MethodContract148"
-        },
-        "plugin.uiPanel.bridge.call": {
-          "$ref": "#/$defs/MethodContract161"
-        },
-        "plugin.uiPanel.list": {
+        "plugin.aiAction.history.list": {
           "$ref": "#/$defs/MethodContract160"
         },
-        "plugin.uninstall": {
+        "plugin.aiAction.invoke": {
+          "$ref": "#/$defs/MethodContract158"
+        },
+        "plugin.aiAction.list": {
+          "$ref": "#/$defs/MethodContract157"
+        },
+        "plugin.bundled.apply": {
+          "$ref": "#/$defs/MethodContract151"
+        },
+        "plugin.bundled.list": {
+          "$ref": "#/$defs/MethodContract150"
+        },
+        "plugin.disable": {
+          "$ref": "#/$defs/MethodContract145"
+        },
+        "plugin.enable": {
+          "$ref": "#/$defs/MethodContract145"
+        },
+        "plugin.get": {
+          "$ref": "#/$defs/MethodContract143"
+        },
+        "plugin.inspect": {
+          "$ref": "#/$defs/MethodContract146"
+        },
+        "plugin.install": {
           "$ref": "#/$defs/MethodContract144"
         },
+        "plugin.list": {
+          "$ref": "#/$defs/MethodContract142"
+        },
+        "plugin.permission.audit.list": {
+          "$ref": "#/$defs/MethodContract156"
+        },
+        "plugin.permission.deny": {
+          "$ref": "#/$defs/MethodContract155"
+        },
+        "plugin.permission.grant": {
+          "$ref": "#/$defs/MethodContract154"
+        },
+        "plugin.permission.request.list": {
+          "$ref": "#/$defs/MethodContract152"
+        },
+        "plugin.permission.review": {
+          "$ref": "#/$defs/MethodContract153"
+        },
+        "plugin.permission.revoke": {
+          "$ref": "#/$defs/MethodContract155"
+        },
+        "plugin.rollback": {
+          "$ref": "#/$defs/MethodContract149"
+        },
+        "plugin.uiPanel.bridge.call": {
+          "$ref": "#/$defs/MethodContract162"
+        },
+        "plugin.uiPanel.list": {
+          "$ref": "#/$defs/MethodContract161"
+        },
+        "plugin.uninstall": {
+          "$ref": "#/$defs/MethodContract145"
+        },
         "plugin.upgrade": {
-          "$ref": "#/$defs/MethodContract147"
+          "$ref": "#/$defs/MethodContract148"
         },
         "plugin.version.list": {
-          "$ref": "#/$defs/MethodContract146"
+          "$ref": "#/$defs/MethodContract147"
         },
         "project.analytics.get": {
           "$ref": "#/$defs/MethodContract46"
@@ -23522,52 +23632,52 @@
           "$ref": "#/$defs/MethodContract5"
         },
         "qa.gate.check": {
-          "$ref": "#/$defs/MethodContract136"
-        },
-        "qa.issue.list": {
-          "$ref": "#/$defs/MethodContract132"
-        },
-        "qa.issue.revoke": {
-          "$ref": "#/$defs/MethodContract134"
-        },
-        "qa.issue.waive": {
-          "$ref": "#/$defs/MethodContract133"
-        },
-        "qa.list": {
-          "$ref": "#/$defs/MethodContract123"
-        },
-        "qa.override.list": {
           "$ref": "#/$defs/MethodContract137"
         },
-        "qa.profile.clone": {
-          "$ref": "#/$defs/MethodContract126"
+        "qa.issue.list": {
+          "$ref": "#/$defs/MethodContract133"
         },
-        "qa.profile.create": {
-          "$ref": "#/$defs/MethodContract125"
-        },
-        "qa.profile.delete": {
-          "$ref": "#/$defs/MethodContract128"
-        },
-        "qa.profile.list": {
-          "$ref": "#/$defs/MethodContract124"
-        },
-        "qa.profile.update": {
-          "$ref": "#/$defs/MethodContract127"
-        },
-        "qa.report.export": {
+        "qa.issue.revoke": {
           "$ref": "#/$defs/MethodContract135"
         },
-        "qa.run": {
+        "qa.issue.waive": {
+          "$ref": "#/$defs/MethodContract134"
+        },
+        "qa.list": {
+          "$ref": "#/$defs/MethodContract124"
+        },
+        "qa.override.list": {
+          "$ref": "#/$defs/MethodContract138"
+        },
+        "qa.profile.clone": {
+          "$ref": "#/$defs/MethodContract127"
+        },
+        "qa.profile.create": {
+          "$ref": "#/$defs/MethodContract126"
+        },
+        "qa.profile.delete": {
           "$ref": "#/$defs/MethodContract129"
         },
-        "qa.run.get": {
-          "$ref": "#/$defs/MethodContract131"
+        "qa.profile.list": {
+          "$ref": "#/$defs/MethodContract125"
         },
-        "qa.run.list": {
+        "qa.profile.update": {
+          "$ref": "#/$defs/MethodContract128"
+        },
+        "qa.report.export": {
+          "$ref": "#/$defs/MethodContract136"
+        },
+        "qa.run": {
           "$ref": "#/$defs/MethodContract130"
         },
+        "qa.run.get": {
+          "$ref": "#/$defs/MethodContract132"
+        },
+        "qa.run.list": {
+          "$ref": "#/$defs/MethodContract131"
+        },
         "qa.runDocument": {
-          "$ref": "#/$defs/MethodContract122"
+          "$ref": "#/$defs/MethodContract123"
         },
         "recycle.delete": {
           "$ref": "#/$defs/MethodContract40"
@@ -23678,19 +23788,19 @@
           "$ref": "#/$defs/MethodContract29"
         },
         "term.search": {
-          "$ref": "#/$defs/MethodContract118"
+          "$ref": "#/$defs/MethodContract119"
         },
         "term.upsert": {
-          "$ref": "#/$defs/MethodContract119"
+          "$ref": "#/$defs/MethodContract120"
         },
         "termbase.create": {
           "$ref": "#/$defs/MethodContract115"
         },
         "termbase.export": {
-          "$ref": "#/$defs/MethodContract121"
+          "$ref": "#/$defs/MethodContract122"
         },
         "termbase.import": {
-          "$ref": "#/$defs/MethodContract120"
+          "$ref": "#/$defs/MethodContract121"
         },
         "termbase.list": {
           "$ref": "#/$defs/MethodContract114"
@@ -23852,6 +23962,7 @@
         "termbase.create",
         "termbase.mount",
         "termbase.unmount",
+        "editor.suggest",
         "term.search",
         "term.upsert",
         "termbase.import",

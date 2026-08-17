@@ -1,3 +1,4 @@
+import { EMPTY_SEGMENT_INTEL } from "./segment-intel";
 import { describe, expect, it } from "vitest";
 
 import type { AppSurface } from "./app-state";
@@ -62,9 +63,7 @@ function workbench(activeSegmentId: string | null = "s1"): AppSurface {
     },
     activeSegmentId,
     focusSegmentId: null,
-    tmMatches: [],
-    tmLoading: false,
-    tmError: null,
+    intel: EMPTY_SEGMENT_INTEL,
     tmCollapsed: false,
     transitionError: null,
     pendingConfirm: false,
@@ -89,6 +88,7 @@ describe("p4-route-context", () => {
       run: null,
       loading: false,
       error: null,
+      scope: "file",
     };
     expect(resolveP4RouteContext(qa)?.activeSegmentId).toBeNull();
   });

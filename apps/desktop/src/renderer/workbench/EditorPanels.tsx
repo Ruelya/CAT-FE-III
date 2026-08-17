@@ -5,6 +5,7 @@ import { formatUiError } from "../lib/errors";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
 import { EditorPanelShell } from "./EditorPanelShell";
 import type { EditorOperationsApi } from "../state/use-editor-operations";
+import { useEditorDisplay } from "../state/use-editor-display";
 
 export interface EditorPanelsProps {
   ops: EditorOperationsApi;
@@ -21,6 +22,7 @@ export function EditorPanels({
 }: EditorPanelsProps) {
   const busy = disabled || ops.busy;
   const panel = ops.panel;
+  const [view, setView] = useEditorDisplay();
   const [deleteComment, setDeleteComment] = useState<{
     id: string;
     revision: number;
@@ -44,6 +46,17 @@ export function EditorPanels({
               onChange={(e) => ops.setFindQuery(e.target.value)}
               disabled={busy}
               data-testid="find-query"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  if (fr.matches.length > 0) {
+                    const current = fr.matches[0];
+                    if (current) void ops.selectFindMatch(current.segmentId);
+                  } else {
+                    void ops.runFind(0);
+                  }
+                }
+              }}
             />
           </label>
           <label className="field">
@@ -148,7 +161,14 @@ export function EditorPanels({
             <p className="muted">Loading</p>
           ) : null}
           {fr.findStatus === "ready" && fr.matches.length === 0 ? (
-            <p className="muted">No matches</p>
+            <p className="muted" data-testid="find-empty">
+              No matches
+            </p>
+          ) : null}
+          {fr.findStatus === "ready" && fr.findTotal > 0 ? (
+            <p className="muted" data-testid="find-count">
+              {fr.findTotal} {fr.findTotal === 1 ? "match" : "matches"}
+            </p>
           ) : null}
           {fr.matches.length > 0 ? (
             <ul className="editor-panel__list" data-testid="find-matches">
@@ -159,7 +179,7 @@ export function EditorPanels({
                     className="btn btn--ghost btn--sm"
                     onClick={() => void ops.selectFindMatch(m.segmentId)}
                   >
-                    {m.segmentId} · {m.field} · {m.matchedText}
+                    {m.field} · {m.matchedText}
                   </button>
                 </li>
               ))}
@@ -287,7 +307,7 @@ export function EditorPanels({
     return (
       <ConfirmDialog
         title="Propagate"
-        body="Propagate the active segment target to matching sources."
+        body="Propagate the active segment target to matching unconfirmed sources in every file in this job."
         confirmLabel="Propagate"
         pending={ops.busy}
         error={ops.commandError ? formatUiError(ops.commandError) : null}
@@ -791,11 +811,13 @@ export function EditorPanels({
               <label>
                 <input
                   type="checkbox"
-                  checked={prefs.showNonprinting}
+                  checked={view.whitespace}
                   disabled={busy || ops.preferencesPending}
-                  onChange={(e) =>
-                    ops.setPreferenceField("showNonprinting", e.target.checked)
-                  }
+                  onChange={(e) => {
+                    setView({ whitespace: e.target.checked });
+                    ops.setPreferenceField("showNonprinting", e.target.checked);
+                  }}
+                  data-testid="pref-nonprinting"
                 />{" "}
                 Nonprinting
               </label>

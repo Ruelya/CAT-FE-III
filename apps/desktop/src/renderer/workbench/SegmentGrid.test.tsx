@@ -39,7 +39,6 @@ describe("SegmentGrid bilingual surface", () => {
   it("renders source tag chips and pages through the engine window", async () => {
     const user = userEvent.setup();
     const onPage = vi.fn();
-    const onFilter = vi.fn();
     render(
       <SegmentGrid
         rows={[
@@ -73,22 +72,15 @@ describe("SegmentGrid bilingual surface", () => {
         onCompositionEnd={vi.fn()}
         onConfirm={vi.fn()}
         onPage={onPage}
-        onFilter={onFilter}
       />,
     );
 
     expect(screen.getByTestId("bilingual-grid")).toBeInTheDocument();
-    expect(screen.getByText("<br/>")).toHaveClass("source-tag");
+    expect(screen.getByText("<br/>")).toHaveClass("inline-tag");
     expect(screen.getByTestId("segment-paging")).toHaveTextContent("1-1 of 3");
     expect(screen.getByTestId("target-editor-seg-1")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /^Confirm segment / }),
-    ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(onPage).toHaveBeenCalledWith(1);
-
-    await user.selectOptions(screen.getByTestId("segment-filter"), "draft");
-    expect(onFilter).toHaveBeenCalledWith("draft");
   });
 });

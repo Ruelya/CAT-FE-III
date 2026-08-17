@@ -229,7 +229,8 @@ await step("comment-add", async () => {
 
 // Assets from the workbench: is TM search connected to the current segment?
 await step("assets-hub", async () => {
-  await page.getByTestId("nav-assets-workbench").click({ timeout: 5000 });
+  await page.getByTestId("title-file-menu").click({ timeout: 5000 });
+  await page.getByTestId("title-file-assets").click({ timeout: 5000 });
   await page.waitForTimeout(1200);
   await shot(page, "assets-hub");
   const text = await page.locator("body").innerText();

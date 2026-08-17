@@ -17,7 +17,7 @@ Source-backed modules (shipped layout; leaf files may consolidate):
 | Area | Paths |
 | --- | --- |
 | Surfaces | `surfaces/Workbench.tsx`, `surfaces/AssetHub.tsx` (all six asset sections live here) |
-| Workbench UI | `workbench/EditorCommandBar.tsx`, `workbench/EditorPanels.tsx` |
+| Workbench UI | `workbench/EditorCommandBar.tsx`, `workbench/EditorPanels.tsx`, `workbench/SegmentContextMenu.tsx`, `workbench/ActivityBar.tsx`, `workbench/EditorTabs.tsx`, `workbench/AcpChatPanel.tsx` |
 | Shell | `shell/AppChrome.tsx` (real Assets destination when session/project exists) |
 | Pure helpers | `state/editor-operations.ts`, `state/asset-view.ts`, `state/asset-state.ts` |
 | Orchestration | `state/use-editor-operations.ts`, `state/use-asset-controller.ts` |
