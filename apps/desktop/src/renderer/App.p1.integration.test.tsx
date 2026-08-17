@@ -125,7 +125,9 @@ describe("App P1 project lifecycle (fake DesktopApi)", () => {
       "aria-pressed",
       "true",
     );
-    expect(screen.getByText("Tag missing on the second file")).toBeInTheDocument();
+    expect(
+      screen.getByText("Tag missing on the second file"),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Jump to segment/ }));
     await screen.findByTestId("workbench");
     await waitFor(() => {
@@ -160,7 +162,9 @@ describe("App P1 project lifecycle (fake DesktopApi)", () => {
       }),
     );
     await waitFor(() => {
-      const exports = state.calls.filter((call) => call.method === "document.export");
+      const exports = state.calls.filter(
+        (call) => call.method === "document.export",
+      );
       expect(exports).toHaveLength(2);
     });
     expect(screen.getByTestId("export-result-files")).toBeInTheDocument();
@@ -386,6 +390,7 @@ describe("App P1 project lifecycle (fake DesktopApi)", () => {
     await screen.findByTestId("project-home");
     await user.click(screen.getByTestId("nav-search"));
     const searchSurface = await screen.findByTestId("global-search");
+    expect(screen.getByTestId("project-home")).toBeInTheDocument();
     await user.type(
       within(searchSurface).getByLabelText("Query"),
       "unique-needle",
@@ -542,6 +547,7 @@ describe("App P1 project lifecycle (fake DesktopApi)", () => {
     await screen.findByTestId("project-home");
     await user.click(screen.getByTestId("nav-search"));
     const searchSurface = await screen.findByTestId("global-search");
+    expect(screen.getByTestId("project-home")).toBeInTheDocument();
     await user.type(within(searchSurface).getByLabelText("Query"), "needle-a");
     await user.click(
       within(searchSurface).getByRole("button", { name: "Search" }),

@@ -353,7 +353,7 @@ export function AppChrome({
               className="btn btn--ghost btn--icon"
               aria-label="Search"
               title="Search"
-              aria-current={surface.kind === "search" ? "page" : undefined}
+              aria-current={state.searchLayer ? "true" : undefined}
               disabled={disabled}
               onClick={onSearch}
               data-testid="nav-search"

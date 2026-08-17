@@ -4,6 +4,7 @@ import type { GlobalSearchHit } from "@translunar/contracts";
 
 import type { UiError } from "../lib/errors";
 import { formatUiError } from "../lib/errors";
+import { ModalDialog } from "../shell/ModalDialog";
 import { searchHitKey } from "../state/search-navigation";
 
 export interface GlobalSearchProps {
@@ -20,6 +21,7 @@ export interface GlobalSearchProps {
   onSearch: (query: string) => void;
   onPage: (offset: number) => void;
   onActivate: (hit: GlobalSearchHit) => void;
+  onClose: () => void;
 }
 
 export function GlobalSearch({
@@ -36,6 +38,7 @@ export function GlobalSearch({
   onSearch,
   onPage,
   onActivate,
+  onClose,
 }: GlobalSearchProps) {
   const [query, setQuery] = useState(submittedQuery);
   const busy = Boolean(disabled || loading);
@@ -46,133 +49,130 @@ export function GlobalSearch({
   }
 
   return (
-    <section className="surface" data-testid="global-search">
-      <div className="surface__inner">
-        <div className="surface__masthead">
-          <h1 className="surface__title">Search</h1>
-        </div>
-
-        <form className="search-form" onSubmit={handleSubmit}>
-          <div className="field">
-            <label className="field__label" htmlFor="global-search-input">
-              Query
-            </label>
-            <div className="search-form__row">
-              <input
-                id="global-search-input"
-                className="field__control"
-                value={query}
-                disabled={disabled}
-                onChange={(e) => setQuery(e.target.value)}
-                autoComplete="off"
-              />
-              <button
-                type="submit"
-                className="btn btn--primary"
-                disabled={busy}
-              >
-                {loading ? "Searching" : "Search"}
-              </button>
-            </div>
-          </div>
-        </form>
-
-        {error ? (
-          <p className="error-text" role="alert" data-testid="search-error">
-            {formatUiError(error)}
-            {pendingQuery ? ` (${pendingQuery})` : ""}
-          </p>
-        ) : null}
-        {navigationError ? (
-          <p className="error-text" role="alert">
-            {formatUiError(navigationError)}
-          </p>
-        ) : null}
-
-        {submittedQuery && !loading ? (
-          <p className="muted" role="status" data-testid="search-result-status">
-            {total} result{total === 1 ? "" : "s"} for “{submittedQuery}”
-          </p>
-        ) : null}
-        {loading && pendingQuery ? (
-          <p className="muted" role="status">
-            Searching “{pendingQuery}”
-          </p>
-        ) : null}
-
-        {loading && !pendingQuery ? (
-          <div className="skeleton-stack" role="status" aria-label="Searching">
-            {[0, 1, 2].map((row) => (
-              <div key={row} className="skeleton skeleton-row" />
-            ))}
-          </div>
-        ) : null}
-
-        {submittedQuery && !loading && items.length === 0 && !error ? (
-          <div className="empty-state" data-testid="search-empty">
-            <MagnifyingGlass
-              size={24}
-              weight="regular"
-              className="empty-state__icon"
-              aria-hidden="true"
+    <ModalDialog
+      title="Search"
+      onCancel={onClose}
+      testId="global-search"
+      role="dialog"
+      initialFocus="first"
+      cancelLabel="Close"
+      size="wide"
+      actions={null}
+    >
+      <form className="search-form" onSubmit={handleSubmit}>
+        <div className="field">
+          <label className="field__label" htmlFor="global-search-input">
+            Query
+          </label>
+          <div className="search-form__row">
+            <input
+              id="global-search-input"
+              className="field__control"
+              value={query}
+              disabled={disabled}
+              onChange={(e) => setQuery(e.target.value)}
+              autoComplete="off"
             />
-            <h2 className="empty-state__title">No matches</h2>
+            <button type="submit" className="btn btn--primary" disabled={busy}>
+              {loading ? "Searching" : "Search"}
+            </button>
           </div>
-        ) : null}
+        </div>
+      </form>
 
-        <ul className="search-results" data-testid="search-results">
-          {items.map((hit, index) => (
-            <li key={searchHitKey(hit, index)} className="search-result">
-              <button
-                type="button"
-                className="search-result__button"
-                disabled={busy}
-                onClick={() => onActivate(hit)}
-              >
-                <span className="search-result__title">
-                  {hit.projectName}
-                  {hit.documentName ? ` · ${hit.documentName}` : ""}
-                  {hit.segmentOrdinal != null
-                    ? ` · #${hit.segmentOrdinal}`
-                    : ""}
-                </span>
-                <span className="search-result__meta muted">
-                  {hit.field}
-                  {hit.workflowState ? ` · ${hit.workflowState}` : ""}
-                </span>
-                <span className="search-result__snippet">{hit.snippet}</span>
-              </button>
-            </li>
+      {error ? (
+        <p className="error-text" role="alert" data-testid="search-error">
+          {formatUiError(error)}
+          {pendingQuery ? ` (${pendingQuery})` : ""}
+        </p>
+      ) : null}
+      {navigationError ? (
+        <p className="error-text" role="alert">
+          {formatUiError(navigationError)}
+        </p>
+      ) : null}
+
+      {submittedQuery && !loading ? (
+        <p className="muted" role="status" data-testid="search-result-status">
+          {total} result{total === 1 ? "" : "s"} for “{submittedQuery}”
+        </p>
+      ) : null}
+      {loading && pendingQuery ? (
+        <p className="muted" role="status">
+          Searching “{pendingQuery}”
+        </p>
+      ) : null}
+
+      {loading && !pendingQuery ? (
+        <div className="skeleton-stack" role="status" aria-label="Searching">
+          {[0, 1, 2].map((row) => (
+            <div key={row} className="skeleton skeleton-row" />
           ))}
-        </ul>
+        </div>
+      ) : null}
 
-        {submittedQuery ? (
-          <div className="pagination">
+      {submittedQuery && !loading && items.length === 0 && !error ? (
+        <div className="empty-state" data-testid="search-empty">
+          <MagnifyingGlass
+            size={24}
+            weight="regular"
+            className="empty-state__icon"
+            aria-hidden="true"
+          />
+          <h2 className="empty-state__title">No matches</h2>
+        </div>
+      ) : null}
+
+      <ul className="search-results" data-testid="search-results">
+        {items.map((hit, index) => (
+          <li key={searchHitKey(hit, index)} className="search-result">
             <button
               type="button"
-              className="btn btn--quiet btn--sm"
-              disabled={busy || offset <= 0}
-              onClick={() => onPage(Math.max(0, offset - limit))}
+              className="search-result__button"
+              disabled={busy}
+              onClick={() => onActivate(hit)}
             >
-              Previous
+              <span className="search-result__title">
+                {hit.projectName}
+                {hit.documentName ? ` · ${hit.documentName}` : ""}
+                {hit.segmentOrdinal != null ? ` · #${hit.segmentOrdinal}` : ""}
+              </span>
+              <span className="search-result__meta muted">
+                {hit.field}
+                {hit.workflowState ? ` · ${hit.workflowState}` : ""}
+              </span>
+              <span className="search-result__snippet">{hit.snippet}</span>
             </button>
-            <span className="pagination__count">
-              {total === 0
-                ? "0"
-                : `${offset + 1}-${Math.min(offset + items.length, total)}`}{" "}
-              of {total}
-            </span>
-            <button
-              type="button"
-              className="btn btn--quiet btn--sm"
-              disabled={busy || offset + limit >= total}
-              onClick={() => onPage(offset + limit)}
-            >
-              Next
-            </button>
-          </div>
-        ) : null}
-      </div>
-    </section>
+          </li>
+        ))}
+      </ul>
+
+      {submittedQuery ? (
+        <div className="pagination">
+          <button
+            type="button"
+            className="btn btn--quiet btn--sm"
+            disabled={busy || offset <= 0}
+            onClick={() => onPage(Math.max(0, offset - limit))}
+          >
+            Previous
+          </button>
+          <span className="pagination__count">
+            {total === 0
+              ? "0"
+              : `${offset + 1}-${Math.min(offset + items.length, total)}`}{" "}
+            of {total}
+          </span>
+          <button
+            type="button"
+            className="btn btn--quiet btn--sm"
+            disabled={busy || offset + limit >= total}
+            onClick={() => onPage(offset + limit)}
+          >
+            Next
+          </button>
+        </div>
+      ) : null}
+    </ModalDialog>
   );
 }

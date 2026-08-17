@@ -10,6 +10,8 @@ export interface ModalDialogProps {
   role?: "dialog" | "alertdialog";
   /** Element to focus on open; defaults to the Cancel button. */
   initialFocus?: "cancel" | "first";
+  cancelLabel?: string;
+  size?: "default" | "wide";
   actions: ReactNode;
 }
 
@@ -25,6 +27,8 @@ export function ModalDialog({
   testId = "modal-dialog",
   role = "dialog",
   initialFocus = "cancel",
+  cancelLabel = "Cancel",
+  size = "default",
   actions,
 }: ModalDialogProps) {
   const titleId = useId();
@@ -80,10 +84,16 @@ export function ModalDialog({
   }, [onCancel, pending]);
 
   return (
-    <div className="dialog-backdrop" role="presentation">
+    <div
+      className="dialog-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !pending) onCancel();
+      }}
+    >
       <div
         ref={dialogRef}
-        className="dialog"
+        className={size === "wide" ? "dialog dialog--wide" : "dialog"}
         role={role}
         aria-modal="true"
         aria-labelledby={titleId}
@@ -101,7 +111,7 @@ export function ModalDialog({
             disabled={pending}
             onClick={onCancel}
           >
-            Cancel
+            {cancelLabel}
           </button>
           {actions}
         </div>

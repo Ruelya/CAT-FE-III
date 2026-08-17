@@ -533,6 +533,10 @@
   max-width: 720px;
 }
 
+.dialog .search-form {
+  max-width: none;
+}
+
 .search-form__row {
   display: flex;
   gap: var(--space-2);

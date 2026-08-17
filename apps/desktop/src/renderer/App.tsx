@@ -552,7 +552,10 @@ export function App() {
                 if (surface.kind !== "workbench" || !surface.activeSegmentId) {
                   return;
                 }
-                void commands.setWorkflow(surface.activeSegmentId, "translation");
+                void commands.setWorkflow(
+                  surface.activeSegmentId,
+                  "translation",
+                );
               },
             },
             {
@@ -610,7 +613,9 @@ export function App() {
               onAddFiles: () => {
                 void commands.addFiles();
               },
-              addFilesPending: surface.kind === "workbench" && surface.addFilesPending === true,
+              addFilesPending:
+                surface.kind === "workbench" &&
+                surface.addFilesPending === true,
               onSave: () => {
                 void commands.flushOrStay();
               },
@@ -618,7 +623,8 @@ export function App() {
                 void commands.pretranslateDocument();
               },
               pretranslatePending:
-                surface.kind === "workbench" && surface.pretranslatePending === true,
+                surface.kind === "workbench" &&
+                surface.pretranslatePending === true,
               onReimport: () => reimport.open(),
               onRecycleDocument: () => {
                 setRecycleError(null);
@@ -626,15 +632,21 @@ export function App() {
                 setRecycleDocumentOpen(true);
               },
               onWorkflowTranslation: () => {
-                if (surface.kind !== "workbench" || !surface.activeSegmentId) return;
-                void commands.setWorkflow(surface.activeSegmentId, "translation");
+                if (surface.kind !== "workbench" || !surface.activeSegmentId)
+                  return;
+                void commands.setWorkflow(
+                  surface.activeSegmentId,
+                  "translation",
+                );
               },
               onWorkflowReview: () => {
-                if (surface.kind !== "workbench" || !surface.activeSegmentId) return;
+                if (surface.kind !== "workbench" || !surface.activeSegmentId)
+                  return;
                 void commands.setWorkflow(surface.activeSegmentId, "review");
               },
               onWorkflowSignOff: () => {
-                if (surface.kind !== "workbench" || !surface.activeSegmentId) return;
+                if (surface.kind !== "workbench" || !surface.activeSegmentId)
+                  return;
                 setFileSignOff({
                   segmentId: surface.activeSegmentId,
                   reason: "",
@@ -986,30 +998,6 @@ export function App() {
             />
           ) : null}
 
-          {surface.kind === "search" ? (
-            <GlobalSearch
-              submittedQuery={surface.submittedQuery}
-              pendingQuery={surface.pendingQuery}
-              items={surface.items}
-              total={surface.total}
-              offset={surface.offset}
-              limit={surface.limit}
-              loading={surface.loading}
-              error={surface.error}
-              navigationError={surface.navigationError}
-              disabled={disabled}
-              onSearch={(query) => {
-                void commands.runSearch(query);
-              }}
-              onPage={(offset) => {
-                void commands.searchPage(offset);
-              }}
-              onActivate={(hit) => {
-                void commands.activateSearchHit(hit);
-              }}
-            />
-          ) : null}
-
           {surface.kind === "insights" ? (
             <ProjectInsights
               projectId={surface.projectId}
@@ -1146,6 +1134,31 @@ export function App() {
         />
       ) : null}
 
+      {state.searchLayer ? (
+        <GlobalSearch
+          submittedQuery={state.searchLayer.submittedQuery}
+          pendingQuery={state.searchLayer.pendingQuery}
+          items={state.searchLayer.items}
+          total={state.searchLayer.total}
+          offset={state.searchLayer.offset}
+          limit={state.searchLayer.limit}
+          loading={state.searchLayer.loading}
+          error={state.searchLayer.error}
+          navigationError={state.searchLayer.navigationError}
+          disabled={disabled}
+          onSearch={(query) => {
+            void commands.runSearch(query);
+          }}
+          onPage={(offset) => {
+            void commands.searchPage(offset);
+          }}
+          onActivate={(hit) => {
+            void commands.activateSearchHit(hit);
+          }}
+          onClose={() => commands.closeSearch()}
+        />
+      ) : null}
+
       {recycleDocumentOpen && workbenchCtx ? (
         <ConfirmDialog
           title="Recycle document"
@@ -1161,14 +1174,16 @@ export function App() {
             if (recyclePending) return;
             setRecyclePending(true);
             setRecycleError(null);
-            void commands.recycleActiveDocument(recycleReason.trim()).then((ok) => {
-              setRecyclePending(false);
-              if (ok) {
-                setRecycleDocumentOpen(false);
-              } else {
-                setRecycleError("Recycle failed.");
-              }
-            });
+            void commands
+              .recycleActiveDocument(recycleReason.trim())
+              .then((ok) => {
+                setRecyclePending(false);
+                if (ok) {
+                  setRecycleDocumentOpen(false);
+                } else {
+                  setRecycleError("Recycle failed.");
+                }
+              });
           }}
           testId="recycle-document-confirm"
         />

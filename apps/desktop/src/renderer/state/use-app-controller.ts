@@ -374,6 +374,7 @@ export interface AppController {
     dismissBatchSummary: () => void;
     openExample: () => Promise<void>;
     goSearch: () => Promise<void>;
+    closeSearch: () => void;
     runSearch: (query: string) => Promise<void>;
     searchPage: (offset: number) => Promise<void>;
     activateSearchHit: (hit: GlobalSearchHit) => Promise<void>;
@@ -576,7 +577,10 @@ export function useAppController(): AppController {
           { code: "SESSION_STALE" },
         );
       }
-      const request = resolveEditorPageRequest(defaultEditorPage(), options?.page);
+      const request = resolveEditorPageRequest(
+        defaultEditorPage(),
+        options?.page,
+      );
       const listed = options?.focusSegmentId
         ? await listEditorPageContaining(
             session.documentId,
@@ -584,11 +588,9 @@ export function useAppController(): AppController {
             options.focusSegmentId,
           )
         : await listEditorPage(session.documentId, request);
-      const counts = snapshot.counts ?? countsAfterPageLoad(
-        listed.rows,
-        listed.page.total,
-        null,
-      );
+      const counts =
+        snapshot.counts ??
+        countsAfterPageLoad(listed.rows, listed.page.total, null);
       return {
         session,
         project: snapshot.project,
@@ -960,11 +962,10 @@ export function useAppController(): AppController {
               },
             });
             try {
-              const issues = await invokeEngine("qa.issue.list", qaListParams(
-                ctx.project.id,
-                current.scope,
-                ctx.document.id,
-              ));
+              const issues = await invokeEngine(
+                "qa.issue.list",
+                qaListParams(ctx.project.id, current.scope, ctx.document.id),
+              );
               if (!isCurrent(gen)) return;
               if (stateRef.current.surface.kind !== "qa") return;
               dispatch({
@@ -1121,16 +1122,17 @@ export function useAppController(): AppController {
             });
             // Keep mutations disabled until a successful revalidation.
           }
-        } else if (current.kind === "search" && current.submittedQuery) {
+        } else if (stateRef.current.searchLayer?.submittedQuery) {
+          const layer = stateRef.current.searchLayer;
           try {
             const page = await invokeEngine("search.global", {
-              text: current.submittedQuery,
+              text: layer.submittedQuery,
               includeRecycled: false,
-              offset: current.offset,
-              limit: current.limit,
+              offset: layer.offset,
+              limit: layer.limit,
             });
             if (!isCurrent(gen)) return;
-            if (stateRef.current.surface.kind !== "search") return;
+            if (!stateRef.current.searchLayer) return;
             dispatch({
               type: "PATCH_SEARCH",
               patch: {
@@ -1150,7 +1152,7 @@ export function useAppController(): AppController {
               patch: {
                 loading: false,
                 error: toUiError(error),
-                pendingQuery: current.submittedQuery,
+                pendingQuery: layer.submittedQuery,
               },
             });
             // Keep mutations disabled until a successful revalidation.
@@ -1506,7 +1508,9 @@ export function useAppController(): AppController {
       }
       const current = stateRef.current.surface;
       if (current.kind !== "workbench") return;
-      const row = current.ctx.rows.find((item) => item.segment.id === segmentId);
+      const row = current.ctx.rows.find(
+        (item) => item.segment.id === segmentId,
+      );
       if (!row) return;
       try {
         const result = await invokeEngine("segment.tag.set", {
@@ -2067,9 +2071,7 @@ export function useAppController(): AppController {
                   segmentId));
           }
           const nextRow =
-            rows.find((r) => r.segment.id === nextId) ??
-            rows[0] ??
-            null;
+            rows.find((r) => r.segment.id === nextId) ?? rows[0] ?? null;
           dispatch({
             type: "PATCH_WORKBENCH",
             patch: {
@@ -2094,8 +2096,7 @@ export function useAppController(): AppController {
                         result.propagated
                           .filter(
                             (item) =>
-                              item.documentId !==
-                              nextSurface.ctx.document.id,
+                              item.documentId !== nextSurface.ctx.document.id,
                           )
                           .map((item) => item.documentId),
                       ).size,
@@ -2147,7 +2148,9 @@ export function useAppController(): AppController {
         const active = saveCoordinator.active;
         if (!active || active.isComposing) return;
         const selection = readSegmentSelection(active.segmentId);
-        const row = surface.ctx.rows.find((item) => item.segment.id === active.segmentId);
+        const row = surface.ctx.rows.find(
+          (item) => item.segment.id === active.segmentId,
+        );
         const surfaceEl = targetSurfaceFor(active.segmentId);
         const live =
           surfaceEl &&
@@ -2172,7 +2175,11 @@ export function useAppController(): AppController {
             patch: {
               ctx: {
                 ...surface.ctx,
-                rows: withRowTags(surface.ctx.rows, active.segmentId, next.tags),
+                rows: withRowTags(
+                  surface.ctx.rows,
+                  active.segmentId,
+                  next.tags,
+                ),
               },
             },
           });
@@ -2480,7 +2487,11 @@ export function useAppController(): AppController {
                 ...current.ctx,
                 rows,
                 editorPage: page,
-                counts: countsAfterPageLoad(rows, page.total, current.ctx.counts),
+                counts: countsAfterPageLoad(
+                  rows,
+                  page.total,
+                  current.ctx.counts,
+                ),
               },
               pretranslatePending: false,
               propagatedFrom:
@@ -2556,7 +2567,10 @@ export function useAppController(): AppController {
                   ),
                 )
               : surfaceEl && document.activeElement === surfaceEl
-                ? placeSourceTagsAtCaret(fresh.sourceTags, selection.targetStart)
+                ? placeSourceTagsAtCaret(
+                    fresh.sourceTags,
+                    selection.targetStart,
+                  )
                 : placeSourceTagsProportional(
                     fresh.sourceTags,
                     sourceLength,
@@ -2600,7 +2614,9 @@ export function useAppController(): AppController {
         if (!stateRef.current.mutationsEnabled) return;
         const surface = stateRef.current.surface;
         if (surface.kind !== "workbench") return;
-        const row = surface.ctx.rows.find((item) => item.segment.id === segmentId);
+        const row = surface.ctx.rows.find(
+          (item) => item.segment.id === segmentId,
+        );
         if (!row || row.workflowState === state) return;
         if (saveCoordinator.active?.isComposing) return;
         if (saveCoordinator.active?.segmentId === segmentId) {
@@ -2609,7 +2625,9 @@ export function useAppController(): AppController {
         }
         const current = stateRef.current.surface;
         if (current.kind !== "workbench") return;
-        const fresh = current.ctx.rows.find((item) => item.segment.id === segmentId);
+        const fresh = current.ctx.rows.find(
+          (item) => item.segment.id === segmentId,
+        );
         if (!fresh) return;
         try {
           const result = await invokeEngine("segment.workflow.set", {
@@ -3089,9 +3107,7 @@ export function useAppController(): AppController {
               patch: {
                 exporting: false,
                 resultPath: result.outputPath,
-                resultFiles: [
-                  { name: docs[0]!.name, path: result.outputPath },
-                ],
+                resultFiles: [{ name: docs[0]!.name, path: result.outputPath }],
                 error: null,
               },
             });
@@ -3142,8 +3158,7 @@ export function useAppController(): AppController {
             ...(focusSegmentId ? { focusSegmentId } : {}),
           });
           enterWorkbench(ctx, {
-            focusSegmentId:
-              focusSegmentId ?? ctx.rows[0]?.segment.id ?? null,
+            focusSegmentId: focusSegmentId ?? ctx.rows[0]?.segment.id ?? null,
             persistSession: true,
           });
         } catch (error) {
@@ -3419,38 +3434,31 @@ export function useAppController(): AppController {
 
       goSearch: async () => {
         if (!stateRef.current.mutationsEnabled) return;
-        const surface = stateRef.current.surface;
-        if (surface.kind === "workbench") {
-          if (surface.pendingConfirm || surface.switchPending) return;
-          if (saveCoordinator.active?.isComposing) return;
-          const ok = await flushOrStay();
-          if (!ok) return;
+        if (stateRef.current.searchLayer) {
+          dispatch({ type: "CLOSE_SEARCH" });
+          return;
         }
-        invalidateFeatureOps();
-        dispatch({
-          type: "SET_SURFACE",
-          surface: {
-            kind: "search",
-            submittedQuery: "",
-            pendingQuery: null,
-            items: [],
-            total: 0,
-            offset: 0,
-            limit: SEARCH_PAGE_LIMIT,
-            loading: false,
-            error: null,
-            navigationError: null,
-          },
-        });
+        const surface = stateRef.current.surface;
+        if (
+          surface.kind === "workbench" &&
+          saveCoordinator.active?.isComposing
+        ) {
+          return;
+        }
+        dispatch({ type: "OPEN_SEARCH", limit: SEARCH_PAGE_LIMIT });
+      },
+
+      closeSearch: () => {
+        dispatch({ type: "CLOSE_SEARCH" });
       },
 
       runSearch: async (query) => {
         if (!stateRef.current.mutationsEnabled) return;
-        const surface = stateRef.current.surface;
-        if (surface.kind !== "search") return;
+        const surface = stateRef.current.searchLayer;
+        if (!surface) return;
         const text = trimSearchQuery(query);
         if (!text) return;
-        const op = beginOp(searchOpRef, "search");
+        const op = beginOp(searchOpRef);
         // Do not replace submitted projection until a current success arrives.
         dispatch({
           type: "PATCH_SEARCH",
@@ -3497,10 +3505,10 @@ export function useAppController(): AppController {
 
       searchPage: async (offset) => {
         if (!stateRef.current.mutationsEnabled) return;
-        const surface = stateRef.current.surface;
-        if (surface.kind !== "search") return;
+        const surface = stateRef.current.searchLayer;
+        if (!surface) return;
         if (!surface.submittedQuery) return;
-        const op = beginOp(searchOpRef, "search");
+        const op = beginOp(searchOpRef);
         dispatch({
           type: "PATCH_SEARCH",
           patch: {
@@ -3540,8 +3548,8 @@ export function useAppController(): AppController {
 
       activateSearchHit: async (hit) => {
         if (!stateRef.current.mutationsEnabled) return;
-        const surface = stateRef.current.surface;
-        if (surface.kind !== "search") return;
+        const surface = stateRef.current.searchLayer;
+        if (!surface) return;
         const dest = classifySearchHit(hit);
         if (dest.kind === "invalid") {
           dispatch({
@@ -3556,7 +3564,7 @@ export function useAppController(): AppController {
           });
           return;
         }
-        const op = beginOp(searchOpRef, "search");
+        const op = beginOp(searchOpRef);
         dispatch({
           type: "PATCH_SEARCH",
           patch: { navigationError: null, loading: true },
@@ -3617,7 +3625,7 @@ export function useAppController(): AppController {
           enterWorkbench(ctx, { persistSession: true });
         } catch (error) {
           if (!isOpCurrent(op, searchOpRef)) return;
-          if (stateRef.current.surface.kind === "search") {
+          if (stateRef.current.searchLayer) {
             dispatch({
               type: "PATCH_SEARCH",
               patch: {

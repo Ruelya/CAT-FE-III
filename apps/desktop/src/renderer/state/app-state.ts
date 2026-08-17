@@ -271,11 +271,39 @@ export type AppSurface =
       section: SettingsSection;
     };
 
+export interface SearchLayerState {
+  submittedQuery: string;
+  pendingQuery: string | null;
+  items: GlobalSearchHit[];
+  total: number;
+  offset: number;
+  limit: number;
+  loading: boolean;
+  error: UiError | null;
+  navigationError: UiError | null;
+}
+
+export function emptySearchLayer(limit: number): SearchLayerState {
+  return {
+    submittedQuery: "",
+    pendingQuery: null,
+    items: [],
+    total: 0,
+    offset: 0,
+    limit,
+    loading: false,
+    error: null,
+    navigationError: null,
+  };
+}
+
 export interface AppState {
   generation: number;
   engineStatus: EngineConnectionStatus;
   engineMessage: string | null;
   surface: AppSurface;
+  /** Global search card over the current surface. Null when closed. */
+  searchLayer: SearchLayerState | null;
   bootError: UiError | null;
   mutationsEnabled: boolean;
 }
@@ -336,9 +364,11 @@ export type AppAction =
       type: "PATCH_RECYCLE";
       patch: Partial<Extract<AppSurface, { kind: "recycle" }>>;
     }
+  | { type: "OPEN_SEARCH"; limit: number }
+  | { type: "CLOSE_SEARCH" }
   | {
       type: "PATCH_SEARCH";
-      patch: Partial<Extract<AppSurface, { kind: "search" }>>;
+      patch: Partial<SearchLayerState>;
     }
   | {
       type: "PATCH_INSIGHTS";
@@ -375,6 +405,7 @@ export function createInitialState(): AppState {
     engineStatus: "connecting",
     engineMessage: null,
     surface: { kind: "boot", message: "Starting" },
+    searchLayer: null,
     bootError: null,
     mutationsEnabled: false,
   };
@@ -392,6 +423,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         bootError: null,
         mutationsEnabled: false,
         surface: { kind: "boot", message: "Starting" },
+        searchLayer: null,
       };
     case "ENGINE_STATUS":
       return {
@@ -402,7 +434,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
           action.status === "connected" ? state.mutationsEnabled : false,
       };
     case "SET_SURFACE":
-      return { ...state, surface: action.surface };
+      return { ...state, surface: action.surface, searchLayer: null };
     case "SET_BOOT_ERROR":
       return {
         ...state,
@@ -496,11 +528,18 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         surface: { ...state.surface, ...action.patch, kind: "recycle" },
       };
     }
-    case "PATCH_SEARCH": {
-      if (state.surface.kind !== "search") return state;
+    case "OPEN_SEARCH":
       return {
         ...state,
-        surface: { ...state.surface, ...action.patch, kind: "search" },
+        searchLayer: emptySearchLayer(action.limit),
+      };
+    case "CLOSE_SEARCH":
+      return { ...state, searchLayer: null };
+    case "PATCH_SEARCH": {
+      if (!state.searchLayer) return state;
+      return {
+        ...state,
+        searchLayer: { ...state.searchLayer, ...action.patch },
       };
     }
     case "PATCH_INSIGHTS": {
