@@ -10,6 +10,9 @@ export interface ConfirmDialogProps {
   error?: string | null;
   /** Optional labelled reason field (required non-empty when present). */
   reasonLabel?: string;
+  reasonHint?: string;
+  reasonPlaceholder?: string;
+  reasonPresets?: readonly string[];
   reason?: string;
   onReasonChange?: (value: string) => void;
   onConfirm: () => void;
@@ -30,6 +33,9 @@ export function ConfirmDialog({
   pending = false,
   error = null,
   reasonLabel,
+  reasonHint,
+  reasonPlaceholder,
+  reasonPresets,
   reason,
   onReasonChange,
   onConfirm,
@@ -110,14 +116,37 @@ export function ConfirmDialog({
             <label className="field__label" htmlFor="confirm-reason">
               {reasonLabel}
             </label>
+            {reasonPresets && reasonPresets.length > 0 ? (
+              <div className="reason-presets">
+                {reasonPresets.map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    className="btn btn--quiet btn--sm"
+                    disabled={pending}
+                    aria-pressed={reason === preset}
+                    onClick={() => onReasonChange?.(preset)}
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <input
               id="confirm-reason"
               className="field__control"
               value={reason ?? ""}
               disabled={pending}
+              placeholder={reasonPlaceholder}
+              aria-describedby={reasonHint ? "confirm-reason-hint" : undefined}
               onChange={(e) => onReasonChange?.(e.target.value)}
               autoComplete="off"
             />
+            {reasonHint ? (
+              <p className="field__hint" id="confirm-reason-hint">
+                {reasonHint}
+              </p>
+            ) : null}
           </div>
         ) : null}
         {error ? <p className="field__error">{error}</p> : null}

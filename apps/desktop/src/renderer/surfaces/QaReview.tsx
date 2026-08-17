@@ -80,6 +80,7 @@ export function QaReview({
   const [reason, setReason] = useState("");
   const [waivePending, setWaivePending] = useState(false);
   const [waiveError, setWaiveError] = useState<string | null>(null);
+  const waivingIssue = issues.find((issue) => issue.id === waivingId) ?? null;
 
   return (
     <section className="surface" data-testid="qa-review">
@@ -206,11 +207,17 @@ export function QaReview({
                             #{segmentNumber(issue.segmentOrdinal)}
                           </span>
                           {jobWide ? (
-                            <span className="truncate">{issue.documentName}</span>
+                            <span className="truncate">
+                              {issue.documentName}
+                            </span>
                           ) : null}
                           <span className="mono">{issue.ruleId}</span>
                           {issue.disposition === "waived" ? (
-                            <span className="issue-row__waived">Waived</span>
+                            <span className="issue-row__waived">
+                              {issue.waiver?.reason
+                                ? `Waived: ${issue.waiver.reason}`
+                                : "Waived"}
+                            </span>
                           ) : null}
                         </p>
                       </div>
@@ -264,11 +271,22 @@ export function QaReview({
       {waivingId ? (
         <ConfirmDialog
           title="Waive this finding"
-          body="The finding stays on the record and stops blocking export. A reason is required so the decision can be reviewed later."
+          body={
+            waivingIssue
+              ? `${waivingIssue.message} · #${segmentNumber(waivingIssue.segmentOrdinal)} · ${waivingIssue.ruleId}. The note is stored on this finding. Export then ignores it.`
+              : "The note is stored on this finding. Export then ignores it."
+          }
           confirmLabel="Waive"
           pending={waivePending}
           error={waiveError}
-          reasonLabel="Reason"
+          reasonLabel="Why export may ignore this"
+          reasonHint="Kept on the finding for later review."
+          reasonPlaceholder="False positive, client accepted, or intentional difference"
+          reasonPresets={[
+            "False positive",
+            "Client accepted",
+            "Intentional difference",
+          ]}
           reason={reason}
           onReasonChange={setReason}
           onCancel={() => {

@@ -766,6 +766,12 @@ textarea.field__control {
   flex-wrap: wrap;
 }
 
+.reason-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
 /* ── Toast region ──────────────────────────────────────── */
 
 .toast-region {
