@@ -11,12 +11,14 @@ function Harness({
   onWorkflowTranslation,
   onWorkflowReview,
   onToggleDockFocus,
+  onApplyMatchByIndex,
 }: {
   enabled: boolean;
   onSave: () => void;
   onWorkflowTranslation?: () => void;
   onWorkflowReview?: () => void;
   onToggleDockFocus?: () => void;
+  onApplyMatchByIndex?: (index: number) => void;
 }) {
   useEditorShortcuts(enabled, {
     onConcordance: () => undefined,
@@ -30,6 +32,7 @@ function Harness({
     ...(onWorkflowTranslation ? { onWorkflowTranslation } : {}),
     ...(onWorkflowReview ? { onWorkflowReview } : {}),
     ...(onToggleDockFocus ? { onToggleDockFocus } : {}),
+    ...(onApplyMatchByIndex ? { onApplyMatchByIndex } : {}),
   });
   return <div>editor</div>;
 }
@@ -94,6 +97,61 @@ describe("useEditorShortcuts", () => {
       new KeyboardEvent("keydown", { key: "F6", ctrlKey: true, bubbles: true }),
     );
     expect(onToggleDockFocus).toHaveBeenCalledTimes(1);
+  });
+
+  it("applies the nth match on Ctrl+1..9 from anywhere in the window", () => {
+    const onApplyMatchByIndex = vi.fn();
+    render(
+      <Harness
+        enabled
+        onSave={() => undefined}
+        onApplyMatchByIndex={onApplyMatchByIndex}
+      />,
+    );
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "3", ctrlKey: true, bubbles: true }),
+    );
+    expect(onApplyMatchByIndex).toHaveBeenCalledWith(2);
+    // Ctrl+Shift+3 and Ctrl+Alt+3 belong to other layers (browsers, IMEs).
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "3",
+        ctrlKey: true,
+        shiftKey: true,
+        bubbles: true,
+      }),
+    );
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "3",
+        ctrlKey: true,
+        altKey: true,
+        bubbles: true,
+      }),
+    );
+    expect(onApplyMatchByIndex).toHaveBeenCalledTimes(1);
+  });
+
+  it("yields to a closer handler that already consumed the chord", () => {
+    const onApplyMatchByIndex = vi.fn();
+    render(
+      <Harness
+        enabled
+        onSave={() => undefined}
+        onApplyMatchByIndex={onApplyMatchByIndex}
+      />,
+    );
+    // The target editor preventDefaults Ctrl+1..9 for events it owns; the
+    // window listener must not run the command a second time.
+    const consumed = new KeyboardEvent("keydown", {
+      key: "1",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    consumed.preventDefault();
+    window.dispatchEvent(consumed);
+    expect(onApplyMatchByIndex).not.toHaveBeenCalled();
   });
 
   it("does not steal Ctrl+Shift+S", () => {

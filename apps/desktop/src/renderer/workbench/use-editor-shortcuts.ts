@@ -33,6 +33,12 @@ export interface EditorShortcutHandlers {
   onWorkflowReview?: () => void;
   /** F6: hop focus between the grid and the intel dock. */
   onToggleDockFocus?: () => void;
+  /**
+   * Ctrl+1..9: apply the nth memory match. The target editor also binds this
+   * for events it owns; this window-level copy is what makes the chord the
+   * dock advertises work while focus stands in the dock itself.
+   */
+  onApplyMatchByIndex?: (index: number) => void;
 }
 
 /**
@@ -55,6 +61,10 @@ export function useEditorShortcuts(
     if (!enabled) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.isComposing || event.keyCode === 229) return;
+      // A component closer to the target already owned this chord (the target
+      // editor handles Ctrl+1..9, Tab, and friends itself). Acting again here
+      // would run the command twice.
+      if (event.defaultPrevented) return;
       const control = event.ctrlKey || event.metaKey;
 
       if (event.key === "F3" && !event.altKey) {
@@ -129,10 +139,22 @@ export function useEditorShortcuts(
           return;
         }
         handlers.onPlaceTags();
+        return;
       }
       if (control && !event.shiftKey && event.key.toLowerCase() === "f") {
         event.preventDefault();
         handlers.onFind?.();
+        return;
+      }
+      if (
+        control &&
+        !event.altKey &&
+        !event.shiftKey &&
+        /^[1-9]$/.test(event.key) &&
+        handlers.onApplyMatchByIndex
+      ) {
+        event.preventDefault();
+        handlers.onApplyMatchByIndex(Number(event.key) - 1);
         return;
       }
       if (event.key === "F4" && !event.altKey) {
@@ -160,5 +182,6 @@ export function useEditorShortcuts(
     handlers.onWorkflowTranslation,
     handlers.onWorkflowReview,
     handlers.onToggleDockFocus,
+    handlers.onApplyMatchByIndex,
   ]);
 }

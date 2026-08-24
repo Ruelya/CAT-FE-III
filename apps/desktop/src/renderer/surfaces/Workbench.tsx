@@ -331,6 +331,13 @@ export function Workbench({
       );
     },
     onLock: () => requestWorkflow("signed"),
+    // The dock numbers its matches "Ctrl+1..9"; a chord advertised there must
+    // also work while focus stands there (after F6), not only in the editor.
+    onApplyMatchByIndex: (index) => {
+      const ranked = rankMatches(intel.tm.matches);
+      const match = ranked[index];
+      if (match) applyMatchWithFlash(match);
+    },
     onToggleDockFocus: () => {
       toggleDockFocus({
         activeSegmentId,
