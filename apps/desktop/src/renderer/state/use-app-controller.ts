@@ -405,6 +405,8 @@ export interface AppController {
     loadEditorPage: (input: {
       offset?: number;
       filter?: EditorListFilter;
+      /** After the page lands, activate the row with this engine ordinal. */
+      focusOrdinal?: number;
     }) => Promise<void>;
     flushOrStay: () => Promise<boolean>;
     goTemplates: () => Promise<void>;
@@ -4203,12 +4205,18 @@ export function useAppController(): AppController {
             ctx.counts,
           );
           const currentActive = stateRef.current.surface.activeSegmentId;
+          const byOrdinal =
+            input.focusOrdinal !== undefined
+              ? rows.find((row) => row.segment.ordinal === input.focusOrdinal)
+                  ?.segment.id
+              : undefined;
           const focus =
-            (currentActive &&
+            byOrdinal ??
+            ((currentActive &&
               rows.some((row) => row.segment.id === currentActive) &&
               currentActive) ||
-            rows[0]?.segment.id ||
-            null;
+              rows[0]?.segment.id ||
+              null);
           dispatch({
             type: "PATCH_WORKBENCH",
             patch: {

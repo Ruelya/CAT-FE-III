@@ -299,6 +299,55 @@ describe("App P0 vertical slice (fake DesktopApi)", () => {
     ).toBeInTheDocument();
   });
 
+  it("goes to a segment on another engine page by its displayed number", async () => {
+    const user = userEvent.setup();
+    state.sourcePath = "C:\\tmp\\source.txt";
+    // 250 segments spill past the 200-row engine page. Displayed numbers are
+    // engine ordinal + 1, so seg-245 shows as #245 and lives on page two.
+    state.segments = Array.from({ length: 250 }, (_, index) => ({
+      id: `seg-${index + 1}`,
+      documentId: "doc-pending",
+      ordinal: index,
+      revision: 1,
+      sourceText: `Source ${index + 1}`,
+      targetText: "",
+      state: "untranslated" as const,
+      contextHash: "c",
+      sourceHash: `s-${index}`,
+      structuralPath: `${index}`,
+      updatedAtMs: 0,
+    }));
+    render(<App />);
+    await screen.findByTestId("welcome");
+    await user.click(screen.getByRole("button", { name: "Create project" }));
+    await user.clear(screen.getByLabelText("Name"));
+    await user.type(screen.getByLabelText("Name"), "Paged");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    await screen.findByTestId("import-document");
+    await user.click(screen.getByRole("button", { name: "Choose files" }));
+    await screen.findByTestId("workbench");
+    await screen.findByTestId("segment-row-seg-1");
+
+    fireEvent.keyDown(window, { key: "g", ctrlKey: true });
+    await screen.findByTestId("goto-dialog");
+    await user.type(screen.getByLabelText("Segment number"), "245");
+    await user.click(screen.getByTestId("goto-submit"));
+
+    // The grid pages to the second engine page and activates #245.
+    expect(await screen.findByTestId("target-surface-seg-245")).toBeInTheDocument();
+    expect(screen.queryByTestId("segment-row-seg-1")).not.toBeInTheDocument();
+    expect(screen.getByTestId("status-segment")).toHaveTextContent(
+      "Segment 245 of 250",
+    );
+
+    // Within-page numbers keep working after the page change.
+    fireEvent.keyDown(window, { key: "g", ctrlKey: true });
+    await screen.findByTestId("goto-dialog");
+    await user.type(screen.getByLabelText("Segment number"), "201");
+    await user.click(screen.getByTestId("goto-submit"));
+    expect(await screen.findByTestId("target-surface-seg-201")).toBeInTheDocument();
+  });
+
   it("opens project from home with pending guard", async () => {
     const user = userEvent.setup();
     state.projects.push({

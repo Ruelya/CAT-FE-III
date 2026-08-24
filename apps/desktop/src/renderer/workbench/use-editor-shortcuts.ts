@@ -31,6 +31,8 @@ export interface EditorShortcutHandlers {
   onWorkflowTranslation?: () => void;
   /** Ctrl+Alt+R: set the active segment to Review. */
   onWorkflowReview?: () => void;
+  /** F6: hop focus between the grid and the intel dock. */
+  onToggleDockFocus?: () => void;
 }
 
 /**
@@ -58,6 +60,11 @@ export function useEditorShortcuts(
       if (event.key === "F3" && !event.altKey) {
         event.preventDefault();
         handlers.onConcordance();
+        return;
+      }
+      if (event.key === "F6" && !event.altKey && !control) {
+        event.preventDefault();
+        handlers.onToggleDockFocus?.();
         return;
       }
       if (control && event.shiftKey && event.key.toLowerCase() === "t") {
@@ -152,5 +159,6 @@ export function useEditorShortcuts(
     handlers.onLock,
     handlers.onWorkflowTranslation,
     handlers.onWorkflowReview,
+    handlers.onToggleDockFocus,
   ]);
 }

@@ -116,6 +116,11 @@ async function createAndImport(page, name, ocr) {
   if (ocr?.languages) {
     await page.getByTestId("import-ocr-languages").fill(ocr.languages);
   }
+  if (ocr?.mineruBase) {
+    // The per-import base URL option overrides TRANSLUNAR_MINERU_BASE_URL,
+    // so point the visible field at the mock the way a self-hosted user would.
+    await page.getByTestId("import-ocr-mineru-base").fill(ocr.mineruBase);
+  }
   await page.getByRole("button", { name: "Choose files" }).click();
   await page.getByTestId("workbench").waitFor({ timeout: 90_000 });
 }
@@ -206,7 +211,11 @@ async function runScannedOcr() {
       await page.getByRole("button", { name: "Cancel" }).click();
     }
 
-    await page.getByRole("tab", { name: /AI/ }).click({ force: true });
+    // Stacked dock: AI is a tool chip in the memory pane, not a tab.
+    await page
+      .getByTestId("intel-dock")
+      .getByRole("button", { name: /^AI/ })
+      .click({ force: true });
     await page.waitForTimeout(400);
     const ocrNote = await page.getByTestId("ai-ocr-source-note").count();
     note(
@@ -251,6 +260,7 @@ async function runMineruMock() {
       engine: "mineru",
       mode: "auto",
       languages: "eng",
+      mineruBase: mock.baseUrl,
     });
     await page.getByTestId("workbench").waitFor({ timeout: 90_000 });
     const rows = page.locator("[data-testid^='segment-row-']");

@@ -110,11 +110,8 @@ note(
 await page.getByTestId("filter-clear").click();
 
 // Force a QA error we can waive: leave a target empty, run QA, waive, export.
-await page
-  .getByTestId("workbench")
-  .locator(".workbench__header-actions")
-  .getByRole("button", { name: "QA", exact: true })
-  .click();
+// QA lives on the session icon band now, not a workbench header.
+await page.getByTestId("workbench-qa").click();
 await page.getByTestId("qa-review").waitFor();
 await page.getByRole("button", { name: "Run QA" }).click();
 await page.waitForTimeout(2500);

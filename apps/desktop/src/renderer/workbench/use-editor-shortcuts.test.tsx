@@ -10,11 +10,13 @@ function Harness({
   onSave,
   onWorkflowTranslation,
   onWorkflowReview,
+  onToggleDockFocus,
 }: {
   enabled: boolean;
   onSave: () => void;
   onWorkflowTranslation?: () => void;
   onWorkflowReview?: () => void;
+  onToggleDockFocus?: () => void;
 }) {
   useEditorShortcuts(enabled, {
     onConcordance: () => undefined,
@@ -27,6 +29,7 @@ function Harness({
     onSave,
     ...(onWorkflowTranslation ? { onWorkflowTranslation } : {}),
     ...(onWorkflowReview ? { onWorkflowReview } : {}),
+    ...(onToggleDockFocus ? { onToggleDockFocus } : {}),
   });
   return <div>editor</div>;
 }
@@ -71,6 +74,26 @@ describe("useEditorShortcuts", () => {
     );
     expect(onWorkflowTranslation).toHaveBeenCalledTimes(1);
     expect(onWorkflowReview).toHaveBeenCalledTimes(1);
+  });
+
+  it("hops between the grid and the dock on F6", () => {
+    const onToggleDockFocus = vi.fn();
+    render(
+      <Harness
+        enabled
+        onSave={() => undefined}
+        onToggleDockFocus={onToggleDockFocus}
+      />,
+    );
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "F6", bubbles: true }),
+    );
+    expect(onToggleDockFocus).toHaveBeenCalledTimes(1);
+    // Ctrl+F6 stays with the platform (window cycling on some desktops).
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "F6", ctrlKey: true, bubbles: true }),
+    );
+    expect(onToggleDockFocus).toHaveBeenCalledTimes(1);
   });
 
   it("does not steal Ctrl+Shift+S", () => {

@@ -174,7 +174,7 @@ describe("EditorCommandBar keyboard contract", () => {
     );
     expect(screen.getByTestId("cmd-ribbon.placeTags")).toHaveAttribute(
       "aria-label",
-      "Place source tags (Ctrl+,)",
+      "Place all source tags (Ctrl+, opens QuickPlace)",
     );
     expect(screen.getByTestId("cmd-ribbon.save")).toBeInTheDocument();
     expect(screen.getByTestId("cmd-ribbon.pretranslate")).toBeInTheDocument();
