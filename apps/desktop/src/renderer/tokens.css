@@ -164,6 +164,7 @@ html[data-theme="light"] {
   --space-8: 48px;
 
   /* Shape: exactly four values exist. */
+  --radius-xs: 2px; /* inline text highlights only */
   --radius-sm: 4px; /* inputs, chips, small controls */
   --radius-md: 6px; /* buttons, menus, panels */
   --radius-lg: 8px; /* dialogs, largest containers */
@@ -212,6 +213,7 @@ html[data-theme="light"] {
 
   /* Layers */
   --z-base: 0;
+  --z-raise: 1; /* lift above siblings inside one local stacking context */
   --z-sticky: 10;
   --z-dock: 20;
   --z-menu: 30;

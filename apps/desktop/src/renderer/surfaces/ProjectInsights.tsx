@@ -157,19 +157,19 @@ export function ProjectInsights({
                       <td>{analysis.summary.matchBands.exact}</td>
                     </tr>
                     <tr>
-                      <th scope="row">95–99%</th>
+                      <th scope="row">95 to 99%</th>
                       <td>{analysis.summary.matchBands.match9599}</td>
                     </tr>
                     <tr>
-                      <th scope="row">85–94%</th>
+                      <th scope="row">85 to 94%</th>
                       <td>{analysis.summary.matchBands.match8594}</td>
                     </tr>
                     <tr>
-                      <th scope="row">75–84%</th>
+                      <th scope="row">75 to 84%</th>
                       <td>{analysis.summary.matchBands.match7584}</td>
                     </tr>
                     <tr>
-                      <th scope="row">50–74%</th>
+                      <th scope="row">50 to 74%</th>
                       <td>{analysis.summary.matchBands.match5074}</td>
                     </tr>
                     <tr>

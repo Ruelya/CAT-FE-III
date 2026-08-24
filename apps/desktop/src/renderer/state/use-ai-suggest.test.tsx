@@ -158,12 +158,12 @@ describe("useAiSuggest", () => {
     const engine = seedEngine();
     const api = createFakeDesktopApi(engine);
     const invoke = api.invoke.bind(api);
-    api.invoke = (async (method, params) => {
+    api.invoke = async (method, params) => {
       if (method === "ai.provider.list") {
         await new Promise((resolve) => setTimeout(resolve, 40));
       }
       return invoke(method, params);
-    }) as typeof api.invoke;
+    };
     window.translunar = api;
     const { result } = renderHook(() =>
       useAiSuggest({

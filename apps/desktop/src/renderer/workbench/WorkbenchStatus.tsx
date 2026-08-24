@@ -87,14 +87,17 @@ export function WorkbenchStatus({
         >
           <span
             className="progress-bar__segment progress-bar__segment--confirmed"
+            data-geometry="segment width is the confirmed share"
             style={shareStyle(counts.confirmed, counts.total)}
           />
           <span
             className="progress-bar__segment progress-bar__segment--draft"
+            data-geometry="segment width is the draft share"
             style={shareStyle(counts.draft, counts.total)}
           />
           <span
             className="progress-bar__segment progress-bar__segment--open"
+            data-geometry="segment width is the untranslated share"
             style={shareStyle(counts.untranslated, counts.total)}
           />
         </span>

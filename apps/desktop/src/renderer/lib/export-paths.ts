@@ -23,9 +23,13 @@ export function splitExportPath(path: string): SplitExportPath {
   };
 }
 
+/* Windows forbids these in file names; the control range is intentional. */
+// eslint-disable-next-line no-control-regex
+const FORBIDDEN_FILENAME_CHARS = /[<>:"/\\|?*\u0000-\u001f]/g;
+
 export function sanitizeExportFileName(name: string): string {
   const trimmed = name.trim() || "export";
-  return trimmed.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_");
+  return trimmed.replace(FORBIDDEN_FILENAME_CHARS, "_");
 }
 
 export function uniqueExportFileName(
@@ -38,7 +42,7 @@ export function uniqueExportFileName(
     used.add(safe.toLowerCase());
     return safe;
   }
-  const suffix = fallbackId.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "").slice(0, 8);
+  const suffix = fallbackId.replace(FORBIDDEN_FILENAME_CHARS, "").slice(0, 8);
   const dotted = safe.lastIndexOf(".");
   const next =
     dotted > 0

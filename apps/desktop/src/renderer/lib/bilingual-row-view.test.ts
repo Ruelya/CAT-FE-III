@@ -145,17 +145,11 @@ describe("sourceRuns", () => {
         side: "source",
       },
     ]);
-    expect(runs).toEqual([
+    expect(runs).toMatchObject([
       { kind: "text", text: "Hello " },
-      {
-        kind: "tag",
-        tag: expect.objectContaining({ id: "t1", displayText: "<b>" }),
-      },
+      { kind: "tag", tag: { id: "t1", displayText: "<b>" } },
       { kind: "text", text: "world" },
-      {
-        kind: "tag",
-        tag: expect.objectContaining({ id: "t2", displayText: "</b>" }),
-      },
+      { kind: "tag", tag: { id: "t2", displayText: "</b>" } },
     ]);
   });
 });

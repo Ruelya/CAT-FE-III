@@ -52,7 +52,7 @@ export function ImportDocument({
         <JobWizardSteps current="files" />
         <p className="surface__subtitle">
           Add source files. Memory, terms, and Prepare run from the workbench
-          and Asset Hub after import — this screen does not insert extra gates.
+          and Asset Hub after import. This screen does not insert extra gates.
         </p>
 
         {error ? (

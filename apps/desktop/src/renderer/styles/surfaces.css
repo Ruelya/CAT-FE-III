@@ -221,7 +221,7 @@
 .job-wizard__step--current .job-wizard__index {
   background: var(--color-accent);
   border-color: var(--color-accent);
-  color: var(--color-on-accent, #fff);
+  color: var(--color-on-accent);
 }
 
 .job-wizard__step--done .job-wizard__index {

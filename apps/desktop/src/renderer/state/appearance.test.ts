@@ -307,7 +307,7 @@ describe("design tokens", () => {
     const declared = [
       ...tokensCss.matchAll(/--radius-[a-z]+:\s*([^;]+);/g),
     ].map((m) => m[1]!.trim());
-    expect(declared.sort()).toEqual(["4px", "6px", "8px", "999px"]);
+    expect(declared.sort()).toEqual(["2px", "4px", "6px", "8px", "999px"]);
   });
 
   it("keeps the CSS accent family equal to the derived default palette", () => {

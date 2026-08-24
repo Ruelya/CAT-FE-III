@@ -323,9 +323,8 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
         } as EngineResult<Method>;
       }
       if (methodName === "mineru.credential.set") {
-        const secret = String(
-          (params as { secret?: unknown }).secret ?? "",
-        ).trim();
+        const raw = (params as { secret?: unknown }).secret;
+        const secret = typeof raw === "string" ? raw.trim() : "";
         if (!secret) {
           return Promise.reject({
             code: "INVALID_REQUEST",
