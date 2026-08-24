@@ -72,3 +72,27 @@ export function searchHitKey(
 export function trimSearchQuery(text: string): string {
   return text.trim();
 }
+
+/**
+ * Pick the segment F4 (find next) should move to.
+ *
+ * `segment.find` reports every occurrence, so a segment holding the query
+ * twice contributes two entries with the same segmentId. Selection is
+ * per-segment: advancing "one entry" from such a segment lands on the same
+ * segment again and F4 looks dead. Walk forward (wrapping) until the segment
+ * changes; return null when every hit already lives in the active segment.
+ */
+export function nextFindSegmentId(
+  matches: readonly { segmentId: string }[],
+  activeSegmentId: string | null,
+): string | null {
+  if (matches.length === 0) return null;
+  const current = matches.findIndex((m) => m.segmentId === activeSegmentId);
+  for (let step = 1; step <= matches.length; step += 1) {
+    const candidate = matches[(current + step) % matches.length];
+    if (candidate && candidate.segmentId !== activeSegmentId) {
+      return candidate.segmentId;
+    }
+  }
+  return null;
+}

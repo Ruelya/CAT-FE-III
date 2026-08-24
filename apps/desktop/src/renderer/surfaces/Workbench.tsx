@@ -53,6 +53,7 @@ import {
 import { segmentNumber } from "../lib/format";
 import { toggleDockFocus } from "../workbench/dock-focus";
 import { matchLabel, rankMatches, type SegmentIntel } from "../state/segment-intel";
+import { nextFindSegmentId } from "../state/search-navigation";
 import { useSegmentSelection } from "../state/use-segment-selection";
 import { useSuggestions } from "../state/use-suggestions";
 import { useAiSuggest } from "../state/use-ai-suggest";
@@ -310,11 +311,12 @@ export function Workbench({
     },
     onFind: () => editorOps?.openPanel("findReplace"),
     onFindNext: () => {
-      const matches = editorOps?.findReplace.matches ?? [];
-      if (matches.length === 0) return;
-      const current = matches.findIndex((m) => m.segmentId === activeSegmentId);
-      const next = matches[(current + 1) % matches.length];
-      if (next) void editorOps?.selectFindMatch(next.segmentId);
+      const next = nextFindSegmentId(
+        editorOps?.findReplace.matches ?? [],
+        activeSegmentId,
+      );
+      if (!next) return;
+      void editorOps?.selectFindMatch(next);
     },
     onInsertTerm: () => {
       const hit = nextInsertableTerm(intel.terms.matches, termFocusIndex);
