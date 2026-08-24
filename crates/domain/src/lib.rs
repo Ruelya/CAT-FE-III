@@ -29,7 +29,7 @@ pub enum ProjectLifecycle {
     Trash,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectConfiguration {
     #[serde(default)]
@@ -59,21 +59,6 @@ pub struct TaskPackageProjectReference {
     pub parent_package_id: Option<String>,
     #[serde(default)]
     pub instructions: String,
-}
-
-impl Default for ProjectConfiguration {
-    fn default() -> Self {
-        Self {
-            template_id: None,
-            qa_profile_id: None,
-            pipeline_id: None,
-            engine_allowlist: Vec::new(),
-            ai_profile_ids: Vec::new(),
-            analysis_profile_id: None,
-            editor_defaults: None,
-            task_package: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

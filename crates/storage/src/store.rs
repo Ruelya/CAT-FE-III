@@ -5535,12 +5535,12 @@ impl Store {
         // volunteered, is still recorded below.
         let direct_sign_off = state == EditorWorkflowState::Signed && current_state != "review";
         let reason = reason.filter(|value| !value.trim().is_empty());
-        if let Some(reason) = reason {
-            if reason.chars().count() > 1_000 {
-                return Err(StorageError::InvalidState(
-                    "sign-off reason cannot exceed 1000 characters".to_string(),
-                ));
-            }
+        if let Some(reason) = reason
+            && reason.chars().count() > 1_000
+        {
+            return Err(StorageError::InvalidState(
+                "sign-off reason cannot exceed 1000 characters".to_string(),
+            ));
         }
         if state == EditorWorkflowState::Signed {
             let pending: i64 = transaction.query_row(
