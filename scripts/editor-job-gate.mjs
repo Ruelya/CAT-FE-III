@@ -63,8 +63,16 @@ await page.waitForTimeout(1200);
 const total = await page.locator("tbody tr").count();
 note("import", "INFO", `${total} segments`);
 
-// Keyboard-only pass. Click once to enter the grid, then never touch the mouse.
-await page.locator("tbody tr").first().locator("button").first().click();
+// Keyboard-only pass. Click once to enter the grid, then never touch the
+// mouse. The workbench may open with the first segment already staged, in
+// which case its cell holds the editing surface instead of an activate
+// button; accept whichever the first row is showing.
+await page
+  .locator(
+    '.segment-row--active [data-testid^="target-surface-"], [data-testid^="segment-activate-"]',
+  )
+  .first()
+  .click();
 await page.waitForTimeout(400);
 
 let typed = 0;
