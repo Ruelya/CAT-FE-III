@@ -125,8 +125,9 @@ await page
   .click({ force: true });
 await page.waitForTimeout(400);
 await page.getByTestId("concordance-query").fill("power button");
+// The stacked dock also shows the termbase search; scope to this form.
 await page
-  .getByTestId("intel-dock")
+  .locator("form.concordance__form")
   .getByRole("button", { name: "Search", exact: true })
   .click();
 await page.waitForTimeout(1200);
