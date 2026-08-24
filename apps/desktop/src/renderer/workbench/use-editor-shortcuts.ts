@@ -15,9 +15,9 @@ export interface EditorShortcutHandlers {
   onPretranslate: () => void;
   /** Ctrl+S: flush the active draft now. */
   onSave?: () => void;
-  /** Ctrl+,: place source tags onto the target. */
+  /** Ctrl+, fallback when no QuickPlace handler is wired: place all source tags. */
   onPlaceTags: () => void;
-  /** Ctrl+Shift+,: open the QuickPlace list. */
+  /** Ctrl+, and Ctrl+Shift+,: open the QuickPlace list. */
   onQuickPlace?: () => void;
   /** Ctrl+F: open find on the current document. */
   onFind?: () => void;
