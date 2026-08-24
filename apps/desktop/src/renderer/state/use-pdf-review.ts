@@ -43,7 +43,6 @@ export interface PdfReviewState {
   correctOpen: boolean;
   correctBlock: PdfPageBlock | null;
   correctSourceText: string;
-  correctReason: string;
   correctPending: boolean;
   correctError: UiError | null;
 }
@@ -55,7 +54,6 @@ export interface PdfReviewApi {
   openCorrect: (block: PdfPageBlock) => void;
   closeCorrect: () => void;
   setCorrectSourceText: (text: string) => void;
-  setCorrectReason: (reason: string) => void;
   submitCorrect: () => Promise<void>;
   activeBlock: PdfPageBlock | null;
   canSubmitCorrect: boolean;
@@ -78,7 +76,6 @@ function emptyState(): PdfReviewState {
     correctOpen: false,
     correctBlock: null,
     correctSourceText: "",
-    correctReason: "",
     correctPending: false,
     correctError: null,
   };
@@ -309,7 +306,6 @@ export function usePdfReview(gateway: PdfReviewGateway): PdfReviewApi {
       correctOpen: true,
       correctBlock: block,
       correctSourceText: block.sourceText,
-      correctReason: "",
       correctError: null as UiError | null,
       correctPending: false,
     };
@@ -324,7 +320,6 @@ export function usePdfReview(gateway: PdfReviewGateway): PdfReviewApi {
       correctOpen: false,
       correctBlock: null,
       correctSourceText: "",
-      correctReason: "",
       correctError: null,
       correctPending: false,
     }));
@@ -335,11 +330,6 @@ export function usePdfReview(gateway: PdfReviewGateway): PdfReviewApi {
     setState((s) => ({ ...s, correctSourceText: text }));
   }, []);
 
-  const setCorrectReason = useCallback((reason: string) => {
-    stateRef.current = { ...stateRef.current, correctReason: reason };
-    setState((s) => ({ ...s, correctReason: reason }));
-  }, []);
-
   const submitCorrect = useCallback(async () => {
     const gw = gatewayRef.current;
     if (!gw.mutationsEnabled) return;
@@ -348,7 +338,6 @@ export function usePdfReview(gateway: PdfReviewGateway): PdfReviewApi {
     if (
       !canSubmitOcrCorrection({
         sourceText: s.correctSourceText,
-        reason: s.correctReason,
         pending: s.correctPending,
       })
     ) {
@@ -362,7 +351,6 @@ export function usePdfReview(gateway: PdfReviewGateway): PdfReviewApi {
       const segment = await invokeEngine("pdf.correctOcr", {
         segmentId: s.correctBlock.segmentId,
         sourceText: s.correctSourceText.trim(),
-        reason: s.correctReason.trim(),
         expectedRevision: s.correctBlock.revision,
       });
       if (op !== correctOpRef.current) return;
@@ -374,7 +362,6 @@ export function usePdfReview(gateway: PdfReviewGateway): PdfReviewApi {
         correctOpen: false,
         correctBlock: null,
         correctSourceText: "",
-        correctReason: "",
         correctError: null,
       }));
       // Refresh current page blocks from Engine
@@ -399,7 +386,6 @@ export function usePdfReview(gateway: PdfReviewGateway): PdfReviewApi {
 
   const canSubmitCorrect = canSubmitOcrCorrection({
     sourceText: state.correctSourceText,
-    reason: state.correctReason,
     pending: state.correctPending,
   });
 
@@ -410,7 +396,6 @@ export function usePdfReview(gateway: PdfReviewGateway): PdfReviewApi {
     openCorrect,
     closeCorrect,
     setCorrectSourceText,
-    setCorrectReason,
     submitCorrect,
     activeBlock,
     canSubmitCorrect,

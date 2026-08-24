@@ -356,12 +356,11 @@ export interface AppController {
     setWorkflow: (
       segmentId: string,
       state: EditorWorkflowState,
-      reason?: string,
     ) => Promise<void>;
     pretranslateDocument: () => Promise<void>;
     goQa: () => Promise<void>;
     runQa: () => Promise<void>;
-    waiveQaIssue: (issueId: string, reason: string) => Promise<boolean>;
+    waiveQaIssue: (issueId: string) => Promise<boolean>;
     revokeQaWaiver: (issueId: string) => Promise<boolean>;
     jumpToIssue: (segmentId: string, documentId?: string) => Promise<void>;
     setJobScope: (scope: JobScope) => Promise<void>;
@@ -463,9 +462,8 @@ export interface AppController {
     recycleProject: (
       projectId: string,
       expectedRevision: number,
-      reason: string,
     ) => Promise<boolean>;
-    recycleActiveDocument: (reason: string) => Promise<boolean>;
+    recycleActiveDocument: () => Promise<boolean>;
   };
 }
 
@@ -2598,7 +2596,7 @@ export function useAppController(): AppController {
 
       persistTargetTags: (tags) => writeTargetTags(tags),
 
-      setWorkflow: async (segmentId, state, reason) => {
+      setWorkflow: async (segmentId, state) => {
         if (!stateRef.current.mutationsEnabled) return;
         const surface = stateRef.current.surface;
         if (surface.kind !== "workbench") return;
@@ -2619,7 +2617,6 @@ export function useAppController(): AppController {
             expectedRevision: fresh.segment.revision,
             state,
             actor: DESKTOP_ACTOR,
-            ...(reason ? { reason } : {}),
           });
           const { rows, page } = await reloadEditorPage(
             current.ctx.document.id,
@@ -2875,9 +2872,9 @@ export function useAppController(): AppController {
       },
 
       // A false positive must have an exit that is recorded rather than a
-      // workaround that is not. Waiving keeps the finding, stops it blocking
-      // export, and stores who decided and why.
-      waiveQaIssue: async (issueId, reason) => {
+      // workaround that is not. Waiving keeps the finding on record (actor and
+      // timestamp) and stops it blocking export; Reinstate reverses it.
+      waiveQaIssue: async (issueId) => {
         if (!stateRef.current.mutationsEnabled) return false;
         const surface = stateRef.current.surface;
         if (surface.kind !== "qa") return false;
@@ -2885,7 +2882,6 @@ export function useAppController(): AppController {
           await invokeEngine("qa.issue.waive", {
             issueId,
             actor: DESKTOP_ACTOR,
-            reason,
           });
           await invokeEngine(
             "qa.issue.list",
@@ -4806,11 +4802,7 @@ export function useAppController(): AppController {
           patch: { pending: true, error: null },
         });
         try {
-          // Engine requires non-empty purge reason (actor defaults server-side).
-          await invokeEngine("recycle.purge", {
-            entryId,
-            reason: "permanent delete",
-          });
+          await invokeEngine("recycle.purge", { entryId });
           if (recycleOpRef.current !== opId) return false;
           const page = await invokeEngine("recycle.list", {
             limit: surface.limit,
@@ -5022,9 +5014,8 @@ export function useAppController(): AppController {
         }
       },
 
-      recycleProject: async (projectId, expectedRevision, reason) => {
+      recycleProject: async (projectId, expectedRevision) => {
         if (!stateRef.current.mutationsEnabled) return false;
-        if (!reason.trim()) return false;
         const surface = stateRef.current.surface;
         if (surface.kind !== "projects") return false;
         const op = beginOp(lifecycleOpRef, "projects");
@@ -5033,7 +5024,6 @@ export function useAppController(): AppController {
             entityId: projectId,
             entityType: "project",
             expectedRevision,
-            reason: reason.trim(),
           });
           if (!isOpCurrent(op, lifecycleOpRef)) return false;
           // Clear session if the recycled project was active.
@@ -5073,9 +5063,8 @@ export function useAppController(): AppController {
         }
       },
 
-      recycleActiveDocument: async (reason) => {
+      recycleActiveDocument: async () => {
         if (!stateRef.current.mutationsEnabled) return false;
-        if (!reason.trim()) return false;
         const surface = stateRef.current.surface;
         if (surface.kind !== "workbench") return false;
         if (surface.switchPending || surface.pendingConfirm) return false;
@@ -5093,7 +5082,6 @@ export function useAppController(): AppController {
             entityId: current.ctx.document.id,
             entityType: "document",
             expectedRevision: current.ctx.document.revision,
-            reason: reason.trim(),
           });
           if (switchDocOpRef.current !== opId) return false;
           const documents = await listAllDocuments(current.ctx.project.id);

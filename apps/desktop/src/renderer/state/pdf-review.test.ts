@@ -62,28 +62,18 @@ describe("pdf-review pure helpers", () => {
     expect(
       canSubmitOcrCorrection({
         sourceText: "hi",
-        reason: "fix",
         pending: false,
       }),
     ).toBe(true);
     expect(
       canSubmitOcrCorrection({
         sourceText: "  ",
-        reason: "fix",
         pending: false,
       }),
     ).toBe(false);
     expect(
       canSubmitOcrCorrection({
         sourceText: "hi",
-        reason: "",
-        pending: false,
-      }),
-    ).toBe(false);
-    expect(
-      canSubmitOcrCorrection({
-        sourceText: "hi",
-        reason: "fix",
         pending: true,
       }),
     ).toBe(false);

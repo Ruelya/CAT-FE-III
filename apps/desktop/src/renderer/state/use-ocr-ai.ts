@@ -8,8 +8,6 @@ import { invokeEngine } from "../lib/rpc";
 export const OCR_CORRECT_PROMPT =
   "Correct OCR recognition errors in this segment's source text (misspellings, broken spaces, punctuation). Return only the corrected source text. Do not translate. Do not explain.";
 
-export const OCR_AI_REASON = "AI-assisted OCR correction";
-
 export function pickRunnableAiProfile(
   profiles: readonly AiProviderProfile[],
 ): AiProviderProfile | undefined {

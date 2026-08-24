@@ -8,10 +8,6 @@ export interface ConfirmDialogProps {
   danger?: boolean;
   pending?: boolean;
   error?: string | null;
-  /** Optional labelled reason field (required non-empty when present). */
-  reasonLabel?: string;
-  reason?: string;
-  onReasonChange?: (value: string) => void;
   onConfirm: () => void;
   onCancel: () => void;
   testId?: string;
@@ -29,9 +25,6 @@ export function ConfirmDialog({
   danger = true,
   pending = false,
   error = null,
-  reasonLabel,
-  reason,
-  onReasonChange,
   onConfirm,
   onCancel,
   testId = "confirm-dialog",
@@ -85,9 +78,6 @@ export function ConfirmDialog({
     return () => document.removeEventListener("keydown", onKeyDown, true);
   }, [onCancel, pending]);
 
-  const reasonRequired = Boolean(reasonLabel);
-  const reasonEmpty = reasonRequired && !reason?.trim();
-
   return (
     <div className="dialog-backdrop" role="presentation">
       <div
@@ -105,21 +95,6 @@ export function ConfirmDialog({
         <p id={bodyId} className="dialog__body">
           {body}
         </p>
-        {reasonLabel ? (
-          <div className="field">
-            <label className="field__label" htmlFor="confirm-reason">
-              {reasonLabel}
-            </label>
-            <input
-              id="confirm-reason"
-              className="field__control"
-              value={reason ?? ""}
-              disabled={pending}
-              onChange={(e) => onReasonChange?.(e.target.value)}
-              autoComplete="off"
-            />
-          </div>
-        ) : null}
         {error ? <p className="field__error">{error}</p> : null}
         <div className="dialog__actions">
           <button
@@ -134,7 +109,7 @@ export function ConfirmDialog({
           <button
             type="button"
             className={danger ? "btn btn--danger" : "btn btn--primary"}
-            disabled={pending || reasonEmpty}
+            disabled={pending}
             onClick={onConfirm}
           >
             {pending ? "Working" : confirmLabel}

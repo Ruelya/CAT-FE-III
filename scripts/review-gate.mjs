@@ -127,13 +127,8 @@ note(
 );
 
 if (hasWaive) {
+  // Waiving is one reversible click; no dialog, no reason.
   await waiveBtn.click();
-  await page.getByTestId("waive-confirm").waitFor();
-  await page.getByLabel("Reason").fill("False positive for this probe pass");
-  await page
-    .getByTestId("waive-confirm")
-    .getByRole("button", { name: "Waive" })
-    .click();
   await page.waitForTimeout(1500);
   const afterWaive = await page.getByTestId("qa-review").innerText();
   note(

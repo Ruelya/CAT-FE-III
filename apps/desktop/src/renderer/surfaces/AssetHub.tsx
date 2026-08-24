@@ -44,10 +44,8 @@ export function AssetHub({
     revision: number;
     name: string;
   } | null>(null);
-  const [removeReason, setRemoveReason] = useState("");
   const [applyReason, setApplyReason] = useState("");
   const [repartitionReason, setRepartitionReason] = useState("");
-  const [curationActionReason, setCurationActionReason] = useState("");
   const [fromAlignName, setFromAlignName] = useState("");
   const [fromAlignReason, setFromAlignReason] = useState("");
   const [rollbackOpen, setRollbackOpen] = useState(false);
@@ -1608,22 +1606,13 @@ export function AssetHub({
                     </option>
                   ))}
                 </select>
-                <input
-                  value={state.curation.reason}
-                  disabled={busy}
-                  onChange={(e) => assets.setCurationReason(e.target.value)}
-                  placeholder="Reason"
-                  aria-label="Curation reason"
-                  data-testid="curation-reason"
-                />
                 <button
                   type="button"
                   className="btn btn--primary btn--sm"
                   disabled={
                     busy ||
                     state.curation.runPending ||
-                    !state.curation.libraryId ||
-                    !state.curation.reason.trim()
+                    !state.curation.libraryId
                   }
                   onClick={() => void assets.startCuration()}
                   data-testid="curation-run"
@@ -1742,26 +1731,15 @@ export function AssetHub({
                 ))}
               </ul>
               <div className="editor-panel__row">
-                <input
-                  value={curationActionReason}
-                  disabled={busy}
-                  onChange={(e) => setCurationActionReason(e.target.value)}
-                  placeholder="Reason"
-                  aria-label="Action reason"
-                  data-testid="curation-action-reason"
-                />
                 <button
                   type="button"
                   className="btn btn--primary btn--sm"
                   disabled={
                     busy ||
                     state.curation.actionPending ||
-                    state.curation.selectedFindingIds.length === 0 ||
-                    !curationActionReason.trim()
+                    state.curation.selectedFindingIds.length === 0
                   }
-                  onClick={() =>
-                    void assets.applyFindings(curationActionReason)
-                  }
+                  onClick={() => void assets.applyFindings()}
                   data-testid="curation-apply"
                 >
                   Apply
@@ -1772,8 +1750,7 @@ export function AssetHub({
                   disabled={
                     busy ||
                     state.curation.actionPending ||
-                    !state.curation.snapshot ||
-                    !curationActionReason.trim()
+                    !state.curation.snapshot
                   }
                   onClick={() => setRollbackOpen(true)}
                   data-testid="curation-rollback"
@@ -1809,26 +1786,12 @@ export function AssetHub({
                 ? formatUiError(state.corpus.actionError)
                 : null
             }
-            reasonLabel="Reason"
-            reason={removeReason}
-            onReasonChange={setRemoveReason}
-            onCancel={() => {
-              setRemoveCorpus(null);
-              setRemoveReason("");
-            }}
+            onCancel={() => setRemoveCorpus(null)}
             onConfirm={() => {
-              if (!removeReason.trim()) return;
               void assets
-                .removeCorpus(
-                  removeCorpus.id,
-                  removeCorpus.revision,
-                  removeReason.trim(),
-                )
+                .removeCorpus(removeCorpus.id, removeCorpus.revision)
                 .then((ok) => {
-                  if (ok) {
-                    setRemoveCorpus(null);
-                    setRemoveReason("");
-                  }
+                  if (ok) setRemoveCorpus(null);
                 });
             }}
             testId="corpus-remove-confirm"
@@ -1845,13 +1808,9 @@ export function AssetHub({
                 ? formatUiError(state.curation.actionError)
                 : null
             }
-            reasonLabel="Reason"
-            reason={curationActionReason}
-            onReasonChange={setCurationActionReason}
             onCancel={() => setRollbackOpen(false)}
             onConfirm={() => {
-              if (!curationActionReason.trim()) return;
-              void assets.rollbackCuration(curationActionReason).then((ok) => {
+              void assets.rollbackCuration().then((ok) => {
                 if (ok) setRollbackOpen(false);
               });
             }}

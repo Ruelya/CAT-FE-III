@@ -235,12 +235,11 @@ describe("useAssetController current-state capture", () => {
     ).toBe(false);
   });
 
-  it("starts curation with current library/reason and rolls back with revisions", async () => {
+  it("starts curation with current library and rolls back with revisions", async () => {
     const { result } = renderHook(() => useAssetController(gateway()));
 
     await act(async () => {
       result.current.setCurationLibraryId("tm-1");
-      result.current.setCurationReason("seed run");
     });
 
     await act(async () => {
@@ -256,7 +255,6 @@ describe("useAssetController current-state capture", () => {
     expect(runCall?.params).toMatchObject({
       projectId: "proj-1",
       libraryId: "tm-1",
-      reason: "seed run",
       expectedLibraryRevision: 1,
     });
 
@@ -266,7 +264,7 @@ describe("useAssetController current-state capture", () => {
 
     let ok = false;
     await act(async () => {
-      ok = await result.current.rollbackCuration("undo run");
+      ok = await result.current.rollbackCuration();
     });
     expect(ok).toBe(true);
 
@@ -275,13 +273,12 @@ describe("useAssetController current-state capture", () => {
     );
     expect(rollbacks.length).toBe(beforeRollback + 1);
     expect(rollbacks[rollbacks.length - 1]?.params).toMatchObject({
-      reason: "undo run",
       expectedRunRevision: 1,
       expectedLibraryRevision: 1,
     });
   });
 
-  it("suppresses blank curation start and rollback without snapshot", async () => {
+  it("suppresses curation start without a library and rollback without snapshot", async () => {
     const { result } = renderHook(() => useAssetController(gateway()));
 
     await act(async () => {
@@ -291,7 +288,7 @@ describe("useAssetController current-state capture", () => {
 
     let ok = true;
     await act(async () => {
-      ok = await result.current.rollbackCuration("no snap");
+      ok = await result.current.rollbackCuration();
     });
     expect(ok).toBe(false);
     expect(engine.calls.some((c) => c.method === "curation.rollback")).toBe(
@@ -304,7 +301,6 @@ describe("useAssetController current-state capture", () => {
 
     await act(async () => {
       result.current.setCurationLibraryId("tm-1");
-      result.current.setCurationReason("seed");
     });
     await act(async () => {
       await result.current.startCuration();
@@ -318,8 +314,8 @@ describe("useAssetController current-state capture", () => {
     let first = true;
     let second = true;
     await act(async () => {
-      const p1 = result.current.rollbackCuration("r1");
-      const p2 = result.current.rollbackCuration("r2");
+      const p1 = result.current.rollbackCuration();
+      const p2 = result.current.rollbackCuration();
       first = await p1;
       second = await p2;
     });

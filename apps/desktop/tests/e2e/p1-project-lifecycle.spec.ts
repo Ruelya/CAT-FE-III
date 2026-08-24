@@ -453,7 +453,6 @@ test.describe("P1 project lifecycle", () => {
       await openRowAction(page, { hasText: "From Template" }, "Recycle");
       const recycleConfirm = page.getByTestId("recycle-project-confirm");
       await expect(recycleConfirm).toBeVisible();
-      await recycleConfirm.getByLabel("Reason").fill("P1 disposable");
       await recycleConfirm.getByRole("button", { name: "Recycle" }).click();
       await expect(page.getByText("From Template")).toHaveCount(0, {
         timeout: 15_000,
@@ -483,10 +482,6 @@ test.describe("P1 project lifecycle", () => {
 
       // Re-recycle the restored project, then purge permanently.
       await openRowAction(page, { hasText: "From Template" }, "Recycle");
-      await page
-        .getByTestId("recycle-project-confirm")
-        .getByLabel("Reason")
-        .fill("P1 re-delete");
       await page
         .getByTestId("recycle-project-confirm")
         .getByRole("button", { name: "Recycle" })

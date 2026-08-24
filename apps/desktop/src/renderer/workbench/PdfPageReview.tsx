@@ -9,7 +9,7 @@ import type { PdfPageBlock } from "@translunar/contracts";
 
 import { formatUiError } from "../lib/errors";
 import { isOcrCorrectable, shouldMountPdfDock } from "../state/pdf-review";
-import { OCR_AI_REASON, useOcrAi } from "../state/use-ocr-ai";
+import { useOcrAi } from "../state/use-ocr-ai";
 import type { PdfReviewApi } from "../state/use-pdf-review";
 import { PdfOcrCorrectDialog } from "./PdfOcrCorrectDialog";
 
@@ -186,7 +186,6 @@ export function PdfPageReview({
       {state.correctOpen && state.correctBlock ? (
         <PdfOcrCorrectDialog
           sourceText={state.correctSourceText}
-          reason={state.correctReason}
           pending={state.correctPending}
           error={state.correctError}
           canSubmit={pdf.canSubmitCorrect}
@@ -204,12 +203,8 @@ export function PdfPageReview({
           onUseAiSuggestion={() => {
             if (!ocrAi.proposal) return;
             pdf.setCorrectSourceText(ocrAi.proposal);
-            if (!state.correctReason.trim()) {
-              pdf.setCorrectReason(OCR_AI_REASON);
-            }
           }}
           onSourceTextChange={pdf.setCorrectSourceText}
-          onReasonChange={pdf.setCorrectReason}
           onSubmit={() => {
             void pdf.submitCorrect();
           }}

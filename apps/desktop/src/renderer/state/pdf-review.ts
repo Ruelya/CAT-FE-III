@@ -49,11 +49,10 @@ export function isOcrCorrectable(block: {
 
 export function canSubmitOcrCorrection(input: {
   sourceText: string;
-  reason: string;
   pending: boolean;
 }): boolean {
   if (input.pending) return false;
-  return input.sourceText.trim().length > 0 && input.reason.trim().length > 0;
+  return input.sourceText.trim().length > 0;
 }
 
 /** First page number from summaries, or 1 when empty. */
