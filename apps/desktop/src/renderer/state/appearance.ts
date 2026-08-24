@@ -15,14 +15,14 @@ export interface RendererAppearancePreferenceV1 {
 
 export const DEFAULT_APPEARANCE: RendererAppearancePreferenceV1 = {
   version: 1,
-  theme: "light",
-  accentSeed: "#765847",
+  theme: "dark",
+  accentSeed: "#e0a458",
 };
 
-/** @deprecated P0 fixed name — default seed is advanced brown. */
+/** @deprecated P0 fixed name — default theme is the dark console. */
 export const APPEARANCE_THEME = DEFAULT_APPEARANCE.theme;
-/** @deprecated P0 fixed name — default seed is advanced brown. */
-export const APPEARANCE_ACCENT = "advanced-brown" as const;
+/** @deprecated P0 fixed name — default seed is console amber. */
+export const APPEARANCE_ACCENT = "console-amber" as const;
 
 export const REQUIRED_TOKEN_VARS = [
   "--color-sunken",
@@ -68,25 +68,25 @@ export const REQUIRED_TOKEN_VARS = [
  */
 export const THEME_SURFACES = {
   light: {
-    sunken: "#e2ded4",
-    canvas: "#eeeae1",
-    surface: "#f7f4ee",
-    raised: "#fffefb",
-    text: "#1f1d1a",
+    sunken: "#d8dce2",
+    canvas: "#e7eaef",
+    surface: "#f2f4f7",
+    raised: "#fcfdff",
+    text: "#171c24",
   },
   dark: {
-    sunken: "#121110",
-    canvas: "#1a1714",
-    surface: "#24211c",
-    raised: "#2f2b25",
-    text: "#f3efe8",
+    sunken: "#0c0f14",
+    canvas: "#13171e",
+    surface: "#1c222b",
+    raised: "#272f3a",
+    text: "#e9edf4",
   },
 } as const;
 
 /** Candidate colours for text drawn on top of the accent fill. */
 export const ON_ACCENT_CANDIDATES = {
-  paper: "#fffefb",
-  ink: "#1f1d1a",
+  paper: "#fcfdff",
+  ink: "#171c24",
 } as const;
 
 /** Body text on an accent fill must clear this ratio. */
@@ -98,24 +98,24 @@ export const MIN_FOCUS_CONTRAST = 3;
 
 export const TOKEN_VALUES = {
   canvas: THEME_SURFACES.light.canvas,
-  accent: "#765847",
-  success: "#1b5e3f",
-  warning: "#7a4a08",
-  error: "#a32f2f",
+  accent: "#e0a458",
+  success: "#186a43",
+  warning: "#7d4e0a",
+  error: "#a92f39",
   darkCanvas: THEME_SURFACES.dark.canvas,
-  darkSuccess: "#63c093",
-  darkWarning: "#e0ac4b",
-  darkError: "#f08a8a",
+  darkSuccess: "#5fc493",
+  darkWarning: "#dcab4d",
+  darkError: "#f08e93",
 } as const;
 
 const HEX_SEED = /^#([0-9a-fA-F]{6})$/;
 
-export function isLightDefaultTheme(): boolean {
-  return DEFAULT_APPEARANCE.theme === "light";
+export function isDarkDefaultTheme(): boolean {
+  return DEFAULT_APPEARANCE.theme === "dark";
 }
 
-export function isAdvancedBrownAccent(): boolean {
-  return DEFAULT_APPEARANCE.accentSeed.toLowerCase() === "#765847";
+export function isConsoleAmberAccent(): boolean {
+  return DEFAULT_APPEARANCE.accentSeed.toLowerCase() === "#e0a458";
 }
 
 export function normalizeAccentSeed(raw: string): string | null {
@@ -350,10 +350,11 @@ export interface DerivedAccentPalette {
  * Theme-aware accent family.
  *
  * The accent itself is adjusted per theme, not only its hover and active
- * steps. A dark brown seed is unreadable on a dark canvas, so dark mode lifts
- * it until it clears 4.5:1 against canvas, surface, and raised. Hover and
- * active then move away from the on-accent text colour, which increases label
- * contrast in both themes.
+ * steps. The amber default already reads on the dark console, but a bright
+ * seed is unreadable on light paper, so the light theme deepens it until it
+ * clears 4.5:1 against canvas, surface, and raised, and dark mode lifts a
+ * dark seed the same way. Hover and active then move away from the on-accent
+ * text colour, which increases label contrast in both themes.
  */
 export function deriveAccentPalette(
   seedHex: string,

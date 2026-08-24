@@ -1,7 +1,9 @@
 /**
- * Translunar design tokens.
+ * Translunar design tokens: the "Deep Console" language.
  *
- * Authority: .trellis/spec/frontend/design-language.md
+ * A dark-first professional translation cockpit: a cool graphite-blue ink
+ * ladder carries long reading sessions, and one amber accent marks leverage,
+ * focus, and confirmation. Light mode is the same instrument in daylight.
  *
  * This is the only file in the renderer allowed to contain raw colour,
  * radius, motion, shadow, or z-index values. `pnpm ui:audit` enforces that.
@@ -16,119 +18,136 @@
  */
 
 :root,
-html[data-theme="light"] {
-  color-scheme: light;
-  --color-scheme: light;
-
-  /* Surfaces: warm paper. Adjacent steps differ by at least 2.5 CIE L*. */
-  --color-sunken: #e2ded4; /* L* 88.53 */
-  --color-canvas: #eeeae1; /* L* 92.78 */
-  --color-surface: #f7f4ee; /* L* 96.27 */
-  --color-raised: #fffefb; /* L* 99.65 */
-
-  /* Structure: cool green-grey against the warm paper. */
-  --color-line: #d5d2c8; /* decorative divider */
-  --color-border: #82857e; /* control boundary, 3.12:1 on canvas */
-  --color-border-strong: #6d716b; /* 4.14:1 on canvas */
-
-  /* Text: all three roles clear 4.5:1 on every surface. */
-  --color-text: #1f1d1a; /* 14.01:1 on canvas */
-  --color-text-muted: #585c57; /* 5.67:1 on canvas */
-  --color-text-subtle: #5c605c; /* 4.76:1 on sunken */
-
-  /* Accent: advanced brown. Overwritten at runtime from the stored seed. */
-  --color-accent-seed: #765847;
-  --color-accent: #765847; /* 5.37:1 on canvas */
-  --color-accent-hover: #6a5041;
-  --color-accent-active: #5f493b;
-  --color-accent-soft: #e5ded7; /* body text 12.62:1 */
-  --color-on-accent: #fffefb; /* 6.39:1 on accent */
-  --color-focus: #765847;
-
-  /* Semantic: theme-fixed, never derived from the accent seed. */
-  --color-success: #1b5e3f;
-  --color-warning: #7a4a08;
-  --color-error: #a32f2f;
-  --color-info: #1f5570;
-  --color-success-soft: #dfe9e2;
-  --color-warning-soft: #f0e6d3;
-  --color-error-soft: #f4dedd;
-  --color-info-soft: #dce8ee;
-  --color-on-solid: #fffefb; /* text on a solid semantic fill */
-
-  /* Brand mark: the five-colour ribbon, fixed identity values. */
-  --color-brand-burnt: #d9562b;
-  --color-brand-ochre: #d29a2e;
-  --color-brand-lichen: #87904a;
-  --color-brand-teal: #4f8076;
-  --color-brand-dusk: #526f86;
-
-  /* Categorical data palette derived from the brand ribbon. */
-  --color-series-ochre: #a3761a; /* L* 52.7 */
-  --color-series-lichen: #667130; /* L* 45.4 */
-  --color-series-burnt: #ad3f1d; /* L* 42.0 */
-  --color-series-teal: #356057; /* L* 37.5 */
-  --color-series-dusk: #374b5c; /* L* 30.9 */
-
-  /* Overlay */
-  --color-scrim: rgb(31 29 26 / 38%);
-  --color-hover-tint: rgb(31 29 26 / 5%);
-  --color-active-tint: rgb(31 29 26 / 9%);
-
-  /* Elevation: tinted to the surface hue, never pure black. */
-  --shadow-sm: 0 1px 2px rgb(31 29 26 / 7%);
-  --shadow-md: 0 6px 18px rgb(31 29 26 / 11%);
-  --shadow-lg: 0 18px 44px rgb(31 29 26 / 18%);
-}
-
 html[data-theme="dark"] {
   color-scheme: dark;
   --color-scheme: dark;
 
-  --color-sunken: #121110; /* L* 5.12 */
-  --color-canvas: #1a1714; /* L* 7.98 */
-  --color-surface: #24211c; /* L* 12.90 */
-  --color-raised: #2f2b25; /* L* 17.76 */
+  /* Surfaces: deep console ink. Adjacent steps differ by at least 2.5 CIE L*. */
+  --color-sunken: #0c0f14; /* L* 4.25 */
+  --color-canvas: #13171e; /* L* 7.63 */
+  --color-surface: #1c222b; /* L* 13.02 */
+  --color-raised: #272f3a; /* L* 19.10 */
 
-  --color-line: #37332c;
-  --color-border: #79756b; /* 3.06:1 on raised */
-  --color-border-strong: #8b8579; /* 3.84:1 on raised */
+  /* Structure: cool steel against the ink. */
+  --color-line: #2b333f; /* decorative divider */
+  --color-border: #727d8d; /* control boundary, 3.10:1 on raised */
+  --color-border-strong: #818e9f; /* 3.94:1 on raised */
 
-  --color-text: #f3efe8; /* 15.57:1 on canvas */
-  --color-text-muted: #a5a89f; /* 7.40:1 on canvas */
-  --color-text-subtle: #96948b; /* 4.62:1 on raised */
+  /* Text: all three roles clear 4.5:1 on every surface. */
+  --color-text: #e9edf4; /* 15.6:1 on canvas */
+  --color-text-muted: #a3adbc; /* 7.5:1 on canvas */
+  --color-text-subtle: #98a1af; /* 4.6:1 on raised */
 
-  --color-accent-seed: #765847;
-  --color-accent: #b98a70; /* 4.64:1 on raised */
-  --color-accent-hover: #c39a83;
-  --color-accent-active: #cba894;
-  --color-accent-soft: #45382e; /* body text 9.86:1 */
-  --color-on-accent: #1f1d1a; /* 5.55:1 on accent */
-  --color-focus: #b98a70;
+  /* Accent: amber. Overwritten at runtime from the stored seed. */
+  --color-accent-seed: #e0a458;
+  --color-accent: #e0a458; /* 8.0:1 on canvas */
+  --color-accent-hover: #e4b06f;
+  --color-accent-active: #e7bb83;
+  --color-accent-soft: #473f35; /* body text 9.9:1 */
+  --color-on-accent: #171c24; /* 8.4:1 on accent */
+  --color-focus: #e0a458;
 
-  --color-success: #63c093;
-  --color-warning: #e0ac4b;
-  --color-error: #f08a8a;
-  --color-info: #77bcd9;
-  --color-success-soft: #1c2f26;
-  --color-warning-soft: #332a17;
-  --color-error-soft: #3a2222;
-  --color-info-soft: #1d2a33;
-  --color-on-solid: #1a1714;
+  /* Semantic: theme-fixed, never derived from the accent seed. */
+  --color-success: #5fc493;
+  --color-warning: #dcab4d;
+  --color-error: #f08e93;
+  --color-info: #71bfe3;
+  --color-success-soft: #152a20;
+  --color-warning-soft: #2d2413;
+  --color-error-soft: #39201f;
+  --color-info-soft: #162833;
+  --color-on-solid: #13171e; /* text on a solid semantic fill */
 
-  --color-series-ochre: #e8c063; /* L* 79.5 */
-  --color-series-lichen: #b0bb72; /* L* 73.5 */
-  --color-series-burnt: #eb8258; /* L* 65.2 */
-  --color-series-teal: #5f978c; /* L* 58.5 */
-  --color-series-dusk: #5a7d95; /* L* 50.7 */
+  /* Brand mark: the five-colour spectrum strip, fixed identity values. */
+  --color-brand-burnt: #d05f38;
+  --color-brand-ochre: #dfa53f;
+  --color-brand-lichen: #8fa04e;
+  --color-brand-teal: #40877a;
+  --color-brand-dusk: #4d6f92;
 
-  --color-scrim: rgb(7 6 5 / 62%);
-  --color-hover-tint: rgb(243 239 232 / 6%);
-  --color-active-tint: rgb(243 239 232 / 10%);
+  /* Categorical data palette derived from the brand spectrum. */
+  --color-series-ochre: #e3bd62; /* L* 78.2 */
+  --color-series-lichen: #a9bc72; /* L* 73.3 */
+  --color-series-burnt: #ee8a5e; /* L* 67.4 */
+  --color-series-teal: #54a094; /* L* 60.9 */
+  --color-series-dusk: #6488a8; /* L* 55.2 */
 
-  --shadow-sm: 0 1px 2px rgb(0 0 0 / 40%);
-  --shadow-md: 0 6px 18px rgb(0 0 0 / 52%);
-  --shadow-lg: 0 18px 44px rgb(0 0 0 / 62%);
+  /* Overlay */
+  --color-scrim: rgb(5 7 10 / 64%);
+  --color-hover-tint: rgb(233 237 244 / 6%);
+  --color-active-tint: rgb(233 237 244 / 10%);
+  /* Accent glow: focus halos and the confirm sweep. Never a text colour. */
+  --color-accent-glow: rgb(224 164 88 / 22%);
+
+  /* Elevation: tinted to the ink, never pure black. */
+  --shadow-sm: 0 1px 2px rgb(2 4 8 / 42%);
+  --shadow-md: 0 6px 18px rgb(2 4 8 / 52%);
+  --shadow-lg: 0 18px 44px rgb(2 4 8 / 62%);
+  /* Editing stage lift: shadow plus a hairline accent trace. */
+  --shadow-stage:
+    0 2px 6px rgb(2 4 8 / 38%),
+    0 10px 28px rgb(2 4 8 / 34%);
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --color-scheme: light;
+
+  /* Surfaces: cool paper. */
+  --color-sunken: #d8dce2; /* L* 87.62 */
+  --color-canvas: #e7eaef; /* L* 92.60 */
+  --color-surface: #f2f4f7; /* L* 96.12 */
+  --color-raised: #fcfdff; /* L* 99.29 */
+
+  --color-line: #c6ccd6;
+  --color-border: #767f8d; /* 3.3:1 on canvas */
+  --color-border-strong: #616a78; /* 4.5:1 on canvas */
+
+  --color-text: #171c24; /* 15.4:1 on canvas */
+  --color-text-muted: #454e5c; /* 7.4:1 on canvas */
+  --color-text-subtle: #4d5563; /* 5.6:1 on raised */
+
+  --color-accent-seed: #e0a458;
+  --color-accent: #856134; /* 4.6:1 on raised */
+  --color-accent-hover: #765732;
+  --color-accent-active: #684f30;
+  --color-accent-soft: #e3dfdc; /* body text 12.9:1 */
+  --color-on-accent: #fcfdff; /* 5.5:1 on accent */
+  --color-focus: #856134;
+
+  --color-success: #186a43;
+  --color-warning: #7d4e0a;
+  --color-error: #a92f39;
+  --color-info: #1c5878;
+  --color-success-soft: #d7e7dd;
+  --color-warning-soft: #ecdfc8;
+  --color-error-soft: #f2dcda;
+  --color-info-soft: #d5e5ee;
+  --color-on-solid: #fcfdff;
+
+  --color-brand-burnt: #d05f38;
+  --color-brand-ochre: #dfa53f;
+  --color-brand-lichen: #8fa04e;
+  --color-brand-teal: #40877a;
+  --color-brand-dusk: #4d6f92;
+
+  --color-series-ochre: #9c7314; /* L* 51.1 */
+  --color-series-lichen: #66783a; /* L* 47.7 */
+  --color-series-burnt: #a04424; /* L* 40.8 */
+  --color-series-teal: #2d6055; /* L* 37.1 */
+  --color-series-dusk: #3c4f66; /* L* 33.0 */
+
+  --color-scrim: rgb(23 28 36 / 40%);
+  --color-hover-tint: rgb(23 28 36 / 5%);
+  --color-active-tint: rgb(23 28 36 / 9%);
+  --color-accent-glow: rgb(133 97 52 / 20%);
+
+  --shadow-sm: 0 1px 2px rgb(23 28 36 / 8%);
+  --shadow-md: 0 6px 18px rgb(23 28 36 / 12%);
+  --shadow-lg: 0 18px 44px rgb(23 28 36 / 18%);
+  --shadow-stage:
+    0 2px 6px rgb(23 28 36 / 10%),
+    0 10px 28px rgb(23 28 36 / 10%);
 }
 
 /* Theme-independent scales. */
@@ -207,18 +226,22 @@ html[data-theme="dark"] {
   --motion-fast: 120ms;
   --motion-base: 160ms;
   --motion-slow: 220ms;
+  /* Deliberate gestures: the confirm sweep and the editing-stage rise. */
+  --motion-deliberate: 320ms;
   --motion-spinner: 640ms;
   --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
   --ease-accelerate: cubic-bezier(0.4, 0, 1, 1);
+  /* A restrained overshoot for the stage rise; never used on text-only moves. */
+  --ease-overshoot: cubic-bezier(0.34, 1.28, 0.4, 1);
   --stagger-step: 40ms;
 
   /* Layout */
   --chrome-height: 44px;
-  --panel-w-tm: 320px;
+  --panel-w-tm: 328px;
   --panel-w-pdf: 288px;
   --rail-w: 40px;
-  --file-nav-w: 200px;
+  --file-nav-w: 208px;
   --preview-w: 280px;
   --measure: 68ch;
 
@@ -234,6 +257,7 @@ html[data-theme="dark"] {
     --motion-fast: 0ms;
     --motion-base: 0ms;
     --motion-slow: 0ms;
+    --motion-deliberate: 0ms;
     --stagger-step: 0ms;
   }
 }

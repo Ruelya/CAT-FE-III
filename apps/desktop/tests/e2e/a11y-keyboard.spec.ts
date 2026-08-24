@@ -344,7 +344,7 @@ test.describe("accessibility and keyboard", () => {
           JSON.stringify({
             version: 1,
             theme: "dark",
-            accentSeed: "#765847",
+            accentSeed: "#e0a458",
           }),
         );
       });
