@@ -869,8 +869,9 @@ and generic document.export method contracts.
   `pdf.page.get`. DOCX original-layout preview may receive file bytes only
   through `readManagedSource`.
 - OCR correction is available only for active OCR, non-confirmed blocks. The
-  controlled form requires source text and reason, sends expected revision, and
-  replaces grid and preview state with the returned Segment.
+  controlled form requires source text (a reason is optional context), sends
+  expected revision, and replaces grid and preview state with the returned
+  Segment.
 - DOCX/HTML/Markdown/TXT Preview uses the ordered `Segment[]` window and its
   `structuralPath` values as evidence only. It may show a segment/section
   position and a degradation note, but it must not invent page numbers,
@@ -889,7 +890,7 @@ and generic document.export method contracts.
 | Source dialog canceled | Keep Setup state; do not create/import |
 | Non-PDF `pdf.page.list` InvalidRequest | Hide dock; no fake pages / error chrome |
 | Page summary/image loading fails (real PDF path) | Keep editor usable; thin typed preview error chrome |
-| Correction reason/source empty | Disable save; make no RPC |
+| Correction source empty | Disable save; make no RPC |
 | Stale OCR revision | Show conflict; keep authoritative current state |
 | Confirmed/non-OCR block | Do not render correction command |
 | Preview collapsed | Stop page fetches, keep animated content mounted/inert |
@@ -899,7 +900,7 @@ and generic document.export method contracts.
 ### 5. Good / Base / Bad Cases
 
 - Good: select scanned PDF, activate invoice block, compare original page,
-  correct OCR with a reason, translate target, maximize preview, and export.
+  correct OCR in one step, translate target, maximize preview, and export.
 - Base: open text-layer PDF and navigate pages without correction controls.
 - Bad: decode paths in React, preload every page, expose filesystem APIs,
   optimistically increment source revision, or unmount preview to collapse.
@@ -1447,17 +1448,19 @@ ai.run.get/cancel
 ### 3. Contracts
 
 - Project Insights owns one `AlignmentCorpusPanel` with explicit Alignment and
-  Reference corpora modes. It sends IDs, expected revisions, bounded actor and
-  reason fields, and returned link selections; it never scores candidates,
-  parses files, invokes a provider directly, or derives a storage revision.
+  Reference corpora modes. It sends IDs, expected revisions, bounded actor
+  fields (reasons are optional context), and returned link selections; it
+  never scores candidates, parses files, invokes a provider directly, or
+  derives a storage revision.
 - Session creation uses active document and project revisions from the latest
   parent snapshot. A stale-state reload refreshes the parent workspace as well
   as session/library pages so a retry cannot reuse stale project or document
   revisions.
 - Link/Merge/Unlink/Split send a complete replacement partition for a
   contiguous returned link range. Confirm/reject, correction, refine, apply,
-  reindex, remove, and corpus creation stay disabled until actor and reason are
-  non-empty. Renderer selection never implies confirmation or TM application.
+  reindex, remove, and corpus creation are gated on selection and structural
+  validity only; no mutation demands a written reason. Renderer selection
+  never implies confirmation or TM application.
 - AI refinement accepts selected proposed links only. Poll `ai.run.get` at a
   bounded cadence, treat `succeeded`, `failed`, `interrupted`, and `canceled`
   as terminal, and stop renderer polling on unmount without canceling durable
@@ -1491,7 +1494,6 @@ ai.run.get/cancel
 | --- | --- |
 | Corpus dialog canceled or dropped file has no trusted path | Keep the form unchanged and make no import RPC |
 | Fewer than two active documents or the same document is selected twice | Disable session creation |
-| Actor/reason is empty | Disable every affected mutation while keeping read-only paging/search usable |
 | Selected links are non-contiguous or do not fit the command shape | Disable that correction; never synthesize a partial partition |
 | AI run is `interrupted` | Stop polling and show the returned failure; do not offer cancel against a terminal run |
 | Session/project/document/library/corpus conflict | Keep current selections and show the typed error; authoritative reload refreshes parent revisions |
@@ -1579,9 +1581,9 @@ selectTaskPackageInput(): Promise<string | null>;
 Renderer calls generated methods only:
 `taskPackage.export`, `taskPackage.preview`, `taskPackage.import`,
 `taskPackage.apply`, and `taskPackage.discard`. The apply payload contains
-`previewId`, `expectedProjectRevision`, explicit `selectedRowIds`, `actor`, and
-`reason`; it does not contain a request digest. Preview paging reuses the
-returned `previewId`, `offset`, and `limit`.
+`previewId`, `expectedProjectRevision`, explicit `selectedRowIds`, and `actor`
+(a reason is optional context); it does not contain a request digest. Preview
+paging reuses the returned `previewId`, `offset`, and `limit`.
 
 ### 3. Contracts
 
@@ -1613,7 +1615,7 @@ returned `previewId`, `offset`, and `limit`.
 | Condition | Required behavior |
 | --- | --- |
 | Dialog canceled | Keep the current path/preview and make no package RPC |
-| Actor or reason empty | Disable export, preview, import, apply, and discard while keeping read-only rows visible |
+| Actor empty | Disable export, preview, import, apply, and discard while keeping read-only rows visible |
 | No active document or incomplete asset slice | Disable assignment export; do not send a partial selection |
 | Preview page pending | Keep row/control dimensions stable and prevent duplicate page requests |
 | `safeToApply=false` disposition | Checkbox stays disabled and row remains visible with Engine reason |
@@ -1664,7 +1666,6 @@ const result = await window.translunar.invoke("taskPackage.preview", {
   offset: 0,
   limit: 50,
   actor: actor.trim(),
-  reason: reason.trim(),
 });
 setPreview(result);
 setSelectedRows(new Set(result.rows.filter((row) => row.selected).map((row) => row.rowId)));
@@ -1841,7 +1842,7 @@ only `asset.catalog.list`, `curation.run`, `curation.run.get`,
 | Engine returns another typed failure | Display its bounded message; do not show success or invent state |
 | Library/provider list is loading or empty | Keep stable controls, show named loading/empty state, and disable analyze |
 | Run is not `open` or finding disposition is not `quarantine` | Disable selection/apply; keep evidence visible |
-| Actor/reason is blank, selection is empty, or mutation is busy | Disable the unsafe command without hiding read-only data |
+| Selection is empty or mutation is busy | Disable the unsafe command without hiding read-only data |
 | Apply/rollback succeeds | Replace run/library revisions from Engine, refresh catalog/project state, and expose the terminal status |
 | Supported viewport | No document horizontal overflow, clipped control text, heading/action overlap, or console/page error |
 
@@ -2084,9 +2085,10 @@ The dialog consumes generated `PluginCapabilityReview`,
 - Each request shows capability ID, localized effect, requested/granted scope,
   required/optional status, contribution ID, supported flag, risk, decision,
   version-change kind, actor/reason, and revision without displaying secrets.
-- A grant requires a non-empty reason, a supported request, and a scope no
-  broader than the request. Unsupported optional requests remain visible and
-  have Grant disabled. Deny/revoke use the exact displayed request revision.
+- A grant requires a supported request and a scope no broader than the
+  request; a reason is optional context recorded when volunteered. Unsupported
+  optional requests remain visible and have Grant disabled. Deny/revoke use
+  the exact displayed request revision.
 - Every successful decision reloads review, audit, plugin inventory, and the
   owning Insights projection. The renderer never optimistically changes
   decision, plugin status, attachment, or audit order.
@@ -2103,7 +2105,7 @@ The dialog consumes generated `PluginCapabilityReview`,
 | Condition | Required UI behavior |
 | --- | --- |
 | Review/audit load fails | Keep inventory usable, show named bounded error, clear busy state |
-| Reason is blank | Disable grant/deny/revoke without hiding request evidence |
+| Actor is blank | Disable grant/deny/revoke without hiding request evidence |
 | Request is unsupported | Show unsupported effect/status; disable Grant; allow an explicit deny when valid |
 | Grant scope is broader than requested | Keep Grant disabled; do not send the RPC |
 | Engine returns `conflict` | Show typed error and reload authoritative review before another decision |
@@ -2112,8 +2114,8 @@ The dialog consumes generated `PluginCapabilityReview`,
 
 ### 5. Good / Base / Bad Cases
 
-- Good: open review, inspect a version scope expansion, enter a reason, narrow
-  scope, grant, enable, reopen after restart, revoke, and read ordered audit.
+- Good: open review, inspect a version scope expansion, narrow scope, grant,
+  enable, reopen after restart, revoke, and read ordered audit.
 - Base: show an unknown optional request as unsupported and pending while the
   known required request remains independently reviewable.
 - Bad: hide unsupported requests, grant every request on install, mutate the

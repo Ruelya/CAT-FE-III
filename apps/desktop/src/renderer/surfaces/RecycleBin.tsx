@@ -38,23 +38,30 @@ export function RecycleBin({
   onPurge,
 }: RecycleBinProps) {
   const busy = Boolean(disabled || pending || loading);
-  const [confirm, setConfirm] = useState<
-    | { kind: "restore"; entry: RecycleEntry }
-    | { kind: "purge"; entry: RecycleEntry }
-    | null
-  >(null);
+  const [confirm, setConfirm] = useState<{ entry: RecycleEntry } | null>(null);
   const [actionPending, setActionPending] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  async function runConfirm() {
+  // Restore is reversible, so it acts in one click; only the irreversible
+  // purge keeps a confirmation.
+  async function runRestore(entry: RecycleEntry) {
+    if (actionPending) return;
+    setActionPending(true);
+    setActionError(null);
+    try {
+      const ok = await onRestore(entry.id);
+      if (!ok) setActionError("Restore failed.");
+    } finally {
+      setActionPending(false);
+    }
+  }
+
+  async function runPurge() {
     if (!confirm || actionPending) return;
     setActionPending(true);
     setActionError(null);
     try {
-      const ok =
-        confirm.kind === "restore"
-          ? await onRestore(confirm.entry.id)
-          : await onPurge(confirm.entry.id);
+      const ok = await onPurge(confirm.entry.id);
       if (ok) {
         setConfirm(null);
       } else {
@@ -83,6 +90,11 @@ export function RecycleBin({
         {error ? (
           <p className="error-text" role="alert">
             {formatUiError(error)}
+          </p>
+        ) : null}
+        {actionError && !confirm ? (
+          <p className="error-text" role="alert">
+            {actionError}
           </p>
         ) : null}
         {loading ? (
@@ -140,11 +152,8 @@ export function RecycleBin({
                   <button
                     type="button"
                     className="btn btn--secondary"
-                    disabled={busy}
-                    onClick={() => {
-                      setActionError(null);
-                      setConfirm({ kind: "restore", entry });
-                    }}
+                    disabled={busy || actionPending}
+                    onClick={() => void runRestore(entry)}
                   >
                     Restore
                   </button>
@@ -154,7 +163,7 @@ export function RecycleBin({
                     disabled={busy}
                     onClick={() => {
                       setActionError(null);
-                      setConfirm({ kind: "purge", entry });
+                      setConfirm({ entry });
                     }}
                   >
                     Purge
@@ -193,28 +202,14 @@ export function RecycleBin({
         ) : null}
       </div>
 
-      {confirm?.kind === "restore" ? (
-        <ConfirmDialog
-          title="Restore entry"
-          body={`${confirm.entry.displayName} will be restored.`}
-          confirmLabel="Restore"
-          danger={false}
-          pending={actionPending}
-          error={actionError}
-          onConfirm={() => void runConfirm()}
-          onCancel={() => setConfirm(null)}
-          testId="restore-confirm"
-        />
-      ) : null}
-
-      {confirm?.kind === "purge" ? (
+      {confirm ? (
         <ConfirmDialog
           title="Purge permanently"
           body={`${confirm.entry.displayName} will be permanently deleted. This cannot be undone.`}
           confirmLabel="Purge"
           pending={actionPending}
           error={actionError}
-          onConfirm={() => void runConfirm()}
+          onConfirm={() => void runPurge()}
           onCancel={() => setConfirm(null)}
           testId="purge-confirm"
         />

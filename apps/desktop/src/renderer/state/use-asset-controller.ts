@@ -115,12 +115,11 @@ export interface AssetControllerApi {
     status: "confirmed" | "rejected" | "proposed",
   ) => Promise<void>;
   /** Repartition selected links into a single manual replacement (replaceLinks). */
-  replaceSelectedLinks: (reason: string) => Promise<void>;
+  replaceSelectedLinks: () => Promise<void>;
   setRefineProfileId: (id: string) => void;
-  setRefineReason: (reason: string) => void;
   refineSelected: () => Promise<void>;
   setApplyLibraryId: (id: string) => void;
-  applyAlignment: (reason: string) => Promise<void>;
+  applyAlignment: () => Promise<void>;
   loadAlignmentSessions: (offset?: number) => Promise<void>;
   loadAlignmentLinks: (offset?: number) => Promise<void>;
   // Corpus
@@ -133,7 +132,7 @@ export interface AssetControllerApi {
   loadCorpora: (offset?: number) => Promise<void>;
   /** Returns true only when Engine removal succeeded. */
   removeCorpus: (corpusId: string, expectedRevision: number) => Promise<boolean>;
-  corpusFromAlignment: (name: string, reason: string) => Promise<void>;
+  corpusFromAlignment: (name: string) => Promise<void>;
   // Catalog
   setCatalogQuery: (q: string) => void;
   setCatalogKind: (k: AssetControllerState["catalog"]["kind"]) => void;
@@ -1581,8 +1580,7 @@ export function useAssetController(
       if (
         !create.sourceDocumentId ||
         !create.targetDocumentId ||
-        create.sourceDocumentId === create.targetDocumentId ||
-        !create.reason.trim()
+        create.sourceDocumentId === create.targetDocumentId
       ) {
         setState((s) => ({
           ...s,
@@ -1593,7 +1591,7 @@ export function useAssetController(
               pending: false,
               error: {
                 code: "VALIDATION",
-                message: "Distinct documents and reason required",
+                message: "Two distinct documents required",
                 kind: "domain",
               },
             },
@@ -1625,7 +1623,6 @@ export function useAssetController(
           expectedProjectRevision: project.project.revision,
           expectedSourceDocumentRevision: sourceDoc.revision,
           expectedTargetDocumentRevision: targetDoc.revision,
-          reason: create.reason.trim(),
           options: DEFAULT_ALIGNMENT_OPTIONS,
         });
         if (!isMutCurrent("alignment", opId, projectId)) return;
@@ -1636,7 +1633,6 @@ export function useAssetController(
             create: {
               sourceDocumentId: "",
               targetDocumentId: "",
-              reason: "",
               pending: false,
               error: null,
             },
@@ -1757,7 +1753,6 @@ export function useAssetController(
         const result = await invokeEngine("alignment.session.update", {
           sessionId: session.id,
           expectedSessionRevision: session.revision,
-          reason: `setStatus ${status}`,
           mutation: {
             kind: "setStatus",
             linkId,
@@ -1802,13 +1797,7 @@ export function useAssetController(
         alignment: { ...s.alignment, refineProfileId: id },
       })),
 
-    setRefineReason: (reason) =>
-      setState((s) => ({
-        ...s,
-        alignment: { ...s.alignment, refineReason: reason },
-      })),
-
-    replaceSelectedLinks: async (reason) => {
+    replaceSelectedLinks: async () => {
       const projectId = projectIdRef.current;
       let session = state.alignment.session;
       let selectedLinkIds = state.alignment.selectedLinkIds;
@@ -1822,7 +1811,6 @@ export function useAssetController(
       if (
         !session ||
         selectedLinkIds.length < 2 ||
-        !reason.trim() ||
         !gatewayRef.current.mutationsEnabled
       ) {
         return;
@@ -1851,7 +1839,6 @@ export function useAssetController(
         const result = await invokeEngine("alignment.session.update", {
           sessionId: session.id,
           expectedSessionRevision: session.revision,
-          reason: reason.trim(),
           mutation: {
             kind: "replaceLinks",
             links: selected.map((l) => ({
@@ -1900,19 +1887,16 @@ export function useAssetController(
       let selectedLinkIds = state.alignment.selectedLinkIds;
       let links = state.alignment.links;
       let refineProfileId = state.alignment.refineProfileId;
-      let refineReason = state.alignment.refineReason;
       setState((s) => {
         session = s.alignment.session;
         selectedLinkIds = s.alignment.selectedLinkIds;
         links = s.alignment.links;
         refineProfileId = s.alignment.refineProfileId;
-        refineReason = s.alignment.refineReason;
         return s;
       });
       if (
         !session ||
         !refineProfileId.trim() ||
-        !refineReason.trim() ||
         selectedLinkIds.length === 0 ||
         !gatewayRef.current.mutationsEnabled
       ) {
@@ -1939,7 +1923,6 @@ export function useAssetController(
           expectedSessionRevision: session.revision,
           links: linkRevs,
           profileId: refineProfileId.trim(),
-          reason: refineReason.trim(),
         });
         if (!isMutCurrent("alignment", opId, projectId)) return;
         setState((s) => ({
@@ -1993,7 +1976,7 @@ export function useAssetController(
         alignment: { ...s.alignment, applyLibraryId: id },
       })),
 
-    applyAlignment: async (reason) => {
+    applyAlignment: async () => {
       const projectId = projectIdRef.current;
       const { session, selectedLinkIds, links, applyLibraryId } =
         state.alignment;
@@ -2002,7 +1985,6 @@ export function useAssetController(
         session.status !== "open" ||
         !applyLibraryId ||
         selectedLinkIds.length === 0 ||
-        !reason.trim() ||
         !gatewayRef.current.mutationsEnabled
       ) {
         return;
@@ -2040,7 +2022,6 @@ export function useAssetController(
           libraryId: applyLibraryId,
           expectedLibraryRevision: lib.revision,
           links: linkRevs,
-          reason: reason.trim(),
         });
         if (!isMutCurrent("alignment", opId, projectId)) return;
         setState((s) => ({
@@ -2131,7 +2112,6 @@ export function useAssetController(
           sourceLocale: g.sourceLocale,
           targetLocale: g.targetLocale,
           sourcePath: path,
-          reason: "import",
         });
         if (!isMutCurrent("corpus", opId, projectId)) return;
         setState((s) => ({
@@ -2264,14 +2244,13 @@ export function useAssetController(
         endMut("corpus", opId, projectId);
       }
     },
-    corpusFromAlignment: async (name, reason) => {
+    corpusFromAlignment: async (name) => {
       const projectId = projectIdRef.current;
       const { session, selectedLinkIds, links } = state.alignment;
       if (
         !session ||
         selectedLinkIds.length === 0 ||
         !name.trim() ||
-        !reason.trim() ||
         !gatewayRef.current.mutationsEnabled
       ) {
         return;
@@ -2295,7 +2274,6 @@ export function useAssetController(
           expectedSessionRevision: session.revision,
           links: linkRevs,
           name: name.trim(),
-          reason: reason.trim(),
         });
         if (!isMutCurrent("corpus", opId, projectId)) return;
         setState((s) => ({

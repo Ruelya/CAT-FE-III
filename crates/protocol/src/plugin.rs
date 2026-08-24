@@ -220,6 +220,7 @@ pub struct PluginUpgradeParams {
     pub source_path: String,
     pub expected_revision: u64,
     pub actor: String,
+    #[serde(default)]
     pub reason: String,
 }
 
@@ -230,6 +231,7 @@ pub struct PluginRollbackParams {
     pub version_id: String,
     pub expected_revision: u64,
     pub actor: String,
+    #[serde(default)]
     pub reason: String,
 }
 
@@ -635,6 +637,7 @@ pub struct PluginCapabilityGrantParams {
     pub expected_revision: u64,
     pub scope: PluginCapabilityScope,
     pub actor: String,
+    #[serde(default)]
     pub reason: String,
 }
 
@@ -645,6 +648,7 @@ pub struct PluginCapabilityDecisionParams {
     pub request_id: String,
     pub expected_revision: u64,
     pub actor: String,
+    #[serde(default)]
     pub reason: String,
 }
 

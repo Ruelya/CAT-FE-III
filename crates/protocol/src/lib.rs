@@ -973,7 +973,9 @@ pub struct ReviewApplyParams {
     pub preview_id: String,
     pub expected_document_revision: u64,
     pub selected_row_ids: Vec<String>,
+    #[serde(default = "default_actor")]
     pub actor: String,
+    #[serde(default)]
     pub reason: String,
 }
 
@@ -1037,7 +1039,9 @@ pub struct TableApplyParams {
     pub preview_id: String,
     pub expected_library_revision: u64,
     pub selected_row_ids: Vec<String>,
+    #[serde(default = "default_actor")]
     pub actor: String,
+    #[serde(default)]
     pub reason: String,
 }
 

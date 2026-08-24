@@ -39,7 +39,6 @@ export interface InteropControllerGateway {
 export interface InteropControllerState {
   mode: InteropMode;
   actor: string;
-  reason: string;
   path: string | null;
   exportPath: string | null;
   exportNotice: string | null;
@@ -64,7 +63,6 @@ export interface InteropControllerApi {
   state: InteropControllerState;
   setMode: (mode: InteropMode) => void;
   setActor: (actor: string) => void;
-  setReason: (reason: string) => void;
   setLibraryId: (id: string | null) => void;
   toggleRow: (rowId: string, selected: boolean) => void;
   exportReview: () => Promise<void>;
@@ -89,7 +87,6 @@ function emptyModeState(): Pick<
   | "selectedRowIds"
   | "reviewPreview"
   | "tablePreview"
-  | "reason"
 > {
   return {
     path: null,
@@ -101,7 +98,6 @@ function emptyModeState(): Pick<
     selectedRowIds: new Set(),
     reviewPreview: null,
     tablePreview: null,
-    reason: "",
   };
 }
 
@@ -257,11 +253,6 @@ export function useInteropController(
   const setActor = useCallback((actor: string) => {
     stateRef.current = { ...stateRef.current, actor };
     setState((s) => ({ ...s, actor }));
-  }, []);
-
-  const setReason = useCallback((reason: string) => {
-    stateRef.current = { ...stateRef.current, reason };
-    setState((s) => ({ ...s, reason }));
   }, []);
 
   const setLibraryId = useCallback((id: string | null) => {
@@ -474,7 +465,7 @@ export function useInteropController(
     const status: InteropPreviewStatus | undefined =
       s.mode === "review" ? s.reviewPreview?.status : s.tablePreview?.status;
     if (!status || !canApplySelection(s.selectedRowIds, status)) return;
-    if (!s.actor.trim() || !s.reason.trim()) return;
+    if (!s.actor.trim()) return;
 
     if (s.mode === "review") {
       const ok = await gw.flushOrStay();
@@ -490,7 +481,6 @@ export function useInteropController(
           expectedDocumentRevision: s.reviewPreview.expectedDocumentRevision,
           selectedRowIds: [...s.selectedRowIds],
           actor: s.actor.trim(),
-          reason: s.reason.trim(),
         });
         if (op !== opRef.current) return;
         setState((prev) => ({
@@ -509,7 +499,6 @@ export function useInteropController(
           expectedLibraryRevision: s.tablePreview.expectedLibraryRevision,
           selectedRowIds: [...s.selectedRowIds],
           actor: s.actor.trim(),
-          reason: s.reason.trim(),
         });
         if (op !== opRef.current) return;
         setState((prev) => ({
@@ -542,7 +531,6 @@ export function useInteropController(
     Boolean(status) &&
     canApplySelection(state.selectedRowIds, status ?? "open") &&
     state.actor.trim().length > 0 &&
-    state.reason.trim().length > 0 &&
     !state.pending &&
     gateway.mutationsEnabled;
 
@@ -550,7 +538,6 @@ export function useInteropController(
     state,
     setMode,
     setActor,
-    setReason,
     setLibraryId,
     toggleRow,
     exportReview,

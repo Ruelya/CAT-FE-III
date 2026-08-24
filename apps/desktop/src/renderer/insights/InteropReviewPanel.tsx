@@ -84,18 +84,6 @@ export function InteropReviewPanel({
             onChange={(e) => interop.setActor(e.target.value)}
           />
         </div>
-        <div className="field">
-          <label className="field__label" htmlFor="interop-review-reason">
-            Reason
-          </label>
-          <input
-            id="interop-review-reason"
-            className="field__control"
-            value={state.reason}
-            disabled={busy || terminal}
-            onChange={(e) => interop.setReason(e.target.value)}
-          />
-        </div>
       </div>
 
       {state.path ? (

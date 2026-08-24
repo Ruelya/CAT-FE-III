@@ -93,12 +93,10 @@ export function isContributionOpenable(
   return state === "active";
 }
 
-export function requireActorReason(
+export function requireActor(
   actor: string,
-  reason: string,
-): { ok: true } | { ok: false; field: "actor" | "reason" } {
+): { ok: true } | { ok: false; field: "actor" } {
   if (actor.trim().length === 0) return { ok: false, field: "actor" };
-  if (reason.trim().length === 0) return { ok: false, field: "reason" };
   return { ok: true };
 }
 

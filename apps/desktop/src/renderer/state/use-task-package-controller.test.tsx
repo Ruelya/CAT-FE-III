@@ -78,7 +78,6 @@ describe("useTaskPackageController", () => {
     });
 
     await act(async () => {
-      result.current.setReason("export");
       await result.current.exportPackage("assignment");
     });
     await waitFor(() => {
@@ -87,7 +86,6 @@ describe("useTaskPackageController", () => {
 
     await act(async () => {
       await result.current.pickPackage();
-      result.current.setReason("merge");
       await result.current.preview(0);
     });
     await waitFor(() => {

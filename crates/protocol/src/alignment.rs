@@ -127,6 +127,7 @@ pub struct AlignmentSessionCreateParams {
     pub options: AlignmentOptions,
     #[serde(default = "default_actor")]
     pub actor: String,
+    #[serde(default)]
     pub reason: String,
     #[serde(default)]
     pub correlation_id: Option<String>,
@@ -216,6 +217,7 @@ pub struct AlignmentSessionUpdateParams {
     pub mutation: AlignmentSessionMutation,
     #[serde(default = "default_actor")]
     pub actor: String,
+    #[serde(default)]
     pub reason: String,
     #[serde(default)]
     pub correlation_id: Option<String>,
@@ -252,6 +254,7 @@ pub struct AlignmentSessionRefineParams {
     pub max_attempts: u32,
     #[serde(default = "default_actor")]
     pub actor: String,
+    #[serde(default)]
     pub reason: String,
     #[serde(default)]
     pub correlation_id: Option<String>,
@@ -267,6 +270,7 @@ pub struct AlignmentSessionApplyParams {
     pub links: Vec<AlignmentExpectedLinkRevision>,
     #[serde(default = "default_actor")]
     pub actor: String,
+    #[serde(default)]
     pub reason: String,
     #[serde(default)]
     pub correlation_id: Option<String>,
@@ -403,6 +407,7 @@ pub struct CorpusImportParams {
     pub options: BTreeMap<String, String>,
     #[serde(default = "default_actor")]
     pub actor: String,
+    #[serde(default)]
     pub reason: String,
     #[serde(default)]
     pub correlation_id: Option<String>,
@@ -419,6 +424,7 @@ pub struct CorpusFromAlignmentParams {
     pub links: Vec<AlignmentExpectedLinkRevision>,
     #[serde(default = "default_actor")]
     pub actor: String,
+    #[serde(default)]
     pub reason: String,
     #[serde(default)]
     pub correlation_id: Option<String>,

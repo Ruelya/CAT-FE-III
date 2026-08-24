@@ -468,11 +468,9 @@ test.describe("P1 project lifecycle", () => {
         .filter({ hasText: "From Template" });
       await expect(recycleRow).toBeVisible({ timeout: 15_000 });
 
+      // Restore acts in one click; the row leaves the recycle list.
       await recycleRow.getByRole("button", { name: "Restore" }).click();
-      const restoreConfirm = page.getByTestId("restore-confirm");
-      await expect(restoreConfirm).toBeVisible();
-      await restoreConfirm.getByRole("button", { name: "Restore" }).click();
-      await expect(restoreConfirm).toBeHidden({ timeout: 15_000 });
+      await expect(recycleRow).toHaveCount(0, { timeout: 15_000 });
 
       await page.getByRole("button", { name: "Projects" }).click();
       await expect(page.getByTestId("project-home")).toBeVisible();

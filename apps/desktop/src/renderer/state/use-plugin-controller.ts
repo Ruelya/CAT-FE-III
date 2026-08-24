@@ -34,7 +34,7 @@ import {
 import {
   isContributionOpenable,
   isPanelSessionUrl,
-  requireActorReason,
+  requireActor,
   sessionMatchesRevocation,
 } from "./plugin-view";
 import type { P4ProjectContext } from "./p4-route-context";
@@ -480,10 +480,7 @@ export function usePluginController(
   const confirmInstall = useCallback(async () => {
     const path = stateRef.current.inspectionPath;
     if (!path) return;
-    const guard = requireActorReason(
-      stateRef.current.actor,
-      stateRef.current.reason || "install",
-    );
+    const guard = requireActor(stateRef.current.actor);
     if (!guard.ok) {
       setState((s) => ({
         ...s,
@@ -502,7 +499,7 @@ export function usePluginController(
       await invokeEngine("plugin.install", {
         sourcePath: path,
         actor: stateRef.current.actor,
-        reason: stateRef.current.reason || "install",
+        reason: stateRef.current.reason,
       });
       const _still = current("lifecycle", op);
       end("lifecycle", op);
@@ -541,7 +538,7 @@ export function usePluginController(
           sourcePath: path,
           expectedRevision: plugin.revision,
           actor: stateRef.current.actor,
-          reason: stateRef.current.reason || "upgrade",
+          reason: stateRef.current.reason,
         });
         const _still = current("lifecycle", op);
         end("lifecycle", op);
@@ -576,7 +573,7 @@ export function usePluginController(
           pluginId,
           expectedRevision: revision,
           actor: stateRef.current.actor,
-          reason: stateRef.current.reason || "enable",
+          reason: stateRef.current.reason,
         });
         const _still = current("lifecycle", op);
         end("lifecycle", op);
@@ -604,7 +601,7 @@ export function usePluginController(
           pluginId,
           expectedRevision: revision,
           actor: stateRef.current.actor,
-          reason: stateRef.current.reason || "disable",
+          reason: stateRef.current.reason,
         });
         const _still = current("lifecycle", op);
         end("lifecycle", op);
@@ -632,7 +629,7 @@ export function usePluginController(
           pluginId,
           expectedRevision: revision,
           actor: stateRef.current.actor,
-          reason: stateRef.current.reason || "uninstall",
+          reason: stateRef.current.reason,
         });
         const _still = current("lifecycle", op);
         end("lifecycle", op);
@@ -656,7 +653,7 @@ export function usePluginController(
         await invokeEngine("plugin.bundled.apply", {
           pluginId,
           actor: stateRef.current.actor,
-          reason: stateRef.current.reason || "bundled.apply",
+          reason: stateRef.current.reason,
         });
         const _still = current("lifecycle", op);
         end("lifecycle", op);
@@ -701,7 +698,7 @@ export function usePluginController(
           versionId,
           expectedRevision: revision,
           actor: stateRef.current.actor,
-          reason: stateRef.current.reason || "rollback",
+          reason: stateRef.current.reason,
         });
         const _still = current("lifecycle", op);
         end("lifecycle", op);
@@ -771,10 +768,7 @@ export function usePluginController(
 
   const grantPermission = useCallback(
     async (request: PluginCapabilityRequestView): Promise<boolean> => {
-      const guard = requireActorReason(
-        stateRef.current.actor,
-        stateRef.current.reason,
-      );
+      const guard = requireActor(stateRef.current.actor);
       if (!guard.ok) {
         setState((s) => ({
           ...s,
@@ -821,10 +815,7 @@ export function usePluginController(
 
   const denyPermission = useCallback(
     async (request: PluginCapabilityRequestView): Promise<boolean> => {
-      const guard = requireActorReason(
-        stateRef.current.actor,
-        stateRef.current.reason,
-      );
+      const guard = requireActor(stateRef.current.actor);
       if (!guard.ok) {
         setState((s) => ({
           ...s,
@@ -870,10 +861,7 @@ export function usePluginController(
 
   const revokePermission = useCallback(
     async (request: PluginCapabilityRequestView): Promise<boolean> => {
-      const guard = requireActorReason(
-        stateRef.current.actor,
-        stateRef.current.reason,
-      );
+      const guard = requireActor(stateRef.current.actor);
       if (!guard.ok) {
         setState((s) => ({
           ...s,

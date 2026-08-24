@@ -104,7 +104,6 @@ describe("useInteropController", () => {
     expect(result.current.state.path).toBe("C:/tmp/review.docx");
 
     await act(async () => {
-      result.current.setReason("apply");
       await result.current.preview(0);
     });
     await waitFor(() => {
@@ -126,7 +125,6 @@ describe("useInteropController", () => {
     const { result } = renderHook(() => useInteropController(gateway()));
     await act(async () => {
       await result.current.pickInput();
-      result.current.setReason("r");
       await result.current.preview(0);
     });
     await waitFor(() => {
@@ -166,7 +164,6 @@ describe("useInteropController", () => {
     const { result } = renderHook(() => useInteropController(gateway()));
     await act(async () => {
       await result.current.pickInput();
-      result.current.setReason("page");
       await result.current.preview(0);
     });
     await waitFor(() => {

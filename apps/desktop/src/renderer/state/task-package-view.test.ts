@@ -31,7 +31,6 @@ describe("task-package-view pure helpers", () => {
       canExportAssignment({
         hasDocuments: true,
         actor: "a",
-        reason: "r",
         pending: false,
       }),
     ).toBe(true);
@@ -39,7 +38,6 @@ describe("task-package-view pure helpers", () => {
       canExportAssignment({
         hasDocuments: false,
         actor: "a",
-        reason: "r",
         pending: false,
       }),
     ).toBe(false);
@@ -47,7 +45,6 @@ describe("task-package-view pure helpers", () => {
       canExportReturn({
         hasTaskPackageRef: true,
         actor: "a",
-        reason: "r",
         pending: false,
       }),
     ).toBe(true);
@@ -55,7 +52,6 @@ describe("task-package-view pure helpers", () => {
       canExportReturn({
         hasTaskPackageRef: false,
         actor: "a",
-        reason: "r",
         pending: false,
       }),
     ).toBe(false);
@@ -65,7 +61,6 @@ describe("task-package-view pure helpers", () => {
       canMutateTaskPreview({
         status: "open",
         actor: "a",
-        reason: "r",
         pending: false,
         selectedCount: 2,
       }),
@@ -74,7 +69,6 @@ describe("task-package-view pure helpers", () => {
       canMutateTaskPreview({
         status: "open",
         actor: "a",
-        reason: "r",
         pending: false,
         selectedCount: 0,
       }),
@@ -83,7 +77,6 @@ describe("task-package-view pure helpers", () => {
       canMutateTaskPreview({
         status: "applied",
         actor: "a",
-        reason: "r",
         pending: false,
         selectedCount: 2,
       }),
@@ -92,7 +85,6 @@ describe("task-package-view pure helpers", () => {
       canDiscardOrImport({
         status: "open",
         actor: "a",
-        reason: "r",
         pending: false,
         hasPreview: true,
       }),

@@ -15,11 +15,6 @@ export interface TaskPackagePanelProps {
   disabled?: boolean;
 }
 
-type TaskConfirm =
-  | { kind: "none" }
-  | { kind: "apply" }
-  | { kind: "import" }
-  | { kind: "discard" };
 
 export function TaskPackagePanel({
   taskPackage,
@@ -31,7 +26,9 @@ export function TaskPackagePanel({
     ? isTerminalTaskPreviewStatus(preview.status)
     : false;
   const busy = Boolean(disabled || state.pending);
-  const [confirm, setConfirm] = useState<TaskConfirm>({ kind: "none" });
+  // Apply and import are already gated on the preview and explicit row
+  // selection, so they act directly; only discarding staged work confirms.
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   return (
     <div className="task-package-panel" data-testid="task-package-panel">
@@ -72,12 +69,7 @@ export function TaskPackagePanel({
         <button
           type="button"
           className="btn btn--secondary"
-          disabled={
-            busy ||
-            !state.packagePath ||
-            !state.actor.trim() ||
-            !state.reason.trim()
-          }
+          disabled={busy || !state.packagePath || !state.actor.trim()}
           onClick={() => {
             void taskPackage.preview(0);
           }}
@@ -89,7 +81,9 @@ export function TaskPackagePanel({
           type="button"
           className="btn btn--primary"
           disabled={busy || !taskPackage.canApply}
-          onClick={() => setConfirm({ kind: "apply" })}
+          onClick={() => {
+            void taskPackage.apply();
+          }}
           data-testid="task-apply"
         >
           {taskPackage.applyLabel}
@@ -98,7 +92,9 @@ export function TaskPackagePanel({
           type="button"
           className="btn btn--secondary"
           disabled={busy || !taskPackage.canImport}
-          onClick={() => setConfirm({ kind: "import" })}
+          onClick={() => {
+            void taskPackage.importPackage();
+          }}
           data-testid="task-import"
         >
           Import
@@ -109,7 +105,7 @@ export function TaskPackagePanel({
           aria-label="Discard package preview"
           title="Discard package preview"
           disabled={busy || !taskPackage.canDiscard}
-          onClick={() => setConfirm({ kind: "discard" })}
+          onClick={() => setConfirmDiscard(true)}
           data-testid="task-discard"
         >
           <Trash size={16} weight="bold" />
@@ -127,18 +123,6 @@ export function TaskPackagePanel({
             value={state.actor}
             disabled={busy || terminal}
             onChange={(e) => taskPackage.setActor(e.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label className="field__label" htmlFor="task-reason">
-            Reason
-          </label>
-          <input
-            id="task-reason"
-            className="field__control"
-            value={state.reason}
-            disabled={busy || terminal}
-            onChange={(e) => taskPackage.setReason(e.target.value)}
           />
         </div>
       </div>
@@ -233,46 +217,16 @@ export function TaskPackagePanel({
         </>
       ) : null}
 
-      {confirm.kind === "apply" ? (
-        <ConfirmDialog
-          title="Apply package"
-          body={`${state.selectedRowIds.size} selected rows will apply.`}
-          confirmLabel="Apply"
-          danger={false}
-          pending={state.pending}
-          onCancel={() => setConfirm({ kind: "none" })}
-          onConfirm={() => {
-            setConfirm({ kind: "none" });
-            void taskPackage.apply();
-          }}
-          testId="task-apply-confirm"
-        />
-      ) : null}
-      {confirm.kind === "import" ? (
-        <ConfirmDialog
-          title="Import package"
-          body="Package contents will import into the project."
-          confirmLabel="Import"
-          danger={false}
-          pending={state.pending}
-          onCancel={() => setConfirm({ kind: "none" })}
-          onConfirm={() => {
-            setConfirm({ kind: "none" });
-            void taskPackage.importPackage();
-          }}
-          testId="task-import-confirm"
-        />
-      ) : null}
-      {confirm.kind === "discard" ? (
+      {confirmDiscard ? (
         <ConfirmDialog
           title="Discard package"
           body="Staged preview will be discarded."
           confirmLabel="Discard"
           danger
           pending={state.pending}
-          onCancel={() => setConfirm({ kind: "none" })}
+          onCancel={() => setConfirmDiscard(false)}
           onConfirm={() => {
-            setConfirm({ kind: "none" });
+            setConfirmDiscard(false);
             void taskPackage.discard();
           }}
           testId="task-discard-confirm"

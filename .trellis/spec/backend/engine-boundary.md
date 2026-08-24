@@ -769,8 +769,8 @@ option, then the matching TRANSLUNAR_*_PATH environment variable, then PATH.
 - Page list/get project persisted segments and revisions. page.get renders one
   managed-source page at 72..200 DPI and returns at most 32 MiB of PNG as
   base64; previews are never persisted.
-- pdf.correctOcr requires a changed non-empty source, reason, expected
-  revision, OCR-origin path, and non-confirmed state. One immediate transaction
+- pdf.correctOcr requires a changed non-empty source, expected revision,
+  OCR-origin path, and non-confirmed state; a reason is optional context. One immediate transaction
   updates source/revision/hash, recalculates neighboring context hashes, and
   appends a reasoned pdf.correct_ocr operation.
 - PDF export creates a no-clobber DOCX with page breaks, heading/body styles,
@@ -1482,7 +1482,8 @@ interop.table.apply    TableApplyParams    -> InteropApplyResult
 Review and table previews accept exactly one of `inputPath` or `previewId`,
 plus a project/document or project/library binding, expected revision, and
 bounded `offset`/`limit`. Apply requests contain the preview ID, the matching
-expected revision, explicit row IDs, actor, and reason. Migration 11 backs
+expected revision, explicit row IDs, and actor; a reason is optional context.
+Migration 11 backs
 `Store::create_interop_preview`, `Store::apply_review_interop`, and
 `Store::apply_table_interop` with `interop_previews` and
 `interop_preview_rows`.
@@ -2038,7 +2039,8 @@ Initialization advertises `alignment.sessions`, `alignment.ai-refinement`,
   return Engine-authoritative ordering, `offset`, `limit`, and `total`.
 - `alignment.session.update` uses the strict camel-case tagged mutation
   `replaceLinks` or `setStatus`; every write carries the expected session and
-  applicable link/library/project/corpus revision plus actor and reason.
+  applicable link/library/project/corpus revision plus actor (a reason is
+  optional context).
 - Engine projects storage records into protocol DTOs. It never serializes a
   storage record directly: corpus entries omit `normalized_source` and
   `normalized_target`, and an applied session exposes only
@@ -2129,7 +2131,8 @@ taskPackage.discard TaskPackageDiscardParams -> TaskPackageDiscardResult
 
 Assignment export requires `projectId`, `expectedProjectRevision`, one to 50
 `documents` with optional explicit `segmentIds`, optional explicit TM/termbase
-`assetSlices`, `destinationPath`, `actor`, and `reason`. Return export instead
+`assetSlices`, `destinationPath`, and `actor` (a reason is optional context).
+Return export instead
 requires `workingProjectId` and `parentPackageId`; assignment-only fields are
 rejected. Preview requires exactly one of `packagePath` or `previewId` plus a
 bounded `offset`/`limit`. Import requires an assignment `previewId`. Apply is:
@@ -2205,7 +2208,7 @@ are `snapshot_task_package_assignment`, `snapshot_task_package_return`,
 
 | Condition | Required result |
 | --- | --- |
-| Wrong assignment/return field combination, empty actor/reason, or both/neither preview locator | `invalid_request`; no file or database write |
+| Wrong assignment/return field combination, empty actor, or both/neither preview locator | `invalid_request`; no file or database write |
 | Existing `.tltask` destination | `invalid_state`/`export_error`; existing bytes remain unchanged |
 | Unsafe/duplicate/encrypted/unsupported ZIP entry, malformed canonical JSON, missing entry, or hash mismatch | `invalid_request`; preview staging is removed and no preview is stored |
 | Configured document/segment/entry/manifest/asset/comment limit exceeded | `resource_limit` with bounded `resource`, `limit`, and `actual` data |
@@ -2476,7 +2479,7 @@ authoritative run/library revisions defined in `crates/protocol/src/curation.rs`
   permissive; an unlisted profile returns typed `policy_denied` and creates no
   run. Provider-free offline curation remains available.
 - `apply` requires an open run, exact run/library revisions, a non-empty unique
-  finding selection, matching unit snapshot hashes, actor, and reason. It
+  finding selection, matching unit snapshot hashes, and actor. It
   stores every before image, updates all analyzed scores, quarantines only
   selected actionable units, advances revisions, and appends one operation in
   the same Immediate transaction.
@@ -2931,8 +2934,9 @@ plugin.permission.revoke       PluginCapabilityDecisionParams    -> PluginCapabi
 plugin.permission.audit.list   PluginCapabilityAuditListParams   -> PluginCapabilityAuditPage
 ```
 
-Every decision carries `pluginId`, `requestId`, `expectedRevision`, `actor`,
-and `reason`; grant additionally carries a normalized `scope` contained by the
+Every decision carries `pluginId`, `requestId`, `expectedRevision`, and
+`actor` (a reason is optional context); grant additionally carries a
+normalized `scope` contained by the
 requested scope. Runtime checks use `PluginCapabilityCheck` and return either
 an allowed request record or a structured `PluginCapabilityDenial`.
 

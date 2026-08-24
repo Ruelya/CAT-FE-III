@@ -44,10 +44,7 @@ export function AssetHub({
     revision: number;
     name: string;
   } | null>(null);
-  const [applyReason, setApplyReason] = useState("");
-  const [repartitionReason, setRepartitionReason] = useState("");
   const [fromAlignName, setFromAlignName] = useState("");
-  const [fromAlignReason, setFromAlignReason] = useState("");
   const [rollbackOpen, setRollbackOpen] = useState(false);
   const [tmMountMode, setTmMountMode] = useState<"write" | "reference">(
     "write",
@@ -902,16 +899,6 @@ export function AssetHub({
                     </option>
                   ))}
                 </select>
-                <input
-                  value={state.alignment.create.reason}
-                  disabled={busy}
-                  onChange={(e) =>
-                    assets.setAlignmentCreate({ reason: e.target.value })
-                  }
-                  placeholder="Reason"
-                  aria-label="Alignment reason"
-                  data-testid="align-reason"
-                />
                 <button
                   type="button"
                   className="btn btn--primary btn--sm"
@@ -1033,26 +1020,15 @@ export function AssetHub({
                     })}
                   </ul>
                   <div className="editor-panel__row">
-                    <input
-                      value={repartitionReason}
-                      disabled={busy}
-                      onChange={(e) => setRepartitionReason(e.target.value)}
-                      placeholder="Repartition reason"
-                      data-testid="align-repartition-reason"
-                      aria-label="Repartition reason"
-                    />
                     <button
                       type="button"
                       className="btn btn--secondary btn--sm"
                       disabled={
                         busy ||
                         state.alignment.actionPending ||
-                        state.alignment.selectedLinkIds.length < 2 ||
-                        !repartitionReason.trim()
+                        state.alignment.selectedLinkIds.length < 2
                       }
-                      onClick={() =>
-                        void assets.replaceSelectedLinks(repartitionReason)
-                      }
+                      onClick={() => void assets.replaceSelectedLinks()}
                       data-testid="align-repartition"
                     >
                       Repartition
@@ -1068,14 +1044,6 @@ export function AssetHub({
                       placeholder="Profile ID"
                       data-testid="align-profile"
                     />
-                    <input
-                      value={state.alignment.refineReason}
-                      disabled={busy}
-                      onChange={(e) => assets.setRefineReason(e.target.value)}
-                      placeholder="Reason"
-                      data-testid="align-refine-reason"
-                      aria-label="Refine reason"
-                    />
                     <button
                       type="button"
                       className="btn btn--secondary btn--sm"
@@ -1083,7 +1051,6 @@ export function AssetHub({
                         busy ||
                         state.alignment.actionPending ||
                         state.alignment.selectedLinkIds.length === 0 ||
-                        !state.alignment.refineReason.trim() ||
                         !state.alignment.refineProfileId.trim()
                       }
                       onClick={() => void assets.refineSelected()}
@@ -1152,13 +1119,6 @@ export function AssetHub({
                         </option>
                       ))}
                     </select>
-                    <input
-                      value={applyReason}
-                      disabled={busy}
-                      onChange={(e) => setApplyReason(e.target.value)}
-                      placeholder="Reason"
-                      data-testid="align-apply-reason"
-                    />
                     <button
                       type="button"
                       className="btn btn--primary btn--sm"
@@ -1167,10 +1127,9 @@ export function AssetHub({
                         state.alignment.actionPending ||
                         state.alignment.session.status !== "open" ||
                         !state.alignment.applyLibraryId ||
-                        state.alignment.selectedLinkIds.length === 0 ||
-                        !applyReason.trim()
+                        state.alignment.selectedLinkIds.length === 0
                       }
-                      onClick={() => void assets.applyAlignment(applyReason)}
+                      onClick={() => void assets.applyAlignment()}
                       data-testid="align-apply"
                     >
                       Apply TM
@@ -1184,26 +1143,16 @@ export function AssetHub({
                       placeholder="Corpus name"
                       data-testid="align-corpus-name"
                     />
-                    <input
-                      value={fromAlignReason}
-                      disabled={busy}
-                      onChange={(e) => setFromAlignReason(e.target.value)}
-                      placeholder="Reason"
-                    />
                     <button
                       type="button"
                       className="btn btn--secondary btn--sm"
                       disabled={
                         busy ||
                         state.alignment.selectedLinkIds.length === 0 ||
-                        !fromAlignName.trim() ||
-                        !fromAlignReason.trim()
+                        !fromAlignName.trim()
                       }
                       onClick={() =>
-                        void assets.corpusFromAlignment(
-                          fromAlignName,
-                          fromAlignReason,
-                        )
+                        void assets.corpusFromAlignment(fromAlignName)
                       }
                       data-testid="align-to-corpus"
                     >

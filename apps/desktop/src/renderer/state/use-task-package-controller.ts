@@ -32,7 +32,6 @@ export interface TaskPackageGateway {
 
 export interface TaskPackageState {
   actor: string;
-  reason: string;
   packagePath: string | null;
   exportNotice: string | null;
   pending: boolean;
@@ -49,7 +48,6 @@ export interface TaskPackageState {
 export interface TaskPackageApi {
   state: TaskPackageState;
   setActor: (v: string) => void;
-  setReason: (v: string) => void;
   exportPackage: (kind: TaskPackageKind) => Promise<void>;
   pickPackage: () => Promise<void>;
   preview: (offset?: number) => Promise<void>;
@@ -71,7 +69,6 @@ const PAGE = 50;
 function createInitial(): TaskPackageState {
   return {
     actor: "local",
-    reason: "",
     packagePath: null,
     exportNotice: null,
     pending: false,
@@ -138,11 +135,6 @@ export function useTaskPackageController(
     setState((s) => ({ ...s, actor }));
   }, []);
 
-  const setReason = useCallback((reason: string) => {
-    stateRef.current = { ...stateRef.current, reason };
-    setState((s) => ({ ...s, reason }));
-  }, []);
-
   const exportPackage = useCallback(async (kind: TaskPackageKind) => {
     const gw = gatewayRef.current;
     if (!gw.mutationsEnabled) return;
@@ -154,7 +146,6 @@ export function useTaskPackageController(
         !canExportAssignment({
           hasDocuments,
           actor: s.actor,
-          reason: s.reason,
           pending: s.pending,
         })
       ) {
@@ -164,7 +155,6 @@ export function useTaskPackageController(
       !canExportReturn({
         hasTaskPackageRef,
         actor: s.actor,
-        reason: s.reason,
         pending: s.pending,
       })
     ) {
@@ -189,7 +179,6 @@ export function useTaskPackageController(
         kind,
         destinationPath,
         actor: s.actor.trim(),
-        reason: s.reason.trim(),
         projectId: kind === "assignment" ? gw.projectId : null,
         workingProjectId: kind === "return" ? gw.projectId : null,
         expectedProjectRevision: s.projectRevision || gw.projectRevision,
@@ -239,7 +228,7 @@ export function useTaskPackageController(
     const s = stateRef.current;
     if (!gw.mutationsEnabled) return;
     if (!s.packagePath && !s.preview) return;
-    if (!s.actor.trim() || !s.reason.trim()) return;
+    if (!s.actor.trim()) return;
     const op = ++opRef.current;
     setState((prev) => ({ ...prev, pending: true, error: null }));
     try {
@@ -249,7 +238,6 @@ export function useTaskPackageController(
         offset,
         limit: PAGE,
         actor: s.actor.trim(),
-        reason: s.reason.trim(),
       });
       if (op !== opRef.current) return;
       const pageIds = result.rows.map((r) => r.rowId);
@@ -307,7 +295,6 @@ export function useTaskPackageController(
       !canMutateTaskPreview({
         status: s.preview.status,
         actor: s.actor,
-        reason: s.reason,
         pending: s.pending,
         selectedCount: s.selectedRowIds.size,
       })
@@ -324,7 +311,6 @@ export function useTaskPackageController(
         expectedProjectRevision: s.preview.expectedProjectRevision,
         selectedRowIds: [...s.selectedRowIds],
         actor: s.actor.trim(),
-        reason: s.reason.trim(),
       });
       if (op !== opRef.current) return;
       setState((prev) => ({
@@ -355,7 +341,6 @@ export function useTaskPackageController(
       !canDiscardOrImport({
         status: s.preview.status,
         actor: s.actor,
-        reason: s.reason,
         pending: s.pending,
         hasPreview: true,
       })
@@ -368,7 +353,6 @@ export function useTaskPackageController(
       const result = await invokeEngine("taskPackage.import", {
         previewId: s.preview.previewId,
         actor: s.actor.trim(),
-        reason: s.reason.trim(),
       });
       if (op !== opRef.current) return;
       setState((prev) => ({
@@ -396,7 +380,6 @@ export function useTaskPackageController(
       !canDiscardOrImport({
         status: s.preview.status,
         actor: s.actor,
-        reason: s.reason,
         pending: s.pending,
         hasPreview: true,
       })
@@ -410,7 +393,6 @@ export function useTaskPackageController(
         packageId: s.preview.packageId,
         previewId: s.preview.previewId,
         actor: s.actor.trim(),
-        reason: s.reason.trim(),
       });
       if (op !== opRef.current) return;
       setState((prev) => ({
@@ -439,7 +421,6 @@ export function useTaskPackageController(
   return {
     state,
     setActor,
-    setReason,
     exportPackage,
     pickPackage,
     preview,
@@ -450,33 +431,28 @@ export function useTaskPackageController(
     canExportAssignment: canExportAssignment({
       hasDocuments,
       actor: s.actor,
-      reason: s.reason,
       pending: s.pending,
     }),
     canExportReturn: canExportReturn({
       hasTaskPackageRef,
       actor: s.actor,
-      reason: s.reason,
       pending: s.pending,
     }),
     canApply: canMutateTaskPreview({
       status,
       actor: s.actor,
-      reason: s.reason,
       pending: s.pending,
       selectedCount: s.selectedRowIds.size,
     }),
     canDiscard: canDiscardOrImport({
       status,
       actor: s.actor,
-      reason: s.reason,
       pending: s.pending,
       hasPreview: Boolean(s.preview),
     }),
     canImport: canDiscardOrImport({
       status,
       actor: s.actor,
-      reason: s.reason,
       pending: s.pending,
       hasPreview: Boolean(s.preview),
     }),
