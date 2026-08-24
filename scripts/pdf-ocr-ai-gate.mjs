@@ -206,7 +206,11 @@ async function runScannedOcr() {
       await page.getByRole("button", { name: "Cancel" }).click();
     }
 
-    await page.getByRole("tab", { name: /AI/ }).click({ force: true });
+    // Stacked dock: AI is a tool chip in the memory pane, not a tab.
+    await page
+      .getByTestId("intel-dock")
+      .getByRole("button", { name: /^AI/ })
+      .click({ force: true });
     await page.waitForTimeout(400);
     const ocrNote = await page.getByTestId("ai-ocr-source-note").count();
     note(

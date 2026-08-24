@@ -114,11 +114,15 @@ await page.locator(".segment-row--active textarea").fill("");
 await page.waitForTimeout(1000);
 await page.screenshot({ path: join(OUT, "03-matches-dock.png") });
 
-await page.getByRole("tab", { name: /Terms/ }).click({ force: true });
+// Stacked dock: the term pane is always visible; memory tools are chips.
+await page.getByTestId("intel-pane-tb").waitFor({ state: "visible" });
 await page.waitForTimeout(800);
 await page.screenshot({ path: join(OUT, "04-terms-dock.png") });
 
-await page.getByRole("tab", { name: /Concordance/ }).click({ force: true });
+await page
+  .getByTestId("intel-dock")
+  .getByRole("button", { name: /^Concordance/ })
+  .click({ force: true });
 await page.waitForTimeout(400);
 await page.getByTestId("concordance-query").fill("power button");
 await page
@@ -128,7 +132,10 @@ await page
 await page.waitForTimeout(1200);
 await page.screenshot({ path: join(OUT, "05-concordance-dock.png") });
 
-await page.getByRole("tab", { name: /AI/ }).click({ force: true });
+await page
+  .getByTestId("intel-dock")
+  .getByRole("button", { name: /^AI/ })
+  .click({ force: true });
 await page.waitForTimeout(600);
 await page.screenshot({ path: join(OUT, "06-ai-dock.png") });
 

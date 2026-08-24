@@ -49,10 +49,17 @@ await page.getByRole("button", { name: "Choose files" }).click();
 await page.getByTestId("workbench").waitFor({ timeout: 60000 });
 await page.waitForTimeout(1200);
 
-await page.getByRole("tab", { name: /AI/ }).click({ force: true });
+// The stacked dock swaps the memory pane with tool chips, not a tablist.
+await page
+  .getByTestId("intel-dock")
+  .getByRole("button", { name: /^AI/ })
+  .click({ force: true });
 await page.waitForTimeout(800);
-const tabs = await page.getByRole("tab").allInnerTexts();
-note("tabs", "INFO", tabs.join(" | "));
+const tools = await page
+  .getByTestId("intel-dock")
+  .locator(".segmented__item")
+  .allInnerTexts();
+note("tools", "INFO", tools.join(" | "));
 await page.getByTestId("segment-ai").waitFor({ timeout: 10000 });
 const text = await page.getByTestId("segment-ai").innerText();
 note(

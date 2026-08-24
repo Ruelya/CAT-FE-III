@@ -93,8 +93,12 @@ note(
   `target after Ctrl+Delete: "${cleared}"`,
 );
 
-// Concordance on a typed phrase.
-await page.getByRole("tab", { name: /Concordance/ }).click();
+// Concordance on a typed phrase. The stacked dock swaps the memory pane
+// between Matches / Concordance / AI with tool chips, not a tablist.
+await page
+  .getByTestId("intel-dock")
+  .getByRole("button", { name: /^Concordance/ })
+  .click();
 await page.waitForTimeout(400);
 await page.getByTestId("concordance-query").fill("power button");
 await page
@@ -113,8 +117,8 @@ await page.screenshot({ path: join(userData, "concordance.png") });
 // Quick Add Term from inside the editor: select in source, select in target.
 await activate(2);
 await page.waitForTimeout(600);
-await page.getByRole("tab", { name: /Terms/ }).click();
-await page.waitForTimeout(300);
+// The term recognition pane is always visible in the stacked dock.
+await page.getByTestId("intel-pane-tb").waitFor({ state: "visible" });
 const addDisabledFirst = await page.getByTestId("quick-add-term").isDisabled();
 note(
   "add-term-guarded",
