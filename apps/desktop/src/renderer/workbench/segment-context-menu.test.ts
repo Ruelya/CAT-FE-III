@@ -73,6 +73,29 @@ describe("segmentContextActions", () => {
     expect(ids).toContain("confirm");
   });
 
+  it("advertises only chords the editor actually binds", () => {
+    const items = segmentContextActions({
+      field: "target",
+      hasSourceSelection: false,
+      hasTargetSelection: false,
+      canStoreTerm: true,
+      canInsertTerm: true,
+      canConfirm: true,
+      targetHasText: true,
+      canCopySource: true,
+    });
+    const shortcutOf = (id: string) => {
+      const item = items.find((entry) => "label" in entry && entry.id === id);
+      return item && "shortcut" in item ? item.shortcut : undefined;
+    };
+    // These must stay in lockstep with useEditorShortcuts: a hint for a chord
+    // that does something else (or nothing) is worse than no hint.
+    expect(shortcutOf("insertTerm")).toBe("Ctrl+Shift+L");
+    expect(shortcutOf("addTerm")).toBe("Ctrl+Shift+T");
+    expect(shortcutOf("quickPlace")).toBe("Ctrl+,");
+    expect(shortcutOf("placeTags")).toBeUndefined();
+  });
+
   it("exposes workflow status changes and Go to", () => {
     const items = segmentContextActions({
       field: "target",

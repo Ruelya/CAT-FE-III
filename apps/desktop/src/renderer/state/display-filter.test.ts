@@ -6,6 +6,7 @@ import {
   describeFilter,
   EMPTY_FILTER,
   isFilterActive,
+  jumpNeedsFilterClear,
   repeatedSources,
 } from "./display-filter";
 
@@ -154,6 +155,30 @@ describe("repeatedSources", () => {
     expect(
       repeatedSources([row("s1", "draft", ""), row("s2", "draft", "")]).size,
     ).toBe(0);
+  });
+});
+
+describe("jumpNeedsFilterClear", () => {
+  const confirmedOnly = { ...EMPTY_FILTER, states: ["confirmed"] };
+
+  it("asks for a clear when the jump target is filtered out", () => {
+    const visible = applyDisplayFilter(rows, confirmedOnly);
+    expect(visible.map((r) => r.segment.id)).toEqual(["s1", "s4"]);
+    expect(jumpNeedsFilterClear(confirmedOnly, visible, "s3")).toBe(true);
+  });
+
+  it("keeps the filter when the target is already visible", () => {
+    const visible = applyDisplayFilter(rows, confirmedOnly);
+    expect(jumpNeedsFilterClear(confirmedOnly, visible, "s1")).toBe(false);
+  });
+
+  it("never clears an inactive filter, even for off-page targets", () => {
+    expect(jumpNeedsFilterClear(EMPTY_FILTER, [], "anywhere")).toBe(false);
+  });
+
+  it("asks for a clear when the target lives on another page", () => {
+    const visible = applyDisplayFilter(rows, confirmedOnly);
+    expect(jumpNeedsFilterClear(confirmedOnly, visible, "off-page")).toBe(true);
   });
 });
 

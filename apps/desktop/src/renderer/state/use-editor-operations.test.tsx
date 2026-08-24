@@ -236,6 +236,88 @@ describe("useEditorOperations keyboard ownership", () => {
   });
 });
 
+describe("useEditorOperations selectFindMatch", () => {
+  let engine: FakeEngineState;
+
+  beforeEach(() => {
+    engine = createFakeEngineState();
+    window.translunar = createFakeDesktopApi(engine);
+    document.body.innerHTML = `<div data-testid="workbench"></div>`;
+  });
+
+  afterEach(() => {
+    // @ts-expect-error test cleanup
+    delete window.translunar;
+    document.body.innerHTML = "";
+  });
+
+  it("flushes the active draft before switching to a hit on this page", async () => {
+    const order: string[] = [];
+    const gw = makeGateway({
+      flushOrStay: async () => {
+        order.push("flush");
+        return true;
+      },
+      commitWorkbenchRows: async (input) => {
+        order.push(`commit:${input.activeSegmentId}`);
+      },
+      refreshActiveDocumentRows: async () => {
+        order.push("refresh");
+      },
+    });
+    const { result } = renderHook(() => useEditorOperations(gw));
+
+    await act(async () => {
+      await result.current.selectFindMatch("seg-1");
+    });
+
+    expect(order).toEqual(["flush", "commit:seg-1"]);
+  });
+
+  it("loads the containing page when the hit lives on another engine page", async () => {
+    const order: string[] = [];
+    const gw = makeGateway({
+      flushOrStay: async () => {
+        order.push("flush");
+        return true;
+      },
+      commitWorkbenchRows: async (input) => {
+        order.push(`commit:${input.activeSegmentId}`);
+      },
+      refreshActiveDocumentRows: async (focusSegmentId) => {
+        order.push(`refresh:${focusSegmentId}`);
+      },
+    });
+    const { result } = renderHook(() => useEditorOperations(gw));
+
+    await act(async () => {
+      await result.current.selectFindMatch("seg-off-page");
+    });
+
+    expect(order).toEqual(["flush", "refresh:seg-off-page"]);
+  });
+
+  it("stays put when the flush fails", async () => {
+    const order: string[] = [];
+    const gw = makeGateway({
+      flushOrStay: async () => false,
+      commitWorkbenchRows: async (input) => {
+        order.push(`commit:${input.activeSegmentId}`);
+      },
+      refreshActiveDocumentRows: async () => {
+        order.push("refresh");
+      },
+    });
+    const { result } = renderHook(() => useEditorOperations(gw));
+
+    await act(async () => {
+      await result.current.selectFindMatch("seg-1");
+    });
+
+    expect(order).toEqual([]);
+  });
+});
+
 describe("useEditorOperations preferences", () => {
   let engine: FakeEngineState;
 

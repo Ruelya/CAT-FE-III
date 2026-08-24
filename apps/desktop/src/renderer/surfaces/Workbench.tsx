@@ -21,6 +21,7 @@ import {
   applyDisplayFilter,
   EMPTY_FILTER,
   isFilterActive,
+  jumpNeedsFilterClear,
   repeatedSources,
   type DisplayFilter,
 } from "../state/display-filter";
@@ -53,6 +54,7 @@ import {
 import { segmentNumber } from "../lib/format";
 import { toggleDockFocus } from "../workbench/dock-focus";
 import { matchLabel, rankMatches, type SegmentIntel } from "../state/segment-intel";
+import { nextFindSegmentId } from "../state/search-navigation";
 import { useSegmentSelection } from "../state/use-segment-selection";
 import { useSuggestions } from "../state/use-suggestions";
 import { useAiSuggest } from "../state/use-ai-suggest";
@@ -310,11 +312,13 @@ export function Workbench({
     },
     onFind: () => editorOps?.openPanel("findReplace"),
     onFindNext: () => {
-      const matches = editorOps?.findReplace.matches ?? [];
-      if (matches.length === 0) return;
-      const current = matches.findIndex((m) => m.segmentId === activeSegmentId);
-      const next = matches[(current + 1) % matches.length];
-      if (next) void editorOps?.selectFindMatch(next.segmentId);
+      const next = nextFindSegmentId(
+        editorOps?.findReplace.matches ?? [],
+        activeSegmentId,
+      );
+      if (!next) return;
+      revealForJump(next);
+      void editorOps?.selectFindMatch(next);
     },
     onInsertTerm: () => {
       const hit = nextInsertableTerm(intel.terms.matches, termFocusIndex);
@@ -327,6 +331,13 @@ export function Workbench({
       );
     },
     onLock: () => requestWorkflow("signed"),
+    // The dock numbers its matches "Ctrl+1..9"; a chord advertised there must
+    // also work while focus stands there (after F6), not only in the editor.
+    onApplyMatchByIndex: (index) => {
+      const ranked = rankMatches(intel.tm.matches);
+      const match = ranked[index];
+      if (match) applyMatchWithFlash(match);
+    },
     onToggleDockFocus: () => {
       toggleDockFocus({
         activeSegmentId,
@@ -377,6 +388,14 @@ export function Workbench({
     () => applyDisplayFilter(ctx.rows, filter, filterContext),
     [ctx.rows, filter, filterContext],
   );
+  // An explicit jump (Go To, find hit) wins over the view filter: keeping a
+  // filter that hides the row the translator just asked for turns the jump
+  // into a silent no-op — the active row simply is not on screen.
+  const revealForJump = (segmentId: string) => {
+    if (jumpNeedsFilterClear(filter, visibleRows, segmentId)) {
+      setFilter(EMPTY_FILTER);
+    }
+  };
   const repeats = useMemo(() => repeatedSources(ctx.rows), [ctx.rows]);
   const topTmMatch = rankMatches(intel.tm.matches)[0];
 
@@ -819,7 +838,15 @@ export function Workbench({
           />
           {editorOps ? (
             <EditorPanels
-              ops={editorOps}
+              ops={{
+                ...editorOps,
+                // Find searches the whole document, not the filtered view, so
+                // a hit the filter hides must drop the filter to be reachable.
+                selectFindMatch: async (segmentId) => {
+                  revealForJump(segmentId);
+                  await editorOps.selectFindMatch(segmentId);
+                },
+              }}
               disabled={disabled === true}
               sourceTags={activeRow?.sourceTags ?? []}
               tagIssues={activeRow?.tagIssues ?? []}
@@ -983,6 +1010,7 @@ export function Workbench({
               (item) => segmentNumber(item.segment.ordinal) === ordinal,
             );
             if (row) {
+              revealForJump(row.segment.id);
               onSelectSegment(row.segment.id);
               return;
             }
@@ -991,6 +1019,9 @@ export function Workbench({
               ctx.editorPage.filter === "all" &&
               !ctx.editorPage.query.trim()
             ) {
+              // The target lives on another page, so it cannot be in the
+              // filtered view either; drop the filter before the page swaps.
+              if (isFilterActive(filter)) setFilter(EMPTY_FILTER);
               onGoToOrdinal(ordinal);
             }
           }}
