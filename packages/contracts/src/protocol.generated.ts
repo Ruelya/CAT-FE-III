@@ -1350,7 +1350,7 @@ export interface CorpusMutationParams {
   corpusId: string;
   correlationId?: string | null;
   expectedRevision: number;
-  reason: string;
+  reason?: string;
 }
 export interface CorpusSearchParams {
   corpusIds?: string[];
@@ -1397,7 +1397,7 @@ export interface CurationApplyParams {
   correlationId?: string | null;
   expectedLibraryRevision: number;
   expectedRunRevision: number;
-  reason: string;
+  reason?: string;
   runId: string;
   selectedFindingIds: string[];
 }
@@ -1478,7 +1478,7 @@ export interface CurationRollbackParams {
   correlationId?: string | null;
   expectedLibraryRevision: number;
   expectedRunRevision: number;
-  reason: string;
+  reason?: string;
   runId: string;
 }
 export interface CurationRunIdParams {
@@ -1496,7 +1496,7 @@ export interface CurationRunParams {
   policy?: CurationPolicy;
   projectId: string;
   providerProfileId?: string | null;
-  reason: string;
+  reason?: string;
 }
 export interface CurationPolicy {
   createdAfterMs?: number | null;
@@ -3807,7 +3807,7 @@ export interface MethodContract86 {
 }
 export interface CorrectOcrParams {
   expectedRevision: number;
-  reason: string;
+  reason?: string;
   segmentId: string;
   sourceText: string;
   [k: string]: unknown;
@@ -5063,7 +5063,6 @@ export interface ProjectConfiguration {
   engineAllowlist?: string[];
   pipelineId?: string | null;
   qaProfileId?: string | null;
-  reviewRequired?: boolean;
   taskPackage?: TaskPackageProjectReference | null;
   templateId?: string | null;
   [k: string]: unknown;
@@ -5363,7 +5362,6 @@ export interface ProjectConfiguration1 {
   engineAllowlist?: string[];
   pipelineId?: string | null;
   qaProfileId?: string | null;
-  reviewRequired?: boolean;
   taskPackage?: TaskPackageProjectReference | null;
   templateId?: string | null;
   [k: string]: unknown;
@@ -5534,7 +5532,7 @@ export interface MethodContract134 {
 export interface QaIssueWaiveParams {
   actor: string;
   issueId: string;
-  reason: string;
+  reason?: string;
   [k: string]: unknown;
 }
 export interface MethodContract124 {
@@ -5745,7 +5743,7 @@ export interface RecycleDeleteParams {
   entityId: string;
   entityType: string;
   expectedRevision: number;
-  reason: string;
+  reason?: string;
   retentionMs?: number | null;
   [k: string]: unknown;
 }
@@ -6031,7 +6029,7 @@ export interface MethodContract59 {
 }
 export interface CorrectSourceParams {
   expectedRevision: number;
-  reason: string;
+  reason?: string;
   segmentId: string;
   sourceText: string;
   [k: string]: unknown;

@@ -12717,8 +12717,7 @@ mod tests {
                     "domain": "legal",
                     "qaProfileId": "builtin.qa.cjk-professional",
                     "pipelineId": "missing-pipeline",
-                    "analysisProfileId": "builtin.analysis.standard",
-                    "reviewRequired": false
+                    "analysisProfileId": "builtin.analysis.standard"
                 }),
             })
             .expect("serialize template params"),
@@ -12752,7 +12751,6 @@ mod tests {
             created.project.configuration.template_id.as_deref(),
             Some(template.id.as_str())
         );
-        assert!(!created.project.configuration.review_required);
         assert!(
             created.diagnostics.iter().any(|diagnostic| {
                 diagnostic.kind == "pipeline" && diagnostic.status == "missing"

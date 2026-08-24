@@ -159,7 +159,6 @@ struct TemplateDefinition {
     ai_profile_ids: Vec<String>,
     engine_allowlist: Vec<String>,
     analysis_profile_id: Option<String>,
-    review_required: Option<bool>,
     editor_defaults: Option<EditorPreferences>,
     #[serde(alias = "tmLibraries")]
     tm_mounts: Vec<TemplateTmMount>,
@@ -1455,7 +1454,6 @@ impl Store {
             analysis_profile_id,
             editor_defaults: definition.editor_defaults,
             task_package: None,
-            review_required: definition.review_required.unwrap_or(true),
         };
         let project = create_project_in_transaction(
             &transaction,
@@ -1516,7 +1514,6 @@ impl Store {
         retention_ms: Option<i64>,
     ) -> Result<RecycleEntryRecord> {
         require_nonempty("recycle actor", actor)?;
-        require_nonempty("recycle reason", reason)?;
         let retention_ms = retention_ms.unwrap_or(DEFAULT_RECYCLE_RETENTION_MS);
         if retention_ms <= 0 {
             return Err(StorageError::InvalidState(
@@ -1735,7 +1732,6 @@ impl Store {
 
     pub fn purge_recycle_entry(&mut self, entry_id: &str, actor: &str, reason: &str) -> Result<()> {
         require_nonempty("purge actor", actor)?;
-        require_nonempty("purge reason", reason)?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -4189,7 +4185,6 @@ mod tests {
                     "qaProfileId": "builtin.qa.cjk-professional",
                     "pipelineId": "missing-pipeline",
                     "analysisProfileId": "builtin.analysis.standard",
-                    "reviewRequired": false,
                     "editorDefaults": serde_json::to_value(EditorPreferences::default())
                         .expect("serialize editor defaults"),
                     "tmMounts": [{
@@ -4239,7 +4234,6 @@ mod tests {
                 .as_deref(),
             Some("builtin.analysis.standard")
         );
-        assert!(!instantiated.project.configuration.review_required);
         assert!(instantiated.project.configuration.editor_defaults.is_some());
         assert!(
             instantiated.diagnostics.iter().any(|diagnostic| {

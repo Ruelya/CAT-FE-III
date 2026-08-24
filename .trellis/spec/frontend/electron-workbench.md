@@ -230,10 +230,9 @@ The main-process E2E delay seam uses three process-only environment keys:
   and extension filter follow the suggested filename rather than assuming
   DOCX. A blocked delivery reveals override inputs only after an explicit
   choice and sends actor/reason only when `qa.gate.check` is blocked.
-- The project review-policy control persists `reviewRequired` through
-  `project.update`. When it is false, a translation-to-signed command opens an
-  actor/reason dialog and sends both through `segment.workflow.set`; closing or
-  failing that dialog must not imply a successful sign-off.
+- Sign-off is a single reversible action. `segment.workflow.set` accepts any
+  transition without a review detour, a reason, or a confirmation dialog; the
+  renderer must not reintroduce one.
 - Loading-state E2E may use the three `TRANSLUNAR_TEST_ENGINE_DELAY_*` keys to
   pause selected calls immediately before the real `Engine.call`. The seam
   never replaces IPC, changes request/response payloads, adds a renderer API,

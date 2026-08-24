@@ -187,6 +187,7 @@ pub struct CurationRunParams {
     pub policy: CurationPolicy,
     #[serde(default = "default_actor")]
     pub actor: String,
+    #[serde(default)]
     pub reason: String,
     #[serde(default)]
     pub provider_profile_id: Option<String>,
@@ -227,6 +228,7 @@ pub struct CurationApplyParams {
     pub selected_finding_ids: Vec<String>,
     #[serde(default = "default_actor")]
     pub actor: String,
+    #[serde(default)]
     pub reason: String,
     #[serde(default)]
     pub correlation_id: Option<String>,
@@ -240,6 +242,7 @@ pub struct CurationRollbackParams {
     pub expected_library_revision: u64,
     #[serde(default = "default_actor")]
     pub actor: String,
+    #[serde(default)]
     pub reason: String,
     #[serde(default)]
     pub correlation_id: Option<String>,

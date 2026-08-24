@@ -1257,7 +1257,10 @@ impl Store {
         actor: &str,
         reason: &str,
     ) -> Result<QaIssueView> {
-        validate_actor_reason(actor, reason)?;
+        // Waiving is reversible (see revoke below), so it needs an audit trail
+        // (actor, timestamp) but not a mandatory justification essay.
+        validate_actor(actor)?;
+        validate_optional_reason(reason)?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -2048,14 +2051,28 @@ fn row_to_qa_override(row: &Row<'_>) -> rusqlite::Result<QaExportOverride> {
 }
 
 fn validate_actor_reason(actor: &str, reason: &str) -> Result<()> {
+    validate_actor(actor)?;
+    if reason.trim().is_empty() || reason.chars().count() > MAX_REASON_CHARS {
+        return Err(StorageError::InvalidState(format!(
+            "reason must contain 1..{MAX_REASON_CHARS} characters"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_actor(actor: &str) -> Result<()> {
     if actor.trim().is_empty() || actor.chars().count() > MAX_ACTOR_CHARS {
         return Err(StorageError::InvalidState(format!(
             "actor must contain 1..{MAX_ACTOR_CHARS} characters"
         )));
     }
-    if reason.trim().is_empty() || reason.chars().count() > MAX_REASON_CHARS {
+    Ok(())
+}
+
+fn validate_optional_reason(reason: &str) -> Result<()> {
+    if reason.chars().count() > MAX_REASON_CHARS {
         return Err(StorageError::InvalidState(format!(
-            "reason must contain 1..{MAX_REASON_CHARS} characters"
+            "reason cannot exceed {MAX_REASON_CHARS} characters"
         )));
     }
     Ok(())
@@ -2189,8 +2206,7 @@ mod tests {
     };
 
     use super::super::{
-        NewDocument, NewTermEntry, NewTermTranslation, ProjectUpdate, ReviewProposal, StorageError,
-        Store,
+        NewDocument, NewTermEntry, NewTermTranslation, ReviewProposal, StorageError, Store,
     };
     use super::*;
 
@@ -2739,12 +2755,13 @@ mod tests {
             .find(|issue| issue.rule_id == "qa.number-mismatch")
             .expect("number mismatch")
             .clone();
-        assert!(matches!(
-            fixture
-                .store
-                .waive_qa_issue(&number_issue.id, "reviewer", ""),
-            Err(StorageError::InvalidState(_))
-        ));
+        // An empty reason is allowed: waiving is reversible and the actor and
+        // timestamp already form the audit trail.
+        let quick_waive = fixture
+            .store
+            .waive_qa_issue(&number_issue.id, "reviewer", "")
+            .expect("waive without a reason");
+        assert_eq!(quick_waive.disposition, QaIssueDisposition::Waived);
         let waived = fixture
             .store
             .waive_qa_issue(&number_issue.id, "reviewer", "Approved source variance")
@@ -3022,52 +3039,26 @@ mod tests {
     }
 
     #[test]
-    fn direct_sign_off_requires_project_opt_out_actor_and_reason() {
+    fn direct_sign_off_needs_no_review_detour_and_no_reason() {
         let mut fixture = QaFixture::new();
-        let confirmed = fixture
-            .store
-            .confirm_segment(&fixture.segments[2].id, fixture.segments[2].revision)
-            .expect("confirm direct sign-off segment")
-            .segment;
-        assert!(matches!(
-            fixture.store.set_editor_workflow_with_context(
-                &confirmed.id,
-                EditorWorkflowState::Signed,
-                confirmed.revision,
-                "lead-reviewer",
-                Some("Customer-approved direct delivery"),
-            ),
-            Err(StorageError::InvalidState(_))
-        ));
 
-        let mut configuration = fixture.project.configuration.clone();
-        configuration.review_required = false;
-        fixture.project = fixture
-            .store
-            .update_project(
-                &fixture.project.id,
-                ProjectUpdate {
-                    name: fixture.project.name.clone(),
-                    source_locale: fixture.project.source_locale.clone(),
-                    target_locale: fixture.project.target_locale.clone(),
-                    domain: fixture.project.domain.clone(),
-                    configuration,
-                    expected_revision: fixture.project.revision,
-                    actor: "project-owner".to_string(),
-                    correlation_id: Some("disable-mandatory-review".to_string()),
-                },
-            )
-            .expect("disable mandatory review");
+        // An unconfirmed segment still cannot be signed.
         assert!(matches!(
             fixture.store.set_editor_workflow_with_context(
-                &confirmed.id,
+                &fixture.segments[3].id,
                 EditorWorkflowState::Signed,
-                confirmed.revision,
+                fixture.segments[3].revision,
                 "lead-reviewer",
                 None,
             ),
             Err(StorageError::InvalidState(_))
         ));
+
+        let confirmed = fixture
+            .store
+            .confirm_segment(&fixture.segments[2].id, fixture.segments[2].revision)
+            .expect("confirm direct sign-off segment")
+            .segment;
         fixture
             .store
             .set_editor_workflow_with_context(
@@ -3075,15 +3066,42 @@ mod tests {
                 EditorWorkflowState::Signed,
                 confirmed.revision,
                 "lead-reviewer",
-                Some("Customer-approved direct delivery"),
+                None,
             )
-            .expect("perform direct sign-off");
+            .expect("perform direct sign-off without a reason");
 
         let stats = fixture
             .store
             .review_statistics(&fixture.project.id, Some(&fixture.document_id))
             .expect("direct sign-off statistics");
         assert_eq!(stats.signed_segments, 1);
+
+        // A volunteered reason is still recorded in durable history.
+        let reopened = fixture
+            .store
+            .set_editor_workflow_with_context(
+                &confirmed.id,
+                EditorWorkflowState::Translation,
+                confirmed.revision + 1,
+                "lead-reviewer",
+                None,
+            )
+            .expect("reopen signed segment")
+            .rows
+            .into_iter()
+            .find(|row| row.segment.id == confirmed.id)
+            .expect("reopened row")
+            .segment;
+        fixture
+            .store
+            .set_editor_workflow_with_context(
+                &reopened.id,
+                EditorWorkflowState::Signed,
+                reopened.revision,
+                "lead-reviewer",
+                Some("Customer-approved direct delivery"),
+            )
+            .expect("perform direct sign-off with a reason");
         let (history, _, _, _) = fixture
             .store
             .editor_history(&fixture.project.id, 0, 100)
@@ -3094,15 +3112,13 @@ mod tests {
                 operation.kind == "segment.workflow.set"
                     && operation.entity_id == confirmed.id
                     && operation.actor == "lead-reviewer"
-            })
-            .expect("direct sign-off operation");
-        assert_eq!(
-            operation
-                .after
-                .as_ref()
-                .and_then(|value| value.get("directSignOffReason"))
-                .and_then(serde_json::Value::as_str),
-            Some("Customer-approved direct delivery")
-        );
+                    && operation
+                        .after
+                        .as_ref()
+                        .and_then(|value| value.get("directSignOffReason"))
+                        .and_then(serde_json::Value::as_str)
+                        == Some("Customer-approved direct delivery")
+            });
+        assert!(operation.is_some(), "volunteered reason should be recorded");
     }
 }
