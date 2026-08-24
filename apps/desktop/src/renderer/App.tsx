@@ -53,13 +53,8 @@ export function App() {
 
   const [selectedSegmentIds, setSelectedSegmentIds] = useState<string[]>([]);
   const [recycleDocumentOpen, setRecycleDocumentOpen] = useState(false);
-  const [recycleReason, setRecycleReason] = useState("");
   const [recyclePending, setRecyclePending] = useState(false);
   const [recycleError, setRecycleError] = useState<string | null>(null);
-  const [fileSignOff, setFileSignOff] = useState<{
-    segmentId: string;
-    reason: string;
-  } | null>(null);
 
   /** Editor chrome and keyboard ownership is Workbench-only (not QA/Export/Home). */
   const workbenchCtx = surface.kind === "workbench" ? surface.ctx : null;
@@ -68,7 +63,6 @@ export function App() {
   useEffect(() => {
     if (!workbenchActive) {
       setRecycleDocumentOpen(false);
-      setFileSignOff(null);
     }
   }, [workbenchActive]);
 
@@ -578,10 +572,7 @@ export function App() {
                 if (surface.kind !== "workbench" || !surface.activeSegmentId) {
                   return;
                 }
-                setFileSignOff({
-                  segmentId: surface.activeSegmentId,
-                  reason: "",
-                });
+                void commands.setWorkflow(surface.activeSegmentId, "signed");
               },
             },
           ]
@@ -622,7 +613,6 @@ export function App() {
               onReimport: () => reimport.open(),
               onRecycleDocument: () => {
                 setRecycleError(null);
-                setRecycleReason("");
                 setRecycleDocumentOpen(true);
               },
               onWorkflowTranslation: () => {
@@ -635,10 +625,7 @@ export function App() {
               },
               onWorkflowSignOff: () => {
                 if (surface.kind !== "workbench" || !surface.activeSegmentId) return;
-                setFileSignOff({
-                  segmentId: surface.activeSegmentId,
-                  reason: "",
-                });
+                void commands.setWorkflow(surface.activeSegmentId, "signed");
               },
             }
           : {})}
@@ -823,8 +810,8 @@ export function App() {
               onTagsChange={(tags) => {
                 void commands.persistTargetTags(tags);
               }}
-              onSetWorkflow={(segmentId, state, reason) => {
-                void commands.setWorkflow(segmentId, state, reason);
+              onSetWorkflow={(segmentId, state) => {
+                void commands.setWorkflow(segmentId, state);
               }}
               onCompositionStart={commands.compositionStart}
               onCompositionEnd={commands.compositionEnd}
@@ -1127,48 +1114,19 @@ export function App() {
         />
       ) : null}
 
-      {fileSignOff ? (
-        <ConfirmDialog
-          title="Sign off segment"
-          body="Signing off locks the segment. The engine will reject further target edits until the workflow is opened again."
-          confirmLabel="Sign off"
-          reasonLabel="Reason"
-          reason={fileSignOff.reason}
-          onReasonChange={(reason) =>
-            setFileSignOff((current) =>
-              current ? { ...current, reason } : current,
-            )
-          }
-          onCancel={() => setFileSignOff(null)}
-          onConfirm={() => {
-            if (!fileSignOff.reason.trim()) return;
-            void commands.setWorkflow(
-              fileSignOff.segmentId,
-              "signed",
-              fileSignOff.reason.trim(),
-            );
-            setFileSignOff(null);
-          }}
-          testId="title-file-sign-off-confirm"
-        />
-      ) : null}
-
       {recycleDocumentOpen && workbenchCtx ? (
         <ConfirmDialog
           title="Recycle document"
-          body={`${workbenchCtx.document.name} will move to recycle.`}
+          body={`${workbenchCtx.document.name} will move to recycle. It can be restored from the recycle bin.`}
           confirmLabel="Recycle"
           pending={recyclePending}
           error={recycleError}
-          reasonLabel="Reason"
-          reason={recycleReason}
-          onReasonChange={setRecycleReason}
           onCancel={() => setRecycleDocumentOpen(false)}
           onConfirm={() => {
             if (recyclePending) return;
             setRecyclePending(true);
             setRecycleError(null);
-            void commands.recycleActiveDocument(recycleReason.trim()).then((ok) => {
+            void commands.recycleActiveDocument().then((ok) => {
               setRecyclePending(false);
               if (ok) {
                 setRecycleDocumentOpen(false);

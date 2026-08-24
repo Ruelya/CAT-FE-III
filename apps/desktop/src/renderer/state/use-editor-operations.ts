@@ -116,9 +116,7 @@ export interface EditorOperationsApi {
   confirmStructure: () => Promise<void>;
   // source
   sourceDraft: string;
-  sourceReason: string;
   setSourceDraft: (t: string) => void;
-  setSourceReason: (r: string) => void;
   confirmSourceCorrection: () => Promise<void>;
   // comments
   comments: EditorComment[];
@@ -234,7 +232,6 @@ export function useEditorOperations(
   const [splitSourceOffset, setSplitSourceOffset] = useState(0);
   const [splitTargetOffset, setSplitTargetOffset] = useState(0);
   const [sourceDraft, setSourceDraft] = useState("");
-  const [sourceReason, setSourceReason] = useState("");
   const [comments, setComments] = useState<EditorComment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [commentsError, setCommentsError] = useState<UiError | null>(null);
@@ -340,7 +337,6 @@ export function useEditorOperations(
   useEffect(() => {
     if (panel === "sourceCorrection" && activeRow) {
       setSourceDraft(activeRow.segment.sourceText);
-      setSourceReason("");
     }
   }, [panel, activeRow?.segment.id]);
 
@@ -1041,24 +1037,14 @@ export function useEditorOperations(
   ]);
 
   const confirmSourceCorrection = useCallback(async () => {
-    const reason = sourceReason.trim();
-    if (!reason) {
-      setCommandError({
-        code: "REASON_REQUIRED",
-        message: "Reason required",
-        kind: "domain",
-      });
-      return;
-    }
     await runTargetMutation("replace", (row) =>
       invokeEngine("segment.correctSource", {
         segmentId: row.segment.id,
         expectedRevision: row.segment.revision,
         sourceText: sourceDraft,
-        reason,
       }),
     );
-  }, [runTargetMutation, sourceDraft, sourceReason]);
+  }, [runTargetMutation, sourceDraft]);
 
   const loadComments = useCallback(async () => {
     const g = gatewayRef.current;
@@ -1582,9 +1568,7 @@ export function useEditorOperations(
     },
     confirmStructure,
     sourceDraft,
-    sourceReason,
     setSourceDraft,
-    setSourceReason,
     confirmSourceCorrection,
     comments,
     commentsLoading,

@@ -199,11 +199,13 @@ async function runScannedOcr() {
       await correct.click();
       await page.getByTestId("pdf-ocr-correct-dialog").waitFor({ timeout: 10_000 });
       await page.getByTestId("pdf-ocr-ai-no-profile").waitFor({ timeout: 10_000 });
+      // The dialog opens prefilled with the block's OCR text, so Save is
+      // ready immediately; correcting text needs no justification ceremony.
       const saveDisabled = await page.getByTestId("pdf-ocr-save").isDisabled();
       note(
         "ocr-ai-honest",
-        saveDisabled ? "WORKS" : "BUG",
-        "no-profile shown; Save stays disabled without a reason",
+        saveDisabled ? "BUG" : "WORKS",
+        "no-profile shown; Save enabled with prefilled text",
       );
       await page.screenshot({
         path: join(artifacts, "pdf_ocr_ai_no_profile.png"),

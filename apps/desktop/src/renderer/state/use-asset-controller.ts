@@ -132,11 +132,7 @@ export interface AssetControllerApi {
   runCorpusSearch: (offset?: number) => Promise<void>;
   loadCorpora: (offset?: number) => Promise<void>;
   /** Returns true only when Engine removal succeeded. */
-  removeCorpus: (
-    corpusId: string,
-    expectedRevision: number,
-    reason: string,
-  ) => Promise<boolean>;
+  removeCorpus: (corpusId: string, expectedRevision: number) => Promise<boolean>;
   corpusFromAlignment: (name: string, reason: string) => Promise<void>;
   // Catalog
   setCatalogQuery: (q: string) => void;
@@ -158,7 +154,6 @@ export interface AssetControllerApi {
   loadCatalog: (offset?: number) => Promise<void>;
   // Curation
   setCurationLibraryId: (id: string) => void;
-  setCurationReason: (r: string) => void;
   setCurationPolicy: (policy: CurationPolicy) => void;
   patchCurationPolicy: (patch: Partial<CurationPolicy>) => void;
   setKnownRunId: (id: string) => void;
@@ -166,9 +161,9 @@ export interface AssetControllerApi {
   loadCurationRun: (runId?: string) => Promise<void>;
   loadFindings: (offset?: number) => Promise<void>;
   toggleFinding: (id: string) => void;
-  applyFindings: (reason: string) => Promise<void>;
+  applyFindings: () => Promise<void>;
   /** Returns true only when Engine rollback succeeded. */
-  rollbackCuration: (reason: string) => Promise<boolean>;
+  rollbackCuration: () => Promise<boolean>;
   exportCuration: (format: "jsonl" | "tsv") => Promise<void>;
   loadTmLibraries: (offset?: number) => Promise<void>;
   loadTermbases: (offset?: number) => Promise<void>;
@@ -2233,7 +2228,7 @@ export function useAssetController(
       }
     },
 
-    removeCorpus: async (corpusId, expectedRevision, reason) => {
+    removeCorpus: async (corpusId, expectedRevision) => {
       const projectId = projectIdRef.current;
       if (!gatewayRef.current.mutationsEnabled) return false;
       const opId = beginMut("corpus");
@@ -2246,7 +2241,6 @@ export function useAssetController(
         await invokeEngine("corpus.remove", {
           corpusId,
           expectedRevision,
-          reason,
         });
         if (!isMutCurrent("corpus", opId, projectId)) return false;
         setState((s) => ({
@@ -2403,12 +2397,6 @@ export function useAssetController(
         curation: { ...s.curation, libraryId: id },
       })),
 
-    setCurationReason: (r) =>
-      setState((s) => ({
-        ...s,
-        curation: { ...s.curation, reason: r },
-      })),
-
     setCurationPolicy: (policy) =>
       setState((s) => ({
         ...s,
@@ -2435,9 +2423,8 @@ export function useAssetController(
       const g = gatewayRef.current;
       if (!g.mutationsEnabled) return;
       const libraryId = stateRef.current.curation.libraryId;
-      const reason = stateRef.current.curation.reason.trim();
       const policy = stateRef.current.curation.policy;
-      if (!libraryId || !reason) {
+      if (!libraryId) {
         return;
       }
       const opId = beginMut("curation");
@@ -2467,7 +2454,6 @@ export function useAssetController(
           projectId,
           libraryId,
           expectedLibraryRevision: lib.revision,
-          reason,
           policy: {
             maximumLengthRatioPercent: policy.maximumLengthRatioPercent,
             minimumChars: policy.minimumChars,
@@ -2656,13 +2642,12 @@ export function useAssetController(
         };
       }),
 
-    applyFindings: async (reason) => {
+    applyFindings: async () => {
       const projectId = projectIdRef.current;
       const { snapshot, selectedFindingIds } = state.curation;
       if (
         !snapshot ||
         selectedFindingIds.length === 0 ||
-        !reason.trim() ||
         !gatewayRef.current.mutationsEnabled
       ) {
         return;
@@ -2683,7 +2668,6 @@ export function useAssetController(
           expectedRunRevision: snapshot.run.revision,
           expectedLibraryRevision: snapshot.run.baseLibraryRevision,
           selectedFindingIds,
-          reason: reason.trim(),
         });
         if (!isMutCurrent("curation", opId, projectId)) return;
         setState((s) => ({
@@ -2729,10 +2713,10 @@ export function useAssetController(
       }
     },
 
-    rollbackCuration: async (reason) => {
+    rollbackCuration: async () => {
       const projectId = projectIdRef.current;
       const snapshot = stateRef.current.curation.snapshot;
-      if (!snapshot || !reason.trim() || !gatewayRef.current.mutationsEnabled) {
+      if (!snapshot || !gatewayRef.current.mutationsEnabled) {
         return false;
       }
       const opId = beginMut("curation");
@@ -2750,7 +2734,6 @@ export function useAssetController(
           runId: snapshot.run.id,
           expectedRunRevision: snapshot.run.revision,
           expectedLibraryRevision: snapshot.run.baseLibraryRevision,
-          reason: reason.trim(),
         });
         if (!isMutCurrent("curation", opId, projectId)) return false;
         setState((s) => ({

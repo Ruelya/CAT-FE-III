@@ -705,7 +705,7 @@ export function createFakeDesktopApi(state: FakeEngineState): DesktopApi {
                 ? p.entityId
                 : (state.documents.find((x) => x.id === p.entityId)
                     ?.projectId ?? ""),
-            reason: p.reason,
+            reason: p.reason ?? "",
             actor: "test",
             deletedAtMs: Date.now(),
             retentionUntilMs: Date.now() + 86_400_000,

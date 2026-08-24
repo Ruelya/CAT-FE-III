@@ -1525,12 +1525,10 @@ impl Store {
             let comment_delta = interop_comment_delta(&current_comments, &row.comments)?;
             validate_interop_workflow_transition(
                 &transaction,
-                &preview.project_id,
                 &segment,
                 &current_status,
                 &row.status_context,
                 row.target_text != segment.target_text,
-                &input.reason,
             )?;
             plans.push(ValidatedReviewInteropRow {
                 row: row.clone(),
@@ -4329,7 +4327,6 @@ impl Store {
         expected_revision: u64,
     ) -> Result<EditorMutation> {
         require_nonempty("source text", source_text)?;
-        require_nonempty("source correction reason", reason)?;
         if source_text.len() > 1_000_000 || reason.len() > 4_096 {
             return Err(StorageError::InvalidState(
                 "source correction text or reason exceeds the configured limit".to_string(),
@@ -5532,31 +5529,18 @@ impl Store {
                 "review and signed workflow states require a confirmed segment".to_string(),
             ));
         }
+        // Signing off straight from translation is a normal solo-translator
+        // move; the transition is reversible and fully audited, so it needs no
+        // review detour and no mandatory justification. A reason, when one is
+        // volunteered, is still recorded below.
         let direct_sign_off = state == EditorWorkflowState::Signed && current_state != "review";
-        if direct_sign_off {
-            let configuration_json = transaction.query_row(
-                "SELECT configuration_json FROM projects WHERE id = ?1",
-                [&project_id],
-                |row| row.get::<_, String>(0),
-            )?;
-            let configuration: ProjectConfiguration = serde_json::from_str(&configuration_json)?;
-            if configuration.review_required {
-                return Err(StorageError::InvalidState(
-                    "a segment must pass through review before it can be signed".to_string(),
-                ));
-            }
-            let reason = reason
-                .filter(|value| !value.trim().is_empty())
-                .ok_or_else(|| {
-                    StorageError::InvalidState(
-                        "direct sign-off requires a non-empty reason".to_string(),
-                    )
-                })?;
-            if reason.chars().count() > 1_000 {
-                return Err(StorageError::InvalidState(
-                    "direct sign-off reason cannot exceed 1000 characters".to_string(),
-                ));
-            }
+        let reason = reason.filter(|value| !value.trim().is_empty());
+        if let Some(reason) = reason
+            && reason.chars().count() > 1_000
+        {
+            return Err(StorageError::InvalidState(
+                "sign-off reason cannot exceed 1000 characters".to_string(),
+            ));
         }
         if state == EditorWorkflowState::Signed {
             let pending: i64 = transaction.query_row(
@@ -5730,7 +5714,6 @@ impl Store {
         expected_revision: u64,
     ) -> Result<Segment> {
         require_nonempty("OCR source text", source_text)?;
-        require_nonempty("OCR correction reason", reason)?;
         if source_text.len() > 1_000_000 || reason.len() > 4_096 {
             return Err(StorageError::InvalidState(
                 "OCR correction text or reason exceeds the configured limit".to_string(),
@@ -6311,12 +6294,10 @@ fn interop_comment_delta(current: &str, edited: &str) -> Result<Option<String>> 
 
 fn validate_interop_workflow_transition(
     transaction: &Transaction<'_>,
-    project_id: &str,
     segment: &Segment,
     current: &str,
     next: &str,
     creates_review: bool,
-    reason: &str,
 ) -> Result<()> {
     if !matches!(next, "translation" | "review" | "signed") {
         return Err(StorageError::InvalidState(
@@ -6349,24 +6330,6 @@ fn validate_interop_workflow_transition(
         return Err(StorageError::InvalidState(
             "pending review proposals must be resolved before signing".to_string(),
         ));
-    }
-    if current != "review" {
-        let configuration_json = transaction.query_row(
-            "SELECT configuration_json FROM projects WHERE id = ?1",
-            [project_id],
-            |row| row.get::<_, String>(0),
-        )?;
-        let configuration: ProjectConfiguration = serde_json::from_str(&configuration_json)?;
-        if configuration.review_required {
-            return Err(StorageError::InvalidState(
-                "a segment must pass through review before it can be signed".to_string(),
-            ));
-        }
-        if reason.trim().is_empty() || reason.chars().count() > 1_000 {
-            return Err(StorageError::InvalidState(
-                "direct sign-off requires a bounded non-empty reason".to_string(),
-            ));
-        }
     }
     Ok(())
 }

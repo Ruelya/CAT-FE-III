@@ -151,7 +151,6 @@ export interface CatalogSectionState {
 
 export interface CurationSectionState {
   libraryId: string;
-  reason: string;
   policy: CurationPolicy;
   runPending: boolean;
   runError: UiError | null;
@@ -295,7 +294,6 @@ export function createInitialAssetState(input: {
     },
     curation: {
       libraryId: "",
-      reason: "",
       policy: { ...DEFAULT_CURATION_POLICY },
       runPending: false,
       runError: null,

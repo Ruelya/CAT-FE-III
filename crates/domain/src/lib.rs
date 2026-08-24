@@ -29,7 +29,7 @@ pub enum ProjectLifecycle {
     Trash,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectConfiguration {
     #[serde(default)]
@@ -48,8 +48,6 @@ pub struct ProjectConfiguration {
     pub editor_defaults: Option<EditorPreferences>,
     #[serde(default)]
     pub task_package: Option<TaskPackageProjectReference>,
-    #[serde(default = "default_review_required")]
-    pub review_required: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -61,26 +59,6 @@ pub struct TaskPackageProjectReference {
     pub parent_package_id: Option<String>,
     #[serde(default)]
     pub instructions: String,
-}
-
-impl Default for ProjectConfiguration {
-    fn default() -> Self {
-        Self {
-            template_id: None,
-            qa_profile_id: None,
-            pipeline_id: None,
-            engine_allowlist: Vec::new(),
-            ai_profile_ids: Vec::new(),
-            analysis_profile_id: None,
-            editor_defaults: None,
-            task_package: None,
-            review_required: true,
-        }
-    }
-}
-
-fn default_review_required() -> bool {
-    true
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -605,10 +583,10 @@ mod tests {
     }
 
     #[test]
-    fn legacy_project_configuration_requires_review_by_default() {
+    fn legacy_project_configuration_ignores_removed_review_flag() {
         let configuration: ProjectConfiguration =
-            serde_json::from_str("{}").expect("deserialize legacy project configuration");
-        assert!(configuration.review_required);
-        assert!(ProjectConfiguration::default().review_required);
+            serde_json::from_str(r#"{"reviewRequired": true}"#)
+                .expect("deserialize legacy project configuration");
+        assert_eq!(configuration, ProjectConfiguration::default());
     }
 }

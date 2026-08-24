@@ -47,7 +47,6 @@ export interface ProjectHomeProps {
   onRecycleProject: (
     projectId: string,
     expectedRevision: number,
-    reason: string,
   ) => Promise<boolean>;
   onInsights?: (projectId: string) => void;
   onAssets?: (projectId: string) => void;
@@ -88,7 +87,6 @@ export function ProjectHome({
   const [dialog, setDialog] = useState<DialogState>({ kind: "none" });
   const [pending, setPending] = useState(false);
   const [dialogError, setDialogError] = useState<string | null>(null);
-  const [reason, setReason] = useState("");
   const [editForm, setEditForm] = useState({
     name: "",
     domain: "",
@@ -110,7 +108,6 @@ export function ProjectHome({
     restoreFocusRef.current =
       trigger ?? (document.activeElement as HTMLElement);
     setDialogError(null);
-    setReason("");
     setPending(false);
     if (next.kind === "edit") {
       setEditForm({
@@ -179,16 +176,7 @@ export function ProjectHome({
           "active",
         );
       } else if (dialog.kind === "recycle") {
-        if (!reason.trim()) {
-          setDialogError("Reason is required.");
-          setPending(false);
-          return;
-        }
-        ok = await onRecycleProject(
-          dialog.project.id,
-          dialog.project.revision,
-          reason.trim(),
-        );
+        ok = await onRecycleProject(dialog.project.id, dialog.project.revision);
       }
       if (ok) {
         setDialog({ kind: "none" });
@@ -559,13 +547,10 @@ export function ProjectHome({
       {dialog.kind === "recycle" ? (
         <ConfirmDialog
           title="Recycle project"
-          body={`${dialog.project.name} will move to recycle.`}
+          body={`${dialog.project.name} will move to recycle. It can be restored from the recycle bin.`}
           confirmLabel="Recycle"
           pending={pending}
           error={dialogError}
-          reasonLabel="Reason"
-          reason={reason}
-          onReasonChange={setReason}
           onConfirm={() => void handleConfirm()}
           onCancel={() => setDialog({ kind: "none" })}
           testId="recycle-project-confirm"

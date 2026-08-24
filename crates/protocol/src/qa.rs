@@ -137,6 +137,7 @@ pub struct QaIssuePage {
 pub struct QaIssueWaiveParams {
     pub issue_id: String,
     pub actor: String,
+    #[serde(default)]
     pub reason: String,
 }
 

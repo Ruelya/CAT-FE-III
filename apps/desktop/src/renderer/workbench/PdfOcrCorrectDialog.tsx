@@ -12,7 +12,6 @@ export interface PdfOcrAiView {
 
 export interface PdfOcrCorrectDialogProps {
   sourceText: string;
-  reason: string;
   pending: boolean;
   error: UiError | null;
   canSubmit: boolean;
@@ -21,14 +20,12 @@ export interface PdfOcrCorrectDialogProps {
   onSuggestAi?: () => void;
   onUseAiSuggestion?: () => void;
   onSourceTextChange: (value: string) => void;
-  onReasonChange: (value: string) => void;
   onSubmit: () => void;
   onCancel: () => void;
 }
 
 export function PdfOcrCorrectDialog({
   sourceText,
-  reason,
   pending,
   error,
   canSubmit,
@@ -37,7 +34,6 @@ export function PdfOcrCorrectDialog({
   onSuggestAi,
   onUseAiSuggestion,
   onSourceTextChange,
-  onReasonChange,
   onSubmit,
   onCancel,
 }: PdfOcrCorrectDialogProps) {
@@ -122,20 +118,6 @@ export function PdfOcrCorrectDialog({
           ) : null}
         </div>
       ) : null}
-      <div className="field">
-        <label className="field__label" htmlFor="ocr-reason">
-          Reason
-        </label>
-        <input
-          id="ocr-reason"
-          className="field__control"
-          value={reason}
-          disabled={busy}
-          onChange={(e) => onReasonChange(e.target.value)}
-          autoComplete="off"
-          data-testid="pdf-ocr-reason"
-        />
-      </div>
       {error ? (
         <p className="field__error" data-testid="pdf-ocr-error">
           {formatUiError(error)}

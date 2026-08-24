@@ -7,14 +7,13 @@ afterEach(cleanup);
 import { PdfOcrCorrectDialog } from "./PdfOcrCorrectDialog";
 
 describe("PdfOcrCorrectDialog", () => {
-  it("does not submit without a reason even when a suggestion is shown", async () => {
+  it("does not submit blank text even when a suggestion is shown", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn();
     const onUse = vi.fn();
     render(
       <PdfOcrCorrectDialog
-        sourceText="OCR text"
-        reason=""
+        sourceText=""
         pending={false}
         error={null}
         canSubmit={false}
@@ -28,7 +27,6 @@ describe("PdfOcrCorrectDialog", () => {
         onSuggestAi={() => undefined}
         onUseAiSuggestion={onUse}
         onSourceTextChange={() => undefined}
-        onReasonChange={() => undefined}
         onSubmit={onSubmit}
         onCancel={() => undefined}
       />,
@@ -47,7 +45,6 @@ describe("PdfOcrCorrectDialog", () => {
     render(
       <PdfOcrCorrectDialog
         sourceText="OCR text"
-        reason=""
         pending={false}
         error={null}
         canSubmit={false}
@@ -59,7 +56,6 @@ describe("PdfOcrCorrectDialog", () => {
           runnable: false,
         }}
         onSourceTextChange={() => undefined}
-        onReasonChange={() => undefined}
         onSubmit={() => undefined}
         onCancel={() => undefined}
       />,

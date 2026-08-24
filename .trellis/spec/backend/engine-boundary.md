@@ -1280,9 +1280,9 @@ Built-in Standard and CJK profiles are deterministic migration seeds.
   is blocked and its pending attempt must finish as succeeded or failed.
 - Reports and document exports validate staging and publish no-clobber. A
   report DB failure removes the published file rather than leaving an orphan.
-- `reviewRequired` defaults to true for old and new projects. When false, a
-  translation-to-signed transition still requires bounded actor and reason and
-  records both in durable editor history.
+- Workflow transitions carry no review-policy gate. `segment.workflow.set`
+  accepts any transition; actor and reason are optional, bounded when present,
+  and recorded in durable editor history.
 
 ### 4. Validation & Error Matrix
 
@@ -1293,8 +1293,6 @@ Built-in Standard and CJK profiles are deterministic migration seeds.
 | Override on a clear gate | `invalid_request`; no audit row or export |
 | Blocked override missing actor/reason | `invalid_request`; no publication |
 | Existing report/export destination | typed export error; destination unchanged |
-| Direct sign-off while review is required | invalid state; no workflow mutation |
-| Direct sign-off without actor/reason | invalid request; no history mutation |
 
 ### 5. Good / Base / Bad Cases
 

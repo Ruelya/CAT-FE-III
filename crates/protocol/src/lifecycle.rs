@@ -244,6 +244,7 @@ pub struct RecycleDeleteParams {
     pub expected_revision: u64,
     #[serde(default = "default_actor")]
     pub actor: String,
+    #[serde(default)]
     pub reason: String,
     #[serde(default)]
     pub retention_ms: Option<i64>,

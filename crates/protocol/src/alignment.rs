@@ -431,6 +431,7 @@ pub struct CorpusMutationParams {
     pub expected_revision: u64,
     #[serde(default = "default_actor")]
     pub actor: String,
+    #[serde(default)]
     pub reason: String,
     #[serde(default)]
     pub correlation_id: Option<String>,

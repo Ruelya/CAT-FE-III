@@ -1334,7 +1334,7 @@ async function main() {
     );
     assert(
       ocrHistory?.after?.reason === "Verified against original scan",
-      "OCR correction history should retain the required reason",
+      "OCR correction history should retain the provided reason",
     );
 
     writeFileSync(aiSourcePath, "AI smoke source segment.\n", "utf8");
@@ -6788,7 +6788,6 @@ async function exerciseLifecycleBeforeRestart(processHandle, dataDirectory) {
       qaProfileId: "builtin.qa.cjk-professional",
       pipelineId: "missing.lifecycle.pipeline",
       analysisProfileId: "builtin.analysis.standard",
-      reviewRequired: false,
     },
   });
   const updatedTemplate = await processHandle.call("project.template.update", {
@@ -6803,7 +6802,6 @@ async function exerciseLifecycleBeforeRestart(processHandle, dataDirectory) {
       qaProfileId: "builtin.qa.cjk-professional",
       pipelineId: "missing.lifecycle.pipeline",
       analysisProfileId: "builtin.analysis.standard",
-      reviewRequired: false,
     },
   });
   assert(
@@ -6842,8 +6840,7 @@ async function exerciseLifecycleBeforeRestart(processHandle, dataDirectory) {
     dependencyRemaps: {},
   });
   assert(
-    instantiated.project.domain === "product" &&
-      instantiated.project.configuration.reviewRequired === false,
+    instantiated.project.domain === "product",
     "create-from-template should apply safe reusable configuration",
   );
   assert(

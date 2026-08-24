@@ -1078,7 +1078,14 @@ fn validate_page(offset: u32, limit: u32) -> Result<()> {
 
 fn validate_actor_reason(actor: &str, reason: &str) -> Result<()> {
     validate_bounded_nonempty("actor", actor, MAX_ACTOR_BYTES)?;
-    validate_bounded_nonempty("reason", reason, MAX_REASON_BYTES)
+    // A reason is optional context, not a gate: curation runs, applies, and
+    // rollbacks are already attributed and revision-guarded.
+    if reason.len() > MAX_REASON_BYTES {
+        return Err(StorageError::InvalidState(format!(
+            "reason exceeds the {MAX_REASON_BYTES}-byte limit"
+        )));
+    }
+    Ok(())
 }
 
 fn validate_bounded_nonempty(label: &str, value: &str, max_bytes: usize) -> Result<()> {

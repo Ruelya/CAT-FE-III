@@ -6347,14 +6347,14 @@
           "minimum": 0
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         }
       },
       "additionalProperties": false,
       "required": [
         "corpusId",
-        "expectedRevision",
-        "reason"
+        "expectedRevision"
       ]
     },
     "CorpusSearchHit": {
@@ -6468,7 +6468,8 @@
           "minimum": 0
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "segmentId": {
           "type": "string"
@@ -6480,7 +6481,6 @@
       "required": [
         "segmentId",
         "sourceText",
-        "reason",
         "expectedRevision"
       ]
     },
@@ -6493,7 +6493,8 @@
           "minimum": 0
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "segmentId": {
           "type": "string"
@@ -6505,7 +6506,6 @@
       "required": [
         "segmentId",
         "sourceText",
-        "reason",
         "expectedRevision"
       ]
     },
@@ -6612,7 +6612,8 @@
           "minimum": 0
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "runId": {
           "type": "string"
@@ -6629,8 +6630,7 @@
         "runId",
         "expectedRunRevision",
         "expectedLibraryRevision",
-        "selectedFindingIds",
-        "reason"
+        "selectedFindingIds"
       ]
     },
     "CurationDriftGroup": {
@@ -7109,7 +7109,8 @@
           "minimum": 0
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "runId": {
           "type": "string"
@@ -7119,8 +7120,7 @@
       "required": [
         "runId",
         "expectedRunRevision",
-        "expectedLibraryRevision",
-        "reason"
+        "expectedLibraryRevision"
       ]
     },
     "CurationRun": {
@@ -7291,15 +7291,15 @@
           "default": null
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         }
       },
       "additionalProperties": false,
       "required": [
         "projectId",
         "libraryId",
-        "expectedLibraryRevision",
-        "reason"
+        "expectedLibraryRevision"
       ]
     },
     "CurationRunSnapshot": {
@@ -19431,10 +19431,6 @@
           ],
           "default": null
         },
-        "reviewRequired": {
-          "type": "boolean",
-          "default": true
-        },
         "taskPackage": {
           "anyOf": [
             {
@@ -20750,13 +20746,13 @@
           "type": "string"
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         }
       },
       "required": [
         "issueId",
-        "actor",
-        "reason"
+        "actor"
       ]
     },
     "QaListResult": {
@@ -21792,7 +21788,8 @@
           "minimum": 0
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "retentionMs": {
           "type": [
@@ -21806,8 +21803,7 @@
       "required": [
         "entityType",
         "entityId",
-        "expectedRevision",
-        "reason"
+        "expectedRevision"
       ]
     },
     "RecycleEntry": {
@@ -27325,7 +27321,6 @@
             "engineAllowlist": [],
             "pipelineId": null,
             "qaProfileId": null,
-            "reviewRequired": true,
             "taskPackage": null,
             "templateId": null
           }

@@ -120,15 +120,14 @@ describe("usePdfReview", () => {
     expect(after).toBe(before);
   });
 
-  it("corrects OCR and rejects empty reason", async () => {
+  it("corrects OCR and rejects blank corrected text", async () => {
     const { result } = renderHook(() => usePdfReview(gateway(engine)));
     await waitFor(() => expect(result.current.state.pageStatus).toBe("ready"));
 
     const block = result.current.state.pageDetail!.blocks[0]!;
     await act(async () => {
       result.current.openCorrect(block);
-      result.current.setCorrectSourceText("Fixed");
-      result.current.setCorrectReason("");
+      result.current.setCorrectSourceText("  ");
     });
     expect(result.current.canSubmitCorrect).toBe(false);
 
@@ -138,7 +137,7 @@ describe("usePdfReview", () => {
     expect(engine.calls.some((c) => c.method === "pdf.correctOcr")).toBe(false);
 
     await act(async () => {
-      result.current.setCorrectReason("fix");
+      result.current.setCorrectSourceText("Fixed");
       await result.current.submitCorrect();
     });
     await waitFor(() => {
@@ -162,7 +161,6 @@ describe("usePdfReview", () => {
     await act(async () => {
       result.current.openCorrect(block);
       result.current.setCorrectSourceText("X");
-      result.current.setCorrectReason("r");
       await result.current.submitCorrect();
     });
     await waitFor(() => {

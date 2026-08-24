@@ -407,15 +407,6 @@ export function EditorPanels({
               data-testid="source-draft"
             />
           </label>
-          <label className="field">
-            <span>Reason</span>
-            <input
-              value={ops.sourceReason}
-              disabled={busy}
-              onChange={(e) => ops.setSourceReason(e.target.value)}
-              data-testid="source-reason"
-            />
-          </label>
           <div className="dialog__actions">
             <button
               type="button"
@@ -427,7 +418,7 @@ export function EditorPanels({
             <button
               type="button"
               className="btn btn--primary btn--sm"
-              disabled={busy || !ops.sourceReason.trim()}
+              disabled={busy || !ops.sourceDraft.trim()}
               onClick={() => void ops.confirmSourceCorrection()}
               data-testid="source-confirm"
             >

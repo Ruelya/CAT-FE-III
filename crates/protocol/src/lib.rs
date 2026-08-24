@@ -708,6 +708,7 @@ pub struct MergeSegmentsParams {
 pub struct CorrectSourceParams {
     pub segment_id: String,
     pub source_text: String,
+    #[serde(default)]
     pub reason: String,
     pub expected_revision: u64,
 }
@@ -1104,6 +1105,7 @@ fn default_pdf_dpi() -> u32 {
 pub struct CorrectOcrParams {
     pub segment_id: String,
     pub source_text: String,
+    #[serde(default)]
     pub reason: String,
     pub expected_revision: u64,
 }

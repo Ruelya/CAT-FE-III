@@ -3513,7 +3513,6 @@ fn validate_reference_corpus_mutation_fields(
 ) -> Result<()> {
     require_nonempty("reference corpus id", corpus_id)?;
     require_nonempty("operation actor", actor)?;
-    require_nonempty("operation reason", reason)?;
     if corpus_id.len() > MAX_REFERENCE_CORPUS_ID_BYTES
         || actor.len() > MAX_ALIGNMENT_ACTOR_BYTES
         || reason.len() > MAX_ALIGNMENT_REASON_BYTES

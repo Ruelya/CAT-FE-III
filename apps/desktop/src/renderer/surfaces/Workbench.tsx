@@ -71,7 +71,6 @@ import { shouldMountPdfDock } from "../state/pdf-review";
 import type { PdfReviewApi } from "../state/use-pdf-review";
 import type { ReimportApi } from "../state/use-reimport-controller";
 import { useContainerDensity } from "../state/use-container-density";
-import { ConfirmDialog } from "../shell/ConfirmDialog";
 import { ToastStack, type ToastItem } from "../shell/ToastStack";
 import { ReimportDialog } from "../insights/ReimportDialog";
 import { BatchImportSummary } from "../workbench/BatchImportSummary";
@@ -114,11 +113,7 @@ export interface WorkbenchProps {
   onSelectSegment: (segmentId: string) => void;
   onDraftChange: (text: string) => void;
   onTagsChange?: (tags: InlineTag[]) => void;
-  onSetWorkflow?: (
-    segmentId: string,
-    state: EditorWorkflowState,
-    reason?: string,
-  ) => void;
+  onSetWorkflow?: (segmentId: string, state: EditorWorkflowState) => void;
   onCompositionStart: () => void;
   onCompositionEnd: () => void;
   onConfirm: (event?: {
@@ -275,22 +270,17 @@ export function Workbench({
     setSourceHighlight(null);
     setTermFocusIndex(0);
   }, [activeSegmentId]);
-  const [signReason, setSignReason] = useState<{
-    segmentId: string;
-    reason: string;
-  } | null>(null);
   const progress = useDocumentProgress(
     ctx.documents,
     ctx.document.id,
     counts ?? null,
   );
 
+  // Every workflow move, sign-off included, is a single reversible action:
+  // signed segments reopen by switching back to translation or review, so no
+  // dialog and no mandatory justification stand between Ctrl+L and the lock.
   const requestWorkflow = (state: "translation" | "review" | "signed") => {
     if (!activeSegmentId || !onSetWorkflow) return;
-    if (state === "signed") {
-      setSignReason({ segmentId: activeSegmentId, reason: "" });
-      return;
-    }
     onSetWorkflow(activeSegmentId, state);
   };
 
@@ -468,7 +458,7 @@ export function Workbench({
       return;
     }
     if (id === "lock" && activeSegmentId && onSetWorkflow) {
-      setSignReason({ segmentId: activeSegmentId, reason: "" });
+      onSetWorkflow(activeSegmentId, "signed");
       return;
     }
     if (id === "goTo") {
@@ -1058,28 +1048,6 @@ export function Workbench({
           onSelect={(id) => {
             void runContextAction(id);
           }}
-        />
-      ) : null}
-
-      {signReason && onSetWorkflow ? (
-        <ConfirmDialog
-          title="Sign off segment"
-          body="Signing off locks the segment. The engine will reject further target edits until the workflow is opened again."
-          confirmLabel="Sign off"
-          reasonLabel="Reason"
-          reason={signReason.reason}
-          onReasonChange={(reason) =>
-            setSignReason((current) =>
-              current ? { ...current, reason } : current,
-            )
-          }
-          onCancel={() => setSignReason(null)}
-          onConfirm={() => {
-            if (!signReason.reason.trim()) return;
-            onSetWorkflow(signReason.segmentId, "signed", signReason.reason.trim());
-            setSignReason(null);
-          }}
-          testId="sign-off-confirm"
         />
       ) : null}
 
