@@ -249,14 +249,17 @@ test.describe("P4 AI plugins settings", () => {
       await createOpenProject(page);
       await page.getByTestId("nav-settings").click();
       await page.getByTestId("settings-tab-appearance").click();
-      await page.getByTestId("settings-theme").selectOption("dark");
+      // Light is the non-default now (the product boots dark-first), so a
+      // persisted light theme is proof the preference survived, not the
+      // default reasserting itself.
+      await page.getByTestId("settings-theme").selectOption("light");
       await page.getByTestId("settings-accent-hex").fill("#336699");
       await page.getByTestId("settings-appearance-apply").click();
       await expect
         .poll(async () =>
           page.evaluate(() => document.documentElement.dataset.theme),
         )
-        .toBe("dark");
+        .toBe("light");
 
       guard.dispose();
       await app.close();
@@ -273,7 +276,7 @@ test.describe("P4 AI plugins settings", () => {
         .poll(async () =>
           page.evaluate(() => document.documentElement.dataset.theme),
         )
-        .toBe("dark");
+        .toBe("light");
       await expect
         .poll(async () =>
           page.evaluate(() =>
@@ -291,7 +294,7 @@ test.describe("P4 AI plugins settings", () => {
         .poll(async () =>
           page.evaluate(() => document.documentElement.dataset.theme),
         )
-        .toBe("light");
+        .toBe("dark");
       expect(guard.errors, guard.errors.join("\n")).toEqual([]);
     } finally {
       guard.dispose();

@@ -144,11 +144,12 @@ const seeded = await page.evaluate(async () => {
 });
 note("termbase-seeded", "INFO", JSON.stringify(seeded));
 
-// Segment 2 contains "TL-900 power station".
+// Segment 2 contains "TL-900 power station". The stacked dock keeps the
+// term recognition pane always visible below the memory pane; there is no
+// Terms tab to click any more.
 await activate(2);
 await page.waitForTimeout(1500);
-await page.getByRole("tab", { name: /Terms/ }).click();
-await page.waitForTimeout(500);
+await page.getByTestId("intel-pane-tb").waitFor({ state: "visible" });
 const termDock = await dockText();
 const recognised = termDock.includes("power station");
 note(

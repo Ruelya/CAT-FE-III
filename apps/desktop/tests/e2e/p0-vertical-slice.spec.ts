@@ -111,17 +111,21 @@ test.describe("P0 vertical slice", () => {
       });
       await expectNoAxeViolations(page, "workbench");
 
-      // Segment intelligence dock: both docks are reachable, both report on
-      // the current segment, and collapse/expand keeps the body mounted so a
-      // screen reader is not handed a panel that vanishes.
+      // Segment intelligence dock: the stacked layout keeps the memory pane
+      // (with its Matches / Concordance / AI tool switch) and the term
+      // recognition pane both visible, and collapse/expand keeps the body
+      // mounted so a screen reader is not handed a panel that vanishes.
       const dock = page.getByTestId("intel-dock");
       await expect(dock).toBeVisible();
-      await expect(dock.getByRole("tab", { name: /Matches/ })).toBeVisible();
-      await expect(dock.getByRole("tab", { name: /Terms/ })).toBeVisible();
-      await dock.getByRole("tab", { name: /Terms/ }).click();
-      await expect(page.getByTestId("no-terms")).toBeVisible();
-      await dock.getByRole("tab", { name: /Matches/ }).click();
+      await expect(dock.getByTestId("intel-pane-tm")).toBeVisible();
+      await expect(dock.getByTestId("intel-pane-tb")).toBeVisible();
+      await expect(
+        dock
+          .getByRole("group", { name: "Memory tools" })
+          .getByRole("button", { name: /Matches/ }),
+      ).toBeVisible();
       await expect(page.getByTestId("no-matches")).toBeVisible();
+      await expect(page.getByTestId("no-terms")).toBeVisible();
 
       const collapseDock = page.getByRole("button", {
         name: /Collapse segment intelligence/i,

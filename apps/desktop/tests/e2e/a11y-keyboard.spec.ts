@@ -423,9 +423,11 @@ test.describe("accessibility and keyboard", () => {
       await expect(page.getByTestId("panel-find-replace")).toBeHidden();
       expect(await focusedName(page)).toContain("Find");
 
-      // Ctrl+Enter confirms the active segment from the editor.
+      // Ctrl+Enter confirms the active segment from the editor. The pointer
+      // lands on the visible rich surface; text entry and the shortcut go
+      // through the mirror textarea, which carries the same key handling.
+      await page.locator('[data-testid^="target-surface-"]').first().click();
       const editor = page.locator('[data-testid^="target-editor-"]').first();
-      await editor.click();
       await editor.fill("键盘可达性验证。");
       await page.keyboard.press("Control+Enter");
       await expect(page.locator(".status-chip--confirmed")).toHaveCount(1, {

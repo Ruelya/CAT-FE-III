@@ -547,6 +547,24 @@ export function Workbench({
     });
   }
 
+  /*
+   * Info and success toasts retire on their own: they sit over the term pane,
+   * and a notice that needs a pointer trip to clear defeats a keyboard-first
+   * editor. Errors stay until the translator closes them.
+   */
+  const transientToastIds = toasts
+    .filter((toast) => toast.tone !== "danger")
+    .map((toast) => toast.id)
+    .join(" ");
+  useEffect(() => {
+    if (!transientToastIds) return;
+    const ids = transientToastIds.split(" ");
+    const timer = window.setTimeout(() => {
+      setDismissedToasts((current) => new Set([...current, ...ids]));
+    }, 6000);
+    return () => window.clearTimeout(timer);
+  }, [transientToastIds]);
+
   return (
     <section className="workbench" data-testid="workbench">
       {editorOps ? (
