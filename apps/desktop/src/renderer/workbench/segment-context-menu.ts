@@ -103,23 +103,26 @@ export function segmentContextActions(input: {
     {
       id: "insertTerm",
       label: "Insert term",
-      shortcut: "Ctrl+T",
+      shortcut: "Ctrl+Shift+L",
       disabled: !input.canInsertTerm,
     },
     {
       id: "addTerm",
       label: "Add term",
+      shortcut: "Ctrl+Shift+T",
       disabled: !input.canStoreTerm,
     },
+    // Place-all has no chord of its own: Ctrl+, opens QuickPlace, whose first
+    // entry is "place all tags". Advertising a chord here that opens a
+    // different control teaches people the hints cannot be trusted.
     {
       id: "placeTags",
       label: "Place tags",
-      shortcut: "Ctrl+,",
     },
     {
       id: "quickPlace",
       label: "QuickPlace",
-      shortcut: "Ctrl+Shift+,",
+      shortcut: "Ctrl+,",
     },
     {
       id: "protectTags",
