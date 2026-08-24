@@ -247,8 +247,11 @@ html[data-theme="light"] {
   --preview-w: 280px;
   --measure: 68ch;
 
-  /* Focus */
-  --focus-width: 2px;
+  /* Focus. 2.5px instead of 2px because Chromium floors outline widths to
+     whole device pixels: on fractional scale factors (Windows 125%/150%,
+     sub-1 DPR) a 2px ring degrades to ~1px. 2.5px still paints 2 device px
+     at 100% but never floors below 2 CSS px where it matters. */
+  --focus-width: 2.5px;
   --focus-ring: var(--focus-width) solid var(--color-focus);
   --focus-offset: 2px;
 }
