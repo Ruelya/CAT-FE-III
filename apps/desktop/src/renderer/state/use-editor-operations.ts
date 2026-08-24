@@ -908,13 +908,27 @@ export function useEditorOperations(
   const selectFindMatch = useCallback(async (segmentId: string) => {
     const g = gatewayRef.current;
     if (!g.ctx) return;
-    await g.commitWorkbenchRows({
-      rows: g.ctx.rows,
-      counts: g.ctx.counts,
-      activeSegmentId: segmentId,
-      focusSegmentId: segmentId,
-      needsRefresh: false,
-    });
+    // Find results land while the translator is mid-edit. Switching the active
+    // segment without flushing would drop the last few keystrokes: attach
+    // cancels the pending save timers.
+    const ok = await g.flushOrStay();
+    if (!ok) return;
+    const after = gatewayRef.current;
+    if (!after.ctx) return;
+    if (after.ctx.rows.some((row) => row.segment.id === segmentId)) {
+      await after.commitWorkbenchRows({
+        rows: after.ctx.rows,
+        counts: after.ctx.counts,
+        activeSegmentId: segmentId,
+        focusSegmentId: segmentId,
+        needsRefresh: false,
+      });
+      return;
+    }
+    // segment.find searches the whole document; the hit can live on another
+    // engine page. Load the page that contains it instead of pointing the
+    // active segment at a row the grid does not have.
+    await after.refreshActiveDocumentRows(segmentId);
   }, []);
 
   const submitTags = useCallback(async () => {
