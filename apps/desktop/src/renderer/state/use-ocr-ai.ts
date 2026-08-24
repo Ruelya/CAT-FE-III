@@ -82,7 +82,7 @@ export interface OcrAiState {
 /**
  * AI that suggests an OCR source correction for the open correct dialog.
  *
- * The proposal is a draft only. The translator still types a reason and
+ * The proposal is a draft only. The translator still reviews the text and
  * confirms through `pdf.correctOcr`. Leaving the dialog abandons the view.
  */
 export function useOcrAi(input: {

@@ -107,7 +107,6 @@ export interface AlignmentSectionState {
   create: {
     sourceDocumentId: string;
     targetDocumentId: string;
-    reason: string;
     pending: boolean;
     error: UiError | null;
   };
@@ -115,7 +114,6 @@ export interface AlignmentSectionState {
   actionPending: boolean;
   actionError: UiError | null;
   refineProfileId: string;
-  refineReason: string;
   applyLibraryId: string;
   lastRefineRunId: string | null;
   lastApplyMessage: string | null;
@@ -253,7 +251,6 @@ export function createInitialAssetState(input: {
       create: {
         sourceDocumentId: "",
         targetDocumentId: "",
-        reason: "",
         pending: false,
         error: null,
       },
@@ -261,7 +258,6 @@ export function createInitialAssetState(input: {
       actionPending: false,
       actionError: null,
       refineProfileId: "",
-      refineReason: "",
       applyLibraryId: "",
       lastRefineRunId: null,
       lastApplyMessage: null,

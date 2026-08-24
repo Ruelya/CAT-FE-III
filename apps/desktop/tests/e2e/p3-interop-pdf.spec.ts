@@ -230,7 +230,7 @@ test.describe("P3 interop / PDF / task package", () => {
       await expect(page.getByTestId("interop-review-table")).toBeVisible({
         timeout: 60_000,
       });
-      // Apply remains gated on selection + actor/reason; unit covers apply.
+      // Apply remains gated on selection + actor; unit covers apply.
       await expect(page.getByTestId("interop-review-apply")).toBeVisible();
     } finally {
       guard.dispose();
@@ -343,7 +343,6 @@ test.describe("P3 interop / PDF / task package", () => {
 
       await page.getByTestId("task-open").click();
       await page.locator("#task-actor").fill("e2e");
-      await page.locator("#task-reason").fill("fixture preview");
       await page.getByTestId("task-preview").click();
       await expect(page.getByTestId("task-rows")).toBeVisible({
         timeout: 60_000,

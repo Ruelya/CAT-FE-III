@@ -98,18 +98,6 @@ export function InteropTablePanel({
             onChange={(e) => interop.setActor(e.target.value)}
           />
         </div>
-        <div className="field">
-          <label className="field__label" htmlFor="interop-table-reason">
-            Reason
-          </label>
-          <input
-            id="interop-table-reason"
-            className="field__control"
-            value={state.reason}
-            disabled={busy || terminal}
-            onChange={(e) => interop.setReason(e.target.value)}
-          />
-        </div>
       </div>
 
       {state.path ? (
