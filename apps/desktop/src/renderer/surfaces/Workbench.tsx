@@ -50,6 +50,8 @@ import {
   nextInsertableTerm,
   termSourceHighlights,
 } from "../lib/term-source";
+import { segmentNumber } from "../lib/format";
+import { toggleDockFocus } from "../workbench/dock-focus";
 import { matchLabel, rankMatches, type SegmentIntel } from "../state/segment-intel";
 import { useSegmentSelection } from "../state/use-segment-selection";
 import { useSuggestions } from "../state/use-suggestions";
@@ -145,6 +147,8 @@ export interface WorkbenchProps {
   onPlaceTags: () => void;
   pretranslatePending?: boolean;
   onPage?: (offset: number) => void;
+  /** Go To a segment that lives on another engine page. */
+  onGoToOrdinal?: (ordinal: number) => void;
   onSwitchDocument: (documentId: string) => void;
   onAddFiles: () => void;
   onAssets?: () => void;
@@ -193,6 +197,7 @@ export function Workbench({
   onPlaceTags,
   pretranslatePending,
   onPage,
+  onGoToOrdinal,
   onSwitchDocument,
   onAddFiles,
   onAssets,
@@ -322,6 +327,13 @@ export function Workbench({
       );
     },
     onLock: () => requestWorkflow("signed"),
+    onToggleDockFocus: () => {
+      toggleDockFocus({
+        activeSegmentId,
+        collapsed: tmCollapsed,
+        expand: onToggleTm,
+      });
+    },
   });
   // Container-responsive density: dock changes resize the editor without
   // resizing the window, so this cannot be a viewport media query.
@@ -908,11 +920,11 @@ export function Workbench({
         sourceLocale={ctx.project.sourceLocale}
         targetLocale={ctx.project.targetLocale}
         segmentLabel={
-          activeSegmentId
-            ? `Segment ${
-                ctx.rows.findIndex((r) => r.segment.id === activeSegmentId) + 1
-              } of ${ctx.rows.length}`
-            : `${ctx.rows.length} segments`
+          activeRow
+            ? `Segment ${segmentNumber(activeRow.segment.ordinal)} of ${
+                ctx.editorPage.total || ctx.rows.length
+              }`
+            : `${ctx.editorPage.total || ctx.rows.length} segments`
         }
         counts={counts}
         wordCount={countWords(
@@ -960,12 +972,27 @@ export function Workbench({
 
       {goToOpen ? (
         <GoToDialog
-          maxOrdinal={ctx.rows.length}
+          maxOrdinal={ctx.editorPage.total || ctx.rows.length}
           onClose={() => setGoToOpen(false)}
           onGo={(ordinal) => {
-            const row = ctx.rows[ordinal - 1];
             setGoToOpen(false);
-            if (row) onSelectSegment(row.segment.id);
+            // The dialog speaks in displayed numbers (engine ordinal + 1),
+            // the same numbers the # column shows. Rows hold one engine page,
+            // so a number outside it means the target lives on another page.
+            const row = ctx.rows.find(
+              (item) => segmentNumber(item.segment.ordinal) === ordinal,
+            );
+            if (row) {
+              onSelectSegment(row.segment.id);
+              return;
+            }
+            if (
+              onGoToOrdinal &&
+              ctx.editorPage.filter === "all" &&
+              !ctx.editorPage.query.trim()
+            ) {
+              onGoToOrdinal(ordinal);
+            }
           }}
         />
       ) : null}

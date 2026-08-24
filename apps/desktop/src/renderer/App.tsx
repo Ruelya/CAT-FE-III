@@ -835,6 +835,13 @@ export function App() {
               onPage={(offset) => {
                 void commands.loadEditorPage({ offset });
               }}
+              onGoToOrdinal={(ordinal) => {
+                const limit = surface.ctx.editorPage.limit || 1;
+                void commands.loadEditorPage({
+                  offset: Math.floor((ordinal - 1) / limit) * limit,
+                  focusOrdinal: ordinal - 1,
+                });
+              }}
               onApplyMatch={commands.applyTmMatch}
               onInsertTerm={commands.insertAtCaret}
               onConcordance={commands.runConcordance}
