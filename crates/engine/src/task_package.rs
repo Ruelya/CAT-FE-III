@@ -1904,10 +1904,10 @@ fn required_string(value: Option<&str>, field: &str) -> Result<String> {
 }
 
 fn validate_actor_reason(actor: &str, reason: &str) -> Result<()> {
-    if actor.trim().is_empty() || reason.trim().is_empty() {
-        return Err(EngineError::InvalidRequest(
-            "actor and reason are required".to_string(),
-        ));
+    // The actor is carried in the package manifest across machines and stays
+    // required; a reason is optional context.
+    if actor.trim().is_empty() {
+        return Err(EngineError::InvalidRequest("actor is required".to_string()));
     }
     if actor.len() > MAX_ACTOR_BYTES || reason.len() > MAX_REASON_BYTES {
         return Err(resource_limit(

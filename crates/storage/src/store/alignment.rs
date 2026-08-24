@@ -1522,7 +1522,7 @@ impl Store {
         require_nonempty("alignment source document id", &input.source_document_id)?;
         require_nonempty("alignment target document id", &input.target_document_id)?;
         require_nonempty("operation actor", &input.actor)?;
-        require_nonempty("operation reason", &input.reason)?;
+        validate_optional_alignment_reason(&input.reason)?;
 
         let transaction = self
             .connection
@@ -1650,7 +1650,7 @@ impl Store {
     ) -> Result<AlignmentMutationResult> {
         require_nonempty("alignment session id", &input.session_id)?;
         require_nonempty("operation actor", &input.actor)?;
-        require_nonempty("operation reason", &input.reason)?;
+        validate_optional_alignment_reason(&input.reason)?;
         if input.links.is_empty() || input.links.len() > MAX_MANUAL_REPLACEMENT_LINKS {
             return Err(StorageError::InvalidState(format!(
                 "alignment replacement selects 1..{MAX_MANUAL_REPLACEMENT_LINKS} links"
@@ -1932,7 +1932,7 @@ impl Store {
         require_nonempty("alignment session id", &input.session_id)?;
         require_nonempty("alignment link id", &input.link_id)?;
         require_nonempty("operation actor", &input.actor)?;
-        require_nonempty("operation reason", &input.reason)?;
+        validate_optional_alignment_reason(&input.reason)?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -2037,7 +2037,6 @@ fn validate_alignment_apply_input(
     require_nonempty("alignment session id", &input.session_id)?;
     require_nonempty("TM library id", &input.library_id)?;
     require_nonempty("operation actor", &input.actor)?;
-    require_nonempty("operation reason", &input.reason)?;
     if input.session_id.len() > MAX_ALIGNMENT_ID_BYTES
         || input.library_id.len() > MAX_ALIGNMENT_ID_BYTES
         || input.actor.len() > MAX_ALIGNMENT_ACTOR_BYTES
@@ -2307,7 +2306,7 @@ fn load_alignment_refinement_selection(
 ) -> Result<AlignmentRefinementSelection> {
     require_nonempty("alignment session id", &context.session_id)?;
     require_nonempty("operation actor", &context.actor)?;
-    require_nonempty("operation reason", &context.reason)?;
+    validate_optional_alignment_reason(&context.reason)?;
     if context.links.is_empty() {
         return Err(StorageError::InvalidState(
             "AI refinement must select at least one link".to_string(),
@@ -2720,6 +2719,18 @@ fn partition_segments(
         .collect()
 }
 
+/// A reason is optional context on alignment work, not a gate: every mutation
+/// is already attributed to an actor and revision-guarded. One is recorded in
+/// durable history when volunteered, so it stays bounded.
+fn validate_optional_alignment_reason(reason: &str) -> Result<()> {
+    if reason.len() > MAX_ALIGNMENT_REASON_BYTES {
+        return Err(StorageError::InvalidState(format!(
+            "operation reason exceeds the {MAX_ALIGNMENT_REASON_BYTES}-byte limit"
+        )));
+    }
+    Ok(())
+}
+
 fn partition_links(links: &[AlignmentLinkRecord]) -> Vec<AlignmentPartitionLink> {
     links
         .iter()
@@ -2822,7 +2833,6 @@ fn validate_reference_corpus_create_fields(
     require_nonempty("reference corpus project id", project_id)?;
     require_nonempty("reference corpus name", name)?;
     require_nonempty("operation actor", actor)?;
-    require_nonempty("operation reason", reason)?;
     if project_id.len() > MAX_REFERENCE_CORPUS_ID_BYTES
         || name.trim().len() > MAX_REFERENCE_CORPUS_NAME_BYTES
         || actor.len() > MAX_ALIGNMENT_ACTOR_BYTES

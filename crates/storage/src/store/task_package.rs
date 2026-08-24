@@ -1638,8 +1638,9 @@ impl Store {
 }
 
 fn validate_package_actor_reason(actor: &str, reason: &str) -> Result<()> {
+    // The actor travels with the package across machines, so it stays
+    // required; a reason is optional context recorded when volunteered.
     require_nonempty("task package actor", actor)?;
-    require_nonempty("task package reason", reason)?;
     if actor.len() > MAX_PACKAGE_ACTOR_BYTES || reason.len() > MAX_PACKAGE_REASON_BYTES {
         return Err(StorageError::InvalidState(
             "task package actor or reason exceeds the configured limit".to_string(),

@@ -4160,7 +4160,8 @@
           }
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "sessionId": {
           "type": "string"
@@ -4172,8 +4173,7 @@
         "libraryId",
         "expectedSessionRevision",
         "expectedLibraryRevision",
-        "links",
-        "reason"
+        "links"
       ]
     },
     "AlignmentSessionCreateParams": {
@@ -4221,7 +4221,8 @@
           "type": "string"
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "sourceDocumentId": {
           "type": "string"
@@ -4237,8 +4238,7 @@
         "targetDocumentId",
         "expectedProjectRevision",
         "expectedSourceDocumentRevision",
-        "expectedTargetDocumentRevision",
-        "reason"
+        "expectedTargetDocumentRevision"
       ]
     },
     "AlignmentSessionCreateResult": {
@@ -4511,7 +4511,8 @@
           "type": "string"
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "sessionId": {
           "type": "string"
@@ -4522,8 +4523,7 @@
         "sessionId",
         "expectedSessionRevision",
         "links",
-        "profileId",
-        "reason"
+        "profileId"
       ]
     },
     "AlignmentSessionStatus": {
@@ -4557,7 +4557,8 @@
           "$ref": "#/$defs/AlignmentSessionMutation"
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "sessionId": {
           "type": "string"
@@ -4567,8 +4568,7 @@
       "required": [
         "sessionId",
         "expectedSessionRevision",
-        "mutation",
-        "reason"
+        "mutation"
       ]
     },
     "AlignmentSide": {
@@ -6189,7 +6189,8 @@
           "type": "string"
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "sessionId": {
           "type": "string"
@@ -6202,8 +6203,7 @@
         "sessionId",
         "expectedSessionRevision",
         "name",
-        "links",
-        "reason"
+        "links"
       ]
     },
     "CorpusImportParams": {
@@ -6249,7 +6249,8 @@
           "type": "string"
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "sourceLocale": {
           "type": "string"
@@ -6269,8 +6270,7 @@
         "name",
         "kind",
         "sourceLocale",
-        "targetLocale",
-        "reason"
+        "targetLocale"
       ]
     },
     "CorpusListParams": {
@@ -16885,7 +16885,8 @@
           "type": "string"
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "requestId": {
           "type": "string"
@@ -16896,8 +16897,7 @@
         "pluginId",
         "requestId",
         "expectedRevision",
-        "actor",
-        "reason"
+        "actor"
       ]
     },
     "PluginCapabilityDecisionResult": {
@@ -16934,7 +16934,8 @@
           "type": "string"
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "requestId": {
           "type": "string"
@@ -16949,8 +16950,7 @@
         "requestId",
         "expectedRevision",
         "scope",
-        "actor",
-        "reason"
+        "actor"
       ]
     },
     "PluginCapabilityId": {
@@ -18472,7 +18472,8 @@
           "type": "string"
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "versionId": {
           "type": "string"
@@ -18483,8 +18484,7 @@
         "pluginId",
         "versionId",
         "expectedRevision",
-        "actor",
-        "reason"
+        "actor"
       ]
     },
     "PluginRuntimeDescriptor": {
@@ -18841,7 +18841,8 @@
           "type": "string"
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "sourcePath": {
           "type": "string"
@@ -18852,8 +18853,7 @@
         "pluginId",
         "sourcePath",
         "expectedRevision",
-        "actor",
-        "reason"
+        "actor"
       ]
     },
     "PluginVersionListParams": {
@@ -22419,7 +22419,8 @@
       "type": "object",
       "properties": {
         "actor": {
-          "type": "string"
+          "type": "string",
+          "default": "desktop"
         },
         "expectedDocumentRevision": {
           "type": "integer",
@@ -22430,7 +22431,8 @@
           "type": "string"
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "selectedRowIds": {
           "type": "array",
@@ -22442,9 +22444,7 @@
       "required": [
         "previewId",
         "expectedDocumentRevision",
-        "selectedRowIds",
-        "actor",
-        "reason"
+        "selectedRowIds"
       ]
     },
     "ReviewCreateParams": {
@@ -24793,7 +24793,8 @@
       "type": "object",
       "properties": {
         "actor": {
-          "type": "string"
+          "type": "string",
+          "default": "desktop"
         },
         "expectedLibraryRevision": {
           "type": "integer",
@@ -24804,7 +24805,8 @@
           "type": "string"
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "selectedRowIds": {
           "type": "array",
@@ -24816,9 +24818,7 @@
       "required": [
         "previewId",
         "expectedLibraryRevision",
-        "selectedRowIds",
-        "actor",
-        "reason"
+        "selectedRowIds"
       ]
     },
     "TableInteropDisposition": {
@@ -25056,7 +25056,8 @@
           "type": "string"
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "selectedRowIds": {
           "type": "array",
@@ -25069,8 +25070,7 @@
         "previewId",
         "expectedProjectRevision",
         "selectedRowIds",
-        "actor",
-        "reason"
+        "actor"
       ]
     },
     "TaskPackageApplyResult": {
@@ -25197,13 +25197,13 @@
           "default": null
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         }
       },
       "required": [
         "packageId",
-        "actor",
-        "reason"
+        "actor"
       ]
     },
     "TaskPackageDiscardResult": {
@@ -25317,7 +25317,8 @@
           "default": null
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "workingProjectId": {
           "type": [
@@ -25330,8 +25331,7 @@
       "required": [
         "kind",
         "destinationPath",
-        "actor",
-        "reason"
+        "actor"
       ]
     },
     "TaskPackageImportParams": {
@@ -25358,13 +25358,13 @@
           "default": null
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         }
       },
       "required": [
         "previewId",
-        "actor",
-        "reason"
+        "actor"
       ]
     },
     "TaskPackageImportResult": {
@@ -25509,12 +25509,12 @@
           "default": null
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "default": ""
         }
       },
       "required": [
-        "actor",
-        "reason"
+        "actor"
       ]
     },
     "TaskPackagePreviewResult": {

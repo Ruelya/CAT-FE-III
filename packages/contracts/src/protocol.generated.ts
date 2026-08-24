@@ -950,7 +950,7 @@ export interface AlignmentSessionApplyParams {
   expectedSessionRevision: number;
   libraryId: string;
   links: AlignmentExpectedLinkRevision[];
-  reason: string;
+  reason?: string;
   sessionId: string;
 }
 export interface AlignmentExpectedLinkRevision {
@@ -966,7 +966,7 @@ export interface AlignmentSessionCreateParams {
   expectedTargetDocumentRevision: number;
   options?: AlignmentOptions;
   projectId: string;
-  reason: string;
+  reason?: string;
   sourceDocumentId: string;
   targetDocumentId: string;
 }
@@ -1014,7 +1014,7 @@ export interface AlignmentSessionRefineParams {
   links: AlignmentExpectedLinkRevision[];
   maxAttempts?: number;
   profileId: string;
-  reason: string;
+  reason?: string;
   sessionId: string;
 }
 export interface AlignmentSessionUpdateParams {
@@ -1022,7 +1022,7 @@ export interface AlignmentSessionUpdateParams {
   correlationId?: string | null;
   expectedSessionRevision: number;
   mutation: AlignmentSessionMutation;
-  reason: string;
+  reason?: string;
   sessionId: string;
 }
 export interface AlignmentManualLink {
@@ -1320,7 +1320,7 @@ export interface CorpusFromAlignmentParams {
   links: AlignmentExpectedLinkRevision[];
   name: string;
   projectId: string;
-  reason: string;
+  reason?: string;
   sessionId: string;
 }
 export interface CorpusImportParams {
@@ -1334,7 +1334,7 @@ export interface CorpusImportParams {
     [k: string]: string;
   };
   projectId: string;
-  reason: string;
+  reason?: string;
   sourceLocale: string;
   sourcePath: string;
   targetLocale: string;
@@ -3652,10 +3652,10 @@ export interface MethodContract79 {
   [k: string]: unknown;
 }
 export interface ReviewApplyParams {
-  actor: string;
+  actor?: string;
   expectedDocumentRevision: number;
   previewId: string;
-  reason: string;
+  reason?: string;
   selectedRowIds: string[];
   [k: string]: unknown;
 }
@@ -3743,10 +3743,10 @@ export interface MethodContract81 {
   [k: string]: unknown;
 }
 export interface TableApplyParams {
-  actor: string;
+  actor?: string;
   expectedLibraryRevision: number;
   previewId: string;
-  reason: string;
+  reason?: string;
   selectedRowIds: string[];
   [k: string]: unknown;
 }
@@ -4684,7 +4684,7 @@ export interface PluginCapabilityDecisionParams {
   actor: string;
   expectedRevision: number;
   pluginId: string;
-  reason: string;
+  reason?: string;
   requestId: string;
 }
 export interface PluginCapabilityDecisionResult {
@@ -4724,7 +4724,7 @@ export interface PluginCapabilityGrantParams {
   actor: string;
   expectedRevision: number;
   pluginId: string;
-  reason: string;
+  reason?: string;
   requestId: string;
   scope: PluginCapabilityScope;
 }
@@ -4779,7 +4779,7 @@ export interface PluginRollbackParams {
   actor: string;
   expectedRevision: number;
   pluginId: string;
-  reason: string;
+  reason?: string;
   versionId: string;
 }
 export interface PluginLifecycleResult {
@@ -4848,7 +4848,7 @@ export interface PluginUpgradeParams {
   actor: string;
   expectedRevision: number;
   pluginId: string;
-  reason: string;
+  reason?: string;
   sourcePath: string;
 }
 export interface MethodContract147 {
@@ -6244,7 +6244,7 @@ export interface TaskPackageApplyParams {
   actor: string;
   expectedProjectRevision: number;
   previewId: string;
-  reason: string;
+  reason?: string;
   selectedRowIds: string[];
   [k: string]: unknown;
 }
@@ -6271,7 +6271,7 @@ export interface TaskPackageDiscardParams {
   actor: string;
   packageId: string;
   previewId?: string | null;
-  reason: string;
+  reason?: string;
   [k: string]: unknown;
 }
 export interface TaskPackageDiscardResult {
@@ -6296,7 +6296,7 @@ export interface TaskPackageExportParams {
   kind: TaskPackageKind;
   parentPackageId?: string | null;
   projectId?: string | null;
-  reason: string;
+  reason?: string;
   workingProjectId?: string | null;
   [k: string]: unknown;
 }
@@ -6333,7 +6333,7 @@ export interface TaskPackageImportParams {
   domain?: string | null;
   previewId: string;
   projectName?: string | null;
-  reason: string;
+  reason?: string;
   [k: string]: unknown;
 }
 export interface TaskPackageImportResult {
@@ -6355,7 +6355,7 @@ export interface TaskPackagePreviewParams {
   offset?: number;
   packagePath?: string | null;
   previewId?: string | null;
-  reason: string;
+  reason?: string;
   [k: string]: unknown;
 }
 export interface TaskPackagePreviewResult {

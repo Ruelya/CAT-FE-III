@@ -470,7 +470,7 @@ impl Store {
             reason,
         } = input;
         validate_audit_text(actor, "actor", MAX_ACTOR_BYTES)?;
-        validate_audit_text(reason, "reason", MAX_REASON_BYTES)?;
+        validate_optional_audit_text(reason, "reason", MAX_REASON_BYTES)?;
         if decision == PluginCapabilityDecision::Pending {
             return Err(StorageError::InvalidState(
                 "pending is created by manifests, not a review decision".to_string(),
@@ -1052,6 +1052,20 @@ fn validate_audit_text(value: &str, label: &str, max_bytes: usize) -> Result<()>
     {
         return Err(StorageError::InvalidState(format!(
             "plugin capability {label} is empty, padded, or oversized"
+        )));
+    }
+    Ok(())
+}
+
+/// The grant or deny decision itself is the audit event; a reason is optional
+/// context that is only shape-checked when one is volunteered.
+fn validate_optional_audit_text(value: &str, label: &str, max_bytes: usize) -> Result<()> {
+    if value.is_empty() {
+        return Ok(());
+    }
+    if value.trim() != value || value.len() > max_bytes || value.chars().any(char::is_control) {
+        return Err(StorageError::InvalidState(format!(
+            "plugin capability {label} is padded or oversized"
         )));
     }
     Ok(())

@@ -53,6 +53,7 @@ pub struct TaskPackageExportParams {
     #[serde(default)]
     pub parent_package_id: Option<String>,
     pub actor: String,
+    #[serde(default)]
     pub reason: String,
 }
 
@@ -68,6 +69,7 @@ pub struct TaskPackagePreviewParams {
     #[serde(default = "default_page_size")]
     pub limit: u32,
     pub actor: String,
+    #[serde(default)]
     pub reason: String,
 }
 
@@ -80,6 +82,7 @@ pub struct TaskPackageImportParams {
     #[serde(default)]
     pub domain: Option<String>,
     pub actor: String,
+    #[serde(default)]
     pub reason: String,
 }
 
@@ -90,6 +93,7 @@ pub struct TaskPackageApplyParams {
     pub expected_project_revision: u64,
     pub selected_row_ids: Vec<String>,
     pub actor: String,
+    #[serde(default)]
     pub reason: String,
 }
 
@@ -100,6 +104,7 @@ pub struct TaskPackageDiscardParams {
     #[serde(default)]
     pub preview_id: Option<String>,
     pub actor: String,
+    #[serde(default)]
     pub reason: String,
 }
 

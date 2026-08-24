@@ -1677,12 +1677,9 @@ fn validate_reference_corpus_import_request(
             "reference corpus import requires an active project".to_string(),
         ));
     }
-    if request.name.trim().is_empty()
-        || request.actor.trim().is_empty()
-        || request.reason.trim().is_empty()
-    {
+    if request.name.trim().is_empty() || request.actor.trim().is_empty() {
         return Err(EngineError::InvalidRequest(
-            "reference corpus name, actor, and reason are required".to_string(),
+            "reference corpus name and actor are required".to_string(),
         ));
     }
     if request.source_locale != project.source_locale

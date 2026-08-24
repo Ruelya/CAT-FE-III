@@ -6247,8 +6247,9 @@ fn validate_new_interop_preview(input: &NewInteropPreview) -> Result<()> {
 }
 
 fn validate_interop_actor_reason(actor: &str, reason: &str) -> Result<()> {
+    // Applying an interop preview is already gated on the preview and row
+    // selection; a reason is optional context, not a required justification.
     require_nonempty("interop actor", actor)?;
-    require_nonempty("interop reason", reason)?;
     if actor.len() > 256 || reason.len() > 4_096 {
         return Err(StorageError::InvalidState(
             "interop actor or reason exceeds the configured limit".to_string(),
