@@ -16,7 +16,7 @@ import {
   type SegmentAiState,
 } from "../state/use-segment-ai";
 import type { AiAction } from "@translunar/contracts";
-import { matchLabel, rankMatches } from "../state/segment-intel";
+import { matchLabel, matchPercent, rankMatches } from "../state/segment-intel";
 
 export interface IntelDockProps {
   intel: SegmentIntel;
@@ -529,6 +529,15 @@ function MatchList({
                 <kbd className="match__shortcut">{shortcut}</kbd>
               ) : null}
             </div>
+            <span className="match__meter" aria-hidden="true">
+              <span
+                className={`match__meter-fill${
+                  match.kind === "context" ? " match__meter-fill--context" : ""
+                }`}
+                data-geometry="fill width is the match score, a runtime value"
+                style={{ transform: `scaleX(${matchPercent(match) / 100})` }}
+              />
+            </span>
             <p className="match__source">{match.unit.sourceText}</p>
             <p className="match__target">{match.unit.targetText}</p>
             {match.substitutions.length > 0 ? (

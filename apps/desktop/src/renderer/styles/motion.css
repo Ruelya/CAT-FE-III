@@ -1,11 +1,21 @@
 /**
- * Motion classes M1 to M7.
- * Specification: .trellis/spec/frontend/design-language.md §5.
+ * Motion classes M1 to M11.
  *
  * Every animation here moves only `transform` and `opacity`, and every one
  * collapses under `prefers-reduced-motion: reduce` because the duration tokens
  * become 0ms. The explicit reduce block at the end also removes staggering and
  * view transitions, which duration alone cannot switch off.
+ *
+ * Motion in this product always answers "what just happened":
+ *   M1  route change        the new surface slides up into place
+ *   M4  async lifecycle     skeleton shimmer while the Engine works
+ *   M5  settle feedback     a control acknowledges a commit
+ *   M6  list entrance       the first rows of a fresh list stagger in
+ *   M7  press               buttons depress on :active (primitives.css)
+ *   M8  confirm sweep       an accent highlight crosses the confirmed row
+ *   M9  leverage flash      the target pulses when TM or a term lands in it
+ *   M10 stage rise          the editing stage lifts under the active segment
+ *   M11 dock reveal         side panels slide in instead of popping
  */
 
 /* ── M1 · surface transition ────────────────────────────── */
@@ -122,6 +132,122 @@
   }
 }
 
+/* ── M8 · confirm sweep ─────────────────────────────────── */
+
+/*
+ * Played inside the cell whose segment just reached "confirmed": a soft
+ * accent band crosses once, left to right, then the row settles into its
+ * confirmed tint. The class is the overlay element itself (a keyed span
+ * dropped into the cell), because table rows cannot reliably host
+ * pseudo-element overlays. The host cell only needs `position: relative`.
+ */
+.confirm-sweep {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.confirm-sweep::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 10%,
+    var(--color-accent-glow) 45%,
+    transparent 82%
+  );
+  transform: translateX(-100%);
+  animation: tl-confirm-sweep var(--motion-deliberate) var(--ease-standard)
+    forwards;
+}
+
+@keyframes tl-confirm-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* ── M9 · leverage flash ────────────────────────────────── */
+
+/*
+ * The target field acknowledges that a memory match or a term was placed
+ * into it: one soft accent pulse, no geometry change. Overlay element,
+ * same hosting contract as .confirm-sweep.
+ */
+.apply-flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-glow);
+  opacity: 0;
+  animation: tl-apply-flash var(--motion-deliberate) var(--ease-decelerate);
+}
+
+@keyframes tl-apply-flash {
+  20% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* ── M10 · stage rise ───────────────────────────────────── */
+
+/*
+ * The editing stage mounts every time the caret moves to another segment.
+ * A short rise with a restrained overshoot makes the focus move legible
+ * without slowing typing down; the editor is interactive from frame one.
+ */
+.stage-rise {
+  animation: tl-stage-rise var(--motion-slow) var(--ease-overshoot) backwards;
+}
+
+@keyframes tl-stage-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.995);
+  }
+}
+
+/* ── M11 · dock reveal ──────────────────────────────────── */
+
+.dock-reveal-left {
+  animation: tl-dock-left var(--motion-slow) var(--ease-decelerate) backwards;
+}
+
+@keyframes tl-dock-left {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+}
+
+.dock-reveal-right {
+  animation: tl-dock-right var(--motion-slow) var(--ease-decelerate) backwards;
+}
+
+@keyframes tl-dock-right {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+
+.dock-reveal-up {
+  animation: tl-dock-up var(--motion-slow) var(--ease-decelerate) backwards;
+}
+
+@keyframes tl-dock-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+
 /* ── Reduced motion ─────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
@@ -142,6 +268,19 @@
   }
 
   .row-enter {
+    animation: none;
+  }
+
+  .confirm-sweep::before,
+  .apply-flash {
+    animation: none;
+    opacity: 0;
+  }
+
+  .stage-rise,
+  .dock-reveal-left,
+  .dock-reveal-right,
+  .dock-reveal-up {
     animation: none;
   }
 

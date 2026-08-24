@@ -248,6 +248,16 @@ export function Workbench({
   const [termFocusIndex, setTermFocusIndex] = useState(0);
   const [protectTags, setProtectTags] = useState(readProtectTags);
   const [groupAdjacent, setGroupAdjacent] = useState(readGroupAdjacentTags);
+  /* M9: each bump replays the leverage flash on the active target cell. */
+  const [applyFlashTick, setApplyFlashTick] = useState(0);
+  const applyMatchWithFlash = (match: TmMatch) => {
+    setApplyFlashTick((tick) => tick + 1);
+    onApplyMatch(match);
+  };
+  const insertTermWithFlash = (translation: string) => {
+    setApplyFlashTick((tick) => tick + 1);
+    onInsertTerm(translation);
+  };
   const [editorDisplay] = useEditorDisplay();
   const termHighlights = useMemo(
     () => termSourceHighlights(intel.terms.matches, onInsertTerm),
@@ -304,7 +314,7 @@ export function Workbench({
     onInsertTerm: () => {
       const hit = nextInsertableTerm(intel.terms.matches, termFocusIndex);
       if (!hit) return;
-      onInsertTerm(hit.translation);
+      insertTermWithFlash(hit.translation);
       setTermFocusIndex(
         intel.terms.matches.length === 0
           ? 0
@@ -397,7 +407,7 @@ export function Workbench({
     }
     if (id === "insertTerm") {
       const hit = nextInsertableTerm(intel.terms.matches, termFocusIndex);
-      if (hit) onInsertTerm(hit.translation);
+      if (hit) insertTermWithFlash(hit.translation);
       return;
     }
     if (id === "addTerm") {
@@ -599,6 +609,7 @@ export function Workbench({
         ]
           .filter(Boolean)
           .join(" ")}
+        data-geometry="dock widths track the user's sash drags"
         style={{
           ["--file-nav-w" as string]: `${layout.fileNavW}px`,
           ["--panel-w-tm" as string]: `${layout.intelW}px`,
@@ -689,6 +700,7 @@ export function Workbench({
                 : (editorOps?.findReplace.matches[0]?.segmentId ?? null)
             }
             {...(topTmMatch ? { activeMatchLabel: matchLabel(topTmMatch) } : {})}
+            applyFlashTick={applyFlashTick}
             onCompositionStart={onCompositionStart}
             onCompositionEnd={onCompositionEnd}
             onConfirm={onConfirm}
@@ -696,7 +708,7 @@ export function Workbench({
             onApplyMatchByIndex={(index) => {
               const ranked = rankMatches(intel.tm.matches);
               const match = ranked[index];
-              if (match) onApplyMatch(match);
+              if (match) applyMatchWithFlash(match);
             }}
             suggestions={{
               items: suggest.suggestions,
@@ -800,8 +812,8 @@ export function Workbench({
             collapsed={tmCollapsed}
             disabled={disabled === true}
             onToggle={onToggleTm}
-            onApplyMatch={onApplyMatch}
-            onInsertTerm={onInsertTerm}
+            onApplyMatch={applyMatchWithFlash}
+            onInsertTerm={insertTermWithFlash}
             onConcordance={(query) => onConcordance(query, selection)}
             onQuickAddTerm={() => onQuickAddTerm(selection)}
             canQuickAddTerm={canQuickAddTerm}
@@ -836,6 +848,7 @@ export function Workbench({
       {previewOpen ? (
         <div
           className="preview-drawer"
+          data-geometry="drawer height tracks the user's sash drags"
           style={{ ["--preview-h" as string]: `${layout.previewH}px` }}
         >
           <DockSash
