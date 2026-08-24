@@ -154,7 +154,7 @@ await page.screenshot({ path: join(OUT, "08-suggestions.png") });
 await page.evaluate(() => {
   window.localStorage.setItem(
     "translunar.renderer.appearance.v1",
-    JSON.stringify({ version: 1, theme: "dark", accentSeed: "#765847" }),
+    JSON.stringify({ version: 1, theme: "dark", accentSeed: "#e0a458" }),
   );
 });
 await page.reload();

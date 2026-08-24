@@ -20,7 +20,7 @@
   align-items: center;
   gap: var(--space-3);
   padding: 0 var(--space-3);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-line);
   background: var(--color-surface);
   min-height: var(--chrome-height);
   /* The product title strip is the draggable window region. */
@@ -41,14 +41,19 @@
   font-family: var(--font-display);
   font-size: var(--text-sm);
   font-weight: var(--weight-semibold);
-  letter-spacing: var(--tracking-wide);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
   flex-shrink: 0;
 }
 
+/* The mark is a slim spectrum strip now: quieter than a full tile, and it
+   reads as a wordmark underline rather than an app icon. */
 .app-chrome__ribbon {
   display: inline-flex;
   width: 18px;
-  height: 18px;
+  height: 10px;
+  gap: 1px;
   border-radius: var(--radius-sm);
   overflow: hidden;
   flex-shrink: 0;
@@ -164,7 +169,14 @@
   height: 2px;
   border-radius: var(--radius-full);
   background: var(--color-accent);
-  transform: translateX(-50%);
+  transform: translateX(-50%) scaleX(1);
+  animation: tl-current-in var(--motion-base) var(--ease-decelerate) backwards;
+}
+
+@keyframes tl-current-in {
+  from {
+    transform: translateX(-50%) scaleX(0);
+  }
 }
 
 /* Interactive chrome descendants must not initiate a window drag. */
@@ -414,8 +426,25 @@
   text-align: left;
 }
 
+.command-palette__item {
+  position: relative;
+  transition: background var(--motion-instant) var(--ease-standard);
+}
+
 .command-palette__item[data-active="true"] {
   background: var(--color-accent-soft);
+}
+
+.command-palette__item[data-active="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 16px;
+  width: 2px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  transform: translateY(-50%);
 }
 
 .command-palette__item-icon {

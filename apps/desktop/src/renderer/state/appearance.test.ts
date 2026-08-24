@@ -14,8 +14,8 @@ import {
   contrastRatio,
   deriveAccentPalette,
   hexToRgb,
-  isAdvancedBrownAccent,
-  isLightDefaultTheme,
+  isConsoleAmberAccent,
+  isDarkDefaultTheme,
   parseAppearancePreference,
   readAppearancePreference,
   REQUIRED_TOKEN_VARS,
@@ -55,9 +55,9 @@ function tokenIn(block: string, name: string): string {
 
 function blockFor(theme: AppearanceTheme): string {
   const marker =
-    theme === "light"
-      ? ':root,\nhtml[data-theme="light"] {'
-      : 'html[data-theme="dark"] {';
+    theme === "dark"
+      ? ':root,\nhtml[data-theme="dark"] {'
+      : 'html[data-theme="light"] {';
   const start = tokensCss.indexOf(marker);
   expect(start, `theme block for ${theme}`).toBeGreaterThanOrEqual(0);
   const end = tokensCss.indexOf("\n}", start);
@@ -94,14 +94,14 @@ const SURFACE_STEPS = ["sunken", "canvas", "surface", "raised"] as const;
 /* ── Preference schema ──────────────────────────────────── */
 
 describe("appearance-v1 preference", () => {
-  it("defaults to light and the advanced brown seed", () => {
+  it("defaults to dark and the console amber seed", () => {
     expect(DEFAULT_APPEARANCE).toEqual({
       version: 1,
-      theme: "light",
-      accentSeed: "#765847",
+      theme: "dark",
+      accentSeed: "#e0a458",
     });
-    expect(isLightDefaultTheme()).toBe(true);
-    expect(isAdvancedBrownAccent()).toBe(true);
+    expect(isDarkDefaultTheme()).toBe(true);
+    expect(isConsoleAmberAccent()).toBe(true);
   });
 
   it("parses valid preferences and falls back for malformed input", () => {
@@ -307,7 +307,7 @@ describe("design tokens", () => {
     const declared = [
       ...tokensCss.matchAll(/--radius-[a-z]+:\s*([^;]+);/g),
     ].map((m) => m[1]!.trim());
-    expect(declared.sort()).toEqual(["4px", "6px", "8px", "999px"]);
+    expect(declared.sort()).toEqual(["2px", "4px", "6px", "8px", "999px"]);
   });
 
   it("keeps the CSS accent family equal to the derived default palette", () => {
@@ -351,6 +351,7 @@ describe("design tokens", () => {
 
 describe("accent derivation", () => {
   const seeds = [
+    "#e0a458",
     "#765847",
     "#000000",
     "#ffffff",
@@ -407,18 +408,31 @@ describe("accent derivation", () => {
     }
   });
 
-  it("lifts a dark seed for the dark theme instead of reusing it", () => {
-    const light = deriveAccentPalette("#765847", "light");
-    const dark = deriveAccentPalette("#765847", "dark");
-    expect(light.accent).toBe("#765847");
-    expect(dark.accent).not.toBe("#765847");
-    expect(lstar(dark.accent)).toBeGreaterThan(lstar(light.accent));
+  it("adjusts the seed per theme instead of reusing one value", () => {
+    // The amber default already clears the dark console, so dark keeps it,
+    // while light paper deepens it. A dark brown seed inverts: light keeps
+    // it and the dark theme lifts it.
+    const amberLight = deriveAccentPalette("#e0a458", "light");
+    const amberDark = deriveAccentPalette("#e0a458", "dark");
+    expect(amberDark.accent).toBe("#e0a458");
+    expect(amberLight.accent).not.toBe("#e0a458");
+    expect(lstar(amberDark.accent)).toBeGreaterThan(lstar(amberLight.accent));
+
+    const brownLight = deriveAccentPalette("#765847", "light");
+    const brownDark = deriveAccentPalette("#765847", "dark");
+    expect(brownDark.accent).not.toBe("#765847");
+    expect(lstar(brownDark.accent)).toBeGreaterThan(lstar(brownLight.accent));
   });
 
   it("keeps the seed hue rather than washing it to grey", () => {
+    // A warm seed must stay warm in both themes: red dominant, blue lowest.
+    for (const theme of THEMES) {
+      const { r, g, b } = rgb(deriveAccentPalette("#e0a458", theme).accent);
+      expect(r).toBeGreaterThan(g);
+      expect(g).toBeGreaterThan(b);
+    }
     const dark = deriveAccentPalette("#765847", "dark");
     const { r, g, b } = rgb(dark.accent);
-    // A warm brown must stay warm: red dominant, blue lowest.
     expect(r).toBeGreaterThan(g);
     expect(g).toBeGreaterThan(b);
   });
@@ -526,6 +540,8 @@ describe("first paint", () => {
     );
     expect(indexHtml).not.toMatch(/<script>[\s\S]*localStorage/);
     expect(themeBootJs).toContain(APPEARANCE_STORAGE_KEY);
+    // A persisted light preference must not flash the dark default canvas.
+    expect(themeBootJs).toContain('setAttribute("data-theme", "light")');
     expect(themeBootJs).toContain('setAttribute("data-theme", "dark")');
   });
 });

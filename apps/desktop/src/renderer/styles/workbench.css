@@ -187,8 +187,8 @@
   gap: var(--space-1);
   width: var(--rail-w);
   flex-shrink: 0;
-  padding: var(--space-1) 0;
-  background: var(--color-canvas);
+  padding: var(--space-2) 0;
+  background: var(--color-sunken);
   border-right: 1px solid var(--color-line);
 }
 
@@ -203,6 +203,9 @@
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-text-muted);
+  transition:
+    background var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard);
 }
 
 .activity-bar__btn:hover {
@@ -223,7 +226,7 @@
   min-height: var(--control-h-sm);
   padding: 0 var(--space-1);
   border-bottom: 1px solid var(--color-line);
-  background: var(--color-canvas);
+  background: var(--color-sunken);
   flex-shrink: 0;
 }
 
@@ -318,6 +321,8 @@
   min-height: 0;
   border-left: 1px solid var(--color-line);
   background: var(--color-surface);
+  /* M11: the dock slides in when toggled open. */
+  animation: tl-dock-right var(--motion-slow) var(--ease-decelerate) backwards;
 }
 
 .acp-chat__head {
@@ -399,6 +404,9 @@
 
 /* ── Command bar ───────────────────────────────────────── */
 
+/* A short instrument strip: icon commands on the left, workflow and the
+   confirm action anchored right. It sits on the canvas step so the grid
+   below reads as the lit work surface. */
 .editor-command-bar {
   display: flex;
   align-items: center;
@@ -406,9 +414,21 @@
   width: 100%;
   padding: var(--space-1) var(--space-3);
   border-bottom: 1px solid var(--color-line);
-  background: var(--color-surface);
+  background: var(--color-canvas);
   min-height: var(--control-h-lg);
   flex-shrink: 0;
+}
+
+.editor-command-bar .btn--ghost {
+  color: var(--color-text-muted);
+}
+
+.editor-command-bar .btn--ghost:hover:not(:disabled) {
+  color: var(--color-text);
+}
+
+.editor-command-bar > .btn--primary {
+  box-shadow: var(--shadow-sm);
 }
 
 .editor-command-bar__primary {
@@ -536,6 +556,8 @@
   overflow: auto;
   padding: var(--space-3);
   flex-shrink: 0;
+  /* M11: bottom panels (find, comments, history) rise when opened. */
+  animation: tl-dock-up var(--motion-slow) var(--ease-decelerate) backwards;
 }
 
 .editor-panel__header {
@@ -592,10 +614,17 @@
 }
 
 .segment-grid > .pagination {
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-1) var(--space-3);
   border-bottom: 1px solid var(--color-line);
-  background: var(--color-surface);
+  background: var(--color-canvas);
   flex-shrink: 0;
+}
+
+.segment-grid > .pagination .pagination__count {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-xs);
+  color: var(--color-text-subtle);
 }
 
 .segment-grid__chrome {
@@ -605,7 +634,7 @@
   gap: var(--space-3);
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-line);
-  background: var(--color-surface);
+  background: var(--color-canvas);
   flex-shrink: 0;
 }
 
@@ -667,17 +696,24 @@
   font-size: var(--text-sm);
 }
 
+/* Cells host the M8/M9 motion overlays (confirm sweep, leverage flash). */
+.segment-table td {
+  position: relative;
+}
+
 .segment-table th {
   position: sticky;
   top: 0;
-  background: var(--color-surface);
+  background: var(--color-canvas);
   border-bottom: 1px solid var(--color-border);
   z-index: var(--z-sticky);
-  font-weight: var(--weight-semibold);
-  font-size: var(--text-xs);
-  letter-spacing: var(--tracking-wide);
+  padding-block: var(--space-1);
+  font-family: var(--font-mono);
+  font-weight: var(--weight-bold);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--color-text-muted);
+  color: var(--color-text-subtle);
 }
 
 .segment-table col.ordinal {
@@ -714,9 +750,19 @@
   background: var(--color-accent-soft);
 }
 
-/* M3: the active row grows a left emphasis bar rather than only tinting. */
+/*
+ * M3/M10: the active row is the editing stage. It steps up one surface,
+ * grows an accent emphasis bar, and carries a hairline top and bottom trace
+ * so the eye finds the working line in a two-hundred-row grid instantly.
+ */
 .segment-row--active {
-  background: color-mix(in srgb, var(--color-accent-soft) 55%, var(--color-surface));
+  background: color-mix(in srgb, var(--color-accent-soft) 42%, var(--color-surface));
+}
+
+.segment-row--active > td {
+  border-top: 1px solid color-mix(in srgb, var(--color-accent) 26%, var(--color-line));
+  border-bottom: 1px solid color-mix(in srgb, var(--color-accent) 26%, var(--color-line));
+  padding-block: var(--space-3);
 }
 
 .segment-row--active td:first-child {
@@ -727,8 +773,8 @@
   content: "";
   position: absolute;
   left: 0;
-  top: 0;
-  bottom: 0;
+  top: -1px;
+  bottom: -1px;
   width: 3px;
   background: var(--color-accent);
   transform: scaleY(0);
@@ -740,6 +786,11 @@
   to {
     transform: scaleY(1);
   }
+}
+
+.segment-row--active .segment-index {
+  color: var(--color-accent);
+  font-weight: var(--weight-bold);
 }
 
 .segment-source {
@@ -765,21 +816,23 @@
 }
 
 .target-editor--rich:focus {
-  outline: 2px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
+  outline: 2px solid var(--color-accent-glow);
 }
 
+/* The stage itself: one raised, lit writing surface with an amber caret. */
 .target-editor {
   width: 100%;
-  min-height: 52px;
+  min-height: 56px;
   resize: vertical;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   background: var(--color-raised);
-  padding: var(--space-2);
+  padding: var(--space-2) var(--space-3);
   font-family: var(--font-cjk), var(--font-ui);
   font-size: var(--text-md);
   line-height: var(--leading-cjk);
-  box-shadow: var(--shadow-sm);
+  caret-color: var(--color-accent);
+  box-shadow: var(--shadow-stage);
   transition:
     border-color var(--motion-fast) var(--ease-standard),
     box-shadow var(--motion-fast) var(--ease-standard);
@@ -787,7 +840,7 @@
 
 .target-editor:focus {
   border-color: var(--color-accent);
-  outline: 2px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
+  outline: 2px solid var(--color-accent-glow);
   outline-offset: 1px;
 }
 
@@ -819,8 +872,19 @@
 }
 
 .segment-target-activate:hover:not(:disabled) {
-  border-color: var(--color-line);
+  border-color: color-mix(in srgb, var(--color-accent) 24%, var(--color-line));
   background: var(--color-hover-tint);
+}
+
+/* M10: the editing stage rises when the caret arrives at a new segment.
+   The keyframes live in motion.css; the editor is interactive from frame one. */
+.segment-row--active .target-editor__shell {
+  animation: tl-stage-rise var(--motion-slow) var(--ease-overshoot) backwards;
+}
+
+/* M9 host: the leverage flash overlay covers the target cell. */
+.segment-cell--target {
+  position: relative;
 }
 
 .segment-status {
@@ -833,6 +897,7 @@
   min-width: 4.75rem;
 }
 
+/* Workflow chips read as instrument lights: a dot plus a quiet label. */
 .status-chip {
   display: inline-flex;
   align-items: center;
@@ -845,6 +910,17 @@
   border: 1px solid var(--color-line);
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+.status-chip::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: currentcolor;
+  flex-shrink: 0;
+  opacity: 0.9;
 }
 
 .status-chip--confirmed {
@@ -866,6 +942,11 @@
   text-transform: none;
 }
 
+.status-chip--untranslated::before {
+  background: transparent;
+  border: 1px solid currentcolor;
+}
+
 .status-chip--local {
   color: var(--color-accent);
 }
@@ -873,6 +954,7 @@
 .status-chip--tm {
   color: var(--color-accent);
   background: var(--color-accent-soft);
+  border-color: color-mix(in srgb, var(--color-accent) 30%, transparent);
 }
 
 .layout-preview__frame {
@@ -951,6 +1033,7 @@
 }
 
 .intel-dock__tab {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -960,7 +1043,6 @@
   border: 0;
   background: transparent;
   border-radius: 0;
-  border-bottom: 2px solid transparent;
   padding: 0 var(--space-2);
   font-family: var(--font-ui);
   font-size: var(--text-xs);
@@ -969,6 +1051,20 @@
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
+  transition: color var(--motion-fast) var(--ease-standard);
+}
+
+/* The underline scales in rather than snapping, matching .section-nav. */
+.intel-dock__tab::after {
+  content: "";
+  position: absolute;
+  inset-inline: var(--space-1);
+  bottom: 0;
+  height: 2px;
+  background: var(--color-accent);
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform var(--motion-fast) var(--ease-standard);
 }
 
 .intel-dock__tab:hover {
@@ -980,7 +1076,10 @@
   background: transparent;
   color: var(--color-text);
   font-weight: var(--weight-semibold);
-  border-bottom-color: var(--color-accent);
+}
+
+.intel-dock__tab--active::after {
+  transform: scaleX(1);
 }
 
 .intel-dock__count {
@@ -1143,11 +1242,11 @@
 
 .intel-dock--stack .intel-dock__pane--matches {
   background: var(--color-canvas);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-line);
 }
 
 .intel-dock--stack .intel-dock__pane--terms {
-  background: var(--color-surface);
+  background: var(--color-canvas);
 }
 
 .intel-dock__pane-head {
@@ -1191,10 +1290,39 @@
   flex-direction: column;
   gap: var(--space-1);
   box-shadow: inset 0 0 0 1px var(--color-line);
+  transition:
+    transform var(--motion-fast) var(--ease-standard),
+    box-shadow var(--motion-fast) var(--ease-standard);
 }
 
+/* M5: candidates answer the pointer with a lift, not just a border. */
 .match:hover {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 35%, var(--color-line));
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 35%, var(--color-line)),
+    var(--shadow-sm);
+}
+
+/* Leverage meter: how much of this candidate is already the answer. */
+.match__meter {
+  display: block;
+  height: 2px;
+  border-radius: var(--radius-full);
+  background: var(--color-line);
+  overflow: hidden;
+}
+
+.match__meter-fill {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: var(--color-accent);
+  transform-origin: left center;
+  transition: transform var(--motion-base) var(--ease-decelerate);
+}
+
+.match__meter-fill--context {
+  background: var(--color-success);
 }
 
 .match__head {
@@ -1281,6 +1409,16 @@
   flex-direction: column;
   gap: var(--space-1);
   box-shadow: inset 0 0 0 1px var(--color-line);
+  transition:
+    transform var(--motion-fast) var(--ease-standard),
+    box-shadow var(--motion-fast) var(--ease-standard);
+}
+
+.term:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 30%, var(--color-line)),
+    var(--shadow-sm);
 }
 
 .term__source {
@@ -1469,7 +1607,7 @@
   position: absolute;
   pointer-events: none;
   user-select: none;
-  z-index: 1;
+  z-index: var(--z-raise);
   color: color-mix(in srgb, var(--color-text) 40%, transparent);
   font-family: var(--font-cjk), var(--font-ui);
   font-size: var(--text-md);
@@ -1753,6 +1891,8 @@
 
 /* ── Workbench status bar ───────────────────────────────── */
 
+/* The cockpit floor: document, direction, progress, counts, and the few
+   low-frequency job switches. Sunken step, mono figures, nothing jumps. */
 .workbench__status {
   display: flex;
   align-items: center;
@@ -1760,12 +1900,37 @@
   gap: var(--space-2) var(--space-3);
   padding: 0 var(--space-3);
   border-top: 1px solid var(--color-line);
-  background: var(--color-canvas);
+  background: var(--color-sunken);
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
   color: var(--color-text-muted);
   min-height: var(--control-h-sm);
   overflow: hidden;
+}
+
+.workbench__status .inline-status {
+  color: var(--color-accent);
+  font-weight: var(--weight-medium);
+}
+
+.workbench__status .inline-status::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: currentcolor;
+  animation: tl-status-pulse var(--motion-spinner) var(--ease-standard)
+    infinite alternate;
+}
+
+@keyframes tl-status-pulse {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .workbench__status > span {
@@ -1955,7 +2120,7 @@
 .qp-source-hit {
   background: color-mix(in srgb, var(--color-accent) 28%, transparent);
   color: inherit;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   padding: 0 0.05em;
 }
 
@@ -1966,7 +2131,7 @@
   text-decoration-color: var(--color-error);
   text-decoration-thickness: 2px;
   text-underline-offset: 2px;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   padding: 0 0.05em;
   cursor: pointer;
 }
@@ -2089,7 +2254,9 @@
   min-width: 0;
   width: var(--file-nav-w);
   border-right: none;
-  background: var(--color-surface);
+  background: var(--color-canvas);
+  /* M11: the dock slides in when toggled open. */
+  animation: tl-dock-left var(--motion-slow) var(--ease-decelerate) backwards;
 }
 
 .file-nav__head {
@@ -2151,13 +2318,20 @@
   cursor: pointer;
 }
 
+.file-nav__item {
+  transition:
+    background var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard);
+}
+
 .file-nav__item:hover:not(:disabled) {
   background: var(--color-hover-tint);
 }
 
 .file-nav__item--active {
-  border-color: var(--color-line);
-  background: var(--color-raised);
+  border-color: color-mix(in srgb, var(--color-accent) 26%, var(--color-line));
+  background: var(--color-surface);
+  box-shadow: inset 2px 0 0 var(--color-accent);
 }
 
 .file-nav__name {
@@ -2197,6 +2371,8 @@
   min-width: 0;
   border-top: 1px solid var(--color-line);
   background: var(--color-sunken);
+  /* M11: the drawer rises when toggled open. */
+  animation: tl-dock-up var(--motion-slow) var(--ease-decelerate) backwards;
 }
 
 .preview-drawer .structure-preview {

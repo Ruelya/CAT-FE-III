@@ -61,6 +61,7 @@ export function SegmentContextMenu({
         role="menu"
         aria-label="Segment actions"
         data-testid="segment-context-menu"
+        data-geometry="menu opens at the pointer"
         style={{ left: x, top: y }}
         onKeyDown={menu.onMenuKeyDown}
       >

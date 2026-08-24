@@ -139,7 +139,6 @@ export function TargetEditor({
   onPlaceAllTags,
   onSourceHighlight,
   protectTags = false,
-  onProtectTagsChange,
   groupAdjacent = true,
   onGroupAdjacentChange,
   display,
@@ -297,8 +296,6 @@ export function TargetEditor({
       editState.draftTarget !== editState.engineTarget);
   const errored =
     editState?.segmentId === segmentId && editState.saveState === "error";
-  const confirming =
-    editState?.segmentId === segmentId && editState.saveState === "saving";
 
   const className = [
     "target-editor",
@@ -930,6 +927,7 @@ export function TargetEditor({
           data-testid="inline-completion"
           data-inline-source={inlineCompletion?.source}
           aria-hidden="true"
+          data-geometry="ghost text sits at the caret"
           style={{ left: `${caretBox.left}px`, top: `${caretBox.top}px` }}
         >
           {ghostText}

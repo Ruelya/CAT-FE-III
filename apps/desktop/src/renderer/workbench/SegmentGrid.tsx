@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent } from "react";
 import type { InlineTag, SegmentEditorRow } from "@translunar/contracts";
 
@@ -84,6 +85,11 @@ export interface SegmentGridProps {
   filtered?: boolean;
   /** Best TM label for the active row (CM / 100% / fuzzy). */
   activeMatchLabel?: string;
+  /**
+   * Bumped by the parent whenever a TM match or term lands in the target.
+   * Each bump replays the M9 leverage flash on the active target cell.
+   */
+  applyFlashTick?: number;
   onContextMenu?: (info: {
     event: MouseEvent;
     segmentId: string;
@@ -127,11 +133,48 @@ export function SegmentGrid({
   repeatedSources,
   filtered,
   activeMatchLabel,
+  applyFlashTick,
   onContextMenu,
   onPage,
 }: SegmentGridProps) {
   const editorPage = page ?? defaultEditorPage(rows.length);
   const { offset, limit, total } = editorPage;
+
+  /*
+   * M8 confirm sweep: watch for a row whose segment state just crossed into
+   * "confirmed" and replay the sweep overlay on it once. The comparison is
+   * against the previous render's states, so loading a document that is
+   * already half-confirmed plays nothing.
+   */
+  const prevStates = useRef<Map<string, string> | null>(null);
+  const [sweep, setSweep] = useState<{ id: string; tick: number } | null>(null);
+  useEffect(() => {
+    const before = prevStates.current;
+    const now = new Map(rows.map((row) => [row.segment.id, row.segment.state]));
+    prevStates.current = now;
+    if (!before) return;
+    for (const [id, state] of now) {
+      const was = before.get(id);
+      if (was && was !== "confirmed" && state === "confirmed") {
+        setSweep((s) => ({ id, tick: (s?.tick ?? 0) + 1 }));
+        return;
+      }
+    }
+  }, [rows]);
+
+  /*
+   * M9 leverage flash: the parent bumps `applyFlashTick` when a match or term
+   * lands. Pin each bump to the segment that was active at that moment, so
+   * moving the caret later does not replay the flash on another row. The
+   * initial tick is swallowed so a page remount never flashes.
+   */
+  const [flash, setFlash] = useState<{ tick: number; id: string | null }>({
+    tick: applyFlashTick ?? 0,
+    id: null,
+  });
+  if ((applyFlashTick ?? 0) !== flash.tick) {
+    setFlash({ tick: applyFlashTick ?? 0, id: activeSegmentId });
+  }
 
   if (rows.length === 0) {
     return (
@@ -462,6 +505,20 @@ export function SegmentGrid({
                       />
                     </button>
                   )}
+                  {sweep?.id === id ? (
+                    <span
+                      key={`sweep-${sweep.tick}`}
+                      className="confirm-sweep"
+                      aria-hidden="true"
+                    />
+                  ) : null}
+                  {flash.id === id ? (
+                    <span
+                      key={`flash-${flash.tick}`}
+                      className="apply-flash"
+                      aria-hidden="true"
+                    />
+                  ) : null}
                 </td>
                 <td>
                   {/* Marks say why a row deserves attention before any panel

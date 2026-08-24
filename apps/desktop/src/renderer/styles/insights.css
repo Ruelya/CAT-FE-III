@@ -238,7 +238,7 @@
 .pdf-block__correct {
   pointer-events: auto;
   position: absolute;
-  z-index: 1;
+  z-index: var(--z-raise);
   top: 0;
   right: 0;
   transform: translateY(-100%);

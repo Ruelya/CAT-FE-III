@@ -122,7 +122,7 @@ export function ProductSettings({
                 value={
                   /^#[0-9a-fA-F]{6}$/.test(state.appearanceDraft.accentSeed)
                     ? state.appearanceDraft.accentSeed
-                    : "#765847"
+                    : "#e0a458"
                 }
                 disabled={busy}
                 onChange={(e) => settings.setAccentDraft(e.target.value)}

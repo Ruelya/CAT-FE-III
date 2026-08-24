@@ -347,7 +347,7 @@ async function seedAndCapture({ theme, viewport, zoom }) {
   await page.evaluate((value) => {
     window.localStorage.setItem(
       "translunar.renderer.appearance.v1",
-      JSON.stringify({ version: 1, theme: value, accentSeed: "#765847" }),
+      JSON.stringify({ version: 1, theme: value, accentSeed: "#e0a458" }),
     );
   }, theme);
   /* eslint-enable no-undef */

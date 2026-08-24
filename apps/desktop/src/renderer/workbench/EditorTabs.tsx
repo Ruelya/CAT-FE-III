@@ -65,6 +65,7 @@ export function EditorTabs({
                 >
                   <span
                     className="progress-bar__segment progress-bar__segment--confirmed"
+                    data-geometry="segment width is the confirmed share"
                     style={shareStyle(confirmed, total)}
                   />
                 </span>
