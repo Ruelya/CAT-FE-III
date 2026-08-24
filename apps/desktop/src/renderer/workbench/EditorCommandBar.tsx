@@ -207,7 +207,7 @@ export function EditorCommandBar({
           <RibbonButton
             id="ribbon.placeTags"
             firstEnabled={firstEnabled}
-            title="Place source tags (Ctrl+,)"
+            title="Place all source tags (Ctrl+, opens QuickPlace)"
             disabled={busy || extras.canPlaceTags === false}
             onClick={extras.onPlaceTags}
             icon={<BracketsAngle size={16} weight="regular" />}
