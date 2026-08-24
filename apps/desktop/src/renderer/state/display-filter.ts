@@ -129,6 +129,24 @@ export function applyDisplayFilter(
   });
 }
 
+/**
+ * True when jumping to `segmentId` requires dropping the filter to be seen.
+ *
+ * Go To and find hits target the whole document, not the filtered view. When
+ * the target row is excluded, jumping to it while the filter stands turns the
+ * command into a silent no-op: the row becomes active but is not on screen.
+ * The filter must never lie about what matches, so the resolution is to clear
+ * it — visibly, at the filter bar — rather than splice non-matching rows in.
+ */
+export function jumpNeedsFilterClear(
+  filter: DisplayFilter,
+  visible: readonly SegmentEditorRow[],
+  segmentId: string,
+): boolean {
+  if (!isFilterActive(filter)) return false;
+  return !visible.some((row) => row.segment.id === segmentId);
+}
+
 /** One-line description of what is currently being shown. */
 export function describeFilter(
   filter: DisplayFilter,

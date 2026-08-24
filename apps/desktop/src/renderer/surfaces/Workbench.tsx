@@ -21,6 +21,7 @@ import {
   applyDisplayFilter,
   EMPTY_FILTER,
   isFilterActive,
+  jumpNeedsFilterClear,
   repeatedSources,
   type DisplayFilter,
 } from "../state/display-filter";
@@ -316,6 +317,7 @@ export function Workbench({
         activeSegmentId,
       );
       if (!next) return;
+      revealForJump(next);
       void editorOps?.selectFindMatch(next);
     },
     onInsertTerm: () => {
@@ -379,6 +381,14 @@ export function Workbench({
     () => applyDisplayFilter(ctx.rows, filter, filterContext),
     [ctx.rows, filter, filterContext],
   );
+  // An explicit jump (Go To, find hit) wins over the view filter: keeping a
+  // filter that hides the row the translator just asked for turns the jump
+  // into a silent no-op — the active row simply is not on screen.
+  const revealForJump = (segmentId: string) => {
+    if (jumpNeedsFilterClear(filter, visibleRows, segmentId)) {
+      setFilter(EMPTY_FILTER);
+    }
+  };
   const repeats = useMemo(() => repeatedSources(ctx.rows), [ctx.rows]);
   const topTmMatch = rankMatches(intel.tm.matches)[0];
 
@@ -821,7 +831,15 @@ export function Workbench({
           />
           {editorOps ? (
             <EditorPanels
-              ops={editorOps}
+              ops={{
+                ...editorOps,
+                // Find searches the whole document, not the filtered view, so
+                // a hit the filter hides must drop the filter to be reachable.
+                selectFindMatch: async (segmentId) => {
+                  revealForJump(segmentId);
+                  await editorOps.selectFindMatch(segmentId);
+                },
+              }}
               disabled={disabled === true}
               sourceTags={activeRow?.sourceTags ?? []}
               tagIssues={activeRow?.tagIssues ?? []}
@@ -985,6 +1003,7 @@ export function Workbench({
               (item) => segmentNumber(item.segment.ordinal) === ordinal,
             );
             if (row) {
+              revealForJump(row.segment.id);
               onSelectSegment(row.segment.id);
               return;
             }
@@ -993,6 +1012,9 @@ export function Workbench({
               ctx.editorPage.filter === "all" &&
               !ctx.editorPage.query.trim()
             ) {
+              // The target lives on another page, so it cannot be in the
+              // filtered view either; drop the filter before the page swaps.
+              if (isFilterActive(filter)) setFilter(EMPTY_FILTER);
               onGoToOrdinal(ordinal);
             }
           }}
