@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import type {
+  AiAssistResult,
   AiProviderKind,
-  AiStatusResult,
   Segment,
 } from "@translunar/contracts";
 import {
@@ -14,6 +14,8 @@ import {
   TextField,
 } from "@translunar/ui";
 
+import { useAiStatus } from "../lib/ai-status.js";
+import { diffChars } from "../lib/diff.js";
 import { callEngine, describeError, isAiNotConfigured } from "../lib/engine.js";
 
 const PROVIDERS: Array<{ value: AiProviderKind; label: string }> = [
@@ -35,25 +37,27 @@ export interface AiPanelProps {
   onStatusMessage: (message: string) => void;
 }
 
+interface Candidate {
+  action: "translate" | "refine";
+  result: AiAssistResult;
+  /** Target text at request time; the diff is rendered against it. */
+  baseTarget: string;
+  segmentId: string;
+}
+
 export function AiPanel({
   activeSegment,
   onApplyDraft,
   onStatusMessage,
 }: AiPanelProps) {
-  const [status, setStatus] = useState<AiStatusResult | null>(null);
+  const { status, configured, setStatus } = useAiStatus();
   const [provider, setProvider] = useState<AiProviderKind>("openai");
   const [model, setModel] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState<string | null>(null);
-
-  useEffect(() => {
-    void callEngine("ai.status", {})
-      .then(setStatus)
-      .catch(() => setStatus(null));
-  }, []);
+  const [candidate, setCandidate] = useState<Candidate | null>(null);
 
   const configure = useCallback(async () => {
     setBusy(true);
@@ -75,7 +79,7 @@ export function AiPanel({
     } finally {
       setBusy(false);
     }
-  }, [provider, model, baseUrl, apiKey, onStatusMessage]);
+  }, [provider, model, baseUrl, apiKey, onStatusMessage, setStatus]);
 
   const assist = useCallback(
     async (action: "translate" | "refine") => {
@@ -84,14 +88,19 @@ export function AiPanel({
       }
       setBusy(true);
       setError(null);
-      setDraft(null);
+      setCandidate(null);
       try {
         const result = await callEngine("ai.assist", {
           segmentId: activeSegment.id,
           action,
           instruction: null,
         });
-        setDraft(result.draftTarget);
+        setCandidate({
+          action,
+          result,
+          baseTarget: activeSegment.targetText,
+          segmentId: activeSegment.id,
+        });
         onStatusMessage(
           `AI ${action === "translate" ? "翻译" : "润色"}完成（${result.model}，${result.elapsedMs}ms）`,
         );
@@ -110,7 +119,23 @@ export function AiPanel({
     [activeSegment, onStatusMessage],
   );
 
-  const configured = status?.configured === true;
+  const confirmedSegment = activeSegment?.state === "confirmed";
+  const candidateForActive =
+    candidate !== null && candidate.segmentId === activeSegment?.id
+      ? candidate
+      : null;
+  const tagCheck = candidateForActive?.result.tagCheck ?? null;
+  const applyBlocked = tagCheck !== null ? !tagCheck.ok : false;
+
+  const diffParts = useMemo(() => {
+    if (!candidateForActive) {
+      return [];
+    }
+    return diffChars(
+      candidateForActive.baseTarget,
+      candidateForActive.result.draftTarget,
+    );
+  }, [candidateForActive]);
 
   return (
     <Panel
@@ -134,6 +159,11 @@ export function AiPanel({
                 title="未选中句段"
                 hint="选中句段后可请求 AI 草稿。"
               />
+            ) : confirmedSegment ? (
+              <div className="honest-note">
+                该句段已确认。AI 辅助不会覆盖已确认的译文——如需修改，请先在
+                网格中另行编辑。
+              </div>
             ) : (
               <div className="tl-toolbar">
                 <Button
@@ -154,16 +184,62 @@ export function AiPanel({
                 </Button>
               </div>
             )}
-            {draft !== null ? (
-              <div className="ai-draft">
-                <p className="ai-draft__text">{draft}</p>
+            {candidateForActive && !confirmedSegment ? (
+              <div className="ai-draft" data-testid="ai-candidate">
+                <div className="ai-draft__meta">
+                  <Badge tone="neutral">
+                    {candidateForActive.action === "translate"
+                      ? "翻译候选"
+                      : "润色候选"}
+                  </Badge>
+                  {tagCheck ? (
+                    tagCheck.ok ? (
+                      <Badge tone="ok">标签完整</Badge>
+                    ) : (
+                      <Badge tone="danger">标签破损</Badge>
+                    )
+                  ) : null}
+                </div>
+                <p className="ai-draft__text">
+                  {candidateForActive.result.draftTarget}
+                </p>
+                {candidateForActive.baseTarget.trim() ? (
+                  <p className="ai-diff" aria-label="候选与当前译文的差异">
+                    {diffParts.map((part, index) => (
+                      <span
+                        key={`${index}-${part.kind}`}
+                        className={
+                          part.kind === "insert"
+                            ? "ai-diff__ins"
+                            : part.kind === "delete"
+                              ? "ai-diff__del"
+                              : "ai-diff__eq"
+                        }
+                      >
+                        {part.text}
+                      </span>
+                    ))}
+                  </p>
+                ) : null}
+                {tagCheck && !tagCheck.ok ? (
+                  <div className="honest-note" data-tone="danger" role="alert">
+                    候选破坏了占位符/标签，不能应用。
+                    {tagCheck.missing?.length
+                      ? ` 缺失：${tagCheck.missing.join("、")}`
+                      : ""}
+                    {tagCheck.extra?.length
+                      ? ` 多余：${tagCheck.extra.join("、")}`
+                      : ""}
+                  </div>
+                ) : null}
                 <div className="tl-toolbar">
                   <Button
                     size="sm"
                     variant="primary"
+                    disabled={applyBlocked}
                     onClick={() => {
-                      onApplyDraft(draft);
-                      setDraft(null);
+                      onApplyDraft(candidateForActive.result.draftTarget);
+                      setCandidate(null);
                     }}
                   >
                     应用为草稿
@@ -171,9 +247,9 @@ export function AiPanel({
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => setDraft(null)}
+                    onClick={() => setCandidate(null)}
                   >
-                    放弃
+                    拒绝
                   </Button>
                 </div>
               </div>

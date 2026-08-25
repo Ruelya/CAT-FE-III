@@ -33,35 +33,51 @@
     "notifications"
   ],
   "$defs": {
-    "AgentRunParams": {
+    "AgentCancelParams": {
       "type": "object",
       "properties": {
-        "documentId": {
+        "runId": {
           "type": "string"
-        },
-        "instruction": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "maxSegments": {
-          "description": "Upper bound on segments the agent may translate in one run.",
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint32",
-          "minimum": 0
         }
       },
       "required": [
-        "documentId"
+        "runId"
       ]
     },
-    "AgentRunResult": {
+    "AgentRunStatus": {
+      "description": "Lifecycle of an agent run. The run never confirms segments, never signs\noff, and never exports: it always parks at `awaitingReview` for a human.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "running",
+            "canceled",
+            "failed"
+          ]
+        },
+        {
+          "description": "Terminal human gate: drafts are in the grid, a person decides what\ngets confirmed or exported.",
+          "type": "string",
+          "const": "awaitingReview"
+        }
+      ]
+    },
+    "AgentRunView": {
+      "description": "The observable task order for one agent run.",
       "type": "object",
       "properties": {
+        "aiDrafted": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "cancelRequested": {
+          "type": "boolean"
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
         "documentId": {
           "type": "string"
         },
@@ -71,6 +87,12 @@
           "minimum": 0
         },
         "openQaIssues": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "plannedSegments": {
+          "description": "Untranslated segments claimed by this run at start time.",
           "type": "integer",
           "format": "uint32",
           "minimum": 0
@@ -87,28 +109,66 @@
             "$ref": "#/$defs/AgentStep"
           }
         },
-        "translatedSegments": {
+        "tmApplied": {
           "type": "integer",
           "format": "uint32",
           "minimum": 0
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
         }
       },
       "required": [
         "runId",
         "documentId",
         "status",
-        "steps",
-        "translatedSegments",
+        "cancelRequested",
+        "plannedSegments",
+        "tmApplied",
+        "aiDrafted",
         "failedSegments",
-        "openQaIssues"
+        "openQaIssues",
+        "steps",
+        "createdAtMs",
+        "updatedAtMs"
       ]
     },
-    "AgentRunStatus": {
-      "type": "string",
-      "enum": [
-        "completed",
-        "completedWithIssues",
-        "failed"
+    "AgentStartParams": {
+      "type": "object",
+      "properties": {
+        "documentId": {
+          "type": "string"
+        },
+        "instruction": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "maxSegments": {
+          "description": "Upper bound on segments the agent may touch in one run.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "documentId"
+      ]
+    },
+    "AgentStatusParams": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId"
       ]
     },
     "AgentStep": {
@@ -143,16 +203,30 @@
       ]
     },
     "AgentStepKind": {
-      "type": "string",
-      "enum": [
-        "plan",
-        "translate",
-        "qa",
-        "summary"
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "plan",
+            "qa",
+            "summary",
+            "cancel"
+          ]
+        },
+        {
+          "description": "Exact TM reuse during pretranslation.",
+          "type": "string",
+          "const": "tm"
+        },
+        {
+          "description": "AI drafting for a TM miss.",
+          "type": "string",
+          "const": "translate"
+        }
       ]
     },
     "AgentStepNotification": {
-      "description": "Payload for the reserved `notify.ai.agent.step` frame emitted while a run\nis in flight.",
+      "description": "Payload for the reserved `notify.ai.agent.step` frame emitted while a run\nis in flight. `runStatus` lets clients notice the terminal transition\nwithout polling.",
       "type": "object",
       "properties": {
         "documentId": {
@@ -161,6 +235,9 @@
         "runId": {
           "type": "string"
         },
+        "runStatus": {
+          "$ref": "#/$defs/AgentRunStatus"
+        },
         "step": {
           "$ref": "#/$defs/AgentStep"
         }
@@ -168,6 +245,7 @@
       "required": [
         "runId",
         "documentId",
+        "runStatus",
         "step"
       ]
     },
@@ -230,13 +308,18 @@
         },
         "provider": {
           "$ref": "#/$defs/AiProviderKind"
+        },
+        "tagCheck": {
+          "description": "Placeholder/tag integrity of the draft against the segment source.",
+          "$ref": "#/$defs/TagIntegrityReport"
         }
       },
       "required": [
         "draftTarget",
         "provider",
         "model",
-        "elapsedMs"
+        "elapsedMs",
+        "tagCheck"
       ]
     },
     "AiConfigureParams": {
@@ -824,10 +907,27 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AgentRunParams"
+          "$ref": "#/$defs/AgentStartParams"
         },
         "result": {
-          "$ref": "#/$defs/AgentRunResult"
+          "$ref": "#/$defs/AgentRunView"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract19": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AgentStatusParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AgentRunView"
         }
       },
       "additionalProperties": false,
@@ -845,6 +945,23 @@
         },
         "result": {
           "$ref": "#/$defs/ShutdownResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract20": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AgentCancelParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AgentRunView"
         }
       },
       "additionalProperties": false,
@@ -1355,8 +1472,14 @@
       "description": "Method-name-keyed catalog. Field renames must match [`methods`] constants;\nthe test below keeps them honest.",
       "type": "object",
       "properties": {
-        "ai.agent.run": {
+        "ai.agent.cancel": {
+          "$ref": "#/$defs/MethodContract20"
+        },
+        "ai.agent.start": {
           "$ref": "#/$defs/MethodContract18"
+        },
+        "ai.agent.status": {
+          "$ref": "#/$defs/MethodContract19"
         },
         "ai.assist": {
           "$ref": "#/$defs/MethodContract17"
@@ -1429,7 +1552,9 @@
         "ai.configure",
         "ai.status",
         "ai.assist",
-        "ai.agent.run"
+        "ai.agent.start",
+        "ai.agent.status",
+        "ai.agent.cancel"
       ]
     },
     "RpcNotification": {
@@ -1657,6 +1782,30 @@
     "ShutdownResult": {
       "type": "object",
       "properties": {
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ok"
+      ]
+    },
+    "TagIntegrityReport": {
+      "description": "Verdict on whether a proposal preserves the source's placeholder tokens.\n\n`missing` lists tokens the proposal dropped, `extra` lists tokens it\ninvented; both are multiset differences, so a duplicated token counts.",
+      "type": "object",
+      "properties": {
+        "extra": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "ok": {
           "type": "boolean"
         }

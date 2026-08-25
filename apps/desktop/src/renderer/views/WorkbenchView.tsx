@@ -8,6 +8,7 @@ import type {
 } from "@translunar/contracts";
 import { Button, EmptyState, Panel } from "@translunar/ui";
 
+import { AiStatusProvider } from "../lib/ai-status.js";
 import { callEngine, describeError } from "../lib/engine.js";
 import { SegmentGrid } from "../components/SegmentGrid.js";
 import { TmPanel } from "../components/TmPanel.js";
@@ -241,139 +242,144 @@ export function WorkbenchView({
   }, [issues]);
 
   return (
-    <main className="workbench">
-      <aside className="workbench__rail">
-        <Panel
-          title="文档"
-          actions={
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={() => void importDocument()}
-              disabled={busy}
-            >
-              导入
-            </Button>
-          }
-        >
-          {documents.length === 0 ? (
-            <EmptyState
-              title="暂无文档"
-              hint="导入 DOCX、TXT、HTML、XLIFF、XLSX 或 PPTX 开始翻译。"
-            />
-          ) : (
-            <div className="document-list">
-              {documents.map((document) => (
-                <button
-                  key={document.id}
-                  type="button"
-                  className="document-list__item"
-                  data-active={document.id === activeDocumentId}
-                  onClick={() => void loadDocument(document.id)}
-                >
-                  <span className="document-list__name">{document.name}</span>
-                  <span className="document-list__meta">
-                    {document.format} · {document.segmentCount} 句段
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-        </Panel>
-      </aside>
+    <AiStatusProvider>
+      <main className="workbench">
+        <aside className="workbench__rail">
+          <Panel
+            title="文档"
+            actions={
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => void importDocument()}
+                disabled={busy}
+              >
+                导入
+              </Button>
+            }
+          >
+            {documents.length === 0 ? (
+              <EmptyState
+                title="暂无文档"
+                hint="导入 DOCX、TXT、HTML、XLIFF、XLSX 或 PPTX 开始翻译。"
+              />
+            ) : (
+              <div className="document-list">
+                {documents.map((document) => (
+                  <button
+                    key={document.id}
+                    type="button"
+                    className="document-list__item"
+                    data-active={document.id === activeDocumentId}
+                    onClick={() => void loadDocument(document.id)}
+                  >
+                    <span className="document-list__name">{document.name}</span>
+                    <span className="document-list__meta">
+                      {document.format} · {document.segmentCount} 句段
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </Panel>
+        </aside>
 
-      <section className="workbench__center">
-        <Panel
-          title={
-            activeDocument
-              ? `编辑网格 — ${activeDocument.name}（确认 ${counts.confirmed}/${counts.total}）`
-              : "编辑网格"
-          }
-          actions={
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => void exportDocument()}
-              disabled={!activeDocument || busy}
-            >
-              导出译文
-            </Button>
-          }
-          className="dock-panel"
-        >
-          {activeDocument ? (
-            <SegmentGrid
-              segments={segments}
-              activeSegmentId={activeSegmentId}
-              qaSegmentIds={openIssueSegmentIds}
-              onSelect={setActiveSegmentId}
-              onSaveDraft={(segment, text) => void saveDraft(segment, text)}
-              onConfirm={(segment, text) => void confirmSegment(segment, text)}
-            />
-          ) : (
-            <EmptyState
-              title="选择或导入一个文档"
-              hint="左侧导入文档后，句段会在这里以网格显示。"
-            />
-          )}
-        </Panel>
-      </section>
+        <section className="workbench__center">
+          <Panel
+            title={
+              activeDocument
+                ? `编辑网格 — ${activeDocument.name}（确认 ${counts.confirmed}/${counts.total}）`
+                : "编辑网格"
+            }
+            actions={
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void exportDocument()}
+                disabled={!activeDocument || busy}
+              >
+                导出译文
+              </Button>
+            }
+            className="dock-panel"
+          >
+            {activeDocument ? (
+              <SegmentGrid
+                segments={segments}
+                activeSegmentId={activeSegmentId}
+                qaSegmentIds={openIssueSegmentIds}
+                onSelect={setActiveSegmentId}
+                onSaveDraft={(segment, text) => void saveDraft(segment, text)}
+                onConfirm={(segment, text) =>
+                  void confirmSegment(segment, text)
+                }
+              />
+            ) : (
+              <EmptyState
+                title="选择或导入一个文档"
+                hint="左侧导入文档后，句段会在这里以网格显示。"
+              />
+            )}
+          </Panel>
+        </section>
 
-      <aside className="workbench__dock">
-        <nav className="dock-tabs">
-          {(
-            [
-              ["tm", "TM"],
-              ["qa", "QA"],
-              ["ai", "AI 辅助"],
-              ["agent", "Agent"],
-            ] as Array<[DockTab, string]>
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              data-active={tab === key}
-              onClick={() => setTab(key)}
-            >
-              {label}
-            </button>
-          ))}
-        </nav>
-        <div className="dock-panel">
-          {tab === "tm" ? (
-            <TmPanel
-              projectId={project.id}
-              activeSegment={activeSegment}
-              onApply={applyDraftToActive}
-            />
-          ) : null}
-          {tab === "qa" ? (
-            <QaPanel
-              issues={issues}
-              onRun={() => void runQa()}
-              onJump={(segmentId) => setActiveSegmentId(segmentId)}
-              disabled={!activeDocumentId}
-            />
-          ) : null}
-          {tab === "ai" ? (
-            <AiPanel
-              activeSegment={activeSegment}
-              onApplyDraft={applyDraftToActive}
-              onStatusMessage={onStatusMessage}
-            />
-          ) : null}
-          {tab === "agent" ? (
-            <AgentPanel
-              documentId={activeDocumentId}
-              onCompleted={() => {
-                void reloadSegments();
-                void runQa();
-              }}
-              onStatusMessage={onStatusMessage}
-            />
-          ) : null}
-        </div>
-      </aside>
-    </main>
+        <aside className="workbench__dock">
+          <nav className="dock-tabs">
+            {(
+              [
+                ["tm", "TM"],
+                ["qa", "QA"],
+                ["ai", "AI 辅助"],
+                ["agent", "Agent"],
+              ] as Array<[DockTab, string]>
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                data-active={tab === key}
+                onClick={() => setTab(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+          <div className="dock-panel">
+            {tab === "tm" ? (
+              <TmPanel
+                projectId={project.id}
+                activeSegment={activeSegment}
+                onApply={applyDraftToActive}
+              />
+            ) : null}
+            {tab === "qa" ? (
+              <QaPanel
+                issues={issues}
+                onRun={() => void runQa()}
+                onJump={(segmentId) => setActiveSegmentId(segmentId)}
+                disabled={!activeDocumentId}
+              />
+            ) : null}
+            {tab === "ai" ? (
+              <AiPanel
+                activeSegment={activeSegment}
+                onApplyDraft={applyDraftToActive}
+                onStatusMessage={onStatusMessage}
+              />
+            ) : null}
+            {tab === "agent" ? (
+              <AgentPanel
+                documentId={activeDocumentId}
+                onCompleted={() => {
+                  void reloadSegments();
+                  void runQa();
+                }}
+                onStatusMessage={onStatusMessage}
+                onGoExport={() => void exportDocument()}
+              />
+            ) : null}
+          </div>
+        </aside>
+      </main>
+    </AiStatusProvider>
   );
 }

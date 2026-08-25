@@ -7,9 +7,11 @@ pub use connector::*;
 use std::fmt;
 use std::io::{BufRead, BufReader, Read};
 use std::net::IpAddr;
+use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+use regex::Regex;
 use reqwest::StatusCode;
 use reqwest::blocking::{Client, Response};
 use reqwest::header::{AUTHORIZATION, HeaderMap, RETRY_AFTER};
@@ -617,6 +619,12 @@ impl SecretString {
 
     pub fn expose(&self) -> &str {
         &self.0
+    }
+
+    /// Explicit copy for handing the credential to a worker thread. Not a
+    /// `Clone` impl so every duplication site stays visible in review.
+    pub fn duplicate(&self) -> Self {
+        Self(self.0.clone())
     }
 }
 
@@ -1641,6 +1649,67 @@ fn to_u32(value: usize) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
 }
 
+/// Placeholder-like tokens a translation must carry through verbatim:
+/// `{name}` / `{{var}}` braces, printf conversions, markup tags, entities.
+static PLACEHOLDER_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?x)
+        \{\{[^{}]*\}\}                                  # {{handlebars}}
+        | \{[^{}\s][^{}]*\}                             # {brace} placeholders
+        | %(?:\d+\$)?[-+ 0\#]*\d*(?:\.\d+)?[sdifucxXeg@] # printf-style
+        | </?[A-Za-z][A-Za-z0-9:._-]*(?:\s[^<>]*)?/?>   # markup tags
+        | &\#?[A-Za-z0-9]+;                             # character entities
+    ",
+    )
+    .expect("valid placeholder regex")
+});
+
+/// Verdict on whether a proposal preserves the source's placeholder tokens.
+///
+/// `missing` lists tokens the proposal dropped, `extra` lists tokens it
+/// invented; both are multiset differences, so a duplicated token counts.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TagIntegrityReport {
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extra: Vec<String>,
+}
+
+pub fn placeholder_tokens(text: &str) -> Vec<String> {
+    PLACEHOLDER_RE
+        .find_iter(text)
+        .map(|found| found.as_str().to_string())
+        .collect()
+}
+
+pub fn check_tag_integrity(source: &str, candidate: &str) -> TagIntegrityReport {
+    let mut counts: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
+    for token in placeholder_tokens(source) {
+        *counts.entry(token).or_default() += 1;
+    }
+    for token in placeholder_tokens(candidate) {
+        *counts.entry(token).or_default() -= 1;
+    }
+    let mut missing = Vec::new();
+    let mut extra = Vec::new();
+    for (token, balance) in counts {
+        for _ in 0..balance.max(0) {
+            missing.push(token.clone());
+        }
+        for _ in 0..(-balance).max(0) {
+            extra.push(token.clone());
+        }
+    }
+    TagIntegrityReport {
+        ok: missing.is_empty() && extra.is_empty(),
+        missing,
+        extra,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::{BufRead, BufReader, Write};
@@ -1995,6 +2064,44 @@ mod tests {
         .expect("Gemini fixture completion");
         assert_eq!(completion.text, "目标");
         assert_eq!(completion.usage.reasoning_tokens, Some(1));
+    }
+
+    #[test]
+    fn tag_integrity_flags_missing_and_extra_placeholders() {
+        let source = "Click {button} or visit <a href=\"https://example.com\">%s</a> &amp; done.";
+        let intact = "点击 {button} 或访问 <a href=\"https://example.com\">%s</a> &amp; 完成。";
+        assert!(check_tag_integrity(source, intact).ok);
+
+        let broken = check_tag_integrity(source, "点击 {btn} 或访问 %s 完成。");
+        assert!(!broken.ok);
+        assert!(broken.missing.contains(&"{button}".to_string()));
+        assert!(
+            broken
+                .missing
+                .contains(&"<a href=\"https://example.com\">".to_string())
+        );
+        assert!(broken.missing.contains(&"</a>".to_string()));
+        assert!(broken.missing.contains(&"&amp;".to_string()));
+        assert!(broken.extra.contains(&"{btn}".to_string()));
+    }
+
+    #[test]
+    fn tag_integrity_counts_duplicates_and_ignores_plain_text() {
+        let report = check_tag_integrity("{{name}} and {{name}}", "{{name}} 已就绪");
+        assert!(!report.ok);
+        assert_eq!(report.missing, vec!["{{name}}".to_string()]);
+        assert!(report.extra.is_empty());
+
+        assert!(check_tag_integrity("Plain sentence.", "普通句子。").ok);
+        assert!(placeholder_tokens("保留期为 30 天。").is_empty());
+    }
+
+    #[test]
+    fn secret_string_duplicates_without_leaking_in_debug() {
+        let secret = SecretString::new("api-key".to_string()).expect("secret");
+        let copy = secret.duplicate();
+        assert_eq!(copy.expose(), "api-key");
+        assert_eq!(format!("{copy:?}"), "SecretString([REDACTED])");
     }
 
     #[test]

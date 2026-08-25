@@ -8,6 +8,7 @@ import type {
   EngineInvokeResponse,
 } from "../../shared/desktop-api.js";
 
+import { AiStatusProvider } from "../lib/ai-status.js";
 import { AiPanel } from "./AiPanel.js";
 
 const segment: Segment = {
@@ -15,7 +16,7 @@ const segment: Segment = {
   documentId: "d1",
   ordinal: 0,
   structuralPath: "p:0",
-  sourceText: "Hello.",
+  sourceText: "Click {button} to continue.",
   targetText: "",
   state: "untranslated",
   revision: 1,
@@ -35,6 +36,26 @@ function installBridge(
   });
 }
 
+function renderPanel(
+  overrides: Partial<Parameters<typeof AiPanel>[0]> = {},
+): ReturnType<typeof render> {
+  return render(
+    <AiStatusProvider>
+      <AiPanel
+        activeSegment={segment}
+        onApplyDraft={vi.fn()}
+        onStatusMessage={vi.fn()}
+        {...overrides}
+      />
+    </AiStatusProvider>,
+  );
+}
+
+const CONFIGURED_STATUS: EngineInvokeResponse = {
+  ok: true,
+  result: { configured: true, provider: "openai", model: "gpt-test" },
+};
+
 afterEach(() => {
   Reflect.deleteProperty(window, "tl");
 });
@@ -47,13 +68,7 @@ describe("AiPanel", () => {
         result: { configured: false, provider: null, model: null },
       }),
     );
-    render(
-      <AiPanel
-        activeSegment={segment}
-        onApplyDraft={vi.fn()}
-        onStatusMessage={vi.fn()}
-      />,
-    );
+    renderPanel();
     await waitFor(() => {
       expect(screen.getByText("未配置")).toBeInTheDocument();
     });
@@ -69,24 +84,11 @@ describe("AiPanel", () => {
               ok: true,
               result: { configured: false, provider: null, model: null },
             }
-          : {
-              ok: true,
-              result: {
-                configured: true,
-                provider: "openai",
-                model: "gpt-test",
-              },
-            },
+          : CONFIGURED_STATUS,
       ),
     );
     installBridge(invoke);
-    render(
-      <AiPanel
-        activeSegment={segment}
-        onApplyDraft={vi.fn()}
-        onStatusMessage={vi.fn()}
-      />,
-    );
+    renderPanel();
     await waitFor(() => {
       expect(screen.getByPlaceholderText("例如 gpt-5.2")).toBeInTheDocument();
     });
@@ -110,5 +112,87 @@ describe("AiPanel", () => {
     await waitFor(() => {
       expect(screen.getByText(/openai · gpt-test/)).toBeInTheDocument();
     });
+  });
+
+  it("blocks Apply when the candidate breaks placeholders", async () => {
+    const invoke = vi.fn((method: string): Promise<EngineInvokeResponse> => {
+      if (method === "ai.status") {
+        return Promise.resolve(CONFIGURED_STATUS);
+      }
+      if (method === "ai.assist") {
+        return Promise.resolve({
+          ok: true,
+          result: {
+            draftTarget: "点击按钮继续。",
+            provider: "openai",
+            model: "gpt-test",
+            elapsedMs: 12,
+            tagCheck: { ok: false, missing: ["{button}"], extra: [] },
+          },
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        error: { code: "internal", message: `unexpected ${method}` },
+      });
+    });
+    installBridge(invoke);
+    const onApplyDraft = vi.fn();
+    renderPanel({ onApplyDraft });
+    await waitFor(() => {
+      expect(screen.getByText("AI 翻译")).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole("button", { name: "AI 翻译" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("ai-candidate")).toBeInTheDocument();
+    });
+    expect(screen.getByText("标签破损")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("缺失：{button}");
+    expect(screen.getByRole("button", { name: "应用为草稿" })).toBeDisabled();
+    // Reject stays available so the human can throw the proposal away.
+    await userEvent.click(screen.getByRole("button", { name: "拒绝" }));
+    expect(screen.queryByTestId("ai-candidate")).not.toBeInTheDocument();
+    expect(onApplyDraft).not.toHaveBeenCalled();
+  });
+
+  it("applies an intact candidate as a draft", async () => {
+    const invoke = vi.fn((method: string): Promise<EngineInvokeResponse> => {
+      if (method === "ai.status") {
+        return Promise.resolve(CONFIGURED_STATUS);
+      }
+      return Promise.resolve({
+        ok: true,
+        result: {
+          draftTarget: "点击 {button} 继续。",
+          provider: "openai",
+          model: "gpt-test",
+          elapsedMs: 9,
+          tagCheck: { ok: true, missing: [], extra: [] },
+        },
+      });
+    });
+    installBridge(invoke);
+    const onApplyDraft = vi.fn();
+    renderPanel({ onApplyDraft });
+    await waitFor(() => {
+      expect(screen.getByText("AI 翻译")).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole("button", { name: "AI 翻译" }));
+    await waitFor(() => {
+      expect(screen.getByText("标签完整")).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole("button", { name: "应用为草稿" }));
+    expect(onApplyDraft).toHaveBeenCalledWith("点击 {button} 继续。");
+  });
+
+  it("refuses to touch confirmed segments", async () => {
+    installBridge(vi.fn().mockResolvedValue(CONFIGURED_STATUS));
+    renderPanel({
+      activeSegment: { ...segment, state: "confirmed", targetText: "已确认" },
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/不会覆盖已确认的译文/)).toBeInTheDocument();
+    });
+    expect(screen.queryByText("AI 翻译")).not.toBeInTheDocument();
   });
 });
